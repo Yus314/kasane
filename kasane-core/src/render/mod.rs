@@ -108,7 +108,7 @@ pub fn cursor_style(state: &AppState) -> CursorStyle {
     if state
         .status_mode_line
         .iter()
-        .any(|atom| atom.contents == "[insert]")
+        .any(|atom| atom.contents == "insert")
     {
         return CursorStyle::Bar;
     }
@@ -413,7 +413,7 @@ mod tests {
         let mut state = AppState::default();
         state.status_mode_line = vec![Atom {
             face: Face::default(),
-            contents: "[insert]".into(),
+            contents: "insert".into(),
         }];
         assert_eq!(cursor_style(&state), CursorStyle::Bar);
     }
@@ -432,7 +432,7 @@ mod tests {
             .insert("kasane_cursor_style".into(), "block".into());
         state.status_mode_line = vec![Atom {
             face: Face::default(),
-            contents: "[insert]".into(),
+            contents: "insert".into(),
         }];
         assert_eq!(cursor_style(&state), CursorStyle::Block);
     }

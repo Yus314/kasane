@@ -711,8 +711,9 @@ mod tests {
     #[test]
     fn test_parse_draw_status() {
         let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[
-            [{"face":{"fg":"default","bg":"default"},"contents":"prompt"}],
-            [{"face":{"fg":"default","bg":"default"},"contents":"[normal]"}],
+            [{"face":{"fg":"default","bg":"default"},"contents":":"}],
+            [{"face":{"fg":"default","bg":"default"},"contents":"insert"},
+             {"face":{"fg":"default","bg":"default"},"contents":" 1 sel"}],
             {"fg":"default","bg":"default"}
         ]}"#;
         let mut buf = json.as_bytes().to_vec();
@@ -723,8 +724,8 @@ mod tests {
                 mode_line,
                 ..
             } => {
-                assert_eq!(status_line[0].contents, "prompt");
-                assert_eq!(mode_line[0].contents, "[normal]");
+                assert_eq!(status_line[0].contents, ":");
+                assert_eq!(mode_line[0].contents, "insert");
             }
             _ => panic!("expected DrawStatus"),
         }
@@ -937,7 +938,7 @@ mod tests {
         let messages = vec![
             r#"{ "jsonrpc": "2.0", "method": "set_ui_options", "params": [{}] }"#,
             r#"{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "black", "bg": "white", "underline": "default", "attributes": ["final_fg","final_bg"] }, "contents": "t" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "est\u000a" }]], { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }] }"#,
-            r#"{ "jsonrpc": "2.0", "method": "draw_status", "params": [[], [{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "file.txt 1:1 " }], { "fg": "cyan", "bg": "default", "underline": "default", "attributes": [] }] }"#,
+            r#"{ "jsonrpc": "2.0", "method": "draw_status", "params": [[], [{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "file.txt 1:1 " }, { "face": { "fg": "black", "bg": "yellow", "underline": "default", "attributes": [] }, "contents": "" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, "contents": "1 sel" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " - client0@[session]" }], { "fg": "cyan", "bg": "default", "underline": "default", "attributes": [] }] }"#,
             r#"{ "jsonrpc": "2.0", "method": "set_cursor", "params": ["buffer", { "line": 0, "column": 1 }] }"#,
             r#"{ "jsonrpc": "2.0", "method": "refresh", "params": [false] }"#,
         ];
