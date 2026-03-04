@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Coord, InfoStyle, Line, MenuStyle};
+use crate::protocol::{Coord, InfoStyle, Line};
 
 #[derive(Debug, Clone)]
 pub struct FloatingWindow {
@@ -120,17 +120,19 @@ pub fn compute_pos(
     (y, x)
 }
 
-/// Lay out a menu floating window.
+/// Lay out an inline menu floating window (no borders).
+///
+/// `win_width` and `win_height` are the content dimensions (already computed
+/// by the caller from item count, scrollbar, etc.).
 /// `screen_h` should exclude the status bar row.
-pub fn layout_menu(
+pub fn layout_menu_inline(
     anchor: &Coord,
-    items: &[Line],
-    style: MenuStyle,
+    win_width: u16,
+    win_height: u16,
     screen_w: u16,
     screen_h: u16,
 ) -> FloatingWindow {
-    let item_count = items.len().min(screen_h.saturating_sub(2) as usize);
-    if item_count == 0 {
+    if win_width == 0 || win_height == 0 {
         return FloatingWindow {
             x: 0,
             y: 0,
@@ -139,52 +141,29 @@ pub fn layout_menu(
         };
     }
 
-    let max_item_width = items
-        .iter()
-        .take(item_count)
-        .map(line_display_width)
-        .max()
-        .unwrap_or(0) as u16;
+    let win_w = win_width.min(screen_w);
+    let win_h = win_height.min(screen_h);
 
-    let content_w = max_item_width.max(1);
-    let win_w = (content_w + 2).min(screen_w); // +2 for borders
-    let win_h = (item_count as u16 + 2).min(screen_h); // +2 for borders
+    // Anchor-relative: place below anchor, flip above if needed
+    let ax = (anchor.column as u16).min(screen_w.saturating_sub(win_w));
+    let ay = anchor.line as u16 + 1; // below the anchor
 
-    match style {
-        MenuStyle::Prompt | MenuStyle::Search => {
-            // Show above the status bar
-            let y = screen_h.saturating_sub(win_h);
-            let x = 0u16;
-            FloatingWindow {
-                x,
-                y,
-                width: win_w,
-                height: win_h,
-            }
-        }
-        MenuStyle::Inline => {
-            // Anchor-relative
-            let ax = (anchor.column as u16).min(screen_w.saturating_sub(win_w));
-            let ay = anchor.line as u16 + 1; // below the anchor
+    let (y, height) = if ay + win_h <= screen_h {
+        (ay, win_h)
+    } else if (anchor.line as u16) >= win_h {
+        // Flip above
+        (anchor.line as u16 - win_h, win_h)
+    } else {
+        // Best effort
+        let avail = screen_h.saturating_sub(ay);
+        (ay, avail.max(1))
+    };
 
-            let (y, height) = if ay + win_h <= screen_h {
-                (ay, win_h)
-            } else if (anchor.line as u16) >= win_h {
-                // Flip above
-                (anchor.line as u16 - win_h, win_h)
-            } else {
-                // Best effort
-                let avail = screen_h.saturating_sub(ay);
-                (ay, avail.max(3))
-            };
-
-            FloatingWindow {
-                x: ax,
-                y,
-                width: win_w,
-                height,
-            }
-        }
+    FloatingWindow {
+        x: ax,
+        y,
+        width: win_w,
+        height,
     }
 }
 
@@ -413,7 +392,7 @@ pub fn layout_info(
     }
 }
 
-fn line_display_width(line: &Line) -> usize {
+pub fn line_display_width(line: &Line) -> usize {
     line.iter()
         .map(|atom| UnicodeWidthStr::width(atom.contents.as_str()))
         .sum()
@@ -571,21 +550,12 @@ mod tests {
 
     #[test]
     fn test_layout_menu_inline() {
-        let items = vec![make_line("item1"), make_line("longer item")];
         let anchor = Coord { line: 2, column: 5 };
-        let win = layout_menu(&anchor, &items, MenuStyle::Inline, 80, 24);
+        // 2 items, longest is "longer item" (11 chars) + 1 scrollbar = 12
+        let win = layout_menu_inline(&anchor, 12, 2, 80, 24);
         assert!(win.y > 2); // below anchor
-        assert!(win.width >= 2 + "longer item".len() as u16);
-        assert_eq!(win.height, 4); // 2 items + 2 borders
-    }
-
-    #[test]
-    fn test_layout_menu_prompt() {
-        let items = vec![make_line("a"), make_line("b")];
-        let anchor = Coord { line: 0, column: 0 };
-        let win = layout_menu(&anchor, &items, MenuStyle::Prompt, 80, 24);
-        // prompt style: above status bar
-        assert!(win.y + win.height <= 24);
+        assert_eq!(win.width, 12);
+        assert_eq!(win.height, 2); // no borders
     }
 
     #[test]

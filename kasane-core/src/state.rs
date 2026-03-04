@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
+use crate::layout::line_display_width;
 use crate::protocol::{Coord, CursorMode, Face, InfoStyle, KakouneRequest, Line, MenuStyle};
 
 bitflags! {
@@ -24,6 +25,12 @@ pub struct MenuState {
     pub menu_face: Face,
     pub style: MenuStyle,
     pub selected: i32,
+    /// Scroll offset: index of the first visible item.
+    pub first_item: i32,
+    /// Number of display columns (0 = Search, 1 = Inline, N = Prompt).
+    pub columns: i32,
+    /// Number of visible rows in the menu window.
+    pub win_height: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +125,40 @@ impl AppState {
                 menu_face,
                 style,
             } => {
+                let screen_w = self.cols;
+                let screen_h = self.rows.saturating_sub(1); // exclude status bar
+
+                let longest = items
+                    .iter()
+                    .map(line_display_width)
+                    .max()
+                    .unwrap_or(1)
+                    .max(1);
+
+                let columns = match style {
+                    MenuStyle::Search => 0,
+                    MenuStyle::Inline => 1,
+                    MenuStyle::Prompt => {
+                        // -1 for scrollbar column
+                        ((screen_w.saturating_sub(1)) as usize / (longest + 1)).max(1) as i32
+                    }
+                };
+
+                let max_height = match style {
+                    MenuStyle::Search => 1u16,
+                    MenuStyle::Inline => {
+                        let above = anchor.line as u16;
+                        let below = screen_h.saturating_sub(anchor.line as u16 + 1);
+                        10u16.min(above.max(below))
+                    }
+                    MenuStyle::Prompt => 10u16.min(screen_h),
+                };
+
+                let item_count = items.len() as i32;
+                let effective_cols = columns.max(1);
+                let menu_lines = (item_count + effective_cols - 1) / effective_cols;
+                let win_height = (menu_lines as u16).min(max_height);
+
                 self.menu = Some(MenuState {
                     items,
                     anchor,
@@ -125,12 +166,63 @@ impl AppState {
                     menu_face,
                     style,
                     selected: -1,
+                    first_item: 0,
+                    columns,
+                    win_height,
                 });
                 DirtyFlags::MENU
             }
             KakouneRequest::MenuSelect { selected } => {
                 if let Some(menu) = &mut self.menu {
                     menu.selected = selected;
+
+                    if selected >= 0 && menu.win_height > 0 {
+                        if menu.columns >= 1 {
+                            // Inline/Prompt: column-based scrolling
+                            let wh = menu.win_height as i32;
+                            let selected_col = selected / wh;
+                            let first_col = menu.first_item / wh;
+                            let menu_cols = (menu.items.len() as i32 + wh - 1) / wh;
+                            if selected_col < first_col {
+                                menu.first_item = selected_col * wh;
+                            } else if selected_col >= first_col + menu.columns {
+                                let new_first_col =
+                                    selected_col - menu.columns + 1;
+                                menu.first_item =
+                                    new_first_col.min(menu_cols - menu.columns).max(0) * wh;
+                            }
+                        } else {
+                            // Search (columns == 0): horizontal item scrolling.
+                            // Ensure selected item is visible within screen width.
+                            let screen_w = self.cols as usize;
+                            if (selected as usize) < menu.first_item as usize {
+                                menu.first_item = selected;
+                            } else {
+                                // Compute cumulative width from first_item to selected
+                                let mut w = 0usize;
+                                for idx in (menu.first_item as usize)..=(selected as usize) {
+                                    let item_w = if let Some(item) = menu.items.get(idx) {
+                                        line_display_width(item)
+                                    } else {
+                                        0
+                                    };
+                                    // Each item takes item_w + 1 (gap), except prefix/suffix
+                                    w += item_w + 1;
+                                }
+                                // Account for "< " prefix (2 chars) when scrolled
+                                let prefix = if menu.first_item > 0 { 2 } else { 0 };
+                                while w + prefix > screen_w && menu.first_item < selected {
+                                    let drop_w = menu
+                                        .items
+                                        .get(menu.first_item as usize)
+                                        .map(line_display_width)
+                                        .unwrap_or(0);
+                                    w -= drop_w + 1;
+                                    menu.first_item += 1;
+                                }
+                            }
+                        }
+                    }
                 }
                 DirtyFlags::MENU
             }
@@ -214,11 +306,12 @@ mod tests {
         let mut state = AppState::default();
         let flags = state.apply(KakouneRequest::DrawStatus {
             status_line: make_line(":q"),
-            mode_line: make_line("[normal]"),
+            mode_line: make_line("insert"),
             default_face: Face::default(),
         });
         assert!(flags.contains(DirtyFlags::STATUS));
         assert_eq!(state.status_line[0].contents, ":q");
+        assert_eq!(state.status_mode_line[0].contents, "insert");
     }
 
     #[test]
