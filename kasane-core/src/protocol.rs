@@ -402,114 +402,87 @@ pub fn parse_request(input: &mut [u8]) -> Result<KakouneRequest, ProtocolError> 
         .get("params")
         .ok_or_else(|| ProtocolError::Json("missing params field".into()))?;
 
-    // Convert simd_json::OwnedValue -> serde_json::Value for easier deserialization
-    let params_json: serde_json::Value = {
-        let s =
-            simd_json::serde::to_string(params).map_err(|e| ProtocolError::Json(e.to_string()))?;
-        serde_json::from_str(&s).map_err(|e| ProtocolError::Json(e.to_string()))?
-    };
-
-    parse_method(&method, &params_json)
+    parse_method(&method, params)
 }
 
-fn parse_method(method: &str, params: &serde_json::Value) -> Result<KakouneRequest, ProtocolError> {
-    let arr = params
-        .as_array()
-        .ok_or_else(|| ProtocolError::InvalidParams {
+fn parse_method(
+    method: &str,
+    params: &simd_json::OwnedValue,
+) -> Result<KakouneRequest, ProtocolError> {
+    if params.as_array().is_none() {
+        return Err(ProtocolError::InvalidParams {
             method: method.into(),
             reason: "params must be an array".into(),
-        })?;
+        });
+    }
 
     match method {
         "draw" => {
-            ensure_len(method, arr, 3)?;
+            let (lines, default_face, padding_face) = de_params(method, params)?;
             Ok(KakouneRequest::Draw {
-                lines: de_param(method, &arr[0], "lines")?,
-                default_face: de_param(method, &arr[1], "default_face")?,
-                padding_face: de_param(method, &arr[2], "padding_face")?,
+                lines,
+                default_face,
+                padding_face,
             })
         }
         "draw_status" => {
-            ensure_len(method, arr, 3)?;
+            let (status_line, mode_line, default_face) = de_params(method, params)?;
             Ok(KakouneRequest::DrawStatus {
-                status_line: de_param(method, &arr[0], "status_line")?,
-                mode_line: de_param(method, &arr[1], "mode_line")?,
-                default_face: de_param(method, &arr[2], "default_face")?,
+                status_line,
+                mode_line,
+                default_face,
             })
         }
         "set_cursor" => {
-            ensure_len(method, arr, 2)?;
-            Ok(KakouneRequest::SetCursor {
-                mode: de_param(method, &arr[0], "mode")?,
-                coord: de_param(method, &arr[1], "coord")?,
-            })
+            let (mode, coord) = de_params(method, params)?;
+            Ok(KakouneRequest::SetCursor { mode, coord })
         }
         "menu_show" => {
-            ensure_len(method, arr, 5)?;
+            let (items, anchor, selected_item_face, menu_face, style) =
+                de_params(method, params)?;
             Ok(KakouneRequest::MenuShow {
-                items: de_param(method, &arr[0], "items")?,
-                anchor: de_param(method, &arr[1], "anchor")?,
-                selected_item_face: de_param(method, &arr[2], "selected_item_face")?,
-                menu_face: de_param(method, &arr[3], "menu_face")?,
-                style: de_param(method, &arr[4], "style")?,
+                items,
+                anchor,
+                selected_item_face,
+                menu_face,
+                style,
             })
         }
         "menu_select" => {
-            ensure_len(method, arr, 1)?;
-            Ok(KakouneRequest::MenuSelect {
-                selected: de_param(method, &arr[0], "selected")?,
-            })
+            let (selected,) = de_params(method, params)?;
+            Ok(KakouneRequest::MenuSelect { selected })
         }
         "menu_hide" => Ok(KakouneRequest::MenuHide),
         "info_show" => {
-            ensure_len(method, arr, 5)?;
+            let (title, content, anchor, face, style) = de_params(method, params)?;
             Ok(KakouneRequest::InfoShow {
-                title: de_param(method, &arr[0], "title")?,
-                content: de_param(method, &arr[1], "content")?,
-                anchor: de_param(method, &arr[2], "anchor")?,
-                face: de_param(method, &arr[3], "face")?,
-                style: de_param(method, &arr[4], "style")?,
+                title,
+                content,
+                anchor,
+                face,
+                style,
             })
         }
         "info_hide" => Ok(KakouneRequest::InfoHide),
         "set_ui_options" => {
-            ensure_len(method, arr, 1)?;
-            Ok(KakouneRequest::SetUiOptions {
-                options: de_param(method, &arr[0], "options")?,
-            })
+            let (options,) = de_params(method, params)?;
+            Ok(KakouneRequest::SetUiOptions { options })
         }
         "refresh" => {
-            ensure_len(method, arr, 1)?;
-            Ok(KakouneRequest::Refresh {
-                force: de_param(method, &arr[0], "force")?,
-            })
+            let (force,) = de_params(method, params)?;
+            Ok(KakouneRequest::Refresh { force })
         }
         _ => Err(ProtocolError::UnknownMethod(method.into())),
     }
 }
 
-fn ensure_len(
+fn de_params<T: serde::de::DeserializeOwned>(
     method: &str,
-    arr: &[serde_json::Value],
-    expected: usize,
-) -> Result<(), ProtocolError> {
-    if arr.len() < expected {
-        return Err(ProtocolError::InvalidParams {
-            method: method.into(),
-            reason: format!("expected at least {expected} params, got {}", arr.len()),
-        });
-    }
-    Ok(())
-}
-
-fn de_param<T: serde::de::DeserializeOwned>(
-    method: &str,
-    value: &serde_json::Value,
-    name: &str,
+    params: &simd_json::OwnedValue,
 ) -> Result<T, ProtocolError> {
-    serde_json::from_value(value.clone()).map_err(|e| ProtocolError::InvalidParams {
+    simd_json::serde::from_refowned_value(params).map_err(|e| ProtocolError::InvalidParams {
         method: method.into(),
-        reason: format!("{name}: {e}"),
+        reason: e.to_string(),
     })
 }
 

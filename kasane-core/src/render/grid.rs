@@ -134,6 +134,12 @@ impl CellGrid {
                 if grapheme.is_empty() {
                     continue;
                 }
+                // Skip control characters: UnicodeWidthStr::width() returns 1
+                // for \n, \r, etc. in unicode-width 0.2.x, but they must never
+                // be placed in the grid (printing them would corrupt the terminal).
+                if grapheme.starts_with(|c: char| c.is_control()) {
+                    continue;
+                }
                 let w = UnicodeWidthStr::width(grapheme) as u16;
                 if w == 0 {
                     // Zero-width character — skip for now
@@ -481,5 +487,24 @@ mod tests {
         assert!(!resolved.attributes.contains(&Attribute::Bold));
         assert!(resolved.attributes.contains(&Attribute::Italic));
         assert!(resolved.attributes.contains(&Attribute::FinalAttr));
+    }
+
+
+    #[test]
+    fn test_put_line_skips_control_chars() {
+        let mut grid = CellGrid::new(20, 1);
+        // Line with embedded newline and carriage return
+        let line = vec![Atom {
+            face: default_face(),
+            contents: "ab\ncd\ref".to_string(),
+        }];
+        let cols = grid.put_line(0, 0, &line, 20);
+        assert_eq!(cols, 6); // "ab" + "cd" + "ef", control chars skipped
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "a");
+        assert_eq!(grid.get(1, 0).unwrap().grapheme, "b");
+        assert_eq!(grid.get(2, 0).unwrap().grapheme, "c");
+        assert_eq!(grid.get(3, 0).unwrap().grapheme, "d");
+        assert_eq!(grid.get(4, 0).unwrap().grapheme, "e");
+        assert_eq!(grid.get(5, 0).unwrap().grapheme, "f");
     }
 }

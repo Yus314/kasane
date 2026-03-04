@@ -162,6 +162,10 @@ fn render_wrapped_line(
             if grapheme.is_empty() {
                 continue;
             }
+            // Skip control characters (see grid.rs for rationale).
+            if grapheme.starts_with(|c: char| c.is_control()) {
+                continue;
+            }
             let w = UnicodeWidthStr::width(grapheme) as u16;
             if w == 0 {
                 continue;
