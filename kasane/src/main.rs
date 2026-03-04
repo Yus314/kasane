@@ -145,8 +145,13 @@ fn main() -> Result<()> {
                 state.apply(req);
                 if !initial_resize_sent {
                     initial_resize_sent = true;
-                    kak_writer
-                        .write_message(&KasaneRequest::Resize { rows, cols }.to_json())?;
+                    kak_writer.write_message(
+                        &KasaneRequest::Resize {
+                            rows: rows.saturating_sub(1),
+                            cols,
+                        }
+                        .to_json(),
+                    )?;
                 }
                 true
             }
@@ -225,7 +230,7 @@ fn handle_input(
             grid.resize(*cols, *rows);
             grid.invalidate_all();
             let msg = KasaneRequest::Resize {
-                rows: *rows,
+                rows: rows.saturating_sub(1),
                 cols: *cols,
             }
             .to_json();
