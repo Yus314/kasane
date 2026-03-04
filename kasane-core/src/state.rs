@@ -35,6 +35,8 @@ pub struct MenuState {
     pub menu_lines: i32,
     /// Maximum display width of any single item.
     pub max_item_width: u16,
+    /// Screen width (used for Search scroll calculation).
+    pub screen_w: u16,
 }
 
 impl MenuState {
@@ -95,7 +97,60 @@ impl MenuState {
             win_height,
             menu_lines,
             max_item_width,
+            screen_w,
         }
+    }
+
+    /// Update selection and adjust scroll offset to keep the selected item visible.
+    pub fn select(&mut self, selected: i32) {
+        self.selected = selected;
+        if selected < 0 || selected as usize >= self.items.len() || self.win_height == 0 {
+            self.selected = -1;
+            self.first_item = 0;
+            return;
+        }
+        match self.style {
+            MenuStyle::Inline | MenuStyle::Prompt => self.scroll_column_based(),
+            MenuStyle::Search => self.scroll_search(),
+        }
+    }
+
+    /// Inline & Prompt: column-based scrolling (stride = win_height).
+    /// Matches Kakoune terminal_ui.cc menu_select.
+    fn scroll_column_based(&mut self) {
+        let stride = self.win_height as i32;
+        let selected_col = self.selected / stride;
+        let first_col = self.first_item / stride;
+        let menu_cols = (self.items.len() as i32 + stride - 1) / stride;
+        if selected_col < first_col {
+            self.first_item = selected_col * stride;
+        } else if selected_col >= first_col + self.columns {
+            self.first_item = selected_col.min(menu_cols - self.columns).max(0) * stride;
+        }
+    }
+
+    /// Search: stateless horizontal scroll (matches Kakoune terminal_ui.cc).
+    ///
+    /// Scans forward from item 0 to `self.selected`, tracking cumulative width.
+    /// When adding an item would exceed the available width, resets the window
+    /// start to that item. This produces a deterministic `first_item` that
+    /// depends only on `selected`, not on previous scroll state.
+    fn scroll_search(&mut self) {
+        // Reserve 3 columns for "< " prefix (2) and ">" suffix (1),
+        // matching Kakoune's `m_menu.size.column - 3`.
+        let width = self.screen_w.saturating_sub(3) as usize;
+        let mut first = 0i32;
+        let mut item_col = 0usize;
+        for i in 0..=self.selected as usize {
+            let item_w = self.items.get(i).map(line_display_width).unwrap_or(0) + 1;
+            if item_col + item_w > width {
+                first = i as i32;
+                item_col = item_w;
+            } else {
+                item_col += item_w;
+            }
+        }
+        self.first_item = first;
     }
 }
 
@@ -203,63 +258,7 @@ impl AppState {
                         "MenuSelect: selected={}, first_item={}, win_height={}, items={}, columns={}",
                         selected, menu.first_item, menu.win_height, menu.items.len(), menu.columns,
                     );
-                    menu.selected = selected;
-
-                    if selected >= 0
-                        && (selected as usize) < menu.items.len()
-                        && menu.win_height > 0
-                    {
-                        if menu.columns >= 1 {
-                            // Inline & Prompt: unified column-based scrolling
-                            // (stride = win_height, matching Kakoune terminal_ui.cc)
-                            let stride = menu.win_height as i32;
-                            let selected_col = selected / stride;
-                            let first_col = menu.first_item / stride;
-                            let menu_cols =
-                                (menu.items.len() as i32 + stride - 1) / stride;
-                            if selected_col < first_col {
-                                menu.first_item = selected_col * stride;
-                            } else if selected_col >= first_col + menu.columns {
-                                menu.first_item =
-                                    selected_col.min(menu_cols - menu.columns).max(0)
-                                        * stride;
-                            }
-                        } else {
-                            // Search (columns == 0): horizontal item scrolling.
-                            // Ensure selected item is visible within screen width.
-                            let screen_w = self.cols as usize;
-                            if (selected as usize) < menu.first_item as usize {
-                                menu.first_item = selected;
-                            } else {
-                                // Compute cumulative width from first_item to selected
-                                let mut w = 0usize;
-                                for idx in (menu.first_item as usize)..=(selected as usize) {
-                                    let item_w = if let Some(item) = menu.items.get(idx) {
-                                        line_display_width(item)
-                                    } else {
-                                        0
-                                    };
-                                    // Each item takes item_w + 1 (gap), except prefix/suffix
-                                    w += item_w + 1;
-                                }
-                                // Account for "< " prefix (2 chars) when scrolled
-                                let prefix = if menu.first_item > 0 { 2 } else { 0 };
-                                while w + prefix > screen_w && menu.first_item < selected {
-                                    let drop_w = menu
-                                        .items
-                                        .get(menu.first_item as usize)
-                                        .map(line_display_width)
-                                        .unwrap_or(0);
-                                    w -= drop_w + 1;
-                                    menu.first_item += 1;
-                                }
-                            }
-                        }
-                    } else {
-                        // Out-of-range: reset (Kakoune sets selected=-1, first_item=0)
-                        menu.selected = -1;
-                        menu.first_item = 0;
-                    }
+                    menu.select(selected);
                 }
                 DirtyFlags::MENU
             }
@@ -410,5 +409,165 @@ mod tests {
         let flags = state.apply(KakouneRequest::Refresh { force: false });
         assert!(flags.contains(DirtyFlags::BUFFER));
         assert!(flags.contains(DirtyFlags::STATUS));
+    }
+
+    /// Helper: build an Inline MenuState with given items and win_height.
+    fn make_inline_menu(items: Vec<Line>, win_height: u16) -> MenuState {
+        MenuState {
+            items,
+            anchor: Coord::default(),
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Inline,
+            selected: -1,
+            first_item: 0,
+            columns: 1,
+            win_height,
+            menu_lines: 0, // unused in scroll logic
+            max_item_width: 0,
+            screen_w: 80,
+        }
+    }
+
+    /// Helper: build a Prompt MenuState with given items, win_height, and columns.
+    fn make_prompt_menu(items: Vec<Line>, win_height: u16, columns: i32) -> MenuState {
+        MenuState {
+            items,
+            anchor: Coord::default(),
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Prompt,
+            selected: -1,
+            first_item: 0,
+            columns,
+            win_height,
+            menu_lines: 0,
+            max_item_width: 0,
+            screen_w: 80,
+        }
+    }
+
+    /// Helper: build a Search MenuState with given items and screen_w.
+    fn make_search_menu(items: Vec<Line>, screen_w: u16) -> MenuState {
+        MenuState {
+            items,
+            anchor: Coord::default(),
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Search,
+            selected: -1,
+            first_item: 0,
+            columns: 0,
+            win_height: 1,
+            menu_lines: 0,
+            max_item_width: 0,
+            screen_w,
+        }
+    }
+
+    #[test]
+    fn test_select_column_scroll_down() {
+        // 5 items, win_height=3 → stride=3, so items 0-2 are col 0, items 3-4 are col 1
+        let items: Vec<Line> = (0..5).map(|i| make_line(&format!("item{i}"))).collect();
+        let mut menu = make_inline_menu(items, 3);
+
+        // Select item 0: stays in col 0, first_item stays 0
+        menu.select(0);
+        assert_eq!(menu.first_item, 0);
+
+        // Select item 3: moves to col 1, first_item should scroll to 3
+        menu.select(3);
+        assert_eq!(menu.first_item, 3);
+    }
+
+    #[test]
+    fn test_select_column_scroll_up() {
+        let items: Vec<Line> = (0..6).map(|i| make_line(&format!("item{i}"))).collect();
+        let mut menu = make_inline_menu(items, 3);
+
+        // Scroll forward to col 1
+        menu.select(3);
+        assert_eq!(menu.first_item, 3);
+
+        // Select item 1: back in col 0, first_item should scroll back to 0
+        menu.select(1);
+        assert_eq!(menu.first_item, 0);
+    }
+
+    #[test]
+    fn test_select_prompt_multi_column() {
+        // 12 items, win_height=3, columns=2 → stride=3
+        // col 0: items 0-2, col 1: items 3-5, col 2: items 6-8, col 3: items 9-11
+        // Visible: 2 columns at a time
+        let items: Vec<Line> = (0..12).map(|i| make_line(&format!("item{i}"))).collect();
+        let mut menu = make_prompt_menu(items, 3, 2);
+
+        // Select item 6 (col 2): needs to scroll since only 2 cols visible
+        // col 2 becomes the leftmost visible column → first_item = 2*3 = 6
+        menu.select(6);
+        assert_eq!(menu.first_item, 6);
+
+        // Select item 9 (col 3): already visible (cols 2-3 shown), no scroll
+        menu.select(9);
+        assert_eq!(menu.first_item, 6);
+    }
+
+    #[test]
+    fn test_select_search_stateless() {
+        // Items: "aa" (2), "bb" (2), "cc" (2), "dd" (2), "ee" (2)
+        // Each takes width+1 = 3 in search bar
+        // screen_w = 15 → available width = 15 - 3 = 12
+        // Cumulative: aa=3, bb=6, cc=9, dd=12, ee=15 (exceeds 12)
+        let items: Vec<Line> = ["aa", "bb", "cc", "dd", "ee"]
+            .iter()
+            .map(|s| make_line(s))
+            .collect();
+
+        // Path A: select directly to item 4
+        let mut menu_a = make_search_menu(items.clone(), 15);
+        menu_a.select(4);
+
+        // Path B: select 0, then 1, ..., then 4
+        let mut menu_b = make_search_menu(items, 15);
+        for i in 0..=4 {
+            menu_b.select(i);
+        }
+
+        // Stateless: same selected → same first_item regardless of path
+        assert_eq!(menu_a.first_item, menu_b.first_item);
+        assert_eq!(menu_a.selected, 4);
+        assert_eq!(menu_b.selected, 4);
+    }
+
+    #[test]
+    fn test_select_search_fits_in_width() {
+        // Items: "a" (1), "b" (1), "c" (1) → each takes 2 (width+1)
+        // screen_w = 80 → available = 77, total = 6, fits easily
+        let items: Vec<Line> = ["a", "b", "c"].iter().map(|s| make_line(s)).collect();
+        let mut menu = make_search_menu(items, 80);
+
+        menu.select(2);
+        assert_eq!(menu.first_item, 0);
+    }
+
+    #[test]
+    fn test_select_out_of_range_resets() {
+        let items: Vec<Line> = (0..3).map(|i| make_line(&format!("item{i}"))).collect();
+        let mut menu = make_inline_menu(items, 3);
+
+        // Select valid item first
+        menu.select(1);
+        assert_eq!(menu.selected, 1);
+
+        // Select -1 → resets
+        menu.select(-1);
+        assert_eq!(menu.selected, -1);
+        assert_eq!(menu.first_item, 0);
+
+        // Select beyond length → resets
+        menu.select(1);
+        menu.select(3);
+        assert_eq!(menu.selected, -1);
+        assert_eq!(menu.first_item, 0);
     }
 }
