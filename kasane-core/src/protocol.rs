@@ -76,7 +76,9 @@ impl Serialize for Color {
         match self {
             Color::Default => serializer.serialize_str("default"),
             Color::Named(n) => serializer.serialize_str(named_color_str(*n)),
-            Color::Rgb { r, g, b } => serializer.serialize_str(&format!("rgb:{r:02x}{g:02x}{b:02x}")),
+            Color::Rgb { r, g, b } => {
+                serializer.serialize_str(&format!("rgb:{r:02x}{g:02x}{b:02x}"))
+            }
         }
     }
 }
