@@ -424,8 +424,8 @@ mod tests {
         // screen_h = 10 - 1 = 9 (excl status), longest = 5, col_w = (40-1)/(6) = 6
         // columns = (40-1)/6 = 6, win_height = min(ceil(3/6), 10) = 1
         let mut ms = make_menu_state(items, MenuStyle::Prompt, 1, 40, 9);
-        ms.menu_face = menu_face.clone();
-        ms.selected_item_face = selected_face.clone();
+        ms.menu_face = menu_face;
+        ms.selected_item_face = selected_face;
         let state = AppState {
             menu: Some(ms),
             cols: 40,

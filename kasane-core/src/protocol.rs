@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use bitflags::bitflags;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use simd_json::prelude::*;
@@ -142,38 +143,119 @@ fn parse_color(s: &str) -> Option<Color> {
 }
 
 // ---------------------------------------------------------------------------
-// Attribute
+// Attributes (bitflags)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Attribute {
-    Underline,
-    CurlyUnderline,
-    DoubleUnderline,
-    Reverse,
-    Blink,
-    Bold,
-    Dim,
-    Italic,
-    Strikethrough,
-    FinalFg,
-    FinalBg,
-    FinalAttr,
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct Attributes: u16 {
+        const UNDERLINE        = 1 << 0;
+        const CURLY_UNDERLINE  = 1 << 1;
+        const DOUBLE_UNDERLINE = 1 << 2;
+        const REVERSE          = 1 << 3;
+        const BLINK            = 1 << 4;
+        const BOLD             = 1 << 5;
+        const DIM              = 1 << 6;
+        const ITALIC           = 1 << 7;
+        const STRIKETHROUGH    = 1 << 8;
+        const FINAL_FG         = 1 << 9;
+        const FINAL_BG         = 1 << 10;
+        const FINAL_ATTR       = 1 << 11;
+    }
+}
+
+fn parse_attribute(s: &str) -> Option<Attributes> {
+    Some(match s {
+        "underline" => Attributes::UNDERLINE,
+        "curly_underline" => Attributes::CURLY_UNDERLINE,
+        "double_underline" => Attributes::DOUBLE_UNDERLINE,
+        "reverse" => Attributes::REVERSE,
+        "blink" => Attributes::BLINK,
+        "bold" => Attributes::BOLD,
+        "dim" => Attributes::DIM,
+        "italic" => Attributes::ITALIC,
+        "strikethrough" => Attributes::STRIKETHROUGH,
+        "final_fg" => Attributes::FINAL_FG,
+        "final_bg" => Attributes::FINAL_BG,
+        "final_attr" => Attributes::FINAL_ATTR,
+        _ => return None,
+    })
+}
+
+fn attribute_str(attr: Attributes) -> &'static str {
+    match attr {
+        Attributes::UNDERLINE => "underline",
+        Attributes::CURLY_UNDERLINE => "curly_underline",
+        Attributes::DOUBLE_UNDERLINE => "double_underline",
+        Attributes::REVERSE => "reverse",
+        Attributes::BLINK => "blink",
+        Attributes::BOLD => "bold",
+        Attributes::DIM => "dim",
+        Attributes::ITALIC => "italic",
+        Attributes::STRIKETHROUGH => "strikethrough",
+        Attributes::FINAL_FG => "final_fg",
+        Attributes::FINAL_BG => "final_bg",
+        Attributes::FINAL_ATTR => "final_attr",
+        _ => "unknown",
+    }
+}
+
+impl<'de> Deserialize<'de> for Attributes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct AttrsVisitor;
+
+        impl<'de> Visitor<'de> for AttrsVisitor {
+            type Value = Attributes;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an array of attribute strings")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Attributes, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let mut flags = Attributes::empty();
+                while let Some(s) = seq.next_element::<&str>()? {
+                    flags |= parse_attribute(s)
+                        .ok_or_else(|| de::Error::custom(format!("unknown attribute: {s}")))?;
+                }
+                Ok(flags)
+            }
+        }
+
+        deserializer.deserialize_seq(AttrsVisitor)
+    }
+}
+
+impl Serialize for Attributes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let count = self.iter().count();
+        let mut seq = serializer.serialize_seq(Some(count))?;
+        for flag in self.iter() {
+            seq.serialize_element(attribute_str(flag))?;
+        }
+        seq.end()
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Face
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Face {
     pub fg: Color,
     pub bg: Color,
-    #[serde(default)]
     pub underline: Color,
-    #[serde(default)]
-    pub attributes: Vec<Attribute>,
+    pub attributes: Attributes,
 }
 
 impl Default for Face {
@@ -182,8 +264,48 @@ impl Default for Face {
             fg: Color::Default,
             bg: Color::Default,
             underline: Color::Default,
-            attributes: Vec::new(),
+            attributes: Attributes::empty(),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for Face {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct FaceHelper {
+            fg: Color,
+            bg: Color,
+            #[serde(default)]
+            underline: Color,
+            #[serde(default)]
+            attributes: Attributes,
+        }
+
+        let h = FaceHelper::deserialize(deserializer)?;
+        Ok(Face {
+            fg: h.fg,
+            bg: h.bg,
+            underline: h.underline,
+            attributes: h.attributes,
+        })
+    }
+}
+
+impl Serialize for Face {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("Face", 4)?;
+        s.serialize_field("fg", &self.fg)?;
+        s.serialize_field("bg", &self.bg)?;
+        s.serialize_field("underline", &self.underline)?;
+        s.serialize_field("attributes", &self.attributes)?;
+        s.end()
     }
 }
 
@@ -603,9 +725,17 @@ mod tests {
     }
 
     #[test]
-    fn test_attribute_deserialize() {
-        let a: Attribute = serde_json::from_str(r#""curly_underline""#).unwrap();
-        assert_eq!(a, Attribute::CurlyUnderline);
+    fn test_attributes_deserialize() {
+        let a: Attributes = serde_json::from_str(r#"["curly_underline"]"#).unwrap();
+        assert_eq!(a, Attributes::CURLY_UNDERLINE);
+    }
+
+    #[test]
+    fn test_attributes_roundtrip() {
+        let original = Attributes::BOLD | Attributes::ITALIC;
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: Attributes = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, parsed);
     }
 
     #[test]
@@ -615,7 +745,7 @@ mod tests {
         let f: Face = serde_json::from_str(json).unwrap();
         assert_eq!(f.fg, Color::Named(NamedColor::Red));
         assert_eq!(f.bg, Color::Default);
-        assert_eq!(f.attributes, vec![Attribute::Bold, Attribute::Italic]);
+        assert_eq!(f.attributes, Attributes::BOLD | Attributes::ITALIC);
     }
 
     #[test]

@@ -7,7 +7,7 @@ pub use grid::{Cell, CellGrid, CellDiff};
 use unicode_width::UnicodeWidthStr;
 
 use crate::layout::line_display_width;
-use crate::protocol::{Attribute, Color, CursorMode, Face, Line};
+use crate::protocol::{Attributes, Color, CursorMode, Face, Line};
 
 // ---------------------------------------------------------------------------
 // RenderBackend trait
@@ -156,7 +156,7 @@ fn render_wrapped_line(
     for atom in line {
         let face = match base_face {
             Some(base) => grid::resolve_face(&atom.face, base),
-            None => atom.face.clone(),
+            None => atom.face,
         };
         for grapheme in atom.contents.split_inclusive(|_: char| true) {
             if grapheme.is_empty() {
@@ -170,7 +170,7 @@ fn render_wrapped_line(
             if w == 0 {
                 continue;
             }
-            graphemes.push((grapheme, face.clone(), w));
+            graphemes.push((grapheme, face, w));
         }
     }
 
@@ -285,7 +285,7 @@ fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
         fg: Color::Default,
         bg: Color::Default,
         underline: Color::Default,
-        attributes: vec![Attribute::Dim],
+        attributes: Attributes::DIM,
     };
 
     // Right shadow (1 cell wide)
@@ -334,7 +334,7 @@ mod tests {
 
         let mut state = AppState::default();
         state.lines = vec![line];
-        state.default_face = default_face.clone();
+        state.default_face = default_face;
 
         let mut grid = CellGrid::new(10, 2);
         render_buffer(&state, &mut grid);
@@ -364,7 +364,7 @@ mod tests {
         let mut state = AppState::default();
         state.status_line = status_line;
         state.status_mode_line = mode_line;
-        state.status_default_face = status_face.clone();
+        state.status_default_face = status_face;
 
         let mut grid = CellGrid::new(10, 2);
         render_status(&state, &mut grid);

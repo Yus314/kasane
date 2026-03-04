@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Attribute, Color, Face, Line};
+use crate::protocol::{Attributes, Color, Face, Line};
 
 // ---------------------------------------------------------------------------
 // Cell + CellGrid
@@ -92,7 +92,7 @@ impl CellGrid {
 
         self.current[idx] = Cell {
             grapheme: grapheme.to_string(),
-            face: face.clone(),
+            face: *face,
             width: w,
         };
         // If wide character, mark next cell as continuation
@@ -100,7 +100,7 @@ impl CellGrid {
             let next_idx = self.idx(x + 1, y);
             self.current[next_idx] = Cell {
                 grapheme: String::new(),
-                face: face.clone(),
+                face: *face,
                 width: 0,
             };
         }
@@ -128,7 +128,7 @@ impl CellGrid {
         for atom in line {
             let face = match base_face {
                 Some(base) => resolve_face(&atom.face, base),
-                None => atom.face.clone(),
+                None => atom.face,
             };
             for grapheme in atom.contents.split_inclusive(|_: char| true) {
                 if grapheme.is_empty() {
@@ -159,7 +159,7 @@ impl CellGrid {
     pub fn clear(&mut self, face: &Face) {
         for cell in &mut self.current {
             cell.grapheme = " ".to_string();
-            cell.face = face.clone();
+            cell.face = *face;
             cell.width = 1;
         }
     }
@@ -172,7 +172,7 @@ impl CellGrid {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
                 grapheme: " ".to_string(),
-                face: face.clone(),
+                face: *face,
                 width: 1,
             };
         }
@@ -253,7 +253,6 @@ pub struct CellDiff {
 /// Resolve Default colors in an atom face against a base face.
 /// In Kakoune, `default` means "inherit from the containing context".
 pub(super) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
-    let has_final_attr = atom_face.attributes.contains(&Attribute::FinalAttr);
     Face {
         fg: if atom_face.fg == Color::Default {
             base.fg
@@ -270,16 +269,12 @@ pub(super) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
         } else {
             atom_face.underline
         },
-        attributes: if has_final_attr || base.attributes.is_empty() {
-            atom_face.attributes.clone()
+        attributes: if atom_face.attributes.contains(Attributes::FINAL_ATTR)
+            || base.attributes.is_empty()
+        {
+            atom_face.attributes
         } else {
-            let mut attrs = base.attributes.clone();
-            for attr in &atom_face.attributes {
-                if !attrs.contains(attr) {
-                    attrs.push(*attr);
-                }
-            }
-            attrs
+            base.attributes | atom_face.attributes
         },
     }
 }
@@ -291,7 +286,7 @@ pub(super) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Attribute, Color, Face, NamedColor};
+    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor};
 
     fn default_face() -> Face {
         Face::default()
@@ -459,34 +454,34 @@ mod tests {
     #[test]
     fn test_resolve_face_attributes_merge() {
         let base = Face {
-            attributes: vec![Attribute::Bold],
+            attributes: Attributes::BOLD,
             ..Face::default()
         };
         let atom = Face {
-            attributes: vec![Attribute::Italic],
+            attributes: Attributes::ITALIC,
             ..Face::default()
         };
         let resolved = resolve_face(&atom, &base);
-        assert!(resolved.attributes.contains(&Attribute::Bold));
-        assert!(resolved.attributes.contains(&Attribute::Italic));
-        assert_eq!(resolved.attributes.len(), 2);
+        assert!(resolved.attributes.contains(Attributes::BOLD));
+        assert!(resolved.attributes.contains(Attributes::ITALIC));
+        assert_eq!(resolved.attributes, Attributes::BOLD | Attributes::ITALIC);
     }
 
     #[test]
     fn test_resolve_face_attributes_final() {
         let base = Face {
-            attributes: vec![Attribute::Bold],
+            attributes: Attributes::BOLD,
             ..Face::default()
         };
         let atom = Face {
-            attributes: vec![Attribute::Italic, Attribute::FinalAttr],
+            attributes: Attributes::ITALIC | Attributes::FINAL_ATTR,
             ..Face::default()
         };
         let resolved = resolve_face(&atom, &base);
         // FinalAttr means atom attributes replace base entirely
-        assert!(!resolved.attributes.contains(&Attribute::Bold));
-        assert!(resolved.attributes.contains(&Attribute::Italic));
-        assert!(resolved.attributes.contains(&Attribute::FinalAttr));
+        assert!(!resolved.attributes.contains(Attributes::BOLD));
+        assert!(resolved.attributes.contains(Attributes::ITALIC));
+        assert!(resolved.attributes.contains(Attributes::FINAL_ATTR));
     }
 
 
