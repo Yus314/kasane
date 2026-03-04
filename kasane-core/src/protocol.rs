@@ -206,6 +206,53 @@ pub struct Coord {
 }
 
 // ---------------------------------------------------------------------------
+// CursorMode / MenuStyle / InfoStyle
+// ---------------------------------------------------------------------------
+
+/// Cursor display mode sent by Kakoune's `set_cursor` message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CursorMode {
+    Buffer,
+    Prompt,
+}
+
+/// Menu display style sent by Kakoune's `menu_show` message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MenuStyle {
+    Prompt,
+    Search,
+    Inline,
+}
+
+impl MenuStyle {
+    /// Prompt and search styles are rendered as horizontal multi-column
+    /// layouts above the status bar.
+    pub fn is_prompt_like(self) -> bool {
+        matches!(self, Self::Prompt | Self::Search)
+    }
+}
+
+/// Info popup display style sent by Kakoune's `info_show` message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InfoStyle {
+    Prompt,
+    Modal,
+    Inline,
+    InlineAbove,
+    MenuDoc,
+}
+
+impl InfoStyle {
+    /// Framed styles (prompt, modal) get borders and padding.
+    pub fn is_framed(self) -> bool {
+        matches!(self, Self::Prompt | Self::Modal)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Kakoune → Kasane messages
 // ---------------------------------------------------------------------------
 
@@ -222,7 +269,7 @@ pub enum KakouneRequest {
         default_face: Face,
     },
     SetCursor {
-        mode: String,
+        mode: CursorMode,
         coord: Coord,
     },
     MenuShow {
@@ -230,7 +277,7 @@ pub enum KakouneRequest {
         anchor: Coord,
         selected_item_face: Face,
         menu_face: Face,
-        style: String,
+        style: MenuStyle,
     },
     MenuSelect {
         selected: i32,
@@ -241,7 +288,7 @@ pub enum KakouneRequest {
         content: Vec<Line>,
         anchor: Coord,
         face: Face,
-        style: String,
+        style: InfoStyle,
     },
     InfoHide,
     SetUiOptions {
@@ -699,7 +746,7 @@ mod tests {
         let req = parse_request(&mut buf).unwrap();
         match req {
             KakouneRequest::SetCursor { mode, coord } => {
-                assert_eq!(mode, "buffer");
+                assert_eq!(mode, CursorMode::Buffer);
                 assert_eq!(coord, Coord { line: 0, column: 1 });
             }
             _ => panic!("expected SetCursor"),
@@ -720,7 +767,7 @@ mod tests {
         match req {
             KakouneRequest::MenuShow { items, style, .. } => {
                 assert_eq!(items.len(), 1);
-                assert_eq!(style, "inline");
+                assert_eq!(style, MenuStyle::Inline);
             }
             _ => panic!("expected MenuShow"),
         }
@@ -755,7 +802,7 @@ mod tests {
         let req = parse_request(&mut buf).unwrap();
         match req {
             KakouneRequest::InfoShow { style, content, .. } => {
-                assert_eq!(style, "modal");
+                assert_eq!(style, InfoStyle::Modal);
                 assert_eq!(content.len(), 1);
             }
             _ => panic!("expected InfoShow"),

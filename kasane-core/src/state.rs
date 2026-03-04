@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
-use crate::protocol::{Coord, Face, KakouneRequest, Line};
+use crate::protocol::{Coord, CursorMode, Face, InfoStyle, KakouneRequest, Line, MenuStyle};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub struct MenuState {
     pub anchor: Coord,
     pub selected_item_face: Face,
     pub menu_face: Face,
-    pub style: String,
+    pub style: MenuStyle,
     pub selected: i32,
 }
 
@@ -32,7 +32,7 @@ pub struct InfoState {
     pub content: Vec<Line>,
     pub anchor: Coord,
     pub face: Face,
-    pub style: String,
+    pub style: InfoStyle,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub struct AppState {
     pub padding_face: Face,
 
     // Cursor (from set_cursor)
-    pub cursor_mode: String,
+    pub cursor_mode: CursorMode,
     pub cursor_pos: Coord,
 
     // Status
@@ -69,7 +69,7 @@ impl Default for AppState {
             lines: Vec::new(),
             default_face: Face::default(),
             padding_face: Face::default(),
-            cursor_mode: "buffer".to_string(),
+            cursor_mode: CursorMode::Buffer,
             cursor_pos: Coord::default(),
             status_line: Vec::new(),
             status_mode_line: Vec::new(),
@@ -201,12 +201,12 @@ mod tests {
     fn test_apply_set_cursor() {
         let mut state = AppState::default();
         let flags = state.apply(KakouneRequest::SetCursor {
-            mode: "buffer".to_string(),
+            mode: CursorMode::Buffer,
             coord: Coord { line: 0, column: 3 },
         });
         assert!(flags.contains(DirtyFlags::BUFFER));
         assert_eq!(state.cursor_pos.column, 3);
-        assert_eq!(state.cursor_mode, "buffer");
+        assert_eq!(state.cursor_mode, CursorMode::Buffer);
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
             anchor: Coord { line: 1, column: 0 },
             selected_item_face: Face::default(),
             menu_face: Face::default(),
-            style: "inline".to_string(),
+            style: MenuStyle::Inline,
         });
         assert!(state.menu.is_some());
         assert_eq!(state.menu.as_ref().unwrap().selected, -1);
@@ -252,7 +252,7 @@ mod tests {
             content: vec![make_line("content")],
             anchor: Coord { line: 0, column: 0 },
             face: Face::default(),
-            style: "modal".to_string(),
+            style: InfoStyle::Modal,
         });
         assert!(state.info.is_some());
 

@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Coord, Line};
+use crate::protocol::{Coord, InfoStyle, Line, MenuStyle};
 
 #[derive(Debug, Clone)]
 pub struct FloatingWindow {
@@ -32,13 +32,6 @@ pub fn is_word_char(grapheme: &str) -> bool {
             c.is_alphanumeric()
         }
     })
-}
-
-/// Kakoune-compatible: framed styles get borders and padding, non-framed don't.
-/// framed = prompt | modal (border + space padding)
-/// non-framed = inline | inlineAbove | menuDoc (raw content)
-pub fn is_info_framed(style: &str) -> bool {
-    matches!(style, "prompt" | "modal")
 }
 
 /// Width of the Kakoune clippy assistant drawn beside prompt info.
@@ -132,7 +125,7 @@ pub fn compute_pos(
 pub fn layout_menu(
     anchor: &Coord,
     items: &[Line],
-    style: &str,
+    style: MenuStyle,
     screen_w: u16,
     screen_h: u16,
 ) -> FloatingWindow {
@@ -158,7 +151,7 @@ pub fn layout_menu(
     let win_h = (item_count as u16 + 2).min(screen_h); // +2 for borders
 
     match style {
-        "prompt" | "search" => {
+        MenuStyle::Prompt | MenuStyle::Search => {
             // Show above the status bar
             let y = screen_h.saturating_sub(win_h);
             let x = 0u16;
@@ -169,8 +162,8 @@ pub fn layout_menu(
                 height: win_h,
             }
         }
-        _ => {
-            // "inline" — anchor-relative
+        MenuStyle::Inline => {
+            // Anchor-relative
             let ax = (anchor.column as u16).min(screen_w.saturating_sub(win_w));
             let ay = anchor.line as u16 + 1; // below the anchor
 
@@ -204,7 +197,7 @@ pub fn layout_info(
     title: &Line,
     content: &[Line],
     anchor: &Coord,
-    style: &str,
+    style: InfoStyle,
     screen_w: u16,
     screen_h: u16,
     menu_rect: Option<Rect>,
@@ -212,7 +205,7 @@ pub fn layout_info(
     // --- max_size adjustment (Kakoune terminal_ui.cc:1326-1331) ---
     let menu_lines = menu_rect.map_or(0u16, |r| r.h);
     let (max_w, max_h) = match style {
-        "menuDoc" => {
+        InfoStyle::MenuDoc => {
             // For menuDoc, max width is the larger side of the screen around the menu.
             let mw = menu_rect.map_or(screen_w, |mr| {
                 let right_of_menu = screen_w.saturating_sub(mr.x + mr.w);
@@ -221,7 +214,7 @@ pub fn layout_info(
             });
             (mw, screen_h)
         }
-        "modal" => (screen_w, screen_h),
+        InfoStyle::Modal => (screen_w, screen_h),
         _ => {
             // Non-modal, non-menuDoc: subtract menu lines from available height
             (screen_w, screen_h.saturating_sub(menu_lines))
@@ -232,7 +225,7 @@ pub fn layout_info(
     let content_len = trim_trailing_empty(content);
     let content = &content[..content_len];
 
-    let framed = is_info_framed(style);
+    let framed = style.is_framed();
 
     let raw_max_content_width = content.iter().map(line_display_width).max().unwrap_or(0) as u16;
     let title_width = line_display_width(title) as u16;
@@ -294,7 +287,7 @@ pub fn layout_info(
     };
 
     match style {
-        "modal" => {
+        InfoStyle::Modal => {
             // Center on screen
             let x = screen_w.saturating_sub(win_w) / 2;
             let y = screen_h.saturating_sub(win_h) / 2;
@@ -305,7 +298,7 @@ pub fn layout_info(
                 height: win_h,
             }
         }
-        "prompt" => {
+        InfoStyle::Prompt => {
             // Kakoune 2-pass for prompt: budget also subtracts assistant width
             let max_prompt_content = max_w.saturating_sub(4 + PROMPT_ASSISTANT_WIDTH);
             let actual_prompt_content_w = if raw_max_content_width > max_prompt_content {
@@ -346,7 +339,7 @@ pub fn layout_info(
                 height: prompt_h,
             }
         }
-        "menuDoc" => {
+        InfoStyle::MenuDoc => {
             // Place beside the menu: prefer right side, fall back to left.
             if let Some(mr) = menu_rect {
                 let right_space = screen_w.saturating_sub(mr.x + mr.w);
@@ -387,7 +380,7 @@ pub fn layout_info(
                 }
             }
         }
-        "inlineAbove" => {
+        InfoStyle::InlineAbove => {
             let (y, x) = compute_pos(
                 (anchor.line, anchor.column),
                 (win_h, win_w),
@@ -402,8 +395,7 @@ pub fn layout_info(
                 height: win_h,
             }
         }
-        _ => {
-            // "inline" and other styles
+        InfoStyle::Inline => {
             let (y, x) = compute_pos(
                 (anchor.line, anchor.column),
                 (win_h, win_w),
@@ -581,7 +573,7 @@ mod tests {
     fn test_layout_menu_inline() {
         let items = vec![make_line("item1"), make_line("longer item")];
         let anchor = Coord { line: 2, column: 5 };
-        let win = layout_menu(&anchor, &items, "inline", 80, 24);
+        let win = layout_menu(&anchor, &items, MenuStyle::Inline, 80, 24);
         assert!(win.y > 2); // below anchor
         assert!(win.width >= 2 + "longer item".len() as u16);
         assert_eq!(win.height, 4); // 2 items + 2 borders
@@ -591,7 +583,7 @@ mod tests {
     fn test_layout_menu_prompt() {
         let items = vec![make_line("a"), make_line("b")];
         let anchor = Coord { line: 0, column: 0 };
-        let win = layout_menu(&anchor, &items, "prompt", 80, 24);
+        let win = layout_menu(&anchor, &items, MenuStyle::Prompt, 80, 24);
         // prompt style: above status bar
         assert!(win.y + win.height <= 24);
     }
@@ -601,7 +593,7 @@ mod tests {
         let title = make_line("Help");
         let content = vec![make_line("line1"), make_line("line2")];
         let anchor = Coord { line: 0, column: 0 };
-        let win = layout_info(&title, &content, &anchor, "modal", 80, 24, None);
+        let win = layout_info(&title, &content, &anchor, InfoStyle::Modal, 80, 24, None);
         // Should be roughly centered
         assert!(win.x > 0);
         assert!(win.y > 0);
@@ -692,7 +684,7 @@ mod tests {
             w: 20,
             h: 5,
         };
-        let win = layout_info(&title, &content, &anchor, "inline", 80, 24, Some(menu));
+        let win = layout_info(&title, &content, &anchor, InfoStyle::Inline, 80, 24, Some(menu));
         // Should not overlap with menu (y=6..11)
         let win_bot = win.y + win.height;
         assert!(win.y >= 11 || win_bot <= 6, "info should not overlap menu");
@@ -713,7 +705,7 @@ mod tests {
             w: 20,
             h: 8,
         };
-        let win = layout_info(&title, &content, &anchor, "menuDoc", 80, 24, Some(menu));
+        let win = layout_info(&title, &content, &anchor, InfoStyle::MenuDoc, 80, 24, Some(menu));
         // Should be placed to the right of the menu
         assert!(win.x >= 20, "menuDoc should be to the right of menu");
     }
@@ -733,7 +725,7 @@ mod tests {
             w: 20,
             h: 8,
         };
-        let win = layout_info(&title, &content, &anchor, "menuDoc", 80, 24, Some(menu));
+        let win = layout_info(&title, &content, &anchor, InfoStyle::MenuDoc, 80, 24, Some(menu));
         // Should be placed to the left of the menu
         assert!(
             win.x + win.width <= 60,
@@ -753,8 +745,8 @@ mod tests {
             w: 20,
             h: 5,
         };
-        let win_with_menu = layout_info(&title, &content, &anchor, "inline", 80, 24, Some(menu));
-        let win_no_menu = layout_info(&title, &content, &anchor, "inline", 80, 24, None);
+        let win_with_menu = layout_info(&title, &content, &anchor, InfoStyle::Inline, 80, 24, Some(menu));
+        let win_no_menu = layout_info(&title, &content, &anchor, InfoStyle::Inline, 80, 24, None);
         // With menu, max height is reduced so the info should be shorter
         assert!(win_with_menu.height <= win_no_menu.height);
     }
@@ -868,7 +860,7 @@ mod tests {
         let long_text = "word ".repeat(20); // 100 chars
         let content = vec![make_line(long_text.trim_end())];
         let anchor = Coord { line: 0, column: 0 };
-        let win = layout_info(&title, &content, &anchor, "prompt", 80, 24, None);
+        let win = layout_info(&title, &content, &anchor, InfoStyle::Prompt, 80, 24, None);
         // The popup width should be < screen width (80)
         assert!(
             win.width < 80,
@@ -911,8 +903,8 @@ mod tests {
         let content_with_empty = vec![make_line("line1"), make_line("")];
         let content_without = vec![make_line("line1")];
         let anchor = Coord { line: 0, column: 0 };
-        let w1 = layout_info(&title, &content_with_empty, &anchor, "inline", 80, 24, None);
-        let w2 = layout_info(&title, &content_without, &anchor, "inline", 80, 24, None);
+        let w1 = layout_info(&title, &content_with_empty, &anchor, InfoStyle::Inline, 80, 24, None);
+        let w2 = layout_info(&title, &content_without, &anchor, InfoStyle::Inline, 80, 24, None);
         // Trailing empty line should not affect height
         assert_eq!(w1.height, w2.height);
     }
