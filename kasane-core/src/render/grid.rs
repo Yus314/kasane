@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use unicode_width::UnicodeWidthStr;
 
 use crate::protocol::{Attributes, Color, Face, Line};
@@ -8,7 +9,7 @@ use crate::protocol::{Attributes, Color, Face, Line};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
-    pub grapheme: String,
+    pub grapheme: CompactString,
     pub face: Face,
     /// Display width: 1 for normal, 2 for wide chars, 0 for continuation cells.
     pub width: u8,
@@ -17,7 +18,7 @@ pub struct Cell {
 impl Default for Cell {
     fn default() -> Self {
         Cell {
-            grapheme: " ".to_string(),
+            grapheme: CompactString::const_new(" "),
             face: Face::default(),
             width: 1,
         }
@@ -66,14 +67,14 @@ impl CellGrid {
         // If overwriting a continuation cell (width 0), the wide char at x-1 is orphaned.
         if self.current[idx].width == 0 && x > 0 {
             let prev_idx = self.idx(x - 1, y);
-            self.current[prev_idx].grapheme = " ".to_string();
+            self.current[prev_idx].grapheme = CompactString::const_new(" ");
             self.current[prev_idx].width = 1;
         }
 
         // If overwriting a wide char (width 2), its continuation at x+1 is orphaned.
         if self.current[idx].width == 2 && x + 1 < self.width {
             let next_idx = self.idx(x + 1, y);
-            self.current[next_idx].grapheme = " ".to_string();
+            self.current[next_idx].grapheme = CompactString::const_new(" ");
             self.current[next_idx].width = 1;
         }
 
@@ -83,7 +84,7 @@ impl CellGrid {
             let next_idx = self.idx(x + 1, y);
             if self.current[next_idx].width == 2 && x + 2 < self.width {
                 let next2_idx = self.idx(x + 2, y);
-                self.current[next2_idx].grapheme = " ".to_string();
+                self.current[next2_idx].grapheme = CompactString::const_new(" ");
                 self.current[next2_idx].width = 1;
             }
         }
@@ -91,7 +92,7 @@ impl CellGrid {
         // --- Write the new cell ---
 
         self.current[idx] = Cell {
-            grapheme: grapheme.to_string(),
+            grapheme: CompactString::from(grapheme),
             face: *face,
             width: w,
         };
@@ -99,7 +100,7 @@ impl CellGrid {
         if w == 2 && x + 1 < self.width {
             let next_idx = self.idx(x + 1, y);
             self.current[next_idx] = Cell {
-                grapheme: String::new(),
+                grapheme: CompactString::default(),
                 face: *face,
                 width: 0,
             };
@@ -158,7 +159,7 @@ impl CellGrid {
 
     pub fn clear(&mut self, face: &Face) {
         for cell in &mut self.current {
-            cell.grapheme = " ".to_string();
+            cell.grapheme = CompactString::const_new(" ");
             cell.face = *face;
             cell.width = 1;
         }
@@ -171,7 +172,7 @@ impl CellGrid {
         for x in 0..self.width {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
-                grapheme: " ".to_string(),
+                grapheme: CompactString::const_new(" "),
                 face: *face,
                 width: 1,
             };
@@ -215,10 +216,17 @@ impl CellGrid {
 
     pub fn swap(&mut self) {
         std::mem::swap(&mut self.previous, &mut self.current);
-        // Reset current to blank
         let size = self.width as usize * self.height as usize;
-        self.current.clear();
-        self.current.resize(size, Cell::default());
+        if self.current.len() == size {
+            for cell in &mut self.current {
+                cell.grapheme = CompactString::const_new(" ");
+                cell.face = Face::default();
+                cell.width = 1;
+            }
+        } else {
+            self.current.clear();
+            self.current.resize(size, Cell::default());
+        }
     }
 
     pub fn invalidate_all(&mut self) {
