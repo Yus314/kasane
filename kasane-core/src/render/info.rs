@@ -70,7 +70,7 @@ fn render_info_prompt(
     let content_end = info
         .content
         .iter()
-        .rposition(|line| super::line_display_width(line) > 0)
+        .rposition(|line| crate::layout::line_display_width(line) > 0)
         .map(|i| i + 1)
         .unwrap_or(0);
     let trimmed = &info.content[..content_end];
@@ -110,7 +110,7 @@ fn render_info_prompt(
 
     // --- Top border: ╭─left─┤title├─right─╮ ---
     {
-        let title_w = super::line_display_width(&info.title);
+        let title_w = crate::layout::line_display_width(&info.title);
         let y = y_start;
         let mut x = frame_x;
         grid.put_char(x, y, "╭", &info.face);
@@ -270,7 +270,7 @@ fn render_info_framed(
 
     // Draw title on top border: ╭─┤title├─╮
     if !info.title.is_empty() {
-        let title_width = super::line_display_width(&info.title);
+        let title_width = crate::layout::line_display_width(&info.title);
         if title_width > 0 && win.width > 6 {
             let tx = win.x + 2; // after ╭─
             grid.put_char(tx, win.y, "┤", &info.face);

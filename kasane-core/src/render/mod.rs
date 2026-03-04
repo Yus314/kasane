@@ -6,6 +6,7 @@ pub use grid::{Cell, CellGrid, CellDiff};
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::layout::line_display_width;
 use crate::protocol::{Attribute, Color, CursorMode, Face, Line};
 
 // ---------------------------------------------------------------------------
@@ -132,12 +133,6 @@ pub fn render_frame(state: &AppState, grid: &mut CellGrid) {
 // ---------------------------------------------------------------------------
 // Shared helpers (used by menu.rs and info.rs)
 // ---------------------------------------------------------------------------
-
-fn line_display_width(line: &Line) -> usize {
-    line.iter()
-        .map(|atom| UnicodeWidthStr::width(atom.contents.as_str()))
-        .sum()
-}
 
 /// Render a protocol Line with word-boundary wrapping at `max_width` columns
 /// (matching Kakoune's `wrap_lines`).
