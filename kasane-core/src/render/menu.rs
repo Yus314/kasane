@@ -82,37 +82,37 @@ pub(super) fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
 // ---------------------------------------------------------------------------
 
 /// Draw a vertical scrollbar in the rightmost column of a region.
-/// `total_lines` is the total number of logical rows, `first_line` is the
-/// index of the first visible row, `visible` is the height of the viewport.
+/// Uses Kakoune's scrollbar calculation from terminal_ui.cc draw_menu.
 fn draw_scrollbar(
     grid: &mut CellGrid,
     x: u16,
     y_start: u16,
-    visible: u16,
-    total_lines: u16,
-    first_line: u16,
+    win_height: u16,
+    menu: &MenuState,
     face: &crate::protocol::Face,
 ) {
-    if visible == 0 || total_lines == 0 {
+    let wh = win_height as i32;
+    let item_count = menu.items.len() as i32;
+    let columns = menu.columns.max(1);
+    if wh == 0 || item_count == 0 {
         return;
     }
-    let bar_h = ((visible as u32 * visible as u32) / total_lines as u32)
-        .max(1)
-        .min(visible as u32) as u16;
-    let max_scroll = total_lines.saturating_sub(visible);
-    let bar_y = if max_scroll == 0 {
-        0
-    } else {
-        ((first_line as u32) * (visible.saturating_sub(bar_h)) as u32 / max_scroll as u32) as u16
-    };
 
-    for row in 0..visible {
-        let ch = if row >= bar_y && row < bar_y + bar_h {
+    // Kakoune terminal_ui.cc draw_menu scrollbar
+    let menu_lines = (item_count + columns - 1) / columns;
+    let mark_h = ((wh * wh + menu_lines - 1) / menu_lines).min(wh);
+    let menu_cols = (item_count + wh - 1) / wh;
+    let first_col = menu.first_item / wh;
+    let denom = (menu_cols - columns).max(1);
+    let mark_y = ((wh - mark_h) * first_col / denom).max(0).min(wh - mark_h);
+
+    for row in 0..wh {
+        let ch = if row >= mark_y && row < mark_y + mark_h {
             "█"
         } else {
             "░"
         };
-        grid.put_char(x, y_start + row, ch, face);
+        grid.put_char(x, y_start + row as u16, ch, face);
     }
 }
 
@@ -153,13 +153,11 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         return;
     }
 
-    let wh = menu.win_height as i32;
-    let first_col = menu.first_item / wh;
-    let menu_lines = (menu.items.len() as i32 + wh - 1) / wh;
+    let first_item = menu.first_item.max(0);
 
-    // Fill and draw items (column-major, single column for inline)
+    // Fill and draw items (row-based vertical scroll for inline)
     for line in 0..win.height {
-        let item_idx = first_col * wh + line as i32;
+        let item_idx = first_item + line as i32;
         let y = win.y + line;
 
         let face = if item_idx >= 0
@@ -194,8 +192,7 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         win.x + content_w,
         win.y,
         win.height,
-        menu_lines as u16,
-        first_col as u16,
+        menu,
         &menu.menu_face,
     );
 }
@@ -214,11 +211,11 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
     let status_row = grid.height.saturating_sub(1);
     let wh = menu.win_height;
     let columns = menu.columns;
+    let stride = wh as i32;
 
     // -1 for scrollbar column
     let col_w = ((grid.width.saturating_sub(1)) as usize / columns as usize).max(1);
-    let first_col = menu.first_item / wh as i32;
-    let menu_lines = (menu.items.len() as i32 + wh as i32 - 1) / wh as i32;
+    let first_col = menu.first_item / stride;
 
     // Menu rows go from (status_row - wh) to (status_row - 1)
     let start_y = status_row.saturating_sub(wh);
@@ -231,7 +228,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
     // Draw items in column-major order
     for col in 0..columns {
         for line in 0..wh {
-            let item_idx = (first_col + col) * wh as i32 + line as i32;
+            let item_idx = (first_col + col) * stride + line as i32;
             if item_idx < 0 || item_idx as usize >= menu.items.len() {
                 continue;
             }
@@ -264,14 +261,12 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
     // Scrollbar on rightmost column
     let scrollbar_x = grid.width.saturating_sub(1);
-    let menu_cols = menu_lines.max(1) as u16;
     draw_scrollbar(
         grid,
         scrollbar_x,
         start_y,
         wh,
-        menu_cols,
-        first_col as u16,
+        menu,
         &menu.menu_face,
     );
 }
@@ -407,6 +402,7 @@ mod tests {
             first_item: 0,
             columns,
             win_height,
+            menu_lines,
         }
     }
 
@@ -640,5 +636,43 @@ mod tests {
         let rect = get_menu_rect(&state).unwrap();
         assert_eq!(rect.h, 1);
         assert_eq!(rect.w, 80);
+    }
+
+    #[test]
+    fn test_render_menu_prompt_stride_uses_win_height() {
+        // 50 items of width 3, screen_w=14 → columns = (14-1)/(3+1) = 3
+        // menu_lines = ceil(50/3) = 17, win_height = min(17, 10) = 10
+        // Stride = win_height = 10 (matching Kakoune terminal_ui.cc)
+        // Column 0 holds items 0..9, column 1 holds items 10..19, etc.
+        let mut grid = CellGrid::new(14, 15);
+        let items: Vec<Line> = (0..50).map(|i| make_line(&format!("{i:>3}"))).collect();
+
+        let ms = make_menu_state(items, MenuStyle::Prompt, -1, 14, 14);
+        // Verify the computed values
+        assert_eq!(ms.columns, 3);
+        assert_eq!(ms.menu_lines, 17);
+        assert_eq!(ms.win_height, 10);
+
+        let state = AppState {
+            menu: Some(ms),
+            cols: 14,
+            rows: 15,
+            ..AppState::default()
+        };
+
+        render_menu(&state, &mut grid);
+
+        // status_row = 14, win_height = 10, start_y = 4
+        let start_y = 4u16;
+        // col_w = (14-1)/3 = 4
+
+        // Column 0, row 0 → item 0 = "  0"
+        assert_eq!(grid.get(2, start_y).unwrap().grapheme, "0");
+        // Column 1, row 0 → item 10 = " 10" (stride = win_height = 10)
+        assert_eq!(grid.get(5, start_y).unwrap().grapheme, "1");
+        assert_eq!(grid.get(6, start_y).unwrap().grapheme, "0");
+        // Column 2, row 0 → item 20 = " 20"
+        assert_eq!(grid.get(9, start_y).unwrap().grapheme, "2");
+        assert_eq!(grid.get(10, start_y).unwrap().grapheme, "0");
     }
 }

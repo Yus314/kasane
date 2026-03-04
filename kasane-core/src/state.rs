@@ -31,6 +31,8 @@ pub struct MenuState {
     pub columns: i32,
     /// Number of visible rows in the menu window.
     pub win_height: u16,
+    /// Total logical rows = ceil(items / columns.max(1)).
+    pub menu_lines: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -169,27 +171,36 @@ impl AppState {
                     first_item: 0,
                     columns,
                     win_height,
+                    menu_lines,
                 });
                 DirtyFlags::MENU
             }
             KakouneRequest::MenuSelect { selected } => {
                 if let Some(menu) = &mut self.menu {
+                    tracing::debug!(
+                        "MenuSelect: selected={}, first_item={}, win_height={}, items={}, columns={}",
+                        selected, menu.first_item, menu.win_height, menu.items.len(), menu.columns,
+                    );
                     menu.selected = selected;
 
-                    if selected >= 0 && menu.win_height > 0 {
+                    if selected >= 0
+                        && (selected as usize) < menu.items.len()
+                        && menu.win_height > 0
+                    {
                         if menu.columns >= 1 {
-                            // Inline/Prompt: column-based scrolling
-                            let wh = menu.win_height as i32;
-                            let selected_col = selected / wh;
-                            let first_col = menu.first_item / wh;
-                            let menu_cols = (menu.items.len() as i32 + wh - 1) / wh;
+                            // Inline & Prompt: unified column-based scrolling
+                            // (stride = win_height, matching Kakoune terminal_ui.cc)
+                            let stride = menu.win_height as i32;
+                            let selected_col = selected / stride;
+                            let first_col = menu.first_item / stride;
+                            let menu_cols =
+                                (menu.items.len() as i32 + stride - 1) / stride;
                             if selected_col < first_col {
-                                menu.first_item = selected_col * wh;
+                                menu.first_item = selected_col * stride;
                             } else if selected_col >= first_col + menu.columns {
-                                let new_first_col =
-                                    selected_col - menu.columns + 1;
                                 menu.first_item =
-                                    new_first_col.min(menu_cols - menu.columns).max(0) * wh;
+                                    selected_col.min(menu_cols - menu.columns).max(0)
+                                        * stride;
                             }
                         } else {
                             // Search (columns == 0): horizontal item scrolling.
@@ -222,6 +233,10 @@ impl AppState {
                                 }
                             }
                         }
+                    } else {
+                        // Out-of-range: reset (Kakoune sets selected=-1, first_item=0)
+                        menu.selected = -1;
+                        menu.first_item = 0;
                     }
                 }
                 DirtyFlags::MENU
