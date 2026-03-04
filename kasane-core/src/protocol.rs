@@ -332,52 +332,44 @@ pub enum KasaneRequest {
     MenuSelect(i32),
 }
 
+#[derive(Serialize)]
+struct JsonRpc<'a, P: Serialize> {
+    jsonrpc: &'static str,
+    method: &'a str,
+    params: P,
+}
+
+fn to_json_rpc<P: Serialize>(method: &str, params: P) -> String {
+    serde_json::to_string(&JsonRpc {
+        jsonrpc: "2.0",
+        method,
+        params,
+    })
+    .expect("KasaneRequest serialization should not fail")
+}
+
 impl KasaneRequest {
     pub fn to_json(&self) -> String {
         match self {
-            KasaneRequest::Keys(keys) => {
-                let keys_json: Vec<String> = keys.iter().map(|k| format!("{k:?}")).collect();
-                format!(
-                    r#"{{"jsonrpc":"2.0","method":"keys","params":[{}]}}"#,
-                    keys_json.join(",")
-                )
-            }
-            KasaneRequest::Resize { rows, cols } => {
-                format!(r#"{{"jsonrpc":"2.0","method":"resize","params":[{rows},{cols}]}}"#)
-            }
-            KasaneRequest::MousePress {
+            Self::Keys(keys) => to_json_rpc("keys", keys),
+            Self::Resize { rows, cols } => to_json_rpc("resize", (rows, cols)),
+            Self::MousePress {
                 button,
                 line,
                 column,
-            } => {
-                format!(
-                    r#"{{"jsonrpc":"2.0","method":"mouse_press","params":["{button}",{line},{column}]}}"#
-                )
-            }
-            KasaneRequest::MouseRelease {
+            } => to_json_rpc("mouse_press", (button, line, column)),
+            Self::MouseRelease {
                 button,
                 line,
                 column,
-            } => {
-                format!(
-                    r#"{{"jsonrpc":"2.0","method":"mouse_release","params":["{button}",{line},{column}]}}"#
-                )
-            }
-            KasaneRequest::MouseMove { line, column } => {
-                format!(r#"{{"jsonrpc":"2.0","method":"mouse_move","params":[{line},{column}]}}"#)
-            }
-            KasaneRequest::Scroll {
+            } => to_json_rpc("mouse_release", (button, line, column)),
+            Self::MouseMove { line, column } => to_json_rpc("mouse_move", (line, column)),
+            Self::Scroll {
                 amount,
                 line,
                 column,
-            } => {
-                format!(
-                    r#"{{"jsonrpc":"2.0","method":"scroll","params":[{amount},{line},{column}]}}"#
-                )
-            }
-            KasaneRequest::MenuSelect(index) => {
-                format!(r#"{{"jsonrpc":"2.0","method":"menu_select","params":[{index}]}}"#)
-            }
+            } => to_json_rpc("scroll", (amount, line, column)),
+            Self::MenuSelect(index) => to_json_rpc("menu_select", (index,)),
         }
     }
 }
@@ -851,7 +843,11 @@ mod tests {
     fn test_kasane_request_keys_json() {
         let req = KasaneRequest::Keys(vec!["a".into(), "<c-x>".into()]);
         let json = req.to_json();
-        assert!(json.contains(r#""method":"keys""#));
+        assert_eq!(
+            json,
+            r#"{"jsonrpc":"2.0","method":"keys","params":["a","<c-x>"]}"#
+        );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
     }
 
     #[test]
@@ -862,6 +858,77 @@ mod tests {
             json,
             r#"{"jsonrpc":"2.0","method":"resize","params":[24,80]}"#
         );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_kasane_request_mouse_press_json() {
+        let req = KasaneRequest::MousePress {
+            button: "left".into(),
+            line: 5,
+            column: 10,
+        };
+        let json = req.to_json();
+        assert_eq!(
+            json,
+            r#"{"jsonrpc":"2.0","method":"mouse_press","params":["left",5,10]}"#
+        );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_kasane_request_mouse_release_json() {
+        let req = KasaneRequest::MouseRelease {
+            button: "left".into(),
+            line: 5,
+            column: 10,
+        };
+        let json = req.to_json();
+        assert_eq!(
+            json,
+            r#"{"jsonrpc":"2.0","method":"mouse_release","params":["left",5,10]}"#
+        );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_kasane_request_mouse_move_json() {
+        let req = KasaneRequest::MouseMove {
+            line: 5,
+            column: 10,
+        };
+        let json = req.to_json();
+        assert_eq!(
+            json,
+            r#"{"jsonrpc":"2.0","method":"mouse_move","params":[5,10]}"#
+        );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_kasane_request_scroll_json() {
+        let req = KasaneRequest::Scroll {
+            amount: 3,
+            line: 5,
+            column: 10,
+        };
+        let json = req.to_json();
+        assert_eq!(
+            json,
+            r#"{"jsonrpc":"2.0","method":"scroll","params":[3,5,10]}"#
+        );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn test_kasane_request_menu_select_json() {
+        let req = KasaneRequest::MenuSelect(2);
+        let json = req.to_json();
+        assert_eq!(
+            json,
+            r#"{"jsonrpc":"2.0","method":"menu_select","params":[2]}"#
+        );
+        let _: serde_json::Value = serde_json::from_str(&json).unwrap();
     }
 
     #[test]
