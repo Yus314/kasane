@@ -5,8 +5,8 @@ use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
 use kasane_core::input::{self, InputEvent};
-use kasane_core::protocol::{CursorMode, KakouneRequest, KasaneRequest};
-use kasane_core::render::{CellGrid, CursorStyle, RenderBackend, cursor_position, render_frame};
+use kasane_core::protocol::{KakouneRequest, KasaneRequest};
+use kasane_core::render::{CellGrid, RenderBackend, cursor_position, cursor_style, render_frame};
 use kasane_core::state::AppState;
 use kasane_tui::backend::TuiBackend;
 use kasane_tui::input::convert_event;
@@ -199,19 +199,7 @@ fn main() -> Result<()> {
             render_frame(&state, &mut grid);
             backend.draw(&grid.diff())?;
             let (cx, cy) = cursor_position(&state, &grid);
-            let cursor_style = state
-                .ui_options
-                .get("kasane_cursor_style")
-                .map(|s| match s.as_str() {
-                    "bar" => CursorStyle::Bar,
-                    "underline" => CursorStyle::Underline,
-                    _ => CursorStyle::Block,
-                })
-                .unwrap_or(if state.cursor_mode == CursorMode::Prompt {
-                    CursorStyle::Bar
-                } else {
-                    CursorStyle::Block
-                });
+            let cursor_style = cursor_style(&state);
             backend.show_cursor(cx, cy, cursor_style)?;
             backend.end_frame()?;
             backend.flush()?;
