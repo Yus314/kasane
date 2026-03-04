@@ -48,15 +48,8 @@ pub(super) fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
         }
         MenuStyle::Inline => {
             let screen_h = state.rows.saturating_sub(1);
-            let longest = menu
-                .items
-                .iter()
-                .map(line_display_width)
-                .max()
-                .unwrap_or(1)
-                .max(1) as u16;
             // +1 for scrollbar
-            let win_w = (longest + 1).min(state.cols);
+            let win_w = (menu.max_item_width + 1).min(state.cols);
             let win = crate::layout::layout_menu_inline(
                 &menu.anchor,
                 win_w,
@@ -129,16 +122,8 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         return;
     }
 
-    let longest = menu
-        .items
-        .iter()
-        .map(line_display_width)
-        .max()
-        .unwrap_or(1)
-        .max(1) as u16;
-
     // content width + 1 for scrollbar
-    let win_w = (longest + 1).min(grid.width);
+    let win_w = (menu.max_item_width + 1).min(grid.width);
     let content_w = win_w.saturating_sub(1);
     let screen_h = grid.height.saturating_sub(1);
 
@@ -365,45 +350,28 @@ mod tests {
         screen_w: u16,
         screen_h: u16,
     ) -> MenuState {
-        let longest = items
-            .iter()
-            .map(line_display_width)
-            .max()
-            .unwrap_or(1)
-            .max(1);
-        let anchor = Coord { line: 0, column: 0 };
-        let columns = match style {
-            MenuStyle::Search => 0,
-            MenuStyle::Inline => 1,
-            MenuStyle::Prompt => {
-                ((screen_w.saturating_sub(1)) as usize / (longest + 1)).max(1) as i32
-            }
-        };
-        let max_height: u16 = match style {
-            MenuStyle::Search => 1,
-            MenuStyle::Inline => {
-                let above = anchor.line as u16;
-                let below = screen_h.saturating_sub(anchor.line as u16 + 1);
-                10u16.min(above.max(below))
-            }
-            MenuStyle::Prompt => 10u16.min(screen_h),
-        };
-        let effective_cols = columns.max(1);
-        let menu_lines = (items.len() as i32 + effective_cols - 1) / effective_cols;
-        let win_height = (menu_lines as u16).min(max_height);
+        make_menu_state_at(items, style, selected, Coord { line: 0, column: 0 }, screen_w, screen_h)
+    }
 
-        MenuState {
+    fn make_menu_state_at(
+        items: Vec<Line>,
+        style: MenuStyle,
+        selected: i32,
+        anchor: Coord,
+        screen_w: u16,
+        screen_h: u16,
+    ) -> MenuState {
+        let mut ms = MenuState::new(
             items,
             anchor,
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
+            Face::default(),
+            Face::default(),
             style,
-            selected,
-            first_item: 0,
-            columns,
-            win_height,
-            menu_lines,
-        }
+            screen_w,
+            screen_h,
+        );
+        ms.selected = selected;
+        ms
     }
 
     #[test]
@@ -564,8 +532,7 @@ mod tests {
         // Verify inline menu has no border/shadow
         let mut grid = CellGrid::new(40, 20);
         let items = vec![make_line("item1"), make_line("item2")];
-        let mut ms = make_menu_state(items, MenuStyle::Inline, 0, 40, 19);
-        ms.anchor = Coord { line: 5, column: 5 };
+        let ms = make_menu_state_at(items, MenuStyle::Inline, 0, Coord { line: 5, column: 5 }, 40, 19);
         let state = AppState {
             menu: Some(ms),
             cols: 40,
@@ -586,8 +553,7 @@ mod tests {
         // Inline menu with enough items to need scrollbar
         let mut grid = CellGrid::new(40, 20);
         let items: Vec<Line> = (0..20).map(|i| make_line(&format!("item{i:>2}"))).collect();
-        let mut ms = make_menu_state(items, MenuStyle::Inline, 0, 40, 19);
-        ms.anchor = Coord { line: 2, column: 0 };
+        let ms = make_menu_state_at(items, MenuStyle::Inline, 0, Coord { line: 2, column: 0 }, 40, 19);
         let state = AppState {
             menu: Some(ms),
             cols: 40,

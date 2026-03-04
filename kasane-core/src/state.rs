@@ -33,6 +33,70 @@ pub struct MenuState {
     pub win_height: u16,
     /// Total logical rows = ceil(items / columns.max(1)).
     pub menu_lines: i32,
+    /// Maximum display width of any single item.
+    pub max_item_width: u16,
+}
+
+impl MenuState {
+    /// Create a new MenuState with derived layout fields computed from items and screen dimensions.
+    ///
+    /// `screen_h` is the available height **excluding** the status bar row
+    /// (i.e. `rows.saturating_sub(1)`).
+    pub fn new(
+        items: Vec<Line>,
+        anchor: Coord,
+        selected_item_face: Face,
+        menu_face: Face,
+        style: MenuStyle,
+        screen_w: u16,
+        screen_h: u16,
+    ) -> Self {
+        let max_item_width = items
+            .iter()
+            .map(line_display_width)
+            .max()
+            .unwrap_or(1)
+            .max(1) as u16;
+
+        let columns = match style {
+            MenuStyle::Search => 0,
+            MenuStyle::Inline => 1,
+            MenuStyle::Prompt => {
+                // -1 for scrollbar column
+                ((screen_w.saturating_sub(1)) as usize / (max_item_width as usize + 1)).max(1)
+                    as i32
+            }
+        };
+
+        let max_height = match style {
+            MenuStyle::Search => 1u16,
+            MenuStyle::Inline => {
+                let above = anchor.line as u16;
+                let below = screen_h.saturating_sub(anchor.line as u16 + 1);
+                10u16.min(above.max(below))
+            }
+            MenuStyle::Prompt => 10u16.min(screen_h),
+        };
+
+        let item_count = items.len() as i32;
+        let effective_cols = columns.max(1);
+        let menu_lines = (item_count + effective_cols - 1) / effective_cols;
+        let win_height = (menu_lines as u16).min(max_height);
+
+        Self {
+            items,
+            anchor,
+            selected_item_face,
+            menu_face,
+            style,
+            selected: -1,
+            first_item: 0,
+            columns,
+            win_height,
+            menu_lines,
+            max_item_width,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -127,52 +191,10 @@ impl AppState {
                 menu_face,
                 style,
             } => {
-                let screen_w = self.cols;
-                let screen_h = self.rows.saturating_sub(1); // exclude status bar
-
-                let longest = items
-                    .iter()
-                    .map(line_display_width)
-                    .max()
-                    .unwrap_or(1)
-                    .max(1);
-
-                let columns = match style {
-                    MenuStyle::Search => 0,
-                    MenuStyle::Inline => 1,
-                    MenuStyle::Prompt => {
-                        // -1 for scrollbar column
-                        ((screen_w.saturating_sub(1)) as usize / (longest + 1)).max(1) as i32
-                    }
-                };
-
-                let max_height = match style {
-                    MenuStyle::Search => 1u16,
-                    MenuStyle::Inline => {
-                        let above = anchor.line as u16;
-                        let below = screen_h.saturating_sub(anchor.line as u16 + 1);
-                        10u16.min(above.max(below))
-                    }
-                    MenuStyle::Prompt => 10u16.min(screen_h),
-                };
-
-                let item_count = items.len() as i32;
-                let effective_cols = columns.max(1);
-                let menu_lines = (item_count + effective_cols - 1) / effective_cols;
-                let win_height = (menu_lines as u16).min(max_height);
-
-                self.menu = Some(MenuState {
-                    items,
-                    anchor,
-                    selected_item_face,
-                    menu_face,
-                    style,
-                    selected: -1,
-                    first_item: 0,
-                    columns,
-                    win_height,
-                    menu_lines,
-                });
+                let screen_h = self.rows.saturating_sub(1);
+                self.menu = Some(MenuState::new(
+                    items, anchor, selected_item_face, menu_face, style, self.cols, screen_h,
+                ));
                 DirtyFlags::MENU
             }
             KakouneRequest::MenuSelect { selected } => {
