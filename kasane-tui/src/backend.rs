@@ -8,7 +8,10 @@ use crossterm::{
         self, Attribute as CtAttribute, Color as CtColor, SetAttribute, SetBackgroundColor,
         SetForegroundColor, SetUnderlineColor,
     },
-    terminal::{self, BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        self, BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 use kasane_core::protocol::{Attributes, Color, Face, NamedColor};
 use kasane_core::render::{CellDiff, CursorStyle, RenderBackend};
@@ -92,10 +95,7 @@ impl RenderBackend for TuiBackend {
                 )?;
 
                 if face.underline != Color::Default {
-                    queue!(
-                        self.buf,
-                        SetUnderlineColor(convert_color(face.underline))
-                    )?;
+                    queue!(self.buf, SetUnderlineColor(convert_color(face.underline)))?;
                 }
 
                 for attr in face.attributes.iter() {
@@ -132,6 +132,7 @@ impl RenderBackend for TuiBackend {
             CursorStyle::Block => cursor::SetCursorStyle::SteadyBlock,
             CursorStyle::Bar => cursor::SetCursorStyle::SteadyBar,
             CursorStyle::Underline => cursor::SetCursorStyle::SteadyUnderScore,
+            CursorStyle::Outline => cursor::SetCursorStyle::DefaultUserShape,
         };
         queue!(self.buf, cursor::MoveTo(x, y), ct_style, cursor::Show)?;
         Ok(())

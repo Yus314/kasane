@@ -1,10 +1,9 @@
-use crate::protocol::{Coord, InfoStyle, Line};
-use super::{
-    FloatingWindow, Rect,
-    compute_pos, line_display_width, word_wrap_line_height, word_wrap_max_row_width,
-    PROMPT_ASSISTANT_MIN_HEIGHT, PROMPT_ASSISTANT_WIDTH,
-};
 use super::text::trim_trailing_empty;
+use super::{
+    FloatingWindow, PROMPT_ASSISTANT_MIN_HEIGHT, PROMPT_ASSISTANT_WIDTH, Rect, compute_pos,
+    line_display_width, word_wrap_line_height, word_wrap_max_row_width,
+};
+use crate::protocol::{Coord, InfoStyle, Line};
 
 /// Lay out an info floating window.
 /// Long content lines are wrapped at the popup width (matching Kakoune behaviour).
@@ -286,7 +285,15 @@ mod tests {
             w: 20,
             h: 5,
         };
-        let win = layout_info(&title, &content, &anchor, InfoStyle::Inline, 80, 24, Some(menu));
+        let win = layout_info(
+            &title,
+            &content,
+            &anchor,
+            InfoStyle::Inline,
+            80,
+            24,
+            Some(menu),
+        );
         // Should not overlap with menu (y=6..11)
         let win_bot = win.y + win.height;
         assert!(win.y >= 11 || win_bot <= 6, "info should not overlap menu");
@@ -307,7 +314,15 @@ mod tests {
             w: 20,
             h: 8,
         };
-        let win = layout_info(&title, &content, &anchor, InfoStyle::MenuDoc, 80, 24, Some(menu));
+        let win = layout_info(
+            &title,
+            &content,
+            &anchor,
+            InfoStyle::MenuDoc,
+            80,
+            24,
+            Some(menu),
+        );
         // Should be placed to the right of the menu
         assert!(win.x >= 20, "menuDoc should be to the right of menu");
     }
@@ -327,7 +342,15 @@ mod tests {
             w: 20,
             h: 8,
         };
-        let win = layout_info(&title, &content, &anchor, InfoStyle::MenuDoc, 80, 24, Some(menu));
+        let win = layout_info(
+            &title,
+            &content,
+            &anchor,
+            InfoStyle::MenuDoc,
+            80,
+            24,
+            Some(menu),
+        );
         // Should be placed to the left of the menu
         assert!(
             win.x + win.width <= 60,
@@ -347,7 +370,15 @@ mod tests {
             w: 20,
             h: 5,
         };
-        let win_with_menu = layout_info(&title, &content, &anchor, InfoStyle::Inline, 80, 24, Some(menu));
+        let win_with_menu = layout_info(
+            &title,
+            &content,
+            &anchor,
+            InfoStyle::Inline,
+            80,
+            24,
+            Some(menu),
+        );
         let win_no_menu = layout_info(&title, &content, &anchor, InfoStyle::Inline, 80, 24, None);
         // With menu, max height is reduced so the info should be shorter
         assert!(win_with_menu.height <= win_no_menu.height);
@@ -382,8 +413,24 @@ mod tests {
         let content_with_empty = vec![make_line("line1"), make_line("")];
         let content_without = vec![make_line("line1")];
         let anchor = Coord { line: 0, column: 0 };
-        let w1 = layout_info(&title, &content_with_empty, &anchor, InfoStyle::Inline, 80, 24, None);
-        let w2 = layout_info(&title, &content_without, &anchor, InfoStyle::Inline, 80, 24, None);
+        let w1 = layout_info(
+            &title,
+            &content_with_empty,
+            &anchor,
+            InfoStyle::Inline,
+            80,
+            24,
+            None,
+        );
+        let w2 = layout_info(
+            &title,
+            &content_without,
+            &anchor,
+            InfoStyle::Inline,
+            80,
+            24,
+            None,
+        );
         // Trailing empty line should not affect height
         assert_eq!(w1.height, w2.height);
     }

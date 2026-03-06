@@ -2,8 +2,14 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
+use crate::input;
+use crate::input::{KeyEvent, MouseEvent};
 use crate::layout::line_display_width;
-use crate::protocol::{Coord, CursorMode, Face, InfoStyle, KakouneRequest, Line, MenuStyle};
+use crate::plugin::{Command, PluginRegistry};
+use crate::protocol::{
+    Coord, CursorMode, Face, InfoStyle, KakouneRequest, KasaneRequest, Line, MenuStyle,
+};
+use crate::render::CellGrid;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +88,7 @@ impl MenuState {
 
         let item_count = items.len();
         let cols = columns as usize;
-        let menu_lines = ((item_count + cols - 1) / cols) as u16;
+        let menu_lines = item_count.div_ceil(cols) as u16;
         let win_height = menu_lines.min(max_height);
 
         Self {
@@ -125,12 +131,11 @@ impl MenuState {
         let selected_col = selected / stride;
         let first_col = self.first_item / stride;
         let columns = self.columns as usize;
-        let menu_cols = (self.items.len() + stride - 1) / stride;
+        let menu_cols = self.items.len().div_ceil(stride);
         if selected_col < first_col {
             self.first_item = selected_col * stride;
         } else if selected_col >= first_col + columns {
-            self.first_item =
-                selected_col.min(menu_cols.saturating_sub(columns)) * stride;
+            self.first_item = selected_col.min(menu_cols.saturating_sub(columns)) * stride;
         }
     }
 
@@ -192,6 +197,13 @@ pub struct AppState {
     // Options
     pub ui_options: HashMap<String, String>,
 
+    // Focus
+    pub focused: bool,
+
+    // Config-driven UI settings
+    pub shadow_enabled: bool,
+    pub padding_char: String,
+
     // Screen size
     pub cols: u16,
     pub rows: u16,
@@ -211,6 +223,9 @@ impl Default for AppState {
             menu: None,
             info: None,
             ui_options: HashMap::new(),
+            focused: true,
+            shadow_enabled: true,
+            padding_char: "~".to_string(),
             cols: 80,
             rows: 24,
         }
@@ -254,7 +269,13 @@ impl AppState {
             } => {
                 let screen_h = self.rows.saturating_sub(1);
                 self.menu = Some(MenuState::new(
-                    items, anchor, selected_item_face, menu_face, style, self.cols, screen_h,
+                    items,
+                    anchor,
+                    selected_item_face,
+                    menu_face,
+                    style,
+                    self.cols,
+                    screen_h,
                 ));
                 DirtyFlags::MENU
             }
@@ -262,7 +283,11 @@ impl AppState {
                 if let Some(menu) = &mut self.menu {
                     tracing::debug!(
                         "MenuSelect: selected={}, first_item={}, win_height={}, items={}, columns={}",
-                        selected, menu.first_item, menu.win_height, menu.items.len(), menu.columns,
+                        selected,
+                        menu.first_item,
+                        menu.win_height,
+                        menu.items.len(),
+                        menu.columns,
                     );
                     menu.select(selected);
                 }
@@ -303,6 +328,75 @@ impl AppState {
                     DirtyFlags::BUFFER | DirtyFlags::STATUS
                 }
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TEA: Msg → update() → Vec<Command>
+// ---------------------------------------------------------------------------
+
+/// Messages that drive the application state machine.
+pub enum Msg {
+    Kakoune(KakouneRequest),
+    Key(KeyEvent),
+    Mouse(MouseEvent),
+    Resize { cols: u16, rows: u16 },
+    FocusGained,
+    FocusLost,
+}
+
+/// Process a message, updating state and returning dirty flags + side-effect commands.
+pub fn update(
+    state: &mut AppState,
+    msg: Msg,
+    registry: &mut PluginRegistry,
+    grid: &mut CellGrid,
+    scroll_amount: i32,
+) -> (DirtyFlags, Vec<Command>) {
+    match msg {
+        Msg::Kakoune(req) => {
+            let flags = state.apply(req);
+            (flags, vec![])
+        }
+        Msg::Key(key) => {
+            // Ask plugins to handle the key first
+            for plugin in registry.plugins_mut() {
+                if let Some(commands) = plugin.handle_key(&key, state) {
+                    return (DirtyFlags::empty(), commands);
+                }
+            }
+            // No plugin handled it → forward to Kakoune
+            let kak_key = input::key_to_kakoune(&key);
+            let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
+            (DirtyFlags::empty(), vec![cmd])
+        }
+        Msg::Mouse(mouse) => {
+            let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
+                vec![Command::SendToKakoune(req)]
+            } else {
+                vec![]
+            };
+            (DirtyFlags::empty(), cmds)
+        }
+        Msg::Resize { cols, rows } => {
+            state.cols = cols;
+            state.rows = rows;
+            grid.resize(cols, rows);
+            grid.invalidate_all();
+            let cmd = Command::SendToKakoune(KasaneRequest::Resize {
+                rows: rows.saturating_sub(1),
+                cols,
+            });
+            (DirtyFlags::ALL, vec![cmd])
+        }
+        Msg::FocusGained => {
+            state.focused = true;
+            (DirtyFlags::ALL, vec![])
+        }
+        Msg::FocusLost => {
+            state.focused = false;
+            (DirtyFlags::ALL, vec![])
         }
     }
 }
@@ -575,5 +669,114 @@ mod tests {
         menu.select(3);
         assert_eq!(menu.selected, None);
         assert_eq!(menu.first_item, 0);
+    }
+
+    // --- TEA update() tests ---
+
+    #[test]
+    fn test_update_key_forwards_to_kakoune() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let key = crate::input::KeyEvent {
+            key: crate::input::Key::Char('a'),
+            modifiers: crate::input::Modifiers::empty(),
+        };
+        let (flags, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        assert!(flags.is_empty());
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            Command::SendToKakoune(req) => {
+                assert_eq!(
+                    *req,
+                    crate::protocol::KasaneRequest::Keys(vec!["a".to_string()])
+                );
+            }
+            _ => panic!("expected SendToKakoune"),
+        }
+    }
+
+    #[test]
+    fn test_update_kakoune_draw() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let (flags, commands) = update(
+            &mut state,
+            Msg::Kakoune(KakouneRequest::Draw {
+                lines: vec![make_line("hello")],
+                default_face: Face::default(),
+                padding_face: Face::default(),
+            }),
+            &mut registry,
+            &mut grid,
+            3,
+        );
+        assert!(flags.contains(DirtyFlags::BUFFER));
+        assert!(commands.is_empty());
+        assert_eq!(state.lines.len(), 1);
+    }
+
+    #[test]
+    fn test_update_focus_lost() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let (flags, _) = update(&mut state, Msg::FocusLost, &mut registry, &mut grid, 3);
+        assert_eq!(flags, DirtyFlags::ALL);
+        assert!(!state.focused);
+    }
+
+    #[test]
+    fn test_update_focus_gained() {
+        let mut state = AppState::default();
+        state.focused = false;
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let (flags, _) = update(&mut state, Msg::FocusGained, &mut registry, &mut grid, 3);
+        assert_eq!(flags, DirtyFlags::ALL);
+        assert!(state.focused);
+    }
+
+    #[test]
+    fn test_update_plugin_handles_key() {
+        use crate::plugin::{Plugin, PluginId};
+
+        struct KeyPlugin;
+        impl Plugin for KeyPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("key_plugin".into())
+            }
+            fn handle_key(
+                &mut self,
+                _key: &crate::input::KeyEvent,
+                _state: &AppState,
+            ) -> Option<Vec<Command>> {
+                Some(vec![Command::SendToKakoune(
+                    crate::protocol::KasaneRequest::Keys(vec!["<esc>".to_string()]),
+                )])
+            }
+        }
+
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(KeyPlugin));
+        let mut grid = CellGrid::new(80, 24);
+        let key = crate::input::KeyEvent {
+            key: crate::input::Key::Char('a'),
+            modifiers: crate::input::Modifiers::empty(),
+        };
+        let (flags, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        assert!(flags.is_empty());
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            Command::SendToKakoune(req) => {
+                assert_eq!(
+                    *req,
+                    crate::protocol::KasaneRequest::Keys(vec!["<esc>".to_string()])
+                );
+            }
+            _ => panic!("expected SendToKakoune from plugin"),
+        }
     }
 }

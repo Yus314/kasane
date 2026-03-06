@@ -1,13 +1,10 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::element::{
-    BorderStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
-};
+use crate::element::{BorderStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::{
-    self, line_display_width, layout_info, layout_menu_inline,
-    word_wrap_line_height, word_wrap_segments,
+    self, layout_info, layout_menu_inline, line_display_width, word_wrap_segments,
 };
-use crate::plugin::{PluginRegistry, Slot};
+use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, Slot};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::state::{AppState, InfoState, MenuState};
 
@@ -21,12 +18,15 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_left = registry.collect_slot(Slot::BufferLeft, state);
     let buffer_right = registry.collect_slot(Slot::BufferRight, state);
     let above_status = registry.collect_slot(Slot::AboveStatus, state);
+    let status_left = registry.collect_slot(Slot::StatusLeft, state);
+    let status_right = registry.collect_slot(Slot::StatusRight, state);
     let plugin_overlays = registry.collect_slot(Slot::Overlay, state);
 
     // Build buffer row (center area + optional sidebars)
     let buffer_element = Element::buffer_ref(0..buffer_rows);
     let buffer_row = if buffer_left.is_empty() && buffer_right.is_empty() {
-        FlexChild::flexible(buffer_element, 1.0)
+        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
+        FlexChild::flexible(decorated, 1.0)
     } else {
         let mut row_children = Vec::new();
         for el in buffer_left {
@@ -36,11 +36,16 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
         for el in buffer_right {
             row_children.push(FlexChild::fixed(el));
         }
-        FlexChild::flexible(Element::row(row_children), 1.0)
+        let row = Element::row(row_children);
+        let decorated = registry.apply_decorator(DecorateTarget::Buffer, row, state);
+        FlexChild::flexible(decorated, 1.0)
     };
 
-    // Build status bar
-    let status_bar = build_status_bar(state);
+    // Build status bar (with replacement + decorator support)
+    let status_bar = registry
+        .get_replacement(ReplaceTarget::StatusBar, state)
+        .unwrap_or_else(|| build_status_bar(state, status_left, status_right));
+    let status_bar = registry.apply_decorator(DecorateTarget::StatusBar, status_bar, state);
 
     // Build main column
     let mut column_children = Vec::new();
@@ -62,14 +67,38 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     let mut overlays = Vec::new();
 
     if let Some(ref menu) = state.menu {
-        if let Some(overlay) = build_menu_overlay(menu, state) {
+        let replace_target = match menu.style {
+            MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
+            MenuStyle::Inline => ReplaceTarget::MenuInline,
+            MenuStyle::Search => ReplaceTarget::MenuSearch,
+        };
+        let menu_overlay = match registry.get_replacement(replace_target, state) {
+            Some(replacement) => build_replacement_menu_overlay(replacement, menu, state),
+            None => build_menu_overlay(menu, state),
+        };
+        if let Some(mut overlay) = menu_overlay {
+            overlay.element =
+                registry.apply_decorator(DecorateTarget::Menu, overlay.element, state);
             overlays.push(overlay);
         }
     }
 
     if let Some(ref info_state) = state.info {
         let menu_rect = super::menu::get_menu_rect(state);
-        if let Some(overlay) = build_info_overlay(info_state, state, menu_rect) {
+        let replace_target = match info_state.style {
+            InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
+            InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
+            _ => None,
+        };
+        let info_overlay = match replace_target.and_then(|t| registry.get_replacement(t, state)) {
+            Some(replacement) => {
+                build_replacement_info_overlay(replacement, info_state, state, menu_rect)
+            }
+            None => build_info_overlay(info_state, state, menu_rect),
+        };
+        if let Some(mut overlay) = info_overlay {
+            overlay.element =
+                registry.apply_decorator(DecorateTarget::Info, overlay.element, state);
             overlays.push(overlay);
         }
     }
@@ -93,14 +122,26 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     }
 }
 
-fn build_status_bar(state: &AppState) -> Element {
-    let status_line = build_styled_line_with_base(&state.status_line, &state.status_default_face, 0);
-    let mode_line = build_styled_line_with_base(&state.status_mode_line, &state.status_default_face, 0);
+fn build_status_bar(
+    state: &AppState,
+    status_left: Vec<Element>,
+    status_right: Vec<Element>,
+) -> Element {
+    let status_line =
+        build_styled_line_with_base(&state.status_line, &state.status_default_face, 0);
+    let mode_line =
+        build_styled_line_with_base(&state.status_mode_line, &state.status_default_face, 0);
     let mode_width = line_display_width(&state.status_mode_line) as u16;
 
-    // Status bar: fill with status_default_face, status_line left, mode_line right
-    // We model this as a Container with the status face containing a row
-    let mut children = vec![FlexChild::flexible(status_line, 1.0)];
+    // Status bar: [...status_left, status_line(flex:1.0), ...status_right, mode_line(fixed)]
+    let mut children = Vec::new();
+    for el in status_left {
+        children.push(FlexChild::fixed(el));
+    }
+    children.push(FlexChild::flexible(status_line, 1.0));
+    for el in status_right {
+        children.push(FlexChild::fixed(el));
+    }
     if mode_width > 0 {
         children.push(FlexChild::fixed(mode_line));
     }
@@ -111,12 +152,97 @@ fn build_status_bar(state: &AppState) -> Element {
         shadow: false,
         padding: Edges::ZERO,
         style: Style::from(state.status_default_face),
+        title: None,
     }
 }
 
 // ---------------------------------------------------------------------------
 // Menu overlay construction
 // ---------------------------------------------------------------------------
+
+/// Build a menu overlay using a replacement element with the same anchor as the default.
+fn build_replacement_menu_overlay(
+    element: Element,
+    menu: &MenuState,
+    state: &AppState,
+) -> Option<Overlay> {
+    if menu.items.is_empty() || menu.win_height == 0 {
+        return None;
+    }
+
+    let anchor = match menu.style {
+        MenuStyle::Inline => {
+            let win_w = (menu.max_item_width + 1).min(state.cols);
+            let screen_h = state.rows.saturating_sub(1);
+            let win =
+                layout_menu_inline(&menu.anchor, win_w, menu.win_height, state.cols, screen_h);
+            if win.width == 0 || win.height == 0 {
+                return None;
+            }
+            OverlayAnchor::Absolute {
+                x: win.x,
+                y: win.y,
+                w: win.width,
+                h: win.height,
+            }
+        }
+        MenuStyle::Prompt => {
+            let status_row = state.rows.saturating_sub(1);
+            let start_y = status_row.saturating_sub(menu.win_height);
+            OverlayAnchor::Absolute {
+                x: 0,
+                y: start_y,
+                w: state.cols,
+                h: menu.win_height,
+            }
+        }
+        MenuStyle::Search => {
+            let status_row = state.rows.saturating_sub(1);
+            let y = status_row.saturating_sub(1);
+            OverlayAnchor::Absolute {
+                x: 0,
+                y,
+                w: state.cols,
+                h: 1,
+            }
+        }
+    };
+
+    Some(Overlay { element, anchor })
+}
+
+/// Build an info overlay using a replacement element with the same anchor as the default.
+fn build_replacement_info_overlay(
+    element: Element,
+    info: &InfoState,
+    state: &AppState,
+    menu_rect: Option<crate::layout::Rect>,
+) -> Option<Overlay> {
+    let screen_h = state.rows.saturating_sub(1);
+    let win = layout_info(
+        &info.title,
+        &info.content,
+        &info.anchor,
+        info.style,
+        state.cols,
+        screen_h,
+        menu_rect,
+    );
+
+    if win.width == 0 || win.height == 0 {
+        return None;
+    }
+
+    Some(Overlay {
+        element,
+        anchor: OverlayAnchor::Absolute {
+            x: win.x,
+            y: win.y,
+            w: win.width,
+            h: win.height,
+        },
+    })
+}
 
 fn build_menu_overlay(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     if menu.items.is_empty() || menu.win_height == 0 {
@@ -135,13 +261,7 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     let content_w = win_w.saturating_sub(1);
     let screen_h = state.rows.saturating_sub(1);
 
-    let win = layout_menu_inline(
-        &menu.anchor,
-        win_w,
-        menu.win_height,
-        state.cols,
-        screen_h,
-    );
+    let win = layout_menu_inline(&menu.anchor, win_w, menu.win_height, state.cols, screen_h);
     if win.width == 0 || win.height == 0 {
         return None;
     }
@@ -168,6 +288,7 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(face),
+            title: None,
         };
 
         item_rows.push(FlexChild::fixed(padded));
@@ -230,6 +351,7 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
                 shadow: false,
                 padding: Edges::ZERO,
                 style: Style::from(face),
+                title: None,
             };
 
             cols.push(FlexChild::flexible(padded, 1.0));
@@ -253,6 +375,7 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(menu.menu_face),
+            title: None,
         },
         anchor: OverlayAnchor::Absolute {
             x: 0,
@@ -336,6 +459,7 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
         shadow: false,
         padding: Edges::ZERO,
         style: Style::from(menu.menu_face),
+        title: None,
     };
 
     Some(Overlay {
@@ -357,9 +481,9 @@ fn build_scrollbar(win_height: u16, menu: &MenuState, face: &Face) -> Element {
         return Element::Empty;
     }
 
-    let menu_lines = (item_count + columns - 1) / columns;
-    let mark_h = ((wh * wh + menu_lines - 1) / menu_lines).min(wh);
-    let menu_cols = (item_count + wh - 1) / wh;
+    let menu_lines = item_count.div_ceil(columns);
+    let mark_h = (wh * wh).div_ceil(menu_lines).min(wh);
+    let menu_cols = item_count.div_ceil(wh);
     let first_col = menu.first_item / wh;
     let denom = menu_cols.saturating_sub(columns).max(1);
     let mark_y = ((wh - mark_h) * first_col / denom).min(wh - mark_h);
@@ -428,7 +552,7 @@ fn build_info_overlay(
 
     let element = match info.style {
         InfoStyle::Prompt => build_info_prompt(info, &win),
-        InfoStyle::Modal => build_info_framed(info, &win),
+        InfoStyle::Modal => build_info_framed(info, &win, state.shadow_enabled),
         InfoStyle::Inline | InfoStyle::InlineAbove | InfoStyle::MenuDoc => {
             build_info_nonframed(info, &win)
         }
@@ -482,26 +606,15 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
     let assistant_col = Element::column(asst_rows);
 
     // Build content lines with word wrapping
-    let max_visible_rows = (total_h - 2) as u16;
-    let wrapped_lines = wrap_content_lines(trimmed, cw, max_visible_rows, &info.face);
-    let _truncated = {
-        let total_wrapped: u16 = trimmed
-            .iter()
-            .map(|line| word_wrap_line_height(line, cw))
-            .sum();
-        total_wrapped > max_visible_rows
-    };
+    // Frame height is determined by content, not the full popup height
+    let frame_content_h = total_h.saturating_sub(2) as u16;
+    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &info.face);
+    let frame_h = (wrapped_lines.len() as u16 + 2).min(total_h as u16);
 
     // Build framed content area
     let mut content_rows: Vec<FlexChild> = Vec::new();
     for line in &wrapped_lines {
         content_rows.push(FlexChild::fixed(Element::StyledLine(line.clone())));
-    }
-
-    // Pad remaining rows
-    let used = wrapped_lines.len() as u16;
-    for _ in used..max_visible_rows {
-        content_rows.push(FlexChild::fixed(Element::text("", info.face)));
     }
 
     let content_col = Element::column(content_rows);
@@ -518,27 +631,47 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
             left: 1,
         },
         style: Style::from(info.face),
+        title: if info.title.is_empty() {
+            None
+        } else {
+            Some(info.title.clone())
+        },
     };
 
-    // Combine assistant + framed content
-    let row = Element::row(vec![
+    // Use Stack: assistant fills full popup height, frame overlays at natural height
+    let frame_w = win.width.saturating_sub(ASSISTANT_WIDTH);
+    let base = Element::row(vec![
         FlexChild::fixed(assistant_col),
-        FlexChild::flexible(framed_content, 1.0),
+        FlexChild::flexible(Element::text("", info.face), 1.0),
     ]);
-
-    // Wrap in container for background fill
-    let container = Element::Container {
-        child: Box::new(row),
-        border: None,
-        shadow: false,
-        padding: Edges::ZERO,
-        style: Style::from(info.face),
-    };
+    let container = Element::stack(
+        Element::Container {
+            child: Box::new(base),
+            border: None,
+            shadow: false,
+            padding: Edges::ZERO,
+            style: Style::from(info.face),
+            title: None,
+        },
+        vec![Overlay {
+            element: framed_content,
+            anchor: OverlayAnchor::Absolute {
+                x: ASSISTANT_WIDTH,
+                y: 0,
+                w: frame_w,
+                h: frame_h,
+            },
+        }],
+    );
 
     Some(container)
 }
 
-fn build_info_framed(info: &InfoState, win: &layout::FloatingWindow) -> Option<Element> {
+fn build_info_framed(
+    info: &InfoState,
+    win: &layout::FloatingWindow,
+    shadow: bool,
+) -> Option<Element> {
     let inner_w = win.width.saturating_sub(4).max(1);
     let inner_h = win.height.saturating_sub(2);
 
@@ -554,7 +687,7 @@ fn build_info_framed(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
     let framed = Element::Container {
         child: Box::new(content_col),
         border: Some(BorderStyle::Rounded),
-        shadow: true,
+        shadow,
         padding: Edges {
             top: 0,
             right: 1,
@@ -562,6 +695,11 @@ fn build_info_framed(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
             left: 1,
         },
         style: Style::from(info.face),
+        title: if info.title.is_empty() {
+            None
+        } else {
+            Some(info.title.clone())
+        },
     };
 
     Some(framed)
@@ -583,6 +721,7 @@ fn build_info_nonframed(info: &InfoState, win: &layout::FloatingWindow) -> Optio
         shadow: false,
         padding: Edges::ZERO,
         style: Style::from(info.face),
+        title: None,
     };
 
     Some(container)
@@ -644,8 +783,7 @@ fn wrap_content_lines(
             let mut current_face: Option<Face> = None;
             let mut current_text = String::new();
 
-            for i in seg.start..seg.end {
-                let (grapheme, face, _) = graphemes[i];
+            for &(grapheme, face, _) in &graphemes[seg.start..seg.end] {
                 if current_face == Some(face) {
                     current_text.push_str(grapheme);
                 } else {
@@ -774,12 +912,15 @@ mod tests {
             contents: "normal".to_string(),
         }];
 
-        let status_bar = build_status_bar(&state);
+        let status_bar = build_status_bar(&state, vec![], vec![]);
 
         // Extract StyledLine atoms from the Container > Row > children
         let row = match &status_bar {
             Element::Container { child, .. } => child.as_ref(),
-            other => panic!("expected Container, got {:?}", std::mem::discriminant(other)),
+            other => panic!(
+                "expected Container, got {:?}",
+                std::mem::discriminant(other)
+            ),
         };
         let children = match row {
             Element::Flex { children, .. } => children,
@@ -790,27 +931,138 @@ mod tests {
         match &children[0].element {
             Element::StyledLine(atoms) => {
                 for atom in atoms {
-                    assert_eq!(atom.face.fg, Color::Named(NamedColor::Cyan),
-                        "status_line fg should be resolved from status_default_face");
-                    assert_eq!(atom.face.bg, Color::Named(NamedColor::Magenta),
-                        "status_line bg should be resolved from status_default_face");
+                    assert_eq!(
+                        atom.face.fg,
+                        Color::Named(NamedColor::Cyan),
+                        "status_line fg should be resolved from status_default_face"
+                    );
+                    assert_eq!(
+                        atom.face.bg,
+                        Color::Named(NamedColor::Magenta),
+                        "status_line bg should be resolved from status_default_face"
+                    );
                 }
             }
-            other => panic!("expected StyledLine, got {:?}", std::mem::discriminant(other)),
+            other => panic!(
+                "expected StyledLine, got {:?}",
+                std::mem::discriminant(other)
+            ),
         }
 
         // Check mode_line atoms
         match &children[1].element {
             Element::StyledLine(atoms) => {
                 for atom in atoms {
-                    assert_eq!(atom.face.fg, Color::Named(NamedColor::Cyan),
-                        "mode_line fg should be resolved from status_default_face");
-                    assert_eq!(atom.face.bg, Color::Named(NamedColor::Magenta),
-                        "mode_line bg should be resolved from status_default_face");
+                    assert_eq!(
+                        atom.face.fg,
+                        Color::Named(NamedColor::Cyan),
+                        "mode_line fg should be resolved from status_default_face"
+                    );
+                    assert_eq!(
+                        atom.face.bg,
+                        Color::Named(NamedColor::Magenta),
+                        "mode_line bg should be resolved from status_default_face"
+                    );
                 }
             }
-            other => panic!("expected StyledLine, got {:?}", std::mem::discriminant(other)),
+            other => panic!(
+                "expected StyledLine, got {:?}",
+                std::mem::discriminant(other)
+            ),
         }
+    }
+
+    #[test]
+    fn test_status_left_slot_in_status_bar() {
+        use crate::plugin::{Plugin, PluginId};
+
+        struct StatusLeftPlugin;
+        impl Plugin for StatusLeftPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("status_left".into())
+            }
+            fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
+                match slot {
+                    Slot::StatusLeft => Some(Element::text("[L]", Face::default())),
+                    _ => None,
+                }
+            }
+        }
+
+        let mut state = AppState::default();
+        state.status_line = make_line("status");
+        state.status_mode_line = make_line("normal");
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(StatusLeftPlugin));
+
+        let el = view(&state, &registry);
+
+        // The status bar is the last child of the root column.
+        // It should now have 3 children: [L], status_line (flex), mode_line.
+        match &el {
+            Element::Flex { children, .. } => {
+                let status = &children.last().unwrap().element;
+                match status {
+                    Element::Container { child, .. } => match child.as_ref() {
+                        Element::Flex { children, .. } => {
+                            assert_eq!(
+                                children.len(),
+                                3,
+                                "should have status_left + status_line + mode_line"
+                            );
+                        }
+                        _ => panic!("expected Flex row"),
+                    },
+                    _ => panic!("expected Container"),
+                }
+            }
+            _ => panic!("expected Column"),
+        }
+    }
+
+    #[test]
+    fn test_info_framed_shadow_disabled() {
+        let mut state = AppState::default();
+        state.cols = 80;
+        state.rows = 24;
+        state.shadow_enabled = false;
+        state.apply(crate::protocol::KakouneRequest::InfoShow {
+            title: make_line("Help"),
+            content: vec![make_line("content")],
+            anchor: Coord { line: 0, column: 0 },
+            face: Face::default(),
+            style: InfoStyle::Modal,
+        });
+
+        let registry = PluginRegistry::new();
+        let el = view(&state, &registry);
+
+        // Find the info overlay's framed Container
+        fn find_shadow(el: &Element) -> Option<bool> {
+            match el {
+                Element::Container {
+                    shadow,
+                    border: Some(_),
+                    ..
+                } => Some(*shadow),
+                Element::Stack { overlays, .. } => {
+                    overlays.iter().find_map(|o| find_shadow(&o.element))
+                }
+                Element::Container { child, .. } => find_shadow(child),
+                Element::Flex { children, .. } => {
+                    children.iter().find_map(|c| find_shadow(&c.element))
+                }
+                _ => None,
+            }
+        }
+
+        let shadow = find_shadow(&el);
+        assert_eq!(
+            shadow,
+            Some(false),
+            "shadow should be false when shadow_enabled is false"
+        );
     }
 
     #[test]

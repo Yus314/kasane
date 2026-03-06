@@ -1,5 +1,5 @@
-use crate::protocol::Coord;
 use super::{FloatingWindow, Rect};
+use crate::protocol::Coord;
 
 /// Kakoune-compatible positioning algorithm (`compute_pos` in `terminal_ui.cc`).
 ///

@@ -1,14 +1,17 @@
+pub mod flex;
+mod info;
+mod position;
 mod text;
 mod word_wrap;
-mod position;
-mod info;
 
-pub use text::{
-    is_word_char, line_display_width, PROMPT_ASSISTANT_MIN_HEIGHT, PROMPT_ASSISTANT_WIDTH,
-};
-pub use word_wrap::{word_wrap_line_height, word_wrap_max_row_width};
-pub use position::{compute_pos, layout_menu_inline};
 pub use info::layout_info;
+pub use position::{compute_pos, layout_menu_inline};
+pub use text::{
+    PROMPT_ASSISTANT_MIN_HEIGHT, PROMPT_ASSISTANT_WIDTH, is_word_char, line_display_width,
+};
+pub use word_wrap::{
+    WrapSegment, word_wrap_line_height, word_wrap_max_row_width, word_wrap_segments,
+};
 
 #[derive(Debug, Clone)]
 pub struct FloatingWindow {
@@ -19,7 +22,7 @@ pub struct FloatingWindow {
 }
 
 /// A rectangle on screen (used for obstacle avoidance).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
     pub x: u16,
     pub y: u16,

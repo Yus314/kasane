@@ -70,7 +70,12 @@ impl Edges {
 
 #[derive(Debug, Clone)]
 pub enum OverlayAnchor {
-    Absolute { x: u16, y: u16, w: u16, h: u16 },
+    Absolute {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    },
     AnchorPoint {
         coord: Coord,
         prefer_above: bool,
@@ -139,6 +144,7 @@ pub enum Element {
         shadow: bool,
         padding: Edges,
         style: Style,
+        title: Option<Line>,
     },
     Empty,
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
@@ -194,6 +200,7 @@ impl Element {
             shadow: false,
             padding: Edges::ZERO,
             style,
+            title: None,
         }
     }
 }

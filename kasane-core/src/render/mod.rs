@@ -1,10 +1,10 @@
 mod grid;
-pub(crate) mod menu;
 mod info;
+pub(crate) mod menu;
 pub mod paint;
 pub mod view;
 
-pub use grid::{Cell, CellGrid, CellDiff};
+pub use grid::{Cell, CellDiff, CellGrid};
 
 use crate::protocol::CursorMode;
 use crate::state::AppState;
@@ -18,12 +18,17 @@ pub enum CursorStyle {
     Block,
     Bar,
     Underline,
+    Outline,
 }
 
 pub trait RenderBackend {
     fn size(&self) -> (u16, u16);
-    fn begin_frame(&mut self) -> anyhow::Result<()> { Ok(()) }
-    fn end_frame(&mut self) -> anyhow::Result<()> { Ok(()) }
+    fn begin_frame(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn end_frame(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn draw(&mut self, diffs: &[CellDiff]) -> anyhow::Result<()>;
     fn flush(&mut self) -> anyhow::Result<()>;
     fn show_cursor(&mut self, x: u16, y: u16, style: CursorStyle) -> anyhow::Result<()>;
@@ -105,6 +110,9 @@ pub fn cursor_style(state: &AppState) -> CursorStyle {
             _ => CursorStyle::Block,
         };
     }
+    if !state.focused {
+        return CursorStyle::Outline;
+    }
     if state.cursor_mode == CursorMode::Prompt {
         return CursorStyle::Bar;
     }
@@ -122,7 +130,7 @@ pub fn cursor_style(state: &AppState) -> CursorStyle {
 /// In non-block cursor modes (insert/replace), clear the PrimaryCursor face
 /// highlight from the cursor cell so the terminal cursor shape is visible.
 pub fn clear_block_cursor_face(state: &AppState, grid: &mut CellGrid, style: CursorStyle) {
-    if style == CursorStyle::Block {
+    if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
     }
     let cx = state.cursor_pos.column as u16;
@@ -147,10 +155,10 @@ pub fn clear_block_cursor_face(state: &AppState, grid: &mut CellGrid, style: Cur
 #[cfg(test)]
 fn render_frame(state: &AppState, grid: &mut CellGrid) {
     grid.clear(&state.default_face);
-    render_buffer(state, grid);       // Layer 0
-    render_status(state, grid);       // Layer 1
-    menu::render_menu(state, grid);   // Layer 2 (+ shadow)
-    info::render_info(state, grid);   // Layer 3 (+ shadow)
+    render_buffer(state, grid); // Layer 0
+    render_status(state, grid); // Layer 1
+    menu::render_menu(state, grid); // Layer 2 (+ shadow)
+    info::render_info(state, grid); // Layer 3 (+ shadow)
     // Cursor face is already applied by Kakoune in draw data.
     // Terminal cursor positioning is handled separately via backend.show_cursor().
 }
@@ -423,6 +431,23 @@ mod tests {
     }
 
     #[test]
+    fn test_cursor_style_unfocused_outline() {
+        let mut state = AppState::default();
+        state.focused = false;
+        assert_eq!(cursor_style(&state), CursorStyle::Outline);
+    }
+
+    #[test]
+    fn test_cursor_style_ui_option_overrides_unfocused() {
+        let mut state = AppState::default();
+        state.focused = false;
+        state
+            .ui_options
+            .insert("kasane_cursor_style".into(), "bar".into());
+        assert_eq!(cursor_style(&state), CursorStyle::Bar);
+    }
+
+    #[test]
     fn test_cursor_style_ui_option_overrides_mode_line() {
         let mut state = AppState::default();
         state
@@ -533,7 +558,10 @@ mod tests {
     #[test]
     fn test_clear_block_cursor_face_out_of_bounds() {
         let mut state = AppState::default();
-        state.cursor_pos = crate::protocol::Coord { line: 100, column: 100 };
+        state.cursor_pos = crate::protocol::Coord {
+            line: 100,
+            column: 100,
+        };
 
         let mut grid = CellGrid::new(10, 5);
         // Should not panic
@@ -547,6 +575,248 @@ mod tests {
             face: Face::default(),
             contents: s.to_string(),
         }]
+    }
+
+    /// Tree-sitter colors: verify that explicit RGB colors in atoms survive the
+    /// full declarative pipeline (view → layout → paint) and match the old pipeline.
+    #[test]
+    fn test_treesitter_rgb_colors_preserved() {
+        let mut state = AppState::default();
+        state.cols = 40;
+        state.rows = 5;
+        state.default_face = Face {
+            fg: Color::Named(NamedColor::White),
+            bg: Color::Named(NamedColor::Black),
+            ..Face::default()
+        };
+        state.padding_face = state.default_face;
+        state.status_default_face = state.default_face;
+
+        // Simulate tree-sitter: atoms with explicit RGB fg, Default bg
+        let keyword_face = Face {
+            fg: Color::Rgb {
+                r: 255,
+                g: 100,
+                b: 0,
+            },
+            bg: Color::Default,
+            ..Face::default()
+        };
+        let string_face = Face {
+            fg: Color::Rgb {
+                r: 0,
+                g: 200,
+                b: 100,
+            },
+            bg: Color::Default,
+            ..Face::default()
+        };
+        let ts_line = vec![
+            Atom {
+                face: keyword_face,
+                contents: "fn".to_string(),
+            },
+            Atom {
+                face: Face::default(),
+                contents: " ".to_string(),
+            },
+            Atom {
+                face: string_face,
+                contents: "main".to_string(),
+            },
+        ];
+        state.lines = vec![ts_line];
+        state.status_line = make_line("status");
+
+        // Old pipeline
+        let mut grid_old = CellGrid::new(state.cols, state.rows);
+        render_frame(&state, &mut grid_old);
+
+        // New pipeline
+        let mut grid_new = CellGrid::new(state.cols, state.rows);
+        grid_new.clear(&state.default_face);
+        let registry = PluginRegistry::new();
+        let element = view::view(&state, &registry);
+        let root_area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
+        let layout_result = flex::place(&element, root_area, &state);
+        paint::paint(&element, &layout_result, &mut grid_new, &state);
+
+        // Check tree-sitter colors in buffer row 0
+        // "fn" at columns 0-1 should have keyword_face fg
+        let cell_f = grid_new.get(0, 0).unwrap();
+        assert_eq!(cell_f.grapheme, "f");
+        assert_eq!(
+            cell_f.face.fg,
+            Color::Rgb {
+                r: 255,
+                g: 100,
+                b: 0
+            },
+            "tree-sitter keyword fg lost in declarative pipeline"
+        );
+        assert_eq!(
+            cell_f.face.bg,
+            Color::Named(NamedColor::Black),
+            "tree-sitter keyword bg not resolved against default_face"
+        );
+
+        let cell_n = grid_new.get(1, 0).unwrap();
+        assert_eq!(cell_n.grapheme, "n");
+        assert_eq!(
+            cell_n.face.fg,
+            Color::Rgb {
+                r: 255,
+                g: 100,
+                b: 0
+            }
+        );
+
+        // " " at column 2 should have default_face (resolved from Default)
+        let cell_sp = grid_new.get(2, 0).unwrap();
+        assert_eq!(
+            cell_sp.face.fg,
+            Color::Named(NamedColor::White),
+            "default space fg should resolve to default_face.fg"
+        );
+
+        // "main" at columns 3-6 should have string_face fg
+        let cell_m = grid_new.get(3, 0).unwrap();
+        assert_eq!(cell_m.grapheme, "m");
+        assert_eq!(
+            cell_m.face.fg,
+            Color::Rgb {
+                r: 0,
+                g: 200,
+                b: 100
+            },
+            "tree-sitter string fg lost in declarative pipeline"
+        );
+
+        // Cross-check: old and new pipelines produce identical results
+        for y in 0..state.rows {
+            for x in 0..state.cols {
+                let old = grid_old.get(x, y).unwrap();
+                let new = grid_new.get(x, y).unwrap();
+                assert_eq!(
+                    old.grapheme, new.grapheme,
+                    "grapheme mismatch at ({x}, {y})"
+                );
+                assert_eq!(
+                    old.face.fg, new.face.fg,
+                    "fg mismatch at ({x}, {y}): old={:?} new={:?}",
+                    old.face.fg, new.face.fg
+                );
+                assert_eq!(
+                    old.face.bg, new.face.bg,
+                    "bg mismatch at ({x}, {y}): old={:?} new={:?}",
+                    old.face.bg, new.face.bg
+                );
+            }
+        }
+    }
+
+    /// Multi-frame test: verify tree-sitter colors survive across swap/diff cycles.
+    #[test]
+    fn test_treesitter_colors_persist_across_frames() {
+        let mut state = AppState::default();
+        state.cols = 20;
+        state.rows = 3;
+        state.default_face = Face {
+            fg: Color::Named(NamedColor::White),
+            bg: Color::Named(NamedColor::Black),
+            ..Face::default()
+        };
+        state.padding_face = state.default_face;
+        state.status_default_face = state.default_face;
+
+        let keyword_face = Face {
+            fg: Color::Rgb { r: 255, g: 0, b: 0 },
+            bg: Color::Default,
+            ..Face::default()
+        };
+        state.lines = vec![vec![Atom {
+            face: keyword_face,
+            contents: "let".to_string(),
+        }]];
+        state.status_line = make_line("st");
+
+        let registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(state.cols, state.rows);
+
+        // Frame 1
+        grid.clear(&state.default_face);
+        let el = view::view(&state, &registry);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
+        let layout = flex::place(&el, area, &state);
+        paint::paint(&el, &layout, &mut grid, &state);
+
+        let diffs1 = grid.diff();
+        // First frame: full redraw (previous is empty)
+        assert!(!diffs1.is_empty(), "frame 1 should produce diffs");
+
+        // Check "l" has RGB red fg
+        let l_cell = diffs1.iter().find(|d| d.x == 0 && d.y == 0).unwrap();
+        assert_eq!(
+            l_cell.cell.face.fg,
+            Color::Rgb { r: 255, g: 0, b: 0 },
+            "frame 1: tree-sitter fg lost"
+        );
+
+        grid.swap();
+
+        // Frame 2: same content → diff should be empty (colors retained)
+        grid.clear(&state.default_face);
+        let el = view::view(&state, &registry);
+        let layout = flex::place(&el, area, &state);
+        paint::paint(&el, &layout, &mut grid, &state);
+
+        let diffs2 = grid.diff();
+        assert!(
+            diffs2.is_empty(),
+            "frame 2 with same content should have empty diff, got {} diffs",
+            diffs2.len()
+        );
+
+        grid.swap();
+
+        // Frame 3: new content with different colors
+        let new_face = Face {
+            fg: Color::Rgb { r: 0, g: 0, b: 255 },
+            bg: Color::Default,
+            ..Face::default()
+        };
+        state.lines = vec![vec![Atom {
+            face: new_face,
+            contents: "let".to_string(),
+        }]];
+
+        grid.clear(&state.default_face);
+        let el = view::view(&state, &registry);
+        let layout = flex::place(&el, area, &state);
+        paint::paint(&el, &layout, &mut grid, &state);
+
+        let diffs3 = grid.diff();
+        // Color changed → should detect diff
+        let l_cell3 = diffs3.iter().find(|d| d.x == 0 && d.y == 0);
+        assert!(
+            l_cell3.is_some(),
+            "frame 3: color change should be detected"
+        );
+        assert_eq!(
+            l_cell3.unwrap().cell.face.fg,
+            Color::Rgb { r: 0, g: 0, b: 255 },
+            "frame 3: new tree-sitter color not reflected"
+        );
     }
 
     /// Compare the buffer and status bar regions between old and new pipelines.
@@ -589,7 +859,12 @@ mod tests {
         grid_new.clear(&state.default_face);
         let registry = PluginRegistry::new();
         let element = view::view(&state, &registry);
-        let root_area = Rect { x: 0, y: 0, w: state.cols, h: state.rows };
+        let root_area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
         let layout_result = flex::place(&element, root_area, &state);
         paint::paint(&element, &layout_result, &mut grid_new, &state);
 
@@ -604,14 +879,8 @@ mod tests {
                     "grapheme mismatch at ({x}, {y}): old={:?} new={:?}",
                     old.grapheme, new.grapheme
                 );
-                assert_eq!(
-                    old.face.fg, new.face.fg,
-                    "fg mismatch at ({x}, {y})"
-                );
-                assert_eq!(
-                    old.face.bg, new.face.bg,
-                    "bg mismatch at ({x}, {y})"
-                );
+                assert_eq!(old.face.fg, new.face.fg, "fg mismatch at ({x}, {y})");
+                assert_eq!(old.face.bg, new.face.bg, "bg mismatch at ({x}, {y})");
             }
         }
 

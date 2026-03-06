@@ -1,7 +1,16 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::Line;
 use super::text::is_word_char;
+use crate::protocol::Line;
+
+/// A segment of graphemes that fits on one visual row after word wrapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrapSegment {
+    /// Grapheme index (inclusive).
+    pub start: usize,
+    /// Grapheme index (exclusive).
+    pub end: usize,
+}
 
 /// Collect per-grapheme metrics: `(display_width, is_word_boundary)`.
 ///
@@ -14,6 +23,9 @@ pub(super) fn collect_metrics(line: &Line) -> Vec<(u16, bool)> {
             if grapheme.is_empty() {
                 continue;
             }
+            if grapheme.starts_with(|c: char| c.is_control()) {
+                continue;
+            }
             let w = UnicodeWidthStr::width(grapheme) as u16;
             if w == 0 {
                 continue;
@@ -24,20 +36,19 @@ pub(super) fn collect_metrics(line: &Line) -> Vec<(u16, bool)> {
     metrics
 }
 
-/// Compute the number of visual rows a line occupies when wrapped at word boundaries
-/// (matching Kakoune's `wrap_lines`). Returns at least 1 for non-empty lines.
-pub fn word_wrap_line_height(line: &Line, max_width: u16) -> u16 {
-    if max_width == 0 {
-        return 1;
-    }
-
-    let metrics = collect_metrics(line);
-
+/// Compute word-boundary-aware wrap segments from per-grapheme metrics.
+///
+/// Each segment represents one visual row: the half-open range `[start, end)`
+/// of grapheme indices that fit on that row. The wrap logic matches Kakoune's
+/// `wrap_lines` (overflow check → word-boundary backtrack → forced placement).
+pub fn word_wrap_segments(metrics: &[(u16, bool)], max_width: u16) -> Vec<WrapSegment> {
+    // Caller must ensure max_width > 0.
     if metrics.is_empty() {
-        return 1;
+        return vec![WrapSegment { start: 0, end: 0 }];
     }
 
-    let mut rows = 0u16;
+    let mut segments = Vec::new();
+    let mut row_start = 0usize;
     let mut col = 0u16;
     let mut last_break_idx: Option<usize> = None;
     let mut i = 0;
@@ -47,18 +58,32 @@ pub fn word_wrap_line_height(line: &Line, max_width: u16) -> u16 {
 
         if col + w > max_width {
             if col == 0 {
-                // Single grapheme wider than max_width: force-place it
-                rows += 1;
+                // Single grapheme wider than max_width: force-place it.
+                segments.push(WrapSegment {
+                    start: row_start,
+                    end: i + 1,
+                });
+                row_start = i + 1;
                 i += 1;
                 last_break_idx = None;
                 continue;
             }
-            rows += 1;
-            col = 0;
             if let Some(brk) = last_break_idx {
+                segments.push(WrapSegment {
+                    start: row_start,
+                    end: brk,
+                });
+                row_start = brk;
                 i = brk;
                 last_break_idx = None;
+            } else {
+                segments.push(WrapSegment {
+                    start: row_start,
+                    end: i,
+                });
+                row_start = i;
             }
+            col = 0;
             continue;
         }
 
@@ -69,7 +94,24 @@ pub fn word_wrap_line_height(line: &Line, max_width: u16) -> u16 {
         i += 1;
     }
 
-    rows + 1
+    // Final segment (skip if the last grapheme was force-placed and nothing remains).
+    if row_start < metrics.len() {
+        segments.push(WrapSegment {
+            start: row_start,
+            end: metrics.len(),
+        });
+    }
+    segments
+}
+
+/// Compute the number of visual rows a line occupies when wrapped at word boundaries
+/// (matching Kakoune's `wrap_lines`). Returns at least 1 for non-empty lines.
+pub fn word_wrap_line_height(line: &Line, max_width: u16) -> u16 {
+    if max_width == 0 {
+        return 1;
+    }
+    let metrics = collect_metrics(line);
+    word_wrap_segments(&metrics, max_width).len() as u16
 }
 
 /// Return the maximum display width of any row after word-wrapping a line
@@ -81,51 +123,18 @@ pub fn word_wrap_max_row_width(line: &Line, max_width: u16) -> u16 {
     if max_width == 0 {
         return 0;
     }
-
     let metrics = collect_metrics(line);
-
-    if metrics.is_empty() {
-        return 0;
-    }
-
-    let mut max_row_w = 0u16;
-    let mut col = 0u16;
-    let mut last_break_idx: Option<usize> = None;
-    let mut last_break_col = 0u16;
-    let mut i = 0;
-
-    while i < metrics.len() {
-        let (w, is_boundary) = metrics[i];
-
-        if col + w > max_width {
-            if col == 0 {
-                // Single grapheme wider than max_width: force-place it
-                max_row_w = max_row_w.max(w);
-                i += 1;
-                last_break_idx = None;
-                continue;
-            }
-            if let Some(brk) = last_break_idx {
-                max_row_w = max_row_w.max(last_break_col);
-                i = brk;
-                last_break_idx = None;
-            } else {
-                max_row_w = max_row_w.max(col);
-            }
-            col = 0;
-            continue;
-        }
-
-        col += w;
-        if is_boundary {
-            last_break_idx = Some(i + 1);
-            last_break_col = col;
-        }
-        i += 1;
-    }
-
-    // Account for the last row
-    max_row_w.max(col)
+    let segments = word_wrap_segments(&metrics, max_width);
+    segments
+        .iter()
+        .map(|seg| {
+            metrics[seg.start..seg.end]
+                .iter()
+                .map(|(w, _)| w)
+                .sum::<u16>()
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -223,17 +232,121 @@ mod tests {
     #[test]
     fn test_max_row_width_less_than_budget() {
         // Verify that wrapped width can be strictly less than max_width.
-        // "aaa bbb ccc" in 8-col: "aaa bbb " (8)? Let's check:
-        // a a a ' ' b b b ' ' c c c
-        // col: 1,2,3, 4(brk), 5,6,7, 8(brk), c: 9>8 → break at brk@8 → row=8
-        // Actually 8 == max_width, so let's use a different example.
-        // "aaa bbbbb ccc" in 10-col:
-        // a a a ' ' b b b b b ' ' c c c
-        // col: 1,2,3, 4(brk), 5,6,7,8,9, 10(brk), c: 11>10 → break at brk@10 → row=10
-        // That's 10==max_width again.
         // "aaa bbbb" in 10-col: fits entirely (8 chars) → 8 < 10 ✓
         let line = make_line("aaa bbbb");
         assert_eq!(word_wrap_max_row_width(&line, 10), 8);
-        // But wrapping is only triggered when raw > budget, so let's test via layout_info
+    }
+
+    // ----- word_wrap_segments tests -----
+
+    #[test]
+    fn test_segments_empty_input() {
+        let segments = word_wrap_segments(&[], 10);
+        assert_eq!(segments, vec![WrapSegment { start: 0, end: 0 }]);
+    }
+
+    #[test]
+    fn test_segments_no_wrap() {
+        // "hello" — 5 graphemes, all word chars, fits in 10 cols
+        let metrics: Vec<(u16, bool)> = vec![(1, false); 5];
+        let segments = word_wrap_segments(&metrics, 10);
+        assert_eq!(segments, vec![WrapSegment { start: 0, end: 5 }]);
+    }
+
+    #[test]
+    fn test_segments_word_boundary_wrap() {
+        // "hello world" — break at space: "hello " (6) + "world" (5)
+        // h(1,f) e(1,f) l(1,f) l(1,f) o(1,f) ' '(1,t) w(1,f) o(1,f) r(1,f) l(1,f) d(1,f)
+        let metrics: Vec<(u16, bool)> = vec![
+            (1, false),
+            (1, false),
+            (1, false),
+            (1, false),
+            (1, false),
+            (1, true), // space
+            (1, false),
+            (1, false),
+            (1, false),
+            (1, false),
+            (1, false),
+        ];
+        let segments = word_wrap_segments(&metrics, 8);
+        assert_eq!(
+            segments,
+            vec![
+                WrapSegment { start: 0, end: 6 },
+                WrapSegment { start: 6, end: 11 },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_segments_forced_break_no_boundary() {
+        // "abcdefghij" — 10 chars, no boundaries, max_width=5
+        let metrics: Vec<(u16, bool)> = vec![(1, false); 10];
+        let segments = word_wrap_segments(&metrics, 5);
+        assert_eq!(
+            segments,
+            vec![
+                WrapSegment { start: 0, end: 5 },
+                WrapSegment { start: 5, end: 10 },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_segments_multiple_rows() {
+        // "aa bb cc dd ee" in 6-col → 3 segments
+        // a(1,f) a(1,f) ' '(1,t) b(1,f) b(1,f) ' '(1,t) c(1,f) c(1,f) ' '(1,t)
+        // d(1,f) d(1,f) ' '(1,t) e(1,f) e(1,f)
+        let metrics: Vec<(u16, bool)> = vec![
+            (1, false),
+            (1, false),
+            (1, true), // "aa "
+            (1, false),
+            (1, false),
+            (1, true), // "bb "
+            (1, false),
+            (1, false),
+            (1, true), // "cc "
+            (1, false),
+            (1, false),
+            (1, true), // "dd "
+            (1, false),
+            (1, false), // "ee"
+        ];
+        let segments = word_wrap_segments(&metrics, 6);
+        assert_eq!(
+            segments,
+            vec![
+                WrapSegment { start: 0, end: 6 },
+                WrapSegment { start: 6, end: 12 },
+                WrapSegment { start: 12, end: 14 },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_segments_wide_grapheme_force_place() {
+        // Single wide grapheme (width=3) in max_width=2 → forced placement
+        let metrics: Vec<(u16, bool)> = vec![(3, false)];
+        let segments = word_wrap_segments(&metrics, 2);
+        assert_eq!(segments, vec![WrapSegment { start: 0, end: 1 }]);
+    }
+
+    #[test]
+    fn test_segments_wide_grapheme_after_content() {
+        // "a" (1) then wide (3) in max_width=2
+        // 'a' fits (col=1), wide doesn't (1+3>2), no boundary → forced break
+        // row1: [0,1) = "a", row2: wide forced → [1,2)
+        let metrics: Vec<(u16, bool)> = vec![(1, false), (3, false)];
+        let segments = word_wrap_segments(&metrics, 2);
+        assert_eq!(
+            segments,
+            vec![
+                WrapSegment { start: 0, end: 1 },
+                WrapSegment { start: 1, end: 2 },
+            ]
+        );
     }
 }

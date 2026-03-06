@@ -1,11 +1,11 @@
 use unicode_width::UnicodeWidthStr;
 
+use super::grid::CellGrid;
 use crate::element::{BorderStyle, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::{Attributes, Color, Face};
 use crate::state::AppState;
-use super::grid::CellGrid;
 
 /// Paint an element tree into a CellGrid using pre-computed layout results.
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
@@ -48,8 +48,19 @@ pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, stat
             shadow,
             padding: _,
             style,
+            title,
         } => {
-            paint_container(grid, &area, child, border, *shadow, &style.face, layout, state);
+            paint_container(
+                grid,
+                &area,
+                child,
+                border,
+                *shadow,
+                &style.face,
+                title.as_deref(),
+                layout,
+                state,
+            );
         }
         Element::Scrollable {
             child,
@@ -104,11 +115,12 @@ fn paint_buffer_ref(
         } else {
             // Padding row
             grid.fill_row(y, &state.padding_face);
-            grid.put_char(area.x, y, "~", &state.padding_face);
+            grid.put_char(area.x, y, &state.padding_char, &state.padding_face);
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_container(
     grid: &mut CellGrid,
     area: &Rect,
@@ -116,6 +128,7 @@ fn paint_container(
     border: &Option<BorderStyle>,
     shadow: bool,
     face: &Face,
+    title: Option<&[crate::protocol::Atom]>,
     layout: &LayoutResult,
     state: &AppState,
 ) {
@@ -135,6 +148,10 @@ fn paint_container(
     // Border
     if let Some(border_style) = border {
         paint_border(grid, area, face, false, *border_style);
+        // Title on top border
+        if let Some(title_atoms) = title {
+            paint_border_title(grid, area, face, title_atoms);
+        }
     }
 
     // Paint child
@@ -181,6 +198,37 @@ fn paint_border(
     for y in (y1 + 1)..y2 {
         grid.put_char(x1, y, "│", face);
         grid.put_char(x2, y, "│", face);
+    }
+}
+
+/// Paint title on the top border: ╭─┤title├─╮
+fn paint_border_title(
+    grid: &mut CellGrid,
+    area: &Rect,
+    face: &Face,
+    title: &[crate::protocol::Atom],
+) {
+    use crate::layout::line_display_width;
+    let title_vec = title.to_vec();
+    let title_width = line_display_width(&title_vec);
+    if title_width == 0 || area.w < 6 {
+        return;
+    }
+    // Max title chars that fit: border_w - 2 corners - 2 min dashes - 2 delimiters (┤├)
+    let max_title = ((area.w as usize).saturating_sub(6)).min(title_width) as u16;
+    // Total dashes available on top border (excluding corners)
+    let total_dashes = (area.w as usize).saturating_sub(2);
+    // Dashes consumed by title + delimiters
+    let title_slot = max_title as usize + 2; // ┤ + title + ├
+    let dash_count = total_dashes.saturating_sub(title_slot);
+    let left_dashes = dash_count / 2;
+    // Position: corner(1) + left_dashes + ┤
+    let tx = area.x + 1 + left_dashes as u16;
+    grid.put_char(tx, area.y, "┤", face);
+    grid.put_line_with_base(area.y, tx + 1, &title_vec, max_title, Some(face));
+    let after = tx + 1 + max_title;
+    if after < area.x + area.w - 1 {
+        grid.put_char(after, area.y, "├", face);
     }
 }
 
@@ -296,6 +344,7 @@ mod tests {
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(Face::default()),
+            title: None,
         };
         let area = Rect {
             x: 0,
@@ -315,6 +364,68 @@ mod tests {
     }
 
     #[test]
+    fn test_paint_buffer_ref_custom_padding_char() {
+        let mut state = default_state();
+        state.lines = vec![make_line("line1")];
+        state.cols = 10;
+        state.rows = 4;
+        state.padding_char = "@".to_string();
+
+        let mut grid = CellGrid::new(10, 4);
+        let el = Element::buffer_ref(0..3);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+        paint(&el, &layout, &mut grid, &state);
+
+        // Row 0 = line1, rows 1-2 = padding with "@"
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");
+        assert_eq!(grid.get(0, 1).unwrap().grapheme, "@");
+        assert_eq!(grid.get(0, 2).unwrap().grapheme, "@");
+    }
+
+    #[test]
+    fn test_paint_container_border_title() {
+        let state = default_state();
+        let mut grid = CellGrid::new(20, 10);
+        let el = Element::Container {
+            child: Box::new(Element::text("content", Face::default())),
+            border: Some(BorderStyle::Rounded),
+            shadow: false,
+            padding: Edges::ZERO,
+            style: Style::from(Face::default()),
+            title: Some(make_line("Hi")),
+        };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 12,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+        paint(&el, &layout, &mut grid, &state);
+
+        // Top border: ╭───┤Hi├───╮  (title centered)
+        // w=12, total_dashes=10, title_slot=4(┤Hi├), dash_count=6, left=3, right=3
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "╭");
+        assert_eq!(grid.get(1, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(2, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(3, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(4, 0).unwrap().grapheme, "┤");
+        assert_eq!(grid.get(5, 0).unwrap().grapheme, "H");
+        assert_eq!(grid.get(6, 0).unwrap().grapheme, "i");
+        assert_eq!(grid.get(7, 0).unwrap().grapheme, "├");
+        assert_eq!(grid.get(8, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(9, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(10, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(11, 0).unwrap().grapheme, "╮");
+    }
+
+    #[test]
     fn test_paint_stack_overlays() {
         let state = default_state();
         let mut grid = CellGrid::new(20, 10);
@@ -322,7 +433,12 @@ mod tests {
             Element::text("base_text", Face::default()),
             vec![Overlay {
                 element: Element::text("pop", Face::default()),
-                anchor: OverlayAnchor::Absolute { x: 5, y: 3, w: 3, h: 1 },
+                anchor: OverlayAnchor::Absolute {
+                    x: 5,
+                    y: 3,
+                    w: 3,
+                    h: 1,
+                },
             }],
         );
         let area = root_area(20, 10);

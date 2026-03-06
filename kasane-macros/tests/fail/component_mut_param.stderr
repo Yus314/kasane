@@ -1,0 +1,5 @@
+error: #[kasane_component] functions must be pure: `data` cannot be &mut
+ --> tests/fail/component_mut_param.rs:4:24
+  |
+4 | fn bad_component(data: &mut Vec<u8>) -> usize {
+  |                        ^^^^^^^^^^^^

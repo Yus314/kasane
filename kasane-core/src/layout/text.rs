@@ -24,7 +24,12 @@ pub const PROMPT_ASSISTANT_MIN_HEIGHT: u16 = 7;
 
 pub fn line_display_width(line: &Line) -> usize {
     line.iter()
-        .map(|atom| UnicodeWidthStr::width(atom.contents.as_str()))
+        .map(|atom| {
+            atom.contents
+                .split(|c: char| c.is_control())
+                .map(UnicodeWidthStr::width)
+                .sum::<usize>()
+        })
         .sum()
 }
 
@@ -72,5 +77,18 @@ mod tests {
     fn test_trim_middle_empty_preserved() {
         let content = vec![make_line("a"), make_line(""), make_line("b"), make_line("")];
         assert_eq!(trim_trailing_empty(&content), 3);
+    }
+
+    #[test]
+    fn test_line_display_width_excludes_control_chars() {
+        // Control characters like \n and \r should not contribute to display width
+        let line = make_line("hello\nworld");
+        assert_eq!(line_display_width(&line), 10);
+
+        let line = make_line("abc\r\ndef");
+        assert_eq!(line_display_width(&line), 6);
+
+        let line = make_line("\x01\x02\x03");
+        assert_eq!(line_display_width(&line), 0);
     }
 }

@@ -1,9 +1,9 @@
 use unicode_width::UnicodeWidthStr;
 
+use super::Rect;
 use crate::element::{Align, Direction, Element, FlexChild};
 use crate::layout::line_display_width;
 use crate::state::AppState;
-use super::Rect;
 
 /// Layout constraints passed top-down.
 #[derive(Debug, Clone, Copy)]
@@ -100,8 +100,10 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             };
             let child_size = measure(child, child_constraints, state);
             Size {
-                width: (child_size.width + extra_w).clamp(constraints.min_width, constraints.max_width),
-                height: (child_size.height + extra_h).clamp(constraints.min_height, constraints.max_height),
+                width: (child_size.width + extra_w)
+                    .clamp(constraints.min_width, constraints.max_width),
+                height: (child_size.height + extra_h)
+                    .clamp(constraints.min_height, constraints.max_height),
             }
         }
         Element::Stack { base, .. } => measure(base, constraints, state),
@@ -126,8 +128,12 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             let child_size = measure(child, child_constraints, state);
             // But reports the constrained size
             Size {
-                width: child_size.width.clamp(constraints.min_width, constraints.max_width),
-                height: child_size.height.clamp(constraints.min_height, constraints.max_height),
+                width: child_size
+                    .width
+                    .clamp(constraints.min_width, constraints.max_width),
+                height: child_size
+                    .height
+                    .clamp(constraints.min_height, constraints.max_height),
             }
         }
     }
@@ -193,12 +199,13 @@ fn measure_flex(
 /// Place an element top-down: assign concrete positions to all children.
 pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
     match element {
-        Element::Text(..) | Element::StyledLine(..) | Element::BufferRef { .. } | Element::Empty => {
-            LayoutResult {
-                area,
-                children: vec![],
-            }
-        }
+        Element::Text(..)
+        | Element::StyledLine(..)
+        | Element::BufferRef { .. }
+        | Element::Empty => LayoutResult {
+            area,
+            children: vec![],
+        },
         Element::Flex {
             direction,
             children,
@@ -206,7 +213,15 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
             align,
             cross_align,
             ..
-        } => place_flex(*direction, children, *gap, *align, *cross_align, area, state),
+        } => place_flex(
+            *direction,
+            children,
+            *gap,
+            *align,
+            *cross_align,
+            area,
+            state,
+        ),
         Element::Container {
             child,
             border,
@@ -220,9 +235,7 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
                 w: area
                     .w
                     .saturating_sub(padding.horizontal() + border_size * 2),
-                h: area
-                    .h
-                    .saturating_sub(padding.vertical() + border_size * 2),
+                h: area.h.saturating_sub(padding.vertical() + border_size * 2),
             };
             let child_result = place(child, inner, state);
             LayoutResult {
@@ -265,8 +278,8 @@ fn place_flex(
     direction: Direction,
     children: &[FlexChild],
     gap: u16,
-    _align: Align,
-    _cross_align: Align,
+    align: Align,
+    cross_align: Align,
     area: Rect,
     state: &AppState,
 ) -> LayoutResult {
@@ -294,6 +307,7 @@ fn place_flex(
 
     // Phase 1: measure fixed children, collect flex totals
     let mut child_main_sizes: Vec<u16> = vec![0; children.len()];
+    let mut child_cross_sizes: Vec<u16> = vec![cross_total; children.len()];
     let mut total_fixed = 0u16;
     let mut total_flex = 0.0f32;
 
@@ -306,12 +320,13 @@ fn place_flex(
                 Direction::Row => Constraints::loose(main_total, cross_total),
             };
             let size = measure(&child.element, child_constraints, state);
-            let main = match direction {
-                Direction::Column => size.height,
-                Direction::Row => size.width,
+            let (main, cross) = match direction {
+                Direction::Column => (size.height, size.width),
+                Direction::Row => (size.width, size.height),
             };
             let main = apply_min_max(main, child.min_size, child.max_size);
             child_main_sizes[i] = main;
+            child_cross_sizes[i] = cross;
             total_fixed += main;
         }
     }
@@ -326,7 +341,6 @@ fn place_flex(
             if child.flex > 0.0 {
                 flex_idx += 1;
                 let share = if flex_idx == flex_count {
-                    // Last flex child gets remaining to avoid rounding errors
                     remaining - distributed
                 } else {
                     (remaining as f32 * child.flex / total_flex) as u16
@@ -334,27 +348,67 @@ fn place_flex(
                 let share = apply_min_max(share, child.min_size, child.max_size);
                 child_main_sizes[i] = share;
                 distributed += share;
+                // Measure cross size for flex children too
+                let child_constraints = match direction {
+                    Direction::Column => Constraints::loose(cross_total, share),
+                    Direction::Row => Constraints::loose(share, cross_total),
+                };
+                let size = measure(&child.element, child_constraints, state);
+                let cross = match direction {
+                    Direction::Column => size.width,
+                    Direction::Row => size.height,
+                };
+                child_cross_sizes[i] = cross;
             }
         }
     }
 
+    // Main-axis align: compute start offset (only effective when no flex children)
+    let used_main: u16 = child_main_sizes.iter().sum::<u16>() + total_gaps;
+    let main_offset = if total_flex > 0.0 {
+        0u16
+    } else {
+        let leftover = main_total.saturating_sub(used_main);
+        match align {
+            Align::Start => 0,
+            Align::Center => leftover / 2,
+            Align::End => leftover,
+        }
+    };
+
     // Phase 3: place children sequentially
-    let mut offset = 0u16;
+    let mut offset = main_offset;
     let mut child_results = Vec::with_capacity(children.len());
     for (i, child) in children.iter().enumerate() {
         let main_size = child_main_sizes[i];
+        let child_cross = child_cross_sizes[i];
+
+        // Cross-axis offset
+        let cross_offset = match cross_align {
+            Align::Start => 0u16,
+            Align::Center => cross_total.saturating_sub(child_cross) / 2,
+            Align::End => cross_total.saturating_sub(child_cross),
+        };
+
+        // Cross-axis size: for Start, use full cross_total (current behavior);
+        // for Center/End, use child's measured cross size
+        let child_cross_size = match cross_align {
+            Align::Start => cross_total,
+            Align::Center | Align::End => child_cross,
+        };
+
         let child_area = match direction {
             Direction::Column => Rect {
-                x: area.x,
+                x: area.x + cross_offset,
                 y: area.y + offset,
-                w: cross_total,
+                w: child_cross_size,
                 h: main_size,
             },
             Direction::Row => Rect {
                 x: area.x + offset,
-                y: area.y,
+                y: area.y + cross_offset,
                 w: main_size,
-                h: cross_total,
+                h: child_cross_size,
             },
         };
         let result = place(&child.element, child_area, state);
@@ -383,17 +437,16 @@ fn place_stack(
 
     for overlay in overlays {
         let (ox, oy, ow, oh) = match &overlay.anchor {
-            crate::element::OverlayAnchor::Absolute { x, y, w, h } => (*x, *y, *w, *h),
+            crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
+                (area.x + *x, area.y + *y, *w, *h)
+            }
             crate::element::OverlayAnchor::AnchorPoint {
                 coord,
                 prefer_above,
                 avoid,
             } => {
-                let overlay_size = measure(
-                    &overlay.element,
-                    Constraints::loose(area.w, area.h),
-                    state,
-                );
+                let overlay_size =
+                    measure(&overlay.element, Constraints::loose(area.w, area.h), state);
                 let to_avoid = avoid.first().copied();
                 let (y, x) = crate::layout::compute_pos(
                     (coord.line, coord.column),
@@ -525,6 +578,7 @@ mod tests {
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(Face::default()),
+            title: None,
         };
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.width, 4); // 2 + border(2)
@@ -549,7 +603,12 @@ mod tests {
             Element::Empty,
             vec![crate::element::Overlay {
                 element: Element::text("popup", Face::default()),
-                anchor: crate::element::OverlayAnchor::Absolute { x: 10, y: 5, w: 5, h: 1 },
+                anchor: crate::element::OverlayAnchor::Absolute {
+                    x: 10,
+                    y: 5,
+                    w: 5,
+                    h: 1,
+                },
             }],
         );
         let result = place(&el, root_area(80, 24), &state);
@@ -588,7 +647,12 @@ mod tests {
             Element::Empty,
             vec![crate::element::Overlay {
                 element: overlay_el,
-                anchor: crate::element::OverlayAnchor::Absolute { x: 5, y: 3, w: 10, h: 1 },
+                anchor: crate::element::OverlayAnchor::Absolute {
+                    x: 5,
+                    y: 3,
+                    w: 10,
+                    h: 1,
+                },
             }],
         );
         let result = place(&el, root_area(80, 24), &state);
@@ -625,9 +689,10 @@ mod tests {
         let state = default_state();
         let rows: Vec<FlexChild> = (0..3)
             .map(|_| {
-                FlexChild::fixed(Element::row(vec![
-                    FlexChild::flexible(Element::text("x", Face::default()), 1.0),
-                ]))
+                FlexChild::fixed(Element::row(vec![FlexChild::flexible(
+                    Element::text("x", Face::default()),
+                    1.0,
+                )]))
             })
             .collect();
         let el = Element::column(rows);
@@ -637,5 +702,104 @@ mod tests {
         assert_eq!(result.children[1].area.y, 1);
         assert_eq!(result.children[2].area.y, 2);
         assert_eq!(result.children[0].area.h, 1);
+    }
+
+    #[test]
+    fn test_align_center_column() {
+        let state = default_state();
+        // Column with 2 fixed children (h=1 each) in h=10 area → 8 leftover
+        let el = Element::Flex {
+            direction: Direction::Column,
+            children: vec![
+                FlexChild::fixed(Element::text("a", Face::default())),
+                FlexChild::fixed(Element::text("b", Face::default())),
+            ],
+            gap: 0,
+            align: Align::Center,
+            cross_align: Align::Start,
+        };
+        let result = place(&el, root_area(80, 10), &state);
+        // Center offset = 8 / 2 = 4
+        assert_eq!(result.children[0].area.y, 4);
+        assert_eq!(result.children[1].area.y, 5);
+    }
+
+    #[test]
+    fn test_align_end_row() {
+        let state = default_state();
+        // Row with 1 fixed child (w=3) in w=20 area → 17 leftover
+        let el = Element::Flex {
+            direction: Direction::Row,
+            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            gap: 0,
+            align: Align::End,
+            cross_align: Align::Start,
+        };
+        let result = place(&el, root_area(20, 10), &state);
+        assert_eq!(result.children[0].area.x, 17);
+    }
+
+    #[test]
+    fn test_align_start_unchanged() {
+        let state = default_state();
+        let el = Element::Flex {
+            direction: Direction::Row,
+            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            gap: 0,
+            align: Align::Start,
+            cross_align: Align::Start,
+        };
+        let result = place(&el, root_area(20, 10), &state);
+        assert_eq!(result.children[0].area.x, 0);
+    }
+
+    #[test]
+    fn test_cross_align_center_row() {
+        let state = default_state();
+        // Row with a text child (h=1) in h=10 area → cross center offset = (10-1)/2 = 4
+        let el = Element::Flex {
+            direction: Direction::Row,
+            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            gap: 0,
+            align: Align::Start,
+            cross_align: Align::Center,
+        };
+        let result = place(&el, root_area(20, 10), &state);
+        assert_eq!(result.children[0].area.y, 4);
+        assert_eq!(result.children[0].area.h, 1);
+    }
+
+    #[test]
+    fn test_cross_align_end_column() {
+        let state = default_state();
+        // Column with a text child (w=3) in w=20 area → cross end offset = 20-3 = 17
+        let el = Element::Flex {
+            direction: Direction::Column,
+            children: vec![FlexChild::fixed(Element::text("abc", Face::default()))],
+            gap: 0,
+            align: Align::Start,
+            cross_align: Align::End,
+        };
+        let result = place(&el, root_area(20, 10), &state);
+        assert_eq!(result.children[0].area.x, 17);
+        assert_eq!(result.children[0].area.w, 3);
+    }
+
+    #[test]
+    fn test_align_ignored_with_flex_children() {
+        let state = default_state();
+        // align should be ignored when flex children consume all space
+        let el = Element::Flex {
+            direction: Direction::Row,
+            children: vec![
+                FlexChild::fixed(Element::text("ab", Face::default())),
+                FlexChild::flexible(Element::Empty, 1.0),
+            ],
+            gap: 0,
+            align: Align::End,
+            cross_align: Align::Start,
+        };
+        let result = place(&el, root_area(20, 10), &state);
+        assert_eq!(result.children[0].area.x, 0); // still starts at 0
     }
 }

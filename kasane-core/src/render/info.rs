@@ -1,5 +1,7 @@
-use crate::state::{AppState, InfoState};
+#[cfg(test)]
 use super::grid::CellGrid;
+#[cfg(test)]
+use crate::state::{AppState, InfoState};
 
 // ---------------------------------------------------------------------------
 // Kakoune assistant (clippy)
@@ -7,6 +9,7 @@ use super::grid::CellGrid;
 
 /// The clippy assistant from Kakoune's terminal UI.
 /// Each line is exactly 8 display columns wide.
+#[cfg(test)]
 const ASSISTANT_CLIPPY: &[&str] = &[
     " ╭──╮  ",
     " │  │  ",
@@ -17,8 +20,10 @@ const ASSISTANT_CLIPPY: &[&str] = &[
     " ╰───╯ ",
     "        ",
 ];
+#[cfg(test)]
 const ASSISTANT_WIDTH: u16 = 8;
 
+#[cfg(test)]
 pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {
     let info = match &state.info {
         Some(i) => i,
@@ -47,11 +52,8 @@ pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {
 }
 
 /// Render prompt-style info with the clippy assistant (matches Kakoune's terminal UI).
-fn render_info_prompt(
-    info: &InfoState,
-    grid: &mut CellGrid,
-    win: &crate::layout::FloatingWindow,
-) {
+#[cfg(test)]
+fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
     use crate::layout::word_wrap_line_height;
 
     if win.width < ASSISTANT_WIDTH + 5 || win.height < 3 {
@@ -229,11 +231,8 @@ fn render_info_prompt(
 }
 
 /// Render framed info popup (modal style): border + shadow + title + content.
-fn render_info_framed(
-    info: &InfoState,
-    grid: &mut CellGrid,
-    win: &crate::layout::FloatingWindow,
-) {
+#[cfg(test)]
+fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
     super::draw_shadow(grid, win);
 
     // Framed: │ + space padding on each side → inner offset 2, inner width -4
@@ -261,7 +260,8 @@ fn render_info_framed(
             }
             break;
         }
-        let rows = super::render_wrapped_line(grid, y, inner_x, line, inner_w, Some(&info.face), y_limit);
+        let rows =
+            super::render_wrapped_line(grid, y, inner_x, line, inner_w, Some(&info.face), y_limit);
         y += rows;
     }
     let truncated = !all_rendered;
@@ -298,6 +298,7 @@ fn render_info_framed(
 }
 
 /// Render non-framed info popup (inline, inlineAbove, menuDoc): no border, no shadow.
+#[cfg(test)]
 fn render_info_nonframed(
     info: &InfoState,
     grid: &mut CellGrid,
@@ -319,7 +320,8 @@ fn render_info_nonframed(
         if y >= y_limit {
             break;
         }
-        let rows = super::render_wrapped_line(grid, y, win.x, line, win.width, Some(&info.face), y_limit);
+        let rows =
+            super::render_wrapped_line(grid, y, win.x, line, win.width, Some(&info.face), y_limit);
         y += rows;
     }
 }

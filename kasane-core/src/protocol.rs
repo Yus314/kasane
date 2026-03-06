@@ -560,8 +560,7 @@ fn parse_method(
             Ok(KakouneRequest::SetCursor { mode, coord })
         }
         "menu_show" => {
-            let (items, anchor, selected_item_face, menu_face, style) =
-                de_params(method, params)?;
+            let (items, anchor, selected_item_face, menu_face, style) = de_params(method, params)?;
             Ok(KakouneRequest::MenuShow {
                 items,
                 anchor,

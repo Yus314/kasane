@@ -510,7 +510,6 @@ mod tests {
         assert!(resolved.attributes.contains(Attributes::FINAL_ATTR));
     }
 
-
     #[test]
     fn test_put_line_skips_control_chars() {
         let mut grid = CellGrid::new(20, 1);
@@ -548,6 +547,12 @@ mod tests {
         assert_eq!(grid.get(1, 0).unwrap().grapheme, ";");
         assert_eq!(grid.get(2, 0).unwrap().grapheme, " ");
         // The space from \n carries the atom's strikethrough attribute
-        assert!(grid.get(2, 0).unwrap().face.attributes.contains(Attributes::STRIKETHROUGH));
+        assert!(
+            grid.get(2, 0)
+                .unwrap()
+                .face
+                .attributes
+                .contains(Attributes::STRIKETHROUGH)
+        );
     }
 }

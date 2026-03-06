@@ -1,8 +1,13 @@
+#[cfg(test)]
+use super::grid::CellGrid;
+#[cfg(test)]
 use crate::layout::line_display_width;
 use crate::protocol::MenuStyle;
-use crate::state::{AppState, MenuState};
-use super::grid::CellGrid;
+use crate::state::AppState;
+#[cfg(test)]
+use crate::state::MenuState;
 
+#[cfg(test)]
 pub(super) fn render_menu(state: &AppState, grid: &mut CellGrid) {
     let menu = match &state.menu {
         Some(m) => m,
@@ -18,7 +23,7 @@ pub(super) fn render_menu(state: &AppState, grid: &mut CellGrid) {
 
 /// Compute the screen rectangle of the active menu, for use in info popup placement.
 /// Returns `None` when there is no active menu (or it has zero size).
-pub(super) fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
+pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
     use crate::layout::Rect;
 
     let menu = state.menu.as_ref()?;
@@ -76,6 +81,7 @@ pub(super) fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
 
 /// Draw a vertical scrollbar in the rightmost column of a region.
 /// Uses Kakoune's scrollbar calculation from terminal_ui.cc draw_menu.
+#[cfg(test)]
 fn draw_scrollbar(
     grid: &mut CellGrid,
     x: u16,
@@ -115,6 +121,7 @@ fn draw_scrollbar(
 
 /// Render an inline-style menu: vertical floating window without borders,
 /// with a scrollbar on the right edge.
+#[cfg(test)]
 fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
     use crate::layout::layout_menu_inline;
 
@@ -127,13 +134,7 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
     let content_w = win_w.saturating_sub(1);
     let screen_h = grid.height.saturating_sub(1);
 
-    let win = layout_menu_inline(
-        &menu.anchor,
-        win_w,
-        menu.win_height,
-        grid.width,
-        screen_h,
-    );
+    let win = layout_menu_inline(&menu.anchor, win_w, menu.win_height, grid.width, screen_h);
     if win.width == 0 || win.height == 0 {
         return;
     }
@@ -143,9 +144,7 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         let item_idx = menu.first_item + line as usize;
         let y = win.y + line;
 
-        let face = if item_idx < menu.items.len()
-            && Some(item_idx) == menu.selected
-        {
+        let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
             &menu.selected_item_face
         } else {
             &menu.menu_face
@@ -158,13 +157,7 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
 
         // Draw item text
         if item_idx < menu.items.len() {
-            grid.put_line_with_base(
-                y,
-                win.x,
-                &menu.items[item_idx],
-                content_w,
-                Some(face),
-            );
+            grid.put_line_with_base(y, win.x, &menu.items[item_idx], content_w, Some(face));
         }
     }
 
@@ -185,6 +178,7 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
 
 /// Render a prompt-style menu: horizontal multi-column layout above the status bar.
 /// Items are arranged in column-major order with column-based scrolling.
+#[cfg(test)]
 fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
     if menu.items.is_empty() || menu.win_height == 0 || menu.columns == 0 {
         return;
@@ -243,14 +237,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
     // Scrollbar on rightmost column
     let scrollbar_x = grid.width.saturating_sub(1);
-    draw_scrollbar(
-        grid,
-        scrollbar_x,
-        start_y,
-        wh,
-        menu,
-        &menu.menu_face,
-    );
+    draw_scrollbar(grid, scrollbar_x, start_y, wh, menu, &menu.menu_face);
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +246,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
 /// Render a search-style menu: single line of horizontally laid out items
 /// above the status bar, with `< ` / ` >` scroll indicators.
+#[cfg(test)]
 fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
     if menu.items.is_empty() {
         return;
@@ -347,7 +335,14 @@ mod tests {
         screen_w: u16,
         screen_h: u16,
     ) -> MenuState {
-        make_menu_state_at(items, style, selected, Coord { line: 0, column: 0 }, screen_w, screen_h)
+        make_menu_state_at(
+            items,
+            style,
+            selected,
+            Coord { line: 0, column: 0 },
+            screen_w,
+            screen_h,
+        )
     }
 
     fn make_menu_state_at(
@@ -529,7 +524,14 @@ mod tests {
         // Verify inline menu has no border/shadow
         let mut grid = CellGrid::new(40, 20);
         let items = vec![make_line("item1"), make_line("item2")];
-        let ms = make_menu_state_at(items, MenuStyle::Inline, Some(0), Coord { line: 5, column: 5 }, 40, 19);
+        let ms = make_menu_state_at(
+            items,
+            MenuStyle::Inline,
+            Some(0),
+            Coord { line: 5, column: 5 },
+            40,
+            19,
+        );
         let state = AppState {
             menu: Some(ms),
             cols: 40,
@@ -550,7 +552,14 @@ mod tests {
         // Inline menu with enough items to need scrollbar
         let mut grid = CellGrid::new(40, 20);
         let items: Vec<Line> = (0..20).map(|i| make_line(&format!("item{i:>2}"))).collect();
-        let ms = make_menu_state_at(items, MenuStyle::Inline, Some(0), Coord { line: 2, column: 0 }, 40, 19);
+        let ms = make_menu_state_at(
+            items,
+            MenuStyle::Inline,
+            Some(0),
+            Coord { line: 2, column: 0 },
+            40,
+            19,
+        );
         let state = AppState {
             menu: Some(ms),
             cols: 40,

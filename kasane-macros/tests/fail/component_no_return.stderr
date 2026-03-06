@@ -1,0 +1,5 @@
+error: #[kasane_component] function must have a return type
+ --> tests/fail/component_no_return.rs:4:1
+  |
+4 | fn bad_component(name: &str) {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

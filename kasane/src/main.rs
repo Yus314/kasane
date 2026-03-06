@@ -4,15 +4,17 @@ use anyhow::Result;
 use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
-use kasane_core::input::{self, InputEvent};
+use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::{Command, PluginRegistry};
 use kasane_core::protocol::{KakouneRequest, KasaneRequest};
-use kasane_core::render::{CellGrid, RenderBackend, clear_block_cursor_face, cursor_position, cursor_style};
 use kasane_core::render::paint;
 use kasane_core::render::view;
-use kasane_core::state::AppState;
+use kasane_core::render::{
+    CellGrid, RenderBackend, clear_block_cursor_face, cursor_position, cursor_style,
+};
+use kasane_core::state::{AppState, Msg, update};
 use kasane_tui::backend::TuiBackend;
 use kasane_tui::input::convert_event;
 
@@ -62,11 +64,13 @@ fn main() -> Result<()> {
     let mut state = AppState {
         cols,
         rows,
+        shadow_enabled: config.ui.shadow,
+        padding_char: config.ui.padding_char.clone(),
         ..AppState::default()
     };
 
     // Plugin registry
-    let registry = PluginRegistry::new();
+    let mut registry = PluginRegistry::new();
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
@@ -148,9 +152,8 @@ fn main() -> Result<()> {
 
     // Main event loop
     while let Ok(event) = rx.recv() {
-        let mut needs_render = match event {
+        let msg = match event {
             Event::Kakoune(req) => {
-                state.apply(req);
                 if !initial_resize_sent {
                     initial_resize_sent = true;
                     kak_writer.write_message(
@@ -161,39 +164,44 @@ fn main() -> Result<()> {
                         .to_json(),
                     )?;
                 }
-                true
+                Msg::Kakoune(req)
             }
-            Event::Input(input_event) => {
-                handle_input(
-                    &input_event,
-                    &mut kak_writer,
-                    &mut state,
-                    &mut grid,
-                    &mut backend,
-                    scroll_amount,
-                )?;
-                true
-            }
+            Event::Input(input_event) => input_event_to_msg(input_event),
             Event::KakouneDied => break,
         };
+
+        let (flags, commands) = update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
+        let mut dirty = flags;
+        if execute_commands(commands, &mut kak_writer)? {
+            break;
+        }
 
         // Drain any pending events before rendering (batch processing)
         while let Ok(event) = rx.try_recv() {
             match event {
                 Event::Kakoune(req) => {
-                    state.apply(req);
-                    needs_render = true;
+                    let (flags, commands) = update(
+                        &mut state,
+                        Msg::Kakoune(req),
+                        &mut registry,
+                        &mut grid,
+                        scroll_amount,
+                    );
+                    dirty |= flags;
+                    if execute_commands(commands, &mut kak_writer)? {
+                        backend.cleanup();
+                        return Ok(());
+                    }
                 }
                 Event::Input(input_event) => {
-                    handle_input(
-                        &input_event,
-                        &mut kak_writer,
-                        &mut state,
-                        &mut grid,
-                        &mut backend,
-                        scroll_amount,
-                    )?;
-                    needs_render = true;
+                    let msg = input_event_to_msg(input_event);
+                    let (flags, commands) =
+                        update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
+                    dirty |= flags;
+                    if execute_commands(commands, &mut kak_writer)? {
+                        backend.cleanup();
+                        return Ok(());
+                    }
                 }
                 Event::KakouneDied => {
                     backend.cleanup();
@@ -202,19 +210,25 @@ fn main() -> Result<()> {
             }
         }
 
-        if needs_render {
+        if !dirty.is_empty() {
             backend.begin_frame()?;
 
             // Declarative pipeline: view → layout → paint
             let element = view::view(&state, &registry);
-            let root_area = Rect { x: 0, y: 0, w: state.cols, h: state.rows };
+            let root_area = Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            };
             let layout_result = flex::place(&element, root_area, &state);
             grid.clear(&state.default_face);
             paint::paint(&element, &layout_result, &mut grid, &state);
 
             let cursor_style = cursor_style(&state);
             clear_block_cursor_face(&state, &mut grid, cursor_style);
-            backend.draw(&grid.diff())?;
+            let diffs = grid.diff();
+            backend.draw(&diffs)?;
             let (cx, cy) = cursor_position(&state, &grid);
             backend.show_cursor(cx, cy, cursor_style)?;
             backend.end_frame()?;
@@ -227,42 +241,31 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn handle_input(
-    event: &InputEvent,
-    kak_writer: &mut process::KakouneWriter,
-    state: &mut AppState,
-    grid: &mut CellGrid,
-    _backend: &mut TuiBackend,
-    scroll_amount: i32,
-) -> Result<()> {
+/// Convert an InputEvent into a Msg.
+fn input_event_to_msg(event: InputEvent) -> Msg {
     match event {
-        InputEvent::Key(key_event) => {
-            let kak_key = input::key_to_kakoune(key_event);
-            let msg = KasaneRequest::Keys(vec![kak_key]).to_json();
-            kak_writer.write_message(&msg)?;
-        }
-        InputEvent::Resize(cols, rows) => {
-            state.cols = *cols;
-            state.rows = *rows;
-            grid.resize(*cols, *rows);
-            grid.invalidate_all();
-            let msg = KasaneRequest::Resize {
-                rows: rows.saturating_sub(1),
-                cols: *cols,
-            }
-            .to_json();
-            kak_writer.write_message(&msg)?;
-        }
-        InputEvent::Mouse(mouse_event) => {
-            if let Some(req) = input::mouse_to_kakoune(mouse_event, scroll_amount) {
+        InputEvent::Key(key) => Msg::Key(key),
+        InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
+        InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
+        InputEvent::FocusGained => Msg::FocusGained,
+        InputEvent::FocusLost => Msg::FocusLost,
+    }
+}
+
+/// Execute side-effect commands. Returns `true` if Quit was requested.
+fn execute_commands(
+    commands: Vec<Command>,
+    kak_writer: &mut process::KakouneWriter,
+) -> Result<bool> {
+    for cmd in commands {
+        match cmd {
+            Command::SendToKakoune(req) => {
                 kak_writer.write_message(&req.to_json())?;
             }
-        }
-        InputEvent::FocusGained | InputEvent::FocusLost => {
-            // Could be used for cursor style changes later
+            Command::Quit => return Ok(true),
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 fn parse_cli_args(args: &[String]) -> (Option<String>, Vec<String>) {
