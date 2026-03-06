@@ -11,6 +11,7 @@ kasane の目指す姿は「プラグイン作成者のための UI 基盤」で
 - **宣言的**: プラグインは「何を表示したいか」を記述し、「どう描画するか」はフレームワークが決定する
 - **拡張性**: Slot / Decorator / Replacement の三段階でプラグインが UI を拡張できる
 - **設定可能性**: テーマ・レイアウト・キーバインドをユーザーが設定で変更できる
+- **基盤と設定の一貫性**: 基盤は汎用メカニズム (OverlayAnchor, Container, Flex 等) を提供し、設定 (config.toml) とプラグイン (Plugin trait) の両方がその上に構築される。ユーザーが設定だけで済む場合に Rust を書かせない
 - **段階的分離**: 初期は Kakoune 結合のまま構築し、安定後に汎用部分を分離する
 - **コンパイラ駆動**: proc macro がコンパイル時に依存解析・レイアウトキャッシュ・更新コード生成を行い、ランタイムコストを最小化する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング))
 
@@ -535,6 +536,73 @@ fn status_bar_update(cache: &mut StatusBarCache, mode: &str, file: &str, pos: Co
 
 ## 拡張モデル
 
+### 三段階の使い分けガイド
+
+プラグイン作者は、以下の判断基準で拡張メカニズムを選択する:
+
+```
+やりたいこと                              → 使うメカニズム
+───────────────────────────────────────────────────────
+定義済みの場所に UI を追加したい           → Slot
+  例: 行番号、スクロールバー、タブバー
+
+既存 UI の見た目を変更したい               → Decorator
+  例: ボーダー追加、背景色変更、テーマ適用
+
+既存 UI を根本的に別の UI にしたい         → Replacement
+  例: fzf 風メニュー、カスタムステータスバー
+```
+
+**原則: 自由度が低いメカニズムを優先する。** Slot で済むなら Decorator は使わない。Decorator で済むなら Replacement は使わない。自由度が低い方が安全で、他のプラグインとの共存も容易。
+
+### 三段階の合成ルール
+
+Slot、Decorator、Replacement は以下の順序で適用される:
+
+```
+1. Replacement の確認
+   → ターゲットに Replacement が登録されている？
+     Yes → Replacement の Element を使用（デフォルト Element は構築しない）
+     No  → デフォルト Element を構築
+
+2. Decorator の適用
+   → Replacement/デフォルトの Element に対して、priority 順に Decorator を適用
+
+3. Slot の収集
+   → 各 Slot に登録された Element を収集し、レイアウトに配置
+```
+
+**重要: Replacement が存在するターゲットに対しても Decorator は適用される。** Replacement はコンテンツを差し替え、Decorator はスタイリング（ボーダー、シャドウ等）を担当する。この分離により、テーマプラグイン (Decorator) とカスタムメニュープラグイン (Replacement) が自然に共存できる。
+
+**Decorator のガイドライン:** Decorator は受け取った Element の内部構造を仮定してはならない。「Element をそのままラップする」パターン（Container で包む等）は安全だが、「Element を分解して内部を変更する」パターンは Replacement との組み合わせで壊れる可能性がある。
+
+### Replacement の責務境界
+
+Replacement が差し替えるのは**ビュー（Element の構築）のみ**である。プロトコル処理は常に基盤が管理する:
+
+```
+プロトコル受信（基盤が管理）:
+  menu_show  → AppState.menu = Some(MenuState)   ← 変わらない
+  menu_select → MenuState.selected = n            ← 変わらない
+  menu_hide  → AppState.menu = None               ← 変わらない
+
+ビュー構築（Replacement が差し替え可能）:
+  MenuState → Element                             ← プラグインが独自実装
+
+プロトコル送信（プラグインが Command で発行可能）:
+  Command::SendToKakoune(MenuSelect { index })    ← プラグインが自分で発行
+```
+
+Replacement のレベル:
+
+| レベル | 内容 | 例 |
+|--------|------|---|
+| ビューのみ | 見た目だけ変える。基盤のビヘイビアをそのまま使用 | 角丸メニュー、縦型レイアウト |
+| ビュー + 状態 | プラグイン固有の状態を持ち、それに基づいてビューを構築 | フィルタリングメニュー |
+| ビュー + 状態 + 入力処理 | キー入力も処理して独自のインタラクションを実現 | fzf 風ファジーファインダー |
+
+レベル 2・3 では、プラグインの `handle_key()` がキー入力を処理し、`update()` が状態を管理する。これらは Plugin trait の既存メカニズムで実現される。
+
 ### Slot (挿入点)
 
 ```rust
@@ -628,7 +696,9 @@ fn view(state: &State, core: &CoreState, menu: &MenuState) -> Element {
 
 ## イベント伝播
 
-### キーイベント (中央ディスパッチ)
+### キーイベント (全プラグイン問い合わせ)
+
+明示的な「フォーカス」概念を持たず、全プラグインの `handle_key()` を優先度順に問い合わせる。各プラグインは `AppState` を参照して自分が処理すべきか判断する。
 
 ```
 キー入力
@@ -637,11 +707,23 @@ fn view(state: &State, core: &CoreState, menu: &MenuState) -> Element {
 グローバルキーバインドに一致？ ──→ 該当プラグインの Msg を update() へ
   │ (不一致)
   ▼
-フォーカスされたプラグインが処理？ ──→ プラグインの handle_key() 結果を実行
-  │ (未処理)
+全プラグインの handle_key() を優先度順に呼ぶ
+  │  各プラグインは state を見て自己判断:
+  │    - state.menu.is_some() なら Menu Replacement が処理
+  │    - 自分の Overlay が active なら処理
+  │    - それ以外は None を返す
+  │
+  ▼ 最初に Some(commands) を返したプラグインが勝つ
+  │ (全て None の場合)
   ▼
 デフォルト: Kakoune に転送
 ```
+
+**設計根拠:**
+- TEA の原則に合致: `AppState` が真実の源泉。プラグインは state を見て自己判断する
+- フォーカス管理の複雑さを回避: 「誰がいつフォーカスを移すか」の暗黙的な状態遷移が不要
+- Replacement プラグインの自然なサポート: Menu Replacement は `state.menu.is_some()` のとき自動的にキーを受け取る
+- カーソル位置は state から決定的に計算: `cursor_mode == Prompt` → ステータスバー上、`menu.is_some()` → メニュー、それ以外 → バッファ
 
 ### マウスイベント (InteractiveId ヒットテスト)
 
