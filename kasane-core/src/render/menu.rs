@@ -84,9 +84,9 @@ fn draw_scrollbar(
     menu: &MenuState,
     face: &crate::protocol::Face,
 ) {
-    let wh = win_height as i32;
-    let item_count = menu.items.len() as i32;
-    let columns = menu.columns.max(1);
+    let wh = win_height as usize;
+    let item_count = menu.items.len();
+    let columns = menu.columns as usize;
     if wh == 0 || item_count == 0 {
         return;
     }
@@ -96,8 +96,8 @@ fn draw_scrollbar(
     let mark_h = ((wh * wh + menu_lines - 1) / menu_lines).min(wh);
     let menu_cols = (item_count + wh - 1) / wh;
     let first_col = menu.first_item / wh;
-    let denom = (menu_cols - columns).max(1);
-    let mark_y = ((wh - mark_h) * first_col / denom).max(0).min(wh - mark_h);
+    let denom = menu_cols.saturating_sub(columns).max(1);
+    let mark_y = ((wh - mark_h) * first_col / denom).min(wh - mark_h);
 
     for row in 0..wh {
         let ch = if row >= mark_y && row < mark_y + mark_h {
@@ -138,16 +138,13 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         return;
     }
 
-    let first_item = menu.first_item.max(0);
-
     // Fill and draw items (row-based vertical scroll for inline)
     for line in 0..win.height {
-        let item_idx = first_item + line as i32;
+        let item_idx = menu.first_item + line as usize;
         let y = win.y + line;
 
-        let face = if item_idx >= 0
-            && (item_idx as usize) < menu.items.len()
-            && item_idx == menu.selected
+        let face = if item_idx < menu.items.len()
+            && Some(item_idx) == menu.selected
         {
             &menu.selected_item_face
         } else {
@@ -160,11 +157,11 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
         }
 
         // Draw item text
-        if item_idx >= 0 && (item_idx as usize) < menu.items.len() {
+        if item_idx < menu.items.len() {
             grid.put_line_with_base(
                 y,
                 win.x,
-                &menu.items[item_idx as usize],
+                &menu.items[item_idx],
                 content_w,
                 Some(face),
             );
@@ -189,17 +186,17 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
 /// Render a prompt-style menu: horizontal multi-column layout above the status bar.
 /// Items are arranged in column-major order with column-based scrolling.
 fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
-    if menu.items.is_empty() || menu.win_height == 0 || menu.columns <= 0 {
+    if menu.items.is_empty() || menu.win_height == 0 || menu.columns == 0 {
         return;
     }
 
     let status_row = grid.height.saturating_sub(1);
     let wh = menu.win_height;
-    let columns = menu.columns;
-    let stride = wh as i32;
+    let columns = menu.columns as usize;
+    let stride = wh as usize;
 
     // -1 for scrollbar column
-    let col_w = ((grid.width.saturating_sub(1)) as usize / columns as usize).max(1);
+    let col_w = (grid.width.saturating_sub(1) as usize / columns).max(1);
     let first_col = menu.first_item / stride;
 
     // Menu rows go from (status_row - wh) to (status_row - 1)
@@ -212,20 +209,20 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
     // Draw items in column-major order
     for col in 0..columns {
-        for line in 0..wh {
-            let item_idx = (first_col + col) * stride + line as i32;
-            if item_idx < 0 || item_idx as usize >= menu.items.len() {
+        for line in 0..wh as usize {
+            let item_idx = (first_col + col) * stride + line;
+            if item_idx >= menu.items.len() {
                 continue;
             }
 
-            let x = (col as usize * col_w) as u16;
-            let y = start_y + line;
+            let x = (col * col_w) as u16;
+            let y = start_y + line as u16;
 
             if x >= grid.width.saturating_sub(1) || y >= status_row {
                 break;
             }
 
-            let is_selected = item_idx == menu.selected;
+            let is_selected = Some(item_idx) == menu.selected;
             let face = if is_selected {
                 &menu.selected_item_face
             } else {
@@ -240,7 +237,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
             // Draw item text
             let avail = fill_end.saturating_sub(x);
-            grid.put_line_with_base(y, x, &menu.items[item_idx as usize], avail, Some(face));
+            grid.put_line_with_base(y, x, &menu.items[item_idx], avail, Some(face));
         }
     }
 
@@ -274,7 +271,7 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
     // Fill the row with menu_face
     grid.fill_row(y, &menu.menu_face);
 
-    let first = menu.first_item.max(0) as usize;
+    let first = menu.first_item;
     let has_prefix = first > 0;
     let mut x = 0usize;
 
@@ -307,7 +304,7 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
             break;
         }
 
-        let is_selected = idx as i32 == menu.selected;
+        let is_selected = Some(idx) == menu.selected;
         let face = if is_selected {
             &menu.selected_item_face
         } else {
@@ -346,7 +343,7 @@ mod tests {
     fn make_menu_state(
         items: Vec<Line>,
         style: MenuStyle,
-        selected: i32,
+        selected: Option<usize>,
         screen_w: u16,
         screen_h: u16,
     ) -> MenuState {
@@ -356,7 +353,7 @@ mod tests {
     fn make_menu_state_at(
         items: Vec<Line>,
         style: MenuStyle,
-        selected: i32,
+        selected: Option<usize>,
         anchor: Coord,
         screen_w: u16,
         screen_h: u16,
@@ -391,7 +388,7 @@ mod tests {
         let items = vec![make_line("abc"), make_line("defgh"), make_line("ij")];
         // screen_h = 10 - 1 = 9 (excl status), longest = 5, col_w = (40-1)/(6) = 6
         // columns = (40-1)/6 = 6, win_height = min(ceil(3/6), 10) = 1
-        let mut ms = make_menu_state(items, MenuStyle::Prompt, 1, 40, 9);
+        let mut ms = make_menu_state(items, MenuStyle::Prompt, Some(1), 40, 9);
         ms.menu_face = menu_face;
         ms.selected_item_face = selected_face;
         let state = AppState {
@@ -428,7 +425,7 @@ mod tests {
             .collect();
         assert_eq!(items.len(), 26);
 
-        let ms = make_menu_state(items, MenuStyle::Prompt, 0, 20, 14);
+        let ms = make_menu_state(items, MenuStyle::Prompt, Some(0), 20, 14);
         let state = AppState {
             menu: Some(ms),
             cols: 20,
@@ -455,7 +452,7 @@ mod tests {
         let mut grid = CellGrid::new(20, 15);
         let items: Vec<Line> = (0..50).map(|i| make_line(&format!("{i:>3}"))).collect();
 
-        let ms = make_menu_state(items, MenuStyle::Prompt, 0, 20, 14);
+        let ms = make_menu_state(items, MenuStyle::Prompt, Some(0), 20, 14);
         let state = AppState {
             menu: Some(ms),
             cols: 20,
@@ -481,7 +478,7 @@ mod tests {
         // 40 cols wide, 10 rows. 3 items displayed on one line.
         let mut grid = CellGrid::new(40, 10);
         let items = vec![make_line("abc"), make_line("def"), make_line("ghi")];
-        let ms = make_menu_state(items, MenuStyle::Search, 1, 40, 9);
+        let ms = make_menu_state(items, MenuStyle::Search, Some(1), 40, 9);
         let state = AppState {
             menu: Some(ms),
             cols: 40,
@@ -508,7 +505,7 @@ mod tests {
             make_line("charlie"),
             make_line("delta"),
         ];
-        let mut ms = make_menu_state(items, MenuStyle::Search, 2, 20, 4);
+        let mut ms = make_menu_state(items, MenuStyle::Search, Some(2), 20, 4);
         ms.first_item = 1; // scrolled past first item
         let state = AppState {
             menu: Some(ms),
@@ -532,7 +529,7 @@ mod tests {
         // Verify inline menu has no border/shadow
         let mut grid = CellGrid::new(40, 20);
         let items = vec![make_line("item1"), make_line("item2")];
-        let ms = make_menu_state_at(items, MenuStyle::Inline, 0, Coord { line: 5, column: 5 }, 40, 19);
+        let ms = make_menu_state_at(items, MenuStyle::Inline, Some(0), Coord { line: 5, column: 5 }, 40, 19);
         let state = AppState {
             menu: Some(ms),
             cols: 40,
@@ -553,7 +550,7 @@ mod tests {
         // Inline menu with enough items to need scrollbar
         let mut grid = CellGrid::new(40, 20);
         let items: Vec<Line> = (0..20).map(|i| make_line(&format!("item{i:>2}"))).collect();
-        let ms = make_menu_state_at(items, MenuStyle::Inline, 0, Coord { line: 2, column: 0 }, 40, 19);
+        let ms = make_menu_state_at(items, MenuStyle::Inline, Some(0), Coord { line: 2, column: 0 }, 40, 19);
         let state = AppState {
             menu: Some(ms),
             cols: 40,
@@ -576,7 +573,7 @@ mod tests {
     #[test]
     fn test_get_menu_rect_prompt() {
         let items = vec![make_line("a"), make_line("b"), make_line("c")];
-        let ms = make_menu_state(items, MenuStyle::Prompt, 0, 80, 23);
+        let ms = make_menu_state(items, MenuStyle::Prompt, Some(0), 80, 23);
         let state = AppState {
             menu: Some(ms),
             cols: 80,
@@ -592,7 +589,7 @@ mod tests {
     #[test]
     fn test_get_menu_rect_search() {
         let items = vec![make_line("a"), make_line("b")];
-        let ms = make_menu_state(items, MenuStyle::Search, 0, 80, 23);
+        let ms = make_menu_state(items, MenuStyle::Search, Some(0), 80, 23);
         let state = AppState {
             menu: Some(ms),
             cols: 80,
@@ -613,7 +610,7 @@ mod tests {
         let mut grid = CellGrid::new(14, 15);
         let items: Vec<Line> = (0..50).map(|i| make_line(&format!("{i:>3}"))).collect();
 
-        let ms = make_menu_state(items, MenuStyle::Prompt, -1, 14, 14);
+        let ms = make_menu_state(items, MenuStyle::Prompt, None, 14, 14);
         // Verify the computed values
         assert_eq!(ms.columns, 3);
         assert_eq!(ms.menu_lines, 17);

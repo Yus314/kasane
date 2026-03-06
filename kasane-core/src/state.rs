@@ -24,15 +24,15 @@ pub struct MenuState {
     pub selected_item_face: Face,
     pub menu_face: Face,
     pub style: MenuStyle,
-    pub selected: i32,
+    pub selected: Option<usize>,
     /// Scroll offset: index of the first visible item.
-    pub first_item: i32,
-    /// Number of display columns (0 = Search, 1 = Inline, N = Prompt).
-    pub columns: i32,
+    pub first_item: usize,
+    /// Number of display columns (1 for Search/Inline, N for Prompt).
+    pub columns: u16,
     /// Number of visible rows in the menu window.
     pub win_height: u16,
-    /// Total logical rows = ceil(items / columns.max(1)).
-    pub menu_lines: i32,
+    /// Total logical rows = ceil(items / columns).
+    pub menu_lines: u16,
     /// Maximum display width of any single item.
     pub max_item_width: u16,
     /// Screen width (used for Search scroll calculation).
@@ -60,13 +60,12 @@ impl MenuState {
             .unwrap_or(1)
             .max(1) as u16;
 
-        let columns = match style {
-            MenuStyle::Search => 0,
-            MenuStyle::Inline => 1,
+        let columns: u16 = match style {
+            MenuStyle::Search | MenuStyle::Inline => 1,
             MenuStyle::Prompt => {
                 // -1 for scrollbar column
                 ((screen_w.saturating_sub(1)) as usize / (max_item_width as usize + 1)).max(1)
-                    as i32
+                    as u16
             }
         };
 
@@ -80,10 +79,10 @@ impl MenuState {
             MenuStyle::Prompt => 10u16.min(screen_h),
         };
 
-        let item_count = items.len() as i32;
-        let effective_cols = columns.max(1);
-        let menu_lines = (item_count + effective_cols - 1) / effective_cols;
-        let win_height = (menu_lines as u16).min(max_height);
+        let item_count = items.len();
+        let cols = columns as usize;
+        let menu_lines = ((item_count + cols - 1) / cols) as u16;
+        let win_height = menu_lines.min(max_height);
 
         Self {
             items,
@@ -91,7 +90,7 @@ impl MenuState {
             selected_item_face,
             menu_face,
             style,
-            selected: -1,
+            selected: None,
             first_item: 0,
             columns,
             win_height,
@@ -103,9 +102,11 @@ impl MenuState {
 
     /// Update selection and adjust scroll offset to keep the selected item visible.
     pub fn select(&mut self, selected: i32) {
-        self.selected = selected;
-        if selected < 0 || selected as usize >= self.items.len() || self.win_height == 0 {
-            self.selected = -1;
+        self.selected = usize::try_from(selected)
+            .ok()
+            .filter(|&i| i < self.items.len());
+        if self.selected.is_none() || self.win_height == 0 {
+            self.selected = None;
             self.first_item = 0;
             return;
         }
@@ -118,14 +119,17 @@ impl MenuState {
     /// Inline & Prompt: column-based scrolling (stride = win_height).
     /// Matches Kakoune terminal_ui.cc menu_select.
     fn scroll_column_based(&mut self) {
-        let stride = self.win_height as i32;
-        let selected_col = self.selected / stride;
+        let selected = self.selected.unwrap(); // caller guarantees Some
+        let stride = self.win_height as usize;
+        let selected_col = selected / stride;
         let first_col = self.first_item / stride;
-        let menu_cols = (self.items.len() as i32 + stride - 1) / stride;
+        let columns = self.columns as usize;
+        let menu_cols = (self.items.len() + stride - 1) / stride;
         if selected_col < first_col {
             self.first_item = selected_col * stride;
-        } else if selected_col >= first_col + self.columns {
-            self.first_item = selected_col.min(menu_cols - self.columns).max(0) * stride;
+        } else if selected_col >= first_col + columns {
+            self.first_item =
+                selected_col.min(menu_cols.saturating_sub(columns)) * stride;
         }
     }
 
@@ -136,15 +140,16 @@ impl MenuState {
     /// start to that item. This produces a deterministic `first_item` that
     /// depends only on `selected`, not on previous scroll state.
     fn scroll_search(&mut self) {
+        let selected = self.selected.unwrap(); // caller guarantees Some
         // Reserve 3 columns for "< " prefix (2) and ">" suffix (1),
         // matching Kakoune's `m_menu.size.column - 3`.
         let width = self.screen_w.saturating_sub(3) as usize;
-        let mut first = 0i32;
+        let mut first = 0usize;
         let mut item_col = 0usize;
-        for i in 0..=self.selected as usize {
+        for i in 0..=selected {
             let item_w = self.items.get(i).map(line_display_width).unwrap_or(0) + 1;
             if item_col + item_w > width {
-                first = i as i32;
+                first = i;
                 item_col = item_w;
             } else {
                 item_col += item_w;
@@ -362,10 +367,10 @@ mod tests {
             style: MenuStyle::Inline,
         });
         assert!(state.menu.is_some());
-        assert_eq!(state.menu.as_ref().unwrap().selected, -1);
+        assert_eq!(state.menu.as_ref().unwrap().selected, None);
 
         state.apply(KakouneRequest::MenuSelect { selected: 1 });
-        assert_eq!(state.menu.as_ref().unwrap().selected, 1);
+        assert_eq!(state.menu.as_ref().unwrap().selected, Some(1));
 
         let flags = state.apply(KakouneRequest::MenuHide);
         assert!(state.menu.is_none());
@@ -419,7 +424,7 @@ mod tests {
             selected_item_face: Face::default(),
             menu_face: Face::default(),
             style: MenuStyle::Inline,
-            selected: -1,
+            selected: None,
             first_item: 0,
             columns: 1,
             win_height,
@@ -430,14 +435,14 @@ mod tests {
     }
 
     /// Helper: build a Prompt MenuState with given items, win_height, and columns.
-    fn make_prompt_menu(items: Vec<Line>, win_height: u16, columns: i32) -> MenuState {
+    fn make_prompt_menu(items: Vec<Line>, win_height: u16, columns: u16) -> MenuState {
         MenuState {
             items,
             anchor: Coord::default(),
             selected_item_face: Face::default(),
             menu_face: Face::default(),
             style: MenuStyle::Prompt,
-            selected: -1,
+            selected: None,
             first_item: 0,
             columns,
             win_height,
@@ -455,9 +460,9 @@ mod tests {
             selected_item_face: Face::default(),
             menu_face: Face::default(),
             style: MenuStyle::Search,
-            selected: -1,
+            selected: None,
             first_item: 0,
-            columns: 0,
+            columns: 1,
             win_height: 1,
             menu_lines: 0,
             max_item_width: 0,
@@ -535,8 +540,8 @@ mod tests {
 
         // Stateless: same selected → same first_item regardless of path
         assert_eq!(menu_a.first_item, menu_b.first_item);
-        assert_eq!(menu_a.selected, 4);
-        assert_eq!(menu_b.selected, 4);
+        assert_eq!(menu_a.selected, Some(4));
+        assert_eq!(menu_b.selected, Some(4));
     }
 
     #[test]
@@ -557,17 +562,17 @@ mod tests {
 
         // Select valid item first
         menu.select(1);
-        assert_eq!(menu.selected, 1);
+        assert_eq!(menu.selected, Some(1));
 
         // Select -1 → resets
         menu.select(-1);
-        assert_eq!(menu.selected, -1);
+        assert_eq!(menu.selected, None);
         assert_eq!(menu.first_item, 0);
 
         // Select beyond length → resets
         menu.select(1);
         menu.select(3);
-        assert_eq!(menu.selected, -1);
+        assert_eq!(menu.selected, None);
         assert_eq!(menu.first_item, 0);
     }
 }
