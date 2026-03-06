@@ -138,6 +138,14 @@ impl CellGrid {
                 // Skip control characters: UnicodeWidthStr::width() returns 1
                 // for \n, \r, etc. in unicode-width 0.2.x, but they must never
                 // be placed in the grid (printing them would corrupt the terminal).
+                if grapheme == "\n" {
+                    if x + 1 > limit {
+                        break;
+                    }
+                    self.put_char(x, y, " ", &face);
+                    x += 1;
+                    continue;
+                }
                 if grapheme.starts_with(|c: char| c.is_control()) {
                     continue;
                 }
@@ -497,17 +505,39 @@ mod tests {
     fn test_put_line_skips_control_chars() {
         let mut grid = CellGrid::new(20, 1);
         // Line with embedded newline and carriage return
+        // \n renders as a space (1 cell), \r is skipped
         let line = vec![Atom {
             face: default_face(),
             contents: "ab\ncd\ref".to_string(),
         }];
         let cols = grid.put_line(0, 0, &line, 20);
-        assert_eq!(cols, 6); // "ab" + "cd" + "ef", control chars skipped
+        assert_eq!(cols, 7); // "ab" + space(\n) + "cd" + "ef"
         assert_eq!(grid.get(0, 0).unwrap().grapheme, "a");
         assert_eq!(grid.get(1, 0).unwrap().grapheme, "b");
-        assert_eq!(grid.get(2, 0).unwrap().grapheme, "c");
-        assert_eq!(grid.get(3, 0).unwrap().grapheme, "d");
-        assert_eq!(grid.get(4, 0).unwrap().grapheme, "e");
-        assert_eq!(grid.get(5, 0).unwrap().grapheme, "f");
+        assert_eq!(grid.get(2, 0).unwrap().grapheme, " "); // \n → space
+        assert_eq!(grid.get(3, 0).unwrap().grapheme, "c");
+        assert_eq!(grid.get(4, 0).unwrap().grapheme, "d");
+        assert_eq!(grid.get(5, 0).unwrap().grapheme, "e");
+        assert_eq!(grid.get(6, 0).unwrap().grapheme, "f");
+    }
+
+    #[test]
+    fn test_put_line_newline_renders_as_space() {
+        let mut grid = CellGrid::new(20, 1);
+        let face = Face {
+            attributes: Attributes::STRIKETHROUGH,
+            ..Face::default()
+        };
+        let line = vec![Atom {
+            face,
+            contents: "};\n".to_string(),
+        }];
+        let cols = grid.put_line(0, 0, &line, 20);
+        assert_eq!(cols, 3); // "}" + ";" + space(\n)
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "}");
+        assert_eq!(grid.get(1, 0).unwrap().grapheme, ";");
+        assert_eq!(grid.get(2, 0).unwrap().grapheme, " ");
+        // The space from \n carries the atom's strikethrough attribute
+        assert!(grid.get(2, 0).unwrap().face.attributes.contains(Attributes::STRIKETHROUGH));
     }
 }
