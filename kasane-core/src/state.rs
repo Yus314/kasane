@@ -63,7 +63,8 @@ impl MenuState {
         let columns: u16 = match style {
             MenuStyle::Search | MenuStyle::Inline => 1,
             MenuStyle::Prompt => {
-                // -1 for scrollbar column
+                // -1 for scrollbar column (matches Kakoune terminal_ui.cc:
+                // max_width = m_dimensions.column - 1)
                 ((screen_w.saturating_sub(1)) as usize / (max_item_width as usize + 1)).max(1)
                     as u16
             }

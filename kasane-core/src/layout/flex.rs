@@ -151,20 +151,21 @@ fn measure_flex(
     let mut total_flex = 0.0f32;
 
     for child in children {
+        let child_constraints = match direction {
+            Direction::Column => Constraints::loose(constraints.max_width, constraints.max_height),
+            Direction::Row => Constraints::loose(constraints.max_width, constraints.max_height),
+        };
+        let size = measure(&child.element, child_constraints, state);
+        let (main, cross) = match direction {
+            Direction::Column => (size.height, size.width),
+            Direction::Row => (size.width, size.height),
+        };
+        cross_max = cross_max.max(cross);
+
         if child.flex > 0.0 {
             total_flex += child.flex;
         } else {
-            let child_constraints = match direction {
-                Direction::Column => Constraints::loose(constraints.max_width, constraints.max_height),
-                Direction::Row => Constraints::loose(constraints.max_width, constraints.max_height),
-            };
-            let size = measure(&child.element, child_constraints, state);
-            let (main, cross) = match direction {
-                Direction::Column => (size.height, size.width),
-                Direction::Row => (size.width, size.height),
-            };
             main_fixed += main;
-            cross_max = cross_max.max(cross);
         }
     }
 
@@ -602,5 +603,39 @@ mod tests {
         let el = Element::text("█", Face::default());
         let size = measure(&el, Constraints::loose(80, 24), &state);
         assert_eq!(size.width, 1); // display width 1, not byte length 3
+    }
+
+    #[test]
+    fn test_measure_row_all_flexible_has_height() {
+        // A Row where ALL children are flexible must still report cross-axis
+        // height based on children's intrinsic size (e.g. 1 for text).
+        let state = default_state();
+        let el = Element::row(vec![
+            FlexChild::flexible(Element::text("a", Face::default()), 1.0),
+            FlexChild::flexible(Element::text("b", Face::default()), 1.0),
+        ]);
+        let size = measure(&el, Constraints::loose(80, 24), &state);
+        assert_eq!(size.height, 1);
+    }
+
+    #[test]
+    fn test_place_column_of_all_flexible_rows() {
+        // Regression: Column of Rows with all-flexible children must place
+        // each row at a distinct y, not collapse them to the same position.
+        let state = default_state();
+        let rows: Vec<FlexChild> = (0..3)
+            .map(|_| {
+                FlexChild::fixed(Element::row(vec![
+                    FlexChild::flexible(Element::text("x", Face::default()), 1.0),
+                ]))
+            })
+            .collect();
+        let el = Element::column(rows);
+        let result = place(&el, root_area(80, 10), &state);
+        assert_eq!(result.children.len(), 3);
+        assert_eq!(result.children[0].area.y, 0);
+        assert_eq!(result.children[1].area.y, 1);
+        assert_eq!(result.children[2].area.y, 2);
+        assert_eq!(result.children[0].area.h, 1);
     }
 }
