@@ -108,14 +108,35 @@ pub fn cursor_style(state: &AppState) -> CursorStyle {
     if state.cursor_mode == CursorMode::Prompt {
         return CursorStyle::Bar;
     }
-    if state
+    let mode = state
         .status_mode_line
         .iter()
-        .any(|atom| atom.contents == "insert")
-    {
-        return CursorStyle::Bar;
+        .find_map(|atom| match atom.contents.as_str() {
+            "insert" => Some(CursorStyle::Bar),
+            "replace" => Some(CursorStyle::Underline),
+            _ => None,
+        });
+    mode.unwrap_or(CursorStyle::Block)
+}
+
+/// In non-block cursor modes (insert/replace), clear the PrimaryCursor face
+/// highlight from the cursor cell so the terminal cursor shape is visible.
+pub fn clear_block_cursor_face(state: &AppState, grid: &mut CellGrid, style: CursorStyle) {
+    if style == CursorStyle::Block {
+        return;
     }
-    CursorStyle::Block
+    let cx = state.cursor_pos.column as u16;
+    let cy = match state.cursor_mode {
+        CursorMode::Prompt => grid.height.saturating_sub(1),
+        CursorMode::Buffer => state.cursor_pos.line as u16,
+    };
+    let base_face = match state.cursor_mode {
+        CursorMode::Buffer => &state.default_face,
+        CursorMode::Prompt => &state.status_default_face,
+    };
+    if let Some(cell) = grid.get_mut(cx, cy) {
+        cell.face = *base_face;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +407,16 @@ mod tests {
     }
 
     #[test]
+    fn test_cursor_style_replace_mode_line() {
+        let mut state = AppState::default();
+        state.status_mode_line = vec![Atom {
+            face: Face::default(),
+            contents: "replace".into(),
+        }];
+        assert_eq!(cursor_style(&state), CursorStyle::Underline);
+    }
+
+    #[test]
     fn test_cursor_style_default_block() {
         let state = AppState::default();
         assert_eq!(cursor_style(&state), CursorStyle::Block);
@@ -402,6 +433,111 @@ mod tests {
             contents: "insert".into(),
         }];
         assert_eq!(cursor_style(&state), CursorStyle::Block);
+    }
+
+    // --- clear_block_cursor_face tests ---
+
+    #[test]
+    fn test_clear_block_cursor_face_bar() {
+        let mut state = AppState::default();
+        state.cursor_pos = crate::protocol::Coord { line: 0, column: 2 };
+        state.default_face = Face {
+            fg: Color::Named(NamedColor::White),
+            bg: Color::Named(NamedColor::Black),
+            ..Face::default()
+        };
+
+        let mut grid = CellGrid::new(10, 5);
+        let cursor_face = Face {
+            fg: Color::Named(NamedColor::Black),
+            bg: Color::Named(NamedColor::White),
+            ..Face::default()
+        };
+        grid.put_char(2, 0, "x", &cursor_face);
+
+        clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar);
+
+        let cell = grid.get(2, 0).unwrap();
+        assert_eq!(cell.face, state.default_face);
+    }
+
+    #[test]
+    fn test_clear_block_cursor_face_underline() {
+        let mut state = AppState::default();
+        state.cursor_pos = crate::protocol::Coord { line: 1, column: 3 };
+        state.default_face = Face {
+            fg: Color::Named(NamedColor::Yellow),
+            bg: Color::Named(NamedColor::Blue),
+            ..Face::default()
+        };
+
+        let mut grid = CellGrid::new(10, 5);
+        let cursor_face = Face {
+            fg: Color::Named(NamedColor::Black),
+            bg: Color::Named(NamedColor::White),
+            ..Face::default()
+        };
+        grid.put_char(3, 1, "y", &cursor_face);
+
+        clear_block_cursor_face(&state, &mut grid, CursorStyle::Underline);
+
+        let cell = grid.get(3, 1).unwrap();
+        assert_eq!(cell.face, state.default_face);
+    }
+
+    #[test]
+    fn test_clear_block_cursor_face_block_noop() {
+        let mut state = AppState::default();
+        state.cursor_pos = crate::protocol::Coord { line: 0, column: 0 };
+
+        let mut grid = CellGrid::new(10, 5);
+        let cursor_face = Face {
+            fg: Color::Named(NamedColor::Black),
+            bg: Color::Named(NamedColor::White),
+            ..Face::default()
+        };
+        grid.put_char(0, 0, "z", &cursor_face);
+
+        clear_block_cursor_face(&state, &mut grid, CursorStyle::Block);
+
+        let cell = grid.get(0, 0).unwrap();
+        assert_eq!(cell.face, cursor_face);
+    }
+
+    #[test]
+    fn test_clear_block_cursor_face_prompt() {
+        let mut state = AppState::default();
+        state.cursor_mode = crate::protocol::CursorMode::Prompt;
+        state.cursor_pos = crate::protocol::Coord { line: 0, column: 1 };
+        state.status_default_face = Face {
+            fg: Color::Named(NamedColor::Cyan),
+            bg: Color::Named(NamedColor::Magenta),
+            ..Face::default()
+        };
+
+        let mut grid = CellGrid::new(10, 5);
+        let cursor_face = Face {
+            fg: Color::Named(NamedColor::Black),
+            bg: Color::Named(NamedColor::White),
+            ..Face::default()
+        };
+        // Prompt cursor is at the last row
+        grid.put_char(1, 4, "p", &cursor_face);
+
+        clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar);
+
+        let cell = grid.get(1, 4).unwrap();
+        assert_eq!(cell.face, state.status_default_face);
+    }
+
+    #[test]
+    fn test_clear_block_cursor_face_out_of_bounds() {
+        let mut state = AppState::default();
+        state.cursor_pos = crate::protocol::Coord { line: 100, column: 100 };
+
+        let mut grid = CellGrid::new(10, 5);
+        // Should not panic
+        clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar);
     }
 
     // --- Regression test: declarative pipeline vs imperative ---

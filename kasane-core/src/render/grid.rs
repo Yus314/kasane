@@ -249,6 +249,16 @@ impl CellGrid {
             None
         }
     }
+
+    /// Mutable access to a cell in the current buffer.
+    pub fn get_mut(&mut self, x: u16, y: u16) -> Option<&mut Cell> {
+        if x < self.width && y < self.height {
+            let idx = self.idx(x, y);
+            Some(&mut self.current[idx])
+        } else {
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

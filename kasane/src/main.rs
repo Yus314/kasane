@@ -5,8 +5,13 @@ use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
 use kasane_core::input::{self, InputEvent};
+use kasane_core::layout::Rect;
+use kasane_core::layout::flex;
+use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::{KakouneRequest, KasaneRequest};
-use kasane_core::render::{CellGrid, RenderBackend, cursor_position, cursor_style, render_frame};
+use kasane_core::render::{CellGrid, RenderBackend, clear_block_cursor_face, cursor_position, cursor_style};
+use kasane_core::render::paint;
+use kasane_core::render::view;
 use kasane_core::state::AppState;
 use kasane_tui::backend::TuiBackend;
 use kasane_tui::input::convert_event;
@@ -59,6 +64,9 @@ fn main() -> Result<()> {
         rows,
         ..AppState::default()
     };
+
+    // Plugin registry
+    let registry = PluginRegistry::new();
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
@@ -196,10 +204,18 @@ fn main() -> Result<()> {
 
         if needs_render {
             backend.begin_frame()?;
-            render_frame(&state, &mut grid);
+
+            // Declarative pipeline: view → layout → paint
+            let element = view::view(&state, &registry);
+            let root_area = Rect { x: 0, y: 0, w: state.cols, h: state.rows };
+            let layout_result = flex::place(&element, root_area, &state);
+            grid.clear(&state.default_face);
+            paint::paint(&element, &layout_result, &mut grid, &state);
+
+            let cursor_style = cursor_style(&state);
+            clear_block_cursor_face(&state, &mut grid, cursor_style);
             backend.draw(&grid.diff())?;
             let (cx, cy) = cursor_position(&state, &grid);
-            let cursor_style = cursor_style(&state);
             backend.show_cursor(cx, cy, cursor_style)?;
             backend.end_frame()?;
             backend.flush()?;
