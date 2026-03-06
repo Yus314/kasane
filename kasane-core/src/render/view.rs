@@ -94,8 +94,8 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
 }
 
 fn build_status_bar(state: &AppState) -> Element {
-    let status_line = Element::styled_line(state.status_line.clone());
-    let mode_line = Element::styled_line(state.status_mode_line.clone());
+    let status_line = build_styled_line_with_base(&state.status_line, &state.status_default_face, 0);
+    let mode_line = build_styled_line_with_base(&state.status_mode_line, &state.status_default_face, 0);
     let mode_width = line_display_width(&state.status_mode_line) as u16;
 
     // Status bar: fill with status_default_face, status_line left, mode_line right
@@ -677,7 +677,7 @@ fn wrap_content_lines(
 mod tests {
     use super::*;
     use crate::element::Direction;
-    use crate::protocol::{Atom, Coord, Face};
+    use crate::protocol::{Atom, Color, Coord, Face, NamedColor};
     use crate::state::AppState;
 
     fn make_line(s: &str) -> Line {
@@ -753,6 +753,63 @@ mod tests {
                 assert!(!overlays.is_empty(), "should have info overlay");
             }
             _ => panic!("expected Stack"),
+        }
+    }
+
+    #[test]
+    fn test_status_bar_resolves_default_face() {
+        let mut state = AppState::default();
+        state.status_default_face = Face {
+            fg: Color::Named(NamedColor::Cyan),
+            bg: Color::Named(NamedColor::Magenta),
+            ..Face::default()
+        };
+        // Atoms with Color::Default — should be resolved to status_default_face colors
+        state.status_line = vec![Atom {
+            face: Face::default(),
+            contents: "file.rs".to_string(),
+        }];
+        state.status_mode_line = vec![Atom {
+            face: Face::default(),
+            contents: "normal".to_string(),
+        }];
+
+        let status_bar = build_status_bar(&state);
+
+        // Extract StyledLine atoms from the Container > Row > children
+        let row = match &status_bar {
+            Element::Container { child, .. } => child.as_ref(),
+            other => panic!("expected Container, got {:?}", std::mem::discriminant(other)),
+        };
+        let children = match row {
+            Element::Flex { children, .. } => children,
+            other => panic!("expected Flex row, got {:?}", std::mem::discriminant(other)),
+        };
+
+        // Check status_line atoms
+        match &children[0].element {
+            Element::StyledLine(atoms) => {
+                for atom in atoms {
+                    assert_eq!(atom.face.fg, Color::Named(NamedColor::Cyan),
+                        "status_line fg should be resolved from status_default_face");
+                    assert_eq!(atom.face.bg, Color::Named(NamedColor::Magenta),
+                        "status_line bg should be resolved from status_default_face");
+                }
+            }
+            other => panic!("expected StyledLine, got {:?}", std::mem::discriminant(other)),
+        }
+
+        // Check mode_line atoms
+        match &children[1].element {
+            Element::StyledLine(atoms) => {
+                for atom in atoms {
+                    assert_eq!(atom.face.fg, Color::Named(NamedColor::Cyan),
+                        "mode_line fg should be resolved from status_default_face");
+                    assert_eq!(atom.face.bg, Color::Named(NamedColor::Magenta),
+                        "mode_line bg should be resolved from status_default_face");
+                }
+            }
+            other => panic!("expected StyledLine, got {:?}", std::mem::discriminant(other)),
         }
     }
 

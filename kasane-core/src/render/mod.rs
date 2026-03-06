@@ -1,13 +1,13 @@
 mod grid;
-mod menu;
+pub(crate) mod menu;
 mod info;
+pub mod paint;
+pub mod view;
 
 pub use grid::{Cell, CellGrid, CellDiff};
 
-use unicode_width::UnicodeWidthStr;
-
-use crate::layout::line_display_width;
-use crate::protocol::{Attributes, Color, CursorMode, Face, Line};
+use crate::protocol::CursorMode;
+use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
 // RenderBackend trait
@@ -34,10 +34,10 @@ pub trait RenderBackend {
 // Buffer / Status / Cursor rendering
 // ---------------------------------------------------------------------------
 
-use crate::state::AppState;
-
 /// Render the main buffer area (all lines except the last row which is status).
-pub fn render_buffer(state: &AppState, grid: &mut CellGrid) {
+/// Retained for regression testing against the new declarative pipeline.
+#[cfg(test)]
+fn render_buffer(state: &AppState, grid: &mut CellGrid) {
     let buffer_rows = grid.height.saturating_sub(1);
 
     for y in 0..buffer_rows {
@@ -54,7 +54,9 @@ pub fn render_buffer(state: &AppState, grid: &mut CellGrid) {
 }
 
 /// Render the status bar at the bottom row.
-pub fn render_status(state: &AppState, grid: &mut CellGrid) {
+/// Retained for regression testing against the new declarative pipeline.
+#[cfg(test)]
+fn render_status(state: &AppState, grid: &mut CellGrid) {
     let y = grid.height.saturating_sub(1);
     grid.fill_row(y, &state.status_default_face);
 
@@ -68,7 +70,7 @@ pub fn render_status(state: &AppState, grid: &mut CellGrid) {
     );
 
     // Mode line on the right
-    let mode_width = line_display_width(&state.status_mode_line);
+    let mode_width = crate::layout::line_display_width(&state.status_mode_line);
     if mode_width > 0 && grid.width as usize > mode_width {
         let mode_x = grid.width - mode_width as u16;
         grid.put_line_with_base(
@@ -120,7 +122,9 @@ pub fn cursor_style(state: &AppState) -> CursorStyle {
 // Full frame rendering (Z-order)
 // ---------------------------------------------------------------------------
 
-pub fn render_frame(state: &AppState, grid: &mut CellGrid) {
+/// Retained for regression testing against the new declarative pipeline.
+#[cfg(test)]
+fn render_frame(state: &AppState, grid: &mut CellGrid) {
     grid.clear(&state.default_face);
     render_buffer(state, grid);       // Layer 0
     render_status(state, grid);       // Layer 1
@@ -138,21 +142,23 @@ pub fn render_frame(state: &AppState, grid: &mut CellGrid) {
 /// (matching Kakoune's `wrap_lines`).
 /// Returns the number of visual rows consumed.
 /// `y_limit` is the exclusive upper bound for y coordinates (content must not exceed this).
+#[cfg(test)]
 fn render_wrapped_line(
     grid: &mut CellGrid,
     y_start: u16,
     x_start: u16,
-    line: &Line,
+    line: &crate::protocol::Line,
     max_width: u16,
-    base_face: Option<&Face>,
+    base_face: Option<&crate::protocol::Face>,
     y_limit: u16,
 ) -> u16 {
+    use unicode_width::UnicodeWidthStr;
     if max_width == 0 {
         return 1;
     }
 
     // Phase 1: collect graphemes with resolved faces and widths
-    let mut graphemes: Vec<(&str, Face, u16)> = Vec::new();
+    let mut graphemes: Vec<(&str, crate::protocol::Face, u16)> = Vec::new();
     for atom in line {
         let face = match base_face {
             Some(base) => grid::resolve_face(&atom.face, base),
@@ -178,80 +184,37 @@ fn render_wrapped_line(
         return 1;
     }
 
-    // Phase 2: compute word-wrap layout — (row_offset, column) per grapheme
-    let layout = word_wrap_layout(&graphemes, max_width);
+    // Phase 2: build metrics and compute segments
+    let metrics: Vec<(u16, bool)> = graphemes
+        .iter()
+        .map(|(text, _, w)| (*w, !crate::layout::is_word_char(text)))
+        .collect();
+    let segments = crate::layout::word_wrap_segments(&metrics, max_width);
 
-    // Phase 3: render
+    // Phase 3: render from segments
     let mut max_row = 0u16;
-    for (idx, &(row, col)) in layout.iter().enumerate() {
-        let y = y_start + row;
+    for (row_idx, seg) in segments.iter().enumerate() {
+        let y = y_start + row_idx as u16;
         if y >= y_limit {
             break;
         }
-        let x = x_start + col;
-        let (grapheme, ref face, _) = graphemes[idx];
-        grid.put_char(x, y, grapheme, face);
-        max_row = row;
+        let mut col = 0u16;
+        for i in seg.start..seg.end {
+            let (grapheme, ref face, w) = graphemes[i];
+            grid.put_char(x_start + col, y, grapheme, face);
+            col += w;
+        }
+        max_row = row_idx as u16;
     }
 
     max_row + 1
 }
 
-/// Compute word-boundary-aware layout: returns `(row_offset, column)` for each grapheme.
-fn word_wrap_layout(graphemes: &[(&str, Face, u16)], max_width: u16) -> Vec<(u16, u16)> {
-    let mut result: Vec<(u16, u16)> = Vec::with_capacity(graphemes.len());
-    let mut row = 0u16;
-    let mut col = 0u16;
-    let mut last_break_result_len: Option<usize> = None;
-    let mut last_break_grapheme_idx: Option<usize> = None;
-    let mut i = 0;
-
-    while i < graphemes.len() {
-        let (text, _, w) = graphemes[i];
-
-        if col + w > max_width {
-            if col == 0 {
-                // Grapheme wider than max_width: force-place it
-                result.push((row, 0));
-                row += 1;
-                col = 0;
-                last_break_result_len = None;
-                last_break_grapheme_idx = None;
-                i += 1;
-                continue;
-            }
-            // Wrap to next row
-            row += 1;
-            col = 0;
-            if let Some(brk_len) = last_break_result_len {
-                let brk_idx = last_break_grapheme_idx.unwrap();
-                result.truncate(brk_len);
-                i = brk_idx;
-                last_break_result_len = None;
-                last_break_grapheme_idx = None;
-            }
-            // Don't increment i; re-process current grapheme on new row
-            continue;
-        }
-
-        result.push((row, col));
-        col += w;
-
-        if !crate::layout::is_word_char(text) {
-            last_break_result_len = Some(result.len());
-            last_break_grapheme_idx = Some(i + 1);
-        }
-
-        i += 1;
-    }
-
-    result
-}
-
+#[cfg(test)]
 fn draw_border(
     grid: &mut CellGrid,
     win: &crate::layout::FloatingWindow,
-    face: &Face,
+    face: &crate::protocol::Face,
     truncated: bool,
     corners: (&str, &str, &str, &str), // (top-left, top-right, bottom-left, bottom-right)
 ) {
@@ -280,7 +243,9 @@ fn draw_border(
     }
 }
 
+#[cfg(test)]
 fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
+    use crate::protocol::{Attributes, Color, Face};
     let dim_face = Face {
         fg: Color::Default,
         bg: Color::Default,
@@ -316,6 +281,9 @@ fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::Rect;
+    use crate::layout::flex;
+    use crate::plugin::PluginRegistry;
     use crate::protocol::{Atom, Color, Face, NamedColor};
     use crate::state::AppState;
 
@@ -434,5 +402,101 @@ mod tests {
             contents: "insert".into(),
         }];
         assert_eq!(cursor_style(&state), CursorStyle::Block);
+    }
+
+    // --- Regression test: declarative pipeline vs imperative ---
+
+    fn make_line(s: &str) -> Vec<Atom> {
+        vec![Atom {
+            face: Face::default(),
+            contents: s.to_string(),
+        }]
+    }
+
+    /// Compare the buffer and status bar regions between old and new pipelines.
+    /// The old pipeline uses render_frame() which includes render_buffer + render_status.
+    /// The new pipeline uses view() → layout() → paint().
+    #[test]
+    fn test_declarative_matches_imperative_buffer_status() {
+        let mut state = AppState::default();
+        state.cols = 40;
+        state.rows = 10;
+        state.default_face = Face {
+            fg: Color::Named(NamedColor::White),
+            bg: Color::Named(NamedColor::Black),
+            ..Face::default()
+        };
+        state.padding_face = Face {
+            fg: Color::Named(NamedColor::Blue),
+            bg: Color::Named(NamedColor::Black),
+            ..Face::default()
+        };
+        state.lines = vec![
+            make_line("first line"),
+            make_line("second line"),
+            make_line("third line with more text"),
+        ];
+        state.status_line = make_line("status text");
+        state.status_mode_line = make_line("normal");
+        state.status_default_face = Face {
+            fg: Color::Named(NamedColor::Cyan),
+            bg: Color::Default,
+            ..Face::default()
+        };
+
+        // Old pipeline
+        let mut grid_old = CellGrid::new(state.cols, state.rows);
+        render_frame(&state, &mut grid_old);
+
+        // New pipeline
+        let mut grid_new = CellGrid::new(state.cols, state.rows);
+        grid_new.clear(&state.default_face);
+        let registry = PluginRegistry::new();
+        let element = view::view(&state, &registry);
+        let root_area = Rect { x: 0, y: 0, w: state.cols, h: state.rows };
+        let layout_result = flex::place(&element, root_area, &state);
+        paint::paint(&element, &layout_result, &mut grid_new, &state);
+
+        // Compare buffer rows (0..rows-1)
+        let buffer_rows = state.rows.saturating_sub(1);
+        for y in 0..buffer_rows {
+            for x in 0..state.cols {
+                let old = grid_old.get(x, y).unwrap();
+                let new = grid_new.get(x, y).unwrap();
+                assert_eq!(
+                    old.grapheme, new.grapheme,
+                    "grapheme mismatch at ({x}, {y}): old={:?} new={:?}",
+                    old.grapheme, new.grapheme
+                );
+                assert_eq!(
+                    old.face.fg, new.face.fg,
+                    "fg mismatch at ({x}, {y})"
+                );
+                assert_eq!(
+                    old.face.bg, new.face.bg,
+                    "bg mismatch at ({x}, {y})"
+                );
+            }
+        }
+
+        // Compare status bar row (grapheme + fg + bg)
+        let status_y = state.rows - 1;
+        for x in 0..state.cols {
+            let old = grid_old.get(x, status_y).unwrap();
+            let new = grid_new.get(x, status_y).unwrap();
+            assert_eq!(
+                old.grapheme, new.grapheme,
+                "status grapheme mismatch at ({x}, {status_y}): old={:?} new={:?}",
+                old.grapheme, new.grapheme
+            );
+            assert_eq!(
+                old.face.fg, new.face.fg,
+                "status fg mismatch at ({x}, {status_y})"
+            );
+            assert_eq!(
+                old.face.bg, new.face.bg,
+                "status bg mismatch at ({x}, {status_y})"
+            );
+        }
     }
 }
