@@ -12,6 +12,7 @@ kasane の目指す姿は「プラグイン作成者のための UI 基盤」で
 - **拡張性**: Slot / Decorator / Replacement の三段階でプラグインが UI を拡張できる
 - **設定可能性**: テーマ・レイアウト・キーバインドをユーザーが設定で変更できる
 - **段階的分離**: 初期は Kakoune 結合のまま構築し、安定後に汎用部分を分離する
+- **コンパイラ駆動**: proc macro がコンパイル時に依存解析・レイアウトキャッシュ・更新コード生成を行い、ランタイムコストを最小化する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング))
 
 ## 全体アーキテクチャ
 
@@ -449,10 +450,88 @@ fn file_tree(entries: &[Entry], selected: usize) -> Element {
 }
 ```
 
-`#[kasane::component]` macro が生成する最適化:
-- 変更検出: 入力パラメータの前回値を保持し、変更時のみ再描画
-- レイアウトキャッシュ: 構造が静的な部分のレイアウト結果を再利用
-- 定数畳み込み: 固定幅要素の合計をコンパイル時に計算
+`#[kasane::component]` macro は Svelte 的な「コンパイラに仕事をさせる」思想に基づき、宣言的な view() から最適化されたコードを段階的に生成する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング)):
+
+**段階 1: 入力メモ化**
+
+入力パラメータの前回値を保持し、全入力が同一なら Element 構築をスキップする:
+
+```rust
+#[kasane::component]
+fn file_tree(entries: &[Entry], selected: usize) -> Element { ... }
+// → entries, selected が前回と同じなら、キャッシュ済み Element を返す
+```
+
+**段階 2: 静的レイアウトキャッシュ**
+
+proc macro が構造の静的部分を検出し、レイアウトを一度だけ計算する:
+
+```rust
+#[kasane::component]
+fn status_bar(mode: &str, file: &str, pos: Coord) -> Element {
+    flex(Row, [
+        text(mode).style("mode"),       // 内容は動的、構造は静的
+        text(file).style("file"),
+        text(&format!("{}:{}", pos.row, pos.col)).style("position"),
+    ])
+}
+// → flex(Row, [...]) の構造は入力に依存しない
+// → layout 結果を一度計算してキャッシュ (リサイズ時のみ再計算)
+```
+
+**段階 3: 細粒度更新コード生成**
+
+proc macro が各 Element の依存する入力パラメータを AST レベルで静的解析し、変更されたセルのみ CellGrid を直接更新するコードを生成する:
+
+```rust
+// 上の status_bar に対し、proc macro が概念的に以下を生成:
+struct StatusBarCache {
+    prev_mode: String,
+    prev_file: String,
+    prev_pos: Coord,
+    layout: LayoutResult,  // 段階 2 のキャッシュ
+}
+
+fn status_bar_update(cache: &mut StatusBarCache, mode: &str, file: &str, pos: Coord, grid: &mut CellGrid) {
+    if cache.prev_mode != mode {
+        grid.put_str(cache.layout.children[0].area, mode, &theme.mode);
+        cache.prev_mode = mode.to_string();
+    }
+    if cache.prev_file != file {
+        grid.put_str(cache.layout.children[1].area, file, &theme.file);
+        cache.prev_file = file.to_string();
+    }
+    if cache.prev_pos != pos {
+        let s = format!("{}:{}", pos.row, pos.col);
+        grid.put_str(cache.layout.children[2].area, &s, &theme.position);
+        cache.prev_pos = pos;
+    }
+    // Element ツリーの構築、layout()、全体 paint() を完全にスキップ
+}
+```
+
+**二層レンダリングモデル:**
+
+`#[kasane::component]` による最適化は「コンパイル済みパス」として機能し、従来の Element ツリーによる「インタープリタパス」と共存する:
+
+```
+              +---------------------+
+              |   宣言的 API 層      |  ← プラグイン作者が触る
+              |  (Element, view())   |
+              +------+--------------+
+                     |
+         +-----------+----------+
+         v                      v
+  コンパイル済みパス       インタープリタパス
+  (proc macro 生成)       (汎用 Element ツリー)
+         |                      |
+  静的構造 → 直接         Element → layout()
+    CellGrid 更新          → paint() → CellGrid
+```
+
+- **コンパイル済みパス**: `#[kasane::component]` が静的解析できる部分。Element ツリーを経由せず直接 CellGrid を更新
+- **インタープリタパス**: プラグインが `Plugin::contribute()` で動的に Element を提供する部分。従来のフルパス
+- **フォールバック**: `#[kasane::component]` なしのコードはインタープリタパスで動作。最適化はオプトインで、正しさは常にインタープリタパスが保証する
 
 ## 拡張モデル
 
@@ -630,13 +709,24 @@ enum StyleToken {
 - Plugin trait の定義
 - Slot メカニズムの実装
 
-### Phase 2: プラグイン基盤
+**コンパイラ駆動最適化に向けた設計上の考慮** (実装しないが意識する):
+- Element の各 variant が「静的構造」と「動的内容」を分離できる設計にしておく
+- view() 関数を純粋に保つ (副作用なし、`&State` のみ参照)。これが Phase 2 のコンパイル時解析の前提条件
+
+### Phase 2: プラグイン基盤 + コンパイラ駆動最適化
 
 - proc macro (`#[kasane::plugin]`, `#[kasane::component]`)
 - Decorator / Replacement メカニズム
 - Grid レイアウト
 - InteractiveId によるマウスヒットテスト
 - セマンティックスタイルトークンとテーマシステム
+
+**`#[kasane::component]` の最適化段階** ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング)):
+- 段階 1: 入力メモ化 — 全入力が前回と同じなら Element 構築をスキップ
+- 段階 2: 静的レイアウトキャッシュ — 構造が入力に依存しない部分の layout を一度だけ計算
+- 段階 3: 細粒度更新コード生成 — Element 単位の依存追跡により直接 CellGrid を更新 (二層レンダリングモデル)
+
+各段階は計測に基づいて順次導入する。段階 1 が十分な場合、段階 2・3 は見送る。
 
 ### Phase 3: プロトコル分離
 
