@@ -5,12 +5,7 @@ use crate::element::{Element, InteractiveId};
 ///
 /// Stack overlays are traversed in reverse order (front-to-back) so that the
 /// visually topmost interactive region wins.
-pub fn hit_test(
-    element: &Element,
-    layout: &LayoutResult,
-    x: u16,
-    y: u16,
-) -> Option<InteractiveId> {
+pub fn hit_test(element: &Element, layout: &LayoutResult, x: u16, y: u16) -> Option<InteractiveId> {
     let area = &layout.area;
 
     // Quick bounds check
@@ -66,9 +61,10 @@ pub fn hit_test(
             }
             None
         }
-        Element::Text(..) | Element::StyledLine(..) | Element::BufferRef { .. } | Element::Empty => {
-            None
-        }
+        Element::Text(..)
+        | Element::StyledLine(..)
+        | Element::BufferRef { .. }
+        | Element::Empty => None,
     }
 }
 

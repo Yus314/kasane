@@ -9,8 +9,8 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::input::{self as core_input, InputEvent};
-use kasane_core::layout::flex;
 use kasane_core::layout::Rect;
+use kasane_core::layout::flex;
 use kasane_core::plugin::{Command, PluginRegistry};
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::paint;
@@ -20,12 +20,12 @@ use kasane_core::render::{
 };
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 
+use crate::GuiEvent;
 use crate::backend::GuiBackend;
 use crate::colors::ColorResolver;
 use crate::gpu::GpuState;
 use crate::gpu::cell_renderer::CellRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
-use crate::GuiEvent;
 
 pub struct App<W: Write + Send + 'static> {
     // winit
@@ -95,7 +95,11 @@ impl<W: Write + Send + 'static> App<W> {
             .with_title("kasane")
             .with_inner_size(logical_size);
 
-        let window = Arc::new(event_loop.create_window(attrs).expect("failed to create window"));
+        let window = Arc::new(
+            event_loop
+                .create_window(attrs)
+                .expect("failed to create window"),
+        );
         window.set_ime_allowed(true);
 
         let scale_factor = window.scale_factor();
@@ -104,12 +108,7 @@ impl<W: Write + Send + 'static> App<W> {
         // Initialize GPU
         match GpuState::new(window.clone()) {
             Ok(gpu) => {
-                let cr = CellRenderer::new(
-                    &gpu,
-                    &self.config.font,
-                    scale_factor,
-                    phys_size,
-                );
+                let cr = CellRenderer::new(&gpu, &self.config.font, scale_factor, phys_size);
                 let metrics = cr.metrics().clone();
 
                 // Setup color resolver
@@ -259,7 +258,11 @@ impl<W: Write + Send + 'static> App<W> {
             tracing::warn!("[app] render_frame skipped: missing gpu/renderer/resolver");
             return;
         }
-        tracing::debug!("[app] render_frame start ({}x{})", self.state.cols, self.state.rows);
+        tracing::debug!(
+            "[app] render_frame start ({}x{})",
+            self.state.cols,
+            self.state.rows
+        );
 
         // Declarative pipeline: view → layout → paint
         let element = view::view(&self.state, &self.registry);
@@ -362,12 +365,19 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: GuiEvent) {
-        tracing::debug!("[app] user_event received, pending: {}", self.pending_events.len());
+        tracing::debug!(
+            "[app] user_event received, pending: {}",
+            self.pending_events.len()
+        );
         self.pending_events.push(event);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        tracing::trace!("[app] about_to_wait, pending: {}, dirty: {:?}", self.pending_events.len(), self.dirty);
+        tracing::trace!(
+            "[app] about_to_wait, pending: {}, dirty: {:?}",
+            self.pending_events.len(),
+            self.dirty
+        );
         self.process_pending_events(event_loop);
 
         // Smooth scroll animation tick

@@ -40,20 +40,12 @@ impl Plugin for BenchPlugin {
 
     fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
         match slot {
-            Slot::StatusRight => Some(Element::text(
-                format!("[{}]", self.id),
-                Default::default(),
-            )),
+            Slot::StatusRight => Some(Element::text(format!("[{}]", self.id), Default::default())),
             _ => None,
         }
     }
 
-    fn decorate(
-        &self,
-        _target: DecorateTarget,
-        element: Element,
-        _state: &AppState,
-    ) -> Element {
+    fn decorate(&self, _target: DecorateTarget, element: Element, _state: &AppState) -> Element {
         // Wrap in a transparent container (minimal overhead, realistic decoration)
         element
     }
@@ -179,7 +171,10 @@ pub fn state_with_menu(item_count: usize) -> AppState {
     let screen_h = state.rows.saturating_sub(1);
     state.menu = Some(kasane_core::state::MenuState::new(
         items,
-        Coord { line: 5, column: 10 },
+        Coord {
+            line: 5,
+            column: 10,
+        },
         selected_face,
         menu_face,
         MenuStyle::Inline,

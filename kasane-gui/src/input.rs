@@ -1,4 +1,6 @@
-use kasane_core::input::{InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
+use kasane_core::input::{
+    InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
@@ -20,8 +22,12 @@ pub fn convert_window_event(
         }
         WindowEvent::Ime(ime) => convert_ime(ime),
         WindowEvent::Resized(size) => {
-            let cols = (size.width as f32 / cell_metrics.cell_width).floor().max(1.0) as u16;
-            let rows = (size.height as f32 / cell_metrics.cell_height).floor().max(1.0) as u16;
+            let cols = (size.width as f32 / cell_metrics.cell_width)
+                .floor()
+                .max(1.0) as u16;
+            let rows = (size.height as f32 / cell_metrics.cell_height)
+                .floor()
+                .max(1.0) as u16;
             vec![InputEvent::Resize(cols, rows)]
         }
         WindowEvent::Focused(true) => vec![InputEvent::FocusGained],
@@ -312,7 +318,8 @@ mod tests {
     #[test]
     fn test_apply_modifiers_shift_lowercase_kept() {
         // Ctrl+Shift held, char is lowercase 'a' — Shift should be kept
-        let mods = winit::keyboard::ModifiersState::SHIFT | winit::keyboard::ModifiersState::CONTROL;
+        let mods =
+            winit::keyboard::ModifiersState::SHIFT | winit::keyboard::ModifiersState::CONTROL;
         let mut event = InputEvent::Key(KeyEvent {
             key: Key::Char('a'),
             modifiers: Modifiers::empty(),

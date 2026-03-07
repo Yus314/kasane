@@ -130,8 +130,7 @@ impl Theme {
     pub fn from_config(config: &ThemeConfig) -> Self {
         let mut theme = Self::default_theme();
         for (name, face_spec) in &config.faces {
-            if let (Some(token), Some(face)) = (token_from_name(name), parse_face_spec(face_spec))
-            {
+            if let (Some(token), Some(face)) = (token_from_name(name), parse_face_spec(face_spec)) {
                 theme.set(token, face);
             }
         }

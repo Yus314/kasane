@@ -96,9 +96,7 @@ mod tests {
         };
         let mut backend = GuiBackend::new(metrics);
         assert!(backend.cursor().is_none());
-        backend
-            .show_cursor(5, 10, CursorStyle::Block)
-            .unwrap();
+        backend.show_cursor(5, 10, CursorStyle::Block).unwrap();
         assert_eq!(backend.cursor(), Some((5, 10, CursorStyle::Block)));
         backend.hide_cursor().unwrap();
         assert!(backend.cursor().is_none());

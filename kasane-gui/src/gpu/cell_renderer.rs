@@ -66,12 +66,8 @@ impl CellRenderer {
         let font_size = font_config.size * scale_factor as f32;
         let line_height = font_size * font_config.line_height;
 
-        let metrics = CellMetrics::calculate(
-            &mut font_system,
-            font_config,
-            scale_factor,
-            window_size,
-        );
+        let metrics =
+            CellMetrics::calculate(&mut font_system, font_config, scale_factor, window_size);
 
         let surface_format = gpu.config.format;
 
@@ -93,10 +89,12 @@ impl CellRenderer {
         );
 
         // Background quad shader + pipeline
-        let bg_shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("bg_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("bg.wgsl").into()),
-        });
+        let bg_shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("bg_shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("bg.wgsl").into()),
+            });
 
         let bg_uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("bg_uniforms"),
@@ -138,52 +136,54 @@ impl CellRenderer {
                     immediate_size: 0,
                 });
 
-        let bg_pipeline = gpu.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("bg_pipeline"),
-            layout: Some(&bg_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &bg_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 32, // 4 floats rect + 4 floats color = 32 bytes
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[
-                        // rect: vec4<f32> (x, y, w, h)
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                        // color: vec4<f32>
-                        wgpu::VertexAttribute {
-                            offset: 16,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x4,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &bg_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                strip_index_format: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let bg_pipeline = gpu
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("bg_pipeline"),
+                layout: Some(&bg_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &bg_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: 32, // 4 floats rect + 4 floats color = 32 bytes
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &[
+                            // rect: vec4<f32> (x, y, w, h)
+                            wgpu::VertexAttribute {
+                                offset: 0,
+                                shader_location: 0,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            // color: vec4<f32>
+                            wgpu::VertexAttribute {
+                                offset: 16,
+                                shader_location: 1,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                        ],
+                    }],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &bg_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    strip_index_format: None,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
 
         // Persistent bg instance buffer
         let bg_instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {

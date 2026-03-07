@@ -3,7 +3,9 @@ use unicode_width::UnicodeWidthStr;
 use crate::element::{
     BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
 };
-use crate::layout::{self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width, word_wrap_segments};
+use crate::layout::{
+    self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width, word_wrap_segments,
+};
 use crate::protocol::{Atom, Face, InfoStyle, Line};
 use crate::state::{AppState, InfoState};
 

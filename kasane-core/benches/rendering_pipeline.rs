@@ -8,9 +8,7 @@ use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
 
-use fixtures::{
-    draw_request, registry_with_plugins, state_with_menu, typical_state,
-};
+use fixtures::{draw_request, registry_with_plugins, state_with_menu, typical_state};
 
 // ---------------------------------------------------------------------------
 // Micro-benchmarks
@@ -160,9 +158,7 @@ fn bench_decorator_chain(c: &mut Criterion) {
     for n in [1, 5, 10] {
         let registry = registry_with_plugins(n);
         group.bench_with_input(BenchmarkId::new("plugins", n), &n, |b, _| {
-            b.iter(|| {
-                registry.apply_decorator(DecorateTarget::Buffer, element.clone(), &state)
-            });
+            b.iter(|| registry.apply_decorator(DecorateTarget::Buffer, element.clone(), &state));
         });
     }
 

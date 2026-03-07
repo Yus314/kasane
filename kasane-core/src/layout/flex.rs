@@ -582,7 +582,9 @@ mod tests {
         let state = default_state();
         let el = Element::Container {
             child: Box::new(Element::text("hi", Face::default())),
-            border: Some(crate::element::BorderConfig::from(crate::element::BorderLineStyle::Rounded)),
+            border: Some(crate::element::BorderConfig::from(
+                crate::element::BorderLineStyle::Rounded,
+            )),
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(Face::default()),

@@ -121,17 +121,16 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
                 InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
                 _ => None,
             };
-            let info_overlay =
-                match replace_target.and_then(|t| registry.get_replacement(t, state)) {
-                    Some(replacement) => {
-                        info::build_replacement_info_overlay(
-                            replacement, info_state, state, &avoid_rects,
-                        )
-                    }
-                    None => {
-                        info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx)
-                    }
-                };
+            let info_overlay = match replace_target.and_then(|t| registry.get_replacement(t, state))
+            {
+                Some(replacement) => info::build_replacement_info_overlay(
+                    replacement,
+                    info_state,
+                    state,
+                    &avoid_rects,
+                ),
+                None => info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx),
+            };
             if let Some(mut overlay) = info_overlay {
                 // Track this overlay's rect for subsequent infos to avoid
                 if let OverlayAnchor::Absolute { x, y, w, h } = &overlay.anchor {

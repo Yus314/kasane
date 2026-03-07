@@ -18,8 +18,7 @@ pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {
     };
 
     let menu_rect = super::menu::get_menu_rect(state);
-    let avoid: Vec<crate::layout::Rect> =
-        menu_rect.into_iter().collect();
+    let avoid: Vec<crate::layout::Rect> = menu_rect.into_iter().collect();
     let win = crate::layout::layout_info(
         &info.title,
         &info.content,

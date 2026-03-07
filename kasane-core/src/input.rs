@@ -376,13 +376,7 @@ mod tests {
             column: 7,
         };
         let req = mouse_to_kakoune(&evt, 3).unwrap();
-        assert_eq!(
-            req,
-            KasaneRequest::MouseMove {
-                line: 3,
-                column: 7,
-            }
-        );
+        assert_eq!(req, KasaneRequest::MouseMove { line: 3, column: 7 });
     }
 
     #[test]
@@ -395,13 +389,7 @@ mod tests {
             column: 2,
         };
         let req = mouse_to_kakoune(&evt, 3).unwrap();
-        assert_eq!(
-            req,
-            KasaneRequest::MouseMove {
-                line: 1,
-                column: 2,
-            }
-        );
+        assert_eq!(req, KasaneRequest::MouseMove { line: 1, column: 2 });
     }
 
     #[test]

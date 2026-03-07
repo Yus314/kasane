@@ -4,15 +4,15 @@
 //! These tests exercise the end-to-end flow to catch regressions in the
 //! interaction between subsystems, complementing unit tests within each module.
 
-use kasane_core::layout::flex::place;
 use kasane_core::layout::Rect;
+use kasane_core::layout::flex::place;
 use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::{
     Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor,
 };
-use kasane_core::render::view;
-use kasane_core::render::paint;
 use kasane_core::render::CellGrid;
+use kasane_core::render::paint;
+use kasane_core::render::view;
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,12 @@ fn setup_state(lines: Vec<Line>) -> AppState {
 fn render(state: &AppState) -> CellGrid {
     let registry = PluginRegistry::new();
     let element = view::view(state, &registry);
-    let root = Rect { x: 0, y: 0, w: state.cols, h: state.rows };
+    let root = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
     let layout = place(&element, root, state);
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
@@ -75,10 +80,7 @@ fn row_text(grid: &CellGrid, y: u16) -> String {
 
 #[test]
 fn basic_buffer_draw() {
-    let state = setup_state(vec![
-        make_line("hello world"),
-        make_line("second line"),
-    ]);
+    let state = setup_state(vec![make_line("hello world"), make_line("second line")]);
     let grid = render(&state);
 
     assert_eq!(row_text(&grid, 0), "hello world");
@@ -107,7 +109,10 @@ fn buffer_with_colored_atoms() {
     let red = Color::Rgb { r: 255, g: 0, b: 0 };
     let line = vec![
         Atom {
-            face: Face { fg: red, ..Face::default() },
+            face: Face {
+                fg: red,
+                ..Face::default()
+            },
             contents: "red".to_string(),
         },
         Atom {
@@ -136,8 +141,14 @@ fn status_bar_rendered_at_bottom() {
 
     // Status bar is the last row (row 23 for 24-row terminal)
     let status = row_text(&grid, 23);
-    assert!(status.contains("main.rs"), "status bar should contain filename, got: {status:?}");
-    assert!(status.contains("normal"), "status bar should contain mode, got: {status:?}");
+    assert!(
+        status.contains("main.rs"),
+        "status bar should contain filename, got: {status:?}"
+    );
+    assert!(
+        status.contains("normal"),
+        "status bar should contain mode, got: {status:?}"
+    );
 }
 
 #[test]
@@ -148,7 +159,10 @@ fn status_bar_at_top() {
 
     // When status_at_top, row 0 is status bar
     let status = row_text(&grid, 0);
-    assert!(status.contains("main.rs"), "top status bar should contain filename");
+    assert!(
+        status.contains("main.rs"),
+        "top status bar should contain filename"
+    );
     // Buffer starts at row 1
     assert_eq!(row_text(&grid, 1), "buffer");
 }
@@ -187,8 +201,12 @@ fn menu_show_and_select() {
     let mut found_bar = false;
     for y in 0..state.rows {
         let text = row_text(&grid, y);
-        if text.contains("foo") { found_foo = true; }
-        if text.contains("bar") { found_bar = true; }
+        if text.contains("foo") {
+            found_foo = true;
+        }
+        if text.contains("bar") {
+            found_bar = true;
+        }
     }
     assert!(found_foo, "menu should show 'foo'");
     assert!(found_bar, "menu should show 'bar'");
@@ -283,7 +301,10 @@ fn multiple_infos_coexist() {
     state.apply(KakouneRequest::InfoShow {
         title: make_line("Doc"),
         content: vec![make_line("fn doc text")],
-        anchor: Coord { line: 0, column: 10 },
+        anchor: Coord {
+            line: 0,
+            column: 10,
+        },
         face: Face::default(),
         style: InfoStyle::Modal,
     });
@@ -303,7 +324,16 @@ fn resize_updates_grid() {
     let mut grid = CellGrid::new(state.cols, state.rows);
     let mut registry = PluginRegistry::new();
 
-    let (flags, _cmds) = update(&mut state, Msg::Resize { cols: 120, rows: 40 }, &mut registry, &mut grid, 3);
+    let (flags, _cmds) = update(
+        &mut state,
+        Msg::Resize {
+            cols: 120,
+            rows: 40,
+        },
+        &mut registry,
+        &mut grid,
+        3,
+    );
     assert!(flags.contains(DirtyFlags::ALL));
     assert_eq!(state.cols, 120);
     assert_eq!(state.rows, 40);
@@ -347,8 +377,14 @@ fn parse_draw_status_and_render() {
 
     let grid = render(&state);
     let status = row_text(&grid, 23);
-    assert!(status.contains("[scratch]"), "status should contain '[scratch]', got: {status:?}");
-    assert!(status.contains("insert"), "status should contain 'insert', got: {status:?}");
+    assert!(
+        status.contains("[scratch]"),
+        "status should contain '[scratch]', got: {status:?}"
+    );
+    assert!(
+        status.contains("insert"),
+        "status should contain 'insert', got: {status:?}"
+    );
 }
 
 // ===========================================================================
@@ -363,7 +399,12 @@ fn diff_detects_changes() {
 
     let registry = PluginRegistry::new();
     let element = view::view(&state, &registry);
-    let root = Rect { x: 0, y: 0, w: 80, h: 24 };
+    let root = Rect {
+        x: 0,
+        y: 0,
+        w: 80,
+        h: 24,
+    };
     let layout = place(&element, root, &state);
     paint::paint(&element, &layout, &mut grid, &state);
 
@@ -376,7 +417,11 @@ fn diff_detects_changes() {
     grid.clear(&state.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     let diffs = grid.diff();
-    assert!(diffs.is_empty(), "identical frame should have no diffs, got {}", diffs.len());
+    assert!(
+        diffs.is_empty(),
+        "identical frame should have no diffs, got {}",
+        diffs.len()
+    );
 }
 
 // ===========================================================================
@@ -385,7 +430,7 @@ fn diff_detects_changes() {
 
 #[test]
 fn cjk_wide_chars() {
-    let state = setup_state(vec![make_line("Hello\u{4e16}\u{754c}")]);  // 世界
+    let state = setup_state(vec![make_line("Hello\u{4e16}\u{754c}")]); // 世界
     let grid = render(&state);
 
     assert_eq!(row_text(&grid, 0), "Hello\u{4e16}\u{754c}");
@@ -400,11 +445,14 @@ fn cjk_wide_chars() {
 
 #[test]
 fn emoji_rendering() {
-    let state = setup_state(vec![make_line("a\u{1f600}b")]);  // a😀b
+    let state = setup_state(vec![make_line("a\u{1f600}b")]); // a😀b
     let grid = render(&state);
 
     let text = row_text(&grid, 0);
-    assert!(text.contains("\u{1f600}"), "should contain emoji, got: {text:?}");
+    assert!(
+        text.contains("\u{1f600}"),
+        "should contain emoji, got: {text:?}"
+    );
 }
 
 // ===========================================================================

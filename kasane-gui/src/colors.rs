@@ -46,12 +46,7 @@ impl ColorResolver {
                 }
             }
             Color::Named(n) => self.palette[2 + named_color_index(n)],
-            Color::Rgb { r, g, b } => [
-                r as f32 / 255.0,
-                g as f32 / 255.0,
-                b as f32 / 255.0,
-                1.0,
-            ],
+            Color::Rgb { r, g, b } => [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
         }
     }
 
@@ -144,7 +139,14 @@ mod tests {
     fn test_resolve_rgb() {
         let config = ColorsConfig::default();
         let resolver = ColorResolver::from_config(&config);
-        let c = resolver.resolve(Color::Rgb { r: 128, g: 0, b: 255 }, true);
+        let c = resolver.resolve(
+            Color::Rgb {
+                r: 128,
+                g: 0,
+                b: 255,
+            },
+            true,
+        );
         assert!((c[0] - 0.502).abs() < 0.01);
         assert!((c[1] - 0.0).abs() < 0.01);
         assert!((c[2] - 1.0).abs() < 0.01);

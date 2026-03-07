@@ -228,8 +228,7 @@ mod tests {
             w: 1,
             h: 1,
         };
-        let (y, _x) =
-            compute_pos((5, 0), (3, 10), screen_rect(80, 24), &[menu, cursor], false);
+        let (y, _x) = compute_pos((5, 0), (3, 10), screen_rect(80, 24), &[menu, cursor], false);
         // Should avoid both menu (6..10) and cursor (5..6)
         assert!(y + 3 <= 5 || y >= 10, "should not overlap menu or cursor");
     }

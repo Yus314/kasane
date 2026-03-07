@@ -236,9 +236,7 @@ fn test_info_framed_shadow_disabled() {
             }
             Element::Container { child, .. } => find_shadow(child),
             Element::Interactive { child, .. } => find_shadow(child),
-            Element::Flex { children, .. } => {
-                children.iter().find_map(|c| find_shadow(&c.element))
-            }
+            Element::Flex { children, .. } => children.iter().find_map(|c| find_shadow(&c.element)),
             _ => None,
         }
     }

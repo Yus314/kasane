@@ -1,5 +1,5 @@
-use super::*;
 use super::update::compute_visible_lines;
+use super::*;
 use crate::plugin::{Command, PluginRegistry};
 use crate::protocol::{Atom, Face, InfoStyle, KakouneRequest, KasaneRequest};
 use crate::render::CellGrid;
@@ -480,13 +480,7 @@ fn test_drag_state_drag_keeps_active() {
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(req) => {
-            assert_eq!(
-                *req,
-                KasaneRequest::MouseMove {
-                    line: 3,
-                    column: 7,
-                }
-            );
+            assert_eq!(*req, KasaneRequest::MouseMove { line: 3, column: 7 });
         }
         _ => panic!("expected SendToKakoune MouseMove"),
     }
@@ -570,7 +564,10 @@ fn test_paste_produces_paste_command() {
 fn test_pageup_intercept() {
     let mut state = AppState::default();
     state.rows = 24;
-    state.cursor_pos = Coord { line: 10, column: 5 };
+    state.cursor_pos = Coord {
+        line: 10,
+        column: 5,
+    };
     let mut registry = PluginRegistry::new();
     let mut grid = CellGrid::new(80, 24);
     let key = crate::input::KeyEvent {
@@ -580,7 +577,11 @@ fn test_pageup_intercept() {
     let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
     assert_eq!(commands.len(), 1);
     match &commands[0] {
-        Command::SendToKakoune(KasaneRequest::Scroll { amount, line, column }) => {
+        Command::SendToKakoune(KasaneRequest::Scroll {
+            amount,
+            line,
+            column,
+        }) => {
             assert_eq!(*amount, -23); // -(rows - 1)
             assert_eq!(*line, 10);
             assert_eq!(*column, 5);
@@ -593,7 +594,10 @@ fn test_pageup_intercept() {
 fn test_pagedown_intercept() {
     let mut state = AppState::default();
     state.rows = 24;
-    state.cursor_pos = Coord { line: 10, column: 5 };
+    state.cursor_pos = Coord {
+        line: 10,
+        column: 5,
+    };
     let mut registry = PluginRegistry::new();
     let mut grid = CellGrid::new(80, 24);
     let key = crate::input::KeyEvent {

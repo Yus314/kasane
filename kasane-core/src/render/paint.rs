@@ -301,7 +301,9 @@ fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
+    use crate::element::{
+        BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
+    };
     use crate::layout::flex::place;
     use crate::protocol::{Atom, Face};
 
