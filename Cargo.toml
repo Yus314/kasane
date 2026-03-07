@@ -25,6 +25,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 unicode-width = "0.2"
 insta = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
 toml = "0.8"
 bitflags = "2"
 compact_str = "0.9"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false

@@ -17,5 +17,13 @@ compact_str = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 
+[features]
+perf-tracing = []
+
 [dev-dependencies]
 insta = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "rendering_pipeline"
+harness = false

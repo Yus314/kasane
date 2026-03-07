@@ -1,9 +1,9 @@
 # パフォーマンス分析
 
 本ドキュメントでは、kasane の宣言的 UI アーキテクチャにおけるパフォーマンス特性を分析する。
-現在の命令的パイプラインと新アーキテクチャの比較、ボトルネックの特定、対策を記述する。
+ボトルネックの特定、計測結果、対策を記述する。
 
-## 現在のフレーム実行フロー
+## フレーム実行フロー
 
 ```
 イベント受信
@@ -15,41 +15,43 @@
 state.apply() ── O(メッセージサイズ)
   │
   ▼
-render_frame(&state, &mut grid)
-  ├── grid.clear()          ── O(w×h)
-  ├── render_buffer()       ── O(rows × avg_line_width)
-  ├── render_status()       ── O(width)
-  ├── render_menu()         ── O(visible_items)
-  └── render_info()         ── O(visible_info_lines)
+view(&state, &registry)     ── Element ツリー構築
   │
   ▼
-grid.diff()                 ── O(w×h)
+flex::place(&element, area)  ── レイアウト計算
   │
   ▼
-backend.draw(&diffs)        ── O(changed_cells) ← 端末 I/O (最も遅い)
+grid.clear() + paint()       ── CellGrid への描画
+  │
+  ▼
+grid.diff()                  ── O(w×h) 差分検出
+  │
+  ▼
+backend.draw(&diffs)         ── O(changed_cells) ← 端末 I/O (最も遅い)
 backend.flush()
   │
   ▼
-grid.swap()                 ── O(w×h)
+grid.swap()                  ── O(w×h) バッファ交換
 ```
 
-## 現在のフレームあたりコスト (80×24 ターミナル)
+## フレームあたりコスト (80×24 ターミナル)
 
-| 処理 | 計算量 | 実測目安 | 備考 |
+`cargo bench --bench rendering_pipeline` による criterion 計測結果。
+
+| 処理 | 計算量 | 計測値 | 備考 |
 |---|---|---|---|
-| `grid.clear()` | O(w×h) = 1,920 セル | ~5 μs | 全セルを Cell::default() で初期化 |
-| `render_buffer()` | O(rows × line_width) | ~10-30 μs | Atom→セル変換、unicode-width 計算 |
-| `render_status()` | O(width) | ~1 μs | 1 行分 |
-| `render_menu()` | O(visible_items) | ~5-15 μs | スタイルにより異なる |
-| `render_info()` | O(visible_lines) | ~5-20 μs | word_wrap がある場合は高い |
-| `grid.diff()` | O(w×h) = 1,920 セル比較 | ~5 μs | Cell 同士の等価比較 |
-| `grid.swap()` + clear | O(w×h) | ~5 μs | swap は O(1)、clear が O(w×h) |
+| `view()` | O(ノード数) | 0.26 μs (0 plugins) / 2.35 μs (10 plugins) | Element ツリー構築 |
+| `flex::place()` | O(ノード数) | 0.38 μs | レイアウト計算 |
+| `grid.clear()` + `paint()` | O(w×h) | 20.3 μs | Atom→セル変換、unicode-width 計算 |
+| `grid.diff()` (incremental) | O(w×h) = 1,920 セル比較 | 11.0 μs | Cell 同士の等価比較 |
+| `grid.diff()` (full redraw) | O(w×h) | 24.1 μs | 初回フレームのみ。全セルを CellDiff に構築 |
+| `grid.swap()` | O(w×h) | ~5 μs | swap は O(1)、clear が O(w×h) |
+| **CPU パイプライン合計** | | **~40 μs** | `full_frame` ベンチマーク実測値 |
 | `backend.draw()` | O(changed_cells) | **100-3,000 μs** | エスケープシーケンス生成 + I/O |
 | `backend.flush()` | O(1) | **50-500 μs** | stdout への write |
-| **合計** | | **~200-3,600 μs** | |
 
 **支配的コスト: 端末 I/O (`backend.draw()` + `backend.flush()`)。**
-グリッド操作の合計は 30-80 μs で全体の 5-20%。残りは端末への書き込み。
+CPU パイプラインの合計は ~40 μs で、16 ms フレームバジェットの **0.25%**。
 
 ## 既存の最適化
 
@@ -62,95 +64,83 @@ grid.swap()                 ── O(w×h)
 | イベントバッチング | main.rs | `try_recv()` で pending イベントを全て消化してから 1 回描画 |
 | SIMD JSON | protocol.rs | simd_json による高速 JSON パース |
 
-## 新アーキテクチャが追加するオーバーヘッド
+## 宣言的パイプラインのオーバーヘッド
 
-### フレーム実行フローの変化
+旧命令的パイプライン (`render_frame()` が直接 CellGrid に描画) と比較した、宣言的パイプライン (`view() → layout() → paint()`) の追加コスト。
 
-```
-現在:     State ──→ CellGrid (直接描画)
-
-新:       State ──→ view() ──→ Element ──→ layout() ──→ paint() ──→ CellGrid
-                    ~1 μs       ~0.5 KB     ~1 μs        ~30 μs
-                    ^^^^^^^^    ^^^^^^^^^    ^^^^^^^^^    ^^^^^^^^^^
-                    新規コスト   中間表現     新規コスト    既存と同等
-```
-
-### 1. Element ツリー構築: view()
-
-**コアUI のノード数見積もり:**
-
-| コンポーネント | ノード数 |
-|---|---|
-| ルート Flex (Column) | 1 |
-| バッファ領域 (BufferRef) | 1 |
-| ステータスバー Flex (Row) | 3 |
-| メニュー (表示時) | 5-10 |
-| 情報ポップアップ (表示時) | 5-10 |
-| Slot の構造ノード | 3-5 |
-| **合計** | **20-30** |
-
-**構築コスト:**
-- Enum 構築 + Vec アロケーション: ノードあたり 20-50 ns
-- 20-30 ノード × ~30 ns = **約 1 μs**
-
-**プラグイン追加時:**
-- プラグインごとに 5-20 ノード追加
-- 10 プラグイン × 10 ノード = 100 ノード追加
-- 合計 130 ノード × ~30 ns = **約 4 μs**
-
-### 2. レイアウト計算: layout()
-
-**Flex レイアウトの計算手順:**
+### フレーム時間内訳 (full_frame ≈ 40 μs)
 
 ```
-measure() 下→上:
-  各 Flex ノードで子を走査、固定/可変を分類、残り空間を比率分配
-  ノードあたり O(子の数) の加算・比較
-
-place() 上→下:
-  各 Flex ノードで子の位置を順番に計算
-  ノードあたり O(子の数) の加算
+view()  構築:     0.26 μs ━          (0.6%)
+flex    layout:   0.38 μs ━          (1.0%)
+paint   80x24:   20.3  μs ━━━━━━━━━━━━━━━━━━━━━━━━━━  (50.7%)  ← 支配的
+grid    diff:   ~13    μs ━━━━━━━━━━━━━━━━━  (加重平均, ~33%)
+grid    swap:    ~5    μs ━━━━━━━  (~13%)
+plugin他:        ~1    μs ━
+─────────────────────────
+合計             ~40   μs
 ```
 
-- 30 ノード × 2 パス × ~20 ns = **約 1 μs**
-- Overlay の配置は既存 `compute_pos` と同等 (O(1))
+### 各フェーズの計測値
 
-### 3. 描画: paint()
+#### 1. Element ツリー構築: view()
 
-Element ツリーを走査して CellGrid に描画する。**描画自体のコストは現在の `render_*()` 関数群と同等。** 追加コストは再帰走査の match 分岐のみ:
-
-- 30 ノードの再帰走査 × ~10 ns (match + 関数呼び出し) = **約 0.3 μs**
-
-### 4. Plugin dispatch
-
-| 処理 | コスト | 頻度 |
+| 条件 | 計測値 | 備考 |
 |---|---|---|
-| HashMap lookup (PluginId) | ~30 ns | イベントごとに 1 回 |
-| `Box<dyn Any>` downcast | ~5 ns (TypeId 比較) | イベントごとに 1 回 |
-| Slot 収集 (全プラグイン × 全 Slot) | ~80 ns × (plugins × slots) | フレームごとに 1 回 |
-| vtable 経由の Plugin メソッド呼び出し | ~5 ns | 各呼び出しごと |
+| プラグイン 0 個 | **0.26 μs** | コア UI (~20-30 ノード) |
+| プラグイン 10 個 | **2.35 μs** | 各プラグインが StatusRight に contribute |
 
-10 プラグイン × 8 Slot = 80 回の仮想関数呼び出し: **約 1 μs**
+プラグイン 0 個のコア UI 構築コストは 260 ns で、事前見積もり (~1 μs) を大幅に下回る。プラグイン追加時のスケーリングはほぼ線形。
 
-### 5. Decorator チェーン
+#### 2. レイアウト計算: layout()
 
-構造レベルの Decorator (Buffer, StatusBar 等):
-- Decorator あたり: Element 構築 1-3 ノード + Flex ラップ = ~100 ns
-- 5 個の Decorator: **約 0.5 μs**
-
-### 新アーキテクチャの追加コスト合計
-
-| 処理 | コスト |
+| 条件 | 計測値 |
 |---|---|
-| Element 構築 (view) | ~1-4 μs |
-| レイアウト計算 (layout) | ~1 μs |
-| 再帰走査 (paint overhead) | ~0.3 μs |
-| Plugin dispatch | ~1 μs |
-| Decorator チェーン | ~0.5 μs |
-| **合計** | **~4-7 μs** |
+| 標準 80x24 (プラグイン 0) | **0.38 μs** |
 
-**既存のグリッド操作 (30-80 μs) と比較して 10-20% の追加。**
-**端末 I/O (200-3,600 μs) と比較して 0.2-3% の追加。**
+事前見積もり (~1 μs) の約 1/3。Flex レイアウトの measure/place 2 パスは極めて軽量。
+
+#### 3. 描画: paint()
+
+| 条件 | 計測値 | セル数 | per-cell |
+|---|---|---|---|
+| 80×24 | **20.3 μs** | 1,920 | 10.6 ns |
+| 200×60 | **85.8 μs** | 12,000 | 7.1 ns |
+
+面積に対してほぼ線形にスケール。per-cell コストが大画面で下がるのはキャッシュ効率の改善による。paint が CPU パイプラインの約 50% を占めるが、これは旧 `render_buffer()` + `render_status()` と同等のコスト (Atom→Cell 変換 + unicode-width 計算)。
+
+#### 4. Plugin dispatch
+
+| プラグイン数 | collect_slot (8 Slot) + apply_decorator | 計測値 |
+|---|---|---|
+| 1 | 8 回の vtable 呼び出し + sort + fold | **0.21 μs** |
+| 5 | 40 回 + sort + fold | **0.86 μs** |
+| 10 | 80 回 + sort + fold | **1.85 μs** |
+
+スケーリングはほぼ線形 (~185 ns/plugin)。
+
+#### 5. Decorator チェーン
+
+| プラグイン数 | 計測値 | 備考 |
+|---|---|---|
+| 1 | **26 ns** | sort + 1 回の fold |
+| 5 | **66 ns** | sort + 5 回の fold |
+| 10 | **117 ns** | sort + 10 回の fold |
+
+事前見積もり (~500 ns for 5 plugins) を大幅に下回る。no-op decorator のため実際のプラグインでは若干増えるが、μs 未満に収まる。
+
+### 宣言的パイプラインの純追加コスト
+
+| 処理 | 事前見積もり | 計測値 |
+|---|---|---|
+| Element 構築 (view) | ~1-4 μs | 0.26-2.35 μs |
+| レイアウト計算 (layout) | ~1 μs | 0.38 μs |
+| 再帰走査 (paint overhead) | ~0.3 μs | 計測不可 (paint 内に含まれる) |
+| Plugin dispatch | ~1 μs | 1.85 μs (10 plugins) |
+| Decorator チェーン | ~0.5 μs | 0.12 μs (10 plugins) |
+| **合計** | **~4-7 μs** | **~3 μs** (0 plugins) / **~5 μs** (10 plugins) |
+
+**CPU パイプライン全体 (40 μs) の 7-12%。端末 I/O (200-3,600 μs) の 0.1-2.5%。**
 **実用上の影響はない。**
 
 ## コンパイラ駆動最適化 (Phase 2)
@@ -186,61 +176,29 @@ Element ツリーを走査して CellGrid に描画する。**描画自体のコ
 パフォーマンス原則「計測してから最適化」に従い、以下の条件を満たした場合に各段階を導入する:
 
 - **段階 1 (入力メモ化)**: proc macro 基盤の構築と同時に導入。コスト低・効果確実
-- **段階 2 (静的レイアウトキャッシュ)**: プラグイン追加により Element ノード数が 100 を超え、layout() コストが計測で 5 μs を超えた場合
-- **段階 3 (細粒度更新コード生成)**: paint() コストが計測で端末 I/O の 10% (15-360 μs) を超えた場合
+- **段階 2 (静的レイアウトキャッシュ)**: layout() が現在 0.38 μs のため、閾値 5 μs まで 13 倍の余裕がある。プラグイン追加により layout() が 5 μs を超えた場合に導入
+- **段階 3 (細粒度更新コード生成)**: paint() が現在 20 μs (80x24)。200x60 で 86 μs。端末 I/O の 10% (15-360 μs) を超えるのは大画面時のみで、現時点では不要
 
 上記のコスト削減見積もりはいずれも端末 I/O (200-3,600 μs) に対して小さい。Phase 2 では段階 1 を必ず実装し、段階 2・3 は計測結果に基づいて判断する。
 
 ## 注意が必要なボトルネック
 
-### 深刻度: 高
+### 深刻度: 高 → 対策済み
 
 #### バッファ行の clone
 
-Element が所有型 (Owned) のため、バッファの全行をツリーに含めると毎フレーム clone が発生する。
+Element が所有型 (Owned) のため、バッファの全行をツリーに含めると毎フレーム clone が発生する問題。
 
 ```
 50 行 × 5 Atom/行 = 250 Atom
 各 Atom: Face(16B) + CompactString(24B) = 40B
 合計: ~10 KB + 250 回の CompactString clone
-推定コスト: 10-30 μs (現在のフレーム時間の 15-40%)
+推定コスト: 10-30 μs
 ```
 
-**対策: BufferRef パターン**
+**対策: BufferRef パターン (実装済み)**
 
-```rust
-enum Element {
-    /// バッファ専用: データを clone せず、paint 時に State から直接描画
-    BufferRef { line_range: Range<usize> },
-    // ...
-}
-
-fn paint(element: &Element, area: Rect, grid: &mut CellGrid, state: &AppState) {
-    match element {
-        Element::BufferRef { line_range } => {
-            // state.core.lines[line_range.clone()] を直接 grid に描画
-            // clone なし。現在の render_buffer() と同等のパス
-        }
-    }
-}
-```
-
-`BufferRef` により clone コストはゼロになる。paint 時に `&AppState` を渡す必要があるが、TEA の `view()` → `paint()` の間で State は不変であるため安全。
-
-同じパターンは `StyledLineRef` としてメニューアイテムにも適用できる:
-
-```rust
-enum Element {
-    /// 既存の Line を参照 (メニューアイテム等)
-    StyledLineRef { index: usize, source: DataSource },
-}
-
-enum DataSource {
-    BufferLine,
-    MenuItem,
-    StatusLine,
-}
-```
+`Element::BufferRef { line_range }` により clone コストはゼロ。paint 時に `&AppState` から直接描画する。ベンチマークで view() が 0.26 μs (0 plugins) に収まっていることが、BufferRef の有効性を裏付ける。
 
 ### 深刻度: 中
 
@@ -333,50 +291,52 @@ struct PaintContext {
 
 Phase 1 では不要。word_wrap は info 表示時のみ呼ばれ、頻度が低い。
 
-## ベンチマーク計画
+## ベンチマーク結果
 
-パフォーマンスの回帰を検出するため、以下のベンチマークを整備する:
+`kasane-core/benches/rendering_pipeline.rs` に 9 種の criterion ベンチマークを実装済み。
+CI (`.github/workflows/bench.yml`) で自動回帰検出を行う (15% 超の劣化で PR にコメント)。
 
-### マイクロベンチマーク (criterion)
+### 実行方法
 
-| ベンチマーク | 測定対象 | 目標 |
-|---|---|---|
-| `bench_element_construct` | view() の Element ツリー構築時間 | < 10 μs (100 ノード) |
-| `bench_flex_layout` | Flex レイアウト計算時間 | < 5 μs (100 ノード) |
-| `bench_paint` | Element → CellGrid 描画時間 | 現在の render_frame() と同等 |
-| `bench_grid_diff` | CellGrid の差分計算時間 | < 10 μs (80×24) |
-| `bench_decorator_chain` | N 段 Decorator の適用時間 | < 1 μs (10 段) |
-| `bench_plugin_dispatch` | Slot 収集 + Decorator 適用 | < 5 μs (10 プラグイン) |
-
-### 統合ベンチマーク
-
-| ベンチマーク | 測定対象 | 目標 |
-|---|---|---|
-| `bench_full_frame` | イベント → 描画完了の全フレーム時間 | < 16 ms (60 FPS) |
-| `bench_draw_message` | Kakoune Draw メッセージの処理時間 | < 5 ms |
-| `bench_menu_show` | メニュー表示の初回描画時間 | < 5 ms |
-
-### 測定方法
-
-```rust
-// criterion ベンチマーク例
-fn bench_element_construct(c: &mut Criterion) {
-    let state = test_state_with_plugins(10);
-    c.bench_function("view_100_nodes", |b| {
-        b.iter(|| {
-            let element = view(black_box(&state));
-            black_box(element);
-        });
-    });
-}
+```sh
+cargo bench --bench rendering_pipeline           # 全ベンチマーク実行
+cargo bench --bench rendering_pipeline -- "paint" # 特定ベンチのみ
 ```
+
+HTML レポート: `target/criterion/*/report/index.html`
+
+### マイクロベンチマーク (6 種)
+
+| ベンチマーク | 測定対象 | 目標 | 計測値 | 判定 |
+|---|---|---|---|---|
+| `element_construct/plugins_0` | view() ツリー構築 (0 plugins) | < 10 μs | 0.26 μs | OK (38x 余裕) |
+| `element_construct/plugins_10` | view() ツリー構築 (10 plugins) | < 10 μs | 2.35 μs | OK (4x 余裕) |
+| `flex_layout` | place() レイアウト計算 | < 5 μs | 0.38 μs | OK (13x 余裕) |
+| `paint/80x24` | clear() + paint() | — | 20.3 μs | 旧パイプライン同等 |
+| `paint/200x60` | clear() + paint() (大画面) | — | 85.8 μs | 面積比で線形 |
+| `grid_diff/full_redraw` | diff() 初回フレーム | < 10 μs | 24.1 μs | 超過 (注1) |
+| `grid_diff/incremental` | diff() 差分なし | < 10 μs | 11.0 μs | 微超過 (注1) |
+| `decorator_chain/plugins_10` | apply_decorator (10 段) | < 1 μs | 0.12 μs | OK (8.5x 余裕) |
+| `plugin_dispatch/plugins_10` | 全 8 Slot collect + decorator | < 5 μs | 1.85 μs | OK (2.7x 余裕) |
+
+**注1**: `grid_diff` は事前見積もり (~5 μs) の 2-5 倍。Cell の比較コスト (`CompactString(24B) + Face(16B) + u8`) が見積もりより高い。ただし full_redraw は初回フレームのみで、通常フレームは incremental パス。CPU パイプライン全体 (40 μs) の中では 28% を占めるが、16 ms バジェットに対しては無視可能。
+
+### 統合ベンチマーク (3 種)
+
+| ベンチマーク | 測定対象 | 目標 | 計測値 | 判定 |
+|---|---|---|---|---|
+| `full_frame` | view → layout → paint → diff → swap | < 16 ms | 40 μs | OK (400x 余裕) |
+| `draw_message` | state.apply(Draw) + full frame | < 5 ms | 46 μs | OK (109x 余裕) |
+| `menu_show/items_10` | menu 表示 + full frame | < 5 ms | 45 μs | OK |
+| `menu_show/items_50` | menu 50 items + full frame | < 5 ms | 45 μs | OK |
+| `menu_show/items_100` | menu 100 items + full frame | < 5 ms | 46 μs | OK |
+
+`menu_show` がアイテム数にほぼ依存しないのは `menu_max_height=10` の制約で表示行数が一定のため。
 
 ## パフォーマンス原則
 
-新アーキテクチャ開発において遵守するパフォーマンス原則:
-
-1. **端末 I/O が支配的:** グリッド操作の最適化より、diff の精度向上 (変更セル数の最小化) が効果的
+1. **端末 I/O が支配的:** CPU パイプライン (40 μs) は端末 I/O (200-3,600 μs) の 1-20%。グリッド操作の最適化より、diff の精度向上 (変更セル数の最小化) が効果的
 2. **アロケーションを避ける:** ホットパス (paint, layout) でのヒープアロケーションを最小化する。BufferRef パターンで大きなデータの clone を回避
-3. **計測してから最適化:** 推測でなく criterion ベンチマークで計測し、ボトルネックを特定してから対処する
-4. **プラグインのコストを制限:** フレームワーク側で Element ノード数の上限警告、Decorator 適用回数の監視を行う
-5. **キャッシュは必要になってから:** レイアウトキャッシュ、VirtualList 等は問題が顕在化してから導入する。早すぎる最適化は複雑さを増すだけ
+3. **計測してから最適化:** `cargo bench --bench rendering_pipeline` で計測し、ボトルネックを特定してから対処する。CI で 15% 超の回帰を自動検出
+4. **プラグインのコストを制限:** 現在 10 plugins で view() 2.35 μs、dispatch 1.85 μs。線形スケーリングを監視し、合計が数十 μs に達したら対策を検討
+5. **キャッシュは必要になってから:** layout() は 0.38 μs (閾値 5 μs まで 13x 余裕)。VirtualList 等は問題が顕在化してから導入する

@@ -1,3 +1,4 @@
+mod perf;
 pub mod config;
 pub mod element;
 pub mod input;

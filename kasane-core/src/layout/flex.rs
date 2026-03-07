@@ -199,6 +199,7 @@ fn measure_flex(
 
 /// Place an element top-down: assign concrete positions to all children.
 pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
+    crate::perf::perf_span!("layout_place");
     match element {
         Element::Text(..)
         | Element::StyledLine(..)
