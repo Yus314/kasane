@@ -1,4 +1,4 @@
-use glyphon::{Attrs, Buffer as GlyphonBuffer, Family, FontSystem, Metrics, Shaping};
+use glyphon::{Attrs, Buffer as GlyphonBuffer, FontSystem, Metrics, Shaping};
 use kasane_core::config::FontConfig;
 use winit::dpi::PhysicalSize;
 
@@ -31,7 +31,7 @@ impl CellMetrics {
         buffer.set_text(
             font_system,
             "M",
-            &Attrs::new().family(Family::Monospace),
+            &Attrs::new().family(super::to_family(&font_config.family)),
             Shaping::Basic,
             None,
         );

@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use glyphon::{
-    Attrs, Buffer as GlyphonBuffer, Cache, Color as GlyphonColor, Family, FontSystem, Metrics,
-    Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
+    Attrs, Buffer as GlyphonBuffer, Cache, Color as GlyphonColor, FontSystem, Metrics, Resolution,
+    Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
 use kasane_core::config::FontConfig;
 use kasane_core::render::{CellGrid, CursorStyle};
@@ -43,6 +43,9 @@ pub struct CellRenderer {
 
     // Row-level dirty tracking: cached hash of each row's content+colors
     row_hashes: Vec<u64>,
+
+    // Font family name from config (owned so we can lend &str to glyphon)
+    font_family: String,
 }
 
 /// Initial capacity for bg instance buffer (enough for 256x64 grid + cursor)
@@ -224,6 +227,7 @@ impl CellRenderer {
             text_buffers,
             row_hashes: vec![0; rows],
             metrics,
+            font_family: font_config.family.clone(),
         }
     }
 
@@ -241,6 +245,7 @@ impl CellRenderer {
     ) {
         self.font_size = font_config.size * scale_factor as f32;
         self.line_height = self.font_size * font_config.line_height;
+        self.font_family.clone_from(&font_config.family);
         self.metrics = CellMetrics::calculate(
             &mut self.font_system,
             font_config,
@@ -397,7 +402,7 @@ impl CellRenderer {
         }
         self.text_buffers.truncate(rows);
 
-        let default_attrs = Attrs::new().family(Family::Monospace);
+        let default_attrs = Attrs::new().family(super::to_family(&self.font_family));
 
         // Ensure row_hashes is the right size
         self.row_hashes.resize(rows, 0);

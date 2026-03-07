@@ -5,7 +5,21 @@ pub use metrics::CellMetrics;
 
 use std::sync::Arc;
 
+use glyphon::Family;
 use winit::window::Window;
+
+/// Map generic CSS family names to glyphon's `Family` enum variants.
+/// Specific font names (e.g. "JetBrains Mono") pass through as `Family::Name`.
+pub fn to_family(name: &str) -> Family<'_> {
+    match name {
+        "monospace" => Family::Monospace,
+        "serif" => Family::Serif,
+        "sans-serif" => Family::SansSerif,
+        "cursive" => Family::Cursive,
+        "fantasy" => Family::Fantasy,
+        _ => Family::Name(name),
+    }
+}
 
 /// Holds all wgpu state: instance, adapter, device, queue, surface.
 pub struct GpuState {
