@@ -2,12 +2,14 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
+use crate::config::MenuPosition;
 use crate::input;
 use crate::input::{KeyEvent, MouseEvent};
 use crate::layout::line_display_width;
 use crate::plugin::{Command, PluginRegistry};
 use crate::protocol::{
-    Coord, CursorMode, Face, InfoStyle, KakouneRequest, KasaneRequest, Line, MenuStyle,
+    Attributes, Coord, CursorMode, Face, InfoStyle, KakouneRequest, KasaneRequest, Line,
+    MenuStyle,
 };
 use crate::render::CellGrid;
 
@@ -58,6 +60,7 @@ impl MenuState {
         style: MenuStyle,
         screen_w: u16,
         screen_h: u16,
+        max_height_config: u16,
     ) -> Self {
         let max_item_width = items
             .iter()
@@ -81,9 +84,9 @@ impl MenuState {
             MenuStyle::Inline => {
                 let above = anchor.line as u16;
                 let below = screen_h.saturating_sub(anchor.line as u16 + 1);
-                10u16.min(above.max(below))
+                max_height_config.min(above.max(below))
             }
-            MenuStyle::Prompt => 10u16.min(screen_h),
+            MenuStyle::Prompt => max_height_config.min(screen_h),
         };
 
         let item_count = items.len();
@@ -165,6 +168,14 @@ impl MenuState {
     }
 }
 
+/// Identity key for deduplicating simultaneous info popups.
+/// Infos with the same identity replace each other; different identities coexist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InfoIdentity {
+    pub style: InfoStyle,
+    pub anchor_line: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct InfoState {
     pub title: Line,
@@ -172,6 +183,8 @@ pub struct InfoState {
     pub anchor: Coord,
     pub face: Face,
     pub style: InfoStyle,
+    pub identity: InfoIdentity,
+    pub scroll_offset: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -192,7 +205,7 @@ pub struct AppState {
 
     // Floating windows
     pub menu: Option<MenuState>,
-    pub info: Option<InfoState>,
+    pub infos: Vec<InfoState>,
 
     // Options
     pub ui_options: HashMap<String, String>,
@@ -203,6 +216,13 @@ pub struct AppState {
     // Config-driven UI settings
     pub shadow_enabled: bool,
     pub padding_char: String,
+    pub menu_max_height: u16,
+    pub menu_position: MenuPosition,
+    pub search_dropdown: bool,
+    pub status_at_top: bool,
+
+    // Derived state
+    pub cursor_count: usize,
 
     // Screen size
     pub cols: u16,
@@ -221,11 +241,16 @@ impl Default for AppState {
             status_mode_line: Vec::new(),
             status_default_face: Face::default(),
             menu: None,
-            info: None,
+            infos: Vec::new(),
             ui_options: HashMap::new(),
             focused: true,
             shadow_enabled: true,
             padding_char: "~".to_string(),
+            menu_max_height: 10,
+            menu_position: MenuPosition::Auto,
+            search_dropdown: false,
+            status_at_top: false,
+            cursor_count: 0,
             cols: 80,
             rows: 24,
         }
@@ -240,6 +265,15 @@ impl AppState {
                 default_face,
                 padding_face,
             } => {
+                // Count cursor positions: atoms with FINAL_FG + REVERSE indicate cursor faces
+                self.cursor_count = lines
+                    .iter()
+                    .flat_map(|line| line.iter())
+                    .filter(|atom| {
+                        atom.face.attributes.contains(Attributes::FINAL_FG)
+                            && atom.face.attributes.contains(Attributes::REVERSE)
+                    })
+                    .count();
                 self.lines = lines;
                 self.default_face = default_face;
                 self.padding_face = padding_face;
@@ -276,6 +310,7 @@ impl AppState {
                     style,
                     self.cols,
                     screen_h,
+                    self.menu_max_height,
                 ));
                 DirtyFlags::MENU
             }
@@ -304,17 +339,30 @@ impl AppState {
                 face,
                 style,
             } => {
-                self.info = Some(InfoState {
+                let identity = InfoIdentity {
+                    style,
+                    anchor_line: anchor.line as u32,
+                };
+                let new_info = InfoState {
                     title,
                     content,
                     anchor,
                     face,
                     style,
-                });
+                    identity: identity.clone(),
+                    scroll_offset: 0,
+                };
+                // Replace existing info with same identity, or add new
+                if let Some(pos) = self.infos.iter().position(|i| i.identity == identity) {
+                    self.infos[pos] = new_info;
+                } else {
+                    self.infos.push(new_info);
+                }
                 DirtyFlags::INFO
             }
             KakouneRequest::InfoHide => {
-                self.info = None;
+                // Remove the most recently added/updated info
+                self.infos.pop();
                 DirtyFlags::INFO | DirtyFlags::BUFFER
             }
             KakouneRequest::SetUiOptions { options } => {
@@ -330,6 +378,58 @@ impl AppState {
             }
         }
     }
+}
+
+/// Check if a scroll event hits an info popup and adjust its scroll_offset.
+/// Returns true if the scroll was consumed by an info popup.
+fn handle_info_scroll(state: &mut AppState, mouse: &input::MouseEvent) -> bool {
+    let screen_h = state.rows.saturating_sub(1);
+    let mut avoid: Vec<crate::layout::Rect> = Vec::new();
+    if let Some(mr) = crate::render::menu::get_menu_rect(state) {
+        avoid.push(mr);
+    }
+
+    for info in state.infos.iter_mut().rev() {
+        let win = crate::layout::layout_info(
+            &info.title,
+            &info.content,
+            &info.anchor,
+            info.style,
+            state.cols,
+            screen_h,
+            &avoid,
+        );
+        if win.width == 0 || win.height == 0 {
+            continue;
+        }
+
+        let mx = mouse.column as u16;
+        let my = mouse.line as u16;
+        if mx >= win.x && mx < win.x + win.width && my >= win.y && my < win.y + win.height {
+            // Compute content height for scroll bounds
+            let content_h = info
+                .content
+                .iter()
+                .map(|line| {
+                    crate::layout::word_wrap_line_height(line, win.width.saturating_sub(4).max(1))
+                })
+                .sum::<u16>();
+            let visible_h = win.height.saturating_sub(2).max(1); // subtract borders
+
+            match mouse.kind {
+                input::MouseEventKind::ScrollUp => {
+                    info.scroll_offset = info.scroll_offset.saturating_sub(3);
+                }
+                input::MouseEventKind::ScrollDown => {
+                    let max_offset = content_h.saturating_sub(visible_h);
+                    info.scroll_offset = (info.scroll_offset + 3).min(max_offset);
+                }
+                _ => {}
+            }
+            return true;
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +472,14 @@ pub fn update(
             (DirtyFlags::empty(), vec![cmd])
         }
         Msg::Mouse(mouse) => {
+            // Check if mouse scroll targets an info popup
+            if matches!(
+                mouse.kind,
+                input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
+            ) && handle_info_scroll(state, &mouse)
+            {
+                return (DirtyFlags::INFO, vec![]);
+            }
             let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
                 vec![Command::SendToKakoune(req)]
             } else {
@@ -483,11 +591,51 @@ mod tests {
             face: Face::default(),
             style: InfoStyle::Modal,
         });
-        assert!(state.info.is_some());
+        assert_eq!(state.infos.len(), 1);
 
         let flags = state.apply(KakouneRequest::InfoHide);
-        assert!(state.info.is_none());
+        assert!(state.infos.is_empty());
         assert!(flags.contains(DirtyFlags::INFO));
+    }
+
+    #[test]
+    fn test_apply_multiple_infos() {
+        let mut state = AppState::default();
+
+        // Show first info (Modal at line 0)
+        state.apply(KakouneRequest::InfoShow {
+            title: make_line("Help"),
+            content: vec![make_line("content1")],
+            anchor: Coord { line: 0, column: 0 },
+            face: Face::default(),
+            style: InfoStyle::Modal,
+        });
+        assert_eq!(state.infos.len(), 1);
+
+        // Show second info (Inline at line 5) — different identity, coexists
+        state.apply(KakouneRequest::InfoShow {
+            title: make_line("Lint"),
+            content: vec![make_line("error here")],
+            anchor: Coord { line: 5, column: 0 },
+            face: Face::default(),
+            style: InfoStyle::Inline,
+        });
+        assert_eq!(state.infos.len(), 2);
+
+        // Show info with same identity (Modal at line 0) — replaces first
+        state.apply(KakouneRequest::InfoShow {
+            title: make_line("Updated Help"),
+            content: vec![make_line("new content")],
+            anchor: Coord { line: 0, column: 0 },
+            face: Face::default(),
+            style: InfoStyle::Modal,
+        });
+        assert_eq!(state.infos.len(), 2);
+        assert_eq!(state.infos[0].title[0].contents, "Updated Help");
+
+        // Hide removes most recent
+        state.apply(KakouneRequest::InfoHide);
+        assert_eq!(state.infos.len(), 1);
     }
 
     #[test]

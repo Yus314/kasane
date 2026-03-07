@@ -1,7 +1,7 @@
 use std::any::Any;
 
-use crate::element::Element;
-use crate::input::KeyEvent;
+use crate::element::{Element, InteractiveId};
+use crate::input::{KeyEvent, MouseEvent};
 use crate::protocol::KasaneRequest;
 use crate::state::AppState;
 
@@ -50,6 +50,14 @@ pub trait Plugin: Any {
         vec![]
     }
     fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+        None
+    }
+    fn handle_mouse(
+        &mut self,
+        _event: &MouseEvent,
+        _id: InteractiveId,
+        _state: &AppState,
+    ) -> Option<Vec<Command>> {
         None
     }
     fn contribute(&self, _slot: Slot, _state: &AppState) -> Option<Element> {

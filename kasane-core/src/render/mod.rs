@@ -1,10 +1,13 @@
 mod grid;
 mod info;
+pub mod markup;
 pub(crate) mod menu;
 pub mod paint;
+pub(crate) mod theme;
 pub mod view;
 
 pub use grid::{Cell, CellDiff, CellGrid};
+pub use theme::Theme;
 
 use crate::protocol::CursorMode;
 use crate::state::AppState;

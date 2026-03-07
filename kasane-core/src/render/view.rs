@@ -1,8 +1,8 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::element::{BorderStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
+use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::{
-    self, layout_info, layout_menu_inline, line_display_width, word_wrap_segments,
+    self, MenuPlacement, layout_info, layout_menu_inline, line_display_width, word_wrap_segments,
 };
 use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, Slot};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
@@ -47,19 +47,33 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
         .unwrap_or_else(|| build_status_bar(state, status_left, status_right));
     let status_bar = registry.apply_decorator(DecorateTarget::StatusBar, status_bar, state);
 
-    // Build main column
+    // Build main column (status bar position: top or bottom)
     let mut column_children = Vec::new();
-    for el in above_buffer {
-        column_children.push(FlexChild::fixed(el));
+    if state.status_at_top {
+        column_children.push(FlexChild::fixed(status_bar));
+        for el in above_status {
+            column_children.push(FlexChild::fixed(el));
+        }
+        for el in above_buffer {
+            column_children.push(FlexChild::fixed(el));
+        }
+        column_children.push(buffer_row);
+        for el in below_buffer {
+            column_children.push(FlexChild::fixed(el));
+        }
+    } else {
+        for el in above_buffer {
+            column_children.push(FlexChild::fixed(el));
+        }
+        column_children.push(buffer_row);
+        for el in below_buffer {
+            column_children.push(FlexChild::fixed(el));
+        }
+        for el in above_status {
+            column_children.push(FlexChild::fixed(el));
+        }
+        column_children.push(FlexChild::fixed(status_bar));
     }
-    column_children.push(buffer_row);
-    for el in below_buffer {
-        column_children.push(FlexChild::fixed(el));
-    }
-    for el in above_status {
-        column_children.push(FlexChild::fixed(el));
-    }
-    column_children.push(FlexChild::fixed(status_bar));
 
     let base = Element::column(column_children);
 
@@ -83,23 +97,51 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
         }
     }
 
-    if let Some(ref info_state) = state.info {
+    {
         let menu_rect = super::menu::get_menu_rect(state);
-        let replace_target = match info_state.style {
-            InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
-            InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
-            _ => None,
-        };
-        let info_overlay = match replace_target.and_then(|t| registry.get_replacement(t, state)) {
-            Some(replacement) => {
-                build_replacement_info_overlay(replacement, info_state, state, menu_rect)
+        let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
+        if let Some(mr) = menu_rect {
+            avoid_rects.push(mr);
+        }
+        // Add cursor position as a 1×1 avoid rect (collision avoidance)
+        avoid_rects.push(crate::layout::Rect {
+            x: state.cursor_pos.column as u16,
+            y: state.cursor_pos.line as u16,
+            w: 1,
+            h: 1,
+        });
+
+        for (info_idx, info_state) in state.infos.iter().enumerate() {
+            let replace_target = match info_state.style {
+                InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
+                InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
+                _ => None,
+            };
+            let info_overlay =
+                match replace_target.and_then(|t| registry.get_replacement(t, state)) {
+                    Some(replacement) => {
+                        build_replacement_info_overlay(
+                            replacement, info_state, state, &avoid_rects,
+                        )
+                    }
+                    None => {
+                        build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx)
+                    }
+                };
+            if let Some(mut overlay) = info_overlay {
+                // Track this overlay's rect for subsequent infos to avoid
+                if let OverlayAnchor::Absolute { x, y, w, h } = &overlay.anchor {
+                    avoid_rects.push(crate::layout::Rect {
+                        x: *x,
+                        y: *y,
+                        w: *w,
+                        h: *h,
+                    });
+                }
+                overlay.element =
+                    registry.apply_decorator(DecorateTarget::Info, overlay.element, state);
+                overlays.push(overlay);
             }
-            None => build_info_overlay(info_state, state, menu_rect),
-        };
-        if let Some(mut overlay) = info_overlay {
-            overlay.element =
-                registry.apply_decorator(DecorateTarget::Info, overlay.element, state);
-            overlays.push(overlay);
         }
     }
 
@@ -142,6 +184,13 @@ fn build_status_bar(
     for el in status_right {
         children.push(FlexChild::fixed(el));
     }
+    // Cursor count badge: show when there are multiple selections
+    if state.cursor_count > 1 {
+        let badge_text = format!(" {} sel ", state.cursor_count);
+        let badge = Element::text(badge_text, state.status_default_face);
+        children.push(FlexChild::fixed(badge));
+    }
+
     if mode_width > 0 {
         children.push(FlexChild::fixed(mode_line));
     }
@@ -170,12 +219,20 @@ fn build_replacement_menu_overlay(
         return None;
     }
 
+    let placement = menu_placement(state);
+
     let anchor = match menu.style {
         MenuStyle::Inline => {
             let win_w = (menu.max_item_width + 1).min(state.cols);
             let screen_h = state.rows.saturating_sub(1);
-            let win =
-                layout_menu_inline(&menu.anchor, win_w, menu.win_height, state.cols, screen_h);
+            let win = layout_menu_inline(
+                &menu.anchor,
+                win_w,
+                menu.win_height,
+                state.cols,
+                screen_h,
+                placement,
+            );
             if win.width == 0 || win.height == 0 {
                 return None;
             }
@@ -216,7 +273,7 @@ fn build_replacement_info_overlay(
     element: Element,
     info: &InfoState,
     state: &AppState,
-    menu_rect: Option<crate::layout::Rect>,
+    avoid: &[crate::layout::Rect],
 ) -> Option<Overlay> {
     let screen_h = state.rows.saturating_sub(1);
     let win = layout_info(
@@ -226,7 +283,7 @@ fn build_replacement_info_overlay(
         info.style,
         state.cols,
         screen_h,
-        menu_rect,
+        avoid,
     );
 
     if win.width == 0 || win.height == 0 {
@@ -252,7 +309,22 @@ fn build_menu_overlay(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     match menu.style {
         MenuStyle::Inline => build_menu_inline(menu, state),
         MenuStyle::Prompt => build_menu_prompt(menu, state),
-        MenuStyle::Search => build_menu_search(menu, state),
+        MenuStyle::Search => {
+            if state.search_dropdown {
+                build_menu_search_dropdown(menu, state)
+            } else {
+                build_menu_search(menu, state)
+            }
+        }
+    }
+}
+
+/// Convert AppState menu_position config to layout MenuPlacement.
+fn menu_placement(state: &AppState) -> MenuPlacement {
+    match state.menu_position {
+        crate::config::MenuPosition::Above => MenuPlacement::Above,
+        crate::config::MenuPosition::Below => MenuPlacement::Below,
+        crate::config::MenuPosition::Auto => MenuPlacement::Auto,
     }
 }
 
@@ -260,8 +332,16 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     let win_w = (menu.max_item_width + 1).min(state.cols);
     let content_w = win_w.saturating_sub(1);
     let screen_h = state.rows.saturating_sub(1);
+    let placement = menu_placement(state);
 
-    let win = layout_menu_inline(&menu.anchor, win_w, menu.win_height, state.cols, screen_h);
+    let win = layout_menu_inline(
+        &menu.anchor,
+        win_w,
+        menu.win_height,
+        state.cols,
+        screen_h,
+        placement,
+    );
     if win.width == 0 || win.height == 0 {
         return None;
     }
@@ -473,6 +553,63 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     })
 }
 
+/// Build a search menu as a vertical dropdown instead of the default inline bar.
+fn build_menu_search_dropdown(menu: &MenuState, state: &AppState) -> Option<Overlay> {
+    let screen_h = state.rows.saturating_sub(1);
+    let status_row = state.rows.saturating_sub(1);
+    let max_h = 10u16.min(screen_h.saturating_sub(1));
+    let win_h = (menu.items.len() as u16).min(max_h).max(1);
+    let win_w = (menu.max_item_width + 1).min(state.cols);
+    let content_w = win_w.saturating_sub(1);
+
+    // Place above the status bar
+    let y = status_row.saturating_sub(win_h);
+
+    let mut item_rows: Vec<FlexChild> = Vec::new();
+    for line in 0..win_h {
+        let item_idx = menu.first_item + line as usize;
+        let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
+            menu.selected_item_face
+        } else {
+            menu.menu_face
+        };
+
+        let item_element = if item_idx < menu.items.len() {
+            build_styled_line_with_base(&menu.items[item_idx], &face, content_w)
+        } else {
+            Element::text("", face)
+        };
+
+        let padded = Element::Container {
+            child: Box::new(item_element),
+            border: None,
+            shadow: false,
+            padding: Edges::ZERO,
+            style: Style::from(face),
+            title: None,
+        };
+
+        item_rows.push(FlexChild::fixed(padded));
+    }
+
+    let scrollbar = build_scrollbar(win_h, menu, &menu.menu_face);
+    let content_col = Element::column(item_rows);
+    let row = Element::row(vec![
+        FlexChild::flexible(content_col, 1.0),
+        FlexChild::fixed(scrollbar),
+    ]);
+
+    Some(Overlay {
+        element: row,
+        anchor: OverlayAnchor::Absolute {
+            x: 0,
+            y,
+            w: win_w,
+            h: win_h,
+        },
+    })
+}
+
 fn build_scrollbar(win_height: u16, menu: &MenuState, face: &Face) -> Element {
     let wh = win_height as usize;
     let item_count = menu.items.len();
@@ -530,10 +667,11 @@ const ASSISTANT_CLIPPY: &[&str] = &[
 ];
 const ASSISTANT_WIDTH: u16 = 8;
 
-fn build_info_overlay(
+fn build_info_overlay_indexed(
     info: &InfoState,
     state: &AppState,
-    menu_rect: Option<crate::layout::Rect>,
+    avoid: &[crate::layout::Rect],
+    index: usize,
 ) -> Option<Overlay> {
     let screen_h = state.rows.saturating_sub(1);
     let win = layout_info(
@@ -543,7 +681,7 @@ fn build_info_overlay(
         info.style,
         state.cols,
         screen_h,
-        menu_rect,
+        avoid,
     );
 
     if win.width == 0 || win.height == 0 {
@@ -558,14 +696,23 @@ fn build_info_overlay(
         }
     };
 
-    element.map(|el| Overlay {
-        element: el,
-        anchor: OverlayAnchor::Absolute {
-            x: win.x,
-            y: win.y,
-            w: win.width,
-            h: win.height,
-        },
+    element.map(|el| {
+        // Wrap with Interactive for mouse hit testing
+        let interactive_id =
+            crate::element::InteractiveId(crate::element::InteractiveId::INFO_BASE + index as u32);
+        let wrapped = Element::Interactive {
+            child: Box::new(el),
+            id: interactive_id,
+        };
+        Overlay {
+            element: wrapped,
+            anchor: OverlayAnchor::Absolute {
+                x: win.x,
+                y: win.y,
+                w: win.width,
+                h: win.height,
+            },
+        }
     })
 }
 
@@ -622,7 +769,7 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
     // Build bordered frame around content
     let framed_content = Element::Container {
         child: Box::new(content_col),
-        border: Some(BorderStyle::Rounded),
+        border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
         shadow: false,
         padding: Edges {
             top: 0,
@@ -686,7 +833,7 @@ fn build_info_framed(
 
     let framed = Element::Container {
         child: Box::new(content_col),
-        border: Some(BorderStyle::Rounded),
+        border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
         shadow,
         padding: Edges {
             top: 0,
@@ -1050,6 +1197,7 @@ mod tests {
                     overlays.iter().find_map(|o| find_shadow(&o.element))
                 }
                 Element::Container { child, .. } => find_shadow(child),
+                Element::Interactive { child, .. } => find_shadow(child),
                 Element::Flex { children, .. } => {
                     children.iter().find_map(|c| find_shadow(&c.element))
                 }

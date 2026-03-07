@@ -106,6 +106,7 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
                     .clamp(constraints.min_height, constraints.max_height),
             }
         }
+        Element::Interactive { child, .. } => measure(child, constraints, state),
         Element::Stack { base, .. } => measure(base, constraints, state),
         Element::Scrollable {
             child, direction, ..
@@ -206,6 +207,13 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
             area,
             children: vec![],
         },
+        Element::Interactive { child, .. } => {
+            let child_result = place(child, area, state);
+            LayoutResult {
+                area,
+                children: vec![child_result],
+            }
+        }
         Element::Flex {
             direction,
             children,
@@ -447,12 +455,11 @@ fn place_stack(
             } => {
                 let overlay_size =
                     measure(&overlay.element, Constraints::loose(area.w, area.h), state);
-                let to_avoid = avoid.first().copied();
                 let (y, x) = crate::layout::compute_pos(
                     (coord.line, coord.column),
                     (overlay_size.height, overlay_size.width),
                     area,
-                    to_avoid,
+                    avoid,
                     *prefer_above,
                 );
                 (x, y, overlay_size.width, overlay_size.height)
@@ -574,7 +581,7 @@ mod tests {
         let state = default_state();
         let el = Element::Container {
             child: Box::new(Element::text("hi", Face::default())),
-            border: Some(crate::element::BorderStyle::Rounded),
+            border: Some(crate::element::BorderConfig::from(crate::element::BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(Face::default()),

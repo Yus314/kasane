@@ -1,7 +1,8 @@
 use unicode_width::UnicodeWidthStr;
 
 use super::grid::CellGrid;
-use crate::element::{BorderStyle, Element};
+use super::theme::Theme;
+use crate::element::{BorderConfig, BorderLineStyle, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::{Attributes, Color, Face};
@@ -9,11 +10,24 @@ use crate::state::AppState;
 
 /// Paint an element tree into a CellGrid using pre-computed layout results.
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
+    let theme = Theme::default_theme();
+    paint_themed(element, layout, grid, state, &theme);
+}
+
+/// Paint with an explicit theme for style resolution.
+pub fn paint_themed(
+    element: &Element,
+    layout: &LayoutResult,
+    grid: &mut CellGrid,
+    state: &AppState,
+    theme: &Theme,
+) {
     let area = layout.area;
 
     match element {
         Element::Text(text, style) => {
-            paint_text(grid, &area, text, &style.face);
+            let face = theme.resolve(style, &state.default_face);
+            paint_text(grid, &area, text, &face);
         }
         Element::StyledLine(atoms) => {
             let line = atoms.to_vec();
@@ -26,19 +40,17 @@ pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, stat
         Element::Flex { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i) {
-                    paint(&child.element, child_layout, grid, state);
+                    paint_themed(&child.element, child_layout, grid, state, theme);
                 }
             }
         }
         Element::Stack { base, overlays } => {
-            // Paint base
             if let Some(base_layout) = layout.children.first() {
-                paint(base, base_layout, grid, state);
+                paint_themed(base, base_layout, grid, state, theme);
             }
-            // Paint overlays in Z-order
             for (i, overlay) in overlays.iter().enumerate() {
                 if let Some(overlay_layout) = layout.children.get(i + 1) {
-                    paint(&overlay.element, overlay_layout, grid, state);
+                    paint_themed(&overlay.element, overlay_layout, grid, state, theme);
                 }
             }
         }
@@ -50,27 +62,32 @@ pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, stat
             style,
             title,
         } => {
+            let face = theme.resolve(style, &state.default_face);
             paint_container(
                 grid,
                 &area,
                 child,
                 border,
                 *shadow,
-                &style.face,
+                &face,
                 title.as_deref(),
                 layout,
                 state,
+                theme,
             );
+        }
+        Element::Interactive { child, .. } => {
+            if let Some(child_layout) = layout.children.first() {
+                paint_themed(child, child_layout, grid, state, theme);
+            }
         }
         Element::Scrollable {
             child,
             offset: _,
             direction: _,
         } => {
-            // Paint child using the child's layout (which has virtual coordinates).
-            // CellGrid::put_char already clips to grid bounds.
             if let Some(child_layout) = layout.children.first() {
-                paint(child, child_layout, grid, state);
+                paint_themed(child, child_layout, grid, state, theme);
             }
         }
     }
@@ -125,12 +142,13 @@ fn paint_container(
     grid: &mut CellGrid,
     area: &Rect,
     child: &Element,
-    border: &Option<BorderStyle>,
+    border: &Option<BorderConfig>,
     shadow: bool,
     face: &Face,
     title: Option<&[crate::protocol::Atom]>,
     layout: &LayoutResult,
     state: &AppState,
+    theme: &Theme,
 ) {
     // Shadow (drawn first, behind the container)
     if shadow {
@@ -146,17 +164,22 @@ fn paint_container(
     }
 
     // Border
-    if let Some(border_style) = border {
-        paint_border(grid, area, face, false, *border_style);
+    if let Some(border_config) = border {
+        let border_face = border_config
+            .face
+            .as_ref()
+            .map(|s| theme.resolve(s, face))
+            .unwrap_or(*face);
+        paint_border(grid, area, &border_face, false, border_config.line_style);
         // Title on top border
         if let Some(title_atoms) = title {
-            paint_border_title(grid, area, face, title_atoms);
+            paint_border_title(grid, area, &border_face, title_atoms);
         }
     }
 
     // Paint child
     if let Some(child_layout) = layout.children.first() {
-        paint(child, child_layout, grid, state);
+        paint_themed(child, child_layout, grid, state, theme);
     }
 }
 
@@ -165,22 +188,35 @@ fn paint_border(
     area: &Rect,
     face: &Face,
     truncated: bool,
-    border_style: BorderStyle,
+    border_style: BorderLineStyle,
 ) {
     if area.w < 2 || area.h < 2 {
         return;
     }
 
-    let (tl, tr, bl, br) = match border_style {
-        BorderStyle::Single => ("┌", "┐", "└", "┘"),
-        BorderStyle::Rounded => ("╭", "╮", "╰", "╯"),
+    // (top-left, top-right, bottom-left, bottom-right, horizontal, vertical)
+    let (tl, tr, bl, br, horiz, vert) = match border_style {
+        BorderLineStyle::Single => ("┌", "┐", "└", "┘", "─", "│"),
+        BorderLineStyle::Rounded => ("╭", "╮", "╰", "╯", "─", "│"),
+        BorderLineStyle::Double => ("╔", "╗", "╚", "╝", "═", "║"),
+        BorderLineStyle::Heavy => ("┏", "┓", "┗", "┛", "━", "┃"),
+        BorderLineStyle::Ascii => ("+", "+", "+", "+", "-", "|"),
     };
 
     let x1 = area.x;
     let y1 = area.y;
     let x2 = area.x + area.w - 1;
     let y2 = area.y + area.h - 1;
-    let bottom_dash = if truncated { "┄" } else { "─" };
+    let bottom_dash = if truncated {
+        match border_style {
+            BorderLineStyle::Double => "┄",
+            BorderLineStyle::Heavy => "┅",
+            BorderLineStyle::Ascii => ".",
+            _ => "┄",
+        }
+    } else {
+        horiz
+    };
 
     // Corners
     grid.put_char(x1, y1, tl, face);
@@ -190,14 +226,14 @@ fn paint_border(
 
     // Top and bottom edges
     for x in (x1 + 1)..x2 {
-        grid.put_char(x, y1, "─", face);
+        grid.put_char(x, y1, horiz, face);
         grid.put_char(x, y2, bottom_dash, face);
     }
 
     // Left and right edges
     for y in (y1 + 1)..y2 {
-        grid.put_char(x1, y, "│", face);
-        grid.put_char(x2, y, "│", face);
+        grid.put_char(x1, y, vert, face);
+        grid.put_char(x2, y, vert, face);
     }
 }
 
@@ -264,7 +300,7 @@ fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::{Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
+    use crate::element::{BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
     use crate::layout::flex::place;
     use crate::protocol::{Atom, Face};
 
@@ -340,7 +376,7 @@ mod tests {
         let mut grid = CellGrid::new(20, 10);
         let el = Element::Container {
             child: Box::new(Element::text("hi", Face::default())),
-            border: Some(BorderStyle::Rounded),
+            border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(Face::default()),
@@ -394,7 +430,7 @@ mod tests {
         let mut grid = CellGrid::new(20, 10);
         let el = Element::Container {
             child: Box::new(Element::text("content", Face::default())),
-            border: Some(BorderStyle::Rounded),
+            border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
             shadow: false,
             padding: Edges::ZERO,
             style: Style::from(Face::default()),

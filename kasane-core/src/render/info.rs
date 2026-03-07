@@ -25,12 +25,14 @@ const ASSISTANT_WIDTH: u16 = 8;
 
 #[cfg(test)]
 pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {
-    let info = match &state.info {
+    let info = match state.infos.first() {
         Some(i) => i,
         None => return,
     };
 
     let menu_rect = super::menu::get_menu_rect(state);
+    let avoid: Vec<crate::layout::Rect> =
+        menu_rect.into_iter().collect();
     let win = crate::layout::layout_info(
         &info.title,
         &info.content,
@@ -38,7 +40,7 @@ pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {
         info.style,
         grid.width,
         grid.height.saturating_sub(1),
-        menu_rect,
+        &avoid,
     );
 
     use crate::protocol::InfoStyle;

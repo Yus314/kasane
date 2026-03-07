@@ -1,9 +1,11 @@
 pub mod flex;
+mod hit_test;
 mod info;
 mod position;
 mod text;
 mod word_wrap;
 
+pub use hit_test::hit_test;
 pub use info::layout_info;
 pub use position::{compute_pos, layout_menu_inline};
 pub use text::{
@@ -28,4 +30,15 @@ pub struct Rect {
     pub y: u16,
     pub w: u16,
     pub h: u16,
+}
+
+/// Inline menu placement preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPlacement {
+    /// Default: try below anchor, flip above if needed.
+    Auto,
+    /// Force above the anchor line.
+    Above,
+    /// Force below the anchor line.
+    Below,
 }

@@ -55,12 +55,18 @@ pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
             let screen_h = state.rows.saturating_sub(1);
             // +1 for scrollbar
             let win_w = (menu.max_item_width + 1).min(state.cols);
+            let placement = match state.menu_position {
+                crate::config::MenuPosition::Above => crate::layout::MenuPlacement::Above,
+                crate::config::MenuPosition::Below => crate::layout::MenuPlacement::Below,
+                crate::config::MenuPosition::Auto => crate::layout::MenuPlacement::Auto,
+            };
             let win = crate::layout::layout_menu_inline(
                 &menu.anchor,
                 win_w,
                 menu.win_height,
                 state.cols,
                 screen_h,
+                placement,
             );
             if win.width == 0 || win.height == 0 {
                 return None;
@@ -123,7 +129,7 @@ fn draw_scrollbar(
 /// with a scrollbar on the right edge.
 #[cfg(test)]
 fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
-    use crate::layout::layout_menu_inline;
+    use crate::layout::{MenuPlacement, layout_menu_inline};
 
     if menu.items.is_empty() || menu.win_height == 0 {
         return;
@@ -134,7 +140,14 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
     let content_w = win_w.saturating_sub(1);
     let screen_h = grid.height.saturating_sub(1);
 
-    let win = layout_menu_inline(&menu.anchor, win_w, menu.win_height, grid.width, screen_h);
+    let win = layout_menu_inline(
+        &menu.anchor,
+        win_w,
+        menu.win_height,
+        grid.width,
+        screen_h,
+        MenuPlacement::Auto,
+    );
     if win.width == 0 || win.height == 0 {
         return;
     }
@@ -361,6 +374,7 @@ mod tests {
             style,
             screen_w,
             screen_h,
+            10,
         );
         ms.selected = selected;
         ms

@@ -66,6 +66,10 @@ fn main() -> Result<()> {
         rows,
         shadow_enabled: config.ui.shadow,
         padding_char: config.ui.padding_char.clone(),
+        menu_max_height: config.menu.max_height,
+        menu_position: config.menu.menu_position(),
+        search_dropdown: config.search.dropdown,
+        status_at_top: config.ui.status_position() == kasane_core::config::StatusPosition::Top,
         ..AppState::default()
     };
 
@@ -176,8 +180,21 @@ fn main() -> Result<()> {
             break;
         }
 
-        // Drain any pending events before rendering (batch processing)
-        while let Ok(event) = rx.try_recv() {
+        // Drain any pending events before rendering (batch processing).
+        // Safety valve: stop batching after MAX_BATCH events or BATCH_DEADLINE_MS
+        // to prevent render starvation during macro replay / rapid input.
+        const MAX_BATCH: usize = 256;
+        const BATCH_DEADLINE_MS: u64 = 16;
+        let batch_deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(BATCH_DEADLINE_MS);
+        let mut batch_count = 0usize;
+
+        while batch_count < MAX_BATCH && std::time::Instant::now() < batch_deadline {
+            let event = match rx.try_recv() {
+                Ok(e) => e,
+                Err(_) => break,
+            };
+            batch_count += 1;
             match event {
                 Event::Kakoune(req) => {
                     let (flags, commands) = update(

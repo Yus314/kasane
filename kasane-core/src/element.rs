@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use compact_str::CompactString;
+
 use crate::layout::Rect;
 use crate::protocol::{Atom, Coord, Face, Line};
 
@@ -16,22 +18,89 @@ pub enum Align {
     End,
 }
 
-/// Phase 1: wraps Face directly. Phase 2 can replace with StyleToken.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Style {
-    pub face: Face,
+/// Semantic style tokens for theme-driven rendering.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StyleToken {
+    BufferText,
+    BufferPadding,
+    StatusLine,
+    StatusMode,
+    MenuItemNormal,
+    MenuItemSelected,
+    MenuScrollbar,
+    MenuScrollbarThumb,
+    InfoText,
+    InfoBorder,
+    Border,
+    Shadow,
+    Custom(CompactString),
+}
+
+/// Style can be either a direct Face or a semantic StyleToken resolved via Theme.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Style {
+    Direct(Face),
+    Token(StyleToken),
 }
 
 impl From<Face> for Style {
     fn from(face: Face) -> Self {
-        Style { face }
+        Style::Direct(face)
     }
 }
 
+impl Style {
+    /// Get the face, either directly or as a fallback (Token variants return None).
+    pub fn face(&self) -> Option<&Face> {
+        match self {
+            Style::Direct(face) => Some(face),
+            Style::Token(_) => None,
+        }
+    }
+}
+
+/// Unique identifier for interactive regions (mouse hit testing).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InteractiveId(pub u32);
+
+impl InteractiveId {
+    /// Base ID for info popup interactive regions.
+    pub const INFO_BASE: u32 = 1000;
+}
+
+/// Line style for borders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BorderStyle {
+pub enum BorderLineStyle {
     Single,
     Rounded,
+    Double,
+    Heavy,
+    Ascii,
+}
+
+/// Backward-compatible alias used in the Element tree.
+pub type BorderStyle = BorderLineStyle;
+
+/// Full border configuration: line style + optional face override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BorderConfig {
+    pub line_style: BorderLineStyle,
+    pub face: Option<Style>,
+}
+
+impl BorderConfig {
+    pub fn new(line_style: BorderLineStyle) -> Self {
+        BorderConfig {
+            line_style,
+            face: None,
+        }
+    }
+}
+
+impl From<BorderLineStyle> for BorderConfig {
+    fn from(style: BorderLineStyle) -> Self {
+        BorderConfig::new(style)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,11 +209,16 @@ pub enum Element {
     },
     Container {
         child: Box<Element>,
-        border: Option<BorderStyle>,
+        border: Option<BorderConfig>,
         shadow: bool,
         padding: Edges,
         style: Style,
         title: Option<Line>,
+    },
+    /// Transparent wrapper for mouse hit testing. Renders child unchanged.
+    Interactive {
+        child: Box<Element>,
+        id: InteractiveId,
     },
     Empty,
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
@@ -315,6 +389,13 @@ mod tests {
     fn test_style_from_face() {
         let face = Face::default();
         let style = Style::from(face);
-        assert_eq!(style.face, face);
+        assert_eq!(style, Style::Direct(face));
+        assert_eq!(style.face(), Some(&face));
+    }
+
+    #[test]
+    fn test_style_token() {
+        let style = Style::Token(StyleToken::MenuItemNormal);
+        assert_eq!(style.face(), None);
     }
 }

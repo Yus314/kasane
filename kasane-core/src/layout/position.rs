@@ -1,4 +1,4 @@
-use super::{FloatingWindow, Rect};
+use super::{FloatingWindow, MenuPlacement, Rect};
 use crate::protocol::Coord;
 
 /// Kakoune-compatible positioning algorithm (`compute_pos` in `terminal_ui.cc`).
@@ -11,7 +11,7 @@ pub fn compute_pos(
     anchor: (i32, i32), // (line, column)
     size: (u16, u16),   // (height, width)
     rect: Rect,         // available area
-    to_avoid: Option<Rect>,
+    to_avoid: &[Rect],
     prefer_above: bool,
 ) -> (u16, u16) {
     let (h, w) = size;
@@ -45,12 +45,13 @@ pub fn compute_pos(
         col = rect.x as i32;
     }
 
-    // --- Phase 3: menu avoidance ---
-    // Matches Kakoune: uses min(to_avoid.pos.line, anchor.line) to avoid both
-    // the menu rectangle and the anchor line.
-    if let Some(menu) = to_avoid
-        && menu.h > 0
-    {
+    // --- Phase 3: obstacle avoidance ---
+    // Matches Kakoune: uses min(obstacle.pos.line, anchor.line) to avoid both
+    // the obstacle rectangle and the anchor line.
+    for menu in to_avoid {
+        if menu.h == 0 {
+            continue;
+        }
         let menu_top = menu.y as i32;
         let menu_bot = menu.y as i32 + menu.h as i32;
         let win_top = line;
@@ -63,7 +64,7 @@ pub fn compute_pos(
             || win_top >= menu_bot
             || col >= menu_right)
         {
-            // Place above whichever is higher: menu or anchor
+            // Place above whichever is higher: obstacle or anchor
             line = menu_top.min(anchor_line) - h as i32;
             // If that goes off-screen, try below whichever is lower
             if line < rect.y as i32 {
@@ -93,6 +94,7 @@ pub fn layout_menu_inline(
     win_height: u16,
     screen_w: u16,
     screen_h: u16,
+    placement: MenuPlacement,
 ) -> FloatingWindow {
     if win_width == 0 || win_height == 0 {
         return FloatingWindow {
@@ -106,19 +108,37 @@ pub fn layout_menu_inline(
     let win_w = win_width.min(screen_w);
     let win_h = win_height.min(screen_h);
 
-    // Anchor-relative: place below anchor, flip above if needed
     let ax = (anchor.column as u16).min(screen_w.saturating_sub(win_w));
     let ay = anchor.line as u16 + 1; // below the anchor
 
-    let (y, height) = if ay + win_h <= screen_h {
-        (ay, win_h)
-    } else if (anchor.line as u16) >= win_h {
-        // Flip above
-        (anchor.line as u16 - win_h, win_h)
-    } else {
-        // Best effort
-        let avail = screen_h.saturating_sub(ay);
-        (ay, avail.max(1))
+    let (y, height) = match placement {
+        MenuPlacement::Above => {
+            if (anchor.line as u16) >= win_h {
+                (anchor.line as u16 - win_h, win_h)
+            } else if ay + win_h <= screen_h {
+                // Can't fit above, fall back to below
+                (ay, win_h)
+            } else {
+                // Best effort above
+                (0, (anchor.line as u16).max(1))
+            }
+        }
+        MenuPlacement::Below => {
+            let avail = screen_h.saturating_sub(ay);
+            (ay, win_h.min(avail).max(1))
+        }
+        MenuPlacement::Auto => {
+            if ay + win_h <= screen_h {
+                (ay, win_h)
+            } else if (anchor.line as u16) >= win_h {
+                // Flip above
+                (anchor.line as u16 - win_h, win_h)
+            } else {
+                // Best effort
+                let avail = screen_h.saturating_sub(ay);
+                (ay, avail.max(1))
+            }
+        }
     };
 
     FloatingWindow {
@@ -139,77 +159,109 @@ mod tests {
 
     #[test]
     fn test_compute_pos_below() {
-        // Place a 3×10 popup below anchor at (5, 2) on an 80×24 screen
-        let (y, x) = compute_pos((5, 2), (3, 10), screen_rect(80, 24), None, false);
-        assert_eq!(y, 6); // anchor_line + 1
+        let (y, x) = compute_pos((5, 2), (3, 10), screen_rect(80, 24), &[], false);
+        assert_eq!(y, 6);
         assert_eq!(x, 2);
     }
 
     #[test]
     fn test_compute_pos_above() {
-        // prefer_above: place above anchor at (10, 5)
-        let (y, x) = compute_pos((10, 5), (3, 10), screen_rect(80, 24), None, true);
-        assert_eq!(y, 7); // anchor_line - height = 10 - 3
+        let (y, x) = compute_pos((10, 5), (3, 10), screen_rect(80, 24), &[], true);
+        assert_eq!(y, 7);
         assert_eq!(x, 5);
     }
 
     #[test]
     fn test_compute_pos_flip_below_to_above() {
-        // Anchor near bottom: placing below would overflow, should flip above
-        let (y, _x) = compute_pos((22, 0), (5, 10), screen_rect(80, 24), None, false);
-        assert_eq!(y, 17); // 22 - 5
+        let (y, _x) = compute_pos((22, 0), (5, 10), screen_rect(80, 24), &[], false);
+        assert_eq!(y, 17);
     }
 
     #[test]
     fn test_compute_pos_flip_above_to_below() {
-        // Anchor near top: placing above would overflow, should flip below
-        let (y, _x) = compute_pos((1, 0), (5, 10), screen_rect(80, 24), None, true);
-        assert_eq!(y, 2); // anchor_line + 1
+        let (y, _x) = compute_pos((1, 0), (5, 10), screen_rect(80, 24), &[], true);
+        assert_eq!(y, 2);
     }
 
     #[test]
     fn test_compute_pos_horizontal_clamp() {
-        // Anchor column near right edge — should clamp left
-        let (y, x) = compute_pos((5, 75), (3, 10), screen_rect(80, 24), None, false);
+        let (y, x) = compute_pos((5, 75), (3, 10), screen_rect(80, 24), &[], false);
         assert_eq!(y, 6);
-        assert_eq!(x, 70); // 80 - 10
+        assert_eq!(x, 70);
     }
 
     #[test]
     fn test_compute_pos_menu_avoidance() {
-        // Menu occupies rows 6..10.  Popup would land at y=6 (below anchor at 5).
-        // Kakoune avoidance: min(menu_top, anchor) - h = min(6,5) - 3 = 2.
         let menu = Rect {
             x: 0,
             y: 6,
             w: 20,
             h: 4,
         };
-        let (y, _x) = compute_pos((5, 0), (3, 10), screen_rect(80, 24), Some(menu), false);
-        assert_eq!(y, 2); // above both: min(menu_top(6), anchor(5)) - h(3) = 2
+        let (y, _x) = compute_pos((5, 0), (3, 10), screen_rect(80, 24), &[menu], false);
+        assert_eq!(y, 2);
     }
 
     #[test]
     fn test_compute_pos_menu_avoidance_above() {
-        // Menu occupies rows 10..14. Popup (h=3) would land at y=11 (below anchor 10).
-        // Overlaps menu → try above menu: y = 10 - 3 = 7.
         let menu = Rect {
             x: 0,
             y: 10,
             w: 20,
             h: 4,
         };
-        let (y, _x) = compute_pos((10, 0), (3, 10), screen_rect(80, 24), Some(menu), false);
-        assert_eq!(y, 7); // above menu
+        let (y, _x) = compute_pos((10, 0), (3, 10), screen_rect(80, 24), &[menu], false);
+        assert_eq!(y, 7);
+    }
+
+    #[test]
+    fn test_compute_pos_multiple_avoid() {
+        let menu = Rect {
+            x: 0,
+            y: 6,
+            w: 20,
+            h: 4,
+        };
+        let cursor = Rect {
+            x: 5,
+            y: 5,
+            w: 1,
+            h: 1,
+        };
+        let (y, _x) =
+            compute_pos((5, 0), (3, 10), screen_rect(80, 24), &[menu, cursor], false);
+        // Should avoid both menu (6..10) and cursor (5..6)
+        assert!(y + 3 <= 5 || y >= 10, "should not overlap menu or cursor");
     }
 
     #[test]
     fn test_layout_menu_inline() {
         let anchor = Coord { line: 2, column: 5 };
-        // 2 items, longest is "longer item" (11 chars) + 1 scrollbar = 12
-        let win = layout_menu_inline(&anchor, 12, 2, 80, 24);
-        assert!(win.y > 2); // below anchor
+        let win = layout_menu_inline(&anchor, 12, 2, 80, 24, MenuPlacement::Auto);
+        assert!(win.y > 2);
         assert_eq!(win.width, 12);
-        assert_eq!(win.height, 2); // no borders
+        assert_eq!(win.height, 2);
+    }
+
+    #[test]
+    fn test_layout_menu_inline_above() {
+        let anchor = Coord {
+            line: 10,
+            column: 5,
+        };
+        let win = layout_menu_inline(&anchor, 12, 3, 80, 24, MenuPlacement::Above);
+        assert_eq!(win.y, 7); // 10 - 3
+        assert_eq!(win.height, 3);
+    }
+
+    #[test]
+    fn test_layout_menu_inline_below() {
+        let anchor = Coord {
+            line: 20,
+            column: 0,
+        };
+        let win = layout_menu_inline(&anchor, 12, 5, 80, 24, MenuPlacement::Below);
+        assert_eq!(win.y, 21); // forced below even though space is tight
+        assert!(win.height <= 3); // only 3 rows available (24-21)
     }
 }
