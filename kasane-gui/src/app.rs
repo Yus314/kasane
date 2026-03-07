@@ -192,7 +192,9 @@ impl<W: Write + Send + 'static> App<W> {
             self.scroll_amount,
         );
         self.dirty |= flags;
-        if self.execute_commands(commands) {
+        // Suppress commands to Kakoune until initialization is complete.
+        // Data sent before m_on_key is set may be misinterpreted as raw key input.
+        if self.initial_resize_sent && self.execute_commands(commands) {
             event_loop.exit();
         }
     }

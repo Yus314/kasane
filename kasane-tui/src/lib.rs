@@ -206,9 +206,11 @@ where
             Event::Kakoune(req) => {
                 if !initial_resize_sent {
                     initial_resize_sent = true;
+                    // Use current state dimensions (may have been updated by
+                    // a terminal Resize event received before this point).
                     let resize = KasaneRequest::Resize {
-                        rows: rows.saturating_sub(1),
-                        cols,
+                        rows: state.rows.saturating_sub(1),
+                        cols: state.cols,
                     };
                     writeln!(kak_writer, "{}", resize.to_json())?;
                     kak_writer.flush()?;
@@ -221,7 +223,10 @@ where
 
         let (flags, commands) = update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
         let mut dirty = flags;
-        if execute_commands(commands, &mut kak_writer, &mut backend)? {
+        // Suppress all commands to Kakoune until initialization is complete.
+        // Data sent before m_on_key is set gets accumulated in Kakoune's
+        // internal buffer and may be misinterpreted as raw key input.
+        if initial_resize_sent && execute_commands(commands, &mut kak_writer, &mut backend)? {
             break;
         }
 
@@ -260,7 +265,9 @@ where
                     let (flags, commands) =
                         update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
                     dirty |= flags;
-                    if execute_commands(commands, &mut kak_writer, &mut backend)? {
+                    if initial_resize_sent
+                        && execute_commands(commands, &mut kak_writer, &mut backend)?
+                    {
                         backend.cleanup();
                         return Ok(());
                     }
