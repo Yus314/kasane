@@ -8,11 +8,23 @@ use crate::layout::flex::LayoutResult;
 use crate::protocol::{Attributes, Color, Face};
 use crate::state::AppState;
 
+/// paint 再帰呼び出しで共有されるコンテキスト。
+struct PaintContext<'a> {
+    grid: &'a mut CellGrid,
+    state: &'a AppState,
+    theme: &'a Theme,
+}
+
 /// Paint an element tree into a CellGrid using pre-computed layout results.
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
     crate::perf::perf_span!("paint");
     let theme = Theme::default_theme();
-    paint_themed(element, layout, grid, state, &theme);
+    let mut ctx = PaintContext {
+        grid,
+        state,
+        theme: &theme,
+    };
+    paint_with_ctx(&mut ctx, element, layout);
 }
 
 /// Paint with an explicit theme for style resolution.
@@ -23,35 +35,41 @@ pub fn paint_themed(
     state: &AppState,
     theme: &Theme,
 ) {
+    let mut ctx = PaintContext { grid, state, theme };
+    paint_with_ctx(&mut ctx, element, layout);
+}
+
+fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResult) {
     let area = layout.area;
 
     match element {
         Element::Text(text, style) => {
-            let face = theme.resolve(style, &state.default_face);
-            paint_text(grid, &area, text, &face);
+            let face = ctx.theme.resolve(style, &ctx.state.default_face);
+            paint_text(ctx.grid, &area, text, &face);
         }
         Element::StyledLine(atoms) => {
             let line = atoms.to_vec();
-            grid.put_line_with_base(area.y, area.x, &line, area.w, None);
+            ctx.grid
+                .put_line_with_base(area.y, area.x, &line, area.w, None);
         }
         Element::BufferRef { line_range } => {
-            paint_buffer_ref(grid, &area, line_range.clone(), state);
+            paint_buffer_ref(ctx.grid, &area, line_range.clone(), ctx.state);
         }
         Element::Empty => {}
         Element::Flex { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i) {
-                    paint_themed(&child.element, child_layout, grid, state, theme);
+                    paint_with_ctx(ctx, &child.element, child_layout);
                 }
             }
         }
         Element::Stack { base, overlays } => {
             if let Some(base_layout) = layout.children.first() {
-                paint_themed(base, base_layout, grid, state, theme);
+                paint_with_ctx(ctx, base, base_layout);
             }
             for (i, overlay) in overlays.iter().enumerate() {
                 if let Some(overlay_layout) = layout.children.get(i + 1) {
-                    paint_themed(&overlay.element, overlay_layout, grid, state, theme);
+                    paint_with_ctx(ctx, &overlay.element, overlay_layout);
                 }
             }
         }
@@ -63,9 +81,9 @@ pub fn paint_themed(
             style,
             title,
         } => {
-            let face = theme.resolve(style, &state.default_face);
+            let face = ctx.theme.resolve(style, &ctx.state.default_face);
             paint_container(
-                grid,
+                ctx,
                 &area,
                 child,
                 border,
@@ -73,13 +91,11 @@ pub fn paint_themed(
                 &face,
                 title.as_deref(),
                 layout,
-                state,
-                theme,
             );
         }
         Element::Interactive { child, .. } => {
             if let Some(child_layout) = layout.children.first() {
-                paint_themed(child, child_layout, grid, state, theme);
+                paint_with_ctx(ctx, child, child_layout);
             }
         }
         Element::Scrollable {
@@ -88,7 +104,7 @@ pub fn paint_themed(
             direction: _,
         } => {
             if let Some(child_layout) = layout.children.first() {
-                paint_themed(child, child_layout, grid, state, theme);
+                paint_with_ctx(ctx, child, child_layout);
             }
         }
     }
@@ -140,7 +156,7 @@ fn paint_buffer_ref(
 
 #[allow(clippy::too_many_arguments)]
 fn paint_container(
-    grid: &mut CellGrid,
+    ctx: &mut PaintContext,
     area: &Rect,
     child: &Element,
     border: &Option<BorderConfig>,
@@ -148,19 +164,17 @@ fn paint_container(
     face: &Face,
     title: Option<&[crate::protocol::Atom]>,
     layout: &LayoutResult,
-    state: &AppState,
-    theme: &Theme,
 ) {
     // Shadow (drawn first, behind the container)
     if shadow {
-        paint_shadow(grid, area);
+        paint_shadow(ctx.grid, area);
     }
 
     // Fill entire container area with face
     for row in 0..area.h {
         let y = area.y + row;
-        for x in area.x..(area.x + area.w).min(grid.width) {
-            grid.put_char(x, y, " ", face);
+        for x in area.x..(area.x + area.w).min(ctx.grid.width) {
+            ctx.grid.put_char(x, y, " ", face);
         }
     }
 
@@ -169,18 +183,24 @@ fn paint_container(
         let border_face = border_config
             .face
             .as_ref()
-            .map(|s| theme.resolve(s, face))
+            .map(|s| ctx.theme.resolve(s, face))
             .unwrap_or(*face);
-        paint_border(grid, area, &border_face, false, border_config.line_style);
+        paint_border(
+            ctx.grid,
+            area,
+            &border_face,
+            false,
+            border_config.line_style,
+        );
         // Title on top border
         if let Some(title_atoms) = title {
-            paint_border_title(grid, area, &border_face, title_atoms);
+            paint_border_title(ctx.grid, area, &border_face, title_atoms);
         }
     }
 
     // Paint child
     if let Some(child_layout) = layout.children.first() {
-        paint_themed(child, child_layout, grid, state, theme);
+        paint_with_ctx(ctx, child, child_layout);
     }
 }
 
