@@ -22,20 +22,20 @@ pub fn hit_test(
         Element::Interactive { child, id } => {
             // If we're inside this Interactive's area, this is a hit.
             // But first check if a nested Interactive is more specific.
-            if let Some(child_layout) = layout.children.first() {
-                if let Some(inner) = hit_test(child, child_layout, x, y) {
-                    return Some(inner);
-                }
+            if let Some(child_layout) = layout.children.first()
+                && let Some(inner) = hit_test(child, child_layout, x, y)
+            {
+                return Some(inner);
             }
             Some(*id)
         }
         Element::Stack { base, overlays } => {
             // Reverse iterate overlays (front-to-back)
             for (i, overlay) in overlays.iter().enumerate().rev() {
-                if let Some(overlay_layout) = layout.children.get(i + 1) {
-                    if let Some(id) = hit_test(&overlay.element, overlay_layout, x, y) {
-                        return Some(id);
-                    }
+                if let Some(overlay_layout) = layout.children.get(i + 1)
+                    && let Some(id) = hit_test(&overlay.element, overlay_layout, x, y)
+                {
+                    return Some(id);
                 }
             }
             // Fall back to base
@@ -46,10 +46,10 @@ pub fn hit_test(
         }
         Element::Flex { children, .. } => {
             for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i) {
-                    if let Some(id) = hit_test(&child.element, child_layout, x, y) {
-                        return Some(id);
-                    }
+                if let Some(child_layout) = layout.children.get(i)
+                    && let Some(id) = hit_test(&child.element, child_layout, x, y)
+                {
+                    return Some(id);
                 }
             }
             None

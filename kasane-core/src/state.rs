@@ -52,6 +52,7 @@ impl MenuState {
     ///
     /// `screen_h` is the available height **excluding** the status bar row
     /// (i.e. `rows.saturating_sub(1)`).
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         items: Vec<Line>,
         anchor: Coord,

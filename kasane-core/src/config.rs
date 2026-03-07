@@ -49,17 +49,11 @@ impl MenuConfig {
 }
 
 /// Search menu configuration.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct SearchConfig {
     /// When true, show search completions as a vertical dropdown instead of inline.
     pub dropdown: bool,
-}
-
-impl Default for SearchConfig {
-    fn default() -> Self {
-        SearchConfig { dropdown: false }
-    }
 }
 
 /// Theme configuration: maps style token names to face specifications.
