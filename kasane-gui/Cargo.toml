@@ -1,0 +1,16 @@
+[package]
+name = "kasane-gui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kasane-core = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }
+glyphon = { workspace = true }
+pollster = { workspace = true }
+arboard = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+bytemuck = { workspace = true }

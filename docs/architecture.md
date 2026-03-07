@@ -79,11 +79,12 @@ kasane/
 │       ├── backend.rs          # RenderBackend の TUI 実装
 │       ├── cell_grid.rs        # セルグリッド管理、差分描画
 │       └── input.rs            # crossterm イベント変換
-├── kasane-gui/                 # Phase 4: winit + wgpu + cosmic-text
+├── kasane-macros/              # proc macro (#[kasane::plugin], #[kasane::component])
 │   └── src/
-│       ├── backend.rs          # RenderBackend の GUI 実装
-│       ├── renderer.rs         # GPU テキストレンダリング
-│       └── input.rs            # winit イベント変換
+│       ├── lib.rs              # proc macro エントリポイント
+│       ├── plugin.rs           # #[kasane_plugin] — Plugin trait 実装の自動生成
+│       └── component.rs        # #[kasane_component] — バリデーション (将来の最適化用)
+├── kasane-gui/                 # Phase 4c 予定: winit + wgpu + cosmic-text (未着手)
 └── kasane/                     # メインバイナリ (CLI パース、バックエンド選択)
     └── src/main.rs
 ```

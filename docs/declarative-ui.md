@@ -12,7 +12,7 @@ kasane の目指す姿は「プラグイン作成者のための UI 基盤」で
 - **拡張性**: Slot / Decorator / Replacement の三段階でプラグインが UI を拡張できる
 - **設定可能性**: テーマ・レイアウト・キーバインドをユーザーが設定で変更できる
 - **基盤と設定の一貫性**: 基盤は汎用メカニズム (OverlayAnchor, Container, Flex 等) を提供し、設定 (config.toml) とプラグイン (Plugin trait) の両方がその上に構築される。ユーザーが設定だけで済む場合に Rust を書かせない
-- **段階的分離**: 初期は Kakoune 結合のまま構築し、安定後に汎用部分を分離する
+- **Kakoune 専用**: Kakoune の JSON UI プロトコルに特化。不要な抽象化を避け、プラグイン作者にとって最適な API を提供する
 - **コンパイラ駆動**: proc macro がコンパイル時に依存解析・レイアウトキャッシュ・更新コード生成を行い、ランタイムコストを最小化する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング))
 
 ## 全体アーキテクチャ
@@ -812,14 +812,26 @@ enum StyleToken {
 - ✓ マークアップレンダリング (`{face_spec}text{default}` パーサー, markup.rs)
 - ✓ カーソル数バッジ (FINAL_FG+REVERSE ヒューリスティック)
 
-**先送り (将来の Phase で実装):**
-- proc macro (`#[kasane::plugin]`, `#[kasane::component]`) — プラグインエコシステムの成熟後
-- Decorator / Replacement メカニズム — proc macro と同時期
+**Phase 3 で達成済み (当初は先送り):**
+- ✓ proc macro (`#[kasane::plugin]`) — State/Event/Slot/Decorator/Replace のコード生成が完全動作
+- ✓ Decorator / Replacement メカニズム — PluginRegistry に統合、view.rs で全 Slot/Decorator/Replacement を使用
+- ✓ `#[kasane::component]` — Phase 1 バリデーション (パススルー、純粋性検証のみ)
+
+**未実装 (Phase 4 以降):**
 - Grid レイアウト (Element::Grid) — 必要なユースケース発生時
 - コンパイラ駆動最適化 (ADR-010 段階 1〜3) — プロファイリング結果に基づき判断
 
-### Phase 3: プロトコル分離
+### Phase 3: 拡張入力・クリップボード・プラグイン基盤完成 ✓ 完了
 
-- kasane-core から Kakoune 固有コードを kasane-kakoune に分離
-- 汎用 UI 基盤としての API 安定化
-- プラグイン API のバージョニング
+- ✓ マウスドラッグ (DragState 追跡、選択中スクロール、右クリックドラッグ)
+- ✓ クリップボード統合 (arboard via RenderBackend trait、ブラケットペースト)
+- ✓ スムーズスクロール (60fps アニメーションティック、PageUp/PageDown インターセプト)
+- ✓ proc macro (`#[kasane::plugin]`) 完成
+- ✓ Decorator / Replacement メカニズム完成・統合
+
+**注:** プラグインシステムは完全に動作するが、実プラグインはまだ存在しない。Phase 4a で実プラグインを構築して API を実証する。
+
+### Phase 4: 拡張プラグイン実証 + GUI バックエンド
+
+- 実プラグイン構築によるプラグインシステムの実証
+- GUI バックエンド (winit + wgpu + cosmic-text) の追加

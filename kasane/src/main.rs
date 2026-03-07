@@ -24,10 +24,16 @@ enum Event {
     KakouneDied,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiMode {
+    Tui,
+    Gui,
+}
+
 fn main() -> Result<()> {
     // Parse CLI arguments
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (session, kak_args) = parse_cli_args(&args);
+    let (session, ui_mode, kak_args) = parse_cli_args(&args);
 
     // Load config
     let config = Config::load();
@@ -35,6 +41,29 @@ fn main() -> Result<()> {
     // Setup logging
     let _guard = setup_logging(&config);
 
+    match ui_mode {
+        UiMode::Tui => run_tui(config, session, kak_args),
+        #[cfg(feature = "gui")]
+        UiMode::Gui => {
+            let session_clone = session.clone();
+            let kak_args_clone = kak_args.clone();
+            kasane_gui::run_gui(config, move || {
+                if let Some(ref s) = session_clone {
+                    process::connect_kakoune(s, &kak_args_clone)
+                } else {
+                    process::spawn_kakoune(&kak_args_clone)
+                }
+            })
+        }
+        #[cfg(not(feature = "gui"))]
+        UiMode::Gui => {
+            eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_tui(config: Config, session: Option<String>, kak_args: Vec<String>) -> Result<()> {
     // Install panic hook to restore terminal
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -327,8 +356,9 @@ fn execute_commands(
     Ok(false)
 }
 
-fn parse_cli_args(args: &[String]) -> (Option<String>, Vec<String>) {
+fn parse_cli_args(args: &[String]) -> (Option<String>, UiMode, Vec<String>) {
     let mut session = None;
+    let mut ui_mode = UiMode::Tui;
     let mut kak_args = Vec::new();
     let mut iter = args.iter().peekable();
     let mut pass_through = false;
@@ -344,6 +374,18 @@ fn parse_cli_args(args: &[String]) -> (Option<String>, Vec<String>) {
                     session = Some(s.clone());
                 }
             }
+            "--ui" => {
+                if let Some(mode) = iter.next() {
+                    match mode.as_str() {
+                        "gui" => ui_mode = UiMode::Gui,
+                        "tui" => ui_mode = UiMode::Tui,
+                        _ => {
+                            eprintln!("unknown --ui mode: {mode}. Use 'tui' or 'gui'.");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            }
             "--" => {
                 pass_through = true;
             }
@@ -353,7 +395,7 @@ fn parse_cli_args(args: &[String]) -> (Option<String>, Vec<String>) {
         }
     }
 
-    (session, kak_args)
+    (session, ui_mode, kak_args)
 }
 
 fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::WorkerGuard> {

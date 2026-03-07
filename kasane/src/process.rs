@@ -21,6 +21,16 @@ impl KakouneWriter {
     }
 }
 
+impl Write for KakouneWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.stdin.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stdin.flush()
+    }
+}
+
 /// Reader half: reads JSON-RPC lines from Kakoune's stdout.
 pub struct KakouneReader {
     stdout: BufReader<ChildStdout>,
@@ -36,6 +46,22 @@ impl KakouneReader {
             .read_line(buf)
             .context("failed to read from kak stdout")?;
         Ok(n)
+    }
+}
+
+impl std::io::Read for KakouneReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.stdout.read(buf)
+    }
+}
+
+impl BufRead for KakouneReader {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        self.stdout.fill_buf()
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.stdout.consume(amt);
     }
 }
 

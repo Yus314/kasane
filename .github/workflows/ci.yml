@@ -22,11 +22,17 @@ jobs:
       - name: Build
         run: nix develop --command cargo build
 
+      - name: Build (with GUI)
+        run: nix develop --command cargo build --features gui
+
       - name: Test
         run: nix develop --command cargo test
 
       - name: Clippy
         run: nix develop --command cargo clippy -- -D warnings
+
+      - name: Clippy (with GUI)
+        run: nix develop --command cargo clippy --features gui -- -D warnings
 
       - name: Format check
         run: nix develop --command cargo fmt --check

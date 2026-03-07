@@ -13,6 +13,9 @@ pub struct Config {
     pub search: SearchConfig,
     pub clipboard: ClipboardConfig,
     pub mouse: MouseConfig,
+    pub window: WindowConfig,
+    pub font: FontConfig,
+    pub colors: ColorsConfig,
 }
 
 /// Menu configuration.
@@ -182,6 +185,100 @@ impl Default for LogConfig {
     }
 }
 
+/// Window configuration for the GUI backend.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct WindowConfig {
+    pub initial_cols: u16,
+    pub initial_rows: u16,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        WindowConfig {
+            initial_cols: 80,
+            initial_rows: 24,
+        }
+    }
+}
+
+/// Font configuration for the GUI backend.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct FontConfig {
+    pub family: String,
+    pub size: f32,
+    pub style: String,
+    pub fallback_list: Vec<String>,
+    pub line_height: f32,
+    pub letter_spacing: f32,
+}
+
+impl Default for FontConfig {
+    fn default() -> Self {
+        FontConfig {
+            family: "monospace".to_string(),
+            size: 14.0,
+            style: "Regular".to_string(),
+            fallback_list: Vec::new(),
+            line_height: 1.2,
+            letter_spacing: 0.0,
+        }
+    }
+}
+
+/// Color palette for the GUI backend.
+/// Kakoune's terminal UI uses `Color::Default` to mean "terminal default",
+/// but the GUI has no terminal — these values define the concrete RGB fallback.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct ColorsConfig {
+    pub default_fg: String,
+    pub default_bg: String,
+    pub black: String,
+    pub red: String,
+    pub green: String,
+    pub yellow: String,
+    pub blue: String,
+    pub magenta: String,
+    pub cyan: String,
+    pub white: String,
+    pub bright_black: String,
+    pub bright_red: String,
+    pub bright_green: String,
+    pub bright_yellow: String,
+    pub bright_blue: String,
+    pub bright_magenta: String,
+    pub bright_cyan: String,
+    pub bright_white: String,
+}
+
+impl Default for ColorsConfig {
+    fn default() -> Self {
+        // VS Code Dark+ inspired defaults
+        ColorsConfig {
+            default_fg: "#d4d4d4".to_string(),
+            default_bg: "#1e1e1e".to_string(),
+            black: "#000000".to_string(),
+            red: "#cd3131".to_string(),
+            green: "#0dbc79".to_string(),
+            yellow: "#e5e510".to_string(),
+            blue: "#2472c8".to_string(),
+            magenta: "#bc3fbc".to_string(),
+            cyan: "#11a8cd".to_string(),
+            white: "#e5e5e5".to_string(),
+            bright_black: "#666666".to_string(),
+            bright_red: "#f14c4c".to_string(),
+            bright_green: "#23d18b".to_string(),
+            bright_yellow: "#f5f543".to_string(),
+            bright_blue: "#3b8eea".to_string(),
+            bright_magenta: "#d670d6".to_string(),
+            bright_cyan: "#29b8db".to_string(),
+            bright_white: "#e5e5e5".to_string(),
+        }
+    }
+}
+
 impl Config {
     pub fn load() -> Self {
         let config_path = dirs_config_path();
@@ -259,6 +356,53 @@ drag_scroll = false
         assert!(!config.scroll.inertia);
         assert!(config.clipboard.enabled);
         assert!(config.mouse.drag_scroll);
+    }
+
+    #[test]
+    fn test_window_config_defaults() {
+        let config = Config::default();
+        assert_eq!(config.window.initial_cols, 80);
+        assert_eq!(config.window.initial_rows, 24);
+    }
+
+    #[test]
+    fn test_font_config_defaults() {
+        let config = Config::default();
+        assert_eq!(config.font.family, "monospace");
+        assert_eq!(config.font.size, 14.0);
+        assert_eq!(config.font.line_height, 1.2);
+        assert_eq!(config.font.letter_spacing, 0.0);
+    }
+
+    #[test]
+    fn test_colors_config_defaults() {
+        let config = Config::default();
+        assert_eq!(config.colors.default_fg, "#d4d4d4");
+        assert_eq!(config.colors.default_bg, "#1e1e1e");
+        assert_eq!(config.colors.red, "#cd3131");
+    }
+
+    #[test]
+    fn test_partial_gui_config() {
+        let toml_str = r##"
+[window]
+initial_cols = 120
+
+[font]
+size = 16.0
+family = "JetBrains Mono"
+
+[colors]
+default_bg = "#282828"
+"##;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.window.initial_cols, 120);
+        assert_eq!(config.window.initial_rows, 24); // default
+        assert_eq!(config.font.size, 16.0);
+        assert_eq!(config.font.family, "JetBrains Mono");
+        assert_eq!(config.font.line_height, 1.2); // default
+        assert_eq!(config.colors.default_bg, "#282828");
+        assert_eq!(config.colors.default_fg, "#d4d4d4"); // default
     }
 
     #[test]
