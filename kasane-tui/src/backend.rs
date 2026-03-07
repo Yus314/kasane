@@ -2,7 +2,10 @@ use std::io::{Stdout, Write};
 
 use crossterm::{
     cursor,
-    event::{DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture,
+    },
     execute, queue,
     style::{
         self, Attribute as CtAttribute, Color as CtColor, SetAttribute, SetBackgroundColor,
@@ -23,6 +26,7 @@ pub struct TuiBackend {
     /// the 8 KB auto-flush of `BufWriter` which caused the terminal to render
     /// partial frames (visible as cursor-like blocks at line ends).
     buf: Vec<u8>,
+    clipboard: Option<arboard::Clipboard>,
 }
 
 impl TuiBackend {
@@ -34,11 +38,14 @@ impl TuiBackend {
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableFocusChange,
+            EnableBracketedPaste,
             cursor::Hide
         )?;
+        let clipboard = arboard::Clipboard::new().ok();
         Ok(TuiBackend {
             stdout,
             buf: Vec::with_capacity(1 << 16),
+            clipboard,
         })
     }
 
@@ -48,6 +55,7 @@ impl TuiBackend {
             cursor::Show,
             DisableFocusChange,
             DisableMouseCapture,
+            DisableBracketedPaste,
             LeaveAlternateScreen
         );
         let _ = terminal::disable_raw_mode();
@@ -141,6 +149,18 @@ impl RenderBackend for TuiBackend {
     fn hide_cursor(&mut self) -> anyhow::Result<()> {
         queue!(self.buf, cursor::Hide)?;
         Ok(())
+    }
+
+    fn clipboard_get(&mut self) -> Option<String> {
+        self.clipboard.as_mut()?.get_text().ok()
+    }
+
+    fn clipboard_set(&mut self, text: &str) -> bool {
+        if let Some(cb) = self.clipboard.as_mut() {
+            cb.set_text(text.to_string()).is_ok()
+        } else {
+            false
+        }
     }
 }
 

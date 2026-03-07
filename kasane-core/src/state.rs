@@ -4,7 +4,7 @@ use bitflags::bitflags;
 
 use crate::config::MenuPosition;
 use crate::input;
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{Key, KeyEvent, MouseButton, MouseEvent};
 use crate::layout::line_display_width;
 use crate::plugin::{Command, PluginRegistry};
 use crate::protocol::{
@@ -188,6 +188,30 @@ pub struct InfoState {
     pub scroll_offset: u16,
 }
 
+/// Drag state for mouse selection tracking.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum DragState {
+    #[default]
+    None,
+    Active {
+        button: MouseButton,
+        start_line: u32,
+        start_column: u32,
+    },
+}
+
+/// State for smooth scroll animation.
+#[derive(Debug, Clone, Default)]
+pub struct ScrollAnimation {
+    /// Remaining scroll amount (positive=down, negative=up).
+    pub remaining: i32,
+    /// Scroll amount per frame.
+    pub step: i32,
+    /// Mouse coordinates that initiated the scroll.
+    pub line: u32,
+    pub column: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     // Buffer
@@ -225,6 +249,15 @@ pub struct AppState {
     // Derived state
     pub cursor_count: usize,
 
+    // Mouse drag state
+    pub drag: DragState,
+
+    // Scroll settings
+    pub smooth_scroll: bool,
+
+    // Scroll animation state
+    pub scroll_animation: Option<ScrollAnimation>,
+
     // Screen size
     pub cols: u16,
     pub rows: u16,
@@ -252,6 +285,9 @@ impl Default for AppState {
             search_dropdown: false,
             status_at_top: false,
             cursor_count: 0,
+            drag: DragState::None,
+            smooth_scroll: false,
+            scroll_animation: None,
             cols: 80,
             rows: 24,
         }
@@ -442,6 +478,7 @@ pub enum Msg {
     Kakoune(KakouneRequest),
     Key(KeyEvent),
     Mouse(MouseEvent),
+    Paste,
     Resize { cols: u16, rows: u16 },
     FocusGained,
     FocusLost,
@@ -461,6 +498,31 @@ pub fn update(
             (flags, vec![])
         }
         Msg::Key(key) => {
+            // PageUp/PageDown intercept: convert to scroll commands
+            if key.modifiers.is_empty() {
+                match key.key {
+                    Key::PageUp => {
+                        let visible_lines = compute_visible_lines(state);
+                        let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
+                            amount: -(visible_lines as i32),
+                            line: state.cursor_pos.line as u32,
+                            column: state.cursor_pos.column as u32,
+                        });
+                        return (DirtyFlags::empty(), vec![cmd]);
+                    }
+                    Key::PageDown => {
+                        let visible_lines = compute_visible_lines(state);
+                        let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
+                            amount: visible_lines as i32,
+                            line: state.cursor_pos.line as u32,
+                            column: state.cursor_pos.column as u32,
+                        });
+                        return (DirtyFlags::empty(), vec![cmd]);
+                    }
+                    _ => {}
+                }
+            }
+
             // Ask plugins to handle the key first
             for plugin in registry.plugins_mut() {
                 if let Some(commands) = plugin.handle_key(&key, state) {
@@ -473,6 +535,55 @@ pub fn update(
             (DirtyFlags::empty(), vec![cmd])
         }
         Msg::Mouse(mouse) => {
+            // Update drag state
+            match mouse.kind {
+                input::MouseEventKind::Press(button) => {
+                    state.drag = DragState::Active {
+                        button,
+                        start_line: mouse.line,
+                        start_column: mouse.column,
+                    };
+                }
+                input::MouseEventKind::Release(_) => {
+                    state.drag = DragState::None;
+                }
+                _ => {}
+            }
+
+            // Selection-during-scroll: when dragging with left button and scrolling,
+            // send scroll + mouse_move to extend selection (R-046)
+            if let DragState::Active {
+                button: MouseButton::Left,
+                ..
+            } = &state.drag
+                && matches!(
+                    mouse.kind,
+                    input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
+                )
+            {
+                // Check info scroll first
+                if handle_info_scroll(state, &mouse) {
+                    return (DirtyFlags::INFO, vec![]);
+                }
+                if let Some(scroll_req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
+                    let edge_line = match mouse.kind {
+                        input::MouseEventKind::ScrollUp => 0,
+                        _ => state.rows.saturating_sub(2) as u32,
+                    };
+                    let move_req = KasaneRequest::MouseMove {
+                        line: edge_line,
+                        column: mouse.column,
+                    };
+                    return (
+                        DirtyFlags::empty(),
+                        vec![
+                            Command::SendToKakoune(scroll_req),
+                            Command::SendToKakoune(move_req),
+                        ],
+                    );
+                }
+            }
+
             // Check if mouse scroll targets an info popup
             if matches!(
                 mouse.kind,
@@ -481,6 +592,34 @@ pub fn update(
             {
                 return (DirtyFlags::INFO, vec![]);
             }
+
+            // Smooth scrolling: set up animation instead of immediate scroll
+            if state.smooth_scroll
+                && matches!(
+                    mouse.kind,
+                    input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
+                )
+            {
+                let amount = match mouse.kind {
+                    input::MouseEventKind::ScrollUp => -scroll_amount,
+                    _ => scroll_amount,
+                };
+                if let Some(ref mut anim) = state.scroll_animation {
+                    // Accumulate into existing animation
+                    anim.remaining += amount;
+                    anim.line = mouse.line;
+                    anim.column = mouse.column;
+                } else {
+                    state.scroll_animation = Some(ScrollAnimation {
+                        remaining: amount,
+                        step: 1,
+                        line: mouse.line,
+                        column: mouse.column,
+                    });
+                }
+                return (DirtyFlags::empty(), vec![]);
+            }
+
             let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
                 vec![Command::SendToKakoune(req)]
             } else {
@@ -488,6 +627,7 @@ pub fn update(
             };
             (DirtyFlags::empty(), cmds)
         }
+        Msg::Paste => (DirtyFlags::empty(), vec![Command::Paste]),
         Msg::Resize { cols, rows } => {
             state.cols = cols;
             state.rows = rows;
@@ -508,6 +648,12 @@ pub fn update(
             (DirtyFlags::ALL, vec![])
         }
     }
+}
+
+/// Compute the number of visible buffer lines for PageUp/PageDown scrolling.
+fn compute_visible_lines(state: &AppState) -> u16 {
+    // Subtract 1 for the status bar row
+    state.rows.saturating_sub(1)
 }
 
 #[cfg(test)]
@@ -927,5 +1073,227 @@ mod tests {
             }
             _ => panic!("expected SendToKakoune from plugin"),
         }
+    }
+
+    // --- Phase 3: Drag state tests ---
+
+    #[test]
+    fn test_drag_state_press_activates() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let mouse = crate::input::MouseEvent {
+            kind: crate::input::MouseEventKind::Press(crate::input::MouseButton::Left),
+            line: 5,
+            column: 10,
+        };
+        update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+        assert_eq!(
+            state.drag,
+            DragState::Active {
+                button: crate::input::MouseButton::Left,
+                start_line: 5,
+                start_column: 10,
+            }
+        );
+    }
+
+    #[test]
+    fn test_drag_state_release_clears() {
+        let mut state = AppState::default();
+        state.drag = DragState::Active {
+            button: crate::input::MouseButton::Left,
+            start_line: 0,
+            start_column: 0,
+        };
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let mouse = crate::input::MouseEvent {
+            kind: crate::input::MouseEventKind::Release(crate::input::MouseButton::Left),
+            line: 5,
+            column: 10,
+        };
+        update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+        assert_eq!(state.drag, DragState::None);
+    }
+
+    #[test]
+    fn test_drag_state_drag_keeps_active() {
+        let mut state = AppState::default();
+        state.drag = DragState::Active {
+            button: crate::input::MouseButton::Left,
+            start_line: 0,
+            start_column: 0,
+        };
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let mouse = crate::input::MouseEvent {
+            kind: crate::input::MouseEventKind::Drag(crate::input::MouseButton::Left),
+            line: 3,
+            column: 7,
+        };
+        let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+        // Drag sends MouseMove
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            Command::SendToKakoune(req) => {
+                assert_eq!(
+                    *req,
+                    KasaneRequest::MouseMove {
+                        line: 3,
+                        column: 7,
+                    }
+                );
+            }
+            _ => panic!("expected SendToKakoune MouseMove"),
+        }
+        // Drag state remains Active
+        assert!(matches!(state.drag, DragState::Active { .. }));
+    }
+
+    #[test]
+    fn test_selection_scroll_generates_two_commands() {
+        let mut state = AppState::default();
+        state.rows = 24;
+        state.drag = DragState::Active {
+            button: crate::input::MouseButton::Left,
+            start_line: 5,
+            start_column: 10,
+        };
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let mouse = crate::input::MouseEvent {
+            kind: crate::input::MouseEventKind::ScrollDown,
+            line: 10,
+            column: 5,
+        };
+        let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+        assert_eq!(commands.len(), 2, "scroll + mouse_move expected");
+        // First: Scroll
+        match &commands[0] {
+            Command::SendToKakoune(KasaneRequest::Scroll { amount, .. }) => {
+                assert_eq!(*amount, 3);
+            }
+            _ => panic!("expected Scroll command"),
+        }
+        // Second: MouseMove to edge
+        match &commands[1] {
+            Command::SendToKakoune(KasaneRequest::MouseMove { line, column }) => {
+                assert_eq!(*line, 22); // rows - 2
+                assert_eq!(*column, 5);
+            }
+            _ => panic!("expected MouseMove command"),
+        }
+    }
+
+    #[test]
+    fn test_selection_scroll_up_edge() {
+        let mut state = AppState::default();
+        state.rows = 24;
+        state.drag = DragState::Active {
+            button: crate::input::MouseButton::Left,
+            start_line: 5,
+            start_column: 10,
+        };
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let mouse = crate::input::MouseEvent {
+            kind: crate::input::MouseEventKind::ScrollUp,
+            line: 10,
+            column: 5,
+        };
+        let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+        assert_eq!(commands.len(), 2);
+        match &commands[1] {
+            Command::SendToKakoune(KasaneRequest::MouseMove { line, .. }) => {
+                assert_eq!(*line, 0); // edge is top
+            }
+            _ => panic!("expected MouseMove command"),
+        }
+    }
+
+    #[test]
+    fn test_paste_produces_paste_command() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let (flags, commands) = update(&mut state, Msg::Paste, &mut registry, &mut grid, 3);
+        assert!(flags.is_empty());
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], Command::Paste));
+    }
+
+    #[test]
+    fn test_pageup_intercept() {
+        let mut state = AppState::default();
+        state.rows = 24;
+        state.cursor_pos = Coord { line: 10, column: 5 };
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let key = crate::input::KeyEvent {
+            key: crate::input::Key::PageUp,
+            modifiers: crate::input::Modifiers::empty(),
+        };
+        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            Command::SendToKakoune(KasaneRequest::Scroll { amount, line, column }) => {
+                assert_eq!(*amount, -23); // -(rows - 1)
+                assert_eq!(*line, 10);
+                assert_eq!(*column, 5);
+            }
+            _ => panic!("expected Scroll command"),
+        }
+    }
+
+    #[test]
+    fn test_pagedown_intercept() {
+        let mut state = AppState::default();
+        state.rows = 24;
+        state.cursor_pos = Coord { line: 10, column: 5 };
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let key = crate::input::KeyEvent {
+            key: crate::input::Key::PageDown,
+            modifiers: crate::input::Modifiers::empty(),
+        };
+        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            Command::SendToKakoune(KasaneRequest::Scroll { amount, .. }) => {
+                assert_eq!(*amount, 23); // rows - 1
+            }
+            _ => panic!("expected Scroll command"),
+        }
+    }
+
+    #[test]
+    fn test_pageup_with_modifier_not_intercepted() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut grid = CellGrid::new(80, 24);
+        let key = crate::input::KeyEvent {
+            key: crate::input::Key::PageUp,
+            modifiers: crate::input::Modifiers::CTRL,
+        };
+        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        // With modifier, PageUp should be forwarded as key, not intercepted
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
+                assert_eq!(keys, &vec!["<c-pageup>".to_string()]);
+            }
+            _ => panic!("expected Keys command"),
+        }
+    }
+
+    #[test]
+    fn test_compute_visible_lines() {
+        let mut state = AppState::default();
+        state.rows = 24;
+        assert_eq!(compute_visible_lines(&state), 23);
+
+        state.rows = 1;
+        assert_eq!(compute_visible_lines(&state), 0);
     }
 }

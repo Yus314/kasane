@@ -8,6 +8,7 @@ use bitflags::bitflags;
 pub enum InputEvent {
     Key(KeyEvent),
     Mouse(MouseEvent),
+    Paste(String),
     Resize(u16, u16),
     FocusGained,
     FocusLost,
@@ -59,6 +60,7 @@ pub enum MouseEventKind {
     Press(MouseButton),
     Release(MouseButton),
     Move,
+    Drag(MouseButton),
     ScrollUp,
     ScrollDown,
 }
@@ -155,7 +157,7 @@ pub fn mouse_to_kakoune(
             line: event.line,
             column: event.column,
         }),
-        MouseEventKind::Move => Some(KasaneRequest::MouseMove {
+        MouseEventKind::Move | MouseEventKind::Drag(_) => Some(KasaneRequest::MouseMove {
             line: event.line,
             column: event.column,
         }),
@@ -170,6 +172,21 @@ pub fn mouse_to_kakoune(
             column: event.column,
         }),
     }
+}
+
+/// Convert pasted text into Kakoune key sequence.
+/// Each character is mapped to the appropriate Kakoune key name.
+pub fn paste_text_to_keys(text: &str) -> Vec<String> {
+    text.chars()
+        .map(|c| match c {
+            '\n' => "<ret>".to_string(),
+            ' ' => "<space>".to_string(),
+            '<' => "<lt>".to_string(),
+            '>' => "<gt>".to_string(),
+            '-' => "<minus>".to_string(),
+            c => c.to_string(),
+        })
+        .collect()
 }
 
 fn mouse_button_str(button: MouseButton) -> &'static str {
@@ -347,6 +364,71 @@ mod tests {
                 column: 10,
             }
         );
+    }
+
+    #[test]
+    fn test_drag_to_kakoune() {
+        use crate::protocol::KasaneRequest;
+
+        let evt = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            line: 3,
+            column: 7,
+        };
+        let req = mouse_to_kakoune(&evt, 3).unwrap();
+        assert_eq!(
+            req,
+            KasaneRequest::MouseMove {
+                line: 3,
+                column: 7,
+            }
+        );
+    }
+
+    #[test]
+    fn test_right_drag_to_kakoune() {
+        use crate::protocol::KasaneRequest;
+
+        let evt = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Right),
+            line: 1,
+            column: 2,
+        };
+        let req = mouse_to_kakoune(&evt, 3).unwrap();
+        assert_eq!(
+            req,
+            KasaneRequest::MouseMove {
+                line: 1,
+                column: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn test_paste_text_to_keys_basic() {
+        let keys = paste_text_to_keys("hello");
+        assert_eq!(keys, vec!["h", "e", "l", "l", "o"]);
+    }
+
+    #[test]
+    fn test_paste_text_to_keys_special_chars() {
+        let keys = paste_text_to_keys("a b\n<>-");
+        assert_eq!(
+            keys,
+            vec!["a", "<space>", "b", "<ret>", "<lt>", "<gt>", "<minus>"]
+        );
+    }
+
+    #[test]
+    fn test_paste_text_to_keys_empty() {
+        let keys = paste_text_to_keys("");
+        assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn test_paste_text_to_keys_multibyte() {
+        let keys = paste_text_to_keys("日本語");
+        assert_eq!(keys, vec!["日", "本", "語"]);
     }
 
     #[test]

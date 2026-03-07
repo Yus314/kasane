@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 kasane-core = { workspace = true }
 crossterm = { workspace = true }
+arboard = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 

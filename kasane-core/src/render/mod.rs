@@ -36,6 +36,15 @@ pub trait RenderBackend {
     fn flush(&mut self) -> anyhow::Result<()>;
     fn show_cursor(&mut self, x: u16, y: u16, style: CursorStyle) -> anyhow::Result<()>;
     fn hide_cursor(&mut self) -> anyhow::Result<()>;
+
+    /// Read text from the system clipboard. Returns None if unavailable.
+    fn clipboard_get(&mut self) -> Option<String> {
+        None
+    }
+    /// Write text to the system clipboard. Returns true on success.
+    fn clipboard_set(&mut self, _text: &str) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------

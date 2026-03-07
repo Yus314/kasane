@@ -4,7 +4,7 @@ use anyhow::Result;
 use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
-use kasane_core::input::InputEvent;
+use kasane_core::input::{self as core_input, InputEvent};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::{Command, PluginRegistry};
@@ -70,6 +70,7 @@ fn main() -> Result<()> {
         menu_position: config.menu.menu_position(),
         search_dropdown: config.search.dropdown,
         status_at_top: config.ui.status_position() == kasane_core::config::StatusPosition::Top,
+        smooth_scroll: config.scroll.smooth,
         ..AppState::default()
     };
 
@@ -155,8 +156,38 @@ fn main() -> Result<()> {
     let scroll_amount = config.scroll.lines_per_scroll;
 
     // Main event loop
-    while let Ok(event) = rx.recv() {
-        let msg = match event {
+    loop {
+        let timeout = if state.scroll_animation.is_some() {
+            std::time::Duration::from_millis(16) // ~60fps for smooth scroll
+        } else {
+            std::time::Duration::from_secs(60) // effectively infinite
+        };
+
+        let event = match rx.recv_timeout(timeout) {
+            Ok(e) => Some(e),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        };
+
+        // Handle scroll animation tick on timeout
+        if event.is_none() {
+            if let Some(ref mut anim) = state.scroll_animation {
+                let step = anim.step.min(anim.remaining.abs()) * anim.remaining.signum();
+                let req = KasaneRequest::Scroll {
+                    amount: step,
+                    line: anim.line,
+                    column: anim.column,
+                };
+                kak_writer.write_message(&req.to_json())?;
+                anim.remaining -= step;
+                if anim.remaining == 0 {
+                    state.scroll_animation = None;
+                }
+            }
+            continue;
+        }
+
+        let msg = match event.unwrap() {
             Event::Kakoune(req) => {
                 if !initial_resize_sent {
                     initial_resize_sent = true;
@@ -176,7 +207,7 @@ fn main() -> Result<()> {
 
         let (flags, commands) = update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
         let mut dirty = flags;
-        if execute_commands(commands, &mut kak_writer)? {
+        if execute_commands(commands, &mut kak_writer, &mut backend)? {
             break;
         }
 
@@ -205,7 +236,7 @@ fn main() -> Result<()> {
                         scroll_amount,
                     );
                     dirty |= flags;
-                    if execute_commands(commands, &mut kak_writer)? {
+                    if execute_commands(commands, &mut kak_writer, &mut backend)? {
                         backend.cleanup();
                         return Ok(());
                     }
@@ -215,7 +246,7 @@ fn main() -> Result<()> {
                     let (flags, commands) =
                         update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
                     dirty |= flags;
-                    if execute_commands(commands, &mut kak_writer)? {
+                    if execute_commands(commands, &mut kak_writer, &mut backend)? {
                         backend.cleanup();
                         return Ok(());
                     }
@@ -263,6 +294,7 @@ fn input_event_to_msg(event: InputEvent) -> Msg {
     match event {
         InputEvent::Key(key) => Msg::Key(key),
         InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
+        InputEvent::Paste(_) => Msg::Paste,
         InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
         InputEvent::FocusGained => Msg::FocusGained,
         InputEvent::FocusLost => Msg::FocusLost,
@@ -273,11 +305,21 @@ fn input_event_to_msg(event: InputEvent) -> Msg {
 fn execute_commands(
     commands: Vec<Command>,
     kak_writer: &mut process::KakouneWriter,
+    backend: &mut TuiBackend,
 ) -> Result<bool> {
     for cmd in commands {
         match cmd {
             Command::SendToKakoune(req) => {
                 kak_writer.write_message(&req.to_json())?;
+            }
+            Command::Paste => {
+                if let Some(text) = backend.clipboard_get() {
+                    let keys = core_input::paste_text_to_keys(&text);
+                    if !keys.is_empty() {
+                        kak_writer
+                            .write_message(&KasaneRequest::Keys(keys).to_json())?;
+                    }
+                }
             }
             Command::Quit => return Ok(true),
         }

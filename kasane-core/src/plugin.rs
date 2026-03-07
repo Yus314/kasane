@@ -41,6 +41,7 @@ pub enum ReplaceTarget {
 
 pub enum Command {
     SendToKakoune(KasaneRequest),
+    Paste,
     Quit,
 }
 

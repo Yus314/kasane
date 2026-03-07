@@ -12,10 +12,10 @@ pub fn convert_event(event: Event) -> Option<InputEvent> {
     match event {
         Event::Key(key_event) => convert_key(key_event),
         Event::Mouse(mouse_event) => convert_mouse(mouse_event),
+        Event::Paste(_) => Some(InputEvent::Paste(String::new())),
         Event::Resize(cols, rows) => Some(InputEvent::Resize(cols, rows)),
         Event::FocusGained => Some(InputEvent::FocusGained),
         Event::FocusLost => Some(InputEvent::FocusLost),
-        _ => None,
     }
 }
 
@@ -74,7 +74,7 @@ fn convert_mouse(event: CtMouseEvent) -> Option<InputEvent> {
     let kind = match event.kind {
         CtMouseEventKind::Down(button) => MouseEventKind::Press(convert_button(button)),
         CtMouseEventKind::Up(button) => MouseEventKind::Release(convert_button(button)),
-        CtMouseEventKind::Drag(_) => MouseEventKind::Move,
+        CtMouseEventKind::Drag(button) => MouseEventKind::Drag(convert_button(button)),
         CtMouseEventKind::Moved => MouseEventKind::Move,
         CtMouseEventKind::ScrollUp => MouseEventKind::ScrollUp,
         CtMouseEventKind::ScrollDown => MouseEventKind::ScrollDown,
@@ -183,6 +183,49 @@ mod tests {
             }
             _ => panic!("expected Mouse event"),
         }
+    }
+
+    #[test]
+    fn test_convert_drag_left() {
+        let ct_event = Event::Mouse(CtMouseEvent {
+            kind: CtMouseEventKind::Drag(CtMouseButton::Left),
+            column: 5,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        });
+        let result = convert_event(ct_event).unwrap();
+        match result {
+            InputEvent::Mouse(m) => {
+                assert_eq!(m.kind, MouseEventKind::Drag(MouseButton::Left));
+                assert_eq!(m.line, 3);
+                assert_eq!(m.column, 5);
+            }
+            _ => panic!("expected Mouse event"),
+        }
+    }
+
+    #[test]
+    fn test_convert_drag_right() {
+        let ct_event = Event::Mouse(CtMouseEvent {
+            kind: CtMouseEventKind::Drag(CtMouseButton::Right),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        });
+        let result = convert_event(ct_event).unwrap();
+        match result {
+            InputEvent::Mouse(m) => {
+                assert_eq!(m.kind, MouseEventKind::Drag(MouseButton::Right));
+            }
+            _ => panic!("expected Mouse event"),
+        }
+    }
+
+    #[test]
+    fn test_convert_paste() {
+        let ct_event = Event::Paste("hello world".to_string());
+        let result = convert_event(ct_event).unwrap();
+        assert_eq!(result, InputEvent::Paste(String::new()));
     }
 
     #[test]

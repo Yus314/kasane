@@ -19,6 +19,7 @@ simd-json = "0.14"
 crossterm = "0.28"
 crossbeam-channel = "0.5"
 thiserror = "2"
+arboard = "3"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

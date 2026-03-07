@@ -11,6 +11,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub menu: MenuConfig,
     pub search: SearchConfig,
+    pub clipboard: ClipboardConfig,
+    pub mouse: MouseConfig,
 }
 
 /// Menu configuration.
@@ -124,13 +126,43 @@ impl UiConfig {
 #[serde(default)]
 pub struct ScrollConfig {
     pub lines_per_scroll: i32,
+    pub smooth: bool,
+    pub inertia: bool,
 }
 
 impl Default for ScrollConfig {
     fn default() -> Self {
         ScrollConfig {
             lines_per_scroll: 3,
+            smooth: false,
+            inertia: false,
         }
+    }
+}
+
+/// Clipboard configuration.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct ClipboardConfig {
+    pub enabled: bool,
+}
+
+impl Default for ClipboardConfig {
+    fn default() -> Self {
+        ClipboardConfig { enabled: true }
+    }
+}
+
+/// Mouse configuration.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct MouseConfig {
+    pub drag_scroll: bool,
+}
+
+impl Default for MouseConfig {
+    fn default() -> Self {
+        MouseConfig { drag_scroll: true }
     }
 }
 
@@ -196,6 +228,37 @@ lines_per_scroll = 5
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.scroll.lines_per_scroll, 5);
         assert!(config.ui.shadow); // default preserved
+    }
+
+    #[test]
+    fn test_new_config_sections() {
+        let toml_str = r#"
+[scroll]
+lines_per_scroll = 5
+smooth = true
+inertia = true
+
+[clipboard]
+enabled = false
+
+[mouse]
+drag_scroll = false
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.scroll.lines_per_scroll, 5);
+        assert!(config.scroll.smooth);
+        assert!(config.scroll.inertia);
+        assert!(!config.clipboard.enabled);
+        assert!(!config.mouse.drag_scroll);
+    }
+
+    #[test]
+    fn test_new_config_defaults() {
+        let config = Config::default();
+        assert!(!config.scroll.smooth);
+        assert!(!config.scroll.inertia);
+        assert!(config.clipboard.enabled);
+        assert!(config.mouse.drag_scroll);
     }
 
     #[test]
