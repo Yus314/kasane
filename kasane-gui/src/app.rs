@@ -8,17 +8,11 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
-use kasane_core::input::{self as core_input, InputEvent};
-use kasane_core::layout::Rect;
-use kasane_core::layout::flex;
-use kasane_core::plugin::{Command, PluginRegistry};
+use kasane_core::input::InputEvent;
+use kasane_core::plugin::{Command, CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::paint;
-use kasane_core::render::view;
-use kasane_core::render::{
-    CellGrid, RenderBackend, clear_block_cursor_face, cursor_position, cursor_style,
-};
-use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::render::{CellGrid, RenderBackend, render_pipeline};
+use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use crate::GuiEvent;
 use crate::backend::GuiBackend;
@@ -117,14 +111,7 @@ impl<W: Write + Send + 'static> App<W> {
                 // Setup state with measured dimensions
                 self.state.cols = metrics.cols;
                 self.state.rows = metrics.rows;
-                self.state.shadow_enabled = self.config.ui.shadow;
-                self.state.padding_char = self.config.ui.padding_char.clone();
-                self.state.menu_max_height = self.config.menu.max_height;
-                self.state.menu_position = self.config.menu.menu_position();
-                self.state.search_dropdown = self.config.search.dropdown;
-                self.state.status_at_top =
-                    self.config.ui.status_position() == kasane_core::config::StatusPosition::Top;
-                self.state.smooth_scroll = self.config.scroll.smooth;
+                self.state.apply_config(&self.config);
 
                 // Setup grid and backend
                 self.grid = CellGrid::new(metrics.cols, metrics.rows);
@@ -169,7 +156,7 @@ impl<W: Write + Send + 'static> App<W> {
                         self.scroll_amount,
                     );
                     self.dirty |= flags;
-                    if self.execute_commands(commands) {
+                    if self.exec_commands(commands) {
                         event_loop.exit();
                         return;
                     }
@@ -194,38 +181,19 @@ impl<W: Write + Send + 'static> App<W> {
         self.dirty |= flags;
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
-        if self.initial_resize_sent && self.execute_commands(commands) {
+        if self.initial_resize_sent && self.exec_commands(commands) {
             event_loop.exit();
         }
     }
 
     /// Execute side-effect commands. Returns `true` if Quit was requested.
-    fn execute_commands(&mut self, commands: Vec<Command>) -> bool {
-        for cmd in commands {
-            match cmd {
-                Command::SendToKakoune(req) => {
-                    let _ = writeln!(self.kak_writer, "{}", req.to_json());
-                    let _ = self.kak_writer.flush();
-                }
-                Command::Paste => {
-                    if let Some(ref mut backend) = self.backend
-                        && let Some(text) = backend.clipboard_get()
-                    {
-                        let keys = core_input::paste_text_to_keys(&text);
-                        if !keys.is_empty() {
-                            let _ = writeln!(
-                                self.kak_writer,
-                                "{}",
-                                KasaneRequest::Keys(keys).to_json()
-                            );
-                            let _ = self.kak_writer.flush();
-                        }
-                    }
-                }
-                Command::Quit => return true,
-            }
-        }
-        false
+    fn exec_commands(&mut self, commands: Vec<Command>) -> bool {
+        matches!(
+            execute_commands(commands, &mut self.kak_writer, &mut || {
+                self.backend.as_mut().and_then(|b| b.clipboard_get())
+            }),
+            CommandResult::Quit
+        )
     }
 
     fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
@@ -266,22 +234,7 @@ impl<W: Write + Send + 'static> App<W> {
             self.state.rows
         );
 
-        // Declarative pipeline: view → layout → paint
-        let element = view::view(&self.state, &self.registry);
-        let root_area = Rect {
-            x: 0,
-            y: 0,
-            w: self.state.cols,
-            h: self.state.rows,
-        };
-        let layout_result = flex::place(&element, root_area, &self.state);
-        self.grid.clear(&self.state.default_face);
-        paint::paint(&element, &layout_result, &mut self.grid, &self.state);
-
-        // Cursor
-        let style = cursor_style(&self.state);
-        clear_block_cursor_face(&self.state, &mut self.grid, style);
-        let (cx, cy) = cursor_position(&self.state, &self.grid);
+        let result = render_pipeline(&self.state, &self.registry, &mut self.grid);
 
         // GPU render
         let gpu = self.gpu.as_ref().unwrap();
@@ -289,7 +242,12 @@ impl<W: Write + Send + 'static> App<W> {
         let resolver = self.color_resolver.as_ref().unwrap();
 
         tracing::debug!("[app] submitting to GPU");
-        match cr.render(gpu, &self.grid, resolver, Some((cx, cy, style))) {
+        match cr.render(
+            gpu,
+            &self.grid,
+            resolver,
+            Some((result.cursor_x, result.cursor_y, result.cursor_style)),
+        ) {
             Ok(()) => tracing::debug!("[app] render_frame complete"),
             Err(e) => tracing::error!("[app] render failed: {e}"),
         }
@@ -383,22 +341,10 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
         self.process_pending_events(event_loop);
 
         // Smooth scroll animation tick
-        if let Some(ref mut anim) = self.state.scroll_animation {
-            let step = anim.step.min(anim.remaining.abs()) * anim.remaining.signum();
-            let req = KasaneRequest::Scroll {
-                amount: step,
-                line: anim.line,
-                column: anim.column,
-            };
-            let _ = writeln!(self.kak_writer, "{}", req.to_json());
-            let _ = self.kak_writer.flush();
-            anim.remaining -= step;
-            if anim.remaining == 0 {
-                self.state.scroll_animation = None;
-            }
-            if let Some(ref window) = self.window {
-                window.request_redraw();
-            }
+        if tick_scroll_animation(&mut self.state, &mut self.kak_writer)
+            && let Some(ref window) = self.window
+        {
+            window.request_redraw();
         }
 
         if !self.dirty.is_empty()

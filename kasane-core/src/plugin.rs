@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::io::Write;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
@@ -43,6 +44,44 @@ pub enum Command {
     SendToKakoune(KasaneRequest),
     Paste,
     Quit,
+}
+
+/// コマンド実行の結果。
+pub enum CommandResult {
+    /// すべてのコマンドを処理した。
+    Continue,
+    /// Quit コマンドを受信した。
+    Quit,
+}
+
+/// Side-effect コマンドを実行する。
+/// `clipboard_get` はクリップボード読み取りのクロージャ。
+pub fn execute_commands(
+    commands: Vec<Command>,
+    kak_writer: &mut impl Write,
+    clipboard_get: &mut dyn FnMut() -> Option<String>,
+) -> CommandResult {
+    use crate::input::paste_text_to_keys;
+
+    for cmd in commands {
+        match cmd {
+            Command::SendToKakoune(req) => {
+                let _ = writeln!(kak_writer, "{}", req.to_json());
+                let _ = kak_writer.flush();
+            }
+            Command::Paste => {
+                if let Some(text) = clipboard_get() {
+                    let keys = paste_text_to_keys(&text);
+                    if !keys.is_empty() {
+                        let _ = writeln!(kak_writer, "{}", KasaneRequest::Keys(keys).to_json());
+                        let _ = kak_writer.flush();
+                    }
+                }
+            }
+            Command::Quit => return CommandResult::Quit,
+        }
+    }
+    CommandResult::Continue
 }
 
 pub trait Plugin: Any {

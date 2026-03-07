@@ -8,10 +8,10 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
-use crate::config::MenuPosition;
+use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
 use crate::layout::line_display_width;
-use crate::protocol::{Coord, CursorMode, Face, InfoStyle, Line, MenuStyle};
+use crate::protocol::{Coord, CursorMode, Face, InfoStyle, KasaneRequest, Line, MenuStyle};
 
 pub use update::{Msg, update};
 
@@ -263,6 +263,40 @@ pub struct AppState {
     // Screen size
     pub cols: u16,
     pub rows: u16,
+}
+
+impl AppState {
+    /// Config の設定を AppState に適用する。
+    pub fn apply_config(&mut self, config: &Config) {
+        self.shadow_enabled = config.ui.shadow;
+        self.padding_char = config.ui.padding_char.clone();
+        self.menu_max_height = config.menu.max_height;
+        self.menu_position = config.menu.menu_position();
+        self.search_dropdown = config.search.dropdown;
+        self.status_at_top = config.ui.status_position() == StatusPosition::Top;
+        self.smooth_scroll = config.scroll.smooth;
+    }
+}
+
+/// スクロールアニメーションを1フレーム進める。
+/// アニメーションが存在した場合 true を返す。
+pub fn tick_scroll_animation(state: &mut AppState, kak_writer: &mut impl std::io::Write) -> bool {
+    let Some(ref mut anim) = state.scroll_animation else {
+        return false;
+    };
+    let step = anim.step.min(anim.remaining.abs()) * anim.remaining.signum();
+    let req = KasaneRequest::Scroll {
+        amount: step,
+        line: anim.line,
+        column: anim.column,
+    };
+    let _ = writeln!(kak_writer, "{}", req.to_json());
+    let _ = kak_writer.flush();
+    anim.remaining -= step;
+    if anim.remaining == 0 {
+        state.scroll_animation = None;
+    }
+    true
 }
 
 impl Default for AppState {

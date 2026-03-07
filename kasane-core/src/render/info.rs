@@ -172,7 +172,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         if y >= content_end_y {
             break;
         }
-        let rows = super::render_wrapped_line(
+        let rows = super::test_helpers::render_wrapped_line(
             grid,
             y,
             content_x,
@@ -221,7 +221,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
 /// Render framed info popup (modal style): border + shadow + title + content.
 #[cfg(test)]
 fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
-    super::draw_shadow(grid, win);
+    super::test_helpers::draw_shadow(grid, win);
 
     // Framed: │ + space padding on each side → inner offset 2, inner width -4
     let inner_x = win.x + 2;
@@ -248,13 +248,20 @@ fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
             }
             break;
         }
-        let rows =
-            super::render_wrapped_line(grid, y, inner_x, line, inner_w, Some(&info.face), y_limit);
+        let rows = super::test_helpers::render_wrapped_line(
+            grid,
+            y,
+            inner_x,
+            line,
+            inner_w,
+            Some(&info.face),
+            y_limit,
+        );
         y += rows;
     }
     let truncated = !all_rendered;
 
-    super::draw_border(grid, win, &info.face, truncated, ("╭", "╮", "╰", "╯"));
+    super::test_helpers::draw_border(grid, win, &info.face, truncated, ("╭", "╮", "╰", "╯"));
 
     // Draw title on top border: ╭─┤title├─╮
     if !info.title.is_empty() {
@@ -308,8 +315,15 @@ fn render_info_nonframed(
         if y >= y_limit {
             break;
         }
-        let rows =
-            super::render_wrapped_line(grid, y, win.x, line, win.width, Some(&info.face), y_limit);
+        let rows = super::test_helpers::render_wrapped_line(
+            grid,
+            y,
+            win.x,
+            line,
+            win.width,
+            Some(&info.face),
+            y_limit,
+        );
         y += rows;
     }
 }

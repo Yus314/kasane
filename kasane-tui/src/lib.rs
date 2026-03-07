@@ -7,17 +7,11 @@ use anyhow::Result;
 use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
-use kasane_core::input::{self as core_input, InputEvent};
-use kasane_core::layout::Rect;
-use kasane_core::layout::flex;
-use kasane_core::plugin::{Command, PluginRegistry};
+use kasane_core::input::InputEvent;
+use kasane_core::plugin::{CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::{KakouneRequest, KasaneRequest};
-use kasane_core::render::paint;
-use kasane_core::render::view;
-use kasane_core::render::{
-    CellGrid, RenderBackend, clear_block_cursor_face, cursor_position, cursor_style,
-};
-use kasane_core::state::{AppState, Msg, update};
+use kasane_core::render::{CellGrid, RenderBackend, render_pipeline};
+use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use backend::TuiBackend;
 use input::convert_event;
@@ -26,6 +20,51 @@ enum Event {
     Kakoune(KakouneRequest),
     Input(InputEvent),
     KakouneDied,
+}
+
+/// 単一イベントを処理する。終了が必要な場合 true を返す。
+#[allow(clippy::too_many_arguments)]
+fn process_event(
+    event: Event,
+    state: &mut AppState,
+    registry: &mut PluginRegistry,
+    grid: &mut CellGrid,
+    scroll_amount: i32,
+    kak_writer: &mut impl Write,
+    backend: &mut TuiBackend,
+    initial_resize_sent: &mut bool,
+    dirty: &mut DirtyFlags,
+) -> bool {
+    match event {
+        Event::Kakoune(req) => {
+            if !*initial_resize_sent {
+                *initial_resize_sent = true;
+                let resize = KasaneRequest::Resize {
+                    rows: state.rows.saturating_sub(1),
+                    cols: state.cols,
+                };
+                let _ = writeln!(kak_writer, "{}", resize.to_json());
+                let _ = kak_writer.flush();
+            }
+            let (flags, commands) = update(state, Msg::Kakoune(req), registry, grid, scroll_amount);
+            *dirty |= flags;
+            matches!(
+                execute_commands(commands, kak_writer, &mut || backend.clipboard_get()),
+                CommandResult::Quit
+            )
+        }
+        Event::Input(input_event) => {
+            let (flags, commands) =
+                update(state, Msg::from(input_event), registry, grid, scroll_amount);
+            *dirty |= flags;
+            *initial_resize_sent
+                && matches!(
+                    execute_commands(commands, kak_writer, &mut || backend.clipboard_get()),
+                    CommandResult::Quit
+                )
+        }
+        Event::KakouneDied => true,
+    }
 }
 
 /// Install a panic hook that restores the terminal before printing the panic.
@@ -65,33 +104,6 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
     });
 }
 
-/// Execute side-effect commands. Returns `true` if Quit was requested.
-fn execute_commands(
-    commands: Vec<Command>,
-    kak_writer: &mut impl Write,
-    backend: &mut TuiBackend,
-) -> Result<bool> {
-    for cmd in commands {
-        match cmd {
-            Command::SendToKakoune(req) => {
-                writeln!(kak_writer, "{}", req.to_json())?;
-                kak_writer.flush()?;
-            }
-            Command::Paste => {
-                if let Some(text) = backend.clipboard_get() {
-                    let keys = core_input::paste_text_to_keys(&text);
-                    if !keys.is_empty() {
-                        writeln!(kak_writer, "{}", KasaneRequest::Keys(keys).to_json())?;
-                        kak_writer.flush()?;
-                    }
-                }
-            }
-            Command::Quit => return Ok(true),
-        }
-    }
-    Ok(false)
-}
-
 /// Run the TUI event loop.
 ///
 /// `spawn_kakoune`: closure that spawns/connects to Kakoune and returns (reader, writer, child).
@@ -116,15 +128,9 @@ where
     let mut state = AppState {
         cols,
         rows,
-        shadow_enabled: config.ui.shadow,
-        padding_char: config.ui.padding_char.clone(),
-        menu_max_height: config.menu.max_height,
-        menu_position: config.menu.menu_position(),
-        search_dropdown: config.search.dropdown,
-        status_at_top: config.ui.status_position() == kasane_core::config::StatusPosition::Top,
-        smooth_scroll: config.scroll.smooth,
         ..AppState::default()
     };
+    state.apply_config(&config);
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
@@ -177,56 +183,29 @@ where
             std::time::Duration::from_secs(60) // effectively infinite
         };
 
-        let event = match rx.recv_timeout(timeout) {
-            Ok(e) => Some(e),
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
+        let first = match rx.recv_timeout(timeout) {
+            Ok(e) => e,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                tick_scroll_animation(&mut state, &mut kak_writer);
+                continue;
+            }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         };
 
-        // Handle scroll animation tick on timeout
-        if event.is_none() {
-            if let Some(ref mut anim) = state.scroll_animation {
-                let step = anim.step.min(anim.remaining.abs()) * anim.remaining.signum();
-                let req = KasaneRequest::Scroll {
-                    amount: step,
-                    line: anim.line,
-                    column: anim.column,
-                };
-                writeln!(kak_writer, "{}", req.to_json())?;
-                kak_writer.flush()?;
-                anim.remaining -= step;
-                if anim.remaining == 0 {
-                    state.scroll_animation = None;
-                }
-            }
-            continue;
-        }
+        let mut dirty = DirtyFlags::empty();
 
-        let msg = match event.unwrap() {
-            Event::Kakoune(req) => {
-                if !initial_resize_sent {
-                    initial_resize_sent = true;
-                    // Use current state dimensions (may have been updated by
-                    // a terminal Resize event received before this point).
-                    let resize = KasaneRequest::Resize {
-                        rows: state.rows.saturating_sub(1),
-                        cols: state.cols,
-                    };
-                    writeln!(kak_writer, "{}", resize.to_json())?;
-                    kak_writer.flush()?;
-                }
-                Msg::Kakoune(req)
-            }
-            Event::Input(input_event) => Msg::from(input_event),
-            Event::KakouneDied => break,
-        };
-
-        let (flags, commands) = update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
-        let mut dirty = flags;
-        // Suppress all commands to Kakoune until initialization is complete.
-        // Data sent before m_on_key is set gets accumulated in Kakoune's
-        // internal buffer and may be misinterpreted as raw key input.
-        if initial_resize_sent && execute_commands(commands, &mut kak_writer, &mut backend)? {
+        // Process first event
+        if process_event(
+            first,
+            &mut state,
+            &mut registry,
+            &mut grid,
+            scroll_amount,
+            &mut kak_writer,
+            &mut backend,
+            &mut initial_resize_sent,
+            &mut dirty,
+        ) {
             break;
         }
 
@@ -238,68 +217,36 @@ where
         let batch_deadline =
             std::time::Instant::now() + std::time::Duration::from_millis(BATCH_DEADLINE_MS);
         let mut batch_count = 0usize;
+        let mut quit = false;
 
         while batch_count < MAX_BATCH && std::time::Instant::now() < batch_deadline {
-            let event = match rx.try_recv() {
-                Ok(e) => e,
-                Err(_) => break,
-            };
+            let Ok(event) = rx.try_recv() else { break };
             batch_count += 1;
-            match event {
-                Event::Kakoune(req) => {
-                    let (flags, commands) = update(
-                        &mut state,
-                        Msg::Kakoune(req),
-                        &mut registry,
-                        &mut grid,
-                        scroll_amount,
-                    );
-                    dirty |= flags;
-                    if execute_commands(commands, &mut kak_writer, &mut backend)? {
-                        backend.cleanup();
-                        return Ok(());
-                    }
-                }
-                Event::Input(input_event) => {
-                    let msg = Msg::from(input_event);
-                    let (flags, commands) =
-                        update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
-                    dirty |= flags;
-                    if initial_resize_sent
-                        && execute_commands(commands, &mut kak_writer, &mut backend)?
-                    {
-                        backend.cleanup();
-                        return Ok(());
-                    }
-                }
-                Event::KakouneDied => {
-                    backend.cleanup();
-                    return Ok(());
-                }
+            if process_event(
+                event,
+                &mut state,
+                &mut registry,
+                &mut grid,
+                scroll_amount,
+                &mut kak_writer,
+                &mut backend,
+                &mut initial_resize_sent,
+                &mut dirty,
+            ) {
+                quit = true;
+                break;
             }
+        }
+        if quit {
+            break;
         }
 
         if !dirty.is_empty() {
             backend.begin_frame()?;
-
-            // Declarative pipeline: view → layout → paint
-            let element = view::view(&state, &registry);
-            let root_area = Rect {
-                x: 0,
-                y: 0,
-                w: state.cols,
-                h: state.rows,
-            };
-            let layout_result = flex::place(&element, root_area, &state);
-            grid.clear(&state.default_face);
-            paint::paint(&element, &layout_result, &mut grid, &state);
-
-            let cursor_style = cursor_style(&state);
-            clear_block_cursor_face(&state, &mut grid, cursor_style);
+            let result = render_pipeline(&state, &registry, &mut grid);
             let diffs = grid.diff();
             backend.draw(&diffs)?;
-            let (cx, cy) = cursor_position(&state, &grid);
-            backend.show_cursor(cx, cy, cursor_style)?;
+            backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;
             backend.end_frame()?;
             backend.flush()?;
             grid.swap();
