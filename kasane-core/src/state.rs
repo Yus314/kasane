@@ -657,6 +657,7 @@ fn compute_visible_lines(state: &AppState) -> u16 {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::protocol::{Atom, Face};

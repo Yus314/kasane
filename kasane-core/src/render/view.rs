@@ -322,11 +322,7 @@ fn build_menu_overlay(menu: &MenuState, state: &AppState) -> Option<Overlay> {
 
 /// Convert AppState menu_position config to layout MenuPlacement.
 fn menu_placement(state: &AppState) -> MenuPlacement {
-    match state.menu_position {
-        crate::config::MenuPosition::Above => MenuPlacement::Above,
-        crate::config::MenuPosition::Below => MenuPlacement::Below,
-        crate::config::MenuPosition::Auto => MenuPlacement::Auto,
-    }
+    MenuPlacement::from(state.menu_position)
 }
 
 fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
@@ -655,18 +651,7 @@ fn build_styled_line_with_base(line: &Line, base_face: &Face, _max_width: u16) -
 // Info overlay construction
 // ---------------------------------------------------------------------------
 
-/// The clippy assistant from Kakoune's terminal UI.
-const ASSISTANT_CLIPPY: &[&str] = &[
-    " ╭──╮  ",
-    " │  │  ",
-    " @  @  ╭",
-    " ││ ││ │",
-    " ││ ││ ╯",
-    " │╰─╯│ ",
-    " ╰───╯ ",
-    "        ",
-];
-const ASSISTANT_WIDTH: u16 = 8;
+use crate::layout::{ASSISTANT_CLIPPY, ASSISTANT_WIDTH};
 
 fn build_info_overlay_indexed(
     info: &InfoState,
@@ -960,6 +945,7 @@ fn wrap_content_lines(
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::element::Direction;

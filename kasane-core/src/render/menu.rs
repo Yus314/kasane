@@ -55,11 +55,7 @@ pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
             let screen_h = state.rows.saturating_sub(1);
             // +1 for scrollbar
             let win_w = (menu.max_item_width + 1).min(state.cols);
-            let placement = match state.menu_position {
-                crate::config::MenuPosition::Above => crate::layout::MenuPlacement::Above,
-                crate::config::MenuPosition::Below => crate::layout::MenuPlacement::Below,
-                crate::config::MenuPosition::Auto => crate::layout::MenuPlacement::Auto,
-            };
+            let placement = crate::layout::MenuPlacement::from(state.menu_position);
             let win = crate::layout::layout_menu_inline(
                 &menu.anchor,
                 win_w,
@@ -104,9 +100,9 @@ fn draw_scrollbar(
     }
 
     // Kakoune terminal_ui.cc draw_menu scrollbar
-    let menu_lines = (item_count + columns - 1) / columns;
-    let mark_h = ((wh * wh + menu_lines - 1) / menu_lines).min(wh);
-    let menu_cols = (item_count + wh - 1) / wh;
+    let menu_lines = item_count.div_ceil(columns);
+    let mark_h = (wh * wh).div_ceil(menu_lines).min(wh);
+    let menu_cols = item_count.div_ceil(wh);
     let first_col = menu.first_item / wh;
     let denom = menu_cols.saturating_sub(columns).max(1);
     let mark_y = ((wh - mark_h) * first_col / denom).min(wh - mark_h);

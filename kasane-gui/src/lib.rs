@@ -1,8 +1,8 @@
 mod app;
-pub mod backend;
+pub(crate) mod backend;
 mod colors;
-pub mod gpu;
-pub mod input;
+pub(crate) mod gpu;
+pub(crate) mod input;
 
 use anyhow::Result;
 use kasane_core::config::Config;
@@ -11,7 +11,7 @@ use winit::event_loop::EventLoop;
 
 /// Events injected into the winit event loop from background threads.
 #[derive(Debug)]
-pub enum GuiEvent {
+pub(crate) enum GuiEvent {
     Kakoune(KakouneRequest),
     KakouneDied,
 }

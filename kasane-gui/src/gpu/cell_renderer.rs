@@ -13,6 +13,7 @@ use crate::colors::ColorResolver;
 
 /// Pre-computed cell dimensions in physical pixels.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CellMetrics {
     pub cell_width: f32,
     pub cell_height: f32,

@@ -11,6 +11,7 @@ pub use position::{compute_pos, layout_menu_inline};
 pub use text::{
     PROMPT_ASSISTANT_MIN_HEIGHT, PROMPT_ASSISTANT_WIDTH, is_word_char, line_display_width,
 };
+pub(crate) use text::{ASSISTANT_CLIPPY, ASSISTANT_WIDTH};
 pub use word_wrap::{
     WrapSegment, word_wrap_line_height, word_wrap_max_row_width, word_wrap_segments,
 };
@@ -41,4 +42,14 @@ pub enum MenuPlacement {
     Above,
     /// Force below the anchor line.
     Below,
+}
+
+impl From<crate::config::MenuPosition> for MenuPlacement {
+    fn from(pos: crate::config::MenuPosition) -> Self {
+        match pos {
+            crate::config::MenuPosition::Above => MenuPlacement::Above,
+            crate::config::MenuPosition::Below => MenuPlacement::Below,
+            crate::config::MenuPosition::Auto => MenuPlacement::Auto,
+        }
+    }
 }

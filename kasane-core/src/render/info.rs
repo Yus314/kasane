@@ -7,21 +7,8 @@ use crate::state::{AppState, InfoState};
 // Kakoune assistant (clippy)
 // ---------------------------------------------------------------------------
 
-/// The clippy assistant from Kakoune's terminal UI.
-/// Each line is exactly 8 display columns wide.
 #[cfg(test)]
-const ASSISTANT_CLIPPY: &[&str] = &[
-    " ╭──╮  ",
-    " │  │  ",
-    " @  @  ╭",
-    " ││ ││ │",
-    " ││ ││ ╯",
-    " │╰─╯│ ",
-    " ╰───╯ ",
-    "        ",
-];
-#[cfg(test)]
-const ASSISTANT_WIDTH: u16 = 8;
+use crate::layout::{ASSISTANT_CLIPPY, ASSISTANT_WIDTH};
 
 #[cfg(test)]
 pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {

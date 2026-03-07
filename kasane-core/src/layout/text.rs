@@ -22,6 +22,21 @@ pub const PROMPT_ASSISTANT_WIDTH: u16 = 8;
 /// Minimum height for prompt info (to fit the assistant).
 pub const PROMPT_ASSISTANT_MIN_HEIGHT: u16 = 7;
 
+/// The clippy assistant from Kakoune's terminal UI.
+/// Each line is exactly 8 display columns wide.
+pub(crate) const ASSISTANT_CLIPPY: &[&str] = &[
+    " ╭──╮  ",
+    " │  │  ",
+    " @  @  ╭",
+    " ││ ││ │",
+    " ││ ││ ╯",
+    " │╰─╯│ ",
+    " ╰───╯ ",
+    "        ",
+];
+/// Display width of each assistant line.
+pub(crate) const ASSISTANT_WIDTH: u16 = 8;
+
 pub fn line_display_width(line: &Line) -> usize {
     line.iter()
         .map(|atom| {

@@ -27,6 +27,7 @@ impl GuiBackend {
         self.metrics = metrics;
     }
 
+    #[cfg(test)]
     pub fn cursor(&self) -> Option<(u16, u16, CursorStyle)> {
         self.cursor
     }

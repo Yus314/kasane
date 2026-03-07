@@ -240,8 +240,7 @@ fn render_wrapped_line(
             break;
         }
         let mut col = 0u16;
-        for i in seg.start..seg.end {
-            let (grapheme, ref face, w) = graphemes[i];
+        for &(grapheme, ref face, w) in &graphemes[seg.start..seg.end] {
             grid.put_char(x_start + col, y, grapheme, face);
             col += w;
         }
@@ -320,6 +319,7 @@ fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::layout::Rect;

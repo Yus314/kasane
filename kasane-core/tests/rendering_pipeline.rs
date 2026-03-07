@@ -60,10 +60,10 @@ fn render(state: &AppState) -> CellGrid {
 fn row_text(grid: &CellGrid, y: u16) -> String {
     let mut s = String::new();
     for x in 0..grid.width {
-        if let Some(cell) = grid.get(x, y) {
-            if cell.width > 0 {
-                s.push_str(&cell.grapheme);
-            }
+        if let Some(cell) = grid.get(x, y)
+            && cell.width > 0
+        {
+            s.push_str(&cell.grapheme);
         }
     }
     s.trim_end().to_string()
@@ -451,15 +451,17 @@ fn update_focus_changes() {
 
 #[test]
 fn small_terminal_1x1() {
-    let mut state = AppState::default();
-    state.cols = 1;
-    state.rows = 1;
-    state.lines = vec![make_line("x")];
-    state.default_face = Face::default();
-    state.padding_face = Face::default();
-    state.status_default_face = Face::default();
-    state.status_line = make_line("");
-    state.status_mode_line = make_line("");
+    let state = AppState {
+        cols: 1,
+        rows: 1,
+        lines: vec![make_line("x")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+        status_default_face: Face::default(),
+        status_line: make_line(""),
+        status_mode_line: make_line(""),
+        ..Default::default()
+    };
 
     // Should not panic
     let _grid = render(&state);

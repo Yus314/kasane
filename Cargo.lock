@@ -1244,9 +1244,6 @@ dependencies = [
  "kasane-core",
  "kasane-gui",
  "kasane-tui",
- "serde_json",
- "simd-json",
- "toml 0.8.23",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -1304,7 +1301,6 @@ dependencies = [
  "anyhow",
  "arboard",
  "crossterm",
- "insta",
  "kasane-core",
  "tracing",
 ]
