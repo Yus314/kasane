@@ -781,34 +781,42 @@ enum StyleToken {
 
 ## 段階的実装計画
 
-### Phase 1: 宣言的 UI 基盤 (Kakoune 結合)
+### Phase 1: 宣言的 UI 基盤 (Kakoune 結合) ✓ 完了
 
-- Element 型の定義
-- Flex レイアウト計算
-- Overlay レイアウト (既存 compute_pos の統合)
-- TEA イベントループへの移行 (既存 AppState::apply を活用)
-- 既存レンダリングを Element ベースに書き換え
-- Plugin trait の定義
-- Slot メカニズムの実装
+- ✓ Element 型の定義 (Text, StyledLine, Flex, Stack, Container, Scrollable, Interactive, Empty, BufferRef)
+- ✓ Flex レイアウト計算 (measure + place 二段階アルゴリズム)
+- ✓ Overlay レイアウト (既存 compute_pos の統合)
+- ✓ TEA イベントループへの移行 (既存 AppState::apply を活用)
+- ✓ 既存レンダリングを Element ベースに書き換え (view.rs: 全 build_* 関数)
+- ✓ Plugin trait の定義
+- ✓ Slot メカニズムの実装
 
 **コンパイラ駆動最適化に向けた設計上の考慮** (実装しないが意識する):
 - Element の各 variant が「静的構造」と「動的内容」を分離できる設計にしておく
-- view() 関数を純粋に保つ (副作用なし、`&State` のみ参照)。これが Phase 2 のコンパイル時解析の前提条件
+- view() 関数を純粋に保つ (副作用なし、`&State` のみ参照)。これが将来のコンパイル時解析の前提条件
 
-### Phase 2: プラグイン基盤 + コンパイラ駆動最適化
+### Phase 2: 強化フローティングウィンドウ + プラグイン基盤インフラ ✓ 完了 (一部先送り)
 
-- proc macro (`#[kasane::plugin]`, `#[kasane::component]`)
-- Decorator / Replacement メカニズム
-- Grid レイアウト
-- InteractiveId によるマウスヒットテスト
-- セマンティックスタイルトークンとテーマシステム
+**達成済み:**
+- ✓ セマンティックスタイルトークン (`Style::Direct(Face) | Style::Token(StyleToken)`) + テーマシステム (`Theme`, `ThemeConfig`)
+- ✓ イベントバッチング (`recv()` + `while try_recv()` パターン、安全弁: MAX_BATCH=256 / 16ms)
+- ✓ InteractiveId によるマウスヒットテスト (Z-order 逆順走査、hit_test.rs)
+- ✓ カスタマイズ可能ボーダー (`BorderConfig { style: BorderLineStyle, face: Style }`, 5 スタイル)
+- ✓ 統一デザインシステム (全 build_* 関数で Face → StyleToken)
+- ✓ 複数ポップアップ同時表示 (`infos: Vec<InfoState>`, InfoIdentity)
+- ✓ スクロール可能ポップアップ (`scroll_offset` + InteractiveId + マウスホイール)
+- ✓ メニュー配置カスタマイズ (`MenuPlacement::Auto | Above | Below`)
+- ✓ 検索補完ドロップダウン (`build_menu_search_dropdown`)
+- ✓ 選択範囲衝突回避 (`compute_pos` を `&[Rect]` に汎化、カーソル位置を avoid に追加)
+- ✓ ステータスバー位置 (上部/下部切り替え)
+- ✓ マークアップレンダリング (`{face_spec}text{default}` パーサー, markup.rs)
+- ✓ カーソル数バッジ (FINAL_FG+REVERSE ヒューリスティック)
 
-**`#[kasane::component]` の最適化段階** ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング)):
-- 段階 1: 入力メモ化 — 全入力が前回と同じなら Element 構築をスキップ
-- 段階 2: 静的レイアウトキャッシュ — 構造が入力に依存しない部分の layout を一度だけ計算
-- 段階 3: 細粒度更新コード生成 — Element 単位の依存追跡により直接 CellGrid を更新 (二層レンダリングモデル)
-
-各段階は計測に基づいて順次導入する。段階 1 が十分な場合、段階 2・3 は見送る。
+**先送り (将来の Phase で実装):**
+- proc macro (`#[kasane::plugin]`, `#[kasane::component]`) — プラグインエコシステムの成熟後
+- Decorator / Replacement メカニズム — proc macro と同時期
+- Grid レイアウト (Element::Grid) — 必要なユースケース発生時
+- コンパイラ駆動最適化 (ADR-010 段階 1〜3) — プロファイリング結果に基づき判断
 
 ### Phase 3: プロトコル分離
 

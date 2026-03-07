@@ -58,13 +58,22 @@ kasane/
 │       ├── state.rs            # アプリケーション状態管理 (TEA: State + Msg + update)
 │       ├── element.rs          # Element ツリー型定義 (宣言的 UI の中核)
 │       ├── plugin.rs           # Plugin trait、PluginRegistry、Slot/Decorator/Replacement
-│       ├── layout/             # レイアウトエンジン (Flex + Overlay + Grid)
-│       │   ├── flex.rs         # Flexbox レイアウト計算
-│       │   ├── overlay.rs      # Overlay/Stack 配置 (compute_pos 統合)
-│       │   └── grid.rs         # Grid レイアウト計算
+│       ├── layout/             # レイアウトエンジン (Flex + Overlay)
+│       │   ├── mod.rs          # 共通型 (Rect, Size, Constraints, MenuPlacement 等)
+│       │   ├── flex.rs         # Flexbox レイアウト計算 (measure + place)
+│       │   ├── position.rs     # Overlay 位置計算 (compute_pos, layout_menu_inline)
+│       │   ├── info.rs         # Info ポップアップ配置 (layout_info, avoid リスト)
+│       │   └── hit_test.rs     # InteractiveId マウスヒットテスト (Z-order 逆順走査)
 │       ├── input.rs            # 入力イベント → Kakoune キー変換
-│       ├── config.rs           # TOML 設定パーサー
-│       └── render.rs           # RenderBackend trait、paint()、CellGrid 差分描画
+│       ├── config.rs           # TOML 設定パーサー (ThemeConfig, MenuConfig, SearchConfig 含む)
+│       └── render/             # レンダリングエンジン
+│           ├── mod.rs          # RenderBackend trait、CellGrid 差分描画
+│           ├── view.rs         # view() — Element ツリー構築 (全 build_* 関数)
+│           ├── paint.rs        # paint() — Element + LayoutResult → CellGrid 描画
+│           ├── info.rs         # Info ポップアップ描画
+│           ├── menu.rs         # メニュー描画
+│           ├── theme.rs        # Theme (StyleToken → Face マッピング、face spec パーサー)
+│           └── markup.rs       # マークアップパーサー ({face_spec}text{default})
 ├── kasane-tui/                 # crossterm ベースの TUI バックエンド
 │   └── src/
 │       ├── backend.rs          # RenderBackend の TUI 実装

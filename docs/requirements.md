@@ -42,86 +42,86 @@
 
 #### 基本レンダリング (R-001〜R-009)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-001 | 基盤 | Element ツリー (BufferRef) で構築 |
-| R-002 | 基盤 | Element ツリーで構築 |
-| R-003 | レンダラ | ソフトウェアカーソル描画 |
-| R-004 | レンダラ | padding_face による描画 |
-| R-005 | レンダラ | リサイズ検知と resize メッセージ送信 |
-| R-006 | レンダラ | 24bit RGB 直接描画 |
-| R-007 | レンダラ | ダブルバッファリング (CellGrid) |
-| R-008 | レンダラ | unicode-width ベースの幅計算 |
-| R-009 | レンダラ | プレースホルダグリフの描画 |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-001 | 基盤 | Element ツリー (BufferRef) で構築 | ✓ Phase 1 |
+| R-002 | 基盤 | Element ツリーで構築 | ✓ Phase 1 |
+| R-003 | レンダラ | ソフトウェアカーソル描画 | ✓ Phase 1 |
+| R-004 | レンダラ | padding_face による描画 | ✓ Phase 1 |
+| R-005 | レンダラ | リサイズ検知と resize メッセージ送信 | ✓ Phase 1 |
+| R-006 | レンダラ | 24bit RGB 直接描画 | ✓ Phase 1 |
+| R-007 | レンダラ | ダブルバッファリング (CellGrid) | ✓ Phase 1 |
+| R-008 | レンダラ | unicode-width ベースの幅計算 | ✓ Phase 1 |
+| R-009 | レンダラ | プレースホルダグリフの描画 | ✓ Phase 1 |
 
 #### フローティングウィンドウ — 補完メニュー (R-010〜R-016)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-010 | 基盤 | Stack + Overlay で構築 |
-| R-011 | 基盤 | OverlayAnchor によるスタイル別配置 |
-| R-012 | 基盤 | MenuState の selected 反映 |
-| R-013 | 基盤 | MenuState クリアで即時非表示 |
-| R-014 | 設定 + 基盤 | OverlayAnchor の設定可能パラメータ |
-| R-015 | 基盤 | Replacement(MenuSearch) で垂直ドロップダウン化 |
-| R-016 | レンダラ | イベントバッチング (try_recv) |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-010 | 基盤 | Stack + Overlay で構築 | ✓ Phase 1 |
+| R-011 | 基盤 | OverlayAnchor によるスタイル別配置 | ✓ Phase 1 |
+| R-012 | 基盤 | MenuState の selected 反映 | ✓ Phase 1 |
+| R-013 | 基盤 | MenuState クリアで即時非表示 | ✓ Phase 1 |
+| R-014 | 設定 + 基盤 | MenuPlacement (Auto/Above/Below) | ✓ Phase 2 |
+| R-015 | 基盤 | build_menu_search_dropdown で垂直ドロップダウン化 | ✓ Phase 2 |
+| R-016 | レンダラ | イベントバッチング (recv + try_recv, 安全弁付き) | ✓ Phase 2 |
 
 #### フローティングウィンドウ — 情報ポップアップ (R-020〜R-028)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-020 | 基盤 | Stack + Overlay で構築 |
-| R-021 | 基盤 | OverlayAnchor + InfoStyle 切り替え |
-| R-022 | 基盤 | InfoState クリアで即時非表示 |
-| R-023 | 基盤 | Stack + 複数 Overlay 同時管理 |
-| R-024 | 基盤 | Scrollable Element |
-| R-025 | 基盤 | OverlayAnchor の avoid パラメータ |
-| R-026 | 設定 + 基盤 | Container の border 設定 |
-| R-027 | レンダラ | TEA update() でキューイング |
-| R-028 | 設定 + 基盤 | セマンティックスタイルトークン |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-020 | 基盤 | Stack + Overlay で構築 | ✓ Phase 1 |
+| R-021 | 基盤 | OverlayAnchor + InfoStyle 切り替え | ✓ Phase 1 |
+| R-022 | 基盤 | InfoState クリアで即時非表示 | ✓ Phase 1 |
+| R-023 | 基盤 | infos: Vec\<InfoState\> + InfoIdentity で同時管理 | ✓ Phase 2 |
+| R-024 | 基盤 | scroll_offset + InteractiveId + マウスホイール | ✓ Phase 2 |
+| R-025 | 基盤 | compute_pos の &[Rect] 汎化 + カーソル avoid | ✓ Phase 2 |
+| R-026 | 設定 + 基盤 | BorderConfig (5 スタイル) + StyleToken::Border | ✓ Phase 2 |
+| R-027 | レンダラ | TEA update() でキューイング | — 先送り |
+| R-028 | 設定 + 基盤 | StyleToken + Theme + ThemeConfig | ✓ Phase 2 |
 
 #### フローティングウィンドウ — 共通 (R-030〜R-033)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-030 | 基盤 | OverlayAnchor::AnchorPoint |
-| R-031 | 基盤 | compute_pos のクランプロジック |
-| R-032 | 基盤 | Stack の描画順序 |
-| R-033 | 設定 + 基盤 | Container の shadow プロパティ |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-030 | 基盤 | OverlayAnchor::AnchorPoint | ✓ Phase 1 |
+| R-031 | 基盤 | compute_pos のクランプロジック | ✓ Phase 1 |
+| R-032 | 基盤 | Stack の描画順序 | ✓ Phase 1 |
+| R-033 | 設定 + 基盤 | Container の shadow プロパティ | ✓ Phase 1 |
 
 #### 入力処理 (R-040〜R-047)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-040〜R-045 | レンダラ | crossterm イベント変換 |
-| R-046 | レンダラ | 選択中スクロールの座標計算 |
-| R-047 | レンダラ | 右クリックドラッグイベント処理 |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-040〜R-045 | レンダラ | crossterm イベント変換 | ✓ Phase 1 |
+| R-046 | レンダラ | 選択中スクロールの座標計算 | — Phase 3 |
+| R-047 | レンダラ | 右クリックドラッグイベント処理 | — Phase 3 |
 
 #### カーソルレンダリング (R-050〜R-052)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-050 | レンダラ | ソフトウェアレンダリング |
-| R-051 | レンダラ | フォーカス追跡 |
-| R-052 | 基盤 | Slot または Decorator でインジケータ表示 |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-050 | レンダラ | ソフトウェアレンダリング | — 先送り |
+| R-051 | レンダラ | フォーカス追跡 | — 先送り |
+| R-052 | 基盤 | Slot または Decorator でインジケータ表示 | — 先送り |
 
 #### ステータスバー (R-060〜R-064)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-060 | 基盤 | Element ツリーで構築 |
-| R-061 | 設定 | Flex の配置順序変更 |
-| R-062 | レンダラ | ヒューリスティック推定 |
-| R-063 | 基盤 | Decorator でマークアップパース追加 |
-| R-064 | 基盤 | Slot::StatusRight にバッジ配置 |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-060 | 基盤 | Element ツリーで構築 | ✓ Phase 1 |
+| R-061 | 設定 | status_at_top による Column 配置順序変更 | ✓ Phase 2 |
+| R-062 | レンダラ | ヒューリスティック推定 | — 先送り |
+| R-063 | 基盤 | markup.rs で {face_spec}text{default} パース | ✓ Phase 2 |
+| R-064 | 基盤 | cursor_count バッジ (FINAL_FG+REVERSE 検出) | ✓ Phase 2 |
 
 #### UIオプション・リフレッシュ (R-070〜R-071), クリップボード (R-080〜R-082), スクロール (R-090〜R-093)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| R-070, R-071 | レンダラ | 状態反映と再描画 |
-| R-080〜R-082 | レンダラ | システムクリップボード API 直接アクセス |
-| R-090〜R-093 | レンダラ | スクロール計算の独自実装 |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| R-070, R-071 | レンダラ | 状態反映と再描画 | ✓ Phase 1 |
+| R-080〜R-082 | レンダラ | システムクリップボード API 直接アクセス | — Phase 3 |
+| R-090〜R-093 | レンダラ | スクロール計算の独自実装 | — Phase 3 |
 
 #### 拡張機能 (E-001〜E-041)
 
