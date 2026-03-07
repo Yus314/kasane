@@ -2,6 +2,7 @@ mod perf;
 pub mod config;
 pub mod element;
 pub mod input;
+pub mod io;
 pub mod layout;
 pub mod plugin;
 pub mod protocol;

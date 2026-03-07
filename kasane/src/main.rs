@@ -79,7 +79,7 @@ fn run_tui(config: Config, session: Option<String>, kak_args: Vec<String>) -> Re
     }));
 
     // Spawn Kakoune (split into reader + writer)
-    let (mut kak_reader, mut kak_writer, _kak_child) = if let Some(ref session) = session {
+    let (kak_reader, mut kak_writer, _kak_child) = if let Some(ref session) = session {
         process::connect_kakoune(session, &kak_args)?
     } else {
         process::spawn_kakoune(&kak_args)?
@@ -125,39 +125,18 @@ fn run_tui(config: Config, session: Option<String>, kak_args: Vec<String>) -> Re
 
     // Kakoune stdout reader thread
     let kak_tx = tx.clone();
-    std::thread::spawn(move || {
-        let mut buf = String::new();
-        loop {
-            match kak_reader.read_line(&mut buf) {
-                Ok(0) => {
-                    let _ = kak_tx.send(Event::KakouneDied);
-                    return;
-                }
-                Ok(_) => {
-                    let trimmed = buf.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    let mut bytes = trimmed.as_bytes().to_vec();
-                    match kasane_core::protocol::parse_request(&mut bytes) {
-                        Ok(req) => {
-                            if kak_tx.send(Event::Kakoune(req)).is_err() {
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("failed to parse kak message: {e}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("kak stdout read error: {e}");
-                    let _ = kak_tx.send(Event::KakouneDied);
-                    return;
-                }
+    kasane_core::io::spawn_kak_reader(
+        kak_reader,
+        move |req| {
+            let _ = kak_tx.send(Event::Kakoune(req));
+        },
+        {
+            let died_tx = tx.clone();
+            move || {
+                let _ = died_tx.send(Event::KakouneDied);
             }
-        }
-    });
+        },
+    );
 
     // crossterm input reader thread
     let input_tx = tx.clone();
@@ -230,7 +209,7 @@ fn run_tui(config: Config, session: Option<String>, kak_args: Vec<String>) -> Re
                 }
                 Msg::Kakoune(req)
             }
-            Event::Input(input_event) => input_event_to_msg(input_event),
+            Event::Input(input_event) => Msg::from(input_event),
             Event::KakouneDied => break,
         };
 
@@ -271,7 +250,7 @@ fn run_tui(config: Config, session: Option<String>, kak_args: Vec<String>) -> Re
                     }
                 }
                 Event::Input(input_event) => {
-                    let msg = input_event_to_msg(input_event);
+                    let msg = Msg::from(input_event);
                     let (flags, commands) =
                         update(&mut state, msg, &mut registry, &mut grid, scroll_amount);
                     dirty |= flags;
@@ -316,18 +295,6 @@ fn run_tui(config: Config, session: Option<String>, kak_args: Vec<String>) -> Re
 
     backend.cleanup();
     Ok(())
-}
-
-/// Convert an InputEvent into a Msg.
-fn input_event_to_msg(event: InputEvent) -> Msg {
-    match event {
-        InputEvent::Key(key) => Msg::Key(key),
-        InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
-        InputEvent::Paste(_) => Msg::Paste,
-        InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
-        InputEvent::FocusGained => Msg::FocusGained,
-        InputEvent::FocusLost => Msg::FocusLost,
-    }
 }
 
 /// Execute side-effect commands. Returns `true` if Quit was requested.

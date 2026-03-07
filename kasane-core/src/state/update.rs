@@ -1,5 +1,5 @@
 use crate::input;
-use crate::input::{Key, KeyEvent, MouseEvent};
+use crate::input::{InputEvent, Key, KeyEvent, MouseEvent};
 use crate::plugin::{Command, PluginRegistry};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::render::CellGrid;
@@ -15,6 +15,19 @@ pub enum Msg {
     Resize { cols: u16, rows: u16 },
     FocusGained,
     FocusLost,
+}
+
+impl From<InputEvent> for Msg {
+    fn from(event: InputEvent) -> Self {
+        match event {
+            InputEvent::Key(key) => Msg::Key(key),
+            InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
+            InputEvent::Paste(_) => Msg::Paste,
+            InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
+            InputEvent::FocusGained => Msg::FocusGained,
+            InputEvent::FocusLost => Msg::FocusLost,
+        }
+    }
 }
 
 /// Process a message, updating state and returning dirty flags + side-effect commands.

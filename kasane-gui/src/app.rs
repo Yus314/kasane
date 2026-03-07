@@ -184,14 +184,7 @@ impl<W: Write + Send + 'static> App<W> {
     }
 
     fn handle_input_event(&mut self, input: InputEvent, event_loop: &ActiveEventLoop) {
-        let msg = match input {
-            InputEvent::Key(key) => Msg::Key(key),
-            InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
-            InputEvent::Paste(_) => Msg::Paste,
-            InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
-            InputEvent::FocusGained => Msg::FocusGained,
-            InputEvent::FocusLost => Msg::FocusLost,
-        };
+        let msg = Msg::from(input);
         let (flags, commands) = update(
             &mut self.state,
             msg,

@@ -36,19 +36,6 @@ pub struct KakouneReader {
     stdout: BufReader<ChildStdout>,
 }
 
-impl KakouneReader {
-    /// Read one line from Kakoune's stdout.
-    /// Returns Ok(0) on EOF (Kakoune exited).
-    pub fn read_line(&mut self, buf: &mut String) -> Result<usize> {
-        buf.clear();
-        let n = self
-            .stdout
-            .read_line(buf)
-            .context("failed to read from kak stdout")?;
-        Ok(n)
-    }
-}
-
 impl std::io::Read for KakouneReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.stdout.read(buf)

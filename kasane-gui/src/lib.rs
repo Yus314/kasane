@@ -33,55 +33,26 @@ where
     let event_loop = EventLoop::<GuiEvent>::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
 
-    let (mut kak_reader, kak_writer, _kak_child) = spawn_kakoune()?;
+    let (kak_reader, kak_writer, _kak_child) = spawn_kakoune()?;
 
     // Kakoune reader thread: forward JSON-RPC messages into the winit event loop
     let kak_proxy = proxy.clone();
-    std::thread::spawn(move || {
-        tracing::info!("[reader] kakoune reader thread started");
-        let mut buf = String::new();
-        loop {
-            buf.clear();
-            match read_line(&mut kak_reader, &mut buf) {
-                Ok(0) => {
-                    tracing::info!("[reader] EOF from kakoune");
-                    let _ = kak_proxy.send_event(GuiEvent::KakouneDied);
-                    return;
-                }
-                Ok(n) => {
-                    let trimmed = buf.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    tracing::debug!("[reader] got {n} bytes from kakoune");
-                    let mut bytes = trimmed.as_bytes().to_vec();
-                    match kasane_core::protocol::parse_request(&mut bytes) {
-                        Ok(req) => {
-                            tracing::debug!("[reader] parsed request, sending to event loop");
-                            if kak_proxy.send_event(GuiEvent::Kakoune(req)).is_err() {
-                                tracing::error!("[reader] event loop closed");
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("failed to parse kak message: {e}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("kak stdout read error: {e}");
-                    let _ = kak_proxy.send_event(GuiEvent::KakouneDied);
-                    return;
-                }
+    kasane_core::io::spawn_kak_reader(
+        kak_reader,
+        move |req| {
+            if kak_proxy.send_event(GuiEvent::Kakoune(req)).is_err() {
+                tracing::error!("[reader] event loop closed");
             }
-        }
-    });
+        },
+        {
+            let died_proxy = proxy.clone();
+            move || {
+                let _ = died_proxy.send_event(GuiEvent::KakouneDied);
+            }
+        },
+    );
 
     let mut app_handler = app::App::new(config, kak_writer);
     event_loop.run_app(&mut app_handler)?;
     Ok(())
-}
-
-fn read_line(reader: &mut impl std::io::BufRead, buf: &mut String) -> std::io::Result<usize> {
-    reader.read_line(buf)
 }
