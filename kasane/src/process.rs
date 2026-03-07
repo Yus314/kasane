@@ -79,14 +79,22 @@ pub fn spawn_kakoune(args: &[String]) -> Result<(KakouneReader, KakouneWriter, K
     start_kakoune(cmd)
 }
 
-/// Connect to an existing Kakoune session and return split reader/writer handles.
-pub fn connect_kakoune(
-    session: &str,
-    args: &[String],
-) -> Result<(KakouneReader, KakouneWriter, KakouneChild)> {
+/// Replace the current process with kak, passing through all arguments.
+/// This function never returns on success.
+pub fn exec_kak(args: &[String]) -> ! {
+    use std::os::unix::process::CommandExt;
+
     let mut cmd = Command::new("kak");
-    cmd.arg("-ui").arg("json");
-    cmd.arg("-c").arg(session);
     cmd.args(args);
-    start_kakoune(cmd)
+    let err = cmd.exec();
+    eprintln!("error: failed to exec kak: {err}");
+    std::process::exit(1);
+}
+
+/// Get the kak version string for display.
+pub fn get_kak_version() -> String {
+    match Command::new("kak").arg("-version").output() {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        Err(_) => "kak not found".to_string(),
+    }
 }

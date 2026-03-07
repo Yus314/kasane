@@ -84,6 +84,7 @@ pub struct UiConfig {
     pub padding_char: String,
     pub border_style: String,
     pub status_position: String,
+    pub backend: String,
 }
 
 impl Default for UiConfig {
@@ -93,6 +94,7 @@ impl Default for UiConfig {
             padding_char: "~".to_string(),
             border_style: "rounded".to_string(),
             status_position: "bottom".to_string(),
+            backend: "tui".to_string(),
         }
     }
 }
