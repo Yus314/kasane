@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772888783979,
+  "lastUpdate": 1772894560307,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -263,6 +263,138 @@ window.BENCHMARK_DATA = {
             "name": "menu_show/items/100",
             "value": 45805,
             "range": "± 943",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "489d24f0983b9ab9041f44043ba9b117a6748543",
+          "message": "fix: use configured font family instead of hardcoded Monospace\n\nThe font family from FontConfig was ignored — glyphon Attrs always used\nFamily::Monospace. Now the configured family is stored in CellRenderer\nand applied to both cell metrics measurement and text rendering.\n\nGeneric CSS family names (\"monospace\", \"serif\", \"sans-serif\", etc.) are\nmapped to glyphon's Family enum variants via gpu::to_family(), while\nspecific font names (e.g. \"JetBrains Mono\") use Family::Name(). This\npreserves correct cross-platform font resolution for the default\n\"monospace\" value while enabling user-specified fonts.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-07T23:36:34+09:00",
+          "tree_id": "ad8f5a9c923b710fd95e47a27a4abbdaa7252433",
+          "url": "https://github.com/Yus314/kasane/commit/489d24f0983b9ab9041f44043ba9b117a6748543"
+        },
+        "date": 1772894560029,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 285,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2328,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 368,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 18907,
+            "range": "± 99",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 75805,
+            "range": "± 465",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 23107,
+            "range": "± 35",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 11938,
+            "range": "± 234",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 30,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 75,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 128,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 192,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 819,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1549,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 35174,
+            "range": "± 112",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 44676,
+            "range": "± 429",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 45189,
+            "range": "± 491",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 45415,
+            "range": "± 225",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 45155,
+            "range": "± 431",
             "unit": "ns/iter"
           }
         ]
