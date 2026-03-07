@@ -1,4 +1,7 @@
 pub mod cell_renderer;
+pub mod metrics;
+
+pub use metrics::CellMetrics;
 
 use std::sync::Arc;
 

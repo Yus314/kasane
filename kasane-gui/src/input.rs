@@ -2,7 +2,7 @@ use kasane_core::input::{InputEvent, Key, KeyEvent, Modifiers, MouseButton, Mous
 use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
-use crate::gpu::cell_renderer::CellMetrics;
+use crate::gpu::CellMetrics;
 
 /// Convert a winit `WindowEvent` to a kasane `InputEvent`.
 pub fn convert_window_event(

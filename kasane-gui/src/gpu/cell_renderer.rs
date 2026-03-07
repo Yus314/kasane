@@ -9,73 +9,8 @@ use kasane_core::render::{CellGrid, CursorStyle};
 use wgpu::MultisampleState;
 use winit::dpi::PhysicalSize;
 
+use super::CellMetrics;
 use crate::colors::ColorResolver;
-
-/// Pre-computed cell dimensions in physical pixels.
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct CellMetrics {
-    pub cell_width: f32,
-    pub cell_height: f32,
-    /// Baseline offset from cell top (ascent).
-    pub baseline: f32,
-    pub cols: u16,
-    pub rows: u16,
-}
-
-impl CellMetrics {
-    pub fn calculate(
-        font_system: &mut FontSystem,
-        font_config: &FontConfig,
-        scale_factor: f64,
-        window_size: PhysicalSize<u32>,
-    ) -> Self {
-        let font_size = font_config.size * scale_factor as f32;
-        let line_height_px = font_size * font_config.line_height;
-
-        // Create a temporary buffer to measure the "M" character advance
-        let metrics = Metrics::new(font_size, line_height_px);
-        let mut buffer = GlyphonBuffer::new(font_system, metrics);
-        buffer.set_size(font_system, Some(1000.0), Some(line_height_px));
-        buffer.set_text(
-            font_system,
-            "M",
-            &Attrs::new().family(Family::Monospace),
-            Shaping::Basic,
-            None,
-        );
-        buffer.shape_until_scroll(font_system, false);
-
-        // Get the advance width of "M"
-        let cell_width = buffer
-            .layout_runs()
-            .next()
-            .and_then(|run| run.glyphs.first())
-            .map(|g| g.w)
-            .unwrap_or(font_size * 0.6)
-            + font_config.letter_spacing * scale_factor as f32;
-
-        let cell_height = line_height_px;
-
-        // Compute baseline from font metrics
-        let baseline = buffer
-            .layout_runs()
-            .next()
-            .map(|run| run.line_y)
-            .unwrap_or(font_size * 0.8);
-
-        let cols = (window_size.width as f32 / cell_width).floor().max(1.0) as u16;
-        let rows = (window_size.height as f32 / cell_height).floor().max(1.0) as u16;
-
-        CellMetrics {
-            cell_width,
-            cell_height,
-            baseline,
-            cols,
-            rows,
-        }
-    }
-}
 
 /// Renders a CellGrid onto a GPU surface using glyphon for text and a custom
 /// pipeline for background rectangles.
@@ -112,6 +47,11 @@ pub struct CellRenderer {
 
 /// Initial capacity for bg instance buffer (enough for 256x64 grid + cursor)
 const INITIAL_BG_CAPACITY: usize = 256 * 64 + 8;
+
+/// Append a background rectangle instance (8 floats: x, y, w, h, r, g, b, a).
+fn push_rect(instances: &mut Vec<f32>, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
+    instances.extend_from_slice(&[x, y, w, h, color[0], color[1], color[2], color[3]]);
+}
 
 impl CellRenderer {
     pub fn new(
@@ -254,16 +194,16 @@ impl CellRenderer {
         });
 
         // Pre-create text buffers for each row
-        let glyph_metrics = Metrics::new(font_size, line_height);
-        let screen_w = window_size.width.max(1) as f32;
-        let cell_height = metrics.cell_height;
         let rows = metrics.rows as usize;
-        let mut text_buffers = Vec::with_capacity(rows);
-        for _ in 0..rows {
-            let mut buffer = GlyphonBuffer::new(&mut font_system, glyph_metrics);
-            buffer.set_size(&mut font_system, Some(screen_w), Some(cell_height));
-            text_buffers.push(buffer);
-        }
+        let screen_w = window_size.width.max(1) as f32;
+        let text_buffers = Self::create_text_buffers(
+            &mut font_system,
+            rows,
+            font_size,
+            line_height,
+            screen_w,
+            metrics.cell_height,
+        );
 
         CellRenderer {
             font_system,
@@ -316,21 +256,35 @@ impl CellRenderer {
         );
 
         // Rebuild text buffers for new row count
-        let glyph_metrics = Metrics::new(self.font_size, self.line_height);
-        let screen_w = window_size.width.max(1) as f32;
         let rows = self.metrics.rows as usize;
-        self.text_buffers.clear();
-        self.text_buffers.reserve(rows);
-        for _ in 0..rows {
-            let mut buffer = GlyphonBuffer::new(&mut self.font_system, glyph_metrics);
-            buffer.set_size(
-                &mut self.font_system,
-                Some(screen_w),
-                Some(self.metrics.cell_height),
-            );
-            self.text_buffers.push(buffer);
-        }
+        let screen_w = window_size.width.max(1) as f32;
+        self.text_buffers = Self::create_text_buffers(
+            &mut self.font_system,
+            rows,
+            self.font_size,
+            self.line_height,
+            screen_w,
+            self.metrics.cell_height,
+        );
         self.row_hashes = vec![0; rows];
+    }
+
+    fn create_text_buffers(
+        font_system: &mut FontSystem,
+        rows: usize,
+        font_size: f32,
+        line_height: f32,
+        screen_w: f32,
+        cell_height: f32,
+    ) -> Vec<GlyphonBuffer> {
+        let glyph_metrics = Metrics::new(font_size, line_height);
+        let mut buffers = Vec::with_capacity(rows);
+        for _ in 0..rows {
+            let mut buffer = GlyphonBuffer::new(font_system, glyph_metrics);
+            buffer.set_size(font_system, Some(screen_w), Some(cell_height));
+            buffers.push(buffer);
+        }
+        buffers
     }
 
     /// Ensure the persistent bg instance buffer is large enough.
@@ -388,9 +342,7 @@ impl CellRenderer {
                 let cell = grid.get(col, row).unwrap();
                 let bg = color_resolver.resolve(cell.face.bg, false);
                 let x = col as f32 * cell_w;
-                self.bg_instances.extend_from_slice(&[
-                    x, y, cell_w, cell_h, bg[0], bg[1], bg[2], bg[3],
-                ]);
+                push_rect(&mut self.bg_instances, x, y, cell_w, cell_h, bg);
             }
         }
 
@@ -401,53 +353,21 @@ impl CellRenderer {
             let cc = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
             match style {
                 CursorStyle::Block => {
-                    self.bg_instances
-                        .extend_from_slice(&[x, y, cell_w, cell_h, cc[0], cc[1], cc[2], cc[3]]);
+                    push_rect(&mut self.bg_instances, x, y, cell_w, cell_h, cc);
                 }
                 CursorStyle::Bar => {
-                    self.bg_instances
-                        .extend_from_slice(&[x, y, 2.0, cell_h, cc[0], cc[1], cc[2], cc[3]]);
+                    push_rect(&mut self.bg_instances, x, y, 2.0, cell_h, cc);
                 }
                 CursorStyle::Underline => {
                     let uh = 2.0_f32;
-                    self.bg_instances.extend_from_slice(&[
-                        x,
-                        y + cell_h - uh,
-                        cell_w,
-                        uh,
-                        cc[0],
-                        cc[1],
-                        cc[2],
-                        cc[3],
-                    ]);
+                    push_rect(&mut self.bg_instances, x, y + cell_h - uh, cell_w, uh, cc);
                 }
                 CursorStyle::Outline => {
                     let t = 1.0_f32;
-                    // Top, Bottom, Left, Right
-                    self.bg_instances
-                        .extend_from_slice(&[x, y, cell_w, t, cc[0], cc[1], cc[2], cc[3]]);
-                    self.bg_instances.extend_from_slice(&[
-                        x,
-                        y + cell_h - t,
-                        cell_w,
-                        t,
-                        cc[0],
-                        cc[1],
-                        cc[2],
-                        cc[3],
-                    ]);
-                    self.bg_instances
-                        .extend_from_slice(&[x, y, t, cell_h, cc[0], cc[1], cc[2], cc[3]]);
-                    self.bg_instances.extend_from_slice(&[
-                        x + cell_w - t,
-                        y,
-                        t,
-                        cell_h,
-                        cc[0],
-                        cc[1],
-                        cc[2],
-                        cc[3],
-                    ]);
+                    push_rect(&mut self.bg_instances, x, y, cell_w, t, cc); // Top
+                    push_rect(&mut self.bg_instances, x, y + cell_h - t, cell_w, t, cc); // Bottom
+                    push_rect(&mut self.bg_instances, x, y, t, cell_h, cc); // Left
+                    push_rect(&mut self.bg_instances, x + cell_w - t, y, t, cell_h, cc); // Right
                 }
             }
         }

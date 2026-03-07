@@ -227,6 +227,33 @@ impl<W: Write + Send + 'static> App<W> {
         false
     }
 
+    fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
+        if let Some(ref mut gpu) = self.gpu {
+            gpu.resize(size.width, size.height);
+        }
+        if let (Some(cr), Some(gpu)) = (&mut self.cell_renderer, &self.gpu) {
+            let scale = self.window.as_ref().map_or(1.0, |w| w.scale_factor());
+            cr.resize(gpu, &self.config.font, scale, size);
+            let metrics = cr.metrics().clone();
+            self.state.cols = metrics.cols;
+            self.state.rows = metrics.rows;
+            self.grid.resize(metrics.cols, metrics.rows);
+            if let Some(ref mut backend) = self.backend {
+                backend.update_metrics(metrics.clone());
+            }
+            // Send resize to Kakoune
+            if self.initial_resize_sent {
+                let resize = KasaneRequest::Resize {
+                    rows: metrics.rows.saturating_sub(1),
+                    cols: metrics.cols,
+                };
+                let _ = writeln!(self.kak_writer, "{}", resize.to_json());
+                let _ = self.kak_writer.flush();
+            }
+            self.dirty = DirtyFlags::ALL;
+        }
+    }
+
     fn render_frame(&mut self) {
         if self.gpu.is_none() || self.cell_renderer.is_none() || self.color_resolver.is_none() {
             tracing::warn!("[app] render_frame skipped: missing gpu/renderer/resolver");
@@ -295,32 +322,7 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
                 return;
             }
             WindowEvent::Resized(size) => {
-                if let Some(ref mut gpu) = self.gpu {
-                    gpu.resize(size.width, size.height);
-                }
-                if let (Some(cr), Some(gpu)) =
-                    (&mut self.cell_renderer, &self.gpu)
-                {
-                    let scale = self.window.as_ref().map_or(1.0, |w| w.scale_factor());
-                    cr.resize(gpu, &self.config.font, scale, *size);
-                    let metrics = cr.metrics().clone();
-                    self.state.cols = metrics.cols;
-                    self.state.rows = metrics.rows;
-                    self.grid.resize(metrics.cols, metrics.rows);
-                    if let Some(ref mut backend) = self.backend {
-                        backend.update_metrics(metrics.clone());
-                    }
-                    // Send resize to Kakoune
-                    if self.initial_resize_sent {
-                        let resize = KasaneRequest::Resize {
-                            rows: metrics.rows.saturating_sub(1),
-                            cols: metrics.cols,
-                        };
-                        let _ = writeln!(self.kak_writer, "{}", resize.to_json());
-                        let _ = self.kak_writer.flush();
-                    }
-                    self.dirty = DirtyFlags::ALL;
-                }
+                self.handle_resize(*size);
                 return;
             }
             WindowEvent::ScaleFactorChanged { .. } => {

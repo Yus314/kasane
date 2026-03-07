@@ -1,6 +1,6 @@
 use kasane_core::render::{CellDiff, CursorStyle, RenderBackend};
 
-use crate::gpu::cell_renderer::CellMetrics;
+use crate::gpu::CellMetrics;
 
 /// GUI backend implementing `RenderBackend`.
 ///
