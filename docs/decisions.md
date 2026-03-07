@@ -35,6 +35,7 @@
 | レイアウト | **Flex + Overlay + Grid** | Flexbox 簡略版を基本に、重なりと表形式を追加 |
 | イベント伝播 | **中央ディスパッチ + InteractiveId** | キーは TEA update() 集約。マウスは InteractiveId でヒットテスト |
 | コンパイラ駆動最適化 | **Svelte 的二層レンダリング** | TEA 維持 + proc macro 強化。詳細は [ADR-010](#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング) |
+| CLI 設計 | **kak ドロップイン置換** | 非UIフラグは exec 委譲、`--` 前後分離、config.toml でデフォルト UI。詳細は [ADR-011](#adr-011-cli-設計--kak-ドロップイン置換) |
 
 ## ADR-001: 描画方式 — TUI + GUI ハイブリッド
 
@@ -370,3 +371,149 @@ kasane の Element ツリーは 20-50 ノードと極めて小規模で、Web UI
 - ADR-009 の proc macro 計画 (9-2) の自然な延長として位置づけられる
 - 宣言的 API を維持しつつ実行時コードを命令的にする、Svelte と同じ二重性を実現
 - Phase 2 以降のプラグイン増加時に真価を発揮。Phase 1 では設計上の考慮のみで実装しない
+
+## ADR-011: CLI 設計 — kak ドロップイン置換
+
+**状態:** 決定済み
+
+**コンテキスト:**
+kasane は Kakoune の UI フロントエンドであり、「別のエディタ」ではない。kak ユーザーが kasane に移行する際の摩擦を最小化し、`alias kak=kasane` で完全に動作する状態を目指す。
+
+**決定:** kasane を kak のドロップイン置換として設計する。以下の10項目を採用する。
+
+### 11-1: 基本方針 — ドロップイン置換
+
+**決定:** `alias kak=kasane` または PATH 操作で kak を kasane に置き換えた場合に、全ての kak ワークフローが正しく動作することを保証する。
+
+**根拠:**
+- kasane は Kakoune の「別の UI」であり、ユーザーは「Kakoune を使っている」と認識すべき
+- Neovide (nvim の GUI フロントエンド) と同じパターン: フロントエンド名で起動し、バックエンドに引数を渡す
+- `$EDITOR=kasane` 設定時に git commit、ranger 等すべてで kasane UI が使われる
+
+### 11-2: 非UI操作の委譲 — exec
+
+**決定:** 非UI操作 (`-l`, `-f`, `-p`, `-d`, `-clear`, `-version`, `-help`) を検出した場合、kasane プロセスを `exec` で kak に置き換える。`-ui json` は付加しない。
+
+**根拠:**
+- exec で kasane プロセスが kak に完全に置き換わるため、オーバーヘッドがゼロ
+- Unix 的に最も正しい方式 (不要な親プロセスが残らない)
+- 非UI操作に `-ui json` を付加する現状の不正確さを解消
+
+**非UIフラグの検出:** 明示的リスト (`-l`, `-f`, `-p`, `-d`, `-clear`, `-version`, `-help`) をハードコード。kak が新フラグを追加した場合は手動で追加する。
+
+### 11-3: フラグ体系 — `--` 前後分離
+
+**決定:** kasane 固有フラグは GNU 慣例の `--long-option` 形式。kak フラグはそのままパススルー。`--` で明示的に分離可能。
+
+**kasane 固有フラグ:**
+- `--ui {tui|gui}` — バックエンド選択 (ワンショット上書き)
+- `--version` — kasane + kak 両方のバージョンを表示
+- `--help` — kasane のヘルプを表示
+
+**パース規則:**
+1. `--` の前: kasane 固有フラグ (`--ui`, `--version`, `--help`) を抽出。それ以外は kak 引数として蓄積
+2. `--` の後: すべて kak 引数として蓄積
+3. kasane 固有フラグと非UIフラグが混在した場合はエラーで拒否
+
+**根拠:**
+- `--` (double dash) は kasane、`-` (single dash) は kak という明確な分離
+- kak の `-ui` との衝突を回避 (`kasane -ui gui` は `-ui` と `gui` を kak に渡す)
+- 将来のフラグ追加 (`--config`, `--log-level` 等) が安全
+
+### 11-4: セッション名のインターセプト — `-c` と `-s` 両方
+
+**決定:** `-c` (セッション接続) と `-s` (セッション作成) の両方をインターセプトしてセッション名を kasane が保持する。引数は kak にもパススルーする。
+
+**根拠:**
+- GUI ウィンドウタイトルにセッション名を表示 (`kasane — project`)
+- ログに `[session=project]` として記録
+- 将来のセッション固有設定 (`~/.config/kasane/sessions/project.toml`) への拡張
+- 追加コストが極めて小さい (数行の変更)
+
+### 11-5: デフォルト UI モード — config.toml で設定可能
+
+**決定:** デフォルトの UI モード (TUI/GUI) を `config.toml` の `[ui] default` で設定可能にする。`--ui` フラグはワンショットの上書き用。
+
+**根拠:**
+- GUI をデフォルトにしたいユーザーがエイリアスに `--ui gui` を含める必要がなくなる
+- kasane 固有フラグと非UIフラグの混在エラーが実質的に発生しなくなる
+- `alias kak=kasane` だけで完全移行が可能
+
+### 11-6: `--version` 出力 — kasane + kak 両方
+
+**決定:** `kasane --version` で kasane と kak 両方のバージョンを表示する。
+
+```
+kasane 0.1.0 (kakoune vXXXX.XX.XX)
+```
+
+**根拠:**
+- デバッグ時に両方のバージョンが分かると有用
+- `kasane -version` は kak に exec 委譲され、kak のバージョンのみ表示される (明確な使い分け)
+
+### 11-7: フラグ混在時の挙動 — エラー拒否
+
+**決定:** kasane 固有フラグ (`--ui`, `--version`, `--help`) と非UIフラグ (`-l`, `-f`, `-p`, `-d`, `-clear`, `-version`, `-help`) が同時に指定された場合はエラーで拒否する。
+
+```
+kasane --ui gui -l
+→ error: --ui cannot be combined with -l (non-UI operation)
+```
+
+**根拠:**
+- 非UI操作にバックエンド選択は無意味であり、ユーザーのミスを早期に検出できる
+- config.toml でデフォルト UI を設定可能にすることで、エイリアスに `--ui` を含める動機がなくなり、このエラーが実質的に発生しない
+- 暗黙的な無視よりも明示的なエラーが Rust エコシステムの慣例に沿う
+
+### 11-8: ネイティブ kak UI フォールバック — 不要
+
+**決定:** kasane 経由でネイティブ kak terminal UI にフォールバックする手段は提供しない。
+
+**根拠:**
+- ネイティブ UI が欲しいユーザーは kak を直接実行すればよい
+- kasane の存在意義は「別の UI を提供する」ことであり、ネイティブ UI に戻す機能は矛盾する
+
+### 処理フロー
+
+```
+parse_cli_args(args)
+├── 1. kasane 固有フラグを抽出 (--ui, --version, --help)
+├── 2. インターセプト対象を抽出 (-c, -s → セッション名保持 + kak にも渡す)
+├── 3. 非UIフラグを検出 (-l, -f, -p, -d, -clear, -version, -help)
+├── 4. 混在チェック (kasane固有 ∩ 非UI ≠ ∅ → エラー)
+└── 結果:
+    ├── CliAction::KasaneVersion        ← --version
+    ├── CliAction::KasaneHelp           ← --help
+    ├── CliAction::DelegateToKak(args)  ← 非UIフラグ検出 → exec kak
+    └── CliAction::RunKasane { session, ui_mode, kak_args }  ← UI起動
+```
+
+### 具体例
+
+```bash
+# 基本的な使い方（ドロップイン）
+kasane file.txt                    # → kak -ui json file.txt
+kasane -c project                  # → kak -ui json -c project (session名を保持)
+kasane -s myses file.txt           # → kak -ui json -s myses file.txt (session名を保持)
+kasane -e "buffer-next"            # → kak -ui json -e "buffer-next"
+kasane -n -ro file.txt             # → kak -ui json -n -ro file.txt
+
+# kasane 固有フラグ
+kasane --ui gui file.txt           # → GUI バックエンドで起動
+kasane --version                   # → "kasane 0.1.0 (kakoune vXXXX.XX.XX)"
+kasane --help                      # → kasane のヘルプを表示
+
+# 非UI操作（exec で kak に委譲）
+kasane -l                          # → exec kak -l
+kasane -f "gg"                     # → exec kak -f "gg"
+kasane -p session                  # → exec kak -p session
+kasane -d -s daemon                # → exec kak -d -s daemon
+kasane -version                    # → exec kak -version
+kasane -help                       # → exec kak -help
+
+# エラーケース
+kasane --ui gui -l                 # → エラー: --ui と -l は併用不可
+
+# -- による明示的分離
+kasane --ui gui -- -e "echo hello" # → kak -ui json -e "echo hello"（GUI起動）
+```
