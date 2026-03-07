@@ -11,8 +11,6 @@ gui = ["dep:kasane-gui"]
 kasane-core = { workspace = true }
 kasane-tui = { workspace = true }
 kasane-gui = { workspace = true, optional = true }
-crossterm = { workspace = true }
-crossbeam-channel = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

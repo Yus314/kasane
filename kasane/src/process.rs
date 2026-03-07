@@ -3,22 +3,9 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::{Context, Result};
 
-/// Writer half: sends JSON-RPC messages to Kakoune's stdin.
+/// Writer half: wraps Kakoune's stdin as a `Write` impl.
 pub struct KakouneWriter {
     stdin: ChildStdin,
-}
-
-impl KakouneWriter {
-    pub fn write_message(&mut self, msg: &str) -> Result<()> {
-        self.stdin
-            .write_all(msg.as_bytes())
-            .context("failed to write to kak stdin")?;
-        self.stdin
-            .write_all(b"\n")
-            .context("failed to write newline to kak stdin")?;
-        self.stdin.flush().context("failed to flush kak stdin")?;
-        Ok(())
-    }
 }
 
 impl Write for KakouneWriter {

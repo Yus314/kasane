@@ -1239,8 +1239,6 @@ name = "kasane"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "crossbeam-channel",
- "crossterm",
  "kasane-core",
  "kasane-gui",
  "kasane-tui",
@@ -1300,6 +1298,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "crossbeam-channel",
  "crossterm",
  "kasane-core",
  "tracing",
