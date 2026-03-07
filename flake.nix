@@ -6,9 +6,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-utils.url = "github:numtide/flake-utils";
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { nixpkgs, rust-overlay, flake-utils, ... }:
+  outputs = { nixpkgs, rust-overlay, flake-utils, git-hooks, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -17,9 +21,26 @@
           extensions = [ "rustfmt" "clippy" ];
         };
         isLinux = pkgs.stdenv.isLinux;
+
+        pre-commit-check = git-hooks.lib.${system}.run {
+          src = ./.;
+          hooks = {
+            rustfmt = {
+              enable = true;
+              packageOverrides = {
+                cargo = rustToolchain;
+                rustfmt = rustToolchain;
+              };
+            };
+          };
+        };
       in
       {
+        checks = { inherit pre-commit-check; };
+
         devShells.default = pkgs.mkShell {
+          inherit (pre-commit-check) shellHook;
+
           buildInputs = [
             rustToolchain
             pkgs.pkg-config
