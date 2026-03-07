@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772894560307,
+  "lastUpdate": 1772896748232,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -395,6 +395,138 @@ window.BENCHMARK_DATA = {
             "name": "menu_show/items/100",
             "value": 45155,
             "range": "± 431",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "c1dda7cac9b1368a6f2ad5e9709f1181764846bc",
+          "message": "docs: add ADR-011 CLI design decision\n\nDocument the drop-in replacement strategy for kak, including\nexec delegation for non-UI flags and -- separator for flag parsing.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-08T00:13:17+09:00",
+          "tree_id": "c8e4c277d8c89bf7d5ea060bd7b49f1510a2a9e8",
+          "url": "https://github.com/Yus314/kasane/commit/c1dda7cac9b1368a6f2ad5e9709f1181764846bc"
+        },
+        "date": 1772896747450,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 280,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2267,
+            "range": "± 52",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 374,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 19711,
+            "range": "± 174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 75149,
+            "range": "± 740",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 23211,
+            "range": "± 33",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12403,
+            "range": "± 129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 31,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 75,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 130,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 197,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 792,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1546,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 36269,
+            "range": "± 448",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 45515,
+            "range": "± 283",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 46627,
+            "range": "± 218",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 46753,
+            "range": "± 303",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 47118,
+            "range": "± 243",
             "unit": "ns/iter"
           }
         ]
