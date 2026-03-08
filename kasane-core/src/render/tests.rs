@@ -16,7 +16,7 @@ fn test_render_buffer_resolves_default_face() {
     // Atom has Color::Default fg/bg — should inherit from default_face
     let line = vec![Atom {
         face: Face::default(),
-        contents: "x".to_string(),
+        contents: "x".into(),
     }];
 
     let mut state = AppState::default();
@@ -41,11 +41,11 @@ fn test_render_status_resolves_default_face() {
     };
     let status_line = vec![Atom {
         face: Face::default(),
-        contents: "s".to_string(),
+        contents: "s".into(),
     }];
     let mode_line = vec![Atom {
         face: Face::default(),
-        contents: "m".to_string(),
+        contents: "m".into(),
     }];
 
     let mut state = AppState::default();
@@ -263,7 +263,7 @@ fn test_clear_block_cursor_face_out_of_bounds() {
 fn make_line(s: &str) -> Vec<Atom> {
     vec![Atom {
         face: Face::default(),
-        contents: s.to_string(),
+        contents: s.into(),
     }]
 }
 
@@ -304,15 +304,15 @@ fn test_treesitter_rgb_colors_preserved() {
     let ts_line = vec![
         Atom {
             face: keyword_face,
-            contents: "fn".to_string(),
+            contents: "fn".into(),
         },
         Atom {
             face: Face::default(),
-            contents: " ".to_string(),
+            contents: " ".into(),
         },
         Atom {
             face: string_face,
-            contents: "main".to_string(),
+            contents: "main".into(),
         },
     ];
     state.lines = vec![ts_line];
@@ -431,7 +431,7 @@ fn test_treesitter_colors_persist_across_frames() {
     };
     state.lines = vec![vec![Atom {
         face: keyword_face,
-        contents: "let".to_string(),
+        contents: "let".into(),
     }]];
     state.status_line = make_line("st");
 
@@ -487,7 +487,7 @@ fn test_treesitter_colors_persist_across_frames() {
     };
     state.lines = vec![vec![Atom {
         face: new_face,
-        contents: "let".to_string(),
+        contents: "let".into(),
     }]];
 
     grid.clear(&state.default_face);

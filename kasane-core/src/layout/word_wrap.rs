@@ -145,7 +145,7 @@ mod tests {
     fn make_line(s: &str) -> Line {
         vec![Atom {
             face: Face::default(),
-            contents: s.to_string(),
+            contents: s.into(),
         }]
     }
 

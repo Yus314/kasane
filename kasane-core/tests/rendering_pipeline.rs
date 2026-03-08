@@ -22,7 +22,7 @@ use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 fn make_line(s: &str) -> Line {
     vec![Atom {
         face: Face::default(),
-        contents: s.to_string(),
+        contents: s.into(),
     }]
 }
 
@@ -113,11 +113,11 @@ fn buffer_with_colored_atoms() {
                 fg: red,
                 ..Face::default()
             },
-            contents: "red".to_string(),
+            contents: "red".into(),
         },
         Atom {
             face: Face::default(),
-            contents: " plain".to_string(),
+            contents: " plain".into(),
         },
     ];
     let state = setup_state(vec![line]);

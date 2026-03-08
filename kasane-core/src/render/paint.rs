@@ -49,9 +49,8 @@ fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResu
             paint_text(ctx.grid, &area, text, &face);
         }
         Element::StyledLine(atoms) => {
-            let line = atoms.to_vec();
             ctx.grid
-                .put_line_with_base(area.y, area.x, &line, area.w, None);
+                .put_line_with_base(area.y, area.x, atoms, area.w, None);
         }
         Element::BufferRef { line_range } => {
             paint_buffer_ref(ctx.grid, &area, line_range.clone(), ctx.state);
@@ -273,8 +272,7 @@ fn paint_border_title(
     title: &[crate::protocol::Atom],
 ) {
     use crate::layout::line_display_width;
-    let title_vec = title.to_vec();
-    let title_width = line_display_width(&title_vec);
+    let title_width = line_display_width(title);
     if title_width == 0 || area.w < 6 {
         return;
     }
@@ -289,7 +287,7 @@ fn paint_border_title(
     // Position: corner(1) + left_dashes + ┤
     let tx = area.x + 1 + left_dashes as u16;
     grid.put_char(tx, area.y, "┤", face);
-    grid.put_line_with_base(area.y, tx + 1, &title_vec, max_title, Some(face));
+    grid.put_line_with_base(area.y, tx + 1, title, max_title, Some(face));
     let after = tx + 1 + max_title;
     if after < area.x + area.w - 1 {
         grid.put_char(after, area.y, "├", face);
@@ -345,7 +343,7 @@ mod tests {
     fn make_line(s: &str) -> Vec<Atom> {
         vec![Atom {
             face: Face::default(),
-            contents: s.to_string(),
+            contents: s.into(),
         }]
     }
 

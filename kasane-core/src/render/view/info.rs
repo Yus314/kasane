@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use unicode_width::UnicodeWidthStr;
 
 use crate::element::{
@@ -286,7 +287,7 @@ fn wrap_content_lines(
         if graphemes.is_empty() {
             result.push(vec![Atom {
                 face: *base_face,
-                contents: String::new(),
+                contents: CompactString::default(),
             }]);
             continue;
         }
@@ -303,7 +304,7 @@ fn wrap_content_lines(
             }
             let mut row_atoms = Vec::new();
             let mut current_face: Option<Face> = None;
-            let mut current_text = String::new();
+            let mut current_text = CompactString::default();
 
             for &(grapheme, face, _) in &graphemes[seg.start..seg.end] {
                 if current_face == Some(face) {
@@ -316,7 +317,7 @@ fn wrap_content_lines(
                         });
                     }
                     current_face = Some(face);
-                    current_text = grapheme.to_string();
+                    current_text = CompactString::from(grapheme);
                 }
             }
             if let Some(cf) = current_face {

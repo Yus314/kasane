@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::Line;
+use crate::protocol::{Atom, Line};
 
 /// Kakoune-compatible word character test (`is_word` in `unicode.hh`).
 ///
@@ -37,7 +37,7 @@ pub(crate) const ASSISTANT_CLIPPY: &[&str] = &[
 /// Display width of each assistant line.
 pub(crate) const ASSISTANT_WIDTH: u16 = 8;
 
-pub fn line_display_width(line: &Line) -> usize {
+pub fn line_display_width(line: &[Atom]) -> usize {
     line.iter()
         .map(|atom| {
             atom.contents
@@ -66,7 +66,7 @@ mod tests {
     fn make_line(s: &str) -> Line {
         vec![Atom {
             face: Face::default(),
-            contents: s.to_string(),
+            contents: s.into(),
         }]
     }
 

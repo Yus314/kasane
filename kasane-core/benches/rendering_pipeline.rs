@@ -386,11 +386,11 @@ fn bench_message_sequence(c: &mut Criterion) {
     let draw_status = kasane_core::protocol::KakouneRequest::DrawStatus {
         status_line: vec![kasane_core::protocol::Atom {
             face: kasane_core::protocol::Face::default(),
-            contents: " INSERT ".to_string(),
+            contents: " INSERT ".into(),
         }],
         mode_line: vec![kasane_core::protocol::Atom {
             face: kasane_core::protocol::Face::default(),
-            contents: "insert".to_string(),
+            contents: "insert".into(),
         }],
         default_face: kasane_core::protocol::Face::default(),
     };
@@ -521,11 +521,11 @@ fn bench_state_apply(c: &mut Criterion) {
         let request = kasane_core::protocol::KakouneRequest::DrawStatus {
             status_line: vec![kasane_core::protocol::Atom {
                 face: kasane_core::protocol::Face::default(),
-                contents: " NORMAL ".to_string(),
+                contents: " NORMAL ".into(),
             }],
             mode_line: vec![kasane_core::protocol::Atom {
                 face: kasane_core::protocol::Face::default(),
-                contents: "normal".to_string(),
+                contents: "normal".into(),
             }],
             default_face: kasane_core::protocol::Face::default(),
         };
@@ -564,7 +564,7 @@ fn bench_state_apply(c: &mut Criterion) {
             .map(|i| {
                 vec![kasane_core::protocol::Atom {
                     face: kasane_core::protocol::Face::default(),
-                    contents: format!("completion_{i}"),
+                    contents: format!("completion_{i}").into(),
                 }]
             })
             .collect();

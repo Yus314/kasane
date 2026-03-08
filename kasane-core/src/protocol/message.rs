@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
 use super::color::Face;
@@ -11,7 +12,7 @@ use super::color::Face;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Atom {
     pub face: Face,
-    pub contents: String,
+    pub contents: CompactString,
 }
 
 pub type Line = Vec<Atom>;

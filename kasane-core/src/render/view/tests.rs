@@ -6,7 +6,7 @@ use crate::state::AppState;
 fn make_line(s: &str) -> Line {
     vec![Atom {
         face: Face::default(),
-        contents: s.to_string(),
+        contents: s.into(),
     }]
 }
 
@@ -90,11 +90,11 @@ fn test_status_bar_resolves_default_face() {
     // Atoms with Color::Default — should be resolved to status_default_face colors
     state.status_line = vec![Atom {
         face: Face::default(),
-        contents: "file.rs".to_string(),
+        contents: "file.rs".into(),
     }];
     state.status_mode_line = vec![Atom {
         face: Face::default(),
-        contents: "normal".to_string(),
+        contents: "normal".into(),
     }];
 
     let status_bar = build_status_bar(&state, vec![], vec![]);

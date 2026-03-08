@@ -174,27 +174,27 @@ fn make_colored_line(i: usize) -> Vec<Atom> {
     vec![
         Atom {
             face: keyword_face,
-            contents: "let".to_string(),
+            contents: "let".into(),
         },
         Atom {
             face: plain_face,
-            contents: " ".to_string(),
+            contents: " ".into(),
         },
         Atom {
             face: ident_face,
-            contents: format!("var_{i}"),
+            contents: format!("var_{i}").into(),
         },
         Atom {
             face: plain_face,
-            contents: " = ".to_string(),
+            contents: " = ".into(),
         },
         Atom {
             face: literal_face,
-            contents: format!("\"{i}_value\""),
+            contents: format!("\"{i}_value\"").into(),
         },
         Atom {
             face: plain_face,
-            contents: ";".to_string(),
+            contents: ";".into(),
         },
     ]
 }
@@ -217,11 +217,11 @@ fn typical_state(line_count: usize) -> AppState {
     state.lines = (0..line_count).map(make_colored_line).collect();
     state.status_line = vec![Atom {
         face: Face::default(),
-        contents: " NORMAL ".to_string(),
+        contents: " NORMAL ".into(),
     }];
     state.status_mode_line = vec![Atom {
         face: Face::default(),
-        contents: "normal".to_string(),
+        contents: "normal".into(),
     }];
     state
 }
@@ -275,11 +275,11 @@ fn generate_incremental_diffs() -> Vec<CellDiff> {
                 bg: Color::Default,
                 ..Face::default()
             },
-            contents: "edited_line_10".to_string(),
+            contents: "edited_line_10".into(),
         },
         Atom {
             face: Face::default(),
-            contents: " // modified".to_string(),
+            contents: " // modified".into(),
         },
     ];
 
@@ -397,127 +397,127 @@ fn make_realistic_line(i: usize) -> Vec<Atom> {
         0 => vec![], // empty line
         1 => vec![Atom {
             face: comment_face(),
-            contents: format!("// comment line {i}"),
+            contents: format!("// comment line {i}").into(),
         }],
         2 => vec![
             Atom {
                 face: keyword_face(),
-                contents: "fn ".to_string(),
+                contents: "fn ".into(),
             },
             Atom {
                 face: ident_face(),
-                contents: format!("process_{i}"),
+                contents: format!("process_{i}").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: "(".to_string(),
+                contents: "(".into(),
             },
             Atom {
                 face: type_face(),
-                contents: "u32".to_string(),
+                contents: "u32".into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ") {".to_string(),
+                contents: ") {".into(),
             },
         ],
         3 => vec![
             Atom {
                 face: keyword_face(),
-                contents: "    let ".to_string(),
+                contents: "    let ".into(),
             },
             Atom {
                 face: ident_face(),
-                contents: format!("result_{i}"),
+                contents: format!("result_{i}").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: " = ".to_string(),
+                contents: " = ".into(),
             },
             Atom {
                 face: namespace_face(),
-                contents: "self".to_string(),
+                contents: "self".into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ".".to_string(),
+                contents: ".".into(),
             },
             Atom {
                 face: ident_face(),
-                contents: format!("compute_{i}"),
+                contents: format!("compute_{i}").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: "(".to_string(),
+                contents: "(".into(),
             },
             Atom {
                 face: literal_face(),
-                contents: format!("{}", i * 42),
+                contents: format!("{}", i * 42).into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ", ".to_string(),
+                contents: ", ".into(),
             },
             Atom {
                 face: string_face(),
-                contents: format!("\"value_{i}\""),
+                contents: format!("\"value_{i}\"").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ");".to_string(),
+                contents: ");".into(),
             },
         ],
         4 => vec![
             Atom {
                 face: keyword_face(),
-                contents: "    const ".to_string(),
+                contents: "    const ".into(),
             },
             Atom {
                 face: constant_face(),
-                contents: format!("MSG_{i}"),
+                contents: format!("MSG_{i}").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ": &str = ".to_string(),
+                contents: ": &str = ".into(),
             },
             Atom {
                 face: string_face(),
-                contents: format!("\"Hello from module {i}, processing data\""),
+                contents: format!("\"Hello from module {i}, processing data\"").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ";".to_string(),
+                contents: ";".into(),
             },
         ],
         5 => vec![
             Atom {
                 face: Face::default(),
-                contents: "    ".to_string(),
+                contents: "    ".into(),
             },
             Atom {
                 face: keyword_face(),
-                contents: "if ".to_string(),
+                contents: "if ".into(),
             },
             Atom {
                 face: ident_face(),
-                contents: format!("count_{i}"),
+                contents: format!("count_{i}").into(),
             },
             Atom {
                 face: operator_face(),
-                contents: " > ".to_string(),
+                contents: " > ".into(),
             },
             Atom {
                 face: literal_face(),
-                contents: format!("{}", i * 10),
+                contents: format!("{}", i * 10).into(),
             },
             Atom {
                 face: operator_face(),
-                contents: " {".to_string(),
+                contents: " {".into(),
             },
         ],
         6 => vec![Atom {
             face: comment_face(),
-            contents: format!("// 処理{i}: データ変換と検証"),
+            contents: format!("// 処理{i}: データ変換と検証").into(),
         }],
         7 => vec![
             Atom {
@@ -525,18 +525,18 @@ fn make_realistic_line(i: usize) -> Vec<Atom> {
                     attributes: Attributes::BOLD,
                     ..error_face()
                 },
-                contents: "ERROR".to_string(),
+                contents: "ERROR".into(),
             },
             Atom {
                 face: operator_face(),
-                contents: ": ".to_string(),
+                contents: ": ".into(),
             },
             Atom {
                 face: Face {
                     attributes: Attributes::ITALIC | Attributes::UNDERLINE,
                     ..string_face()
                 },
-                contents: format!("\"unexpected token at line {i}\""),
+                contents: format!("\"unexpected token at line {i}\"").into(),
             },
         ],
         _ => unreachable!(),
@@ -561,11 +561,11 @@ fn realistic_state(line_count: usize) -> AppState {
     state.lines = (0..line_count).map(make_realistic_line).collect();
     state.status_line = vec![Atom {
         face: Face::default(),
-        contents: " NORMAL ".to_string(),
+        contents: " NORMAL ".into(),
     }];
     state.status_mode_line = vec![Atom {
         face: Face::default(),
-        contents: "normal".to_string(),
+        contents: "normal".into(),
     }];
     state
 }

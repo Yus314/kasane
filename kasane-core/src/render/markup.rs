@@ -8,6 +8,8 @@
 //!
 //! Face spec format: `fg,bg+attrs` (see `render::theme::parse_face_spec`).
 
+use compact_str::CompactString;
+
 use crate::protocol::{Atom, Face, Line};
 use crate::render::theme::parse_face_spec;
 
@@ -17,7 +19,7 @@ use crate::render::theme::parse_face_spec;
 pub fn parse_markup(input: &str, base: &Face) -> Line {
     let mut atoms: Vec<Atom> = Vec::new();
     let mut current_face = *base;
-    let mut current_text = String::new();
+    let mut current_text = CompactString::default();
     let mut chars = input.chars().peekable();
 
     while let Some(ch) = chars.next() {

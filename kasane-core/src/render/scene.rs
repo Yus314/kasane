@@ -413,7 +413,7 @@ fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<ResolvedAtom> 
                 None => atom.face,
             };
             ResolvedAtom {
-                contents: atom.contents.clone(),
+                contents: atom.contents.to_string(),
                 face,
             }
         })
@@ -466,7 +466,7 @@ mod tests {
     fn make_line(s: &str) -> Vec<Atom> {
         vec![Atom {
             face: Face::default(),
-            contents: s.to_string(),
+            contents: s.into(),
         }]
     }
 
@@ -747,7 +747,7 @@ mod tests {
     fn test_resolve_atoms_no_base() {
         let atoms = vec![Atom {
             face: Face::default(),
-            contents: "hello".to_string(),
+            contents: "hello".into(),
         }];
         let resolved = resolve_atoms(&atoms, None);
         assert_eq!(resolved.len(), 1);

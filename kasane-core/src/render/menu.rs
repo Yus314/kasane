@@ -333,7 +333,7 @@ mod tests {
     fn make_line(text: &str) -> Line {
         vec![Atom {
             face: Face::default(),
-            contents: text.to_string(),
+            contents: text.into(),
         }]
     }
 

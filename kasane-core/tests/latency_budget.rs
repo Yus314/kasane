@@ -44,11 +44,11 @@ fn typical_state(line_count: usize) -> AppState {
                         bg: Color::Default,
                         ..Face::default()
                     },
-                    contents: "let".to_string(),
+                    contents: "let".into(),
                 },
                 Atom {
                     face: Face::default(),
-                    contents: " ".to_string(),
+                    contents: " ".into(),
                 },
                 Atom {
                     face: Face {
@@ -60,11 +60,11 @@ fn typical_state(line_count: usize) -> AppState {
                         bg: Color::Default,
                         ..Face::default()
                     },
-                    contents: format!("var_{i}"),
+                    contents: format!("var_{i}").into(),
                 },
                 Atom {
                     face: Face::default(),
-                    contents: " = ".to_string(),
+                    contents: " = ".into(),
                 },
                 Atom {
                     face: Face {
@@ -76,22 +76,22 @@ fn typical_state(line_count: usize) -> AppState {
                         bg: Color::Default,
                         ..Face::default()
                     },
-                    contents: format!("\"{i}_value\""),
+                    contents: format!("\"{i}_value\"").into(),
                 },
                 Atom {
                     face: Face::default(),
-                    contents: ";".to_string(),
+                    contents: ";".into(),
                 },
             ]
         })
         .collect();
     state.status_line = vec![Atom {
         face: Face::default(),
-        contents: " NORMAL ".to_string(),
+        contents: " NORMAL ".into(),
     }];
     state.status_mode_line = vec![Atom {
         face: Face::default(),
-        contents: "normal".to_string(),
+        contents: "normal".into(),
     }];
     state
 }
@@ -150,7 +150,7 @@ fn parse_request_under_500us() {
         .map(|i| {
             vec![Atom {
                 face: Face::default(),
-                contents: format!("line {i}"),
+                contents: format!("line {i}").into(),
             }]
         })
         .collect();
@@ -196,7 +196,7 @@ fn state_apply_under_200us() {
             .map(|i| {
                 vec![Atom {
                     face: Face::default(),
-                    contents: format!("line {i}"),
+                    contents: format!("line {i}").into(),
                 }]
             })
             .collect(),

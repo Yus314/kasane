@@ -72,7 +72,7 @@ impl MenuState {
     pub fn new(items: Vec<Line>, params: MenuParams) -> Self {
         let max_item_width = items
             .iter()
-            .map(line_display_width)
+            .map(|l| line_display_width(l))
             .max()
             .unwrap_or(1)
             .max(1) as u16;
@@ -166,7 +166,12 @@ impl MenuState {
         let mut first = 0usize;
         let mut item_col = 0usize;
         for i in 0..=selected {
-            let item_w = self.items.get(i).map(line_display_width).unwrap_or(0) + 1;
+            let item_w = self
+                .items
+                .get(i)
+                .map(|l| line_display_width(l))
+                .unwrap_or(0)
+                + 1;
             if item_col + item_w > width {
                 first = i;
                 item_col = item_w;

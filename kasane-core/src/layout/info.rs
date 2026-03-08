@@ -47,7 +47,11 @@ pub fn layout_info(
 
     let framed = style.is_framed();
 
-    let raw_max_content_width = content.iter().map(line_display_width).max().unwrap_or(0) as u16;
+    let raw_max_content_width = content
+        .iter()
+        .map(|l| line_display_width(l))
+        .max()
+        .unwrap_or(0) as u16;
     let title_width = line_display_width(title) as u16;
     // Kakoune: framed → title + 2 (for ┤├ decorators)
     let effective_title_w = if framed {
@@ -260,7 +264,7 @@ mod tests {
     fn make_line(s: &str) -> Line {
         vec![Atom {
             face: Face::default(),
-            contents: s.to_string(),
+            contents: s.into(),
         }]
     }
 

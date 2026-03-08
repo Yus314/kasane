@@ -238,7 +238,7 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     if has_prefix {
         atoms.push(Atom {
             face: menu.menu_face,
-            contents: "< ".to_string(),
+            contents: "< ".into(),
         });
     }
 
@@ -256,12 +256,12 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
                 if pad_len > 0 {
                     atoms.push(Atom {
                         face: menu.menu_face,
-                        contents: " ".repeat(pad_len),
+                        contents: " ".repeat(pad_len).into(),
                     });
                 }
                 atoms.push(Atom {
                     face: menu.menu_face,
-                    contents: ">".to_string(),
+                    contents: ">".into(),
                 });
             }
             break;
@@ -286,7 +286,7 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
         if x < screen_w {
             atoms.push(Atom {
                 face: menu.menu_face,
-                contents: " ".to_string(),
+                contents: " ".into(),
             });
             x += 1;
         }

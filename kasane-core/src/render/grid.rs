@@ -2,7 +2,7 @@ use compact_str::CompactString;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Attributes, Color, Face, Line};
+use crate::protocol::{Atom, Attributes, Color, Face};
 
 // ---------------------------------------------------------------------------
 // Cell + CellGrid
@@ -31,6 +31,7 @@ pub struct CellGrid {
     pub height: u16,
     current: Vec<Cell>,
     previous: Vec<Cell>,
+    dirty_rows: Vec<bool>,
 }
 
 impl CellGrid {
@@ -41,6 +42,7 @@ impl CellGrid {
             height,
             current: vec![Cell::default(); size],
             previous: Vec::new(), // empty means "invalidated — full redraw needed"
+            dirty_rows: vec![true; height as usize],
         }
     }
 
@@ -50,6 +52,7 @@ impl CellGrid {
         let size = width as usize * height as usize;
         self.current = vec![Cell::default(); size];
         self.previous = Vec::new();
+        self.dirty_rows = vec![true; height as usize];
     }
 
     fn idx(&self, x: u16, y: u16) -> usize {
@@ -60,6 +63,7 @@ impl CellGrid {
         if x >= self.width || y >= self.height {
             return;
         }
+        self.dirty_rows[y as usize] = true;
         let w = UnicodeWidthStr::width(grapheme) as u8;
         let idx = self.idx(x, y);
 
@@ -110,7 +114,7 @@ impl CellGrid {
 
     /// Write a protocol Line into the grid at row `y` starting at column `x_start`.
     /// Returns the number of columns consumed.
-    pub fn put_line(&mut self, y: u16, x_start: u16, line: &Line, max_width: u16) -> u16 {
+    pub fn put_line(&mut self, y: u16, x_start: u16, line: &[Atom], max_width: u16) -> u16 {
         self.put_line_with_base(y, x_start, line, max_width, None)
     }
 
@@ -120,7 +124,7 @@ impl CellGrid {
         &mut self,
         y: u16,
         x_start: u16,
-        line: &Line,
+        line: &[Atom],
         max_width: u16,
         base_face: Option<&Face>,
     ) -> u16 {
@@ -172,12 +176,16 @@ impl CellGrid {
             cell.face = *face;
             cell.width = 1;
         }
+        for d in &mut self.dirty_rows {
+            *d = true;
+        }
     }
 
     pub fn fill_row(&mut self, y: u16, face: &Face) {
         if y >= self.height {
             return;
         }
+        self.dirty_rows[y as usize] = true;
         for x in 0..self.width {
             let idx = self.idx(x, y);
             self.current[idx] = Cell {
@@ -210,15 +218,23 @@ impl CellGrid {
         }
 
         let mut diffs = Vec::new();
-        for (i, (curr, prev)) in self.current.iter().zip(self.previous.iter()).enumerate() {
-            if curr != prev && curr.width > 0 {
-                let x = (i % self.width as usize) as u16;
-                let y = (i / self.width as usize) as u16;
-                diffs.push(CellDiff {
-                    x,
-                    y,
-                    cell: curr.clone(),
-                });
+        let w = self.width as usize;
+        for row in 0..self.height as usize {
+            if !self.dirty_rows[row] {
+                continue;
+            }
+            let row_start = row * w;
+            let row_end = row_start + w;
+            for i in row_start..row_end {
+                let curr = &self.current[i];
+                let prev = &self.previous[i];
+                if curr != prev && curr.width > 0 {
+                    diffs.push(CellDiff {
+                        x: (i % w) as u16,
+                        y: row as u16,
+                        cell: curr.clone(),
+                    });
+                }
             }
         }
         diffs
@@ -238,10 +254,16 @@ impl CellGrid {
             self.current.clear();
             self.current.resize(size, Cell::default());
         }
+        for d in &mut self.dirty_rows {
+            *d = false;
+        }
     }
 
     pub fn invalidate_all(&mut self) {
         self.previous.clear();
+        for d in &mut self.dirty_rows {
+            *d = true;
+        }
     }
 
     /// Direct access to a cell in the current buffer.
@@ -256,6 +278,7 @@ impl CellGrid {
     /// Mutable access to a cell in the current buffer.
     pub fn get_mut(&mut self, x: u16, y: u16) -> Option<&mut Cell> {
         if x < self.width && y < self.height {
+            self.dirty_rows[y as usize] = true;
             let idx = self.idx(x, y);
             Some(&mut self.current[idx])
         } else {
@@ -315,7 +338,7 @@ pub(crate) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor};
+    use crate::protocol::{Atom, Attributes, Color, Face, Line, NamedColor};
 
     fn default_face() -> Face {
         Face::default()
@@ -324,7 +347,7 @@ mod tests {
     fn make_line(text: &str) -> Line {
         vec![Atom {
             face: default_face(),
-            contents: text.to_string(),
+            contents: text.into(),
         }]
     }
 
@@ -520,7 +543,7 @@ mod tests {
         // \n renders as a space (1 cell), \r is skipped
         let line = vec![Atom {
             face: default_face(),
-            contents: "ab\ncd\ref".to_string(),
+            contents: "ab\ncd\ref".into(),
         }];
         let cols = grid.put_line(0, 0, &line, 20);
         assert_eq!(cols, 7); // "ab" + space(\n) + "cd" + "ef"
@@ -565,7 +588,7 @@ mod tests {
         };
         let line = vec![Atom {
             face,
-            contents: "};\n".to_string(),
+            contents: "};\n".into(),
         }];
         let cols = grid.put_line(0, 0, &line, 20);
         assert_eq!(cols, 3); // "}" + ";" + space(\n)
