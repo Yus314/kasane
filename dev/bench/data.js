@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772933109506,
+  "lastUpdate": 1772938844236,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -791,6 +791,258 @@ window.BENCHMARK_DATA = {
             "name": "menu_show/items/100",
             "value": 46052,
             "range": "± 366",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "1744d692a987489c226ae6480e9c850b31b4e30d",
+          "message": "refactor: replace cursor drawing magic numbers with named constants\n\nAdd CURSOR_BAR_WIDTH, CURSOR_UNDERLINE_HEIGHT, and CURSOR_OUTLINE_THICKNESS\nconstants to make cursor rendering dimensions self-documenting.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-08T11:50:05+09:00",
+          "tree_id": "0aca19aad2a303fba4a7b45b67b71523ec7c269f",
+          "url": "https://github.com/Yus314/kasane/commit/1744d692a987489c226ae6480e9c850b31b4e30d"
+        },
+        "date": 1772938843351,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 256,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2256,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 369,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 19208,
+            "range": "± 88",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 73951,
+            "range": "± 412",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 25587,
+            "range": "± 76",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 11995,
+            "range": "± 69",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 29,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 76,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 128,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 193,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 774,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1641,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 34929,
+            "range": "± 118",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 44768,
+            "range": "± 288",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 44886,
+            "range": "± 265",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 45028,
+            "range": "± 367",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 45495,
+            "range": "± 344",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 57303,
+            "range": "± 109",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 550839,
+            "range": "± 7199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2756186,
+            "range": "± 11272",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 2788,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/set_cursor",
+            "value": 790,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 53747,
+            "range": "± 160",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 8715,
+            "range": "± 133",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 33795,
+            "range": "± 63",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 142996,
+            "range": "± 1129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 4388,
+            "range": "± 39",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/set_cursor",
+            "value": 4290,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 10396,
+            "range": "± 68",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 35009,
+            "range": "± 572",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 170268,
+            "range": "± 445",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 316009,
+            "range": "± 792",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 2820430,
+            "range": "± 23653",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 6445412,
+            "range": "± 85746",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 12016,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 72997,
+            "range": "± 472",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 145209,
+            "range": "± 1184",
             "unit": "ns/iter"
           }
         ]
