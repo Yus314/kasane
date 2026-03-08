@@ -8,6 +8,23 @@ pub fn send_request(writer: &mut impl Write, req: &KasaneRequest) {
     let _ = writer.flush();
 }
 
+/// Send the initial resize request to Kakoune (once only).
+///
+/// Sets `*sent = true` after the first call so subsequent calls are no-ops.
+pub fn send_initial_resize(writer: &mut impl Write, sent: &mut bool, rows: u16, cols: u16) {
+    if *sent {
+        return;
+    }
+    *sent = true;
+    send_request(
+        writer,
+        &KasaneRequest::Resize {
+            rows: rows.saturating_sub(1),
+            cols,
+        },
+    );
+}
+
 /// Spawn a background thread that reads JSON-RPC messages from a Kakoune process.
 ///
 /// Reads lines from `reader`, parses each as a `KakouneRequest`, and calls

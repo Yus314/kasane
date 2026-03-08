@@ -9,7 +9,7 @@ use crossbeam_channel::unbounded;
 use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::plugin::{CommandResult, PluginRegistry, execute_commands};
-use kasane_core::protocol::{KakouneRequest, KasaneRequest};
+use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend, render_pipeline};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
@@ -37,14 +37,12 @@ fn process_event(
 ) -> bool {
     match event {
         Event::Kakoune(req) => {
-            if !*initial_resize_sent {
-                *initial_resize_sent = true;
-                let resize = KasaneRequest::Resize {
-                    rows: state.available_height(),
-                    cols: state.cols,
-                };
-                kasane_core::io::send_request(kak_writer, &resize);
-            }
+            kasane_core::io::send_initial_resize(
+                kak_writer,
+                initial_resize_sent,
+                state.rows,
+                state.cols,
+            );
             let (flags, commands) = update(state, Msg::Kakoune(req), registry, grid, scroll_amount);
             *dirty |= flags;
             matches!(

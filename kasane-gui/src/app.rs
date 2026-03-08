@@ -155,14 +155,12 @@ impl<W: Write + Send + 'static> App<W> {
         for event in events {
             match event {
                 GuiEvent::Kakoune(req) => {
-                    if !self.initial_resize_sent {
-                        self.initial_resize_sent = true;
-                        let resize = KasaneRequest::Resize {
-                            rows: self.state.available_height(),
-                            cols: self.state.cols,
-                        };
-                        kasane_core::io::send_request(&mut self.kak_writer, &resize);
-                    }
+                    kasane_core::io::send_initial_resize(
+                        &mut self.kak_writer,
+                        &mut self.initial_resize_sent,
+                        self.state.rows,
+                        self.state.cols,
+                    );
                     let (flags, commands) = update(
                         &mut self.state,
                         Msg::Kakoune(req),
