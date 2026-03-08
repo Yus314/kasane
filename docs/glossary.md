@@ -20,7 +20,7 @@
 
 | 用語 | 説明 |
 |------|------|
-| Element | UI の宣言的記述の最小単位。Text, Flex, Stack, Grid, Container 等のバリアントを持つ enum。view() が返すツリーの構成要素 |
+| Element | UI の宣言的記述の最小単位。Text, StyledLine, Flex, Stack, Scrollable, Container, Interactive, Empty, BufferRef のバリアントを持つ enum。view() が返すツリーの構成要素。Grid は設計予約 (未実装) |
 | Element ツリー | Element のネスト構造。view(&State) の戻り値。フレームワークがレイアウト計算と CellGrid 描画に使用 |
 | view() | State を受け取り Element ツリーを返す純粋関数。TEA の中核 |
 | paint() | Element ツリーとレイアウト結果を受け取り、CellGrid に描画する処理 |
@@ -38,7 +38,7 @@
 | State | アプリケーション全体の状態。CoreState (Kakoune 由来) + プラグイン状態を保持 |
 | Msg | 状態変更を引き起こすメッセージ。Kakoune メッセージ、入力イベント、プラグインメッセージ等 |
 | update() | State と Msg を受け取り、State を更新して Command を返す関数。副作用は Command として明示化 |
-| Command | update() が返す副作用の記述。SendToKakoune, Quit, Broadcast, Async 等 |
+| Command | update() が返す副作用の記述。SendToKakoune, Paste, Quit |
 | CoreState | Kakoune プロトコル由来の状態 (バッファ行、カーソル、メニュー、ステータス等)。プラグインからは読み取り専用 |
 
 ## プラグインシステム

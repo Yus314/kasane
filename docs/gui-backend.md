@@ -14,10 +14,10 @@
 | ライブラリ | バージョン | 役割 |
 |-----------|-----------|------|
 | winit | 0.30 | ウィンドウ管理・入力イベント・IME |
-| wgpu | 24 | GPU 描画 API (Vulkan/Metal/DX12/GL 抽象) |
+| wgpu | 28 | GPU 描画 API (Vulkan/Metal/DX12/GL 抽象) |
 | glyphon | 0.10 | テキストレンダリング (cosmic-text + swash + etagere アトラス) |
-| softbuffer | 0.4 | CPU フォールバック用フレームバッファ |
-| tiny-skia | 0.11 | CPU フォールバック用 2D ラスタライザ |
+| softbuffer | 0.4 | CPU フォールバック用フレームバッファ (Phase G3 CPU フォールバック用・未実装) |
+| tiny-skia | 0.11 | CPU フォールバック用 2D ラスタライザ (Phase G3 CPU フォールバック用・未実装) |
 | arboard | 3 | クリップボード (workspace 既存依存) |
 
 **選定根拠:** cosmic-term (COSMIC Desktop 公式ターミナル) が同一スタックを本番運用しており、モノスペースグリッド描画の実績がある。glyphon は cosmic-text のフォントシェーピング (rustybuzz) + swash ラスタライズ + etagere アトラスパッキングを wgpu パイプラインに統合する。Kasane のグリッドサイズ (最大 ~200x50 = 10,000 セル) は十分にパフォーマンス範囲内。
@@ -44,21 +44,32 @@ kasane/
 ├── kasane-core/                  # 変更なし (共有コア)
 ├── kasane-tui/                   # 変更なし (TUI バックエンド)
 ├── kasane-macros/                # 変更なし (proc macro)
-├── kasane-gui/                   # 新規: GUI バックエンド
+├── kasane-gui/                   # GUI バックエンド
 │   ├── Cargo.toml
 │   └── src/
-│       ├── lib.rs                # pub GuiBackend, pub run_gui()
-│       ├── backend.rs            # RenderBackend impl (GPU/CPU ディスパッチ)
+│       ├── lib.rs                # pub run_gui() エントリポイント
+│       ├── app.rs                # winit ApplicationHandler 実装
+│       ├── backend.rs            # RenderBackend の GUI 実装
 │       ├── input.rs              # winit WindowEvent → InputEvent 変換
+│       ├── animation.rs          # スクロールアニメーション
+│       ├── colors.rs             # カラーパレット解決
 │       ├── gpu/
 │       │   ├── mod.rs            # wgpu Device/Queue/Surface 初期化
-│       │   └── cell_renderer.rs  # CellDiff → インスタンスバッファ → glyphon 描画
+│       │   ├── cell_renderer.rs  # セルグリッド描画 (背景+テキスト+カーソル)
+│       │   ├── scene_renderer.rs # SceneRenderer — DrawCommand ベース描画
+│       │   ├── metrics.rs        # フォントメトリクス・セル寸法計算
+│       │   ├── bg_pipeline.rs    # 背景描画パイプライン
+│       │   ├── border_pipeline.rs # ボーダー描画パイプライン
+│       │   ├── bg.wgsl           # 背景シェーダー
+│       │   └── rounded_rect.wgsl # 角丸矩形シェーダー
 │       └── cpu/
-│           ├── mod.rs            # softbuffer 初期化
-│           └── cell_renderer.rs  # tiny-skia 描画 (フォールバック)
+│           └── mod.rs            # CPU フォールバック (未実装)
 └── kasane/                       # メインバイナリ
     ├── Cargo.toml                # [features] gui = ["dep:kasane-gui"]
-    └── src/main.rs               # run_tui/run_gui 分岐追加
+    └── src/
+        ├── main.rs               # エントリポイント (run_tui/run_gui 分岐)
+        ├── cli.rs                # CLI 引数パーサー
+        └── process.rs            # Kakoune 子プロセス管理
 ```
 
 **Cargo.toml (kasane バイナリ):**
@@ -232,7 +243,9 @@ rows = floor(window_height / cell_height)
 
 ## RenderBackend 拡張
 
-現在の `RenderBackend` trait (`kasane-core/src/render/mod.rs`) に以下のメソッドを追加する。既存メソッドへの変更はなし。TUI 側はデフォルト実装 (no-op / 固定値) を使用する。
+> **注:** 実装では SceneRenderer + DrawCommand ベースのアーキテクチャを採用したため、以下の `draw_overlay()` 等の拡張メソッドは RenderBackend trait には追加されていない。GUI のレンダリングは DrawCommand 列を SceneRenderer が処理する方式となっている。以下は当初の設計案として記録を残す。
+
+当初の設計案: `RenderBackend` trait (`kasane-core/src/render/mod.rs`) に以下のメソッドを追加する構想だった。
 
 ```rust
 pub trait RenderBackend {
@@ -433,20 +446,20 @@ pub struct ColorsConfig {
 
 ## 実装フェーズ
 
-### Phase G1 (MVP)
+### Phase G1 (MVP) — ✓ 完了 (commit 43acdc0)
 
 セル描画 + キー入力 + リサイズ + HiDPI + カーソル + 設定 + CLI。
 **目標:** GUI ウィンドウで Kakoune がキーボード操作可能になる。
 
-### Phase G2
+### Phase G2 — ✓ 完了
 
-マウス + クリップボード + IME + VSync スムーズスクロール。
+マウス + クリップボード + VSync スムーズスクロール。
 **目標:** TUI と同等の操作性を達成する。
 
-### Phase G3
+### Phase G3 — ✓ 完了
 
-GPU アルファシャドウ + CPU フォールバック + ファイル D&D。
-**目標:** GUI 固有の視覚品質と堅牢性を確保する。
+ボーダー・シャドウの GPU 描画。
+**目標:** GUI 固有の視覚品質を確保する。
 
 ## 各フェーズの詳細タスクリスト
 
@@ -650,7 +663,7 @@ impl GuiBackend {
 
 ### 統合テスト
 
-- kasane-core の既存テスト (289件) が `--features gui` ビルドでも全パスすることを確認
+- kasane-core の既存テスト (305件) が `--features gui` ビルドでも全パスすることを確認
 - `Config` 拡張が既存設定ファイルとの後方互換性を維持することを確認
 
 ### 手動テストチェックリスト

@@ -77,11 +77,7 @@ enum Element {
         overlays: Vec<Overlay>,
     },
 
-    /// 表形式の配置
-    Grid {
-        columns: Vec<GridColumn>,
-        rows: Vec<Vec<Element>>,
-    },
+    // Grid は設計予約。現実装では未使用。
 
     /// スクロール可能な領域
     Scrollable {
@@ -93,10 +89,11 @@ enum Element {
     /// 装飾 (border, shadow, padding)
     Container {
         child: Box<Element>,
-        border: Option<BorderStyle>,
+        border: Option<BorderConfig>,
         shadow: bool,
         padding: Edges,
         style: Style,
+        title: Option<Line>,
     },
 
     /// マウスヒットテスト対象
@@ -132,10 +129,8 @@ struct Overlay {
 }
 
 enum OverlayAnchor {
-    /// 画面座標に対する絶対位置
-    Absolute(Coord),
-    /// 親要素に対する相対位置
-    Relative { x: Align, y: Align },
+    /// 画面座標に対する絶対位置 (矩形で指定)
+    Absolute { x: u16, y: u16, w: u16, h: u16 },
     /// Kakoune 互換の anchor ベース配置 (compute_pos 相当)
     AnchorPoint {
         coord: Coord,
@@ -298,44 +293,55 @@ enum Focus {
 ```rust
 enum Msg {
     Kakoune(KakouneRequest),
-    Input(InputEvent),
-    Resize(u16, u16),
-    Plugin(PluginId, Box<dyn Any>),  // プラグインの Msg は型消去
+    Key(KeyEvent),
+    Mouse(MouseEvent),
+    Paste,
+    Resize { cols: u16, rows: u16 },
+    FocusGained,
+    FocusLost,
 }
 ```
+
+> **注:** 当初設計の `Input(InputEvent)` は個別バリアントに分解された。`Plugin(PluginId, Box<dyn Any>)` は将来のプラグイン間通信のための設計予約だったが、現実装では未使用。
 
 ### コマンド型 (副作用)
 
 ```rust
 enum Command {
     SendToKakoune(KasaneRequest),
+    Paste,
     Quit,
-    Broadcast(BroadcastEvent),
-    Async(Box<dyn FnOnce() -> Result<Msg>>),
 }
 ```
+
+> **注:** 当初設計の `Broadcast`/`Async` は将来のプラグイン間通信・非同期処理のための設計予約だったが、現実装では未使用のため削除された。`Paste` はクリップボード貼り付けの副作用として追加された。
 
 ### update 関数
 
 ```rust
-fn update(state: &mut AppState, msg: Msg) -> Vec<Command> {
+fn update(
+    state: &mut AppState,
+    msg: Msg,
+    registry: &mut PluginRegistry,
+    grid: &mut CellGrid,
+    scroll_amount: i32,
+) -> (DirtyFlags, Vec<Command>) {
     match msg {
         Msg::Kakoune(req) => {
             state.core.apply(req);  // 既存ロジック活用
-            vec![]
+            // ...
         }
-        Msg::Input(InputEvent::Key(key)) => {
-            // 1. グローバルキーバインド
-            // 2. フォーカスされたプラグインに問い合わせ
-            // 3. デフォルト: Kakoune に転送
+        Msg::Key(key) => {
+            // 1. プラグインの handle_key() を優先度順に問い合わせ
+            // 2. デフォルト: Kakoune に転送
         }
-        Msg::Input(InputEvent::Mouse(mouse)) => {
+        Msg::Mouse(mouse) => {
             // InteractiveId によるヒットテストで対象を特定
             // 対象プラグインの handle_mouse() を呼ぶ
         }
-        Msg::Plugin(id, plugin_msg) => {
-            // 該当プラグインの update() を呼ぶ
-        }
+        Msg::Paste => { /* クリップボード貼り付け */ }
+        Msg::Resize { cols, rows } => { /* グリッドサイズ更新 */ }
+        Msg::FocusGained | Msg::FocusLost => { /* フォーカス状態更新 */ }
     }
 }
 ```
@@ -344,12 +350,13 @@ fn update(state: &mut AppState, msg: Msg) -> Vec<Command> {
 
 ```rust
 fn view(state: &AppState, registry: &PluginRegistry) -> Element {
-    let mut root = core_view(&state.core, registry);
-    root = registry.apply_decorators(root, &state.core);
-    root = registry.apply_replacements(root, &state.core);
-    root
+    // view/mod.rs: Element ツリーを構築
+    // 各 build_* 関数内で Slot 収集・Decorator 適用・Replacement 解決を行う
+    // 最終的に Flex(Column) のルート Element を返す
 }
 ```
+
+> 実装では `core_view` + 後付けの `apply_decorators`/`apply_replacements` ではなく、各 `build_*` 関数内で `registry.collect_slot()`, `registry.apply_decorator()`, `registry.get_replacement()` を個別に呼び出す方式を採用している。
 
 ## プラグインシステム
 
@@ -361,33 +368,35 @@ trait Plugin: Any {
     fn id(&self) -> PluginId;
 
     /// イベント処理 (型消去された Msg をダウンキャストして処理)
-    fn update(&mut self, msg: Box<dyn Any>, core: &CoreState) -> Vec<Command>;
+    fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command>;
 
-    /// キーイベント処理 (フォーカス時に呼ばれる)
-    fn handle_key(&mut self, key: KeyEvent, core: &CoreState) -> Option<Vec<Command>>;
+    /// キーイベント処理 (優先度順に問い合わせ)
+    fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>>;
 
     /// マウスイベント処理 (InteractiveId がマッチした時に呼ばれる)
-    fn handle_mouse(&mut self, event: MouseEvent, core: &CoreState) -> Option<Vec<Command>>;
+    fn handle_mouse(&mut self, event: &MouseEvent, id: InteractiveId, state: &AppState) -> Option<Vec<Command>>;
 
     /// Slot への Element 提供
-    fn contribute(&self, slot: Slot, core: &CoreState) -> Option<Element>;
+    fn contribute(&self, slot: Slot, state: &AppState) -> Option<Element>;
 
     /// Decorator: 既存 Element のラップ
-    fn decorate(&self, target: DecorateTarget, element: Element, core: &CoreState) -> Element {
+    fn decorate(&self, target: DecorateTarget, element: Element, state: &AppState) -> Element {
         element  // デフォルト: 変更なし
     }
 
     /// Replacement: 既存コンポーネントの差替
-    fn replace(&self, target: ReplaceTarget, core: &CoreState) -> Option<Element> {
+    fn replace(&self, target: ReplaceTarget, state: &AppState) -> Option<Element> {
         None  // デフォルト: 差替なし
     }
 
-    /// グローバルキーバインド登録
-    fn keybindings(&self) -> Vec<(KeyEvent, Box<dyn Any>)> {
-        vec![]
+    /// Decorator の適用優先度 (高い値 = 内側、先に適用)
+    fn decorator_priority(&self) -> u32 {
+        0
     }
 }
 ```
+
+> **変更点:** 全メソッドの `&CoreState` → `&AppState` に統一。`handle_key` の `key: KeyEvent` → `key: &KeyEvent` (参照)。`handle_mouse` に `id: InteractiveId` パラメータ追加、`event: MouseEvent` → `event: &MouseEvent` (参照)。`keybindings()` → `decorator_priority()` に置き換え。
 
 ### proc macro によるプラグイン定義
 
@@ -831,7 +840,8 @@ enum StyleToken {
 
 **注:** プラグインシステムは完全に動作するが、実プラグインはまだ存在しない。Phase 4a で実プラグインを構築して API を実証する。
 
-### Phase 4: 拡張プラグイン実証 + GUI バックエンド
+### Phase 4: 拡張プラグイン実証
 
 - 実プラグイン構築によるプラグインシステムの実証
-- GUI バックエンド (winit + wgpu + cosmic-text) の追加
+
+> **注:** GUI バックエンド (winit + wgpu + glyphon) は Phase G として独立して実装済み。詳細は [gui-backend.md](./gui-backend.md) を参照。
