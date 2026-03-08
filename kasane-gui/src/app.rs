@@ -5,7 +5,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
@@ -85,9 +85,14 @@ impl<W: Write + Send + 'static> App<W> {
         // Approximate logical size (will be recalculated after font metrics)
         let logical_size = LogicalSize::new(initial_cols * 9.0, initial_rows * 18.0);
 
-        let attrs = WindowAttributes::default()
+        let mut attrs = WindowAttributes::default()
             .with_title("kasane")
-            .with_inner_size(logical_size);
+            .with_inner_size(logical_size)
+            .with_maximized(self.config.window.maximized);
+
+        if self.config.window.fullscreen {
+            attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
 
         let window = Arc::new(
             event_loop
@@ -132,6 +137,17 @@ impl<W: Write + Send + 'static> App<W> {
         }
 
         self.window = Some(window);
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        if let Some(ref window) = self.window {
+            let new = if window.fullscreen().is_some() {
+                None
+            } else {
+                Some(Fullscreen::Borderless(None))
+            };
+            window.set_fullscreen(new);
+        }
     }
 
     fn process_pending_events(&mut self, event_loop: &ActiveEventLoop) {
@@ -290,6 +306,14 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 // Handled via Resized which follows
+                return;
+            }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == winit::event::ElementState::Pressed
+                    && event.logical_key
+                        == winit::keyboard::Key::Named(winit::keyboard::NamedKey::F11) =>
+            {
+                self.toggle_fullscreen();
                 return;
             }
             WindowEvent::RedrawRequested => {

@@ -189,17 +189,23 @@ The following sections only apply when using `--ui gui` or `backend = "gui"`. Th
 
 ### `[window]`
 
-Initial window dimensions.
+Window settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `initial_cols` | integer | `80` | Initial window width in columns |
 | `initial_rows` | integer | `24` | Initial window height in rows |
+| `fullscreen` | bool | `false` | Start in borderless fullscreen mode |
+| `maximized` | bool | `false` | Start with window maximized |
+
+When `fullscreen` is `true`, `initial_cols` and `initial_rows` are ignored (the window fills the entire monitor). Fullscreen can be toggled at runtime with F11.
 
 ```toml
 [window]
 initial_cols = 120
 initial_rows = 36
+fullscreen = false
+maximized = true
 ```
 
 ### `[font]`

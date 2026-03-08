@@ -193,6 +193,8 @@ impl Default for LogConfig {
 pub struct WindowConfig {
     pub initial_cols: u16,
     pub initial_rows: u16,
+    pub fullscreen: bool,
+    pub maximized: bool,
 }
 
 impl Default for WindowConfig {
@@ -200,6 +202,8 @@ impl Default for WindowConfig {
         WindowConfig {
             initial_cols: 80,
             initial_rows: 24,
+            fullscreen: false,
+            maximized: false,
         }
     }
 }
@@ -365,6 +369,21 @@ drag_scroll = false
         let config = Config::default();
         assert_eq!(config.window.initial_cols, 80);
         assert_eq!(config.window.initial_rows, 24);
+        assert!(!config.window.fullscreen);
+        assert!(!config.window.maximized);
+    }
+
+    #[test]
+    fn test_window_config_fullscreen() {
+        let toml_str = r#"
+[window]
+fullscreen = true
+maximized = true
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.window.fullscreen);
+        assert!(config.window.maximized);
+        assert_eq!(config.window.initial_cols, 80); // default preserved
     }
 
     #[test]
