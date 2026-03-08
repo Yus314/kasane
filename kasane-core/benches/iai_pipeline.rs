@@ -146,14 +146,14 @@ fn iai_paint_80x24(
 // Grid diff: full redraw (previous buffer empty)
 #[library_benchmark]
 #[bench::default(setup_grid_diff_full())]
-fn iai_grid_diff_full(mut grid: CellGrid) {
+fn iai_grid_diff_full(grid: CellGrid) {
     let _ = grid.diff();
 }
 
 // Grid diff: incremental (identical content — empty diff)
 #[library_benchmark]
 #[bench::default(setup_grid_diff_incremental())]
-fn iai_grid_diff_incremental(mut grid: CellGrid) {
+fn iai_grid_diff_incremental(grid: CellGrid) {
     let _ = grid.diff();
 }
 

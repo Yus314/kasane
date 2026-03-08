@@ -4,7 +4,6 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::parse_request;
 use kasane_core::render::{CellGrid, render_pipeline};
-use kasane_core::state::AppState;
 
 use fixtures::{draw_json, draw_status_json, menu_show_json, set_cursor_json, typical_state};
 

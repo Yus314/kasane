@@ -149,6 +149,7 @@ impl BorderPipeline {
     }
 
     /// Push a rounded rect instance.
+    #[allow(clippy::too_many_arguments)]
     pub fn push_rounded_rect(
         &mut self,
         x: f32,

@@ -422,7 +422,7 @@ fn test_kasane_request_menu_select_json() {
 #[test]
 fn test_parse_real_kakoune_session() {
     // Real messages captured from `kak -ui json`
-    let messages = vec![
+    let messages = [
         r#"{ "jsonrpc": "2.0", "method": "set_ui_options", "params": [{}] }"#,
         r#"{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "black", "bg": "white", "underline": "default", "attributes": ["final_fg","final_bg"] }, "contents": "t" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "est\u000a" }]], { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }] }"#,
         r#"{ "jsonrpc": "2.0", "method": "draw_status", "params": [[], [{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "file.txt 1:1 " }, { "face": { "fg": "black", "bg": "yellow", "underline": "default", "attributes": [] }, "contents": "" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, "contents": "1 sel" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " - client0@[session]" }], { "fg": "cyan", "bg": "default", "underline": "default", "attributes": [] }] }"#,

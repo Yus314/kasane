@@ -303,6 +303,7 @@ fn scene_paint_buffer_ref(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scene_paint_container(
     ctx: &SceneContext,
     area: &Rect,
