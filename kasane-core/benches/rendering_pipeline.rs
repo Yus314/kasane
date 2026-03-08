@@ -1,17 +1,17 @@
 mod fixtures;
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::{DecorateTarget, PluginRegistry, Slot};
-use kasane_core::protocol::parse_request;
+use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
 
 use fixtures::{
-    draw_json, draw_request, draw_status_json, menu_show_json, registry_with_plugins,
-    set_cursor_json, state_with_menu, typical_state,
+    draw_json, draw_request, draw_status_json, menu_show_json, realistic_state,
+    registry_with_plugins, set_cursor_json, state_with_edit, state_with_menu, typical_state,
 };
 
 // ---------------------------------------------------------------------------
@@ -99,6 +99,28 @@ fn bench_paint(c: &mut Criterion) {
         let mut grid = CellGrid::new(state.cols, state.rows);
 
         group.bench_function("200x60", |b| {
+            b.iter(|| {
+                grid.clear(&state.default_face);
+                paint::paint(&element, &layout, &mut grid, &state);
+            });
+        });
+    }
+
+    // realistic 80x24 (diverse faces, varied line lengths, wide chars)
+    {
+        let state = realistic_state(23);
+        let registry = PluginRegistry::new();
+        let element = view::view(&state, &registry);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
+        let layout = flex::place(&element, area, &state);
+        let mut grid = CellGrid::new(state.cols, state.rows);
+
+        group.bench_function("80x24_realistic", |b| {
             b.iter(|| {
                 grid.clear(&state.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
@@ -202,6 +224,25 @@ fn bench_plugin_dispatch(c: &mut Criterion) {
     group.finish();
 }
 
+/// Bench: grid.clear() standalone — isolate O(w×h) clear cost from paint
+fn bench_grid_clear(c: &mut Criterion) {
+    let mut group = c.benchmark_group("grid_clear");
+    let face = kasane_core::protocol::Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..kasane_core::protocol::Face::default()
+    };
+
+    for (cols, rows, label) in [(80, 24, "80x24"), (200, 60, "200x60")] {
+        let mut grid = CellGrid::new(cols, rows);
+        group.bench_function(label, |b| {
+            b.iter(|| grid.clear(&face));
+        });
+    }
+
+    group.finish();
+}
+
 // ---------------------------------------------------------------------------
 // Integration benchmarks
 // ---------------------------------------------------------------------------
@@ -224,8 +265,9 @@ fn bench_full_frame(c: &mut Criterion) {
             let layout = flex::place(&element, area, &state);
             grid.clear(&state.default_face);
             paint::paint(&element, &layout, &mut grid, &state);
-            let _diffs = grid.diff();
+            let diffs = grid.diff();
             grid.swap();
+            diffs.len()
         });
     });
 }
@@ -245,17 +287,20 @@ fn bench_draw_message(c: &mut Criterion) {
         };
         let mut grid = CellGrid::new(base_state.cols, base_state.rows);
 
-        b.iter(|| {
-            let mut state = base_state.clone();
-            state.apply(draw.clone());
-
-            let element = view::view(&state, &registry);
-            let layout = flex::place(&element, area, &state);
-            grid.clear(&state.default_face);
-            paint::paint(&element, &layout, &mut grid, &state);
-            let _diffs = grid.diff();
-            grid.swap();
-        });
+        b.iter_batched(
+            || (base_state.clone(), draw.clone()),
+            |(mut state, req)| {
+                state.apply(req);
+                let element = view::view(&state, &registry);
+                let layout = flex::place(&element, area, &state);
+                grid.clear(&state.default_face);
+                paint::paint(&element, &layout, &mut grid, &state);
+                let diffs = grid.diff();
+                grid.swap();
+                diffs.len()
+            },
+            BatchSize::SmallInput,
+        );
     });
 }
 
@@ -284,14 +329,113 @@ fn bench_menu_show(c: &mut Criterion) {
                     let layout = flex::place(&element, area, &state);
                     grid.clear(&state.default_face);
                     paint::paint(&element, &layout, &mut grid, &state);
-                    let _diffs = grid.diff();
+                    let diffs = grid.diff();
                     grid.swap();
+                    diffs.len()
                 });
             },
         );
     }
 
     group.finish();
+}
+
+/// Bench 10: Incremental edit — most frequent operation pattern
+fn bench_incremental_edit(c: &mut Criterion) {
+    let mut group = c.benchmark_group("incremental_edit");
+
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+
+    for edit_lines in [1, 5] {
+        // Render "before" frame into previous buffer
+        let mut grid = CellGrid::new(state.cols, state.rows);
+        let element = view::view(&state, &registry);
+        let layout = flex::place(&element, area, &state);
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+        grid.swap();
+
+        // "after" state with edited lines
+        let edited_state = state_with_edit(&state, 10, edit_lines);
+
+        group.bench_function(BenchmarkId::new("lines", edit_lines), |b| {
+            b.iter(|| {
+                // Re-render into current buffer and diff (previous stays fixed — no swap)
+                let element = view::view(&edited_state, &registry);
+                let layout = flex::place(&element, area, &edited_state);
+                grid.clear(&edited_state.default_face);
+                paint::paint(&element, &layout, &mut grid, &edited_state);
+                grid.diff().len()
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Bench 11: Realistic message sequence — draw_status + set_cursor + draw → full render
+fn bench_message_sequence(c: &mut Criterion) {
+    let registry = PluginRegistry::new();
+    let draw_status = kasane_core::protocol::KakouneRequest::DrawStatus {
+        status_line: vec![kasane_core::protocol::Atom {
+            face: kasane_core::protocol::Face::default(),
+            contents: " INSERT ".to_string(),
+        }],
+        mode_line: vec![kasane_core::protocol::Atom {
+            face: kasane_core::protocol::Face::default(),
+            contents: "insert".to_string(),
+        }],
+        default_face: kasane_core::protocol::Face::default(),
+    };
+    let set_cursor = kasane_core::protocol::KakouneRequest::SetCursor {
+        mode: kasane_core::protocol::CursorMode::Buffer,
+        coord: kasane_core::protocol::Coord {
+            line: 10,
+            column: 15,
+        },
+    };
+    let draw = draw_request(23);
+    let base_state = typical_state(23);
+    let area = Rect {
+        x: 0,
+        y: 0,
+        w: base_state.cols,
+        h: base_state.rows,
+    };
+    let mut grid = CellGrid::new(base_state.cols, base_state.rows);
+
+    c.bench_function("message_sequence", |b| {
+        b.iter_batched(
+            || {
+                (
+                    base_state.clone(),
+                    draw_status.clone(),
+                    set_cursor.clone(),
+                    draw.clone(),
+                )
+            },
+            |(mut state, msg1, msg2, msg3)| {
+                state.apply(msg1);
+                state.apply(msg2);
+                state.apply(msg3);
+                let element = view::view(&state, &registry);
+                let layout = flex::place(&element, area, &state);
+                grid.clear(&state.default_face);
+                paint::paint(&element, &layout, &mut grid, &state);
+                let diffs = grid.diff();
+                grid.swap();
+                diffs.len()
+            },
+            BatchSize::SmallInput,
+        );
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -309,10 +453,11 @@ fn bench_parse_request(c: &mut Criterion) {
             BenchmarkId::new("draw_lines", line_count),
             &json,
             |b, json| {
-                b.iter(|| {
-                    let mut buf = json.clone();
-                    parse_request(&mut buf).unwrap()
-                })
+                b.iter_batched(
+                    || json.clone(),
+                    |mut buf| parse_request(&mut buf).unwrap(),
+                    BatchSize::SmallInput,
+                )
             },
         );
     }
@@ -320,28 +465,31 @@ fn bench_parse_request(c: &mut Criterion) {
     // draw_status (small, high-frequency message)
     let json = draw_status_json();
     group.bench_function("draw_status", |b| {
-        b.iter(|| {
-            let mut buf = json.clone();
-            parse_request(&mut buf).unwrap()
-        })
+        b.iter_batched(
+            || json.clone(),
+            |mut buf| parse_request(&mut buf).unwrap(),
+            BatchSize::SmallInput,
+        )
     });
 
     // set_cursor (minimal message)
     let json = set_cursor_json();
     group.bench_function("set_cursor", |b| {
-        b.iter(|| {
-            let mut buf = json.clone();
-            parse_request(&mut buf).unwrap()
-        })
+        b.iter_batched(
+            || json.clone(),
+            |mut buf| parse_request(&mut buf).unwrap(),
+            BatchSize::SmallInput,
+        )
     });
 
     // menu_show with 50 items
     let json = menu_show_json(50);
     group.bench_function("menu_show_50", |b| {
-        b.iter(|| {
-            let mut buf = json.clone();
-            parse_request(&mut buf).unwrap()
-        })
+        b.iter_batched(
+            || json.clone(),
+            |mut buf| parse_request(&mut buf).unwrap(),
+            BatchSize::SmallInput,
+        )
     });
 
     group.finish();
@@ -359,10 +507,11 @@ fn bench_state_apply(c: &mut Criterion) {
             BenchmarkId::new("draw_lines", line_count),
             &line_count,
             |b, _| {
-                b.iter(|| {
-                    let mut state = base_state.clone();
-                    state.apply(draw.clone())
-                })
+                b.iter_batched(
+                    || (base_state.clone(), draw.clone()),
+                    |(mut state, req)| state.apply(req),
+                    BatchSize::SmallInput,
+                )
             },
         );
     }
@@ -382,10 +531,11 @@ fn bench_state_apply(c: &mut Criterion) {
         };
         let base_state = typical_state(23);
         group.bench_function("draw_status", |b| {
-            b.iter(|| {
-                let mut state = base_state.clone();
-                state.apply(request.clone())
-            })
+            b.iter_batched(
+                || (base_state.clone(), request.clone()),
+                |(mut state, req)| state.apply(req),
+                BatchSize::SmallInput,
+            )
         });
     }
 
@@ -400,10 +550,11 @@ fn bench_state_apply(c: &mut Criterion) {
         };
         let base_state = typical_state(23);
         group.bench_function("set_cursor", |b| {
-            b.iter(|| {
-                let mut state = base_state.clone();
-                state.apply(request.clone())
-            })
+            b.iter_batched(
+                || (base_state.clone(), request.clone()),
+                |(mut state, req)| state.apply(req),
+                BatchSize::SmallInput,
+            )
         });
     }
 
@@ -429,10 +580,11 @@ fn bench_state_apply(c: &mut Criterion) {
         };
         let base_state = typical_state(23);
         group.bench_function("menu_show_50", |b| {
-            b.iter(|| {
-                let mut state = base_state.clone();
-                state.apply(request.clone())
-            })
+            b.iter_batched(
+                || (base_state.clone(), request.clone()),
+                |(mut state, req)| state.apply(req),
+                BatchSize::SmallInput,
+            )
         });
     }
 
@@ -469,8 +621,9 @@ fn bench_scaling(c: &mut Criterion) {
                 let layout = flex::place(&element, area, &state);
                 grid.clear(&state.default_face);
                 paint::paint(&element, &layout, &mut grid, &state);
-                let _diffs = grid.diff();
+                let diffs = grid.diff();
                 grid.swap();
+                diffs.len()
             });
         });
     }
@@ -480,12 +633,14 @@ fn bench_scaling(c: &mut Criterion) {
         let json = draw_json(line_count);
         let base_state = typical_state(23);
         group.bench_function(BenchmarkId::new("parse_apply_draw", line_count), |b| {
-            b.iter(|| {
-                let mut buf = json.clone();
-                let request = parse_request(&mut buf).unwrap();
-                let mut state = base_state.clone();
-                state.apply(request)
-            })
+            b.iter_batched(
+                || (json.clone(), base_state.clone()),
+                |(mut buf, mut state)| {
+                    let request = parse_request(&mut buf).unwrap();
+                    state.apply(request)
+                },
+                BatchSize::SmallInput,
+            )
         });
     }
 
@@ -609,6 +764,125 @@ fn bench_allocations(c: &mut Criterion) {
     }
 
     group.finish();
+
+    // Report allocation counts from a single iteration
+    {
+        let state = typical_state(23);
+        let registry = PluginRegistry::new();
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
+        let mut grid = CellGrid::new(state.cols, state.rows);
+
+        alloc_counter::reset();
+        let element = view::view(&state, &registry);
+        let layout = flex::place(&element, area, &state);
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+        let _diffs = grid.diff();
+        grid.swap();
+        let (count, bytes) = alloc_counter::snapshot();
+        eprintln!(
+            "\n[alloc] full_frame: {} allocations, {} bytes ({:.1} KB)",
+            count,
+            bytes,
+            bytes as f64 / 1024.0
+        );
+
+        let json = draw_json(100);
+        alloc_counter::reset();
+        let mut buf = json.clone();
+        let _ = parse_request(&mut buf).unwrap();
+        let (count, bytes) = alloc_counter::snapshot();
+        eprintln!(
+            "[alloc] parse_request (100 lines): {} allocations, {} bytes ({:.1} KB)",
+            count,
+            bytes,
+            bytes as f64 / 1024.0
+        );
+    }
+
+    // Per-phase allocation breakdown
+    {
+        let state = typical_state(23);
+        let registry = PluginRegistry::new();
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
+        let mut grid = CellGrid::new(state.cols, state.rows);
+
+        // view
+        alloc_counter::reset();
+        let element = view::view(&state, &registry);
+        let (c1, b1) = alloc_counter::snapshot();
+
+        // place
+        alloc_counter::reset();
+        let layout = flex::place(&element, area, &state);
+        let (c2, b2) = alloc_counter::snapshot();
+
+        // clear + paint
+        alloc_counter::reset();
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+        let (c3, b3) = alloc_counter::snapshot();
+
+        // diff
+        alloc_counter::reset();
+        let _diffs = grid.diff();
+        let (c4, b4) = alloc_counter::snapshot();
+
+        // swap
+        alloc_counter::reset();
+        grid.swap();
+        let (c5, b5) = alloc_counter::snapshot();
+
+        eprintln!("\n[alloc] Per-phase breakdown (80x24, 0 plugins):");
+        eprintln!(
+            "  view:        {:>4} allocs, {:>8} bytes ({:.1} KB)",
+            c1,
+            b1,
+            b1 as f64 / 1024.0
+        );
+        eprintln!(
+            "  place:       {:>4} allocs, {:>8} bytes ({:.1} KB)",
+            c2,
+            b2,
+            b2 as f64 / 1024.0
+        );
+        eprintln!(
+            "  clear+paint: {:>4} allocs, {:>8} bytes ({:.1} KB)",
+            c3,
+            b3,
+            b3 as f64 / 1024.0
+        );
+        eprintln!(
+            "  diff:        {:>4} allocs, {:>8} bytes ({:.1} KB)",
+            c4,
+            b4,
+            b4 as f64 / 1024.0
+        );
+        eprintln!(
+            "  swap:        {:>4} allocs, {:>8} bytes ({:.1} KB)",
+            c5,
+            b5,
+            b5 as f64 / 1024.0
+        );
+        let total_c = c1 + c2 + c3 + c4 + c5;
+        let total_b = b1 + b2 + b3 + b4 + b5;
+        eprintln!(
+            "  total:       {:>4} allocs, {:>8} bytes ({:.1} KB)",
+            total_c,
+            total_b,
+            total_b as f64 / 1024.0
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +895,7 @@ criterion_group!(
     bench_flex_layout,
     bench_paint,
     bench_grid_diff,
+    bench_grid_clear,
     bench_decorator_chain,
     bench_plugin_dispatch,
 );
@@ -630,6 +905,8 @@ criterion_group!(
     bench_full_frame,
     bench_draw_message,
     bench_menu_show,
+    bench_incremental_edit,
+    bench_message_sequence,
 );
 
 criterion_group!(

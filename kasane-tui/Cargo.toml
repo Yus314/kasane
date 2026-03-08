@@ -11,3 +11,12 @@ crossbeam-channel = { workspace = true }
 arboard = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "backend"
+harness = false

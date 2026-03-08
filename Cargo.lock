@@ -1298,9 +1298,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "criterion",
  "crossbeam-channel",
  "crossterm",
  "kasane-core",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 

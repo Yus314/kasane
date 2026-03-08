@@ -305,7 +305,7 @@ cargo bench --bench rendering_pipeline -- "paint" # 特定ベンチのみ
 
 HTML レポート: `target/criterion/*/report/index.html`
 
-### マイクロベンチマーク (6 種)
+### マイクロベンチマーク (11 種)
 
 | ベンチマーク | 測定対象 | 目標 | 計測値 | 判定 |
 |---|---|---|---|---|
@@ -314,6 +314,9 @@ HTML レポート: `target/criterion/*/report/index.html`
 | `flex_layout` | place() レイアウト計算 | < 5 μs | 0.38 μs | OK (13x 余裕) |
 | `paint/80x24` | clear() + paint() | — | 20.3 μs | 旧パイプライン同等 |
 | `paint/200x60` | clear() + paint() (大画面) | — | 85.8 μs | 面積比で線形 |
+| `paint/80x24_realistic` | clear() + paint() (多様 Face/行長) | — | — | Face 多様性の影響計測 |
+| `grid_clear/80x24` | clear() 単独 | — | — | paint から分離計測 |
+| `grid_clear/200x60` | clear() 単独 (大画面) | — | — | |
 | `grid_diff/full_redraw` | diff() 初回フレーム | < 10 μs | 24.1 μs | 超過 (注1) |
 | `grid_diff/incremental` | diff() 差分なし | < 10 μs | 11.0 μs | 微超過 (注1) |
 | `decorator_chain/plugins_10` | apply_decorator (10 段) | < 1 μs | 0.12 μs | OK (8.5x 余裕) |
@@ -321,7 +324,7 @@ HTML レポート: `target/criterion/*/report/index.html`
 
 **注1**: `grid_diff` は事前見積もり (~5 μs) の 2-5 倍。Cell の比較コスト (`CompactString(24B) + Face(16B) + u8`) が見積もりより高い。ただし full_redraw は初回フレームのみで、通常フレームは incremental パス。CPU パイプライン全体 (40 μs) の中では 28% を占めるが、16 ms バジェットに対しては無視可能。
 
-### 統合ベンチマーク (3 種)
+### 統合ベンチマーク (5 種)
 
 | ベンチマーク | 測定対象 | 目標 | 計測値 | 判定 |
 |---|---|---|---|---|
@@ -330,6 +333,9 @@ HTML レポート: `target/criterion/*/report/index.html`
 | `menu_show/items_10` | menu 表示 + full frame | < 5 ms | 45 μs | OK |
 | `menu_show/items_50` | menu 50 items + full frame | < 5 ms | 45 μs | OK |
 | `menu_show/items_100` | menu 100 items + full frame | < 5 ms | 46 μs | OK |
+| `incremental_edit/lines/1` | 1 行編集 → view + paint + diff | — | — | 初回計測後に記入 |
+| `incremental_edit/lines/5` | 5 行編集 → view + paint + diff | — | — | 初回計測後に記入 |
+| `message_sequence` | draw_status + set_cursor + draw → 全フレーム | — | — | 初回計測後に記入 |
 
 `menu_show` がアイテム数にほぼ依存しないのは `menu_max_height=10` の制約で表示行数が一定のため。
 
@@ -357,6 +363,50 @@ HTML レポート: `target/criterion/*/report/index.html`
 | `scaling/diff_incremental/80x24` | diff() 差分なし 80x24 | — | |
 | `scaling/diff_incremental/200x60` | diff() 差分なし 200x60 | — | |
 | `scaling/diff_incremental/300x80` | diff() 差分なし 300x80 | — | |
+
+### TUI バックエンド (エスケープシーケンス生成)
+
+`kasane-tui/benches/backend.rs` で MockBackend を使って計測。実端末 I/O を含まない純粋な escape sequence 生成コスト。
+
+| ベンチマーク | 測定対象 | 計測値 | 備考 |
+|---|---|---|---|
+| `backend_draw/full_redraw/80x24` | 80×24 全セル描画 | — | 初回計測後に記入 |
+| `backend_draw/full_redraw/200x60` | 200×60 全セル描画 | — | 大画面 |
+| `backend_draw/incremental_1line` | 1 行変更分の差分描画 | — | 最頻出パターン |
+| `backend_draw/full_redraw_realistic/80x24` | realistic data での escape 生成 | — | Face 変化が多い |
+
+### E2E パイプライン
+
+JSON bytes → parse → apply → render → diff → backend.draw → escape bytes の全経路ベンチマーク。
+
+| ベンチマーク | 測定対象 | 計測値 | 備考 |
+|---|---|---|---|
+| `e2e_pipeline/json_to_escape_80x24` | JSON → escape (均質データ) | — | 初回計測後に記入 |
+| `e2e_pipeline/json_to_escape_realistic` | JSON → escape (多様データ) | — | Face 多様性の影響 |
+
+### アロケーション内訳 (per-phase breakdown)
+
+`--features bench-alloc` で計測。view/place/paint/diff/swap 各フェーズの内訳。
+
+| フェーズ | alloc 数 | bytes | 備考 |
+|---|---|---|---|
+| view | — | — | 初回計測後に記入 |
+| place | — | — | |
+| clear+paint | — | — | |
+| diff | — | — | |
+| swap | — | — | |
+| **合計** | — | — | |
+
+### アロケーションホットスポット (コード分析)
+
+`--features bench-alloc` で計測可能。以下は主なアロケーション発生箇所:
+
+| 箇所 | 内容 | 頻度 |
+|---|---|---|
+| `paint.rs:51` `atoms.to_vec()` | Atom 列の複製 | 行数×フレーム |
+| `paint.rs:123` `ch.to_string()` | グラフェム→String 変換 | セル数×フレーム |
+| `flex.rs:62` `atoms.to_vec()` | レイアウト計算時の Atom 列複製 | ノード数×フレーム |
+| `view/mod.rs:219` `atom.contents.clone()` | Element 構築時の文字列 clone | ステータス行 Atom 数 |
 
 ## パフォーマンス原則
 
