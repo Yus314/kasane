@@ -1,7 +1,7 @@
 mod app;
 pub(crate) mod backend;
-mod colors;
-pub(crate) mod gpu;
+pub mod colors;
+pub mod gpu;
 pub(crate) mod input;
 
 use anyhow::Result;
