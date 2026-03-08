@@ -82,16 +82,16 @@ fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResu
             title,
         } => {
             let face = ctx.theme.resolve(style, &ctx.state.default_face);
-            paint_container(
-                ctx,
-                &area,
+            let args = ContainerPaintArgs {
+                area: &area,
                 child,
                 border,
-                *shadow,
-                &face,
-                title.as_deref(),
+                shadow: *shadow,
+                face: &face,
+                title: title.as_deref(),
                 layout,
-            );
+            };
+            paint_container(ctx, &args);
         }
         Element::Interactive { child, .. } => {
             if let Some(child_layout) = layout.children.first() {
@@ -154,19 +154,22 @@ fn paint_buffer_ref(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_container(
-    ctx: &mut PaintContext,
-    area: &Rect,
-    child: &Element,
-    border: &Option<BorderConfig>,
+struct ContainerPaintArgs<'a> {
+    area: &'a Rect,
+    child: &'a Element,
+    border: &'a Option<BorderConfig>,
     shadow: bool,
-    face: &Face,
-    title: Option<&[crate::protocol::Atom]>,
-    layout: &LayoutResult,
-) {
+    face: &'a Face,
+    title: Option<&'a [crate::protocol::Atom]>,
+    layout: &'a LayoutResult,
+}
+
+fn paint_container(ctx: &mut PaintContext, args: &ContainerPaintArgs) {
+    let area = args.area;
+    let face = args.face;
+
     // Shadow (drawn first, behind the container)
-    if shadow {
+    if args.shadow {
         paint_shadow(ctx.grid, area);
     }
 
@@ -179,7 +182,7 @@ fn paint_container(
     }
 
     // Border
-    if let Some(border_config) = border {
+    if let Some(border_config) = args.border {
         let border_face = border_config
             .face
             .as_ref()
@@ -193,14 +196,14 @@ fn paint_container(
             border_config.line_style,
         );
         // Title on top border
-        if let Some(title_atoms) = title {
+        if let Some(title_atoms) = args.title {
             paint_border_title(ctx.grid, area, &border_face, title_atoms);
         }
     }
 
     // Paint child
-    if let Some(child_layout) = layout.children.first() {
-        paint_with_ctx(ctx, child, child_layout);
+    if let Some(child_layout) = args.layout.children.first() {
+        paint_with_ctx(ctx, args.child, child_layout);
     }
 }
 
