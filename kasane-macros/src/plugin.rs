@@ -170,28 +170,28 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<TokenStream> {
+/// Generates the state field definition and its initializer for the plugin struct.
+///
+/// Returns `(field_definition, field_initializer)` — both empty if the plugin has no state.
+fn gen_state_field(def: &PluginDef) -> (TokenStream, TokenStream) {
     let mod_ident = &def.mod_ident;
-    let struct_name = format_ident!("{}Plugin", to_pascal_case(&mod_ident.to_string()));
-
-    // Strip our custom attributes from items to produce clean module output
-    let cleaned_module = strip_custom_attrs(module);
-
-    // State field and constructor
-    let (state_field, state_init) = if def.has_state {
+    if def.has_state {
         (
             quote! { pub state: #mod_ident::State, },
             quote! { state: #mod_ident::State::default(), },
         )
     } else {
         (quote! {}, quote! {})
-    };
+    }
+}
 
-    // Plugin::id()
-    let id_str = mod_ident.to_string();
-
-    // Plugin::update()
-    let update_impl = if def.has_update && def.has_event {
+/// Generates the `Plugin::update()` trait method implementation.
+///
+/// Returns an empty TokenStream if the plugin has no update function or event type.
+fn gen_update_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    let _ = struct_name; // available for future use (e.g., error messages)
+    if def.has_update && def.has_event {
         quote! {
             fn update(&mut self, msg: Box<dyn ::std::any::Any>, state: &kasane_core::state::AppState) -> Vec<kasane_core::plugin::Command> {
                 if let Ok(msg) = msg.downcast::<#mod_ident::Msg>() {
@@ -203,103 +203,142 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
         }
     } else {
         quote! {}
-    };
+    }
+}
 
-    // Plugin::contribute() — dispatch to slot functions
-    let contribute_impl = if def.slots.is_empty() {
-        quote! {}
-    } else {
-        let slot_arms: Vec<_> = def
-            .slots
-            .iter()
-            .map(|sb| {
-                let slot_path = &sb.slot_path;
-                let fn_name = &sb.fn_name;
-                quote! {
-                    kasane_core::plugin::#slot_path => #mod_ident::#fn_name(&self.state, _state),
-                }
-            })
-            .collect();
-        quote! {
-            fn contribute(&self, _slot: kasane_core::plugin::Slot, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
-                match _slot {
-                    #(#slot_arms)*
-                    _ => None,
-                }
-            }
-        }
-    };
+/// Generates the `Plugin::contribute()` trait method implementation (slot dispatch).
+///
+/// Returns an empty TokenStream if the plugin defines no slots.
+fn gen_contribute_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    let _ = struct_name;
+    if def.slots.is_empty() {
+        return quote! {};
+    }
 
-    // Plugin::decorate() — dispatch to decorator functions
-    let decorate_impl = if def.decorators.is_empty() {
-        quote! {}
-    } else {
-        let decorate_arms: Vec<_> = def
-            .decorators
-            .iter()
-            .map(|db| {
-                let target_path = &db.target_path;
-                let fn_name = &db.fn_name;
-                quote! {
-                    kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _element, _state),
-                }
-            })
-            .collect();
-        quote! {
-            fn decorate(&self, _target: kasane_core::plugin::DecorateTarget, _element: kasane_core::element::Element, _state: &kasane_core::state::AppState) -> kasane_core::element::Element {
-                match _target {
-                    #(#decorate_arms)*
-                    _ => _element,
-                }
-            }
-        }
-    };
-
-    // Plugin::decorator_priority()
-    let priority_impl = {
-        // Use the max priority among decorators, or 0
-        let max_priority = def
-            .decorators
-            .iter()
-            .filter_map(|d| d.priority)
-            .max()
-            .unwrap_or(0);
-        if max_priority > 0 {
-            let lit = syn::LitInt::new(&max_priority.to_string(), Span::call_site());
+    let slot_arms: Vec<_> = def
+        .slots
+        .iter()
+        .map(|sb| {
+            let slot_path = &sb.slot_path;
+            let fn_name = &sb.fn_name;
             quote! {
-                fn decorator_priority(&self) -> u32 {
-                    #lit
-                }
+                kasane_core::plugin::#slot_path => #mod_ident::#fn_name(&self.state, _state),
             }
-        } else {
-            quote! {}
+        })
+        .collect();
+
+    quote! {
+        fn contribute(&self, _slot: kasane_core::plugin::Slot, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
+            match _slot {
+                #(#slot_arms)*
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Generates the `Plugin::decorate()` and `Plugin::decorator_priority()` trait method
+/// implementations.
+///
+/// Returns an empty TokenStream if the plugin defines no decorators.
+fn gen_decorate_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    let _ = struct_name;
+    if def.decorators.is_empty() {
+        return quote! {};
+    }
+
+    let decorate_arms: Vec<_> = def
+        .decorators
+        .iter()
+        .map(|db| {
+            let target_path = &db.target_path;
+            let fn_name = &db.fn_name;
+            quote! {
+                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _element, _state),
+            }
+        })
+        .collect();
+
+    let decorate_fn = quote! {
+        fn decorate(&self, _target: kasane_core::plugin::DecorateTarget, _element: kasane_core::element::Element, _state: &kasane_core::state::AppState) -> kasane_core::element::Element {
+            match _target {
+                #(#decorate_arms)*
+                _ => _element,
+            }
         }
     };
 
-    // Plugin::replace() — dispatch to replacement functions
-    let replace_impl = if def.replacements.is_empty() {
-        quote! {}
-    } else {
-        let replace_arms: Vec<_> = def
-            .replacements
-            .iter()
-            .map(|rb| {
-                let target_path = &rb.target_path;
-                let fn_name = &rb.fn_name;
-                quote! {
-                    kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _state),
-                }
-            })
-            .collect();
+    // Plugin::decorator_priority() — use the max priority among decorators, or omit
+    let max_priority = def
+        .decorators
+        .iter()
+        .filter_map(|d| d.priority)
+        .max()
+        .unwrap_or(0);
+    let priority_fn = if max_priority > 0 {
+        let lit = syn::LitInt::new(&max_priority.to_string(), Span::call_site());
         quote! {
-            fn replace(&self, _target: kasane_core::plugin::ReplaceTarget, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
-                match _target {
-                    #(#replace_arms)*
-                    _ => None,
-                }
+            fn decorator_priority(&self) -> u32 {
+                #lit
             }
         }
+    } else {
+        quote! {}
     };
+
+    quote! {
+        #decorate_fn
+        #priority_fn
+    }
+}
+
+/// Generates the `Plugin::replace()` trait method implementation.
+///
+/// Returns an empty TokenStream if the plugin defines no replacements.
+fn gen_replace_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    let _ = struct_name;
+    if def.replacements.is_empty() {
+        return quote! {};
+    }
+
+    let replace_arms: Vec<_> = def
+        .replacements
+        .iter()
+        .map(|rb| {
+            let target_path = &rb.target_path;
+            let fn_name = &rb.fn_name;
+            quote! {
+                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _state),
+            }
+        })
+        .collect();
+
+    quote! {
+        fn replace(&self, _target: kasane_core::plugin::ReplaceTarget, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
+            match _target {
+                #(#replace_arms)*
+                _ => None,
+            }
+        }
+    }
+}
+
+fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<TokenStream> {
+    let mod_ident = &def.mod_ident;
+    let struct_name = format_ident!("{}Plugin", to_pascal_case(&mod_ident.to_string()));
+
+    let cleaned_module = strip_custom_attrs(module);
+
+    let (state_field, state_init) = gen_state_field(def);
+    let id_str = mod_ident.to_string();
+
+    let update_impl = gen_update_impl(def, &struct_name);
+    let contribute_impl = gen_contribute_impl(def, &struct_name);
+    let decorate_impl = gen_decorate_impl(def, &struct_name);
+    let replace_impl = gen_replace_impl(def, &struct_name);
 
     Ok(quote! {
         #cleaned_module
@@ -324,7 +363,6 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
             #update_impl
             #contribute_impl
             #decorate_impl
-            #priority_impl
             #replace_impl
         }
     })
