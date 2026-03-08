@@ -1,7 +1,7 @@
 use super::update::compute_visible_lines;
 use super::*;
 use crate::plugin::{Command, PluginRegistry};
-use crate::protocol::{Atom, Face, InfoStyle, KakouneRequest, KasaneRequest};
+use crate::protocol::{Atom, Face, InfoStyle, KakouneRequest, KasaneRequest, MenuStyle};
 use crate::render::CellGrid;
 
 fn make_line(s: &str) -> Line {

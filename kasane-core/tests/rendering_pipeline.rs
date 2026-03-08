@@ -64,7 +64,7 @@ fn render(state: &AppState) -> CellGrid {
 /// Extract a row from the grid as a string (trimming trailing spaces).
 fn row_text(grid: &CellGrid, y: u16) -> String {
     let mut s = String::new();
-    for x in 0..grid.width {
+    for x in 0..grid.width() {
         if let Some(cell) = grid.get(x, y)
             && cell.width > 0
         {
@@ -337,8 +337,8 @@ fn resize_updates_grid() {
     assert!(flags.contains(DirtyFlags::ALL));
     assert_eq!(state.cols, 120);
     assert_eq!(state.rows, 40);
-    assert_eq!(grid.width, 120);
-    assert_eq!(grid.height, 40);
+    assert_eq!(grid.width(), 120);
+    assert_eq!(grid.height(), 40);
 
     // Re-render at new size
     let grid = render(&state);

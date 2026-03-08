@@ -1,15 +1,17 @@
+pub(in crate::render) mod info;
+
 use super::grid::{self, CellGrid};
 use crate::state::AppState;
 
 /// Render the main buffer area (all lines except the last row which is status).
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_buffer(state: &AppState, grid: &mut CellGrid) {
-    let buffer_rows = grid.height.saturating_sub(1);
+    let buffer_rows = grid.height().saturating_sub(1);
 
     for y in 0..buffer_rows {
         if let Some(line) = state.lines.get(y as usize) {
             grid.fill_row(y, &state.default_face);
-            grid.put_line_with_base(y, 0, line, grid.width, Some(&state.default_face));
+            grid.put_line_with_base(y, 0, line, grid.width(), Some(&state.default_face));
         } else {
             // Padding row
             grid.fill_row(y, &state.padding_face);
@@ -22,7 +24,7 @@ pub(super) fn render_buffer(state: &AppState, grid: &mut CellGrid) {
 /// Render the status bar at the bottom row.
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_status(state: &AppState, grid: &mut CellGrid) {
-    let y = grid.height.saturating_sub(1);
+    let y = grid.height().saturating_sub(1);
     grid.fill_row(y, &state.status_default_face);
 
     // Status line on the left
@@ -30,14 +32,14 @@ pub(super) fn render_status(state: &AppState, grid: &mut CellGrid) {
         y,
         0,
         &state.status_line,
-        grid.width,
+        grid.width(),
         Some(&state.status_default_face),
     );
 
     // Mode line on the right
     let mode_width = crate::layout::line_display_width(&state.status_mode_line);
-    if mode_width > 0 && grid.width as usize > mode_width {
-        let mode_x = grid.width - mode_width as u16;
+    if mode_width > 0 && grid.width() as usize > mode_width {
+        let mode_x = grid.width() - mode_width as u16;
         grid.put_line_with_base(
             y,
             mode_x,
@@ -54,7 +56,7 @@ pub(super) fn render_frame(state: &AppState, grid: &mut CellGrid) {
     render_buffer(state, grid); // Layer 0
     render_status(state, grid); // Layer 1
     super::menu::render_menu(state, grid); // Layer 2 (+ shadow)
-    super::info::render_info(state, grid); // Layer 3 (+ shadow)
+    info::render_info(state, grid); // Layer 3 (+ shadow)
 }
 
 /// Render a protocol Line with word-boundary wrapping at `max_width` columns
@@ -170,9 +172,9 @@ pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWind
 
     // Right shadow (1 cell wide)
     let sx = win.x + win.width;
-    if sx < grid.width {
+    if sx < grid.width() {
         for y in (win.y + 1)..=(win.y + win.height) {
-            if y < grid.height {
+            if y < grid.height() {
                 grid.put_char(sx, y, " ", &dim_face);
             }
         }
@@ -180,9 +182,9 @@ pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWind
 
     // Bottom shadow (1 cell tall)
     let sy = win.y + win.height;
-    if sy < grid.height {
+    if sy < grid.height() {
         for x in (win.x + 1)..=(win.x + win.width) {
-            if x < grid.width {
+            if x < grid.width() {
                 grid.put_char(x, sy, " ", &dim_face);
             }
         }

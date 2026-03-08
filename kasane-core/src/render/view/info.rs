@@ -10,13 +10,12 @@ use crate::layout::{
 use crate::protocol::{Atom, Face, InfoStyle, Line};
 use crate::state::{AppState, InfoState};
 
-/// Build an info overlay using a replacement element with the same anchor as the default.
-pub(super) fn build_replacement_info_overlay(
-    element: Element,
+/// Compute the floating window for an info popup, returning `None` if zero-size.
+fn compute_info_window(
     info: &InfoState,
     state: &AppState,
     avoid: &[crate::layout::Rect],
-) -> Option<Overlay> {
+) -> Option<layout::FloatingWindow> {
     let screen_h = state.available_height();
     let win = layout_info(
         &info.title,
@@ -32,14 +31,21 @@ pub(super) fn build_replacement_info_overlay(
         return None;
     }
 
+    Some(win)
+}
+
+/// Build an info overlay using a replacement element with the same anchor as the default.
+pub(super) fn build_replacement_info_overlay(
+    element: Element,
+    info: &InfoState,
+    state: &AppState,
+    avoid: &[crate::layout::Rect],
+) -> Option<Overlay> {
+    let win = compute_info_window(info, state, avoid)?;
+
     Some(Overlay {
         element,
-        anchor: OverlayAnchor::Absolute {
-            x: win.x,
-            y: win.y,
-            w: win.width,
-            h: win.height,
-        },
+        anchor: win.into(),
     })
 }
 
@@ -49,20 +55,7 @@ pub(super) fn build_info_overlay_indexed(
     avoid: &[crate::layout::Rect],
     index: usize,
 ) -> Option<Overlay> {
-    let screen_h = state.available_height();
-    let win = layout_info(
-        &info.title,
-        &info.content,
-        &info.anchor,
-        info.style,
-        state.cols,
-        screen_h,
-        avoid,
-    );
-
-    if win.width == 0 || win.height == 0 {
-        return None;
-    }
+    let win = compute_info_window(info, state, avoid)?;
 
     let element = match info.style {
         InfoStyle::Prompt => build_info_prompt(info, &win),
@@ -82,12 +75,7 @@ pub(super) fn build_info_overlay_indexed(
         };
         Overlay {
             element: wrapped,
-            anchor: OverlayAnchor::Absolute {
-                x: win.x,
-                y: win.y,
-                w: win.width,
-                h: win.height,
-            },
+            anchor: win.into(),
         }
     })
 }
@@ -135,11 +123,10 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
     let frame_h = (wrapped_lines.len() as u16 + 2).min(total_h as u16);
 
     // Build framed content area
-    let mut content_rows: Vec<FlexChild> = Vec::new();
-    for line in &wrapped_lines {
-        content_rows.push(FlexChild::fixed(Element::StyledLine(line.clone())));
-    }
-
+    let content_rows: Vec<FlexChild> = wrapped_lines
+        .iter()
+        .map(|line| FlexChild::fixed(Element::StyledLine(line.clone())))
+        .collect();
     let content_col = Element::column(content_rows);
 
     // Build bordered frame around content
@@ -190,6 +177,16 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
     Some(container)
 }
 
+/// Wrap content lines and build a column element.
+fn build_content_column(content: &[Line], max_w: u16, max_h: u16, face: &Face) -> Element {
+    let wrapped_lines = wrap_content_lines(content, max_w, max_h, face);
+    let content_rows: Vec<FlexChild> = wrapped_lines
+        .iter()
+        .map(|line| FlexChild::fixed(Element::StyledLine(line.clone())))
+        .collect();
+    Element::column(content_rows)
+}
+
 fn build_info_framed(
     info: &InfoState,
     win: &layout::FloatingWindow,
@@ -198,14 +195,7 @@ fn build_info_framed(
     let inner_w = win.width.saturating_sub(4).max(1);
     let inner_h = win.height.saturating_sub(2);
 
-    let wrapped_lines = wrap_content_lines(&info.content, inner_w, inner_h, &info.face);
-
-    let mut content_rows: Vec<FlexChild> = Vec::new();
-    for line in &wrapped_lines {
-        content_rows.push(FlexChild::fixed(Element::StyledLine(line.clone())));
-    }
-
-    let content_col = Element::column(content_rows);
+    let content_col = build_content_column(&info.content, inner_w, inner_h, &info.face);
 
     let framed = Element::Container {
         child: Box::new(content_col),
@@ -229,14 +219,7 @@ fn build_info_framed(
 }
 
 fn build_info_nonframed(info: &InfoState, win: &layout::FloatingWindow) -> Option<Element> {
-    let wrapped_lines = wrap_content_lines(&info.content, win.width, win.height, &info.face);
-
-    let mut content_rows: Vec<FlexChild> = Vec::new();
-    for line in &wrapped_lines {
-        content_rows.push(FlexChild::fixed(Element::StyledLine(line.clone())));
-    }
-
-    let content_col = Element::column(content_rows);
+    let content_col = build_content_column(&info.content, win.width, win.height, &info.face);
 
     let container = Element::Container {
         child: Box::new(content_col),

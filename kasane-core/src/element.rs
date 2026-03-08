@@ -11,6 +11,69 @@ pub enum Direction {
     Column,
 }
 
+impl Direction {
+    /// Extract the main-axis component of a size.
+    pub fn main(self, size: crate::layout::flex::Size) -> u16 {
+        match self {
+            Direction::Row => size.width,
+            Direction::Column => size.height,
+        }
+    }
+
+    /// Extract the cross-axis component of a size.
+    pub fn cross(self, size: crate::layout::flex::Size) -> u16 {
+        match self {
+            Direction::Row => size.height,
+            Direction::Column => size.width,
+        }
+    }
+
+    /// Decompose a size into (main, cross) components.
+    pub fn decompose(self, size: crate::layout::flex::Size) -> (u16, u16) {
+        (self.main(size), self.cross(size))
+    }
+
+    /// Compose main and cross values back into a `Size`.
+    pub fn compose(self, main: u16, cross: u16) -> crate::layout::flex::Size {
+        match self {
+            Direction::Row => crate::layout::flex::Size {
+                width: main,
+                height: cross,
+            },
+            Direction::Column => crate::layout::flex::Size {
+                width: cross,
+                height: main,
+            },
+        }
+    }
+
+    /// Build a `Rect` from directional components.
+    pub fn rect(
+        self,
+        origin: (u16, u16),
+        main_offset: u16,
+        cross_offset: u16,
+        main_size: u16,
+        cross_size: u16,
+    ) -> crate::layout::Rect {
+        let (ox, oy) = origin;
+        match self {
+            Direction::Row => crate::layout::Rect {
+                x: ox + main_offset,
+                y: oy + cross_offset,
+                w: main_size,
+                h: cross_size,
+            },
+            Direction::Column => crate::layout::Rect {
+                x: ox + cross_offset,
+                y: oy + main_offset,
+                w: cross_size,
+                h: main_size,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Align {
     Start,
@@ -150,6 +213,17 @@ pub enum OverlayAnchor {
         prefer_above: bool,
         avoid: Vec<Rect>,
     },
+}
+
+impl From<crate::layout::FloatingWindow> for OverlayAnchor {
+    fn from(win: crate::layout::FloatingWindow) -> Self {
+        OverlayAnchor::Absolute {
+            x: win.x,
+            y: win.y,
+            w: win.width,
+            h: win.height,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -153,20 +153,19 @@ fn measure_flex(
         0
     };
 
+    let max_main = direction.main(Size {
+        width: constraints.max_width,
+        height: constraints.max_height,
+    });
+
     let mut main_fixed = 0u16;
     let mut cross_max = 0u16;
     let mut total_flex = 0.0f32;
 
     for child in children {
-        let child_constraints = match direction {
-            Direction::Column => Constraints::loose(constraints.max_width, constraints.max_height),
-            Direction::Row => Constraints::loose(constraints.max_width, constraints.max_height),
-        };
+        let child_constraints = Constraints::loose(constraints.max_width, constraints.max_height);
         let size = measure(&child.element, child_constraints, state);
-        let (main, cross) = match direction {
-            Direction::Column => (size.height, size.width),
-            Direction::Row => (size.width, size.height),
-        };
+        let (main, cross) = direction.decompose(size);
         cross_max = cross_max.max(cross);
 
         if child.flex > 0.0 {
@@ -177,23 +176,19 @@ fn measure_flex(
     }
 
     let main_total = if total_flex > 0.0 {
-        match direction {
-            Direction::Column => constraints.max_height,
-            Direction::Row => constraints.max_width,
-        }
+        max_main
     } else {
         main_fixed + total_gap
     };
 
-    match direction {
-        Direction::Column => Size {
-            width: cross_max.clamp(constraints.min_width, constraints.max_width),
-            height: main_total.clamp(constraints.min_height, constraints.max_height),
-        },
-        Direction::Row => Size {
-            width: main_total.clamp(constraints.min_width, constraints.max_width),
-            height: cross_max.clamp(constraints.min_height, constraints.max_height),
-        },
+    let result = direction.compose(main_total, cross_max);
+    Size {
+        width: result
+            .width
+            .clamp(constraints.min_width, constraints.max_width),
+        height: result
+            .height
+            .clamp(constraints.min_height, constraints.max_height),
     }
 }
 
@@ -299,14 +294,12 @@ fn place_flex(
         };
     }
 
-    let main_total = match direction {
-        Direction::Column => area.h,
-        Direction::Row => area.w,
+    let area_size = Size {
+        width: area.w,
+        height: area.h,
     };
-    let cross_total = match direction {
-        Direction::Column => area.w,
-        Direction::Row => area.h,
-    };
+    let main_total = direction.main(area_size);
+    let cross_total = direction.cross(area_size);
 
     let total_gaps = if children.len() > 1 {
         gap * (children.len() as u16 - 1)
@@ -314,63 +307,33 @@ fn place_flex(
         0
     };
 
-    // Phase 1: measure fixed children, collect flex totals
     let mut child_main_sizes: Vec<u16> = vec![0; children.len()];
     let mut child_cross_sizes: Vec<u16> = vec![cross_total; children.len()];
-    let mut total_fixed = 0u16;
-    let mut total_flex = 0.0f32;
 
-    for (i, child) in children.iter().enumerate() {
-        if child.flex > 0.0 {
-            total_flex += child.flex;
-        } else {
-            let child_constraints = match direction {
-                Direction::Column => Constraints::loose(cross_total, main_total),
-                Direction::Row => Constraints::loose(main_total, cross_total),
-            };
-            let size = measure(&child.element, child_constraints, state);
-            let (main, cross) = match direction {
-                Direction::Column => (size.height, size.width),
-                Direction::Row => (size.width, size.height),
-            };
-            let main = apply_min_max(main, child.min_size, child.max_size);
-            child_main_sizes[i] = main;
-            child_cross_sizes[i] = cross;
-            total_fixed += main;
-        }
-    }
+    // Phase 1: measure fixed children, collect flex totals
+    let (total_fixed, total_flex) = measure_fixed_children(
+        direction,
+        children,
+        main_total,
+        cross_total,
+        &mut child_main_sizes,
+        &mut child_cross_sizes,
+        state,
+    );
 
     // Phase 2: distribute remaining space to flex children
-    let remaining = main_total.saturating_sub(total_fixed + total_gaps);
-    if total_flex > 0.0 {
-        let mut distributed = 0u16;
-        let flex_count = children.iter().filter(|c| c.flex > 0.0).count();
-        let mut flex_idx = 0;
-        for (i, child) in children.iter().enumerate() {
-            if child.flex > 0.0 {
-                flex_idx += 1;
-                let share = if flex_idx == flex_count {
-                    remaining - distributed
-                } else {
-                    (remaining as f32 * child.flex / total_flex) as u16
-                };
-                let share = apply_min_max(share, child.min_size, child.max_size);
-                child_main_sizes[i] = share;
-                distributed += share;
-                // Measure cross size for flex children too
-                let child_constraints = match direction {
-                    Direction::Column => Constraints::loose(cross_total, share),
-                    Direction::Row => Constraints::loose(share, cross_total),
-                };
-                let size = measure(&child.element, child_constraints, state);
-                let cross = match direction {
-                    Direction::Column => size.width,
-                    Direction::Row => size.height,
-                };
-                child_cross_sizes[i] = cross;
-            }
-        }
-    }
+    distribute_flex_space(
+        direction,
+        children,
+        main_total,
+        cross_total,
+        total_gaps,
+        total_fixed,
+        total_flex,
+        &mut child_main_sizes,
+        &mut child_cross_sizes,
+        state,
+    );
 
     // Main-axis align: compute start offset (only effective when no flex children)
     let used_main: u16 = child_main_sizes.iter().sum::<u16>() + total_gaps;
@@ -406,20 +369,13 @@ fn place_flex(
             Align::Center | Align::End => child_cross,
         };
 
-        let child_area = match direction {
-            Direction::Column => Rect {
-                x: area.x + cross_offset,
-                y: area.y + offset,
-                w: child_cross_size,
-                h: main_size,
-            },
-            Direction::Row => Rect {
-                x: area.x + offset,
-                y: area.y + cross_offset,
-                w: main_size,
-                h: child_cross_size,
-            },
-        };
+        let child_area = direction.rect(
+            (area.x, area.y),
+            offset,
+            cross_offset,
+            main_size,
+            child_cross_size,
+        );
         let result = place(&child.element, child_area, state);
         child_results.push(result);
         offset += main_size;
@@ -431,6 +387,80 @@ fn place_flex(
     LayoutResult {
         area,
         children: child_results,
+    }
+}
+
+/// Phase 1: measure fixed children and collect flex totals.
+/// Returns `(total_fixed, total_flex)`.
+fn measure_fixed_children(
+    direction: Direction,
+    children: &[FlexChild],
+    main_total: u16,
+    cross_total: u16,
+    child_main_sizes: &mut [u16],
+    child_cross_sizes: &mut [u16],
+    state: &AppState,
+) -> (u16, f32) {
+    let mut total_fixed = 0u16;
+    let mut total_flex = 0.0f32;
+
+    for (i, child) in children.iter().enumerate() {
+        if child.flex > 0.0 {
+            total_flex += child.flex;
+        } else {
+            let loose = direction.compose(main_total, cross_total);
+            let child_constraints = Constraints::loose(loose.width, loose.height);
+            let size = measure(&child.element, child_constraints, state);
+            let (main, cross) = direction.decompose(size);
+            let main = apply_min_max(main, child.min_size, child.max_size);
+            child_main_sizes[i] = main;
+            child_cross_sizes[i] = cross;
+            total_fixed += main;
+        }
+    }
+
+    (total_fixed, total_flex)
+}
+
+/// Phase 2: distribute remaining main-axis space to flex children.
+#[allow(clippy::too_many_arguments)]
+fn distribute_flex_space(
+    direction: Direction,
+    children: &[FlexChild],
+    main_total: u16,
+    cross_total: u16,
+    total_gaps: u16,
+    total_fixed: u16,
+    total_flex: f32,
+    child_main_sizes: &mut [u16],
+    child_cross_sizes: &mut [u16],
+    state: &AppState,
+) {
+    if total_flex <= 0.0 {
+        return;
+    }
+
+    let remaining = main_total.saturating_sub(total_fixed + total_gaps);
+    let mut distributed = 0u16;
+    let flex_count = children.iter().filter(|c| c.flex > 0.0).count();
+    let mut flex_idx = 0;
+    for (i, child) in children.iter().enumerate() {
+        if child.flex > 0.0 {
+            flex_idx += 1;
+            let share = if flex_idx == flex_count {
+                remaining - distributed
+            } else {
+                (remaining as f32 * child.flex / total_flex) as u16
+            };
+            let share = apply_min_max(share, child.min_size, child.max_size);
+            child_main_sizes[i] = share;
+            distributed += share;
+            // Measure cross size for flex children too
+            let loose = direction.compose(share, cross_total);
+            let child_constraints = Constraints::loose(loose.width, loose.height);
+            let size = measure(&child.element, child_constraints, state);
+            child_cross_sizes[i] = direction.cross(size);
+        }
     }
 }
 

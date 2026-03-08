@@ -231,7 +231,7 @@ impl CellRenderer {
         );
 
         // --- Update text buffers (reuse cached buffers, Basic shaping) ---
-        let rows = grid.height as usize;
+        let rows = grid.height() as usize;
         // Ensure we have the right number of buffers
         let glyph_metrics = Metrics::new(self.font_size, self.line_height);
         while self.text_buffers.len() < rows {
@@ -402,9 +402,9 @@ pub fn build_bg_instances(
     cursor: Option<(u16, u16, CursorStyle)>,
     out: &mut Vec<f32>,
 ) {
-    for row in 0..grid.height {
+    for row in 0..grid.height() {
         let y = row as f32 * cell_h;
-        for col in 0..grid.width {
+        for col in 0..grid.width() {
             let cell = grid.get(col, row).unwrap();
             let bg = color_resolver.resolve(cell.face.bg, false);
             let x = col as f32 * cell_w;
@@ -445,7 +445,7 @@ pub fn build_bg_instances(
 /// Compute a hash of a row's content and foreground colors for dirty tracking.
 pub fn compute_row_hash(grid: &CellGrid, row: u16, color_resolver: &ColorResolver) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    for col in 0..grid.width {
+    for col in 0..grid.width() {
         let cell = grid.get(col, row).unwrap();
         cell.grapheme.hash(&mut hasher);
         std::mem::discriminant(&cell.face.fg).hash(&mut hasher);
@@ -471,7 +471,7 @@ pub fn build_row_spans(
     row_text.clear();
     span_ranges.clear();
 
-    for col in 0..grid.width {
+    for col in 0..grid.width() {
         let cell = grid.get(col, row).unwrap();
         if cell.width == 0 {
             continue;

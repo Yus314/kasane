@@ -1,5 +1,5 @@
 #[cfg(test)]
-use super::grid::CellGrid;
+use crate::render::grid::CellGrid;
 #[cfg(test)]
 use crate::state::{AppState, InfoState};
 
@@ -11,21 +11,21 @@ use crate::state::{AppState, InfoState};
 use crate::layout::{ASSISTANT_CLIPPY, ASSISTANT_WIDTH};
 
 #[cfg(test)]
-pub(super) fn render_info(state: &AppState, grid: &mut CellGrid) {
+pub(in crate::render) fn render_info(state: &AppState, grid: &mut CellGrid) {
     let info = match state.infos.first() {
         Some(i) => i,
         None => return,
     };
 
-    let menu_rect = super::menu::get_menu_rect(state);
+    let menu_rect = crate::render::menu::get_menu_rect(state);
     let avoid: Vec<crate::layout::Rect> = menu_rect.into_iter().collect();
     let win = crate::layout::layout_info(
         &info.title,
         &info.content,
         &info.anchor,
         info.style,
-        grid.width,
-        grid.height.saturating_sub(1),
+        grid.width(),
+        grid.height().saturating_sub(1),
         &avoid,
     );
 
@@ -91,7 +91,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         };
         for (i, ch) in (0u16..).zip(ASSISTANT_CLIPPY[idx].chars()) {
             let x = win.x + i;
-            if x < grid.width {
+            if x < grid.width() {
                 let s: String = ch.into();
                 grid.put_char(x, y, &s, &info.face);
             }
@@ -138,7 +138,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
 
         grid.put_char(x, y, "─", &info.face);
         x += 1;
-        if x < grid.width {
+        if x < grid.width() {
             grid.put_char(x, y, "╮", &info.face);
         }
     }
@@ -158,10 +158,10 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         grid.put_char(frame_x + 1, y, " ", &info.face);
         let right_space = frame_x + 2 + cw;
         let right_border = frame_x + 3 + cw;
-        if right_space < grid.width {
+        if right_space < grid.width() {
             grid.put_char(right_space, y, " ", &info.face);
         }
-        if right_border < grid.width {
+        if right_border < grid.width() {
             grid.put_char(right_border, y, "│", &info.face);
         }
     }
@@ -172,7 +172,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         if y >= content_end_y {
             break;
         }
-        let rows = super::test_helpers::render_wrapped_line(
+        let rows = super::render_wrapped_line(
             grid,
             y,
             content_x,
@@ -199,7 +199,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
         }
         grid.put_char(x, bottom_y, dash, &info.face);
         x += 1;
-        if x < grid.width {
+        if x < grid.width() {
             grid.put_char(x, bottom_y, "╯", &info.face);
         }
     }
@@ -221,7 +221,7 @@ fn render_info_prompt(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
 /// Render framed info popup (modal style): border + shadow + title + content.
 #[cfg(test)]
 fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
-    super::test_helpers::draw_shadow(grid, win);
+    super::draw_shadow(grid, win);
 
     // Framed: │ + space padding on each side → inner offset 2, inner width -4
     let inner_x = win.x + 2;
@@ -248,20 +248,13 @@ fn render_info_framed(info: &InfoState, grid: &mut CellGrid, win: &crate::layout
             }
             break;
         }
-        let rows = super::test_helpers::render_wrapped_line(
-            grid,
-            y,
-            inner_x,
-            line,
-            inner_w,
-            Some(&info.face),
-            y_limit,
-        );
+        let rows =
+            super::render_wrapped_line(grid, y, inner_x, line, inner_w, Some(&info.face), y_limit);
         y += rows;
     }
     let truncated = !all_rendered;
 
-    super::test_helpers::draw_border(grid, win, &info.face, truncated, ("╭", "╮", "╰", "╯"));
+    super::draw_border(grid, win, &info.face, truncated, ("╭", "╮", "╰", "╯"));
 
     // Draw title on top border: ╭─┤title├─╮
     if !info.title.is_empty() {
@@ -315,15 +308,8 @@ fn render_info_nonframed(
         if y >= y_limit {
             break;
         }
-        let rows = super::test_helpers::render_wrapped_line(
-            grid,
-            y,
-            win.x,
-            line,
-            win.width,
-            Some(&info.face),
-            y_limit,
-        );
+        let rows =
+            super::render_wrapped_line(grid, y, win.x, line, win.width, Some(&info.face), y_limit);
         y += rows;
     }
 }

@@ -32,12 +32,7 @@ pub(super) fn build_replacement_menu_overlay(
             if win.width == 0 || win.height == 0 {
                 return None;
             }
-            OverlayAnchor::Absolute {
-                x: win.x,
-                y: win.y,
-                w: win.width,
-                h: win.height,
-            }
+            win.into()
         }
         MenuStyle::Prompt => {
             let status_row = state.available_height();
@@ -144,12 +139,7 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
 
     Some(Overlay {
         element: row,
-        anchor: OverlayAnchor::Absolute {
-            x: win.x,
-            y: win.y,
-            w: win.width,
-            h: win.height,
-        },
+        anchor: win.into(),
     })
 }
 

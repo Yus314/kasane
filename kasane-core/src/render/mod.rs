@@ -1,5 +1,4 @@
 mod grid;
-mod info;
 pub mod markup;
 pub(crate) mod menu;
 pub mod paint;
@@ -67,7 +66,7 @@ pub trait RenderBackend {
 pub fn cursor_position(state: &AppState, grid: &CellGrid) -> (u16, u16) {
     let cx = state.cursor_pos.column as u16;
     let cy = match state.cursor_mode {
-        CursorMode::Prompt => grid.height.saturating_sub(1),
+        CursorMode::Prompt => grid.height().saturating_sub(1),
         CursorMode::Buffer => state.cursor_pos.line as u16,
     };
     (cx, cy)
@@ -109,7 +108,7 @@ pub fn clear_block_cursor_face(state: &AppState, grid: &mut CellGrid, style: Cur
     }
     let cx = state.cursor_pos.column as u16;
     let cy = match state.cursor_mode {
-        CursorMode::Prompt => grid.height.saturating_sub(1),
+        CursorMode::Prompt => grid.height().saturating_sub(1),
         CursorMode::Buffer => state.cursor_pos.line as u16,
     };
     let base_face = match state.cursor_mode {

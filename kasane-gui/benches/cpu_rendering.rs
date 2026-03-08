@@ -121,7 +121,7 @@ fn bench_row_hash(c: &mut Criterion) {
     c.bench_function("gpu/row_hash_24rows", |b| {
         b.iter(|| {
             let mut total = 0u64;
-            for row in 0..grid.height {
+            for row in 0..grid.height() {
                 total = total.wrapping_add(compute_row_hash(&grid, row, &resolver));
             }
             total
@@ -148,8 +148,8 @@ fn bench_color_resolve(c: &mut Criterion) {
     c.bench_function("gpu/color_resolve_1920cells", |b| {
         b.iter(|| {
             let mut sum = 0.0_f32;
-            for row in 0..grid.height {
-                for col in 0..grid.width {
+            for row in 0..grid.height() {
+                for col in 0..grid.width() {
                     let cell = grid.get(col, row).unwrap();
                     let c = resolver.resolve(cell.face.fg, true);
                     sum += c[0];

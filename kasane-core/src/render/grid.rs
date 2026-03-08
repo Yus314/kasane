@@ -27,8 +27,8 @@ impl Default for Cell {
 }
 
 pub struct CellGrid {
-    pub width: u16,
-    pub height: u16,
+    width: u16,
+    height: u16,
     current: Vec<Cell>,
     previous: Vec<Cell>,
     dirty_rows: Vec<bool>,
@@ -44,6 +44,14 @@ impl CellGrid {
             previous: Vec::new(), // empty means "invalidated — full redraw needed"
             dirty_rows: vec![true; height as usize],
         }
+    }
+
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    pub fn height(&self) -> u16 {
+        self.height
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
@@ -354,8 +362,8 @@ mod tests {
     #[test]
     fn test_grid_new() {
         let grid = CellGrid::new(10, 5);
-        assert_eq!(grid.width, 10);
-        assert_eq!(grid.height, 5);
+        assert_eq!(grid.width(), 10);
+        assert_eq!(grid.height(), 5);
         assert_eq!(grid.current.len(), 50);
     }
 
@@ -450,8 +458,8 @@ mod tests {
     fn test_resize() {
         let mut grid = CellGrid::new(10, 5);
         grid.resize(20, 10);
-        assert_eq!(grid.width, 20);
-        assert_eq!(grid.height, 10);
+        assert_eq!(grid.width(), 20);
+        assert_eq!(grid.height(), 10);
         assert_eq!(grid.current.len(), 200);
     }
 

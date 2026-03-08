@@ -132,15 +132,15 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
     }
 
     // content width + 1 for scrollbar
-    let win_w = (menu.max_item_width + 1).min(grid.width);
+    let win_w = (menu.max_item_width + 1).min(grid.width());
     let content_w = win_w.saturating_sub(1);
-    let screen_h = grid.height.saturating_sub(1);
+    let screen_h = grid.height().saturating_sub(1);
 
     let win = layout_menu_inline(
         &menu.anchor,
         win_w,
         menu.win_height,
-        grid.width,
+        grid.width(),
         screen_h,
         MenuPlacement::Auto,
     );
@@ -193,13 +193,13 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
         return;
     }
 
-    let status_row = grid.height.saturating_sub(1);
+    let status_row = grid.height().saturating_sub(1);
     let wh = menu.win_height;
     let columns = menu.columns as usize;
     let stride = wh as usize;
 
     // -1 for scrollbar column
-    let col_w = (grid.width.saturating_sub(1) as usize / columns).max(1);
+    let col_w = (grid.width().saturating_sub(1) as usize / columns).max(1);
     let first_col = menu.first_item / stride;
 
     // Menu rows go from (status_row - wh) to (status_row - 1)
@@ -221,7 +221,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
             let x = (col * col_w) as u16;
             let y = start_y + line as u16;
 
-            if x >= grid.width.saturating_sub(1) || y >= status_row {
+            if x >= grid.width().saturating_sub(1) || y >= status_row {
                 break;
             }
 
@@ -233,7 +233,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
             };
 
             // Fill column width with face
-            let fill_end = (x + col_w as u16).min(grid.width.saturating_sub(1));
+            let fill_end = (x + col_w as u16).min(grid.width().saturating_sub(1));
             for fx in x..fill_end {
                 grid.put_char(fx, y, " ", face);
             }
@@ -245,7 +245,7 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
     }
 
     // Scrollbar on rightmost column
-    let scrollbar_x = grid.width.saturating_sub(1);
+    let scrollbar_x = grid.width().saturating_sub(1);
     draw_scrollbar(grid, scrollbar_x, start_y, wh, menu, &menu.menu_face);
 }
 
@@ -261,9 +261,9 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
         return;
     }
 
-    let status_row = grid.height.saturating_sub(1);
+    let status_row = grid.height().saturating_sub(1);
     let y = status_row.saturating_sub(1);
-    let screen_w = grid.width as usize;
+    let screen_w = grid.width() as usize;
 
     // Fill the row with menu_face
     grid.fill_row(y, &menu.menu_face);

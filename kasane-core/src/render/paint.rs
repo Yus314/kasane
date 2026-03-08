@@ -179,7 +179,7 @@ fn paint_container(ctx: &mut PaintContext, args: &ContainerPaintArgs) {
     // Fill entire container area with face
     for row in 0..area.h {
         let y = area.y + row;
-        for x in area.x..(area.x + area.w).min(ctx.grid.width) {
+        for x in area.x..(area.x + area.w).min(ctx.grid.width()) {
             ctx.grid.put_char(x, y, " ", face);
         }
     }
@@ -304,9 +304,9 @@ fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
 
     // Right shadow (1 cell wide)
     let sx = area.x + area.w;
-    if sx < grid.width {
+    if sx < grid.width() {
         for y in (area.y + 1)..=(area.y + area.h) {
-            if y < grid.height {
+            if y < grid.height() {
                 grid.put_char(sx, y, " ", &dim_face);
             }
         }
@@ -314,9 +314,9 @@ fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
 
     // Bottom shadow (1 cell tall)
     let sy = area.y + area.h;
-    if sy < grid.height {
+    if sy < grid.height() {
         for x in (area.x + 1)..=(area.x + area.w) {
-            if x < grid.width {
+            if x < grid.width() {
                 grid.put_char(x, sy, " ", &dim_face);
             }
         }
