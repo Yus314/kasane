@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772896748232,
+  "lastUpdate": 1772932178237,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -527,6 +527,138 @@ window.BENCHMARK_DATA = {
             "name": "menu_show/items/100",
             "value": 47118,
             "range": "± 243",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "2adea53e5b9887d02a46ee26d37fd7b696a77221",
+          "message": "docs: add configuration reference\n\nDocument all 11 config sections (~50 options) with types, defaults,\ndescriptions, and TOML examples. Includes detailed face syntax\nreference (colors, attributes) and GUI-specific sections.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-08T10:04:05+09:00",
+          "tree_id": "442e6428f3896037963e7e1d0c9b2dec36198b68",
+          "url": "https://github.com/Yus314/kasane/commit/2adea53e5b9887d02a46ee26d37fd7b696a77221"
+        },
+        "date": 1772932177395,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 257,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2229,
+            "range": "± 64",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 370,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 19541,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 75247,
+            "range": "± 342",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 24567,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12400,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 30,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 75,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 128,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 194,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 802,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1572,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 36181,
+            "range": "± 369",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 45254,
+            "range": "± 552",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 46388,
+            "range": "± 332",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 46537,
+            "range": "± 524",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 47016,
+            "range": "± 288",
             "unit": "ns/iter"
           }
         ]
