@@ -21,7 +21,7 @@ jobs:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
       - name: Run benchmarks
-        run: nix develop --command cargo bench --bench rendering_pipeline -- --output-format bencher | tee output.txt
+        run: nix develop --command cargo bench --bench rendering_pipeline -- --output-format bencher --warm-up-time 3 | tee output.txt
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1

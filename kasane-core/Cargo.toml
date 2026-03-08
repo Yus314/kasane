@@ -19,6 +19,7 @@ tracing = { workspace = true }
 
 [features]
 perf-tracing = []
+bench-alloc = []
 
 [dev-dependencies]
 insta = { workspace = true }

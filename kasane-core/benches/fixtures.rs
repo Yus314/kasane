@@ -7,6 +7,7 @@ use kasane_core::protocol::{
     Atom, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
 };
 use kasane_core::state::AppState;
+use serde::Serialize;
 
 // ---------------------------------------------------------------------------
 // Dummy plugin for benchmarks
@@ -213,4 +214,98 @@ pub fn registry_with_plugins(n: usize) -> PluginRegistry {
         }));
     }
     registry
+}
+
+// ---------------------------------------------------------------------------
+// JSON fixture builders (for parse benchmarks)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct JsonRpcMsg<P: Serialize> {
+    jsonrpc: &'static str,
+    method: &'static str,
+    params: P,
+}
+
+fn to_json_bytes<P: Serialize>(method: &'static str, params: P) -> Vec<u8> {
+    serde_json::to_vec(&JsonRpcMsg {
+        jsonrpc: "2.0",
+        method,
+        params,
+    })
+    .expect("fixture serialization should not fail")
+}
+
+/// JSON-RPC "draw" message as raw bytes (for simd_json parse benchmarks).
+pub fn draw_json(line_count: usize) -> Vec<u8> {
+    let lines: Vec<Line> = (0..line_count).map(make_colored_line).collect();
+    let default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    let padding_face = default_face;
+    to_json_bytes("draw", (&lines, &default_face, &padding_face))
+}
+
+/// JSON-RPC "draw_status" message as raw bytes.
+pub fn draw_status_json() -> Vec<u8> {
+    let status_line: Line = vec![Atom {
+        face: Face::default(),
+        contents: " NORMAL ".to_string(),
+    }];
+    let mode_line: Line = vec![Atom {
+        face: Face::default(),
+        contents: "normal".to_string(),
+    }];
+    let default_face = Face {
+        fg: Color::Named(NamedColor::Cyan),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    to_json_bytes("draw_status", (&status_line, &mode_line, &default_face))
+}
+
+/// JSON-RPC "set_cursor" message as raw bytes.
+pub fn set_cursor_json() -> Vec<u8> {
+    to_json_bytes(
+        "set_cursor",
+        (
+            "buffer",
+            Coord {
+                line: 5,
+                column: 10,
+            },
+        ),
+    )
+}
+
+/// JSON-RPC "menu_show" message as raw bytes with the given item count.
+pub fn menu_show_json(item_count: usize) -> Vec<u8> {
+    let items: Vec<Line> = (0..item_count)
+        .map(|i| {
+            vec![Atom {
+                face: Face::default(),
+                contents: format!("completion_{i}"),
+            }]
+        })
+        .collect();
+    let anchor = Coord {
+        line: 5,
+        column: 10,
+    };
+    let selected_face = Face {
+        fg: Color::Named(NamedColor::Black),
+        bg: Color::Named(NamedColor::Cyan),
+        ..Face::default()
+    };
+    let menu_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Blue),
+        ..Face::default()
+    };
+    to_json_bytes(
+        "menu_show",
+        (&items, &anchor, &selected_face, &menu_face, "inline"),
+    )
 }

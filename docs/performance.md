@@ -333,6 +333,31 @@ HTML レポート: `target/criterion/*/report/index.html`
 
 `menu_show` がアイテム数にほぼ依存しないのは `menu_max_height=10` の制約で表示行数が一定のため。
 
+### 拡張ベンチマーク (20 種)
+
+| ベンチマーク | 測定対象 | 計測値 | 備考 |
+|---|---|---|---|
+| `parse_request/draw_lines/10` | JSON-RPC パース (10 行 draw) | — | 初回計測後に記入 |
+| `parse_request/draw_lines/100` | JSON-RPC パース (100 行 draw) | — | |
+| `parse_request/draw_lines/500` | JSON-RPC パース (500 行 draw) | — | |
+| `parse_request/draw_status` | JSON-RPC パース (draw_status) | — | 小メッセージ、高頻度 |
+| `parse_request/set_cursor` | JSON-RPC パース (set_cursor) | — | 最小メッセージ |
+| `parse_request/menu_show_50` | JSON-RPC パース (menu_show 50件) | — | |
+| `state_apply/draw_lines/23` | state.apply(Draw) 単体 | — | |
+| `state_apply/draw_lines/100` | state.apply(Draw) 単体 | — | |
+| `state_apply/draw_lines/500` | state.apply(Draw) 単体 | — | |
+| `state_apply/draw_status` | state.apply(DrawStatus) | — | |
+| `state_apply/set_cursor` | state.apply(SetCursor) | — | |
+| `state_apply/menu_show_50` | state.apply(MenuShow) | — | |
+| `scaling/full_frame/80x24` | full frame at 80x24 | — | ベースライン |
+| `scaling/full_frame/200x60` | full frame at 200x60 | — | 大画面 |
+| `scaling/full_frame/300x80` | full frame at 300x80 | — | 超大画面 |
+| `scaling/parse_apply_draw/500` | パース + apply (500 行) | — | |
+| `scaling/parse_apply_draw/1000` | パース + apply (1000 行) | — | |
+| `scaling/diff_incremental/80x24` | diff() 差分なし 80x24 | — | |
+| `scaling/diff_incremental/200x60` | diff() 差分なし 200x60 | — | |
+| `scaling/diff_incremental/300x80` | diff() 差分なし 300x80 | — | |
+
 ## パフォーマンス原則
 
 1. **端末 I/O が支配的:** CPU パイプライン (40 μs) は端末 I/O (200-3,600 μs) の 1-20%。グリッド操作の最適化より、diff の精度向上 (変更セル数の最小化) が効果的

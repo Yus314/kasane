@@ -34,6 +34,20 @@ cargo bench --bench rendering_pipeline -- "full_frame"
 cargo bench --bench rendering_pipeline -- "paint/80x24"
 ```
 
+### Running extended benchmarks only
+
+```sh
+cargo bench --bench rendering_pipeline -- "parse_request|state_apply|scaling"
+```
+
+### Allocation measurement (feature-gated)
+
+```sh
+cargo bench --bench rendering_pipeline --features bench-alloc -- "alloc"
+```
+
+The `bench-alloc` feature installs a counting global allocator that tracks allocation count and bytes during benchmark iterations. It is not included in CI runs.
+
 ## Runtime Tracing with `perf-tracing`
 
 The `perf-tracing` feature gates tracing spans on hot-path functions. When disabled (default), the `perf_span!` macro expands to nothing (zero cost).

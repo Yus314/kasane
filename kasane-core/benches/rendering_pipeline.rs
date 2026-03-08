@@ -4,11 +4,15 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::{DecorateTarget, PluginRegistry, Slot};
+use kasane_core::protocol::parse_request;
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
 
-use fixtures::{draw_request, registry_with_plugins, state_with_menu, typical_state};
+use fixtures::{
+    draw_json, draw_request, draw_status_json, menu_show_json, registry_with_plugins,
+    set_cursor_json, state_with_menu, typical_state,
+};
 
 // ---------------------------------------------------------------------------
 // Micro-benchmarks
@@ -291,6 +295,323 @@ fn bench_menu_show(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Extended benchmarks
+// ---------------------------------------------------------------------------
+
+/// Bench: JSON-RPC parse_request at various message sizes
+fn bench_parse_request(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parse_request");
+
+    // Draw messages: 10, 100, 500 lines
+    for line_count in [10, 100, 500] {
+        let json = draw_json(line_count);
+        group.bench_with_input(
+            BenchmarkId::new("draw_lines", line_count),
+            &json,
+            |b, json| {
+                b.iter(|| {
+                    let mut buf = json.clone();
+                    parse_request(&mut buf).unwrap()
+                })
+            },
+        );
+    }
+
+    // draw_status (small, high-frequency message)
+    let json = draw_status_json();
+    group.bench_function("draw_status", |b| {
+        b.iter(|| {
+            let mut buf = json.clone();
+            parse_request(&mut buf).unwrap()
+        })
+    });
+
+    // set_cursor (minimal message)
+    let json = set_cursor_json();
+    group.bench_function("set_cursor", |b| {
+        b.iter(|| {
+            let mut buf = json.clone();
+            parse_request(&mut buf).unwrap()
+        })
+    });
+
+    // menu_show with 50 items
+    let json = menu_show_json(50);
+    group.bench_function("menu_show_50", |b| {
+        b.iter(|| {
+            let mut buf = json.clone();
+            parse_request(&mut buf).unwrap()
+        })
+    });
+
+    group.finish();
+}
+
+/// Bench: state.apply() isolated from rendering
+fn bench_state_apply(c: &mut Criterion) {
+    let mut group = c.benchmark_group("state_apply");
+
+    // Draw at various sizes
+    for line_count in [23, 100, 500] {
+        let draw = draw_request(line_count);
+        let base_state = typical_state(23);
+        group.bench_with_input(
+            BenchmarkId::new("draw_lines", line_count),
+            &line_count,
+            |b, _| {
+                b.iter(|| {
+                    let mut state = base_state.clone();
+                    state.apply(draw.clone())
+                })
+            },
+        );
+    }
+
+    // DrawStatus
+    {
+        let request = kasane_core::protocol::KakouneRequest::DrawStatus {
+            status_line: vec![kasane_core::protocol::Atom {
+                face: kasane_core::protocol::Face::default(),
+                contents: " NORMAL ".to_string(),
+            }],
+            mode_line: vec![kasane_core::protocol::Atom {
+                face: kasane_core::protocol::Face::default(),
+                contents: "normal".to_string(),
+            }],
+            default_face: kasane_core::protocol::Face::default(),
+        };
+        let base_state = typical_state(23);
+        group.bench_function("draw_status", |b| {
+            b.iter(|| {
+                let mut state = base_state.clone();
+                state.apply(request.clone())
+            })
+        });
+    }
+
+    // SetCursor
+    {
+        let request = kasane_core::protocol::KakouneRequest::SetCursor {
+            mode: kasane_core::protocol::CursorMode::Buffer,
+            coord: kasane_core::protocol::Coord {
+                line: 5,
+                column: 10,
+            },
+        };
+        let base_state = typical_state(23);
+        group.bench_function("set_cursor", |b| {
+            b.iter(|| {
+                let mut state = base_state.clone();
+                state.apply(request.clone())
+            })
+        });
+    }
+
+    // MenuShow 50 items
+    {
+        let items: Vec<kasane_core::protocol::Line> = (0..50)
+            .map(|i| {
+                vec![kasane_core::protocol::Atom {
+                    face: kasane_core::protocol::Face::default(),
+                    contents: format!("completion_{i}"),
+                }]
+            })
+            .collect();
+        let request = kasane_core::protocol::KakouneRequest::MenuShow {
+            items,
+            anchor: kasane_core::protocol::Coord {
+                line: 5,
+                column: 10,
+            },
+            selected_item_face: kasane_core::protocol::Face::default(),
+            menu_face: kasane_core::protocol::Face::default(),
+            style: kasane_core::protocol::MenuStyle::Inline,
+        };
+        let base_state = typical_state(23);
+        group.bench_function("menu_show_50", |b| {
+            b.iter(|| {
+                let mut state = base_state.clone();
+                state.apply(request.clone())
+            })
+        });
+    }
+
+    group.finish();
+}
+
+/// Bench: Scaling characteristics for large terminals and buffers
+fn bench_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scaling");
+    group.sample_size(50);
+
+    let registry = PluginRegistry::new();
+
+    // Full frame at various terminal sizes
+    for (cols, rows, lines, label) in [
+        (80, 24, 23, "80x24"),
+        (200, 60, 59, "200x60"),
+        (300, 80, 79, "300x80"),
+    ] {
+        let mut state = typical_state(lines);
+        state.cols = cols;
+        state.rows = rows;
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: cols,
+            h: rows,
+        };
+        let mut grid = CellGrid::new(cols, rows);
+
+        group.bench_function(BenchmarkId::new("full_frame", label), |b| {
+            b.iter(|| {
+                let element = view::view(&state, &registry);
+                let layout = flex::place(&element, area, &state);
+                grid.clear(&state.default_face);
+                paint::paint(&element, &layout, &mut grid, &state);
+                let _diffs = grid.diff();
+                grid.swap();
+            });
+        });
+    }
+
+    // Parse + apply for large Draw messages
+    for line_count in [500, 1000] {
+        let json = draw_json(line_count);
+        let base_state = typical_state(23);
+        group.bench_function(BenchmarkId::new("parse_apply_draw", line_count), |b| {
+            b.iter(|| {
+                let mut buf = json.clone();
+                let request = parse_request(&mut buf).unwrap();
+                let mut state = base_state.clone();
+                state.apply(request)
+            })
+        });
+    }
+
+    // diff() at large sizes (incremental — same content, empty diff)
+    for (cols, rows, lines, label) in [
+        (80, 24, 23, "80x24"),
+        (200, 60, 59, "200x60"),
+        (300, 80, 79, "300x80"),
+    ] {
+        let mut state = typical_state(lines);
+        state.cols = cols;
+        state.rows = rows;
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: cols,
+            h: rows,
+        };
+        let element = view::view(&state, &registry);
+        let layout = flex::place(&element, area, &state);
+        let mut grid = CellGrid::new(cols, rows);
+        // Populate both buffers with the same content
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+        grid.swap();
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+
+        group.bench_function(BenchmarkId::new("diff_incremental", label), |b| {
+            b.iter(|| grid.diff());
+        });
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Allocation benchmarks (feature-gated)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "bench-alloc")]
+mod alloc_counter {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+    pub struct CountingAllocator;
+
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+            ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+    }
+
+    pub fn reset() {
+        ALLOC_COUNT.store(0, Ordering::Relaxed);
+        ALLOC_BYTES.store(0, Ordering::Relaxed);
+    }
+
+    pub fn snapshot() -> (usize, usize) {
+        (
+            ALLOC_COUNT.load(Ordering::Relaxed),
+            ALLOC_BYTES.load(Ordering::Relaxed),
+        )
+    }
+}
+
+#[cfg(feature = "bench-alloc")]
+#[global_allocator]
+static ALLOC: alloc_counter::CountingAllocator = alloc_counter::CountingAllocator;
+
+#[cfg(feature = "bench-alloc")]
+fn bench_allocations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("allocations");
+
+    // Full frame allocation count
+    {
+        let state = typical_state(23);
+        let registry = PluginRegistry::new();
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        };
+        let mut grid = CellGrid::new(state.cols, state.rows);
+
+        group.bench_function("full_frame", |b| {
+            b.iter(|| {
+                alloc_counter::reset();
+                let element = view::view(&state, &registry);
+                let layout = flex::place(&element, area, &state);
+                grid.clear(&state.default_face);
+                paint::paint(&element, &layout, &mut grid, &state);
+                let _diffs = grid.diff();
+                grid.swap();
+                alloc_counter::snapshot()
+            });
+        });
+    }
+
+    // Parse request allocation count
+    {
+        let json = draw_json(100);
+        group.bench_function("parse_request", |b| {
+            b.iter(|| {
+                alloc_counter::reset();
+                let mut buf = json.clone();
+                let _ = parse_request(&mut buf).unwrap();
+                alloc_counter::snapshot()
+            });
+        });
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Criterion harness
 // ---------------------------------------------------------------------------
 
@@ -311,4 +632,20 @@ criterion_group!(
     bench_menu_show,
 );
 
-criterion_main!(micro, integration);
+criterion_group!(
+    name = extended;
+    config = Criterion::default().sample_size(50);
+    targets =
+        bench_parse_request,
+        bench_state_apply,
+        bench_scaling,
+);
+
+#[cfg(not(feature = "bench-alloc"))]
+criterion_main!(micro, integration, extended);
+
+#[cfg(feature = "bench-alloc")]
+criterion_group!(alloc_benches, bench_allocations);
+
+#[cfg(feature = "bench-alloc")]
+criterion_main!(micro, integration, extended, alloc_benches);
