@@ -40,6 +40,8 @@ jobs:
 
       - name: Run iai-callgrind benchmarks
         run: nix develop --command cargo bench --bench iai_pipeline
+        env:
+          IAI_CALLGRIND_RUNNER: /home/runner/.cargo/bin/iai-callgrind-runner
 
       - name: Run allocation budget
         run: |
