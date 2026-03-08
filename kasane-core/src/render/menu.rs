@@ -33,7 +33,7 @@ pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
 
     match menu.style {
         MenuStyle::Prompt => {
-            let status_row = state.rows.saturating_sub(1);
+            let status_row = state.available_height();
             let start_y = status_row.saturating_sub(menu.win_height);
             Some(Rect {
                 x: 0,
@@ -43,7 +43,7 @@ pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
             })
         }
         MenuStyle::Search => {
-            let status_row = state.rows.saturating_sub(1);
+            let status_row = state.available_height();
             Some(Rect {
                 x: 0,
                 y: status_row.saturating_sub(1),
@@ -52,7 +52,7 @@ pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
             })
         }
         MenuStyle::Inline => {
-            let screen_h = state.rows.saturating_sub(1);
+            let screen_h = state.available_height();
             // +1 for scrollbar
             let win_w = (menu.max_item_width + 1).min(state.cols);
             let placement = crate::layout::MenuPlacement::from(state.menu_position);

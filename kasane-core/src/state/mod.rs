@@ -53,7 +53,7 @@ impl MenuState {
     /// Create a new MenuState with derived layout fields computed from items and screen dimensions.
     ///
     /// `screen_h` is the available height **excluding** the status bar row
-    /// (i.e. `rows.saturating_sub(1)`).
+    /// (i.e. `AppState::available_height()`).
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         items: Vec<Line>,
@@ -266,6 +266,11 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// ステータスバー行を除いた利用可能な高さを返す。
+    pub fn available_height(&self) -> u16 {
+        self.rows.saturating_sub(1)
+    }
+
     /// Config の設定を AppState に適用する。
     pub fn apply_config(&mut self, config: &Config) {
         self.shadow_enabled = config.ui.shadow;

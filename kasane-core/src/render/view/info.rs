@@ -16,7 +16,7 @@ pub(super) fn build_replacement_info_overlay(
     state: &AppState,
     avoid: &[crate::layout::Rect],
 ) -> Option<Overlay> {
-    let screen_h = state.rows.saturating_sub(1);
+    let screen_h = state.available_height();
     let win = layout_info(
         &info.title,
         &info.content,
@@ -48,7 +48,7 @@ pub(super) fn build_info_overlay_indexed(
     avoid: &[crate::layout::Rect],
     index: usize,
 ) -> Option<Overlay> {
-    let screen_h = state.rows.saturating_sub(1);
+    let screen_h = state.available_height();
     let win = layout_info(
         &info.title,
         &info.content,

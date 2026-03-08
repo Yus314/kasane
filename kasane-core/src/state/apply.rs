@@ -46,7 +46,7 @@ impl AppState {
                 menu_face,
                 style,
             } => {
-                let screen_h = self.rows.saturating_sub(1);
+                let screen_h = self.available_height();
                 self.menu = Some(MenuState::new(
                     items,
                     anchor,

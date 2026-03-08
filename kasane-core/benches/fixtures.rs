@@ -4,7 +4,7 @@ use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{Command, DecorateTarget, Plugin, PluginId, PluginRegistry, Slot};
 use kasane_core::protocol::{
-    Atom, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
+    Atom, Attributes, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
 };
 use kasane_core::state::AppState;
 use serde::Serialize;
@@ -147,6 +147,350 @@ pub fn typical_state(line_count: usize) -> AppState {
     state
 }
 
+// ---------------------------------------------------------------------------
+// Realistic fixture builders (diverse faces, varied line lengths, wide chars)
+// ---------------------------------------------------------------------------
+
+fn keyword_face() -> Face {
+    Face {
+        fg: Color::Rgb {
+            r: 255,
+            g: 100,
+            b: 0,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn ident_face() -> Face {
+    Face {
+        fg: Color::Rgb {
+            r: 0,
+            g: 200,
+            b: 100,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn literal_face() -> Face {
+    Face {
+        fg: Color::Rgb {
+            r: 100,
+            g: 100,
+            b: 255,
+        },
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn comment_face() -> Face {
+    Face {
+        fg: Color::Rgb {
+            r: 128,
+            g: 128,
+            b: 128,
+        },
+        bg: Color::Default,
+        attributes: Attributes::ITALIC,
+        ..Face::default()
+    }
+}
+
+fn type_face() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::Cyan),
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn operator_face() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn string_face() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::Yellow),
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn error_face() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::BrightRed),
+        bg: Color::Default,
+        attributes: Attributes::BOLD | Attributes::UNDERLINE,
+        ..Face::default()
+    }
+}
+
+fn namespace_face() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::Magenta),
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn constant_face() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::BrightBlue),
+        bg: Color::Default,
+        ..Face::default()
+    }
+}
+
+fn short_comment_line(i: usize) -> Line {
+    vec![Atom {
+        face: comment_face(),
+        contents: format!("// comment line {i}"),
+    }]
+}
+
+fn function_def_line(i: usize) -> Line {
+    vec![
+        Atom {
+            face: keyword_face(),
+            contents: "fn ".to_string(),
+        },
+        Atom {
+            face: ident_face(),
+            contents: format!("process_{i}"),
+        },
+        Atom {
+            face: operator_face(),
+            contents: "(".to_string(),
+        },
+        Atom {
+            face: type_face(),
+            contents: "u32".to_string(),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ") {".to_string(),
+        },
+    ]
+}
+
+fn long_code_line(i: usize) -> Line {
+    vec![
+        Atom {
+            face: keyword_face(),
+            contents: "    let ".to_string(),
+        },
+        Atom {
+            face: ident_face(),
+            contents: format!("result_{i}"),
+        },
+        Atom {
+            face: operator_face(),
+            contents: " = ".to_string(),
+        },
+        Atom {
+            face: namespace_face(),
+            contents: "self".to_string(),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ".".to_string(),
+        },
+        Atom {
+            face: ident_face(),
+            contents: format!("compute_{i}"),
+        },
+        Atom {
+            face: operator_face(),
+            contents: "(".to_string(),
+        },
+        Atom {
+            face: literal_face(),
+            contents: format!("{}", i * 42),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ", ".to_string(),
+        },
+        Atom {
+            face: string_face(),
+            contents: format!("\"value_{i}\""),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ");".to_string(),
+        },
+    ]
+}
+
+fn string_heavy_line(i: usize) -> Line {
+    vec![
+        Atom {
+            face: keyword_face(),
+            contents: "    const ".to_string(),
+        },
+        Atom {
+            face: constant_face(),
+            contents: format!("MSG_{i}"),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ": &str = ".to_string(),
+        },
+        Atom {
+            face: string_face(),
+            contents: format!("\"Hello from module {i}, processing data\""),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ";".to_string(),
+        },
+    ]
+}
+
+fn indented_block_line(i: usize) -> Line {
+    vec![
+        Atom {
+            face: Face::default(),
+            contents: "    ".to_string(),
+        },
+        Atom {
+            face: keyword_face(),
+            contents: "if ".to_string(),
+        },
+        Atom {
+            face: ident_face(),
+            contents: format!("count_{i}"),
+        },
+        Atom {
+            face: operator_face(),
+            contents: " > ".to_string(),
+        },
+        Atom {
+            face: literal_face(),
+            contents: format!("{}", i * 10),
+        },
+        Atom {
+            face: operator_face(),
+            contents: " {".to_string(),
+        },
+    ]
+}
+
+fn cjk_comment_line(i: usize) -> Line {
+    vec![Atom {
+        face: comment_face(),
+        contents: format!("// 処理{i}: データ変換と検証"),
+    }]
+}
+
+fn attribute_heavy_line(i: usize) -> Line {
+    vec![
+        Atom {
+            face: Face {
+                attributes: Attributes::BOLD,
+                ..error_face()
+            },
+            contents: "ERROR".to_string(),
+        },
+        Atom {
+            face: operator_face(),
+            contents: ": ".to_string(),
+        },
+        Atom {
+            face: Face {
+                attributes: Attributes::ITALIC | Attributes::UNDERLINE,
+                ..string_face()
+            },
+            contents: format!("\"unexpected token at line {i}\""),
+        },
+    ]
+}
+
+fn make_realistic_line(i: usize) -> Line {
+    match i % 8 {
+        0 => vec![], // empty line
+        1 => short_comment_line(i),
+        2 => function_def_line(i),
+        3 => long_code_line(i),
+        4 => string_heavy_line(i),
+        5 => indented_block_line(i),
+        6 => cjk_comment_line(i),
+        7 => attribute_heavy_line(i),
+        _ => unreachable!(),
+    }
+}
+
+/// Realistic state with varied line lengths, diverse faces, and wide chars.
+pub fn realistic_state(line_count: usize) -> AppState {
+    let mut state = AppState::default();
+    state.cols = 80;
+    state.rows = 24;
+    state.default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state.padding_face = state.default_face;
+    state.status_default_face = Face {
+        fg: Color::Named(NamedColor::Cyan),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state.lines = (0..line_count).map(make_realistic_line).collect();
+    state.status_line = vec![Atom {
+        face: Face::default(),
+        contents: " NORMAL ".to_string(),
+    }];
+    state.status_mode_line = vec![Atom {
+        face: Face::default(),
+        contents: "normal".to_string(),
+    }];
+    state
+}
+
+/// JSON-RPC "draw" message as raw bytes using realistic line data.
+#[allow(dead_code)]
+pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
+    let lines: Vec<Line> = (0..line_count).map(make_realistic_line).collect();
+    let default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    let padding_face = default_face;
+    to_json_bytes("draw", (&lines, &default_face, &padding_face))
+}
+
+/// Create a state with `n` lines modified starting at `start_line` (simulating an edit).
+pub fn state_with_edit(base: &AppState, start_line: usize, n: usize) -> AppState {
+    let mut state = base.clone();
+    for i in start_line..(start_line + n).min(state.lines.len()) {
+        state.lines[i] = vec![
+            Atom {
+                face: Face {
+                    fg: Color::Rgb { r: 255, g: 0, b: 0 },
+                    bg: Color::Default,
+                    ..Face::default()
+                },
+                contents: format!("edited_line_{i}"),
+            },
+            Atom {
+                face: Face::default(),
+                contents: " // modified".to_string(),
+            },
+        ];
+    }
+    state
+}
+
 /// Create an `AppState` with a menu visible (inline style at anchor).
 pub fn state_with_menu(item_count: usize) -> AppState {
     let mut state = typical_state(23);
@@ -169,7 +513,7 @@ pub fn state_with_menu(item_count: usize) -> AppState {
         bg: Color::Named(NamedColor::Cyan),
         ..Face::default()
     };
-    let screen_h = state.rows.saturating_sub(1);
+    let screen_h = state.available_height();
     state.menu = Some(kasane_core::state::MenuState::new(
         items,
         Coord {

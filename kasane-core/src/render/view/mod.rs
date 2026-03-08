@@ -13,7 +13,7 @@ use crate::state::AppState;
 /// Build the full Element tree from application state.
 pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     crate::perf::perf_span!("view");
-    let buffer_rows = state.rows.saturating_sub(1) as usize;
+    let buffer_rows = state.available_height() as usize;
 
     // Collect plugin slots
     let above_buffer = registry.collect_slot(Slot::AboveBuffer, state);

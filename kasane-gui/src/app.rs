@@ -158,7 +158,7 @@ impl<W: Write + Send + 'static> App<W> {
                     if !self.initial_resize_sent {
                         self.initial_resize_sent = true;
                         let resize = KasaneRequest::Resize {
-                            rows: self.state.rows.saturating_sub(1),
+                            rows: self.state.available_height(),
                             cols: self.state.cols,
                         };
                         let _ = writeln!(self.kak_writer, "{}", resize.to_json());
@@ -229,8 +229,8 @@ impl<W: Write + Send + 'static> App<W> {
             // Send resize to Kakoune
             if self.initial_resize_sent {
                 let resize = KasaneRequest::Resize {
-                    rows: metrics.rows.saturating_sub(1),
-                    cols: metrics.cols,
+                    rows: self.state.available_height(),
+                    cols: self.state.cols,
                 };
                 let _ = writeln!(self.kak_writer, "{}", resize.to_json());
                 let _ = self.kak_writer.flush();

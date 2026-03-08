@@ -180,7 +180,7 @@ pub fn update(
             grid.resize(cols, rows);
             grid.invalidate_all();
             let cmd = Command::SendToKakoune(KasaneRequest::Resize {
-                rows: rows.saturating_sub(1),
+                rows: state.available_height(),
                 cols,
             });
             (DirtyFlags::ALL, vec![cmd])
@@ -199,7 +199,7 @@ pub fn update(
 /// Check if a scroll event hits an info popup and adjust its scroll_offset.
 /// Returns true if the scroll was consumed by an info popup.
 fn handle_info_scroll(state: &mut AppState, mouse: &input::MouseEvent) -> bool {
-    let screen_h = state.rows.saturating_sub(1);
+    let screen_h = state.available_height();
     let mut avoid: Vec<crate::layout::Rect> = Vec::new();
     if let Some(mr) = crate::render::menu::get_menu_rect(state) {
         avoid.push(mr);
@@ -251,5 +251,5 @@ fn handle_info_scroll(state: &mut AppState, mouse: &input::MouseEvent) -> bool {
 /// Compute the number of visible buffer lines for PageUp/PageDown scrolling.
 pub(super) fn compute_visible_lines(state: &AppState) -> u16 {
     // Subtract 1 for the status bar row
-    state.rows.saturating_sub(1)
+    state.available_height()
 }

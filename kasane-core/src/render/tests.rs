@@ -559,7 +559,7 @@ fn test_declarative_matches_imperative_buffer_status() {
     paint::paint(&element, &layout_result, &mut grid_new, &state);
 
     // Compare buffer rows (0..rows-1)
-    let buffer_rows = state.rows.saturating_sub(1);
+    let buffer_rows = state.available_height();
     for y in 0..buffer_rows {
         for x in 0..state.cols {
             let old = grid_old.get(x, y).unwrap();

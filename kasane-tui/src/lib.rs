@@ -40,7 +40,7 @@ fn process_event(
             if !*initial_resize_sent {
                 *initial_resize_sent = true;
                 let resize = KasaneRequest::Resize {
-                    rows: state.rows.saturating_sub(1),
+                    rows: state.available_height(),
                     cols: state.cols,
                 };
                 let _ = writeln!(kak_writer, "{}", resize.to_json());

@@ -20,7 +20,7 @@ pub(super) fn build_replacement_menu_overlay(
     let anchor = match menu.style {
         MenuStyle::Inline => {
             let win_w = (menu.max_item_width + 1).min(state.cols);
-            let screen_h = state.rows.saturating_sub(1);
+            let screen_h = state.available_height();
             let win = layout_menu_inline(
                 &menu.anchor,
                 win_w,
@@ -40,7 +40,7 @@ pub(super) fn build_replacement_menu_overlay(
             }
         }
         MenuStyle::Prompt => {
-            let status_row = state.rows.saturating_sub(1);
+            let status_row = state.available_height();
             let start_y = status_row.saturating_sub(menu.win_height);
             OverlayAnchor::Absolute {
                 x: 0,
@@ -50,7 +50,7 @@ pub(super) fn build_replacement_menu_overlay(
             }
         }
         MenuStyle::Search => {
-            let status_row = state.rows.saturating_sub(1);
+            let status_row = state.available_height();
             let y = status_row.saturating_sub(1);
             OverlayAnchor::Absolute {
                 x: 0,
@@ -90,7 +90,7 @@ fn menu_placement(state: &AppState) -> MenuPlacement {
 fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     let win_w = (menu.max_item_width + 1).min(state.cols);
     let content_w = win_w.saturating_sub(1);
-    let screen_h = state.rows.saturating_sub(1);
+    let screen_h = state.available_height();
     let placement = menu_placement(state);
 
     let win = layout_menu_inline(
@@ -158,7 +158,7 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
         return None;
     }
 
-    let status_row = state.rows.saturating_sub(1);
+    let status_row = state.available_height();
     let wh = menu.win_height;
     let columns = menu.columns as usize;
     let stride = wh as usize;
@@ -226,7 +226,7 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
 }
 
 fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
-    let status_row = state.rows.saturating_sub(1);
+    let status_row = state.available_height();
     let y = status_row.saturating_sub(1);
     let screen_w = state.cols as usize;
     let first = menu.first_item;
@@ -314,8 +314,8 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
 
 /// Build a search menu as a vertical dropdown instead of the default inline bar.
 fn build_menu_search_dropdown(menu: &MenuState, state: &AppState) -> Option<Overlay> {
-    let screen_h = state.rows.saturating_sub(1);
-    let status_row = state.rows.saturating_sub(1);
+    let screen_h = state.available_height();
+    let status_row = state.available_height();
     let max_h = 10u16.min(screen_h.saturating_sub(1));
     let win_h = (menu.items.len() as u16).min(max_h).max(1);
     let win_w = (menu.max_item_width + 1).min(state.cols);
