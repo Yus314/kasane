@@ -20,8 +20,35 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
-      - name: Run benchmarks
-        run: nix develop --command cargo bench --bench rendering_pipeline -- --output-format bencher --warm-up-time 3 | tee output.txt
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Install iai-callgrind-runner
+        run: nix develop --command cargo install iai-callgrind-runner --version 0.14.0
+
+      - name: Run core benchmarks
+        run: nix develop --command cargo bench --bench rendering_pipeline -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee output.txt
+
+      - name: Run TUI benchmarks
+        run: nix develop --command cargo bench -p kasane-tui --bench backend -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
+
+      - name: Run replay benchmarks
+        run: nix develop --command cargo bench --bench replay -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
+
+      - name: Run GUI CPU benchmarks
+        run: nix develop --command cargo bench -p kasane-gui --bench cpu_rendering -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
+
+      - name: Run iai-callgrind benchmarks
+        run: nix develop --command cargo bench --bench iai_pipeline
+
+      - name: Run allocation budget
+        run: |
+          nix develop --command cargo run -p kasane-core --bin alloc_budget --features bench-alloc | tee alloc_budget.json
+          echo "Allocation budget:"
+          cat alloc_budget.json
+
+      - name: Check latency budgets
+        run: nix develop --command cargo test -p kasane-core --test latency_budget -- --ignored
 
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1

@@ -24,7 +24,25 @@ bench-alloc = []
 [dev-dependencies]
 insta = { workspace = true }
 criterion = { workspace = true }
+iai-callgrind = { workspace = true }
+hdrhistogram = { workspace = true }
 
 [[bench]]
 name = "rendering_pipeline"
 harness = false
+
+[[bench]]
+name = "iai_pipeline"
+harness = false
+
+[[bench]]
+name = "replay"
+harness = false
+
+[[bench]]
+name = "latency"
+harness = false
+
+[[bin]]
+name = "alloc_budget"
+required-features = ["bench-alloc"]

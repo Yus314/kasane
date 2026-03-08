@@ -27,6 +27,8 @@ tracing-appender = "0.2"
 unicode-width = "0.2"
 insta = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
+iai-callgrind = "0.14"
+hdrhistogram = "7"
 toml = "0.8"
 bitflags = "2"
 compact_str = "0.9"

@@ -14,3 +14,11 @@ arboard = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 bytemuck = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+kasane-core = { workspace = true }
+
+[[bench]]
+name = "cpu_rendering"
+harness = false
