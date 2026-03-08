@@ -74,7 +74,7 @@ Requires `valgrind` installed and `iai-callgrind-runner` in PATH:
 
 ```sh
 sudo apt install valgrind          # Ubuntu/Debian
-cargo install iai-callgrind-runner --version 0.14.0
+cargo install iai-callgrind-runner --version 0.14.2
 ```
 
 ### Reading output

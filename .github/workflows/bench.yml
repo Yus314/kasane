@@ -24,7 +24,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y valgrind
 
       - name: Install iai-callgrind-runner
-        run: nix develop --command cargo install iai-callgrind-runner --version 0.14.0
+        run: nix develop --command cargo install iai-callgrind-runner --version 0.14.2
 
       - name: Run core benchmarks
         run: nix develop --command cargo bench --bench rendering_pipeline -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee output.txt
