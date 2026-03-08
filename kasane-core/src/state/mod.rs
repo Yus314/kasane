@@ -27,6 +27,21 @@ bitflags! {
     }
 }
 
+/// Parameters for constructing a [`MenuState`].
+///
+/// Groups the configuration and layout context that `MenuState::new()` needs
+/// (everything except the item list itself).
+#[derive(Debug, Clone)]
+pub struct MenuParams {
+    pub anchor: Coord,
+    pub selected_item_face: Face,
+    pub menu_face: Face,
+    pub style: MenuStyle,
+    pub screen_w: u16,
+    pub screen_h: u16,
+    pub max_height: u16,
+}
+
 #[derive(Debug, Clone)]
 pub struct MenuState {
     pub items: Vec<Line>,
@@ -52,19 +67,9 @@ pub struct MenuState {
 impl MenuState {
     /// Create a new MenuState with derived layout fields computed from items and screen dimensions.
     ///
-    /// `screen_h` is the available height **excluding** the status bar row
+    /// `params.screen_h` is the available height **excluding** the status bar row
     /// (i.e. `AppState::available_height()`).
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        items: Vec<Line>,
-        anchor: Coord,
-        selected_item_face: Face,
-        menu_face: Face,
-        style: MenuStyle,
-        screen_w: u16,
-        screen_h: u16,
-        max_height_config: u16,
-    ) -> Self {
+    pub fn new(items: Vec<Line>, params: MenuParams) -> Self {
         let max_item_width = items
             .iter()
             .map(line_display_width)
@@ -72,24 +77,26 @@ impl MenuState {
             .unwrap_or(1)
             .max(1) as u16;
 
-        let columns: u16 = match style {
+        let columns: u16 = match params.style {
             MenuStyle::Search | MenuStyle::Inline => 1,
             MenuStyle::Prompt => {
                 // -1 for scrollbar column (matches Kakoune terminal_ui.cc:
                 // max_width = m_dimensions.column - 1)
-                ((screen_w.saturating_sub(1)) as usize / (max_item_width as usize + 1)).max(1)
-                    as u16
+                ((params.screen_w.saturating_sub(1)) as usize / (max_item_width as usize + 1))
+                    .max(1) as u16
             }
         };
 
-        let max_height = match style {
+        let max_height = match params.style {
             MenuStyle::Search => 1u16,
             MenuStyle::Inline => {
-                let above = anchor.line as u16;
-                let below = screen_h.saturating_sub(anchor.line as u16 + 1);
-                max_height_config.min(above.max(below))
+                let above = params.anchor.line as u16;
+                let below = params
+                    .screen_h
+                    .saturating_sub(params.anchor.line as u16 + 1);
+                params.max_height.min(above.max(below))
             }
-            MenuStyle::Prompt => max_height_config.min(screen_h),
+            MenuStyle::Prompt => params.max_height.min(params.screen_h),
         };
 
         let item_count = items.len();
@@ -99,17 +106,17 @@ impl MenuState {
 
         Self {
             items,
-            anchor,
-            selected_item_face,
-            menu_face,
-            style,
+            anchor: params.anchor,
+            selected_item_face: params.selected_item_face,
+            menu_face: params.menu_face,
+            style: params.style,
             selected: None,
             first_item: 0,
             columns,
             win_height,
             menu_lines,
             max_item_width,
-            screen_w,
+            screen_w: params.screen_w,
         }
     }
 

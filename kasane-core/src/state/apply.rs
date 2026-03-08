@@ -1,6 +1,6 @@
 use crate::protocol::{Attributes, KakouneRequest};
 
-use super::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuState};
+use super::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 
 impl AppState {
     pub fn apply(&mut self, request: KakouneRequest) -> DirtyFlags {
@@ -49,13 +49,15 @@ impl AppState {
                 let screen_h = self.available_height();
                 self.menu = Some(MenuState::new(
                     items,
-                    anchor,
-                    selected_item_face,
-                    menu_face,
-                    style,
-                    self.cols,
-                    screen_h,
-                    self.menu_max_height,
+                    MenuParams {
+                        anchor,
+                        selected_item_face,
+                        menu_face,
+                        style,
+                        screen_w: self.cols,
+                        screen_h,
+                        max_height: self.menu_max_height,
+                    },
                 ));
                 DirtyFlags::MENU
             }

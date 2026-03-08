@@ -362,15 +362,18 @@ mod tests {
         screen_w: u16,
         screen_h: u16,
     ) -> MenuState {
+        use crate::state::MenuParams;
         let mut ms = MenuState::new(
             items,
-            anchor,
-            Face::default(),
-            Face::default(),
-            style,
-            screen_w,
-            screen_h,
-            10,
+            MenuParams {
+                anchor,
+                selected_item_face: Face::default(),
+                menu_face: Face::default(),
+                style,
+                screen_w,
+                screen_h,
+                max_height: 10,
+            },
         );
         ms.selected = selected;
         ms

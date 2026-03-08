@@ -516,16 +516,18 @@ pub fn state_with_menu(item_count: usize) -> AppState {
     let screen_h = state.available_height();
     state.menu = Some(kasane_core::state::MenuState::new(
         items,
-        Coord {
-            line: 5,
-            column: 10,
+        kasane_core::state::MenuParams {
+            anchor: Coord {
+                line: 5,
+                column: 10,
+            },
+            selected_item_face: selected_face,
+            menu_face,
+            style: MenuStyle::Inline,
+            screen_w: state.cols,
+            screen_h,
+            max_height: state.menu_max_height,
         },
-        selected_face,
-        menu_face,
-        MenuStyle::Inline,
-        state.cols,
-        screen_h,
-        state.menu_max_height,
     ));
     state
 }
