@@ -39,9 +39,7 @@ jobs:
         run: nix develop --command cargo bench -p kasane-gui --bench cpu_rendering -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
 
       - name: Run iai-callgrind benchmarks
-        run: nix develop --command cargo bench --bench iai_pipeline
-        env:
-          IAI_CALLGRIND_RUNNER: /home/runner/.cargo/bin/iai-callgrind-runner
+        run: nix develop --command env PATH="$HOME/.cargo/bin:$PATH" IAI_CALLGRIND_RUNNER="$HOME/.cargo/bin/iai-callgrind-runner" cargo bench --bench iai_pipeline
 
       - name: Run allocation budget
         run: |
