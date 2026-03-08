@@ -161,8 +161,7 @@ impl<W: Write + Send + 'static> App<W> {
                             rows: self.state.available_height(),
                             cols: self.state.cols,
                         };
-                        let _ = writeln!(self.kak_writer, "{}", resize.to_json());
-                        let _ = self.kak_writer.flush();
+                        kasane_core::io::send_request(&mut self.kak_writer, &resize);
                     }
                     let (flags, commands) = update(
                         &mut self.state,
@@ -232,8 +231,7 @@ impl<W: Write + Send + 'static> App<W> {
                     rows: self.state.available_height(),
                     cols: self.state.cols,
                 };
-                let _ = writeln!(self.kak_writer, "{}", resize.to_json());
-                let _ = self.kak_writer.flush();
+                kasane_core::io::send_request(&mut self.kak_writer, &resize);
             }
             self.dirty = DirtyFlags::ALL;
         }

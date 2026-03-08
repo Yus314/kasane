@@ -295,8 +295,7 @@ pub fn tick_scroll_animation(state: &mut AppState, kak_writer: &mut impl std::io
         line: anim.line,
         column: anim.column,
     };
-    let _ = writeln!(kak_writer, "{}", req.to_json());
-    let _ = kak_writer.flush();
+    crate::io::send_request(kak_writer, &req);
     anim.remaining -= step;
     if anim.remaining == 0 {
         state.scroll_animation = None;

@@ -1,4 +1,12 @@
-use crate::protocol::KakouneRequest;
+use std::io::Write;
+
+use crate::protocol::{KakouneRequest, KasaneRequest};
+
+/// Send a KasaneRequest as JSON to the Kakoune process.
+pub fn send_request(writer: &mut impl Write, req: &KasaneRequest) {
+    let _ = writeln!(writer, "{}", req.to_json());
+    let _ = writer.flush();
+}
 
 /// Spawn a background thread that reads JSON-RPC messages from a Kakoune process.
 ///

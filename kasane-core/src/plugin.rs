@@ -66,15 +66,13 @@ pub fn execute_commands(
     for cmd in commands {
         match cmd {
             Command::SendToKakoune(req) => {
-                let _ = writeln!(kak_writer, "{}", req.to_json());
-                let _ = kak_writer.flush();
+                crate::io::send_request(kak_writer, &req);
             }
             Command::Paste => {
                 if let Some(text) = clipboard_get() {
                     let keys = paste_text_to_keys(&text);
                     if !keys.is_empty() {
-                        let _ = writeln!(kak_writer, "{}", KasaneRequest::Keys(keys).to_json());
-                        let _ = kak_writer.flush();
+                        crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));
                     }
                 }
             }

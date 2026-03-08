@@ -43,8 +43,7 @@ fn process_event(
                     rows: state.available_height(),
                     cols: state.cols,
                 };
-                let _ = writeln!(kak_writer, "{}", resize.to_json());
-                let _ = kak_writer.flush();
+                kasane_core::io::send_request(kak_writer, &resize);
             }
             let (flags, commands) = update(state, Msg::Kakoune(req), registry, grid, scroll_amount);
             *dirty |= flags;
