@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772932178237,
+  "lastUpdate": 1772933109506,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -659,6 +659,138 @@ window.BENCHMARK_DATA = {
             "name": "menu_show/items/100",
             "value": 47016,
             "range": "± 288",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "b695d1cc9a5698b75050a3911ee495e5bec8983a",
+          "message": "feat: add fullscreen and maximized window settings with F11 toggle\n\nAdd fullscreen (borderless) and maximized options to [window] config,\napply them at window creation, and intercept F11 to toggle fullscreen\nat runtime.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-08T10:19:36+09:00",
+          "tree_id": "6bc9e848745f141ff4e975c69573050fff3a5dc2",
+          "url": "https://github.com/Yus314/kasane/commit/b695d1cc9a5698b75050a3911ee495e5bec8983a"
+        },
+        "date": 1772933109214,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 261,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2261,
+            "range": "± 227",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 373,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 18826,
+            "range": "± 97",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 73208,
+            "range": "± 440",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 23115,
+            "range": "± 64",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12401,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 29,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 75,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 137,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 195,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 788,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1531,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 35622,
+            "range": "± 189",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 44893,
+            "range": "± 244",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 45695,
+            "range": "± 239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 45749,
+            "range": "± 276",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 46052,
+            "range": "± 366",
             "unit": "ns/iter"
           }
         ]
