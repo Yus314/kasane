@@ -23,6 +23,7 @@
 - [実装ロードマップ](./roadmap.md)
 - [JSON UI プロトコル仕様](./json-ui-protocol.md)
 - [Kakoune Issue 調査報告書](./kakoune-issues-investigation.md)
+- [Kakoune プロトコル制約分析](./kakoune-protocol-constraints.md)
 - [用語集](./glossary.md)
 
 ---
@@ -332,6 +333,8 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 ---
 
 ## 6. 既知の制約事項
+
+> 各制約の詳細な分析（実装の歪み、上流での解決見込み、戦略的対応）は [Kakoune プロトコル制約分析](./kakoune-protocol-constraints.md) を参照。
 
 | ID | 制約 | 影響 | 回避策 |
 |----|------|------|--------|
