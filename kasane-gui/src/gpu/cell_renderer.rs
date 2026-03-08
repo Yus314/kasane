@@ -15,6 +15,13 @@ use crate::colors::ColorResolver;
 /// Initial capacity for bg instance buffer (enough for 256x64 grid + cursor)
 const INITIAL_BG_CAPACITY: usize = 256 * 64 + 8;
 
+/// Width of the cursor bar (CursorStyle::Bar) in pixels.
+const CURSOR_BAR_WIDTH: f32 = 2.0;
+/// Height of the cursor underline (CursorStyle::Underline) in pixels.
+const CURSOR_UNDERLINE_HEIGHT: f32 = 2.0;
+/// Thickness of the cursor outline (CursorStyle::Outline) border in pixels.
+const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
+
 /// Background quad rendering pipeline — owns the GPU pipeline, uniform buffer,
 /// bind group, instance buffer, and CPU-side scratch vector.
 struct BgPipeline {
@@ -376,14 +383,19 @@ impl CellRenderer {
                     self.bg.push_rect(x, y, cell_w, cell_h, cc);
                 }
                 CursorStyle::Bar => {
-                    self.bg.push_rect(x, y, 2.0, cell_h, cc);
+                    self.bg.push_rect(x, y, CURSOR_BAR_WIDTH, cell_h, cc);
                 }
                 CursorStyle::Underline => {
-                    let uh = 2.0_f32;
-                    self.bg.push_rect(x, y + cell_h - uh, cell_w, uh, cc);
+                    self.bg.push_rect(
+                        x,
+                        y + cell_h - CURSOR_UNDERLINE_HEIGHT,
+                        cell_w,
+                        CURSOR_UNDERLINE_HEIGHT,
+                        cc,
+                    );
                 }
                 CursorStyle::Outline => {
-                    let t = 1.0_f32;
+                    let t = CURSOR_OUTLINE_THICKNESS;
                     self.bg.push_rect(x, y, cell_w, t, cc); // Top
                     self.bg.push_rect(x, y + cell_h - t, cell_w, t, cc); // Bottom
                     self.bg.push_rect(x, y, t, cell_h, cc); // Left
