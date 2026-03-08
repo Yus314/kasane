@@ -12,86 +12,23 @@ use winit::dpi::PhysicalSize;
 use super::CellMetrics;
 use crate::colors::ColorResolver;
 
-/// Renders a CellGrid onto a GPU surface using glyphon for text and a custom
-/// pipeline for background rectangles.
-pub struct CellRenderer {
-    font_system: FontSystem,
-    swash_cache: SwashCache,
-    viewport: Viewport,
-    text_atlas: TextAtlas,
-    text_renderer: TextRenderer,
-    metrics: CellMetrics,
-    font_size: f32,
-    line_height: f32,
-
-    // Background quad pipeline
-    bg_pipeline: wgpu::RenderPipeline,
-    bg_uniform_buffer: wgpu::Buffer,
-    bg_uniform_bind_group: wgpu::BindGroup,
-
-    // Persistent GPU buffer for background instances (reused across frames)
-    bg_instance_buffer: wgpu::Buffer,
-    bg_instance_capacity: usize,
-
-    // Reusable CPU-side scratch buffers
-    bg_instances: Vec<f32>,
-    row_text: String,
-    span_ranges: Vec<(usize, usize, [f32; 4])>,
-
-    // Cached glyphon text buffers (one per row, persistent across frames)
-    text_buffers: Vec<GlyphonBuffer>,
-
-    // Row-level dirty tracking: cached hash of each row's content+colors
-    row_hashes: Vec<u64>,
-
-    // Font family name from config (owned so we can lend &str to glyphon)
-    font_family: String,
-}
-
 /// Initial capacity for bg instance buffer (enough for 256x64 grid + cursor)
 const INITIAL_BG_CAPACITY: usize = 256 * 64 + 8;
 
-/// Append a background rectangle instance (8 floats: x, y, w, h, r, g, b, a).
-fn push_rect(instances: &mut Vec<f32>, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
-    instances.extend_from_slice(&[x, y, w, h, color[0], color[1], color[2], color[3]]);
+/// Background quad rendering pipeline — owns the GPU pipeline, uniform buffer,
+/// bind group, instance buffer, and CPU-side scratch vector.
+struct BgPipeline {
+    pipeline: wgpu::RenderPipeline,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
+    instance_buffer: wgpu::Buffer,
+    instance_capacity: usize,
+    instances: Vec<f32>,
 }
 
-impl CellRenderer {
-    pub fn new(
-        gpu: &super::GpuState,
-        font_config: &FontConfig,
-        scale_factor: f64,
-        window_size: PhysicalSize<u32>,
-    ) -> Self {
-        let mut font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-
-        let font_size = font_config.size * scale_factor as f32;
-        let line_height = font_size * font_config.line_height;
-
-        let metrics =
-            CellMetrics::calculate(&mut font_system, font_config, scale_factor, window_size);
-
-        let surface_format = gpu.config.format;
-
-        let cache = Cache::new(&gpu.device);
-        let mut text_atlas = TextAtlas::new(&gpu.device, &gpu.queue, &cache, surface_format);
-        let text_renderer = TextRenderer::new(
-            &mut text_atlas,
-            &gpu.device,
-            MultisampleState::default(),
-            None,
-        );
-        let mut viewport = Viewport::new(&gpu.device, &cache);
-        viewport.update(
-            &gpu.queue,
-            Resolution {
-                width: window_size.width.max(1),
-                height: window_size.height.max(1),
-            },
-        );
-
-        // Background quad shader + pipeline
+impl BgPipeline {
+    /// Create the background pipeline, uniform buffer, bind group, and instance buffer.
+    fn new(gpu: &super::GpuState, surface_format: wgpu::TextureFormat) -> Self {
         let bg_shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -99,7 +36,7 @@ impl CellRenderer {
                 source: wgpu::ShaderSource::Wgsl(include_str!("bg.wgsl").into()),
             });
 
-        let bg_uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        let uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("bg_uniforms"),
             size: 8, // vec2<f32> screen_size
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -122,12 +59,12 @@ impl CellRenderer {
                     }],
                 });
 
-        let bg_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("bg_bind_group"),
             layout: &bg_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: bg_uniform_buffer.as_entire_binding(),
+                resource: uniform_buffer.as_entire_binding(),
             }],
         });
 
@@ -139,7 +76,7 @@ impl CellRenderer {
                     immediate_size: 0,
                 });
 
-        let bg_pipeline = gpu
+        let pipeline = gpu
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("bg_pipeline"),
@@ -188,13 +125,112 @@ impl CellRenderer {
                 cache: None,
             });
 
-        // Persistent bg instance buffer
-        let bg_instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        let instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("bg_instances"),
             size: (INITIAL_BG_CAPACITY * 32) as u64, // 32 bytes per instance
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+
+        BgPipeline {
+            pipeline,
+            uniform_buffer,
+            uniform_bind_group,
+            instance_buffer,
+            instance_capacity: INITIAL_BG_CAPACITY,
+            instances: Vec::with_capacity(INITIAL_BG_CAPACITY * 8),
+        }
+    }
+
+    /// Append a background rectangle instance (8 floats: x, y, w, h, r, g, b, a).
+    fn push_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
+        self.instances
+            .extend_from_slice(&[x, y, w, h, color[0], color[1], color[2], color[3]]);
+    }
+
+    /// Ensure the persistent instance buffer is large enough.
+    fn ensure_buffer(&mut self, gpu: &super::GpuState, needed: usize) {
+        if needed <= self.instance_capacity {
+            return;
+        }
+        // Grow by 2x or to needed, whichever is larger
+        let new_cap = (self.instance_capacity * 2).max(needed);
+        self.instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("bg_instances"),
+            size: (new_cap * 32) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.instance_capacity = new_cap;
+    }
+}
+
+/// Renders a CellGrid onto a GPU surface using glyphon for text and a custom
+/// pipeline for background rectangles.
+pub struct CellRenderer {
+    font_system: FontSystem,
+    swash_cache: SwashCache,
+    viewport: Viewport,
+    text_atlas: TextAtlas,
+    text_renderer: TextRenderer,
+    metrics: CellMetrics,
+    font_size: f32,
+    line_height: f32,
+
+    // Background quad pipeline
+    bg: BgPipeline,
+
+    // Reusable CPU-side scratch buffers
+    row_text: String,
+    span_ranges: Vec<(usize, usize, [f32; 4])>,
+
+    // Cached glyphon text buffers (one per row, persistent across frames)
+    text_buffers: Vec<GlyphonBuffer>,
+
+    // Row-level dirty tracking: cached hash of each row's content+colors
+    row_hashes: Vec<u64>,
+
+    // Font family name from config (owned so we can lend &str to glyphon)
+    font_family: String,
+}
+
+impl CellRenderer {
+    pub fn new(
+        gpu: &super::GpuState,
+        font_config: &FontConfig,
+        scale_factor: f64,
+        window_size: PhysicalSize<u32>,
+    ) -> Self {
+        let mut font_system = FontSystem::new();
+        let swash_cache = SwashCache::new();
+
+        let font_size = font_config.size * scale_factor as f32;
+        let line_height = font_size * font_config.line_height;
+
+        let metrics =
+            CellMetrics::calculate(&mut font_system, font_config, scale_factor, window_size);
+
+        let surface_format = gpu.config.format;
+
+        let cache = Cache::new(&gpu.device);
+        let mut text_atlas = TextAtlas::new(&gpu.device, &gpu.queue, &cache, surface_format);
+        let text_renderer = TextRenderer::new(
+            &mut text_atlas,
+            &gpu.device,
+            MultisampleState::default(),
+            None,
+        );
+        let mut viewport = Viewport::new(&gpu.device, &cache);
+        viewport.update(
+            &gpu.queue,
+            Resolution {
+                width: window_size.width.max(1),
+                height: window_size.height.max(1),
+            },
+        );
+
+        // Background quad pipeline
+        let bg = BgPipeline::new(gpu, surface_format);
 
         // Pre-create text buffers for each row
         let rows = metrics.rows as usize;
@@ -216,12 +252,7 @@ impl CellRenderer {
             text_renderer,
             font_size,
             line_height,
-            bg_pipeline,
-            bg_uniform_buffer,
-            bg_uniform_bind_group: bg_bind_group,
-            bg_instance_buffer,
-            bg_instance_capacity: INITIAL_BG_CAPACITY,
-            bg_instances: Vec::with_capacity(INITIAL_BG_CAPACITY * 8),
+            bg,
             row_text: String::with_capacity(512),
             span_ranges: Vec::with_capacity(256),
             text_buffers,
@@ -292,22 +323,6 @@ impl CellRenderer {
         buffers
     }
 
-    /// Ensure the persistent bg instance buffer is large enough.
-    fn ensure_bg_buffer(&mut self, gpu: &super::GpuState, needed: usize) {
-        if needed <= self.bg_instance_capacity {
-            return;
-        }
-        // Grow by 2x or to needed, whichever is larger
-        let new_cap = (self.bg_instance_capacity * 2).max(needed);
-        self.bg_instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("bg_instances"),
-            size: (new_cap * 32) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.bg_instance_capacity = new_cap;
-    }
-
     /// Render one frame: backgrounds, text, and cursor.
     pub fn render(
         &mut self,
@@ -331,13 +346,13 @@ impl CellRenderer {
 
         // Update screen size uniform
         gpu.queue.write_buffer(
-            &self.bg_uniform_buffer,
+            &self.bg.uniform_buffer,
             0,
             bytemuck::cast_slice(&[screen_w, screen_h]),
         );
 
         // --- Build background instance data (reuse Vec) ---
-        self.bg_instances.clear();
+        self.bg.instances.clear();
         let cell_w = self.metrics.cell_width;
         let cell_h = self.metrics.cell_height;
 
@@ -347,7 +362,7 @@ impl CellRenderer {
                 let cell = grid.get(col, row).unwrap();
                 let bg = color_resolver.resolve(cell.face.bg, false);
                 let x = col as f32 * cell_w;
-                push_rect(&mut self.bg_instances, x, y, cell_w, cell_h, bg);
+                self.bg.push_rect(x, y, cell_w, cell_h, bg);
             }
         }
 
@@ -358,33 +373,33 @@ impl CellRenderer {
             let cc = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
             match style {
                 CursorStyle::Block => {
-                    push_rect(&mut self.bg_instances, x, y, cell_w, cell_h, cc);
+                    self.bg.push_rect(x, y, cell_w, cell_h, cc);
                 }
                 CursorStyle::Bar => {
-                    push_rect(&mut self.bg_instances, x, y, 2.0, cell_h, cc);
+                    self.bg.push_rect(x, y, 2.0, cell_h, cc);
                 }
                 CursorStyle::Underline => {
                     let uh = 2.0_f32;
-                    push_rect(&mut self.bg_instances, x, y + cell_h - uh, cell_w, uh, cc);
+                    self.bg.push_rect(x, y + cell_h - uh, cell_w, uh, cc);
                 }
                 CursorStyle::Outline => {
                     let t = 1.0_f32;
-                    push_rect(&mut self.bg_instances, x, y, cell_w, t, cc); // Top
-                    push_rect(&mut self.bg_instances, x, y + cell_h - t, cell_w, t, cc); // Bottom
-                    push_rect(&mut self.bg_instances, x, y, t, cell_h, cc); // Left
-                    push_rect(&mut self.bg_instances, x + cell_w - t, y, t, cell_h, cc); // Right
+                    self.bg.push_rect(x, y, cell_w, t, cc); // Top
+                    self.bg.push_rect(x, y + cell_h - t, cell_w, t, cc); // Bottom
+                    self.bg.push_rect(x, y, t, cell_h, cc); // Left
+                    self.bg.push_rect(x + cell_w - t, y, t, cell_h, cc); // Right
                 }
             }
         }
 
-        let instance_count = self.bg_instances.len() / 8;
+        let instance_count = self.bg.instances.len() / 8;
 
         // Upload bg instances to persistent GPU buffer
-        self.ensure_bg_buffer(gpu, instance_count);
+        self.bg.ensure_buffer(gpu, instance_count);
         gpu.queue.write_buffer(
-            &self.bg_instance_buffer,
+            &self.bg.instance_buffer,
             0,
-            bytemuck::cast_slice(&self.bg_instances),
+            bytemuck::cast_slice(&self.bg.instances),
         );
 
         // --- Update text buffers (reuse cached buffers, Basic shaping) ---
@@ -546,9 +561,9 @@ impl CellRenderer {
             });
 
             // Pass 1: background quads
-            render_pass.set_pipeline(&self.bg_pipeline);
-            render_pass.set_bind_group(0, &self.bg_uniform_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.bg_instance_buffer.slice(..));
+            render_pass.set_pipeline(&self.bg.pipeline);
+            render_pass.set_bind_group(0, &self.bg.uniform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.bg.instance_buffer.slice(..));
             render_pass.draw(0..4, 0..instance_count as u32);
 
             // Pass 2: text
