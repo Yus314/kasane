@@ -1,4 +1,5 @@
 use compact_str::CompactString;
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::protocol::{Attributes, Color, Face, Line};
@@ -131,7 +132,7 @@ impl CellGrid {
                 Some(base) => resolve_face(&atom.face, base),
                 None => atom.face,
             };
-            for grapheme in atom.contents.split_inclusive(|_: char| true) {
+            for grapheme in atom.contents.graphemes(true) {
                 if grapheme.is_empty() {
                     continue;
                 }
@@ -280,7 +281,7 @@ pub struct CellDiff {
 
 /// Resolve Default colors in an atom face against a base face.
 /// In Kakoune, `default` means "inherit from the containing context".
-pub(super) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
+pub(crate) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
     Face {
         fg: if atom_face.fg == Color::Default {
             base.fg
@@ -530,6 +531,29 @@ mod tests {
         assert_eq!(grid.get(4, 0).unwrap().grapheme, "d");
         assert_eq!(grid.get(5, 0).unwrap().grapheme, "e");
         assert_eq!(grid.get(6, 0).unwrap().grapheme, "f");
+    }
+
+    #[test]
+    fn test_put_line_combining_character() {
+        let mut grid = CellGrid::new(20, 1);
+        // e + combining acute accent → single grapheme cluster "é"
+        let line = make_line("e\u{0301}x");
+        let cols = grid.put_line(0, 0, &line, 20);
+        assert_eq!(cols, 2); // "é" (1 cell) + "x" (1 cell)
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "e\u{0301}");
+        assert_eq!(grid.get(0, 0).unwrap().width, 1);
+        assert_eq!(grid.get(1, 0).unwrap().grapheme, "x");
+    }
+
+    #[test]
+    fn test_put_line_cjk_with_variation_selector() {
+        let mut grid = CellGrid::new(20, 1);
+        // CJK character + variation selector 16 (VS16)
+        let line = make_line("\u{4e16}\u{fe0f}a");
+        let cols = grid.put_line(0, 0, &line, 20);
+        // The grapheme "\u{4e16}\u{fe0f}" should be treated as one cluster
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "\u{4e16}\u{fe0f}");
+        assert!(cols >= 2); // wide char + 'a'
     }
 
     #[test]

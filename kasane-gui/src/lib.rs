@@ -1,3 +1,4 @@
+pub mod animation;
 mod app;
 pub(crate) mod backend;
 pub mod colors;

@@ -1,3 +1,4 @@
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use super::grid::CellGrid;
@@ -113,22 +114,21 @@ fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResu
 fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Face) {
     let mut x = area.x;
     let limit = area.x + area.w;
-    for ch in text.chars() {
+    for grapheme in text.graphemes(true) {
         if x >= limit {
             break;
         }
-        if ch.is_control() {
+        if grapheme.starts_with(|c: char| c.is_control()) {
             continue;
         }
-        let s = ch.to_string();
-        let w = UnicodeWidthStr::width(s.as_str()) as u16;
+        let w = UnicodeWidthStr::width(grapheme) as u16;
         if w == 0 {
             continue;
         }
         if x + w > limit {
             break;
         }
-        grid.put_char(x, area.y, &s, face);
+        grid.put_char(x, area.y, grapheme, face);
         x += w;
     }
 }
@@ -149,7 +149,11 @@ fn paint_buffer_ref(
         } else {
             // Padding row
             grid.fill_row(y, &state.padding_face);
-            grid.put_char(area.x, y, &state.padding_char, &state.padding_face);
+            let mut pad_face = state.padding_face;
+            if pad_face.fg == pad_face.bg {
+                pad_face.fg = state.default_face.fg;
+            }
+            grid.put_char(area.x, y, &state.padding_char, &pad_face);
         }
     }
 }

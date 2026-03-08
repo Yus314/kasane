@@ -3,6 +3,7 @@ mod info;
 pub mod markup;
 pub(crate) mod menu;
 pub mod paint;
+pub mod scene;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 pub(crate) mod theme;
@@ -13,6 +14,7 @@ pub mod view;
 mod tests;
 
 pub use grid::{Cell, CellDiff, CellGrid};
+pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom};
 pub use theme::Theme;
 
 use crate::layout::Rect;
@@ -128,6 +130,42 @@ pub struct RenderResult {
     pub cursor_x: u16,
     pub cursor_y: u16,
     pub cursor_style: CursorStyle,
+}
+
+/// GUI 用シーンレンダリングパイプライン。
+/// view → layout → scene_paint → cursor を実行し、DrawCommand リストを返す。
+pub fn scene_render_pipeline(
+    state: &AppState,
+    registry: &PluginRegistry,
+    cell_size: scene::CellSize,
+) -> (Vec<DrawCommand>, RenderResult) {
+    crate::perf::perf_span!("scene_render_pipeline");
+
+    let element = view::view(state, registry);
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let layout_result = flex::place(&element, root_area, state);
+    let theme = Theme::default_theme();
+    let style = cursor_style(state);
+    let commands = scene::scene_paint(&element, &layout_result, state, &theme, cell_size, style);
+    let cx = state.cursor_pos.column as u16;
+    let cy = match state.cursor_mode {
+        CursorMode::Prompt => state.rows.saturating_sub(1),
+        CursorMode::Buffer => state.cursor_pos.line as u16,
+    };
+
+    (
+        commands,
+        RenderResult {
+            cursor_x: cx,
+            cursor_y: cy,
+            cursor_style: style,
+        },
+    )
 }
 
 /// 宣言的レンダリングパイプラインを実行する。

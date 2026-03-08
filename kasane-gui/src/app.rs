@@ -11,14 +11,15 @@ use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::plugin::{Command, CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::{CellGrid, RenderBackend, render_pipeline};
+use kasane_core::render::{CellGrid, RenderBackend, scene_render_pipeline};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use crate::GuiEvent;
+use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
 use crate::colors::ColorResolver;
 use crate::gpu::GpuState;
-use crate::gpu::cell_renderer::CellRenderer;
+use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
 
 pub struct App<W: Write + Send + 'static> {
@@ -27,12 +28,12 @@ pub struct App<W: Write + Send + 'static> {
 
     // GPU
     gpu: Option<GpuState>,
-    cell_renderer: Option<CellRenderer>,
+    scene_renderer: Option<SceneRenderer>,
 
     // kasane-core
     state: AppState,
     registry: PluginRegistry,
-    grid: CellGrid,
+    grid: CellGrid, // kept for update() API compatibility
     backend: Option<GuiBackend>,
 
     // Kakoune communication
@@ -52,6 +53,9 @@ pub struct App<W: Write + Send + 'static> {
     config: Config,
     color_resolver: Option<ColorResolver>,
     scroll_amount: i32,
+
+    // Cursor animation
+    cursor_animation: CursorAnimation,
 }
 
 impl<W: Write + Send + 'static> App<W> {
@@ -61,10 +65,10 @@ impl<W: Write + Send + 'static> App<W> {
         App {
             window: None,
             gpu: None,
-            cell_renderer: None,
+            scene_renderer: None,
             state: AppState::default(),
             registry: PluginRegistry::new(),
-            grid: CellGrid::new(80, 24),
+            grid: CellGrid::new(1, 1),
             backend: None,
             kak_writer,
             pending_events: Vec::new(),
@@ -76,6 +80,7 @@ impl<W: Write + Send + 'static> App<W> {
             scroll_amount,
             config,
             color_resolver: None,
+            cursor_animation: CursorAnimation::new(),
         }
     }
 
@@ -107,8 +112,8 @@ impl<W: Write + Send + 'static> App<W> {
         // Initialize GPU
         match GpuState::new(window.clone()) {
             Ok(gpu) => {
-                let cr = CellRenderer::new(&gpu, &self.config.font, scale_factor, phys_size);
-                let metrics = cr.metrics().clone();
+                let sr = SceneRenderer::new(&gpu, &self.config.font, scale_factor, phys_size);
+                let metrics = sr.metrics().clone();
 
                 // Setup color resolver
                 let color_resolver = ColorResolver::from_config(&self.config.colors);
@@ -118,18 +123,16 @@ impl<W: Write + Send + 'static> App<W> {
                 self.state.rows = metrics.rows;
                 self.state.apply_config(&self.config);
 
-                // Setup grid and backend
-                self.grid = CellGrid::new(metrics.cols, metrics.rows);
+                // Setup backend
                 let gui_backend = GuiBackend::new(metrics);
                 self.backend = Some(gui_backend);
 
                 self.color_resolver = Some(color_resolver);
-                self.cell_renderer = Some(cr);
+                self.scene_renderer = Some(sr);
                 self.gpu = Some(gpu);
             }
             Err(e) => {
                 tracing::error!("GPU initialization failed: {e}");
-                // TODO: CPU fallback (Phase G3)
                 eprintln!("GPU initialization failed: {e}");
                 event_loop.exit();
                 return;
@@ -213,31 +216,34 @@ impl<W: Write + Send + 'static> App<W> {
         if let Some(ref mut gpu) = self.gpu {
             gpu.resize(size.width, size.height);
         }
-        if let (Some(cr), Some(gpu)) = (&mut self.cell_renderer, &self.gpu) {
-            let scale = self.window.as_ref().map_or(1.0, |w| w.scale_factor());
-            cr.resize(gpu, &self.config.font, scale, size);
-            let metrics = cr.metrics().clone();
-            self.state.cols = metrics.cols;
-            self.state.rows = metrics.rows;
-            self.grid.resize(metrics.cols, metrics.rows);
-            if let Some(ref mut backend) = self.backend {
-                backend.update_metrics(metrics.clone());
-            }
-            // Send resize to Kakoune
-            if self.initial_resize_sent {
-                let resize = KasaneRequest::Resize {
-                    rows: self.state.available_height(),
-                    cols: self.state.cols,
-                };
-                kasane_core::io::send_request(&mut self.kak_writer, &resize);
-            }
-            self.dirty = DirtyFlags::ALL;
+        let scale = self.window.as_ref().map_or(1.0, |w| w.scale_factor());
+
+        let metrics = if let (Some(sr), Some(gpu)) = (&mut self.scene_renderer, &self.gpu) {
+            sr.resize(gpu, &self.config.font, scale, size);
+            sr.metrics().clone()
+        } else {
+            return;
+        };
+
+        self.state.cols = metrics.cols;
+        self.state.rows = metrics.rows;
+        if let Some(ref mut backend) = self.backend {
+            backend.update_metrics(metrics);
         }
+        // Send resize to Kakoune
+        if self.initial_resize_sent {
+            let resize = KasaneRequest::Resize {
+                rows: self.state.available_height(),
+                cols: self.state.cols,
+            };
+            kasane_core::io::send_request(&mut self.kak_writer, &resize);
+        }
+        self.dirty = DirtyFlags::ALL;
     }
 
     fn render_frame(&mut self) {
-        if self.gpu.is_none() || self.cell_renderer.is_none() || self.color_resolver.is_none() {
-            tracing::warn!("[app] render_frame skipped: missing gpu/renderer/resolver");
+        if self.gpu.is_none() || self.color_resolver.is_none() {
+            tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
             return;
         }
         tracing::debug!(
@@ -246,25 +252,28 @@ impl<W: Write + Send + 'static> App<W> {
             self.state.rows
         );
 
-        let result = render_pipeline(&self.state, &self.registry, &mut self.grid);
+        let Some(ref mut sr) = self.scene_renderer else {
+            return;
+        };
 
-        // GPU render
+        let cell_size = sr.cell_size();
+        let (commands, result) = scene_render_pipeline(&self.state, &self.registry, cell_size);
+
+        // Update cursor animation
+        self.cursor_animation
+            .update_target(result.cursor_x, result.cursor_y);
+        let cursor_state = self
+            .cursor_animation
+            .tick(sr.metrics().cell_width, sr.metrics().cell_height);
+
         let gpu = self.gpu.as_ref().unwrap();
-        let cr = self.cell_renderer.as_mut().unwrap();
         let resolver = self.color_resolver.as_ref().unwrap();
 
-        tracing::debug!("[app] submitting to GPU");
-        match cr.render(
-            gpu,
-            &self.grid,
-            resolver,
-            Some((result.cursor_x, result.cursor_y, result.cursor_style)),
-        ) {
+        tracing::debug!("[app] scene render: {} commands", commands.len());
+        match sr.render_with_cursor(gpu, &commands, resolver, result.cursor_style, &cursor_state) {
             Ok(()) => tracing::debug!("[app] render_frame complete"),
-            Err(e) => tracing::error!("[app] render failed: {e}"),
+            Err(e) => tracing::error!("[app] scene render failed: {e}"),
         }
-
-        self.grid.swap();
     }
 }
 
@@ -276,7 +285,7 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
             tracing::info!(
                 "[app] window initialized, gpu: {}, renderer: {}",
                 self.gpu.is_some(),
-                self.cell_renderer.is_some()
+                self.scene_renderer.is_some()
             );
         }
     }
@@ -323,10 +332,10 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
         }
 
         // Convert input events
-        let Some(ref cr) = self.cell_renderer else {
+        let Some(ref sr) = self.scene_renderer else {
             return;
         };
-        let metrics = cr.metrics();
+        let metrics = sr.metrics();
         let mut input_events = convert_window_event(
             &event,
             metrics,
@@ -365,6 +374,14 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
             && let Some(ref window) = self.window
         {
             window.request_redraw();
+        }
+
+        // Cursor animation drives continuous redraw when active
+        if self.cursor_animation.is_animating
+            && let Some(ref window) = self.window
+        {
+            window.request_redraw();
+            self.dirty |= DirtyFlags::BUFFER; // Ensure render_frame runs
         }
 
         if !self.dirty.is_empty()

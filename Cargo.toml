@@ -25,6 +25,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 unicode-width = "0.2"
+unicode-segmentation = "1.11"
 insta = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 iai-callgrind = "0.14"

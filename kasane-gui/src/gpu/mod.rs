@@ -1,5 +1,8 @@
+pub mod bg_pipeline;
+pub mod border_pipeline;
 pub mod cell_renderer;
 pub mod metrics;
+pub mod scene_renderer;
 
 pub use metrics::CellMetrics;
 

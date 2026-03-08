@@ -85,6 +85,8 @@ pub struct UiConfig {
     pub border_style: String,
     pub status_position: String,
     pub backend: String,
+    /// Enable the scene-based GPU renderer (bypasses CellGrid). `None` = auto (true for GUI).
+    pub scene_renderer: Option<bool>,
 }
 
 impl Default for UiConfig {
@@ -95,6 +97,7 @@ impl Default for UiConfig {
             border_style: "rounded".to_string(),
             status_position: "bottom".to_string(),
             backend: "tui".to_string(),
+            scene_renderer: None,
         }
     }
 }
