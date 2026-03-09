@@ -410,6 +410,91 @@ kasane の Element ツリーは 20-50 ノードと極めて小規模で、Web UI
 - `render_pipeline_patched()`: パッチ → セクション別 → フルパイプラインのフォールバックチェーン
 - デバッグモードの正当性アサーション: パッチ出力 == フルパイプライン出力
 
+**Stage 5: プラグイン向けコンパイル済みレンダリング (設計分析)**
+
+(状態: 分析完了・未実装。Phase 4a 以降、実際のプラグインが存在してから着手)
+
+*問題の再定義:*
+
+ビルトイン view (StatusBar, Menu, Info, Buffer) は有限個であり構造も既知なので、手書き PaintPatch で十分に最適化できる。コンパイラ駆動の自動生成が必要になるのは**プラグイン作成時**である — プラグイン数が増加すると個別の手動最適化はスケールしない。プラグイン作者に PaintPatch の手書きを要求するのは非現実的である。
+
+*自動生成アプローチの分析結果:*
+
+5つのアプローチを検討し、ビルトイン view への適用には全てに根本的障壁がある:
+
+| アプローチ | 概要 | 障壁 |
+|-----------|------|------|
+| A: マクロコード生成 | `#[kasane_component]` 拡張で view 関数 AST からパッチコードを自動導出 | proc_macro は単一関数のローカル AST 変換。外部関数展開・レイアウト静的解決が不可能 |
+| B: ランタイム追跡 | paint 時にセル出自を記録し、dirty flags で影響セルを特定 | 影響セルは特定できるが**新しい値は計算できない** — view → layout → paint が依然必要 |
+| C: 増分差分 (React 方式) | Element ツリー差分で変更箇所のみ再描画 | ViewCache + セクション分割で既にカバー済み。追加の差分レイヤーは複雑さに見合わない |
+| D: パッチテンプレート | 再描画可能スロットを定義し、部分的に view + paint を再実行 | **最も現実的**。サブセクション粒度のパイプライン実行 |
+| E: 宣言的 DSL | DSL でパッチを記述し、マクロが PaintPatch impl を生成 | paint ロジックは結局手書き。DSL 表現力と Rust 表現力のギャップが問題 |
+
+主因: Rust の view 関数にはアルゴリズム的計算 (word wrap, bin-packing, truncation, 障害物回避配置) が混在しており、コンパイラが静的に解析・変換できない。
+
+Svelte との根本的差異:
+
+```
+[Svelte]
+Template → Compiler → DOM API 呼出
+                         ↓
+              ブラウザのレイアウトエンジン (暗黙・自動)
+                         ↓
+                    画面ピクセル
+
+[Kasane]
+view() → Element tree → place() → LayoutResult → paint() → CellGrid → diff() → Terminal
+           ↑               ↑                        ↑
+        自前構築         自前計算                  自前描画
+```
+
+Web では `element.textContent = "new"` で、ブラウザが自動的にレイアウト再計算と再描画を行う。Svelte コンパイラはこの**暗黙のレイアウトエンジン**を前提としている — コンパイラは「何を変えるか」だけを指定すればよく、「どこに配置するか」はブラウザが解決する。Kasane には同等の仕組みがなく、CellGrid への書き込みには自前で計算した座標が必要。
+
+Approach A の詳細障壁 (7つのコンパイルパス):
+
+1. **Element 構築追跡**: `Vec::push()` 系列の記号的実行が必要。条件分岐内の push でパターン空間が指数的に増大
+2. **外部関数展開**: proc_macro は単一アイテムのみ操作可能で、他関数の本体を参照できない
+3. **レイアウト静的解決**: `measure` は再帰的で常にランタイム計算。Text の Unicode 幅は静的に決定不能
+4. **特化 paint コード生成**: Element バリアントが静的に既知なら機械的に可能
+5. **DirtyFlags 条件分岐挿入**: 単一 view 関数が異なる DirtyFlags に依存するフィールドを混在使用
+6. **GPU パス (DrawCommand) 生成**: CellGrid に加えて DrawCommand 列も生成する必要がありコード量が倍増
+7. **正当性検証コード生成**: デバッグ用のフルパイプライン比較コード
+
+DSL (Approach E) の困難な要素:
+
+1. **アルゴリズム的計算の混在**: word wrap, bin-packing, truncation がElement 構築と不可分
+2. **レイアウトの内容依存**: Info ポップアップのサイズは word wrap 結果に依存 (循環的)
+3. **コンポーネント間位置依存**: Info overlay の位置は Menu Rect + 先行 overlay Rect に依存
+4. **構造的バリエーション**: Menu 4分岐、Info 3分岐で組合せ爆発
+5. **レイアウト結果の paint 伝播**: LayoutResult ツリーの再帰構造をインラインコードに平坦化が必要
+6. **DSL と Rust の二重世界問題**: ヘルパー関数を DSL プリミティブとして再定義する必要
+7. **Stack + Overlay 自己参照構造**: 非単調な描画順序で「各 Element を独立にパッチ可能」という前提が崩壊
+
+*プラグインが有利な理由:*
+
+| 障壁 | ビルトイン view | プラグイン Slot 関数 |
+|------|----------------|---------------------|
+| アルゴリズム的計算 | word_wrap, packing, truncate | **ほぼなし** — 主に生データ表示 |
+| レイアウト内容依存 | measure → place 循環 | **Slot Rect は外部提供** — 自己位置計算不要 |
+| コンポーネント間位置依存 | Info が Menu を回避 | **Slot 位置は固定** — Slot 間干渉なし |
+| 構造的バリエーション | MenuStyle 4分岐 | **通常1パターン** |
+| ネスト深度 | 5階層以上 | **1-2階層が典型** |
+| 外部関数呼出 | 多数の内部ヘルパー | **自己完結的** |
+| Stack + Overlay | Info prompt 自己参照構造 | **Slot に Overlay なし** (Overlay は別 Slot) |
+
+根本的な理由: プラグイン Slot 貢献は**制約付きタスク** — 「既知の位置に小さな Element を挿入」。ビルトイン view は**制約なしタスク** — 「画面全体の構造を構築」。この差が DSL/コンパイルの実現可能性を決定する。
+
+*5段階ロードマップ (L0-L5):*
+
+推奨導入順: L0 → L1 → L3 → L2 → L4 → L5 (最小コストで最大効果)
+
+- **L0: 現状** — プラグイン存在時はフルパイプラインにフォールバック
+- **L1: プラグイン状態キャッシュ** — `PluginViewCache` で `contribute()` 戻り値をキャッシュ。`state_hash()` をPlugin trait に追加し、`#[kasane::plugin]` マクロが `#[state]` 構造体に Hash derive を自動付加。状態未変更時は `contribute()` 呼出をスキップ。低コスト
+- **L3: DirtyFlags 自動導出** — `#[kasane::plugin]` が Slot 関数本体の `core.field` アクセスを解析し、`#[kasane_component(deps(...))]` と同じ仕組みで DirtyFlags 依存を自動推論。プラグイン再描画トリガーのコンパイル時特定。低コスト (既存の FIELD_FLAG_MAP + StateFieldVisitor を再利用)
+- **L2: Slot 位置キャッシュ** — LayoutCache を Slot 別 Rect キャッシュで拡張。プラグイン状態変更時はその Slot の Rect のみを再描画 (view → place → paint を部分実行)。サイズ変更時はフルセクション再描画にフォールバック。中コスト
+- **L4: パッチコード自動生成** — Slot 関数の戻り値が単純パターン (`Element::text`, `Element::StyledLine`, 浅い `row`/`column`) に合致する場合、マクロが `apply_grid()` を自動生成。非対応パターンは L2 にフォールバック。プラグインエコシステム成熟後に着手。中〜高コスト
+- **L5: Decorator パターン認識** — 最も一般的な Decorator パターン (face 変更のみ: border なし + padding なし + child パススルーの Container) を認識し、既存パッチに「最後に face を上書き」ステップを追加。高コスト・将来拡張
+
 ## ADR-011: CLI 設計 — kak ドロップイン置換
 
 **状態:** 決定済み
