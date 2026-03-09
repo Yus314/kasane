@@ -157,6 +157,7 @@ fn make_inline_menu(items: Vec<Line>, win_height: u16) -> MenuState {
         menu_lines: 0, // unused in scroll logic
         max_item_width: 0,
         screen_w: 80,
+        columns_split: None,
     }
 }
 
@@ -175,6 +176,7 @@ fn make_prompt_menu(items: Vec<Line>, win_height: u16, columns: u16) -> MenuStat
         menu_lines: 0,
         max_item_width: 0,
         screen_w: 80,
+        columns_split: None,
     }
 }
 
@@ -193,6 +195,7 @@ fn make_search_menu(items: Vec<Line>, screen_w: u16) -> MenuState {
         menu_lines: 0,
         max_item_width: 0,
         screen_w,
+        columns_split: None,
     }
 }
 
