@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772983211181,
+  "lastUpdate": 1773021292386,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -1415,6 +1415,378 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7843,
             "range": "± 39",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "1e2444a608506de032249abb282f23e0637d8b0f",
+          "message": "refactor: reduce duplication and tighten visibility across codebase\n\n- Use Element::container() constructor instead of struct literals (8 sites)\n- Extract build_menu_item_element() helper to deduplicate menu item construction\n- Inline trivial compute_visible_lines() passthrough\n- Consolidate duplicated test helpers (default_state, root_area, make_line)\n  into shared kasane-core/src/test_utils.rs module\n- Delegate test_helpers draw_shadow/draw_border to paint.rs implementations\n- Remove dead CellRenderer struct (~360 lines) and deduplicate cursor constants\n  into gpu/mod.rs\n- Restrict unnecessary pub visibility in kasane-tui and BgPipeline fields\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T10:32:17+09:00",
+          "tree_id": "857ea227f6611dc8c1694f7105d000e9d8735a0d",
+          "url": "https://github.com/Yus314/kasane/commit/1e2444a608506de032249abb282f23e0637d8b0f"
+        },
+        "date": 1773021291578,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 246,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2345,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 341,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 28793,
+            "range": "± 78",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 98726,
+            "range": "± 320",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 33641,
+            "range": "± 121",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 25150,
+            "range": "± 120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12476,
+            "range": "± 178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3300,
+            "range": "± 44",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 20788,
+            "range": "± 67",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 37,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 76,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 131,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 195,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 869,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1550,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 45253,
+            "range": "± 297",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 46783,
+            "range": "± 233",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 56511,
+            "range": "± 299",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 56746,
+            "range": "± 360",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 56783,
+            "range": "± 538",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 42967,
+            "range": "± 211",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 44810,
+            "range": "± 249",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 47537,
+            "range": "± 295",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 64881,
+            "range": "± 1293",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 563256,
+            "range": "± 13312",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2766102,
+            "range": "± 28276",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 2907,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/set_cursor",
+            "value": 824,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 58527,
+            "range": "± 2114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 1223,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 3128,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 13626,
+            "range": "± 381",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 621,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/set_cursor",
+            "value": 578,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 3365,
+            "range": "± 102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 45277,
+            "range": "± 110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 196979,
+            "range": "± 423",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 353262,
+            "range": "± 1514",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 2769511,
+            "range": "± 7519",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 5544823,
+            "range": "± 25445",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 12289,
+            "range": "± 80",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 74582,
+            "range": "± 154",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 147680,
+            "range": "± 840",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 148242,
+            "range": "± 1731",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 856774,
+            "range": "± 9238",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2093,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 142138,
+            "range": "± 1091",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 180582,
+            "range": "± 3612",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 152038,
+            "range": "± 4030",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4468766,
+            "range": "± 8301",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 18194255,
+            "range": "± 47046",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 2098344,
+            "range": "± 3745",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20165738,
+            "range": "± 69337",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7488,
+            "range": "± 304",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55543,
+            "range": "± 549",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 635,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7447,
+            "range": "± 19",
             "unit": "ns/iter"
           }
         ]
