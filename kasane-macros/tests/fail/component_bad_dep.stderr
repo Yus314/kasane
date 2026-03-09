@@ -1,0 +1,5 @@
+error: unknown DirtyFlags variant `INVALID_FLAG`. Expected one of: BUFFER, STATUS, MENU_STRUCTURE, MENU_SELECTION, MENU, INFO, OPTIONS, ALL
+ --> tests/fail/component_bad_dep.rs:3:33
+  |
+3 | #[kasane_component(deps(BUFFER, INVALID_FLAG))]
+  |                                 ^^^^^^^^^^^^

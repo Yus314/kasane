@@ -79,6 +79,7 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
 }
 
 /// Build the base layout: buffer + status bar + plugin slots.
+#[crate::kasane_component(deps(BUFFER, STATUS, OPTIONS))]
 fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_rows = state.available_height() as usize;
 
@@ -147,6 +148,7 @@ fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
 }
 
 /// Build the menu overlay section.
+#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION))]
 fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Overlay> {
     let menu_state = state.menu.as_ref()?;
     let replace_target = match menu_state.style {
@@ -165,6 +167,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 }
 
 /// Build info overlay section with collision avoidance.
+#[crate::kasane_component(deps(INFO))]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = super::menu::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
@@ -210,6 +213,7 @@ fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overla
     overlays
 }
 
+#[crate::kasane_component(deps(STATUS, BUFFER))]
 fn build_status_bar(
     state: &AppState,
     status_left: Vec<Element>,
