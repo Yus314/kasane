@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773040816946,
+  "lastUpdate": 1773042953532,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3203,6 +3203,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7659,
             "range": "± 35",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "970158660c5263f47d52100facd5d5d7b2740832",
+          "message": "refactor(core): restructure modules for maintainability\n\n- Split render/tests.rs (1113 lines, 36 tests) into tests/{cursor,pipeline,view_cache,scene_cache}.rs\n- Split state/tests.rs (786 lines, 38 tests) into tests/{apply,update,input,dirty_flags}.rs\n- Extract render/pipeline.rs (pipeline functions) and render/cursor.rs from render/mod.rs\n- Split render/scene.rs into scene/{mod,cache}.rs (SceneCache separation)\n- Consolidate test utilities into test_support.rs (shared across unit + integration tests)\n- Restrict Theme and ComponentCache visibility to pub(crate)\n- Introduce FlexMeasure and ContainerStyle structs to eliminate #[allow(clippy::too_many_arguments)]\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T16:44:29+09:00",
+          "tree_id": "3a66e34ba1521ecbf0bc34b1586a532192684a0e",
+          "url": "https://github.com/Yus314/kasane/commit/970158660c5263f47d52100facd5d5d7b2740832"
+        },
+        "date": 1773042953241,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 143793,
+            "range": "± 2152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 833775,
+            "range": "± 3988",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2156,
+            "range": "± 133",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 137445,
+            "range": "± 372",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 156526,
+            "range": "± 5239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 121334,
+            "range": "± 3550",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3486492,
+            "range": "± 404299",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16156120,
+            "range": "± 61845",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1802489,
+            "range": "± 43775",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16949089,
+            "range": "± 110116",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7409,
+            "range": "± 225",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 59864,
+            "range": "± 356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 612,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7441,
+            "range": "± 38",
             "unit": "ns/iter"
           }
         ]
