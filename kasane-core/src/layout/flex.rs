@@ -346,14 +346,17 @@ fn place_flex(
     );
 
     // Phase 2: distribute remaining space to flex children
-    distribute_flex_space(
-        direction,
-        children,
+    let flex_measure = FlexMeasure {
         main_total,
         cross_total,
         total_gaps,
         total_fixed,
         total_flex,
+    };
+    distribute_flex_space(
+        direction,
+        children,
+        &flex_measure,
         &mut child_main_sizes,
         &mut child_cross_sizes,
         state,
@@ -446,25 +449,31 @@ fn measure_fixed_children(
     (total_fixed, total_flex)
 }
 
-/// Phase 2: distribute remaining main-axis space to flex children.
-#[allow(clippy::too_many_arguments)]
-fn distribute_flex_space(
-    direction: Direction,
-    children: &[FlexChild],
+/// Measurement results from Phase 1 (fixed children), consumed by Phase 2 (flex distribution).
+struct FlexMeasure {
     main_total: u16,
     cross_total: u16,
     total_gaps: u16,
     total_fixed: u16,
     total_flex: f32,
+}
+
+/// Phase 2: distribute remaining main-axis space to flex children.
+fn distribute_flex_space(
+    direction: Direction,
+    children: &[FlexChild],
+    measure: &FlexMeasure,
     child_main_sizes: &mut [u16],
     child_cross_sizes: &mut [u16],
     state: &AppState,
 ) {
-    if total_flex <= 0.0 {
+    if measure.total_flex <= 0.0 {
         return;
     }
 
-    let remaining = main_total.saturating_sub(total_fixed + total_gaps);
+    let remaining = measure
+        .main_total
+        .saturating_sub(measure.total_fixed + measure.total_gaps);
     let mut distributed = 0u16;
     let flex_count = children.iter().filter(|c| c.flex > 0.0).count();
     let mut flex_idx = 0;
@@ -474,15 +483,15 @@ fn distribute_flex_space(
             let share = if flex_idx == flex_count {
                 remaining - distributed
             } else {
-                (remaining as f32 * child.flex / total_flex) as u16
+                (remaining as f32 * child.flex / measure.total_flex) as u16
             };
             let share = apply_min_max(share, child.min_size, child.max_size);
             child_main_sizes[i] = share;
             distributed += share;
             // Measure cross size for flex children too
-            let loose = direction.compose(share, cross_total);
+            let loose = direction.compose(share, measure.cross_total);
             let child_constraints = Constraints::loose(loose.width, loose.height);
-            let size = measure(&child.element, child_constraints, state);
+            let size = self::measure(&child.element, child_constraints, state);
             child_cross_sizes[i] = direction.cross(size);
         }
     }

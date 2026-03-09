@@ -8,6 +8,8 @@ pub mod plugin;
 pub mod protocol;
 pub mod render;
 pub mod state;
+#[doc(hidden)]
+pub mod test_support;
 #[cfg(test)]
 pub(crate) mod test_utils;
 

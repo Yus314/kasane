@@ -2,7 +2,7 @@ use compact_str::CompactString;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Face, resolve_face};
 
 // ---------------------------------------------------------------------------
 // Cell + CellGrid
@@ -355,9 +355,6 @@ pub struct CellDiff {
     pub cell: Cell,
 }
 
-// Re-export for backward compatibility within render module.
-pub(crate) use crate::protocol::resolve_face;
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -365,7 +362,7 @@ pub(crate) use crate::protocol::resolve_face;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor};
+    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor, resolve_face};
     use crate::test_utils::make_line;
 
     fn default_face() -> Face {

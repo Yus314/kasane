@@ -14,30 +14,16 @@ use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::test_support::make_line;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_line(s: &str) -> Line {
-    vec![Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }]
-}
-
 /// Set up a standard 80x24 state with given buffer lines.
 fn setup_state(lines: Vec<Line>) -> AppState {
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    let mut state = kasane_core::test_support::test_state_80x24();
     state.lines = lines;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
     state.status_default_face = state.default_face;
     state.status_line = make_line(" main.rs ");
     state.status_mode_line = make_line("normal");

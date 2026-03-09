@@ -1,10 +1,14 @@
+mod cache;
+
+pub use cache::SceneCache;
+
 use unicode_width::UnicodeWidthStr;
 
-use super::grid::resolve_face;
 use super::theme::Theme;
 use crate::element::{BorderConfig, BorderLineStyle, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
+use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face};
 use crate::state::AppState;
 
@@ -221,21 +225,17 @@ fn scene_paint_inner(
             border,
             shadow,
             padding: _,
-            style,
+            style: el_style,
             title,
         } => {
-            let face = ctx.theme.resolve(style, &ctx.state.default_face);
-            scene_paint_container(
-                ctx,
-                &area,
-                child,
+            let face = ctx.theme.resolve(el_style, &ctx.state.default_face);
+            let container_style = ContainerStyle {
                 border,
-                *shadow,
-                &face,
-                title.as_deref(),
-                layout,
-                out,
-            );
+                shadow: *shadow,
+                face: &face,
+                title: title.as_deref(),
+            };
+            scene_paint_container(ctx, &area, child, &container_style, layout, out);
         }
         Element::Interactive { child, .. } => {
             if let Some(child_layout) = layout.children.first() {
@@ -331,15 +331,19 @@ fn scene_paint_buffer_ref(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Visual properties of a Container element, grouped for scene painting.
+struct ContainerStyle<'a> {
+    border: &'a Option<BorderConfig>,
+    shadow: bool,
+    face: &'a Face,
+    title: Option<&'a [Atom]>,
+}
+
 fn scene_paint_container(
     ctx: &SceneContext,
     area: &Rect,
     child: &Element,
-    border: &Option<BorderConfig>,
-    shadow: bool,
-    face: &Face,
-    title: Option<&[Atom]>,
+    style: &ContainerStyle,
     layout: &LayoutResult,
     out: &mut Vec<DrawCommand>,
 ) {
@@ -351,7 +355,7 @@ fn scene_paint_container(
     // the content.  GPU borders are thin pixel lines, so we derive the
     // border rect from the child layout area with a small margin to match
     // the TUI visual appearance.
-    let border_rect = if border.is_some() {
+    let border_rect = if style.border.is_some() {
         if let Some(child_layout) = layout.children.first() {
             let cr = to_pixel_rect(&child_layout.area, ctx.cell_size);
             let margin = ctx.cell_size.height * 0.15;
@@ -369,7 +373,7 @@ fn scene_paint_container(
     };
 
     // Shadow (matches the border frame, not the full container area)
-    if shadow {
+    if style.shadow {
         let offset = ctx.cell_size.width;
         out.push(DrawCommand::DrawShadow {
             rect: border_rect.clone(),
@@ -383,16 +387,16 @@ fn scene_paint_container(
     // hides the content underneath.
     out.push(DrawCommand::FillRect {
         rect: pr.clone(),
-        face: *face,
+        face: *style.face,
     });
 
     // Border — drawn tight around the content area
-    if let Some(border_config) = border {
+    if let Some(border_config) = style.border {
         let border_face = border_config
             .face
             .as_ref()
-            .map(|s| ctx.theme.resolve(s, face))
-            .unwrap_or(*face);
+            .map(|s| ctx.theme.resolve(s, style.face))
+            .unwrap_or(*style.face);
 
         out.push(DrawCommand::DrawBorder {
             rect: border_rect.clone(),
@@ -402,7 +406,7 @@ fn scene_paint_container(
         });
 
         // Title
-        if let Some(title_atoms) = title {
+        if let Some(title_atoms) = style.title {
             let resolved_title = resolve_atoms(title_atoms, Some(&border_face));
             out.push(DrawCommand::DrawBorderTitle {
                 rect: border_rect,
@@ -468,82 +472,6 @@ pub fn line_display_width_str(s: &str) -> usize {
     s.split(|c: char| c.is_control())
         .map(UnicodeWidthStr::width)
         .sum()
-}
-
-// ---------------------------------------------------------------------------
-// SceneCache — DrawCommand-level caching per section
-// ---------------------------------------------------------------------------
-
-use crate::state::DirtyFlags;
-
-/// Cache for memoized `DrawCommand` lists per view section.
-/// Mirrors `ViewCache` invalidation: each DirtyFlag clears only its section.
-#[derive(Debug, Default)]
-pub struct SceneCache {
-    pub(in crate::render) base_commands: Option<Vec<DrawCommand>>,
-    pub(in crate::render) menu_commands: Option<Vec<DrawCommand>>,
-    pub(in crate::render) info_commands: Option<Vec<DrawCommand>>,
-    composed: Vec<DrawCommand>,
-    pub(in crate::render) cached_cell_size: Option<(u32, u32)>,
-    pub(in crate::render) cached_dims: Option<(u16, u16)>,
-}
-
-impl SceneCache {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Invalidate cached sections based on dirty flags and cell size / dims changes.
-    pub fn invalidate(&mut self, dirty: DirtyFlags, cell_size: CellSize, cols: u16, rows: u16) {
-        let cs_key = (cell_size.width.to_bits(), cell_size.height.to_bits());
-        let dims_key = (cols, rows);
-
-        if self.cached_cell_size != Some(cs_key) || self.cached_dims != Some(dims_key) {
-            self.base_commands = None;
-            self.menu_commands = None;
-            self.info_commands = None;
-            self.cached_cell_size = Some(cs_key);
-            self.cached_dims = Some(dims_key);
-            return;
-        }
-
-        if dirty.intersects(DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
-            self.base_commands = None;
-        }
-        if dirty.intersects(DirtyFlags::MENU) {
-            self.menu_commands = None;
-        }
-        if dirty.intersects(DirtyFlags::INFO) {
-            self.info_commands = None;
-        }
-    }
-
-    /// Returns true if all sections are cached.
-    pub fn is_fully_cached(&self) -> bool {
-        self.base_commands.is_some() && self.menu_commands.is_some() && self.info_commands.is_some()
-    }
-
-    /// Assemble the composed output from cached sections.
-    pub fn compose(&mut self) {
-        self.composed.clear();
-        if let Some(ref base) = self.base_commands {
-            self.composed.extend_from_slice(base);
-        }
-        if let Some(ref menu) = self.menu_commands
-            && !menu.is_empty()
-        {
-            self.composed.push(DrawCommand::BeginOverlay);
-            self.composed.extend_from_slice(menu);
-        }
-        if let Some(ref info) = self.info_commands {
-            self.composed.extend_from_slice(info);
-        }
-    }
-
-    /// Get a reference to the composed output.
-    pub fn composed_ref(&self) -> &[DrawCommand] {
-        &self.composed
-    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 pub(in crate::render) mod info;
 pub(in crate::render) mod menu;
 
-use super::grid::{self, CellGrid};
+use super::grid::CellGrid;
 use crate::state::AppState;
 
 /// Render the main buffer area (all lines except the last row which is status).
@@ -82,7 +82,7 @@ pub(super) fn render_wrapped_line(
     let mut graphemes: Vec<(&str, crate::protocol::Face, u16)> = Vec::new();
     for atom in line {
         let face = match base_face {
-            Some(base) => grid::resolve_face(&atom.face, base),
+            Some(base) => crate::protocol::resolve_face(&atom.face, base),
             None => atom.face,
         };
         for grapheme in atom.contents.split_inclusive(|_: char| true) {
@@ -167,20 +167,5 @@ pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWind
 /// Standard 80×24 AppState with reasonable default faces.
 /// Tests can customize individual fields after the call.
 pub(super) fn test_state_80x24() -> AppState {
-    use crate::protocol::{Color, Face, NamedColor};
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
-        fg: Color::Named(NamedColor::Cyan),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state
+    crate::test_support::test_state_80x24()
 }

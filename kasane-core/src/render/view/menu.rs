@@ -2,8 +2,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
+use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face, MenuStyle};
-use crate::render::grid::resolve_face;
 use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;

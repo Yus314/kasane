@@ -109,7 +109,7 @@ impl PaintPatch for StatusBarPatch {
     }
 
     fn apply_scene(&self, out: &mut Vec<DrawCommand>, state: &AppState, cell_size: CellSize) {
-        use crate::render::grid::resolve_face;
+        use crate::protocol::resolve_face;
         use crate::render::scene::{PixelPos, PixelRect, ResolvedAtom};
 
         let status_y = if state.status_at_top {

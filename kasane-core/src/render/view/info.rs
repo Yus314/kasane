@@ -239,7 +239,7 @@ fn wrap_content_lines(
         // Collect graphemes with resolved faces
         let mut graphemes: Vec<(&str, Face, u16)> = Vec::new();
         for atom in line {
-            let face = super::super::grid::resolve_face(&atom.face, base_face);
+            let face = crate::protocol::resolve_face(&atom.face, base_face);
             for grapheme in atom.contents.split_inclusive(|_: char| true) {
                 if grapheme.is_empty() || grapheme.starts_with(|c: char| c.is_control()) {
                     continue;

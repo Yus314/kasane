@@ -298,7 +298,7 @@ pub(super) fn build_styled_line_with_base(
     let resolved: Vec<Atom> = line
         .iter()
         .map(|atom| Atom {
-            face: super::grid::resolve_face(&atom.face, base_face),
+            face: crate::protocol::resolve_face(&atom.face, base_face),
             contents: atom.contents.clone(),
         })
         .collect();
