@@ -124,6 +124,13 @@ winit + wgpu + glyphon による GPU バックエンド。詳細は [gui-backend
 - E-020: スクロールバー → `Slot::BufferRight` の実証
 - E-001: オーバーレイレイヤー → `Slot::Overlay` + `Decorator(Buffer)` の実証
 
+**パフォーマンス改善 (計測結果に基づく):**
+- DirtyFlags per-component skip — ステータスのみの変更時にバッファ再描画をスキップ
+- Container fill fast-path — per-cell `put_char()` を `fill_row()` に置換し背景塗りを高速化
+- ADR-010 Stage 1 準備 — 実プラグインを使い `#[kasane::component]` の入力メモ化を検証
+- アロケーション削減 — `atoms.to_vec()` と `atom.contents.clone()` のホットスポット対策
+- diff() 最適化検討 — 196 KB/frame の CellDiff アロケーション削減 (streaming diff 等)
+
 ### Phase 4b — 残りの拡張機能
 
 **対象要件:** E-001〜E-006, E-010〜E-012, E-020〜E-023, E-030〜E-031, E-040〜E-041

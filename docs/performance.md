@@ -1,417 +1,436 @@
-# パフォーマンス分析
+# Performance Analysis
 
-本ドキュメントでは、kasane の宣言的 UI アーキテクチャにおけるパフォーマンス特性を分析する。
-ボトルネックの特定、計測結果、対策を記述する。
+This document analyzes the performance characteristics of kasane's declarative UI architecture.
+It covers the rendering pipeline, measured benchmarks, bottleneck analysis, and optimization strategy.
 
-## フレーム実行フロー
+All measurements taken with `cargo bench` (criterion, release profile) unless noted otherwise.
+
+## Frame Execution Flow
 
 ```
-イベント受信
-  │
-  ▼
-イベントバッチ処理 (try_recv で pending を全て消化)
-  │
-  ▼
-state.apply() ── O(メッセージサイズ)
-  │
-  ▼
-view(&state, &registry)     ── Element ツリー構築
-  │
-  ▼
-flex::place(&element, area)  ── レイアウト計算
-  │
-  ▼
-grid.clear() + paint()       ── CellGrid への描画
-  │
-  ▼
-grid.diff()                  ── O(w×h) 差分検出
-  │
-  ▼
-backend.draw(&diffs)         ── O(changed_cells) ← 端末 I/O (最も遅い)
+Event received
+  |
+  v
+Event batch processing (try_recv drains all pending)
+  |
+  v
+state.apply()           -- O(message size)
+  |
+  v
+view(&state, &registry) -- Element tree construction
+  |
+  v
+place(&element, area)   -- Layout calculation (flexbox + grid + overlay)
+  |
+  v
+grid.clear() + paint()  -- CellGrid rendering
+  |
+  v
+grid.diff()             -- O(w*h) dirty cell detection
+  |
+  v
+backend.draw(&diffs)    -- O(changed_cells) -- terminal I/O (dominant cost)
 backend.flush()
-  │
-  ▼
-grid.swap()                  ── O(w×h) バッファ交換
+  |
+  v
+grid.swap()             -- O(w*h) buffer swap
 ```
 
-## フレームあたりコスト (80×24 ターミナル)
+## Per-Frame Cost (80x24 Terminal)
 
-`cargo bench --bench rendering_pipeline` による criterion 計測結果。
+Measured with `cargo bench --bench rendering_pipeline`.
 
-| 処理 | 計算量 | 計測値 | 備考 |
+| Phase | Complexity | Measured | Notes |
 |---|---|---|---|
-| `view()` | O(ノード数) | 0.26 μs (0 plugins) / 2.35 μs (10 plugins) | Element ツリー構築 |
-| `flex::place()` | O(ノード数) | 0.38 μs | レイアウト計算 |
-| `grid.clear()` + `paint()` | O(w×h) | 20.3 μs | Atom→セル変換、unicode-width 計算 |
-| `grid.diff()` (incremental) | O(w×h) = 1,920 セル比較 | 11.0 μs | Cell 同士の等価比較 |
-| `grid.diff()` (full redraw) | O(w×h) | 24.1 μs | 初回フレームのみ。全セルを CellDiff に構築 |
-| `grid.swap()` | O(w×h) | ~5 μs | swap は O(1)、clear が O(w×h) |
-| **CPU パイプライン合計** | | **~40 μs** | `full_frame` ベンチマーク実測値 |
-| `backend.draw()` | O(changed_cells) | **100-3,000 μs** | エスケープシーケンス生成 + I/O |
-| `backend.flush()` | O(1) | **50-500 μs** | stdout への write |
+| `view()` | O(nodes) | 0.24 us (0 plugins) / 2.35 us (10 plugins) | Element tree construction |
+| `place()` | O(nodes) | 0.37 us | Flexbox layout calculation |
+| `grid.clear()` | O(w*h) | 4.4 us | Reset cells to default face |
+| `paint()` | O(w*h) | 26.3 us | Atom-to-cell conversion, unicode-width |
+| `grid.diff()` (incremental) | O(w*h) = 1,920 cells | 12.2 us | Cell equality comparison |
+| `grid.diff()` (full redraw) | O(w*h) | 24.2 us | First frame only; builds all CellDiffs |
+| `grid.swap()` | O(w*h) | ~5.3 us | Buffer swap + previous clear |
+| **CPU pipeline total** | | **48.8 us** | `full_frame` benchmark |
+| `backend.draw()` | O(changed_cells) | **100-3,000 us** | Escape sequence generation + I/O |
+| `backend.flush()` | O(1) | **50-500 us** | stdout write |
 
-**支配的コスト: 端末 I/O (`backend.draw()` + `backend.flush()`)。**
-CPU パイプラインの合計は ~40 μs で、16 ms フレームバジェットの **0.25%**。
+Note: paint-only cost (26.3 us) is derived from the `paint/80x24` benchmark (30.7 us, which includes `grid.clear()`) minus `grid_clear/80x24` (4.4 us). swap cost (~5.3 us) is the residual from the `full_frame` benchmark.
 
-## 既存の最適化
+**Dominant cost: terminal I/O (`backend.draw()` + `backend.flush()`).**
+The CPU pipeline totals ~49 us, which is **0.3%** of a 16 ms frame budget.
 
-| 最適化 | 対象 | 効果 |
+## Existing Optimizations
+
+| Optimization | Target | Effect |
 |---|---|---|
-| CompactString | Cell.grapheme | 短い文字列 (24B 以下) のヒープアロケーション回避 |
-| bitflags Attributes | Face.attributes | Vec\<Attribute\> → u16。Copy 型化によるアロケーション排除 |
-| ダブルバッファリング | CellGrid | `std::mem::swap()` でポインタ交換。O(1) |
-| 差分描画 | CellGrid.diff() | 変更セルのみ端末に送信。I/O 量を最小化 |
-| イベントバッチング | main.rs | `try_recv()` で pending イベントを全て消化してから 1 回描画 |
-| SIMD JSON | protocol.rs | simd_json による高速 JSON パース |
+| CompactString | Cell.grapheme | Avoids heap allocation for short strings (<=24B inline) |
+| bitflags Attributes | Face.attributes | `Vec<Attribute>` -> u16. Copy-type eliminates allocation |
+| Double buffering | CellGrid | `std::mem::swap()` pointer exchange. O(1) |
+| Differential rendering | CellGrid.diff() | Only changed cells sent to terminal. Minimizes I/O |
+| Event batching | main.rs | `try_recv()` drains all pending events, then renders once |
+| SIMD JSON | protocol.rs | High-speed JSON parsing via simd_json |
+| BufferRef | Element tree | Buffer lines referenced, not cloned. Zero-copy in view() |
+| dirty_rows | CellGrid | Row-level dirty tracking skips unchanged rows in diff() |
 
-## 宣言的パイプラインのオーバーヘッド
+## Declarative Pipeline Overhead
 
-旧命令的パイプライン (`render_frame()` が直接 CellGrid に描画) と比較した、宣言的パイプライン (`view() → layout() → paint()`) の追加コスト。
+Additional cost of the declarative pipeline (`view() -> layout() -> paint()`) compared to the former imperative pipeline (`render_frame()` writing directly to CellGrid).
 
-### フレーム時間内訳 (full_frame ≈ 40 μs)
+### Per-Phase Breakdown (full_frame ~ 49 us)
 
 ```
-view()  構築:     0.26 μs ━          (0.6%)
-flex    layout:   0.38 μs ━          (1.0%)
-paint   80x24:   20.3  μs ━━━━━━━━━━━━━━━━━━━━━━━━━━  (50.7%)  ← 支配的
-grid    diff:   ~13    μs ━━━━━━━━━━━━━━━━━  (加重平均, ~33%)
-grid    swap:    ~5    μs ━━━━━━━  (~13%)
-plugin他:        ~1    μs ━
-─────────────────────────
-合計             ~40   μs
+view()  construct:  0.24 us =              (0.5%)
+place() layout:     0.37 us =              (0.8%)
+clear() 80x24:      4.4  us ====           (9.0%)
+paint() 80x24:     26.3  us =====================  (53.9%)  <-- dominant
+diff()  incr:      12.2  us ==========     (25.0%)
+swap():             5.3  us =====          (10.8%)
+-------------------------------
+total              ~49   us
 ```
 
-### 各フェーズの計測値
+### Measured Per-Phase Values
 
-#### 1. Element ツリー構築: view()
+#### 1. Element Tree Construction: view()
 
-| 条件 | 計測値 | 備考 |
+| Condition | Measured | Notes |
 |---|---|---|
-| プラグイン 0 個 | **0.26 μs** | コア UI (~20-30 ノード) |
-| プラグイン 10 個 | **2.35 μs** | 各プラグインが StatusRight に contribute |
+| 0 plugins | **0.24 us** | Core UI (~20-30 nodes) |
+| 10 plugins | **2.35 us** | Each plugin contributes to StatusRight |
 
-プラグイン 0 個のコア UI 構築コストは 260 ns で、事前見積もり (~1 μs) を大幅に下回る。プラグイン追加時のスケーリングはほぼ線形。
+Core UI construction costs 240 ns, well below the initial estimate (~1 us). Plugin scaling is near-linear.
 
-#### 2. レイアウト計算: layout()
+#### 2. Layout Calculation: place()
 
-| 条件 | 計測値 |
+| Condition | Measured |
 |---|---|
-| 標準 80x24 (プラグイン 0) | **0.38 μs** |
+| Standard 80x24 (0 plugins) | **0.37 us** |
 
-事前見積もり (~1 μs) の約 1/3。Flex レイアウトの measure/place 2 パスは極めて軽量。
+About 1/3 of the initial estimate (~1 us). The flexbox measure/place two-pass is extremely lightweight.
 
-#### 3. 描画: paint()
+#### 3. Rendering: clear() + paint()
 
-| 条件 | 計測値 | セル数 | per-cell |
-|---|---|---|---|
-| 80×24 | **20.3 μs** | 1,920 | 10.6 ns |
-| 200×60 | **85.8 μs** | 12,000 | 7.1 ns |
+The `paint/*` benchmarks measure `grid.clear()` + `paint()` combined. Paint-only costs are derived by subtracting the standalone `grid_clear` measurement.
 
-面積に対してほぼ線形にスケール。per-cell コストが大画面で下がるのはキャッシュ効率の改善による。paint が CPU パイプラインの約 50% を占めるが、これは旧 `render_buffer()` + `render_status()` と同等のコスト (Atom→Cell 変換 + unicode-width 計算)。
-
-#### 4. Plugin dispatch
-
-| プラグイン数 | collect_slot (8 Slot) + apply_decorator | 計測値 |
-|---|---|---|
-| 1 | 8 回の vtable 呼び出し + sort + fold | **0.21 μs** |
-| 5 | 40 回 + sort + fold | **0.86 μs** |
-| 10 | 80 回 + sort + fold | **1.85 μs** |
-
-スケーリングはほぼ線形 (~185 ns/plugin)。
-
-#### 5. Decorator チェーン
-
-| プラグイン数 | 計測値 | 備考 |
-|---|---|---|
-| 1 | **26 ns** | sort + 1 回の fold |
-| 5 | **66 ns** | sort + 5 回の fold |
-| 10 | **117 ns** | sort + 10 回の fold |
-
-事前見積もり (~500 ns for 5 plugins) を大幅に下回る。no-op decorator のため実際のプラグインでは若干増えるが、μs 未満に収まる。
-
-### 宣言的パイプラインの純追加コスト
-
-| 処理 | 事前見積もり | 計測値 |
-|---|---|---|
-| Element 構築 (view) | ~1-4 μs | 0.26-2.35 μs |
-| レイアウト計算 (layout) | ~1 μs | 0.38 μs |
-| 再帰走査 (paint overhead) | ~0.3 μs | 計測不可 (paint 内に含まれる) |
-| Plugin dispatch | ~1 μs | 1.85 μs (10 plugins) |
-| Decorator チェーン | ~0.5 μs | 0.12 μs (10 plugins) |
-| **合計** | **~4-7 μs** | **~3 μs** (0 plugins) / **~5 μs** (10 plugins) |
-
-**CPU パイプライン全体 (40 μs) の 7-12%。端末 I/O (200-3,600 μs) の 0.1-2.5%。**
-**実用上の影響はない。**
-
-## コンパイラ駆動最適化 (Phase 2)
-
-[ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング) の二層レンダリングモデルによる追加のコスト削減見積もり。
-
-### 二層レンダリングによるコスト削減
-
-`#[kasane::component]` のコンパイル済みパスにより、Element ツリー構築・レイアウト計算・再帰走査をスキップできる:
-
-| 処理 | インタープリタパス | コンパイル済みパス | 削減 |
-|---|---|---|---|
-| Element 構築 (view) | ~1-4 μs | 0 μs (スキップ) | -1-4 μs |
-| レイアウト計算 (layout) | ~1 μs | 0 μs (キャッシュ済み) | -1 μs |
-| 再帰走査 (paint) | ~0.3 μs | 0 μs (直接更新) | -0.3 μs |
-| CellGrid 更新 | ~30 μs (全ノード) | ~1-3 μs (変更セルのみ) | -27 μs |
-| **合計** | **~35 μs** | **~1-3 μs** | **~32 μs** |
-
-### 静的レイアウトキャッシュのコスト
-
-静的構造のレイアウトキャッシュには以下のコストが伴う:
-
-| コスト | 量 | 頻度 |
-|---|---|---|
-| キャッシュ保持メモリ | LayoutResult (~50B/ノード × 30 ノード = ~1.5 KB) | 常時 |
-| キャッシュ無効化チェック | リサイズ判定 (u16 比較 × 2) | 毎フレーム |
-| キャッシュ再構築 | 通常の layout() と同等 (~1 μs) | リサイズ時のみ |
-
-メモリコストは無視できる水準。無効化チェックも定数時間。
-
-### 段階的導入の条件
-
-パフォーマンス原則「計測してから最適化」に従い、以下の条件を満たした場合に各段階を導入する:
-
-- **段階 1 (入力メモ化)**: proc macro 基盤の構築と同時に導入。コスト低・効果確実
-- **段階 2 (静的レイアウトキャッシュ)**: layout() が現在 0.38 μs のため、閾値 5 μs まで 13 倍の余裕がある。プラグイン追加により layout() が 5 μs を超えた場合に導入
-- **段階 3 (細粒度更新コード生成)**: paint() が現在 20 μs (80x24)。200x60 で 86 μs。端末 I/O の 10% (15-360 μs) を超えるのは大画面時のみで、現時点では不要
-
-上記のコスト削減見積もりはいずれも端末 I/O (200-3,600 μs) に対して小さい。Phase 2 では段階 1 を必ず実装し、段階 2・3 は計測結果に基づいて判断する。
-
-## 注意が必要なボトルネック
-
-### 深刻度: 高 → 対策済み
-
-#### バッファ行の clone
-
-Element が所有型 (Owned) のため、バッファの全行をツリーに含めると毎フレーム clone が発生する問題。
-
-```
-50 行 × 5 Atom/行 = 250 Atom
-各 Atom: Face(16B) + CompactString(24B) = 40B
-合計: ~10 KB + 250 回の CompactString clone
-推定コスト: 10-30 μs
-```
-
-**対策: BufferRef パターン (実装済み)**
-
-`Element::BufferRef { line_range }` により clone コストはゼロ。paint 時に `&AppState` から直接描画する。ベンチマークで view() が 0.26 μs (0 plugins) に収まっていることが、BufferRef の有効性を裏付ける。
-
-### 深刻度: 中
-
-#### BufferLine Decorator の乗算的コスト
-
-`DecorateTarget::BufferLine` に複数の Decorator が登録された場合:
-
-```
-N 個の BufferLine Decorator × M 行 = N × M 回の関数呼び出し
-
-例: 3 Decorator (行番号, git マーク, ブレークポイント) × 50 行
-  = 150 回の Decorator 呼び出し
-  = 150 ノード追加
-  ≈ 5-10 μs 追加
-```
-
-単独では問題にならないが、Decorator 数と行数の積で増加する。
-
-**対策:**
-
-1. **Buffer 全体の Decorator を推奨:** 行ごとではなく列として追加する設計をガイドラインとして推奨
-
-```rust
-// 推奨: Buffer 全体に対する Decorator
-#[decorate(DecorateTarget::Buffer)]
-fn decorate(buffer: Element, state: &State, core: &CoreState) -> Element {
-    flex(Row, [
-        child(line_number_column(core), flex: 0.0),
-        child(buffer, flex: 1.0),
-    ])
-}
-
-// 非推奨: 行ごとの Decorator
-#[decorate(DecorateTarget::BufferLine)]
-fn decorate_line(line: Element, line_num: usize, ...) -> Element { ... }
-```
-
-2. **BufferLine Decorator の上限設定:** フレームワークが警告を出す閾値を設定
-
-#### 大量ノードの Element ツリー
-
-仮想化なしでプラグインが全データを Element 化する場合:
-
-```
-1,000 エントリのファイルツリー → 1,000 ノードの Element
-構築: ~30 μs
-レイアウト: ~20 μs
-合計: ~50 μs (端末 I/O の 2-25%)
-```
-
-現実的にはまだ許容範囲だが、10,000 ノードになると数百マイクロ秒に達し、端末 I/O と同オーダーになる。
-
-**対策: VirtualList (将来)**
-
-```rust
-enum Element {
-    /// 仮想化リスト: 表示範囲のみ Element を生成
-    VirtualList {
-        item_count: usize,
-        item_height: u16,           // 各アイテムの高さ (固定)
-        scroll_offset: usize,
-        render_item: Box<dyn Fn(usize) -> Element>,
-    },
-}
-```
-
-Phase 1 では不要。問題が顕在化してから導入する。
-
-### 深刻度: 低
-
-#### word_wrap の Vec アロケーション
-
-`render_wrapped_line()` は呼び出しごとに 2 つの Vec を生成する:
-
-```rust
-fn collect_metrics(line: &[Atom]) -> Vec<(u16, bool)>  // グラフェムごとのメトリクス
-fn word_wrap_segments(metrics: &[(u16, bool)], max_width: u16) -> Vec<WrapSegment>
-```
-
-info ポップアップの表示時に行数分呼ばれる。
-
-**対策:** 再利用可能なバッファを `paint()` のコンテキストに持たせる:
-
-```rust
-struct PaintContext {
-    metrics_buf: Vec<(u16, bool)>,
-    segments_buf: Vec<WrapSegment>,
-}
-```
-
-Phase 1 では不要。word_wrap は info 表示時のみ呼ばれ、頻度が低い。
-
-## ベンチマーク結果
-
-`kasane-core/benches/rendering_pipeline.rs` に 9 種の criterion ベンチマークを実装済み。
-CI (`.github/workflows/bench.yml`) で自動回帰検出を行う (15% 超の劣化で PR にコメント)。
-
-### 実行方法
-
-```sh
-cargo bench --bench rendering_pipeline           # 全ベンチマーク実行
-cargo bench --bench rendering_pipeline -- "paint" # 特定ベンチのみ
-```
-
-HTML レポート: `target/criterion/*/report/index.html`
-
-### マイクロベンチマーク (11 種)
-
-| ベンチマーク | 測定対象 | 目標 | 計測値 | 判定 |
+| Condition | Benchmark (clear+paint) | Paint-only | Cells | Per-cell (paint-only) |
 |---|---|---|---|---|
-| `element_construct/plugins_0` | view() ツリー構築 (0 plugins) | < 10 μs | 0.26 μs | OK (38x 余裕) |
-| `element_construct/plugins_10` | view() ツリー構築 (10 plugins) | < 10 μs | 2.35 μs | OK (4x 余裕) |
-| `flex_layout` | place() レイアウト計算 | < 5 μs | 0.38 μs | OK (13x 余裕) |
-| `paint/80x24` | clear() + paint() | — | 20.3 μs | 旧パイプライン同等 |
-| `paint/200x60` | clear() + paint() (大画面) | — | 85.8 μs | 面積比で線形 |
-| `paint/80x24_realistic` | clear() + paint() (多様 Face/行長) | — | — | Face 多様性の影響計測 |
-| `grid_clear/80x24` | clear() 単独 | — | — | paint から分離計測 |
-| `grid_clear/200x60` | clear() 単独 (大画面) | — | — | |
-| `grid_diff/full_redraw` | diff() 初回フレーム | < 10 μs | 24.1 μs | 超過 (注1) |
-| `grid_diff/incremental` | diff() 差分なし | < 10 μs | 11.0 μs | 微超過 (注1) |
-| `decorator_chain/plugins_10` | apply_decorator (10 段) | < 1 μs | 0.12 μs | OK (8.5x 余裕) |
-| `plugin_dispatch/plugins_10` | 全 8 Slot collect + decorator | < 5 μs | 1.85 μs | OK (2.7x 余裕) |
+| 80x24 | **30.7 us** | 26.3 us | 1,920 | 13.7 ns |
+| 80x24 (realistic) | **35.2 us** | 30.8 us | 1,920 | 16.0 ns |
+| 200x60 | **110.8 us** | 83.6 us | 12,000 | 7.0 ns |
 
-**注1**: `grid_diff` は事前見積もり (~5 μs) の 2-5 倍。Cell の比較コスト (`CompactString(24B) + Face(16B) + u8`) が見積もりより高い。ただし full_redraw は初回フレームのみで、通常フレームは incremental パス。CPU パイプライン全体 (40 μs) の中では 28% を占めるが、16 ms バジェットに対しては無視可能。
+Scales near-linearly with area. Per-cell cost drops at larger sizes due to improved cache efficiency. The "realistic" benchmark (diverse Face values and varied line lengths) adds ~17% overhead.
 
-### 統合ベンチマーク (5 種)
+#### 4. Plugin Dispatch
 
-| ベンチマーク | 測定対象 | 目標 | 計測値 | 判定 |
-|---|---|---|---|---|
-| `full_frame` | view → layout → paint → diff → swap | < 16 ms | 40 μs | OK (400x 余裕) |
-| `draw_message` | state.apply(Draw) + full frame | < 5 ms | 46 μs | OK (109x 余裕) |
-| `menu_show/items_10` | menu 表示 + full frame | < 5 ms | 45 μs | OK |
-| `menu_show/items_50` | menu 50 items + full frame | < 5 ms | 45 μs | OK |
-| `menu_show/items_100` | menu 100 items + full frame | < 5 ms | 46 μs | OK |
-| `incremental_edit/lines/1` | 1 行編集 → view + paint + diff | — | — | 初回計測後に記入 |
-| `incremental_edit/lines/5` | 5 行編集 → view + paint + diff | — | — | 初回計測後に記入 |
-| `message_sequence` | draw_status + set_cursor + draw → 全フレーム | — | — | 初回計測後に記入 |
-
-`menu_show` がアイテム数にほぼ依存しないのは `menu_max_height=10` の制約で表示行数が一定のため。
-
-### 拡張ベンチマーク (20 種)
-
-| ベンチマーク | 測定対象 | 計測値 | 備考 |
-|---|---|---|---|
-| `parse_request/draw_lines/10` | JSON-RPC パース (10 行 draw) | — | 初回計測後に記入 |
-| `parse_request/draw_lines/100` | JSON-RPC パース (100 行 draw) | — | |
-| `parse_request/draw_lines/500` | JSON-RPC パース (500 行 draw) | — | |
-| `parse_request/draw_status` | JSON-RPC パース (draw_status) | — | 小メッセージ、高頻度 |
-| `parse_request/set_cursor` | JSON-RPC パース (set_cursor) | — | 最小メッセージ |
-| `parse_request/menu_show_50` | JSON-RPC パース (menu_show 50件) | — | |
-| `state_apply/draw_lines/23` | state.apply(Draw) 単体 | — | |
-| `state_apply/draw_lines/100` | state.apply(Draw) 単体 | — | |
-| `state_apply/draw_lines/500` | state.apply(Draw) 単体 | — | |
-| `state_apply/draw_status` | state.apply(DrawStatus) | — | |
-| `state_apply/set_cursor` | state.apply(SetCursor) | — | |
-| `state_apply/menu_show_50` | state.apply(MenuShow) | — | |
-| `scaling/full_frame/80x24` | full frame at 80x24 | — | ベースライン |
-| `scaling/full_frame/200x60` | full frame at 200x60 | — | 大画面 |
-| `scaling/full_frame/300x80` | full frame at 300x80 | — | 超大画面 |
-| `scaling/parse_apply_draw/500` | パース + apply (500 行) | — | |
-| `scaling/parse_apply_draw/1000` | パース + apply (1000 行) | — | |
-| `scaling/diff_incremental/80x24` | diff() 差分なし 80x24 | — | |
-| `scaling/diff_incremental/200x60` | diff() 差分なし 200x60 | — | |
-| `scaling/diff_incremental/300x80` | diff() 差分なし 300x80 | — | |
-
-### TUI バックエンド (エスケープシーケンス生成)
-
-`kasane-tui/benches/backend.rs` で MockBackend を使って計測。実端末 I/O を含まない純粋な escape sequence 生成コスト。
-
-| ベンチマーク | 測定対象 | 計測値 | 備考 |
-|---|---|---|---|
-| `backend_draw/full_redraw/80x24` | 80×24 全セル描画 | — | 初回計測後に記入 |
-| `backend_draw/full_redraw/200x60` | 200×60 全セル描画 | — | 大画面 |
-| `backend_draw/incremental_1line` | 1 行変更分の差分描画 | — | 最頻出パターン |
-| `backend_draw/full_redraw_realistic/80x24` | realistic data での escape 生成 | — | Face 変化が多い |
-
-### E2E パイプライン
-
-JSON bytes → parse → apply → render → diff → backend.draw → escape bytes の全経路ベンチマーク。
-
-| ベンチマーク | 測定対象 | 計測値 | 備考 |
-|---|---|---|---|
-| `e2e_pipeline/json_to_escape_80x24` | JSON → escape (均質データ) | — | 初回計測後に記入 |
-| `e2e_pipeline/json_to_escape_realistic` | JSON → escape (多様データ) | — | Face 多様性の影響 |
-
-### アロケーション内訳 (per-phase breakdown)
-
-`--features bench-alloc` で計測。view/place/paint/diff/swap 各フェーズの内訳。
-
-| フェーズ | alloc 数 | bytes | 備考 |
-|---|---|---|---|
-| view | — | — | 初回計測後に記入 |
-| place | — | — | |
-| clear+paint | — | — | |
-| diff | — | — | |
-| swap | — | — | |
-| **合計** | — | — | |
-
-### アロケーションホットスポット (コード分析)
-
-`--features bench-alloc` で計測可能。以下は主なアロケーション発生箇所:
-
-| 箇所 | 内容 | 頻度 |
+| Plugins | collect_slot (8 slots) + apply_decorator | Measured |
 |---|---|---|
-| `paint.rs:51` `atoms.to_vec()` | Atom 列の複製 | 行数×フレーム |
-| `paint.rs:123` `ch.to_string()` | グラフェム→String 変換 | セル数×フレーム |
-| `flex.rs:62` `atoms.to_vec()` | レイアウト計算時の Atom 列複製 | ノード数×フレーム |
-| `view/mod.rs:219` `atom.contents.clone()` | Element 構築時の文字列 clone | ステータス行 Atom 数 |
+| 1 | 8 vtable calls + sort + fold | **0.22 us** |
+| 5 | 40 calls + sort + fold | **1.07 us** |
+| 10 | 80 calls + sort + fold | **1.70 us** |
 
-## パフォーマンス原則
+Near-linear scaling (~170 ns/plugin).
 
-1. **端末 I/O が支配的:** CPU パイプライン (40 μs) は端末 I/O (200-3,600 μs) の 1-20%。グリッド操作の最適化より、diff の精度向上 (変更セル数の最小化) が効果的
-2. **アロケーションを避ける:** ホットパス (paint, layout) でのヒープアロケーションを最小化する。BufferRef パターンで大きなデータの clone を回避
-3. **計測してから最適化:** `cargo bench --bench rendering_pipeline` で計測し、ボトルネックを特定してから対処する。CI で 15% 超の回帰を自動検出
-4. **プラグインのコストを制限:** 現在 10 plugins で view() 2.35 μs、dispatch 1.85 μs。線形スケーリングを監視し、合計が数十 μs に達したら対策を検討
-5. **キャッシュは必要になってから:** layout() は 0.38 μs (閾値 5 μs まで 13x 余裕)。VirtualList 等は問題が顕在化してから導入する
+#### 5. Decorator Chain
+
+| Plugins | Measured | Notes |
+|---|---|---|
+| 1 | **26 ns** | sort + 1 fold |
+| 5 | **70 ns** | sort + 5 folds |
+| 10 | **118 ns** | sort + 10 folds |
+
+Well below the initial estimate (~500 ns for 5 plugins). Real plugin decorators will add slightly more, but should remain sub-microsecond.
+
+### Net Declarative Overhead
+
+| Phase | Initial Estimate | Measured |
+|---|---|---|
+| Element construction (view) | ~1-4 us | 0.24-2.35 us |
+| Layout calculation (place) | ~1 us | 0.37 us |
+| Recursive traversal (paint overhead) | ~0.3 us | Included in paint |
+| Plugin dispatch | ~1 us | 1.70 us (10 plugins) |
+| Decorator chain | ~0.5 us | 0.12 us (10 plugins) |
+| **Total** | **~4-7 us** | **~3 us** (0 plugins) / **~5 us** (10 plugins) |
+
+**3-5 us out of the full pipeline (49 us) = 6-10%. Relative to terminal I/O (200-3,600 us) = 0.1-2.5%.**
+**No practical impact.**
+
+## Micro Benchmarks (14)
+
+| Benchmark | What It Measures | Target | Measured | Verdict |
+|---|---|---|---|---|
+| `element_construct/plugins_0` | view() tree construction (0 plugins) | < 10 us | 0.24 us | OK (42x headroom) |
+| `element_construct/plugins_10` | view() tree construction (10 plugins) | < 10 us | 2.35 us | OK (4x headroom) |
+| `flex_layout` | place() layout calculation | < 5 us | 0.37 us | OK (14x headroom) |
+| `paint/80x24` | clear() + paint() combined | -- | 30.7 us | paint-only: 26.3 us |
+| `paint/200x60` | clear() + paint() combined (large) | -- | 110.8 us | paint-only: 83.6 us |
+| `paint/80x24_realistic` | clear() + paint() combined (varied Face/lengths) | -- | 35.2 us | paint-only: 30.8 us |
+| `grid_clear/80x24` | clear() standalone | -- | 4.4 us | |
+| `grid_clear/200x60` | clear() standalone (large) | -- | 27.2 us | |
+| `grid_diff/full_redraw` | diff() first frame | < 10 us | 24.2 us | Exceeds (note 1) |
+| `grid_diff/incremental` | diff() no changes | < 10 us | 12.2 us | Exceeds (note 1) |
+| `decorator_chain/plugins/1` | apply_decorator (1 stage) | < 1 us | 26 ns | OK |
+| `decorator_chain/plugins/5` | apply_decorator (5 stages) | < 1 us | 70 ns | OK |
+| `decorator_chain/plugins/10` | apply_decorator (10 stages) | < 1 us | 118 ns | OK (8x headroom) |
+| `plugin_dispatch/plugins/1` | All 8 slots + decorator (1 plugin) | < 5 us | 0.22 us | OK |
+| `plugin_dispatch/plugins/5` | All 8 slots + decorator (5 plugins) | < 5 us | 1.07 us | OK |
+| `plugin_dispatch/plugins/10` | All 8 slots + decorator (10 plugins) | < 5 us | 1.70 us | OK (3x headroom) |
+
+**Note 1**: `grid_diff` exceeds the initial 10 us target. Cell comparison cost (CompactString 24B + Face 16B + u8) is higher than estimated. However, full_redraw only occurs on the first frame; incremental is the steady-state path. At 12.2 us, diff is 25% of the CPU pipeline but negligible vs. the 16 ms frame budget.
+
+## Integration Benchmarks (8)
+
+| Benchmark | What It Measures | Target | Measured | Verdict |
+|---|---|---|---|---|
+| `full_frame` | view -> layout -> paint -> diff -> swap | < 16 ms | 48.8 us | OK (328x headroom) |
+| `draw_message` | state.apply(Draw) + full frame | < 5 ms | 50.2 us | OK (100x headroom) |
+| `menu_show/items/10` | Menu display + full frame | < 5 ms | 59.9 us | OK |
+| `menu_show/items/50` | Menu 50 items + full frame | < 5 ms | 59.9 us | OK |
+| `menu_show/items/100` | Menu 100 items + full frame | < 5 ms | 59.9 us | OK |
+| `incremental_edit/lines/1` | 1 line edit -> view + paint + diff | -- | 44.0 us | |
+| `incremental_edit/lines/5` | 5 line edit -> view + paint + diff | -- | 46.0 us | |
+| `message_sequence` | draw_status + set_cursor + draw -> full frame | -- | 50.1 us | |
+
+`menu_show` is independent of item count because `menu_max_height=10` caps the visible rows.
+
+## Extended Benchmarks (20)
+
+### JSON-RPC Parsing
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `parse_request/draw_lines/10` | JSON-RPC parse (10-line draw) | 61.8 us | |
+| `parse_request/draw_lines/100` | JSON-RPC parse (100-line draw) | 540 us | |
+| `parse_request/draw_lines/500` | JSON-RPC parse (500-line draw) | 2.68 ms | |
+| `parse_request/draw_status` | JSON-RPC parse (draw_status) | 2.85 us | Small message, high frequency |
+| `parse_request/set_cursor` | JSON-RPC parse (set_cursor) | 849 ns | Minimal message |
+| `parse_request/menu_show_50` | JSON-RPC parse (menu_show 50 items) | 55.9 us | |
+
+### State Application
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `state_apply/draw_lines/23` | state.apply(Draw) standalone | 2.44 us | |
+| `state_apply/draw_lines/100` | state.apply(Draw) standalone | 5.34 us | |
+| `state_apply/draw_lines/500` | state.apply(Draw) standalone | 17.7 us | |
+| `state_apply/draw_status` | state.apply(DrawStatus) | 947 ns | |
+| `state_apply/set_cursor` | state.apply(SetCursor) | 724 ns | |
+| `state_apply/menu_show_50` | state.apply(MenuShow) | 4.37 us | |
+
+### Scaling Characteristics
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `scaling/full_frame/80x24` | Full frame at 80x24 | 56.9 us | Baseline |
+| `scaling/full_frame/200x60` | Full frame at 200x60 | 223 us | 3.9x (area ratio: 6.25x) |
+| `scaling/full_frame/300x80` | Full frame at 300x80 | 399 us | 7.0x (area ratio: 12.5x) |
+| `scaling/parse_apply_draw/500` | Parse + apply (500 lines) | 2.76 ms | |
+| `scaling/parse_apply_draw/1000` | Parse + apply (1000 lines) | 5.35 ms | Near-linear |
+| `scaling/diff_incremental/80x24` | diff() no-change 80x24 | 12.3 us | |
+| `scaling/diff_incremental/200x60` | diff() no-change 200x60 | 75.2 us | 6.1x (area ratio: 6.25x) |
+| `scaling/diff_incremental/300x80` | diff() no-change 300x80 | 150 us | 12.2x (area ratio: 12.5x) |
+
+Full frame scales sub-linearly with area (cache effects). diff() scales linearly.
+
+## TUI Backend Benchmarks
+
+Measured with `kasane-tui/benches/backend.rs` using MockBackend (no real terminal I/O).
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `backend_draw/full_redraw/80x24` | 80x24 all cells | 163 us | Escape sequence generation |
+| `backend_draw/full_redraw/200x60` | 200x60 all cells | 1.01 ms | Large screen |
+| `backend_draw/incremental_1line` | 1 line changed | 2.32 us | Most common pattern |
+| `backend_draw/full_redraw_realistic/80x24` | Realistic data at 80x24 | 150 us | Diverse Face values |
+
+The realistic benchmark is slightly faster than uniform because the uniform benchmark alternates Face on every cell, causing more style transition escape sequences.
+
+## E2E Pipeline Benchmarks
+
+JSON bytes -> parse -> apply -> render -> diff -> backend.draw -> escape bytes.
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `e2e_pipeline/json_to_escape_80x24` | Full pipeline (uniform data) | 193 us | |
+| `e2e_pipeline/json_to_escape_realistic` | Full pipeline (realistic data) | 164 us | |
+
+## Allocation Breakdown (Per-Phase)
+
+Measured with `--features bench-alloc` (debug profile, single frame at 80x24).
+
+| Phase | Alloc Count | Bytes | Notes |
+|---|---|---|---|
+| view | 6 | 1,176 | Element tree construction |
+| place | 11 | 336 | Layout result vectors |
+| clear+paint | 3 | 1,196 | Atom-to-cell conversion |
+| diff | 10 | 196,416 | CellDiff vector + Cell clones |
+| swap | 1 | 76,800 | Previous buffer allocation |
+| **full_frame total** | **31** | **275,924** | |
+| parse_request (100 lines) | 1,847 | 275,172 | JSON parsing dominates |
+
+**Key finding**: diff() accounts for 71% of per-frame bytes (196 KB) due to CellDiff vector allocation. JSON parsing allocates heavily (1,847 allocs for 100 lines) but is amortized by simd_json's speed.
+
+## Allocation Hotspots (Code Analysis)
+
+| Location | What | Frequency |
+|---|---|---|
+| `paint.rs` `atoms.to_vec()` | Atom slice duplication | lines * frames |
+| `paint.rs` `ch.to_string()` | Grapheme -> String conversion | cells * frames |
+| `grid.rs` `cell.clone()` in diff() | Cell cloning into CellDiff | changed_cells * frames |
+| `view/mod.rs` `atom.contents.clone()` | String clone in status bar construction | status_atoms * frames |
+
+The paint/view allocations are relatively small (3-6 allocs). The diff() allocations dominate because CellDiff owns its Cell data.
+
+## Latency Distribution
+
+Measured over 10,000 iterations (release profile).
+
+| Phase | p50 | p90 | p99 | p99.9 | max |
+|---|---|---|---|---|---|
+| **Full frame** | 50.3 us | 57.4 us | 77.7 us | 84.9 us | 97.5 us |
+| view() | 0.3 us | 0.3 us | 0.5 us | 0.5 us | 10.4 us |
+| place() | 0.4 us | 0.4 us | 0.6 us | 0.7 us | 7.4 us |
+| clear()+paint() | 31.8 us | 34.7 us | 49.9 us | 55.2 us | 58.1 us |
+| diff() | 13.0 us | 19.6 us | 22.3 us | 26.8 us | 30.2 us |
+
+Tail latency is well-controlled. The p99.9 full frame (84.9 us) is only 1.7x the p50 (50.3 us). The max (97.5 us) stays under 100 us.
+
+### Latency Budget Tests
+
+All pass (release profile):
+
+| Test | Budget | Status |
+|---|---|---|
+| `state_apply_under_200us` | < 200 us | Pass |
+| `parse_request_under_500us` | < 500 us | Pass |
+| `full_frame_under_2ms` | < 2 ms | Pass |
+
+## Replay Benchmarks
+
+End-to-end scenario replay (parse + apply + render for each message).
+
+| Scenario | Messages | Measured | Per-message |
+|---|---|---|---|
+| `normal_editing_50msg` | 50 | 5.47 ms | 109 us |
+| `fast_scroll_100msg` | 100 | 22.4 ms | 224 us |
+| `menu_completion_20msg` | 20 | 2.35 ms | 117 us |
+| `mixed_session_200msg` | 200 | 25.0 ms | 125 us |
+
+Fast scroll is heavier per-message due to full buffer redraws.
+
+## GPU CPU-Side Benchmarks
+
+Measured with `kasane-gui/benches/cpu_rendering.rs`.
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `gpu/bg_instances_80x24` | Background rectangle instance generation | 6.70 us | |
+| `gpu/row_hash_24rows` | Row content hashing (24 rows) | 57.1 us | Change detection for GPU |
+| `gpu/row_spans_80cols` | Row span computation (80 cols) | 702 ns | Face run-length encoding |
+| `gpu/color_resolve_1920cells` | Color resolution for 1,920 cells | 8.32 us | Theme color -> RGBA |
+
+## Bottleneck Analysis
+
+Ranked by severity with current measurements.
+
+### Severity: High (Resolved)
+
+#### Buffer Line Cloning
+
+Element tree uses owned types, which would require cloning all buffer lines every frame.
+
+**Resolution: BufferRef pattern (implemented)**. `Element::BufferRef { line_range }` eliminates clone cost. view() at 0.24 us (0 plugins) confirms BufferRef's effectiveness.
+
+### Severity: Medium
+
+#### Container Fill Loop
+
+`paint.rs` performs O(w*h) `put_char(" ")` calls for container background fill. Each call triggers:
+- Bounds checking
+- Wide-char boundary cleanup (6-8 conditional branches)
+- CompactString construction
+
+A `fill_row()` bulk operation would avoid per-cell overhead.
+
+#### grid.diff() Exceeds Target
+
+diff() at 12.2 us (incremental) exceeds the original 10 us target. Cell comparison involves CompactString (24B) + Face (16B) + u8 per cell. The `dirty_rows` optimization helps but the per-cell comparison cost is inherently higher than estimated.
+
+#### diff() Allocation Dominance
+
+diff() allocates 196 KB per frame (71% of total) due to CellDiff owning cloned Cell data. A reference-based or streaming diff API could eliminate this.
+
+#### BufferLine Decorator Multiplicative Cost
+
+Multiple `DecorateTarget::BufferLine` decorators create N * M function calls (N decorators * M lines):
+
+```
+3 decorators (line numbers, git marks, breakpoints) x 50 lines
+  = 150 decorator calls = 150 node additions ~ 5-10 us
+```
+
+**Mitigation**: Recommend `DecorateTarget::Buffer` (column-based) over per-line decoration.
+
+### Severity: Low
+
+#### word_wrap Vec Allocation
+
+`render_wrapped_line()` allocates 2 Vecs per call. Only triggered during info popup display (infrequent).
+
+#### Large Element Trees Without Virtualization
+
+1,000+ node trees could reach ~50 us for construction + layout. Acceptable now, but 10,000+ nodes would compete with terminal I/O.
+
+**Future mitigation**: `Element::VirtualList` for visible-range-only rendering.
+
+## Compiler-Driven Optimization (ADR-010) Evaluation
+
+[ADR-010](./decisions.md) defines a three-stage compilation model. Evaluation against real benchmark data:
+
+### Stage 1: Input Memoization
+
+| Metric | Value |
+|---|---|
+| Current view() cost | 0.24 us (0 plugins) / 2.35 us (10 plugins) |
+| Expected savings | 0.2-2.3 us |
+| Assessment | At 0.24 us, savings are negligible. Becomes worthwhile with real plugins (>2 us). |
+
+**Recommendation**: Implement when first real plugins exist (Phase 4a validation).
+
+### Stage 2: Static Layout Cache
+
+| Metric | Value |
+|---|---|
+| Current place() cost | 0.37 us |
+| Target threshold | 5 us (14x headroom) |
+| Cache memory cost | ~1.5 KB (50B/node * 30 nodes) |
+| Cache invalidation | u16 comparison * 2 per frame |
+
+**Recommendation**: Defer until place() exceeds 5 us.
+
+### Stage 3: Fine-Grained Update Code Generation
+
+| Metric | Value |
+|---|---|
+| Current paint() cost | 26.3 us (80x24) / 83.6 us (200x60) |
+| Terminal I/O cost | 163-1,012 us (backend.draw) |
+| paint as % of I/O | 2-25% |
+| Potential savings | ~23 us at 80x24 |
+
+**Recommendation**: Defer. Simpler optimizations (fast-path ASCII fill, dirty region skipping) offer better ROI than code generation.
+
+### Overall Verdict
+
+ADR-010 is architecturally sound but premature. The CPU pipeline (49 us) is dominated by clear()+paint() (30.7 us) and diff() (12.2 us), which are better addressed by:
+
+1. **DirtyFlags per-component skip** -- avoid full repaint on status-only changes
+2. **Container fill fast-path** -- `fill_row()` instead of per-cell `put_char()`
+3. **Streaming diff** -- eliminate 196 KB allocation per frame
+
+These simpler optimizations should be pursued first. ADR-010 stages become relevant when plugin count grows or when terminal I/O is no longer the bottleneck (e.g., GPU backend).
+
+## Performance Principles
+
+1. **Terminal I/O is dominant**: CPU pipeline (49 us) is 1-20% of terminal I/O (163-1,012 us). Improving diff accuracy (minimizing changed cells) matters more than optimizing grid operations.
+2. **Avoid allocations on hot paths**: Minimize heap allocations in paint, layout, and diff. BufferRef pattern avoids large data clones. Target: <50 allocations per frame.
+3. **Measure before optimizing**: `cargo bench --bench rendering_pipeline` for measurement, CI detects >15% regressions. All optimization decisions are data-driven.
+4. **Bound plugin costs**: Currently 10 plugins add ~4 us (view 2.35 us + dispatch 1.70 us). Monitor linear scaling; investigate if total exceeds ~20 us.
+5. **Cache only when needed**: place() has 14x headroom to threshold. VirtualList and layout caching are deferred until problems are observed.
