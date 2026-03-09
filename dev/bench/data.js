@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773021292386,
+  "lastUpdate": 1773029202053,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -1787,6 +1787,390 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7447,
             "range": "± 19",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "288bab51ba91647efd7ed9dfec441f2a642b24a9",
+          "message": "docs: rewrite performance.md in English with measured benchmark data\n\nTranslate performance.md from Japanese to English and fill all blank\nmeasurement fields with actual benchmark results. Key updates:\n- All 14 micro, 8 integration, 20 extended benchmarks measured\n- TUI backend, replay, GPU CPU-side, and E2E pipeline benchmarks added\n- Allocation breakdown per phase from alloc_budget\n- Latency distribution (p50-max) from HDR histogram\n- ADR-010 evaluation against real data (verdict: premature)\n- Corrected clear+paint accounting (separated in breakdown)\n- Added performance tasks to Phase 4a in roadmap.md\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T12:46:13+09:00",
+          "tree_id": "2c9ff8a4349e943b061dd8b64c4637bd73423191",
+          "url": "https://github.com/Yus314/kasane/commit/288bab51ba91647efd7ed9dfec441f2a642b24a9"
+        },
+        "date": 1773029201643,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 467,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 2827,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 353,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 27357,
+            "range": "± 193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 93535,
+            "range": "± 6775",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 31700,
+            "range": "± 1559",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 23551,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12634,
+            "range": "± 261",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3254,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 20276,
+            "range": "± 958",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 34,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 94,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 155,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 212,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 774,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1561,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 44575,
+            "range": "± 138",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 47318,
+            "range": "± 326",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 57588,
+            "range": "± 352",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 58121,
+            "range": "± 1333",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 58454,
+            "range": "± 1107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 41589,
+            "range": "± 320",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 43938,
+            "range": "± 255",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 47640,
+            "range": "± 276",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 67634,
+            "range": "± 614",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 593594,
+            "range": "± 15764",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2947352,
+            "range": "± 72406",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3165,
+            "range": "± 79",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/set_cursor",
+            "value": 797,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 62123,
+            "range": "± 2732",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 1277,
+            "range": "± 39",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 3209,
+            "range": "± 184",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 13700,
+            "range": "± 605",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 640,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/set_cursor",
+            "value": 587,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 3489,
+            "range": "± 210",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 44747,
+            "range": "± 685",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 196281,
+            "range": "± 4019",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 351218,
+            "range": "± 5892",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 2953257,
+            "range": "± 9140",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 5868506,
+            "range": "± 60341",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 12937,
+            "range": "± 139",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 81655,
+            "range": "± 396",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 156520,
+            "range": "± 3208",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 4131,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 3222,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 166200,
+            "range": "± 1299",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 851942,
+            "range": "± 17353",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2143,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 143189,
+            "range": "± 2793",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 184836,
+            "range": "± 5362",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 153643,
+            "range": "± 4652",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4553623,
+            "range": "± 18851",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 18487897,
+            "range": "± 391321",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 2147964,
+            "range": "± 25112",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20476869,
+            "range": "± 151052",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7560,
+            "range": "± 234",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55516,
+            "range": "± 789",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 626,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 8225,
+            "range": "± 49",
             "unit": "ns/iter"
           }
         ]
