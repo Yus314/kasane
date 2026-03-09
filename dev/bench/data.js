@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773034119096,
+  "lastUpdate": 1773035326515,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -2771,6 +2771,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 8161,
             "range": "± 114",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "ca6f173fd4345b6bd85b29622b01ace9c54eb5ed",
+          "message": "docs: update roadmap, architecture, decisions to reflect ADR-010 completion\n\nMark ADR-010 stages 1-4 as completed in roadmap. Add missing source files\n(patch.rs, state/info.rs, state/menu.rs, test_utils.rs, test_helpers/) to\narchitecture source tree. Update rendering pipeline with caching layers\n(ViewCache, LayoutCache, SceneCache, PaintPatch). Add implementation record\nto ADR-010 in decisions.md.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T14:37:20+09:00",
+          "tree_id": "d5767f20e013d2379217b955902c590e8540712e",
+          "url": "https://github.com/Yus314/kasane/commit/ca6f173fd4345b6bd85b29622b01ace9c54eb5ed"
+        },
+        "date": 1773035325815,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 142654,
+            "range": "± 5363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 825738,
+            "range": "± 4197",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2043,
+            "range": "± 97",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 136680,
+            "range": "± 1071",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 182019,
+            "range": "± 5134",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 151304,
+            "range": "± 3690",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4562255,
+            "range": "± 14721",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 18058217,
+            "range": "± 73496",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 2142210,
+            "range": "± 13717",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20444286,
+            "range": "± 83785",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 8029,
+            "range": "± 610",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55725,
+            "range": "± 311",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 598,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7462,
+            "range": "± 13",
             "unit": "ns/iter"
           }
         ]
