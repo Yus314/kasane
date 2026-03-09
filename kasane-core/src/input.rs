@@ -95,12 +95,7 @@ pub fn key_to_kakoune(event: &KeyEvent) -> String {
         Key::Backspace => "backspace".to_string(),
         Key::Delete => "del".to_string(),
         Key::Enter => "ret".to_string(),
-        Key::Tab => {
-            if event.modifiers.contains(Modifiers::SHIFT) {
-                return format_with_modifiers("tab", event.modifiers & !Modifiers::SHIFT);
-            }
-            "tab".to_string()
-        }
+        Key::Tab => "tab".to_string(),
         Key::Escape => "esc".to_string(),
         Key::Up => "up".to_string(),
         Key::Down => "down".to_string(),
@@ -269,6 +264,7 @@ mod tests {
             "<esc>"
         );
         assert_eq!(key_to_kakoune(&key(Key::Tab, Modifiers::empty())), "<tab>");
+        assert_eq!(key_to_kakoune(&key(Key::Tab, Modifiers::SHIFT)), "<s-tab>");
         assert_eq!(
             key_to_kakoune(&key(Key::Backspace, Modifiers::empty())),
             "<backspace>"
