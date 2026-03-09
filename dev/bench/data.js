@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773061284847,
+  "lastUpdate": 1773069486298,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3635,6 +3635,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7452,
             "range": "± 19",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "cf4e44492b6c9d938cc8454301abc07b76c291f1",
+          "message": "test(plugin): add integration tests for all plugin extension points\n\nAdd kasane-core/tests/plugin_integration.rs with 7 macro-defined plugin\ntests covering the full E2E path: #[kasane_plugin] → PluginRegistry →\nview → layout → paint → CellGrid.\n\nTests: multi-extension (Slot+LineDecoration+Lifecycle), Decorator,\nReplacement, Overlay, handle_key first-wins, Event/Message delivery,\nand MenuTransform.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T00:06:59+09:00",
+          "tree_id": "f3dcecbd4818ff084f9648eff5c4fe54bb2d491c",
+          "url": "https://github.com/Yus314/kasane/commit/cf4e44492b6c9d938cc8454301abc07b76c291f1"
+        },
+        "date": 1773069485286,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 152718,
+            "range": "± 4436",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 882779,
+            "range": "± 30486",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2105,
+            "range": "± 96",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 144127,
+            "range": "± 566",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 155971,
+            "range": "± 6048",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 122646,
+            "range": "± 3828",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3432056,
+            "range": "± 98079",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15663601,
+            "range": "± 58610",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1762640,
+            "range": "± 8148",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16270194,
+            "range": "± 56674",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7428,
+            "range": "± 49",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55390,
+            "range": "± 95",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 637,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7526,
+            "range": "± 23",
             "unit": "ns/iter"
           }
         ]
