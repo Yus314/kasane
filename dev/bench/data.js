@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773035326515,
+  "lastUpdate": 1773036751406,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -2879,6 +2879,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7462,
             "range": "± 13",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "d734bc1ab8be40ed54f73729a73f57cfd2132829",
+          "message": "perf(render): add line-level dirty tracking for incremental buffer repaints\n\nCompare old vs new lines in apply(Draw) to identify which lines actually\nchanged. When only BUFFER is dirty and some lines are clean, skip\ngrid.clear() and paint only dirty lines. swap_with_dirty() copies only\ndirty rows to previous, preserving clean row content for the next frame.\n\nThis reduces CPU work for single-character edits from ~49 μs (full\n1,920-cell repaint) to ~7 μs (only changed line's cells).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T15:01:29+09:00",
+          "tree_id": "e0ab0878c7bad8405edb0b26ceb7a43bfd828a13",
+          "url": "https://github.com/Yus314/kasane/commit/d734bc1ab8be40ed54f73729a73f57cfd2132829"
+        },
+        "date": 1773036750993,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 150190,
+            "range": "± 4919",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 831491,
+            "range": "± 10397",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2040,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 137168,
+            "range": "± 1808",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 157981,
+            "range": "± 5415",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 123711,
+            "range": "± 3770",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3362283,
+            "range": "± 43531",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15596539,
+            "range": "± 78848",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1737324,
+            "range": "± 5442",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16144464,
+            "range": "± 94364",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6854,
+            "range": "± 37",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55182,
+            "range": "± 224",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 614,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7641,
+            "range": "± 18",
             "unit": "ns/iter"
           }
         ]
