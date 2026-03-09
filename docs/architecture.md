@@ -73,9 +73,10 @@ kasane/
 │       │   ├── apply.rs        # Kakoune メッセージの適用
 │       │   ├── update.rs       # TEA update 関数、Msg/DirtyFlags 定義
 │       │   └── tests.rs        # テスト
-│       ├── layout/             # レイアウトエンジン (Flex + Overlay)
+│       ├── layout/             # レイアウトエンジン (Flex + Grid + Overlay)
 │       │   ├── mod.rs          # 共通型 (Rect, Size, Constraints, MenuPlacement 等)
 │       │   ├── flex.rs         # Flexbox レイアウト計算 (measure + place)
+│       │   ├── grid.rs         # Grid レイアウト計算 (measure_grid + place_grid)
 │       │   ├── position.rs     # Overlay 位置計算 (compute_pos, layout_menu_inline)
 │       │   ├── info.rs         # Info ポップアップ配置 (layout_info, avoid リスト)
 │       │   ├── hit_test.rs     # InteractiveId マウスヒットテスト (Z-order 逆順走査)

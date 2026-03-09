@@ -65,7 +65,7 @@ Kakoune (kak -ui json)
 
 ### Element Tree
 
-Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Stack`, `Scrollable`, `Container`, `Interactive`, `Empty`. Layout uses flexbox (`layout/flex.rs`) for main content and overlay positioning (`layout/position.rs`) for menus/info popups.
+Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Grid`, `Stack`, `Scrollable`, `Container`, `Interactive`, `Empty`. Layout uses flexbox (`layout/flex.rs`) for main content, grid (`layout/grid.rs`) for 2D table layouts, and overlay positioning (`layout/position.rs`) for menus/info popups.
 
 ### Plugin System
 

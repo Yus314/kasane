@@ -77,7 +77,15 @@ enum Element {
         overlays: Vec<Overlay>,
     },
 
-    // Grid は設計予約。現実装では未使用。
+    /// 2D グリッドレイアウト (GridColumn で列幅を指定、children は row-major 順)
+    Grid {
+        columns: Vec<GridColumn>,
+        children: Vec<Element>,
+        col_gap: u16,
+        row_gap: u16,
+        align: Align,
+        cross_align: Align,
+    },
 
     /// スクロール可能な領域
     Scrollable {
@@ -827,8 +835,10 @@ enum StyleToken {
 - ✓ `#[kasane::component]` — Phase 1 バリデーション (パススルー、純粋性検証のみ)
 
 **未実装 (Phase 4 以降):**
-- Grid レイアウト (Element::Grid) — 必要なユースケース発生時
 - コンパイラ駆動最適化 (ADR-010 段階 1〜3) — プロファイリング結果に基づき判断
+
+**Phase 4a 前に達成済み:**
+- ✓ Grid レイアウト (Element::Grid) — GridWidth::Fixed/Flex/Auto、build_menu_prompt() で使用
 
 ### Phase 3: 拡張入力・クリップボード・プラグイン基盤完成 ✓ 完了
 

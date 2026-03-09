@@ -20,7 +20,7 @@
 
 | 用語 | 説明 |
 |------|------|
-| Element | UI の宣言的記述の最小単位。Text, StyledLine, Flex, Stack, Scrollable, Container, Interactive, Empty, BufferRef のバリアントを持つ enum。view() が返すツリーの構成要素。Grid は設計予約 (未実装) |
+| Element | UI の宣言的記述の最小単位。Text, StyledLine, Flex, Grid, Stack, Scrollable, Container, Interactive, Empty, BufferRef のバリアントを持つ enum。view() が返すツリーの構成要素 |
 | Element ツリー | Element のネスト構造。view(&State) の戻り値。フレームワークがレイアウト計算と CellGrid 描画に使用 |
 | view() | State を受け取り Element ツリーを返す純粋関数。TEA の中核 |
 | paint() | Element ツリーとレイアウト結果を受け取り、CellGrid に描画する処理 |
