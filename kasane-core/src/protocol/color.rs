@@ -305,3 +305,36 @@ impl Serialize for Face {
         s.end()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Face resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve Default colors in an atom face against a base face.
+/// In Kakoune, `default` means "inherit from the containing context".
+pub fn resolve_face(atom_face: &Face, base: &Face) -> Face {
+    Face {
+        fg: if atom_face.fg == Color::Default {
+            base.fg
+        } else {
+            atom_face.fg
+        },
+        bg: if atom_face.bg == Color::Default {
+            base.bg
+        } else {
+            atom_face.bg
+        },
+        underline: if atom_face.underline == Color::Default {
+            base.underline
+        } else {
+            atom_face.underline
+        },
+        attributes: if atom_face.attributes.contains(Attributes::FINAL_ATTR)
+            || base.attributes.is_empty()
+        {
+            atom_face.attributes
+        } else {
+            base.attributes | atom_face.attributes
+        },
+    }
+}
