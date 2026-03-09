@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773032312888,
+  "lastUpdate": 1773034119096,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -2663,6 +2663,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 8321,
             "range": "± 93",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "221e2c941c7a93da665203c6605a6bedf4be9bfe",
+          "message": "feat(render): add compiled paint patches for fast-path rendering (ADR-010 stage 4)\n\nImplement PaintPatch trait and three built-in patches that bypass the\nfull Element tree → layout → paint pipeline for common dirty states:\n\n- StatusBarPatch: repaints ~80 cells when only STATUS is dirty\n- MenuSelectionPatch: swaps faces on old/new selected items (~10 cells)\n- CursorPatch: updates 2 cells when only cursor position changed\n\nAlso adds ComponentCache<T> generic memoization wrapper, LayoutCache for\nsection-level repaint positions, render_pipeline_sectioned() for partial\nrepaints, and render_pipeline_patched() with debug correctness assertions.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T14:17:01+09:00",
+          "tree_id": "34c785b84a0a38d0b0a2569637e854c3446c5519",
+          "url": "https://github.com/Yus314/kasane/commit/221e2c941c7a93da665203c6605a6bedf4be9bfe"
+        },
+        "date": 1773034118736,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 146569,
+            "range": "± 1983",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 957749,
+            "range": "± 10646",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2051,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 147200,
+            "range": "± 924",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 185002,
+            "range": "± 3440",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 153044,
+            "range": "± 4652",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4539145,
+            "range": "± 8814",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 18305245,
+            "range": "± 42213",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 2137104,
+            "range": "± 6356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20505898,
+            "range": "± 171219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6894,
+            "range": "± 87",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55560,
+            "range": "± 219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 626,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 8161,
+            "range": "± 114",
             "unit": "ns/iter"
           }
         ]
