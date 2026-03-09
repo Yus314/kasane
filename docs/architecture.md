@@ -68,10 +68,13 @@ kasane/
 │       │   ├── message.rs      # メッセージ型定義
 │       │   ├── parse.rs        # JSON-RPC パース実装
 │       │   └── tests.rs        # テスト
+│       ├── test_utils.rs       # テストユーティリティ (create_test_state 等)
 │       ├── state/              # アプリケーション状態管理 (TEA: State + Msg + update)
 │       │   ├── mod.rs          # AppState、CoreState 定義
 │       │   ├── apply.rs        # Kakoune メッセージの適用
 │       │   ├── update.rs       # TEA update 関数、Msg/DirtyFlags 定義
+│       │   ├── info.rs         # InfoState、InfoIdentity (info ポップアップ状態)
+│       │   ├── menu.rs         # MenuState、MenuParams (メニュー状態)
 │       │   └── tests.rs        # テスト
 │       ├── layout/             # レイアウトエンジン (Flex + Grid + Overlay)
 │       │   ├── mod.rs          # 共通型 (Rect, Size, Constraints, MenuPlacement 等)
@@ -86,12 +89,14 @@ kasane/
 │           ├── mod.rs          # RenderBackend trait
 │           ├── grid.rs         # CellGrid — セルの二次元配列、差分描画
 │           ├── paint.rs        # paint() — Element + LayoutResult → CellGrid 描画
+│           ├── patch.rs        # PaintPatch trait + 組み込みパッチ (StatusBar/MenuSelection/Cursor)
 │           ├── scene.rs        # DrawCommand — GUI シーンベース描画用コマンド
 │           ├── theme.rs        # Theme (StyleToken → Face マッピング、face spec パーサー)
 │           ├── markup.rs       # マークアップパーサー ({face_spec}text{default})
-│           ├── test_helpers.rs # テストヘルパー
+│           ├── test_helpers/   # テストヘルパー
+│           │   ├── mod.rs      # 共通テストヘルパー
+│           │   └── info.rs     # Info ポップアップ用テストヘルパー
 │           ├── tests.rs        # テスト
-│           ├── info.rs         # Info ポップアップ描画
 │           ├── menu.rs         # メニュー描画
 │           └── view/           # view() — Element ツリー構築
 │               ├── mod.rs      # view() 関数、build_* 関数群
@@ -107,7 +112,7 @@ kasane/
 │   └── src/
 │       ├── lib.rs              # proc macro エントリポイント
 │       ├── plugin.rs           # #[kasane_plugin] — Plugin trait 実装の自動生成
-│       └── component.rs        # #[kasane_component] — バリデーション (将来の最適化用)
+│       └── component.rs        # #[kasane_component] — deps() アノテーション、AST フィールドアクセス解析、allow() エスケープハッチ、FIELD_FLAG_MAP 検証
 ├── kasane-gui/                 # GPU バックエンド (winit + wgpu + glyphon)
 │   └── src/
 │       ├── lib.rs              # クレートルート、run_gui() エントリポイント
@@ -186,7 +191,25 @@ kasane-core は宣言的 UI レイヤー (ADR-009) を実装済み。詳細は [
 
 **レンダリングパスの違い:**
 
-- **TUI パス:** `view() → place() → paint() → CellGrid → grid.diff() → backend.draw()`
-- **GUI パス:** `view() → place() → scene_paint() → DrawCommand → SceneRenderer (GPU)`
+- **TUI パス:** `view_cached() → place() → paint() → CellGrid → grid.diff() → backend.draw()`
+- **GUI パス:** `view_sections_cached() → scene_paint_section() → SceneCache → SceneRenderer (GPU)`
 
 TUI はセルグリッドベースの差分描画を行い、crossterm でエスケープシーケンスに変換する。GUI は Element ツリーから DrawCommand (シーン記述) を生成し、SceneRenderer が wgpu + glyphon で直接 GPU 描画する。
+
+**キャッシュレイヤー (ADR-010):**
+
+| レイヤー | 対象 | 説明 |
+|---------|------|------|
+| ViewCache | Element ツリー | DirtyFlags に基づくセクション別 (base/menu/info) Element メモ化。ComponentCache\<T\> による汎用キャッシュ |
+| LayoutCache | レイアウト結果 | base_layout, status_row, root_area のキャッシュ。セクション別再描画に使用 |
+| SceneCache | DrawCommand 列 | GUI 用セクション別 DrawCommand キャッシュ。ViewCache と同じ無効化ルール |
+| PaintPatch | CellGrid 部分更新 | コンパイル済みパッチによる高速パス (StatusBarPatch, MenuSelectionPatch, CursorPatch) |
+
+**TUI 高速パス (render_pipeline_patched):**
+
+```
+DirtyFlags チェック
+├── PaintPatch 適用可能 → パッチ (2〜80 セル更新)
+├── セクション別再描画可能 → セクション単位 repaint
+└── フォールバック → フルパイプライン (view → place → paint → diff)
+```

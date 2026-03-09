@@ -372,6 +372,44 @@ kasane の Element ツリーは 20-50 ノードと極めて小規模で、Web UI
 - 宣言的 API を維持しつつ実行時コードを命令的にする、Svelte と同じ二重性を実現
 - Phase 2 以降のプラグイン増加時に真価を発揮。Phase 1 では設計上の考慮のみで実装しない
 
+### 実装記録
+
+4段階すべて完了済み。
+
+**Stage 1: DirtyFlags ベース view メモ化**
+
+- DirtyFlags を `u8` → `u16` に拡張。`MENU` を `MENU_STRUCTURE` + `MENU_SELECTION` に分割し、選択変更のみの高速パスを実現
+- `ViewCache`: セクション別 (base/menu/info) の Element メモ化。`ComponentCache<T>` 汎用ラッパーで `get_or_insert()` + `invalidate()` を提供
+- `view()` を `build_base()`, `build_menu_section()`, `build_info_section()` に分解。各セクションの DEPS 定数で必要な DirtyFlags を宣言
+- `render_pipeline_cached()` / `scene_render_pipeline_cached()`: DirtyFlags + ViewCache による条件付き再構築
+
+**Stage 2: 検証済み依存追跡**
+
+- `#[kasane::component(deps(FLAG, ...))]` proc macro: AST visitor (`syn::visit`) で関数本体の `state.field` アクセスを走査
+- `FIELD_FLAG_MAP`: AppState フィールド → 必要な DirtyFlags のマッピング。宣言された `deps()` に不足があればコンパイルエラー
+- `allow(field, ...)` エスケープハッチ: 意図的な依存ギャップ (例: `cursor_pos` は INFO フラグ不要) を明示
+- マクロのトークンストリーム走査で `format!` / `println!` 内のフィールドアクセスも検出
+- Free reads: `cols`, `rows`, `focused`, `drag`, `smooth_scroll`, `scroll_animation` (フラグ不要)
+
+**Stage 3: SceneCache (DrawCommand レベルキャッシュ)**
+
+- `SceneCache`: セクション別 (base/menu/info) の `Vec<DrawCommand>` キャッシュ。無効化ルールは ViewCache と同一 (BUFFER|STATUS|OPTIONS→base, MENU→menu, INFO→info)
+- セルサイズ/画面サイズ変更 → 全セクション無効化
+- `view_sections_cached()` + `ViewSections`: セクション分解された view 出力。セクション別処理に対応
+- `layout_overlay()`: 単一オーバーレイのレイアウトヘルパー
+- `scene_paint_section()`: 個別 Element サブツリーの paint ラッパー
+- GUI カーソルアニメーション: `DirtyFlags::BUFFER` を設定せず `cursor_dirty` フラグを使用。カーソルのみのフレームは `scene_cache.composed_ref()` を再利用 (0 μs パイプライン)
+
+**Stage 4: コンパイル済み PaintPatch**
+
+- `PaintPatch` trait: `deps()` / `can_apply()` / `apply_grid()` / `apply_scene()` メソッド
+- `StatusBarPatch`: dirty==STATUS → ステータス行のみ直接再描画 (~80 セル vs 1920)
+- `MenuSelectionPatch`: dirty==MENU_SELECTION → 旧/新選択項目の face 入れ替え (~10 セル)
+- `CursorPatch`: dirty==empty + カーソル移動 → 旧/新位置の face 入れ替え (2 セル)
+- `LayoutCache`: `base_layout`, `status_row`, `root_area` のキャッシュ。セクション別再描画に使用
+- `render_pipeline_patched()`: パッチ → セクション別 → フルパイプラインのフォールバックチェーン
+- デバッグモードの正当性アサーション: パッチ出力 == フルパイプライン出力
+
 ## ADR-011: CLI 設計 — kak ドロップイン置換
 
 **状態:** 決定済み
