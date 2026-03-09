@@ -1,6 +1,10 @@
+use std::collections::HashSet;
+
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{Attribute, Error, Expr, ExprPath, Ident, Item, ItemMod, Lit, parse2};
+use syn::{Attribute, Error, Expr, ExprPath, Ident, Item, ItemFn, ItemMod, Lit, parse2};
+
+use crate::analysis::*;
 
 /// Parsed information extracted from the module.
 struct PluginDef {
@@ -25,6 +29,9 @@ struct PluginDef {
 struct SlotBinding {
     slot_path: ExprPath,
     fn_name: Ident,
+    /// Derived DirtyFlags names for this slot (e.g., ["BUFFER", "STATUS"]).
+    /// Empty means fallback to ALL.
+    dirty_deps: Vec<String>,
 }
 
 struct DecoratorBinding {
@@ -95,9 +102,11 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
                 }
                 // Check for #[slot(Slot::*)]
                 if let Some(slot_path) = extract_single_path_attr(&f.attrs, "slot")? {
+                    let dirty_deps = derive_slot_deps(f);
                     def.slots.push(SlotBinding {
                         slot_path,
                         fn_name: f.sig.ident.clone(),
+                        dirty_deps,
                     });
                 }
                 // Check for #[decorate(DecorateTarget::*, priority = N)]
@@ -122,6 +131,41 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
 
     let generated = generate_plugin_struct(&def, &module)?;
     Ok(generated)
+}
+
+/// Derive DirtyFlags dependencies from a slot function's body by analyzing AppState field accesses.
+fn derive_slot_deps(func: &ItemFn) -> Vec<String> {
+    let Some(state_ident) = find_appstate_param(func) else {
+        // No AppState parameter → fall back to ALL
+        return vec!["ALL".to_string()];
+    };
+
+    let mut visitor = StateFieldVisitor {
+        state_ident,
+        accessed_fields: HashSet::new(),
+    };
+    syn::visit::Visit::visit_item_fn(&mut visitor, func);
+
+    // Map accessed fields to DirtyFlags
+    let mut flag_set: HashSet<String> = HashSet::new();
+    for field in &visitor.accessed_fields {
+        if let Some(required_flags) = flags_for_field(field) {
+            for flag in expand_flag_strs(required_flags) {
+                flag_set.insert(flag);
+            }
+        }
+        // Fields not in FIELD_FLAG_MAP are free reads — no flag needed
+    }
+
+    if flag_set.is_empty() {
+        // Function accesses no flagged fields → never needs recomputation from AppState changes.
+        // Return empty (will be rendered as DirtyFlags::empty()).
+        return vec![];
+    }
+
+    let mut flags: Vec<String> = flag_set.into_iter().collect();
+    flags.sort();
+    flags
 }
 
 fn has_attr(attrs: &[Attribute], name: &str) -> bool {
@@ -460,6 +504,72 @@ fn gen_transform_menu_item_impl(def: &PluginDef) -> TokenStream {
     }
 }
 
+/// Generates the `Plugin::state_hash()` implementation (L1 caching).
+///
+/// Only generated when the plugin has a `#[state]` struct.
+fn gen_state_hash_impl(def: &PluginDef) -> TokenStream {
+    if def.has_state {
+        quote! {
+            fn state_hash(&self) -> u64 {
+                use ::std::hash::{Hash, Hasher};
+                let mut hasher = ::std::collections::hash_map::DefaultHasher::new();
+                self.state.hash(&mut hasher);
+                hasher.finish()
+            }
+        }
+    } else {
+        quote! {}
+    }
+}
+
+/// Generates the `Plugin::slot_deps()` implementation (L3 auto-derivation).
+///
+/// Only generated when the plugin has slot bindings.
+fn gen_slot_deps_impl(def: &PluginDef) -> TokenStream {
+    if def.slots.is_empty() {
+        return quote! {};
+    }
+
+    let slot_arms: Vec<_> = def
+        .slots
+        .iter()
+        .map(|sb| {
+            let slot_path = &sb.slot_path;
+            let flags_expr = if sb.dirty_deps.is_empty() {
+                // No flagged fields accessed → never dirty from AppState
+                quote! { kasane_core::state::DirtyFlags::empty() }
+            } else if sb.dirty_deps.len() == 1 && sb.dirty_deps[0] == "ALL" {
+                quote! { kasane_core::state::DirtyFlags::ALL }
+            } else {
+                let flag_idents: Vec<_> = sb
+                    .dirty_deps
+                    .iter()
+                    .map(|f| format_ident!("{}", f))
+                    .collect();
+                let first = &flag_idents[0];
+                let rest = &flag_idents[1..];
+                quote! {
+                    kasane_core::state::DirtyFlags::#first
+                    #(| kasane_core::state::DirtyFlags::#rest)*
+                }
+            };
+
+            quote! {
+                kasane_core::plugin::#slot_path => #flags_expr,
+            }
+        })
+        .collect();
+
+    quote! {
+        fn slot_deps(&self, _slot: kasane_core::plugin::Slot) -> kasane_core::state::DirtyFlags {
+            match _slot {
+                #(#slot_arms)*
+                _ => kasane_core::state::DirtyFlags::empty(),
+            }
+        }
+    }
+}
+
 fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<TokenStream> {
     let mod_ident = &def.mod_ident;
     let struct_name = format_ident!("{}Plugin", to_pascal_case(&mod_ident.to_string()));
@@ -477,6 +587,8 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
     let replace_impl = gen_replace_impl(def, &struct_name);
     let contribute_line_impl = gen_contribute_line_impl(def);
     let transform_menu_item_impl = gen_transform_menu_item_impl(def);
+    let state_hash_impl = gen_state_hash_impl(def);
+    let slot_deps_impl = gen_slot_deps_impl(def);
 
     Ok(quote! {
         #cleaned_module
@@ -501,6 +613,8 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
             #lifecycle_impl
             #input_impl
             #update_impl
+            #state_hash_impl
+            #slot_deps_impl
             #contribute_impl
             #decorate_impl
             #replace_impl
@@ -560,8 +674,18 @@ fn strip_item_attrs(item: &Item) -> TokenStream {
             let fields = &s.fields;
             let semi = &s.semi_token;
             let semi_tok = semi.map(|_| quote! { ; }).unwrap_or_default();
+
+            // Add #[derive(Hash)] for #[state] structs
+            let is_state = s.attrs.iter().any(|a| a.path().is_ident("state"));
+            let extra_derive = if is_state {
+                quote! { #[derive(Hash)] }
+            } else {
+                quote! {}
+            };
+
             quote! {
                 #(#kept)*
+                #extra_derive
                 #vis struct #ident #generics #fields #semi_tok
             }
         }

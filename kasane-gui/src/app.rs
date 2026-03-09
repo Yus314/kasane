@@ -348,6 +348,7 @@ impl<W: Write + Send + 'static> App<W> {
         // Only run the pipeline when there are actual dirty flags.
         // Cursor-only animation reuses the cached scene commands.
         if !self.dirty.is_empty() {
+            self.registry.prepare_plugin_cache(self.dirty);
             let (commands, result) = scene_render_pipeline_scene_cached(
                 &self.state,
                 &self.registry,

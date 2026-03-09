@@ -338,6 +338,7 @@ where
         }
 
         if !dirty.is_empty() {
+            registry.prepare_plugin_cache(dirty);
             backend.begin_frame()?;
             let result =
                 render_pipeline_cached(&state, &registry, &mut grid, dirty, &mut view_cache);
