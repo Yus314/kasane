@@ -187,7 +187,11 @@ impl PaintPatch for MenuSelectionPatch {
     }
 
     fn can_apply(&self, dirty: DirtyFlags, state: &AppState) -> bool {
-        dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some()
+        dirty == DirtyFlags::MENU_SELECTION
+            && state
+                .menu
+                .as_ref()
+                .is_some_and(|m| m.columns_split.is_none())
     }
 
     fn apply_grid(&self, grid: &mut CellGrid, state: &AppState, _layout_cache: &LayoutCache) {

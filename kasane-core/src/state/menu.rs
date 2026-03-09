@@ -75,7 +75,7 @@ fn split_single_item(item: &Line) -> ItemSplit {
 ///
 /// Returns `None` when no item has a docstring (single-column fallback).
 pub fn split_item_columns(items: &[Line]) -> Option<MenuColumns> {
-    let splits: Vec<ItemSplit> = items.iter().map(|item| split_single_item(item)).collect();
+    let splits: Vec<ItemSplit> = items.iter().map(split_single_item).collect();
     let max_candidate_width = splits.iter().map(|s| s.candidate_width).max().unwrap_or(0);
     let max_docstring_width = splits.iter().map(|s| s.docstring_width).max().unwrap_or(0);
     if max_docstring_width == 0 {

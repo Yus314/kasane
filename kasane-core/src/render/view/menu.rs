@@ -1,7 +1,10 @@
+use unicode_width::UnicodeWidthStr;
+
 use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::protocol::{Atom, Face, MenuStyle};
-use crate::state::{AppState, MenuState};
+use crate::render::grid::resolve_face;
+use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;
 
@@ -19,7 +22,7 @@ pub(super) fn build_replacement_menu_overlay(
 
     let anchor = match menu.style {
         MenuStyle::Inline => {
-            let win_w = (menu.max_item_width + 1).min(state.cols);
+            let win_w = (menu.effective_content_width(state.cols) + 1).min(state.cols);
             let screen_h = state.available_height();
             let win = layout_menu_inline(
                 &menu.anchor,
@@ -98,8 +101,134 @@ fn build_menu_item_element(menu: &MenuState, item_idx: usize, width: u16) -> Ele
     Element::container(item, Style::from(face))
 }
 
+/// Truncate a slice of atoms to fit within `max_width` display columns.
+///
+/// If the content fits, resolves faces against `base_face` and returns as-is.
+/// If it exceeds, truncates at `max_width - 1` and appends "…" (U+2026, width 1).
+fn truncate_atoms(atoms: &[Atom], max_width: u16, base_face: &Face) -> Vec<Atom> {
+    let max_w = max_width as usize;
+    let total: usize = atoms
+        .iter()
+        .map(|a| {
+            a.contents
+                .split(|c: char| c.is_control())
+                .map(UnicodeWidthStr::width)
+                .sum::<usize>()
+        })
+        .sum();
+
+    if total <= max_w {
+        return atoms
+            .iter()
+            .map(|a| Atom {
+                face: resolve_face(&a.face, base_face),
+                contents: a.contents.clone(),
+            })
+            .collect();
+    }
+
+    // Truncate at max_width - 1 to leave room for "…"
+    let limit = max_w.saturating_sub(1);
+    let mut result = Vec::new();
+    let mut used = 0usize;
+    for atom in atoms {
+        let face = resolve_face(&atom.face, base_face);
+        let mut buf = String::new();
+        for ch in atom.contents.chars() {
+            let cw = if ch.is_control() {
+                0
+            } else {
+                UnicodeWidthStr::width(ch.encode_utf8(&mut [0; 4]) as &str)
+            };
+            if used + cw > limit {
+                break;
+            }
+            buf.push(ch);
+            used += cw;
+        }
+        if !buf.is_empty() {
+            result.push(Atom {
+                face,
+                contents: buf.into(),
+            });
+        }
+        if used >= limit {
+            break;
+        }
+    }
+    // Append ellipsis with the base face
+    result.push(Atom {
+        face: *base_face,
+        contents: "\u{2026}".into(),
+    });
+    result
+}
+
+/// Build a two-column menu item element: candidate | gap | docstring.
+///
+/// Produces a single `Element::StyledLine` (flat, no Grid/Flex nesting per item).
+fn build_split_item_element(
+    menu: &MenuState,
+    columns: &MenuColumns,
+    item_idx: usize,
+    candidate_col_w: u16,
+    _content_w: u16,
+) -> Element {
+    let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
+        menu.selected_item_face
+    } else {
+        menu.menu_face
+    };
+
+    if item_idx >= menu.items.len() {
+        return Element::container(Element::text("", face), Style::from(face));
+    }
+
+    let item = &menu.items[item_idx];
+    let split = &columns.splits[item_idx];
+    let mut atoms: Vec<Atom> = Vec::new();
+
+    // 1. Candidate portion: truncate if wider than candidate_col_w
+    let cand_atoms = &item[..split.candidate_end];
+    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face);
+    // Pad candidate to candidate_col_w
+    let cand_w: usize = cand_resolved
+        .iter()
+        .map(|a| {
+            a.contents
+                .split(|c: char| c.is_control())
+                .map(UnicodeWidthStr::width)
+                .sum::<usize>()
+        })
+        .sum();
+    if (cand_w as u16) < candidate_col_w {
+        let pad = candidate_col_w as usize - cand_w;
+        cand_resolved.push(Atom {
+            face,
+            contents: " ".repeat(pad).into(),
+        });
+    }
+    atoms.extend(cand_resolved);
+
+    // 2. Gap: 1-space separator
+    atoms.push(Atom {
+        face,
+        contents: " ".into(),
+    });
+
+    // 3. Docstring portion: resolve faces (paint-level truncation handles overflow)
+    for atom in &item[split.docstring_start..] {
+        atoms.push(Atom {
+            face: resolve_face(&atom.face, &face),
+            contents: atom.contents.clone(),
+        });
+    }
+
+    Element::container(Element::StyledLine(atoms), Style::from(face))
+}
+
 fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
-    let win_w = (menu.max_item_width + 1).min(state.cols);
+    let win_w = (menu.effective_content_width(state.cols) + 1).min(state.cols);
     let content_w = win_w.saturating_sub(1);
     let screen_h = state.available_height();
     let placement = menu_placement(state);
@@ -116,11 +245,22 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
         return None;
     }
 
+    let candidate_col_w = menu
+        .columns_split
+        .as_ref()
+        .map(|mc| mc.max_candidate_width.min(state.cols * 2 / 5));
+
     // Build item rows
     let item_rows: Vec<FlexChild> = (0..win.height)
         .map(|line| {
             let item_idx = menu.first_item + line as usize;
-            FlexChild::fixed(build_menu_item_element(menu, item_idx, content_w))
+            let element = match (&menu.columns_split, candidate_col_w) {
+                (Some(columns), Some(cw)) => {
+                    build_split_item_element(menu, columns, item_idx, cw, content_w)
+                }
+                _ => build_menu_item_element(menu, item_idx, content_w),
+            };
+            FlexChild::fixed(element)
         })
         .collect();
 
@@ -324,4 +464,179 @@ fn build_scrollbar(win_height: u16, menu: &MenuState, face: &Face) -> Element {
     }
 
     Element::column(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{Color, Coord, NamedColor};
+    use crate::state::MenuParams;
+
+    fn make_completion_item(candidate: &str, padding: &str, docstring: &str) -> Vec<Atom> {
+        vec![
+            Atom {
+                face: Face::default(),
+                contents: candidate.into(),
+            },
+            Atom {
+                face: Face::default(),
+                contents: padding.into(),
+            },
+            Atom {
+                face: Face {
+                    fg: Color::Named(NamedColor::Cyan),
+                    ..Face::default()
+                },
+                contents: docstring.into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn test_truncate_atoms_no_op() {
+        let atoms = vec![Atom {
+            face: Face::default(),
+            contents: "hello".into(),
+        }];
+        let result = truncate_atoms(&atoms, 10, &Face::default());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].contents.as_str(), "hello");
+    }
+
+    #[test]
+    fn test_truncate_atoms_with_ellipsis() {
+        let atoms = vec![Atom {
+            face: Face::default(),
+            contents: "hello_world_long".into(),
+        }];
+        let result = truncate_atoms(&atoms, 8, &Face::default());
+        // Should be truncated to 7 chars + "…"
+        let last = result.last().unwrap();
+        assert_eq!(last.contents.as_str(), "\u{2026}");
+        let total_w: usize = result
+            .iter()
+            .map(|a| UnicodeWidthStr::width(a.contents.as_str()))
+            .sum();
+        assert_eq!(total_w, 8);
+    }
+
+    #[test]
+    fn test_truncate_atoms_cjk() {
+        // "あいう" = 3 CJK chars, each width 2 → total 6
+        let atoms = vec![Atom {
+            face: Face::default(),
+            contents: "あいう".into(),
+        }];
+        let result = truncate_atoms(&atoms, 5, &Face::default());
+        // Can fit "あい" (4) + "…" (1) = 5
+        let total_w: usize = result
+            .iter()
+            .map(|a| UnicodeWidthStr::width(a.contents.as_str()))
+            .sum();
+        assert_eq!(total_w, 5);
+        assert_eq!(result.last().unwrap().contents.as_str(), "\u{2026}");
+    }
+
+    #[test]
+    fn test_build_split_item_element() {
+        let items = vec![
+            make_completion_item("foo", "   ", "{string}"),
+            make_completion_item("barbaz", " ", "{int}"),
+        ];
+        let menu = MenuState::new(
+            items,
+            MenuParams {
+                anchor: Coord { line: 5, column: 0 },
+                selected_item_face: Face::default(),
+                menu_face: Face::default(),
+                style: MenuStyle::Inline,
+                screen_w: 80,
+                screen_h: 24,
+                max_height: 10,
+            },
+        );
+        let columns = menu.columns_split.as_ref().unwrap();
+        let cand_w = columns.max_candidate_width.min(80 * 2 / 5);
+
+        let element = build_split_item_element(&menu, columns, 0, cand_w, 20);
+        // Should be a Container wrapping a StyledLine
+        if let Element::Container { child, .. } = &element {
+            if let Element::StyledLine(atoms) = child.as_ref() {
+                // Should have: candidate atoms + pad + gap + docstring atoms
+                assert!(
+                    atoms.len() >= 3,
+                    "expected at least 3 atoms, got {}",
+                    atoms.len()
+                );
+                // Last atom should contain the docstring
+                let last = &atoms[atoms.len() - 1];
+                assert_eq!(last.contents.as_str(), "{string}");
+            } else {
+                panic!("expected StyledLine inside Container");
+            }
+        } else {
+            panic!("expected Container element");
+        }
+    }
+
+    #[test]
+    fn test_build_menu_inline_two_column() {
+        // Simulate real-world: a long candidate causes excessive padding on short ones.
+        // "x"*40 (40) + " " (1) + "{int}" (5) → raw width 46
+        // "foo"  (3)  + " "*38  + "{string}" (8) → raw width 49 (padded to align)
+        // max_item_width = 49, effective = min(40,32) + 1 + 8 = 41
+        let items = vec![
+            make_completion_item("foo", &" ".repeat(38), "{string}"),
+            make_completion_item(&"x".repeat(40), " ", "{int}"),
+        ];
+        let mut state = crate::render::test_helpers::test_state_80x24();
+        state.apply(crate::protocol::KakouneRequest::MenuShow {
+            items,
+            anchor: Coord { line: 5, column: 0 },
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Inline,
+        });
+
+        let menu = state.menu.as_ref().unwrap();
+        assert!(menu.columns_split.is_some());
+        let overlay = build_menu_inline(menu, &state);
+        assert!(overlay.is_some());
+
+        let o = overlay.unwrap();
+        if let OverlayAnchor::Absolute { w, .. } = o.anchor {
+            // Two-column width (42) should be less than raw single-column (50)
+            assert!(
+                w < menu.max_item_width + 1,
+                "two-column menu should be narrower: w={w}, max_item_width+1={}",
+                menu.max_item_width + 1
+            );
+        }
+    }
+
+    #[test]
+    fn test_menu_selection_patch_disabled_for_split() {
+        use crate::render::patch::{MenuSelectionPatch, PaintPatch};
+        use crate::state::DirtyFlags;
+
+        let mut state = crate::render::test_helpers::test_state_80x24();
+        let items = vec![
+            make_completion_item("foo", "   ", "{string}"),
+            make_completion_item("bar", "   ", "{int}"),
+        ];
+        state.apply(crate::protocol::KakouneRequest::MenuShow {
+            items,
+            anchor: Coord { line: 5, column: 0 },
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Inline,
+        });
+
+        let patch = MenuSelectionPatch {
+            prev_selected: Some(0),
+        };
+        // columns_split is Some → patch should be disabled
+        assert!(state.menu.as_ref().unwrap().columns_split.is_some());
+        assert!(!patch.can_apply(DirtyFlags::MENU_SELECTION, &state));
+    }
 }

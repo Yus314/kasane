@@ -224,7 +224,7 @@ pub fn get_menu_rect(state: &AppState) -> Option<Rect> {
         MenuStyle::Inline => {
             let screen_h = state.available_height();
             // +1 for scrollbar
-            let win_w = (menu.max_item_width + 1).min(state.cols);
+            let win_w = (menu.effective_content_width(state.cols) + 1).min(state.cols);
             let placement = MenuPlacement::from(state.menu_position);
             let win = layout_menu_inline(
                 &menu.anchor,
