@@ -106,6 +106,13 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
                     .clamp(constraints.min_height, constraints.max_height),
             }
         }
+        Element::Grid {
+            columns,
+            children,
+            col_gap,
+            row_gap,
+            ..
+        } => super::grid::measure_grid(columns, children, *col_gap, *row_gap, constraints, state),
         Element::Interactive { child, .. } => measure(child, constraints, state),
         Element::Stack { base, .. } => measure(base, constraints, state),
         Element::Scrollable {
@@ -203,6 +210,23 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
             area,
             children: vec![],
         },
+        Element::Grid {
+            columns,
+            children,
+            col_gap,
+            row_gap,
+            align,
+            cross_align,
+        } => super::grid::place_grid(
+            columns,
+            children,
+            *col_gap,
+            *row_gap,
+            *align,
+            *cross_align,
+            area,
+            state,
+        ),
         Element::Interactive { child, .. } => {
             let child_result = place(child, area, state);
             LayoutResult {

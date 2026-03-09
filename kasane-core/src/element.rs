@@ -81,6 +81,43 @@ pub enum Align {
     End,
 }
 
+/// Column width specification for Grid layout.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GridWidth {
+    /// Fixed width in cells.
+    Fixed(u16),
+    /// Proportional share of remaining space.
+    Flex(f32),
+    /// Width determined by measuring the widest cell in the column.
+    Auto,
+}
+
+/// Column definition for Grid layout.
+#[derive(Debug, Clone)]
+pub struct GridColumn {
+    pub width: GridWidth,
+}
+
+impl GridColumn {
+    pub fn fixed(width: u16) -> Self {
+        GridColumn {
+            width: GridWidth::Fixed(width),
+        }
+    }
+
+    pub fn flex(factor: f32) -> Self {
+        GridColumn {
+            width: GridWidth::Flex(factor),
+        }
+    }
+
+    pub fn auto() -> Self {
+        GridColumn {
+            width: GridWidth::Auto,
+        }
+    }
+}
+
 /// Semantic style tokens for theme-driven rendering.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StyleToken {
@@ -294,6 +331,15 @@ pub enum Element {
         child: Box<Element>,
         id: InteractiveId,
     },
+    /// 2D grid layout: children placed in row-major order across `columns`.
+    Grid {
+        columns: Vec<GridColumn>,
+        children: Vec<Element>,
+        col_gap: u16,
+        row_gap: u16,
+        align: Align,
+        cross_align: Align,
+    },
     Empty,
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
     BufferRef {
@@ -338,6 +384,17 @@ impl Element {
         Element::Stack {
             base: Box::new(base),
             overlays,
+        }
+    }
+
+    pub fn grid(columns: Vec<GridColumn>, children: Vec<Element>) -> Self {
+        Element::Grid {
+            columns,
+            children,
+            col_gap: 0,
+            row_gap: 0,
+            align: Align::Start,
+            cross_align: Align::Start,
         }
     }
 
@@ -471,5 +528,46 @@ mod tests {
     fn test_style_token() {
         let style = Style::Token(StyleToken::MenuItemNormal);
         assert_eq!(style.face(), None);
+    }
+
+    #[test]
+    fn test_grid_column_constructors() {
+        let fixed = GridColumn::fixed(10);
+        assert_eq!(fixed.width, GridWidth::Fixed(10));
+
+        let flex = GridColumn::flex(2.0);
+        assert_eq!(flex.width, GridWidth::Flex(2.0));
+
+        let auto = GridColumn::auto();
+        assert_eq!(auto.width, GridWidth::Auto);
+    }
+
+    #[test]
+    fn test_element_grid() {
+        let el = Element::grid(
+            vec![GridColumn::fixed(5), GridColumn::flex(1.0)],
+            vec![
+                Element::text("a", Face::default()),
+                Element::text("b", Face::default()),
+            ],
+        );
+        match el {
+            Element::Grid {
+                columns,
+                children,
+                col_gap,
+                row_gap,
+                align,
+                cross_align,
+            } => {
+                assert_eq!(columns.len(), 2);
+                assert_eq!(children.len(), 2);
+                assert_eq!(col_gap, 0);
+                assert_eq!(row_gap, 0);
+                assert_eq!(align, Align::Start);
+                assert_eq!(cross_align, Align::Start);
+            }
+            _ => panic!("expected Grid"),
+        }
     }
 }

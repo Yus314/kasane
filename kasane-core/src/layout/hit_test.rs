@@ -49,6 +49,16 @@ pub fn hit_test(element: &Element, layout: &LayoutResult, x: u16, y: u16) -> Opt
             }
             None
         }
+        Element::Grid { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i)
+                    && let Some(id) = hit_test(child, child_layout, x, y)
+                {
+                    return Some(id);
+                }
+            }
+            None
+        }
         Element::Container { child, .. } => {
             if let Some(child_layout) = layout.children.first() {
                 return hit_test(child, child_layout, x, y);
@@ -172,6 +182,39 @@ mod tests {
         let layout = place(&outer, area, &state);
         // Inner ID wins (more specific)
         assert_eq!(hit_test(&outer, &layout, 0, 0), Some(InteractiveId(10)));
+    }
+
+    #[test]
+    fn test_hit_grid_interactive_cell() {
+        let state = default_state();
+        let el = Element::Grid {
+            columns: vec![
+                crate::element::GridColumn::fixed(5),
+                crate::element::GridColumn::fixed(5),
+            ],
+            children: vec![
+                Element::text("plain", Face::default()),
+                Element::Interactive {
+                    child: Box::new(Element::text("click", Face::default())),
+                    id: InteractiveId(99),
+                },
+            ],
+            col_gap: 0,
+            row_gap: 0,
+            align: crate::element::Align::Start,
+            cross_align: crate::element::Align::Start,
+        };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 5,
+        };
+        let layout = place(&el, area, &state);
+        // Column 0 (plain text) → no interactive
+        assert_eq!(hit_test(&el, &layout, 2, 0), None);
+        // Column 1 (interactive) → hit
+        assert_eq!(hit_test(&el, &layout, 6, 0), Some(InteractiveId(99)));
     }
 
     #[test]

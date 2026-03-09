@@ -63,6 +63,13 @@ fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResu
                 }
             }
         }
+        Element::Grid { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i) {
+                    paint_with_ctx(ctx, child, child_layout);
+                }
+            }
+        }
         Element::Stack { base, overlays } => {
             if let Some(base_layout) = layout.children.first() {
                 paint_with_ctx(ctx, base, base_layout);
@@ -487,6 +494,36 @@ mod tests {
         assert_eq!(grid.get(9, 0).unwrap().grapheme, "─");
         assert_eq!(grid.get(10, 0).unwrap().grapheme, "─");
         assert_eq!(grid.get(11, 0).unwrap().grapheme, "╮");
+    }
+
+    #[test]
+    fn test_paint_grid() {
+        let state = default_state();
+        let mut grid = CellGrid::new(20, 5);
+        let el = Element::Grid {
+            columns: vec![
+                crate::element::GridColumn::fixed(5),
+                crate::element::GridColumn::fixed(5),
+            ],
+            children: vec![
+                Element::text("hello", Face::default()),
+                Element::text("world", Face::default()),
+            ],
+            col_gap: 0,
+            row_gap: 0,
+            align: crate::element::Align::Start,
+            cross_align: crate::element::Align::Start,
+        };
+        let area = root_area(20, 5);
+        let layout = place(&el, area, &state);
+        paint(&el, &layout, &mut grid, &state);
+
+        // "hello" at (0,0)
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
+        assert_eq!(grid.get(4, 0).unwrap().grapheme, "o");
+        // "world" at (5,0)
+        assert_eq!(grid.get(5, 0).unwrap().grapheme, "w");
+        assert_eq!(grid.get(9, 0).unwrap().grapheme, "d");
     }
 
     #[test]

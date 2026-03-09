@@ -177,6 +177,13 @@ fn scene_paint_inner(
                 }
             }
         }
+        Element::Grid { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i) {
+                    scene_paint_inner(ctx, child, child_layout, out);
+                }
+            }
+        }
         Element::Stack { base, overlays } => {
             if let Some(base_layout) = layout.children.first() {
                 scene_paint_inner(ctx, base, base_layout, out);

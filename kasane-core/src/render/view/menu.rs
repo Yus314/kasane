@@ -1,4 +1,4 @@
-use crate::element::{Edges, Element, FlexChild, Overlay, OverlayAnchor, Style};
+use crate::element::{Edges, Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::protocol::{Atom, Face, MenuStyle};
 use crate::state::{AppState, MenuState};
@@ -156,10 +156,10 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     let first_col = menu.first_item / stride;
     let start_y = status_row.saturating_sub(wh);
 
-    // Build grid of items as rows of columns
-    let mut rows: Vec<FlexChild> = Vec::new();
+    // Build grid of items (row-major: iterate lines then columns)
+    let grid_columns: Vec<GridColumn> = vec![GridColumn::flex(1.0); columns];
+    let mut grid_children: Vec<Element> = Vec::with_capacity(wh as usize * columns);
     for line in 0..wh as usize {
-        let mut cols: Vec<FlexChild> = Vec::new();
         for col in 0..columns {
             let item_idx = (first_col + col) * stride + line;
             let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
@@ -183,15 +183,13 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
                 title: None,
             };
 
-            cols.push(FlexChild::flexible(padded, 1.0));
+            grid_children.push(padded);
         }
-
-        rows.push(FlexChild::fixed(Element::row(cols)));
     }
 
     // Add scrollbar
     let scrollbar = build_scrollbar(wh, menu, &menu.menu_face);
-    let content = Element::column(rows);
+    let content = Element::grid(grid_columns, grid_children);
     let row = Element::row(vec![
         FlexChild::flexible(content, 1.0),
         FlexChild::fixed(scrollbar),
