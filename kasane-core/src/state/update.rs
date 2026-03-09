@@ -1,6 +1,6 @@
 use crate::input;
 use crate::input::{InputEvent, Key, KeyEvent, MouseEvent};
-use crate::plugin::{Command, PluginRegistry};
+use crate::plugin::{Command, PluginRegistry, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::render::CellGrid;
 
@@ -69,8 +69,9 @@ pub fn update(
 
             // Ask plugins to handle the key first
             for plugin in registry.plugins_mut() {
-                if let Some(commands) = plugin.handle_key(&key, state) {
-                    return (DirtyFlags::empty(), commands);
+                if let Some(mut commands) = plugin.handle_key(&key, state) {
+                    let flags = extract_redraw_flags(&mut commands);
+                    return (flags, commands);
                 }
             }
             // No plugin handled it → forward to Kakoune
@@ -92,6 +93,16 @@ pub fn update(
                     state.drag = DragState::None;
                 }
                 _ => {}
+            }
+
+            // Plugin mouse handling: route click/press to plugins via hit test
+            if let Some(id) = registry.hit_test(mouse.column as u16, mouse.line as u16) {
+                for plugin in registry.plugins_mut() {
+                    if let Some(mut commands) = plugin.handle_mouse(&mouse, id, state) {
+                        let flags = extract_redraw_flags(&mut commands);
+                        return (flags, commands);
+                    }
+                }
             }
 
             // Selection-during-scroll: when dragging with left button and scrolling,

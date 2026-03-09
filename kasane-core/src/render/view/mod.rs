@@ -87,20 +87,8 @@ pub(crate) fn view_sections_cached(
         || build_info_section(state, registry),
     );
 
-    // Section 4: Plugin overlays (always rebuilt — no plugins yet)
-    let plugin_overlays: Vec<Overlay> = registry
-        .collect_slot(Slot::Overlay, state)
-        .into_iter()
-        .map(|el| Overlay {
-            element: el,
-            anchor: OverlayAnchor::Absolute {
-                x: 0,
-                y: 0,
-                w: state.cols,
-                h: state.rows,
-            },
-        })
-        .collect();
+    // Section 4: Plugin overlays (typed + legacy Slot::Overlay)
+    let plugin_overlays = registry.collect_overlays(state);
 
     ViewSections {
         base,

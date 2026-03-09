@@ -8,8 +8,10 @@ use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
+use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KakouneRequest;
+use kasane_core::render::view::view_cached;
 use kasane_core::render::{CellGrid, RenderBackend, ViewCache, render_pipeline_cached};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
@@ -250,6 +252,18 @@ where
             backend.flush()?;
             grid.swap_with_dirty();
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
+
+            // Rebuild HitMap from cached view tree for plugin mouse routing
+            let element = view_cached(&state, &registry, &mut view_cache);
+            let root_area = kasane_core::layout::Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            };
+            let layout_result = kasane_core::layout::flex::place(&element, root_area, &state);
+            let hit_map = build_hit_map(&element, &layout_result);
+            registry.set_hit_map(hit_map);
         }
     }
 

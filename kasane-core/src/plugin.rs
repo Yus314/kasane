@@ -1,10 +1,11 @@
 use std::any::Any;
 use std::io::Write;
 
-use crate::element::{Element, InteractiveId};
+use crate::element::{Element, InteractiveId, Overlay, OverlayAnchor};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::layout::HitMap;
 use crate::protocol::KasaneRequest;
-use crate::state::AppState;
+use crate::state::{AppState, DirtyFlags};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PluginId(pub String);
@@ -44,6 +45,7 @@ pub enum Command {
     SendToKakoune(KasaneRequest),
     Paste,
     Quit,
+    RequestRedraw(DirtyFlags),
 }
 
 /// コマンド実行の結果。
@@ -77,9 +79,25 @@ pub fn execute_commands(
                 }
             }
             Command::Quit => return CommandResult::Quit,
+            Command::RequestRedraw(_) => {} // handled earlier by extract_redraw_flags
         }
     }
     CommandResult::Continue
+}
+
+/// Extract RequestRedraw commands, merging their flags.
+/// Returns the merged DirtyFlags; the input Vec retains only non-redraw commands.
+pub fn extract_redraw_flags(commands: &mut Vec<Command>) -> DirtyFlags {
+    let mut flags = DirtyFlags::empty();
+    commands.retain(|cmd| {
+        if let Command::RequestRedraw(f) = cmd {
+            flags |= *f;
+            false
+        } else {
+            true
+        }
+    });
+    flags
 }
 
 pub trait Plugin: Any {
@@ -102,6 +120,10 @@ pub trait Plugin: Any {
         None
     }
 
+    fn contribute_overlay(&self, _state: &AppState) -> Option<Overlay> {
+        None
+    }
+
     fn decorate(&self, _target: DecorateTarget, element: Element, _state: &AppState) -> Element {
         element
     }
@@ -117,12 +139,14 @@ pub trait Plugin: Any {
 
 pub struct PluginRegistry {
     plugins: Vec<Box<dyn Plugin>>,
+    hit_map: HitMap,
 }
 
 impl PluginRegistry {
     pub fn new() -> Self {
         PluginRegistry {
             plugins: Vec::new(),
+            hit_map: HitMap::new(),
         }
     }
 
@@ -139,6 +163,39 @@ impl PluginRegistry {
             .iter()
             .filter_map(|p| p.contribute(slot, state))
             .collect()
+    }
+
+    /// Collect overlays from plugins: both typed overlays (contribute_overlay)
+    /// and legacy Slot::Overlay contributions (wrapped in full-screen Absolute anchor).
+    pub fn collect_overlays(&self, state: &AppState) -> Vec<Overlay> {
+        let mut overlays = Vec::new();
+        for plugin in &self.plugins {
+            // Typed overlay with plugin-specified anchor
+            if let Some(overlay) = plugin.contribute_overlay(state) {
+                overlays.push(overlay);
+            }
+            // Legacy: Slot::Overlay → full-screen Absolute (backward compat)
+            if let Some(element) = plugin.contribute(Slot::Overlay, state) {
+                overlays.push(Overlay {
+                    element,
+                    anchor: OverlayAnchor::Absolute {
+                        x: 0,
+                        y: 0,
+                        w: state.cols,
+                        h: state.rows,
+                    },
+                });
+            }
+        }
+        overlays
+    }
+
+    pub fn set_hit_map(&mut self, hit_map: HitMap) {
+        self.hit_map = hit_map;
+    }
+
+    pub fn hit_test(&self, x: u16, y: u16) -> Option<InteractiveId> {
+        self.hit_map.test(x, y)
     }
 
     /// Apply decorators in priority order (high priority = inner = applied first).
@@ -372,6 +429,142 @@ mod tests {
             }
             _ => panic!("expected Text from second replacer"),
         }
+    }
+
+    // --- collect_overlays tests ---
+
+    #[test]
+    fn test_collect_overlays_typed() {
+        use crate::element::{Overlay, OverlayAnchor};
+        use crate::protocol::Coord;
+
+        struct OverlayPlugin;
+        impl Plugin for OverlayPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("overlay".into())
+            }
+            fn contribute_overlay(&self, _state: &AppState) -> Option<Overlay> {
+                Some(Overlay {
+                    element: Element::text("popup", Face::default()),
+                    anchor: OverlayAnchor::AnchorPoint {
+                        coord: Coord {
+                            line: 5,
+                            column: 10,
+                        },
+                        prefer_above: false,
+                        avoid: vec![],
+                    },
+                })
+            }
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(OverlayPlugin));
+        let state = AppState::default();
+        let overlays = registry.collect_overlays(&state);
+        assert_eq!(overlays.len(), 1);
+        assert!(matches!(
+            overlays[0].anchor,
+            OverlayAnchor::AnchorPoint { .. }
+        ));
+    }
+
+    #[test]
+    fn test_collect_overlays_legacy() {
+        struct LegacyOverlayPlugin;
+        impl Plugin for LegacyOverlayPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("legacy_overlay".into())
+            }
+            fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
+                match slot {
+                    Slot::Overlay => Some(Element::text("legacy", Face::default())),
+                    _ => None,
+                }
+            }
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LegacyOverlayPlugin));
+        let mut state = AppState::default();
+        state.cols = 80;
+        state.rows = 24;
+        let overlays = registry.collect_overlays(&state);
+        assert_eq!(overlays.len(), 1);
+        match &overlays[0].anchor {
+            crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
+                assert_eq!(*x, 0);
+                assert_eq!(*y, 0);
+                assert_eq!(*w, 80);
+                assert_eq!(*h, 24);
+            }
+            _ => panic!("expected Absolute anchor for legacy overlay"),
+        }
+    }
+
+    #[test]
+    fn test_collect_overlays_both() {
+        use crate::element::{Overlay, OverlayAnchor};
+        use crate::protocol::Coord;
+
+        struct BothPlugin;
+        impl Plugin for BothPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("both".into())
+            }
+            fn contribute_overlay(&self, _state: &AppState) -> Option<Overlay> {
+                Some(Overlay {
+                    element: Element::text("typed", Face::default()),
+                    anchor: OverlayAnchor::AnchorPoint {
+                        coord: Coord { line: 0, column: 0 },
+                        prefer_above: true,
+                        avoid: vec![],
+                    },
+                })
+            }
+            fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
+                match slot {
+                    Slot::Overlay => Some(Element::text("legacy", Face::default())),
+                    _ => None,
+                }
+            }
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(BothPlugin));
+        let state = AppState::default();
+        let overlays = registry.collect_overlays(&state);
+        assert_eq!(overlays.len(), 2);
+        assert!(matches!(
+            overlays[0].anchor,
+            OverlayAnchor::AnchorPoint { .. }
+        ));
+        assert!(matches!(overlays[1].anchor, OverlayAnchor::Absolute { .. }));
+    }
+
+    #[test]
+    fn test_extract_redraw_flags_merges() {
+        use crate::state::DirtyFlags;
+        let mut commands = vec![
+            Command::RequestRedraw(DirtyFlags::BUFFER),
+            Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+            Command::RequestRedraw(DirtyFlags::INFO),
+        ];
+        let flags = super::extract_redraw_flags(&mut commands);
+        assert_eq!(flags, DirtyFlags::BUFFER | DirtyFlags::INFO);
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], Command::SendToKakoune(_)));
+    }
+
+    #[test]
+    fn test_extract_redraw_flags_empty() {
+        let mut commands = vec![
+            Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+            Command::Paste,
+        ];
+        let flags = super::extract_redraw_flags(&mut commands);
+        assert!(flags.is_empty());
+        assert_eq!(commands.len(), 2);
     }
 
     #[test]

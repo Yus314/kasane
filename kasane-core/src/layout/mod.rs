@@ -1,11 +1,13 @@
 pub mod flex;
 pub(crate) mod grid;
+mod hit_map;
 mod hit_test;
 mod info;
 mod position;
 mod text;
 mod word_wrap;
 
+pub use hit_map::{HitMap, build_hit_map};
 pub use hit_test::hit_test;
 pub use info::layout_info;
 pub use position::{compute_pos, get_menu_rect, layout_menu_inline, layout_single_overlay};

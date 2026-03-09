@@ -9,8 +9,10 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
+use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{Command, CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KasaneRequest;
+use kasane_core::render::view::view_cached;
 use kasane_core::render::{
     CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache,
     scene_render_pipeline_scene_cached,
@@ -300,6 +302,18 @@ impl<W: Write + Send + 'static> App<W> {
                 Ok(()) => tracing::debug!("[app] render_frame complete"),
                 Err(e) => tracing::error!("[app] scene render failed: {e}"),
             }
+
+            // Rebuild HitMap from cached view tree for plugin mouse routing
+            let element = view_cached(&self.state, &self.registry, &mut self.view_cache);
+            let root_area = kasane_core::layout::Rect {
+                x: 0,
+                y: 0,
+                w: self.state.cols,
+                h: self.state.rows,
+            };
+            let layout_result = kasane_core::layout::flex::place(&element, root_area, &self.state);
+            let hit_map = build_hit_map(&element, &layout_result);
+            self.registry.set_hit_map(hit_map);
         } else if let Some(result) = self.last_render_result {
             // Cursor-only frame: reuse cached scene commands
             self.cursor_animation
