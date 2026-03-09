@@ -9,7 +9,10 @@ use crossbeam_channel::unbounded;
 use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::layout::build_hit_map;
-use kasane_core::plugin::{CommandResult, PluginRegistry, execute_commands};
+use kasane_core::plugin::{
+    CommandResult, DeferredCommand, PluginId, PluginRegistry, execute_commands,
+    extract_deferred_commands,
+};
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::view::view_cached;
 use kasane_core::render::{CellGrid, RenderBackend, ViewCache, render_pipeline_cached};
@@ -22,6 +25,62 @@ enum Event {
     Kakoune(KakouneRequest),
     Input(InputEvent),
     KakouneDied,
+    PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
+}
+
+/// Handle deferred commands (timers, inter-plugin messages, config overrides).
+#[allow(clippy::too_many_arguments)]
+fn handle_deferred(
+    deferred: Vec<DeferredCommand>,
+    state: &mut AppState,
+    registry: &mut PluginRegistry,
+    kak_writer: &mut impl Write,
+    backend: &mut TuiBackend,
+    dirty: &mut DirtyFlags,
+    tx: &crossbeam_channel::Sender<Event>,
+) -> bool {
+    for cmd in deferred {
+        match cmd {
+            DeferredCommand::PluginMessage { target, payload } => {
+                let (flags, commands) = registry.deliver_message(&target, payload, state);
+                *dirty |= flags;
+                let (normal, nested_deferred) = extract_deferred_commands(commands);
+                if matches!(
+                    execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
+                    CommandResult::Quit
+                ) {
+                    return true;
+                }
+                if handle_deferred(
+                    nested_deferred,
+                    state,
+                    registry,
+                    kak_writer,
+                    backend,
+                    dirty,
+                    tx,
+                ) {
+                    return true;
+                }
+            }
+            DeferredCommand::ScheduleTimer {
+                delay,
+                target,
+                payload,
+            } => {
+                let timer_tx = tx.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(delay);
+                    let _ = timer_tx.send(Event::PluginTimer(target, payload));
+                });
+            }
+            DeferredCommand::SetConfig { key, value } => {
+                state.ui_options.insert(key, value);
+                *dirty |= DirtyFlags::OPTIONS;
+            }
+        }
+    }
+    false
 }
 
 /// 単一イベントを処理する。終了が必要な場合 true を返す。
@@ -36,6 +95,7 @@ fn process_event(
     backend: &mut TuiBackend,
     initial_resize_sent: &mut bool,
     dirty: &mut DirtyFlags,
+    tx: &crossbeam_channel::Sender<Event>,
 ) -> bool {
     match event {
         Event::Kakoune(req) => {
@@ -47,20 +107,42 @@ fn process_event(
             );
             let (flags, commands) = update(state, Msg::Kakoune(req), registry, grid, scroll_amount);
             *dirty |= flags;
-            matches!(
-                execute_commands(commands, kak_writer, &mut || backend.clipboard_get()),
+            let (normal, deferred) = extract_deferred_commands(commands);
+            if matches!(
+                execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
                 CommandResult::Quit
-            )
+            ) {
+                return true;
+            }
+            handle_deferred(deferred, state, registry, kak_writer, backend, dirty, tx)
         }
         Event::Input(input_event) => {
             let (flags, commands) =
                 update(state, Msg::from(input_event), registry, grid, scroll_amount);
             *dirty |= flags;
-            *initial_resize_sent
-                && matches!(
-                    execute_commands(commands, kak_writer, &mut || backend.clipboard_get()),
-                    CommandResult::Quit
-                )
+            if !*initial_resize_sent {
+                return false;
+            }
+            let (normal, deferred) = extract_deferred_commands(commands);
+            if matches!(
+                execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
+                CommandResult::Quit
+            ) {
+                return true;
+            }
+            handle_deferred(deferred, state, registry, kak_writer, backend, dirty, tx)
+        }
+        Event::PluginTimer(target, payload) => {
+            let (flags, commands) = registry.deliver_message(&target, payload, state);
+            *dirty |= flags;
+            let (normal, deferred) = extract_deferred_commands(commands);
+            if matches!(
+                execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
+                CommandResult::Quit
+            ) {
+                return true;
+            }
+            handle_deferred(deferred, state, registry, kak_writer, backend, dirty, tx)
         }
         Event::KakouneDied => true,
     }
@@ -133,6 +215,15 @@ where
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
+    let init_commands = registry.init_all(&state);
+    if matches!(
+        execute_commands(init_commands, &mut kak_writer, &mut || backend
+            .clipboard_get()),
+        CommandResult::Quit
+    ) {
+        backend.cleanup();
+        return Ok(());
+    }
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
@@ -170,6 +261,9 @@ where
     // crossterm input reader thread
     spawn_input_thread(tx.clone());
 
+    // Keep a sender for plugin timer events; drop will happen when loop breaks
+    let timer_tx = tx.clone();
+
     // Drop the original sender so rx will close when reader threads exit
     drop(tx);
 
@@ -205,6 +299,7 @@ where
             &mut backend,
             &mut initial_resize_sent,
             &mut dirty,
+            &timer_tx,
         ) {
             break;
         }
@@ -232,6 +327,7 @@ where
                 &mut backend,
                 &mut initial_resize_sent,
                 &mut dirty,
+                &timer_tx,
             ) {
                 quit = true;
                 break;
@@ -267,6 +363,7 @@ where
         }
     }
 
+    registry.shutdown_all();
     backend.cleanup();
     Ok(())
 }

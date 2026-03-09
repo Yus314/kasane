@@ -344,6 +344,8 @@ pub enum Element {
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
     BufferRef {
         line_range: Range<usize>,
+        /// Per-line background overrides from plugins (indexed by line within range).
+        line_backgrounds: Option<Vec<Option<Face>>>,
     },
 }
 
@@ -377,7 +379,10 @@ impl Element {
     }
 
     pub fn buffer_ref(line_range: Range<usize>) -> Self {
-        Element::BufferRef { line_range }
+        Element::BufferRef {
+            line_range,
+            line_backgrounds: None,
+        }
     }
 
     pub fn stack(base: Element, overlays: Vec<Overlay>) -> Self {
@@ -458,7 +463,7 @@ mod tests {
     fn test_element_buffer_ref() {
         let el = Element::buffer_ref(0..10);
         match el {
-            Element::BufferRef { line_range } => assert_eq!(line_range, 0..10),
+            Element::BufferRef { line_range, .. } => assert_eq!(line_range, 0..10),
             _ => panic!("expected BufferRef"),
         }
     }

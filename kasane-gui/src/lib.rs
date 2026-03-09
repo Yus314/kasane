@@ -10,11 +10,21 @@ use kasane_core::config::Config;
 use kasane_core::protocol::KakouneRequest;
 use winit::event_loop::EventLoop;
 
+/// Wrapper for plugin timer payloads (Any + Send, no Debug).
+pub(crate) struct TimerPayload(pub Box<dyn std::any::Any + Send>);
+
+impl std::fmt::Debug for TimerPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("TimerPayload").finish()
+    }
+}
+
 /// Events injected into the winit event loop from background threads.
 #[derive(Debug)]
 pub(crate) enum GuiEvent {
     Kakoune(KakouneRequest),
     KakouneDied,
+    PluginTimer(kasane_core::plugin::PluginId, TimerPayload),
 }
 
 /// Launch the GUI backend. Called from `kasane --ui gui`.
@@ -53,7 +63,7 @@ where
         },
     );
 
-    let mut app_handler = app::App::new(config, kak_writer);
+    let mut app_handler = app::App::new(config, kak_writer, proxy);
     event_loop.run_app(&mut app_handler)?;
     Ok(())
 }

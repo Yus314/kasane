@@ -116,6 +116,31 @@ impl AppState {
         self.rows.saturating_sub(1)
     }
 
+    /// Range of visible line indices in the buffer.
+    pub fn visible_line_range(&self) -> std::ops::Range<usize> {
+        0..self.lines.len()
+    }
+
+    /// Number of buffer lines currently loaded.
+    pub fn buffer_line_count(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// Whether a completion menu is currently shown.
+    pub fn has_menu(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    /// Whether any info popups are currently shown.
+    pub fn has_info(&self) -> bool {
+        !self.infos.is_empty()
+    }
+
+    /// Whether the cursor is in prompt mode.
+    pub fn is_prompt_mode(&self) -> bool {
+        self.cursor_mode == CursorMode::Prompt
+    }
+
     /// Config の設定を AppState に適用する。
     pub fn apply_config(&mut self, config: &Config) {
         self.shadow_enabled = config.ui.shadow;

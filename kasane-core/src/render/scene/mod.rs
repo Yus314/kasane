@@ -191,7 +191,7 @@ fn scene_paint_inner(
                 max_width: pr.w,
             });
         }
-        Element::BufferRef { line_range } => {
+        Element::BufferRef { line_range, .. } => {
             scene_paint_buffer_ref(ctx, &area, line_range.clone(), out);
         }
         Element::Empty => {}

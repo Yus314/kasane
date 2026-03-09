@@ -41,10 +41,30 @@ pub fn update(
     match msg {
         Msg::Kakoune(req) => {
             let flags = state.apply(req);
-            (flags, vec![])
+            let mut commands = Vec::new();
+            if !flags.is_empty() {
+                for plugin in registry.plugins_mut() {
+                    commands.extend(plugin.on_state_changed(state, flags));
+                }
+            }
+            let extra_flags = extract_redraw_flags(&mut commands);
+            (flags | extra_flags, commands)
         }
         Msg::Key(key) => {
-            // PageUp/PageDown intercept: convert to scroll commands
+            // 1. Notify all plugins (observe only, cannot consume)
+            for plugin in registry.plugins_mut() {
+                plugin.observe_key(&key, state);
+            }
+
+            // 2. Plugin handle_key chain (first-wins)
+            for plugin in registry.plugins_mut() {
+                if let Some(mut commands) = plugin.handle_key(&key, state) {
+                    let flags = extract_redraw_flags(&mut commands);
+                    return (flags, commands);
+                }
+            }
+
+            // 3. Built-in PageUp/PageDown (plugins can override via handle_key above)
             if key.modifiers.is_empty() {
                 match key.key {
                     Key::PageUp => {
@@ -67,14 +87,7 @@ pub fn update(
                 }
             }
 
-            // Ask plugins to handle the key first
-            for plugin in registry.plugins_mut() {
-                if let Some(mut commands) = plugin.handle_key(&key, state) {
-                    let flags = extract_redraw_flags(&mut commands);
-                    return (flags, commands);
-                }
-            }
-            // No plugin handled it → forward to Kakoune
+            // 4. Forward to Kakoune
             let kak_key = input::key_to_kakoune(&key);
             let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
             (DirtyFlags::empty(), vec![cmd])
@@ -93,6 +106,11 @@ pub fn update(
                     state.drag = DragState::None;
                 }
                 _ => {}
+            }
+
+            // Notify all plugins (observe only, independent of hit test)
+            for plugin in registry.plugins_mut() {
+                plugin.observe_mouse(&mouse, state);
             }
 
             // Plugin mouse handling: route click/press to plugins via hit test

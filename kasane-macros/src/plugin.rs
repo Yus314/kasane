@@ -8,6 +8,15 @@ struct PluginDef {
     has_state: bool,
     has_event: bool,
     has_update: bool,
+    has_on_init: bool,
+    has_on_shutdown: bool,
+    has_on_state_changed: bool,
+    has_observe_key: bool,
+    has_observe_mouse: bool,
+    has_handle_key: bool,
+    has_handle_mouse: bool,
+    has_contribute_line: bool,
+    has_transform_menu_item: bool,
     slots: Vec<SlotBinding>,
     decorators: Vec<DecoratorBinding>,
     replacements: Vec<ReplacementBinding>,
@@ -44,6 +53,15 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
         has_state: false,
         has_event: false,
         has_update: false,
+        has_on_init: false,
+        has_on_shutdown: false,
+        has_on_state_changed: false,
+        has_observe_key: false,
+        has_observe_mouse: false,
+        has_handle_key: false,
+        has_handle_mouse: false,
+        has_contribute_line: false,
+        has_transform_menu_item: false,
         slots: Vec::new(),
         decorators: Vec::new(),
         replacements: Vec::new(),
@@ -62,8 +80,18 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
                 }
             }
             Item::Fn(f) => {
-                if f.sig.ident == "update" {
-                    def.has_update = true;
+                match f.sig.ident.to_string().as_str() {
+                    "update" => def.has_update = true,
+                    "on_init" => def.has_on_init = true,
+                    "on_shutdown" => def.has_on_shutdown = true,
+                    "on_state_changed" => def.has_on_state_changed = true,
+                    "observe_key" => def.has_observe_key = true,
+                    "observe_mouse" => def.has_observe_mouse = true,
+                    "handle_key" => def.has_handle_key = true,
+                    "handle_mouse" => def.has_handle_mouse = true,
+                    "contribute_line" => def.has_contribute_line = true,
+                    "transform_menu_item" => def.has_transform_menu_item = true,
+                    _ => {}
                 }
                 // Check for #[slot(Slot::*)]
                 if let Some(slot_path) = extract_single_path_attr(&f.attrs, "slot")? {
@@ -326,6 +354,112 @@ fn gen_replace_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
     }
 }
 
+/// Generates lifecycle hook implementations (on_init, on_shutdown, on_state_changed).
+fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    let mut tokens = TokenStream::new();
+
+    if def.has_on_init {
+        tokens.extend(quote! {
+            fn on_init(&mut self, _state: &kasane_core::state::AppState) -> Vec<kasane_core::plugin::Command> {
+                #mod_ident::on_init(&mut self.state, _state)
+            }
+        });
+    }
+
+    if def.has_on_shutdown {
+        tokens.extend(quote! {
+            fn on_shutdown(&mut self) {
+                #mod_ident::on_shutdown(&mut self.state)
+            }
+        });
+    }
+
+    if def.has_on_state_changed {
+        tokens.extend(quote! {
+            fn on_state_changed(&mut self, _state: &kasane_core::state::AppState, _dirty: kasane_core::state::DirtyFlags) -> Vec<kasane_core::plugin::Command> {
+                #mod_ident::on_state_changed(&mut self.state, _state, _dirty)
+            }
+        });
+    }
+
+    tokens
+}
+
+/// Generates input hook implementations (observe_key, observe_mouse, handle_key, handle_mouse).
+fn gen_input_impl(def: &PluginDef) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    let mut tokens = TokenStream::new();
+
+    if def.has_observe_key {
+        tokens.extend(quote! {
+            fn observe_key(&mut self, _key: &kasane_core::input::KeyEvent, _state: &kasane_core::state::AppState) {
+                #mod_ident::observe_key(&mut self.state, _key, _state)
+            }
+        });
+    }
+
+    if def.has_observe_mouse {
+        tokens.extend(quote! {
+            fn observe_mouse(&mut self, _event: &kasane_core::input::MouseEvent, _state: &kasane_core::state::AppState) {
+                #mod_ident::observe_mouse(&mut self.state, _event, _state)
+            }
+        });
+    }
+
+    if def.has_handle_key {
+        tokens.extend(quote! {
+            fn handle_key(&mut self, _key: &kasane_core::input::KeyEvent, _state: &kasane_core::state::AppState) -> Option<Vec<kasane_core::plugin::Command>> {
+                #mod_ident::handle_key(&mut self.state, _key, _state)
+            }
+        });
+    }
+
+    if def.has_handle_mouse {
+        tokens.extend(quote! {
+            fn handle_mouse(&mut self, _event: &kasane_core::input::MouseEvent, _id: kasane_core::element::InteractiveId, _state: &kasane_core::state::AppState) -> Option<Vec<kasane_core::plugin::Command>> {
+                #mod_ident::handle_mouse(&mut self.state, _event, _id, _state)
+            }
+        });
+    }
+
+    tokens
+}
+
+/// Generates contribute_line implementation.
+fn gen_contribute_line_impl(def: &PluginDef) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    if def.has_contribute_line {
+        quote! {
+            fn contribute_line(&self, _line: usize, _state: &kasane_core::state::AppState) -> Option<kasane_core::plugin::LineDecoration> {
+                #mod_ident::contribute_line(&self.state, _line, _state)
+            }
+        }
+    } else {
+        quote! {}
+    }
+}
+
+/// Generates transform_menu_item implementation.
+fn gen_transform_menu_item_impl(def: &PluginDef) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    if def.has_transform_menu_item {
+        quote! {
+            fn transform_menu_item(
+                &self,
+                _item: &[kasane_core::protocol::Atom],
+                _index: usize,
+                _selected: bool,
+                _state: &kasane_core::state::AppState,
+            ) -> Option<Vec<kasane_core::protocol::Atom>> {
+                #mod_ident::transform_menu_item(&self.state, _item, _index, _selected, _state)
+            }
+        }
+    } else {
+        quote! {}
+    }
+}
+
 fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<TokenStream> {
     let mod_ident = &def.mod_ident;
     let struct_name = format_ident!("{}Plugin", to_pascal_case(&mod_ident.to_string()));
@@ -336,9 +470,13 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
     let id_str = mod_ident.to_string();
 
     let update_impl = gen_update_impl(def, &struct_name);
+    let lifecycle_impl = gen_lifecycle_impl(def);
+    let input_impl = gen_input_impl(def);
     let contribute_impl = gen_contribute_impl(def, &struct_name);
     let decorate_impl = gen_decorate_impl(def, &struct_name);
     let replace_impl = gen_replace_impl(def, &struct_name);
+    let contribute_line_impl = gen_contribute_line_impl(def);
+    let transform_menu_item_impl = gen_transform_menu_item_impl(def);
 
     Ok(quote! {
         #cleaned_module
@@ -360,10 +498,14 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
                 kasane_core::plugin::PluginId(#id_str.to_string())
             }
 
+            #lifecycle_impl
+            #input_impl
             #update_impl
             #contribute_impl
             #decorate_impl
             #replace_impl
+            #contribute_line_impl
+            #transform_menu_item_impl
         }
     })
 }
@@ -389,7 +531,16 @@ fn strip_custom_attrs(module: &ItemMod) -> TokenStream {
     }
 }
 
-const CUSTOM_ATTRS: &[&str] = &["state", "event", "slot", "decorate", "replace", "keybind"];
+const CUSTOM_ATTRS: &[&str] = &[
+    "state",
+    "event",
+    "slot",
+    "decorate",
+    "replace",
+    "keybind",
+    "lifecycle",
+    "input",
+];
 
 fn is_custom_attr(attr: &Attribute) -> bool {
     CUSTOM_ATTRS.iter().any(|name| attr.path().is_ident(name))

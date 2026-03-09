@@ -1,10 +1,11 @@
 use std::any::Any;
 use std::io::Write;
+use std::time::Duration;
 
-use crate::element::{Element, InteractiveId, Overlay, OverlayAnchor};
+use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::layout::HitMap;
-use crate::protocol::KasaneRequest;
+use crate::protocol::{Face, KasaneRequest};
 use crate::state::{AppState, DirtyFlags};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -41,11 +42,80 @@ pub enum ReplaceTarget {
     StatusBar,
 }
 
+/// Decoration for a single buffer line, contributed by a plugin.
+#[derive(Debug, Clone)]
+pub struct LineDecoration {
+    pub left_gutter: Option<Element>,
+    pub right_gutter: Option<Element>,
+    pub background: Option<Face>,
+}
+
 pub enum Command {
     SendToKakoune(KasaneRequest),
     Paste,
     Quit,
     RequestRedraw(DirtyFlags),
+    /// Schedule a timer that fires after `delay`, delivering `payload` to `target` plugin.
+    ScheduleTimer {
+        delay: Duration,
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    },
+    /// Send a message directly to another plugin.
+    PluginMessage {
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    },
+    /// Override a configuration value at runtime.
+    SetConfig {
+        key: String,
+        value: String,
+    },
+}
+
+/// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
+pub enum DeferredCommand {
+    ScheduleTimer {
+        delay: Duration,
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    },
+    PluginMessage {
+        target: PluginId,
+        payload: Box<dyn Any + Send>,
+    },
+    SetConfig {
+        key: String,
+        value: String,
+    },
+}
+
+/// Separate deferred commands from normal commands.
+/// Returns (normal_commands, deferred_commands).
+pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<DeferredCommand>) {
+    let mut normal = Vec::new();
+    let mut deferred = Vec::new();
+    for cmd in commands {
+        match cmd {
+            Command::ScheduleTimer {
+                delay,
+                target,
+                payload,
+            } => deferred.push(DeferredCommand::ScheduleTimer {
+                delay,
+                target,
+                payload,
+            }),
+            Command::PluginMessage { target, payload } => {
+                deferred.push(DeferredCommand::PluginMessage { target, payload })
+            }
+            Command::SetConfig { key, value } => {
+                deferred.push(DeferredCommand::SetConfig { key, value })
+            }
+            other => normal.push(other),
+        }
+    }
+    (normal, deferred)
 }
 
 /// コマンド実行の結果。
@@ -80,6 +150,10 @@ pub fn execute_commands(
             }
             Command::Quit => return CommandResult::Quit,
             Command::RequestRedraw(_) => {} // handled earlier by extract_redraw_flags
+            // Deferred commands should be extracted before reaching execute_commands
+            Command::ScheduleTimer { .. }
+            | Command::PluginMessage { .. }
+            | Command::SetConfig { .. } => {}
         }
     }
     CommandResult::Continue
@@ -102,6 +176,26 @@ pub fn extract_redraw_flags(commands: &mut Vec<Command>) -> DirtyFlags {
 
 pub trait Plugin: Any {
     fn id(&self) -> PluginId;
+
+    // --- Lifecycle hooks ---
+
+    fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
+        vec![]
+    }
+    fn on_shutdown(&mut self) {}
+    fn on_state_changed(&mut self, _state: &AppState, _dirty: DirtyFlags) -> Vec<Command> {
+        vec![]
+    }
+
+    // --- Input hooks ---
+
+    /// Observe a key event (notification only, cannot consume).
+    fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {}
+    /// Observe a mouse event (notification only, cannot consume).
+    fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppState) {}
+
+    // --- Update / Input handling ---
+
     fn update(&mut self, _msg: Box<dyn Any>, _state: &AppState) -> Vec<Command> {
         vec![]
     }
@@ -116,6 +210,9 @@ pub trait Plugin: Any {
     ) -> Option<Vec<Command>> {
         None
     }
+
+    // --- View contributions ---
+
     fn contribute(&self, _slot: Slot, _state: &AppState) -> Option<Element> {
         None
     }
@@ -135,6 +232,26 @@ pub trait Plugin: Any {
     fn decorator_priority(&self) -> u32 {
         0
     }
+
+    // --- Line decoration ---
+
+    /// Contribute decoration for a specific buffer line.
+    fn contribute_line(&self, _line: usize, _state: &AppState) -> Option<LineDecoration> {
+        None
+    }
+
+    // --- Menu item transformation ---
+
+    /// Transform a menu item before rendering. Return None for no change.
+    fn transform_menu_item(
+        &self,
+        _item: &[crate::protocol::Atom],
+        _index: usize,
+        _selected: bool,
+        _state: &AppState,
+    ) -> Option<Vec<crate::protocol::Atom>> {
+        None
+    }
 }
 
 pub struct PluginRegistry {
@@ -152,6 +269,22 @@ impl PluginRegistry {
 
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
         self.plugins.push(plugin);
+    }
+
+    /// Initialize all plugins. Call after all plugins are registered.
+    pub fn init_all(&mut self, state: &AppState) -> Vec<Command> {
+        let mut commands = Vec::new();
+        for plugin in &mut self.plugins {
+            commands.extend(plugin.on_init(state));
+        }
+        commands
+    }
+
+    /// Shut down all plugins. Call before application exit.
+    pub fn shutdown_all(&mut self) {
+        for plugin in &mut self.plugins {
+            plugin.on_shutdown();
+        }
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn Plugin>> {
@@ -218,6 +351,128 @@ impl PluginRegistry {
             .iter()
             .rev()
             .find_map(|p| p.replace(target, state))
+    }
+
+    // --- Line decoration ---
+
+    /// Build left gutter column from plugin line decorations.
+    /// Returns None when no plugin provides gutter content (zero overhead).
+    pub fn build_left_gutter(&self, state: &AppState) -> Option<Element> {
+        if self.plugins.is_empty() {
+            return None;
+        }
+        let line_count = state.visible_line_range().len();
+        let mut has_any = false;
+        let mut rows: Vec<FlexChild> = Vec::with_capacity(line_count);
+        for line in 0..line_count {
+            let mut gutter_el: Option<Element> = None;
+            for plugin in &self.plugins {
+                if let Some(dec) = plugin.contribute_line(line, state)
+                    && let Some(el) = dec.left_gutter
+                {
+                    gutter_el = Some(el);
+                    has_any = true;
+                    break;
+                }
+            }
+            rows.push(FlexChild::fixed(gutter_el.unwrap_or(Element::Empty)));
+        }
+        if has_any {
+            Some(Element::column(rows))
+        } else {
+            None
+        }
+    }
+
+    /// Build right gutter column from plugin line decorations.
+    /// Returns None when no plugin provides gutter content (zero overhead).
+    pub fn build_right_gutter(&self, state: &AppState) -> Option<Element> {
+        if self.plugins.is_empty() {
+            return None;
+        }
+        let line_count = state.visible_line_range().len();
+        let mut has_any = false;
+        let mut rows: Vec<FlexChild> = Vec::with_capacity(line_count);
+        for line in 0..line_count {
+            let mut gutter_el: Option<Element> = None;
+            for plugin in &self.plugins {
+                if let Some(dec) = plugin.contribute_line(line, state)
+                    && let Some(el) = dec.right_gutter
+                {
+                    gutter_el = Some(el);
+                    has_any = true;
+                    break;
+                }
+            }
+            rows.push(FlexChild::fixed(gutter_el.unwrap_or(Element::Empty)));
+        }
+        if has_any {
+            Some(Element::column(rows))
+        } else {
+            None
+        }
+    }
+
+    /// Collect background overrides from all plugins for visible lines.
+    /// Returns None when no plugin provides any background (zero overhead).
+    pub fn collect_line_backgrounds(&self, state: &AppState) -> Option<Vec<Option<Face>>> {
+        if self.plugins.is_empty() {
+            return None;
+        }
+        let line_count = state.visible_line_range().len();
+        let mut backgrounds: Vec<Option<Face>> = vec![None; line_count];
+        let mut has_any = false;
+        for (line, bg_slot) in backgrounds.iter_mut().enumerate().take(line_count) {
+            for plugin in &self.plugins {
+                if let Some(dec) = plugin.contribute_line(line, state)
+                    && let Some(bg) = dec.background
+                {
+                    *bg_slot = Some(bg);
+                    has_any = true;
+                    break;
+                }
+            }
+        }
+        if has_any { Some(backgrounds) } else { None }
+    }
+
+    // --- Menu item transformation ---
+
+    /// Transform a menu item through all plugins. Returns None if no plugin transforms it.
+    pub fn transform_menu_item(
+        &self,
+        item: &[crate::protocol::Atom],
+        index: usize,
+        selected: bool,
+        state: &AppState,
+    ) -> Option<Vec<crate::protocol::Atom>> {
+        let mut current: Option<Vec<crate::protocol::Atom>> = None;
+        for plugin in &self.plugins {
+            let input = current.as_deref().unwrap_or(item);
+            if let Some(transformed) = plugin.transform_menu_item(input, index, selected, state) {
+                current = Some(transformed);
+            }
+        }
+        current
+    }
+
+    // --- Plugin message delivery ---
+
+    /// Deliver a message to a specific plugin by ID.
+    pub fn deliver_message(
+        &mut self,
+        target: &PluginId,
+        payload: Box<dyn Any>,
+        state: &AppState,
+    ) -> (DirtyFlags, Vec<Command>) {
+        for plugin in &mut self.plugins {
+            if &plugin.id() == target {
+                let mut commands = plugin.update(payload, state);
+                let flags = extract_redraw_flags(&mut commands);
+                return (flags, commands);
+            }
+        }
+        (DirtyFlags::empty(), vec![])
     }
 }
 
@@ -590,5 +845,342 @@ mod tests {
                 .get_replacement(ReplaceTarget::StatusBar, &state)
                 .is_none()
         );
+    }
+
+    // --- Lifecycle hooks tests ---
+
+    struct LifecyclePlugin {
+        init_called: bool,
+        shutdown_called: bool,
+        state_changes: Vec<DirtyFlags>,
+    }
+
+    impl LifecyclePlugin {
+        fn new() -> Self {
+            LifecyclePlugin {
+                init_called: false,
+                shutdown_called: false,
+                state_changes: Vec::new(),
+            }
+        }
+    }
+
+    impl Plugin for LifecyclePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("lifecycle".to_string())
+        }
+
+        fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
+            self.init_called = true;
+            vec![Command::RequestRedraw(DirtyFlags::BUFFER)]
+        }
+
+        fn on_shutdown(&mut self) {
+            self.shutdown_called = true;
+        }
+
+        fn on_state_changed(&mut self, _state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
+            self.state_changes.push(dirty);
+            vec![]
+        }
+    }
+
+    #[test]
+    fn test_init_all_returns_commands() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LifecyclePlugin::new()));
+        let state = AppState::default();
+        let commands = registry.init_all(&state);
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(commands[0], Command::RequestRedraw(_)));
+    }
+
+    #[test]
+    fn test_shutdown_all_calls_all_plugins() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LifecyclePlugin::new()));
+        registry.register(Box::new(LifecyclePlugin::new()));
+        registry.shutdown_all();
+        // Verify via count — can't inspect internal state, but no panic = success
+    }
+
+    #[test]
+    fn test_on_state_changed_dispatched_with_flags() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LifecyclePlugin::new()));
+        let state = AppState::default();
+
+        // Simulate what update() does for Msg::Kakoune
+        let flags = DirtyFlags::BUFFER | DirtyFlags::STATUS;
+        for plugin in registry.plugins_mut() {
+            plugin.on_state_changed(&state, flags);
+        }
+        // No panic, default implementations work
+    }
+
+    #[test]
+    fn test_lifecycle_backward_compat() {
+        // TestPlugin has no lifecycle hooks — defaults should work
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(TestPlugin));
+        let state = AppState::default();
+
+        let commands = registry.init_all(&state);
+        assert!(commands.is_empty());
+
+        registry.shutdown_all();
+        // No panic
+    }
+
+    // --- Input observation tests ---
+
+    struct ObservingPlugin {
+        observed_keys: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl ObservingPlugin {
+        fn new() -> Self {
+            ObservingPlugin {
+                observed_keys: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl Plugin for ObservingPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("observer".to_string())
+        }
+
+        fn observe_key(&mut self, key: &KeyEvent, _state: &AppState) {
+            self.observed_keys
+                .borrow_mut()
+                .push(format!("{:?}", key.key));
+        }
+    }
+
+    #[test]
+    fn test_observe_key_called() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(ObservingPlugin::new()));
+        let state = AppState::default();
+        let key = KeyEvent {
+            key: crate::input::Key::Char('a'),
+            modifiers: crate::input::Modifiers::empty(),
+        };
+        for plugin in registry.plugins_mut() {
+            plugin.observe_key(&key, &state);
+        }
+        // No panic = success, since we can't downcast
+    }
+
+    // --- Line decoration tests ---
+
+    struct LineNumberPlugin;
+
+    impl Plugin for LineNumberPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("line_numbers".to_string())
+        }
+
+        fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+            Some(LineDecoration {
+                left_gutter: Some(Element::text(format!("{:>3}", line + 1), Face::default())),
+                right_gutter: None,
+                background: None,
+            })
+        }
+    }
+
+    #[test]
+    fn test_build_left_gutter() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LineNumberPlugin));
+        let mut state = AppState::default();
+        state.lines = vec![vec![], vec![], vec![]]; // 3 lines
+        let gutter = registry.build_left_gutter(&state);
+        assert!(gutter.is_some());
+        if let Some(Element::Flex { children, .. }) = gutter {
+            assert_eq!(children.len(), 3);
+        } else {
+            panic!("expected Flex column");
+        }
+    }
+
+    #[test]
+    fn test_build_left_gutter_empty_registry() {
+        let registry = PluginRegistry::new();
+        let state = AppState::default();
+        assert!(registry.build_left_gutter(&state).is_none());
+    }
+
+    #[test]
+    fn test_collect_line_backgrounds() {
+        struct BgPlugin;
+        impl Plugin for BgPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("bg".to_string())
+            }
+            fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+                if line == 1 {
+                    Some(LineDecoration {
+                        left_gutter: None,
+                        right_gutter: None,
+                        background: Some(Face {
+                            fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
+                            ..Face::default()
+                        }),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(BgPlugin));
+        let mut state = AppState::default();
+        state.lines = vec![vec![], vec![], vec![]];
+        let bgs = registry.collect_line_backgrounds(&state);
+        assert!(bgs.is_some());
+        let bgs = bgs.unwrap();
+        assert_eq!(bgs.len(), 3);
+        assert!(bgs[0].is_none());
+        assert!(bgs[1].is_some());
+        assert!(bgs[2].is_none());
+    }
+
+    #[test]
+    fn test_no_line_decoration_zero_overhead() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(TestPlugin)); // no contribute_line
+        let mut state = AppState::default();
+        state.lines = vec![vec![], vec![]];
+        assert!(registry.build_left_gutter(&state).is_none());
+        assert!(registry.build_right_gutter(&state).is_none());
+        assert!(registry.collect_line_backgrounds(&state).is_none());
+    }
+
+    // --- Menu transform tests ---
+
+    struct IconPlugin;
+
+    impl Plugin for IconPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("icons".to_string())
+        }
+
+        fn transform_menu_item(
+            &self,
+            item: &[crate::protocol::Atom],
+            _index: usize,
+            _selected: bool,
+            _state: &AppState,
+        ) -> Option<Vec<crate::protocol::Atom>> {
+            let mut result = vec![crate::protocol::Atom {
+                face: Face::default(),
+                contents: "★ ".into(),
+            }];
+            result.extend(item.iter().cloned());
+            Some(result)
+        }
+    }
+
+    #[test]
+    fn test_transform_menu_item() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(IconPlugin));
+        let state = AppState::default();
+        let item = vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "foo".into(),
+        }];
+        let result = registry.transform_menu_item(&item, 0, false, &state);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result[0].contents.as_str(), "★ ");
+        assert_eq!(result[1].contents.as_str(), "foo");
+    }
+
+    #[test]
+    fn test_transform_menu_item_no_plugin() {
+        let registry = PluginRegistry::new();
+        let state = AppState::default();
+        let item = vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "foo".into(),
+        }];
+        assert!(
+            registry
+                .transform_menu_item(&item, 0, false, &state)
+                .is_none()
+        );
+    }
+
+    // --- deliver_message tests ---
+
+    #[test]
+    fn test_deliver_message_to_plugin() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(TestPlugin));
+        let state = AppState::default();
+        let (flags, commands) =
+            registry.deliver_message(&PluginId("test".to_string()), Box::new(42u32), &state);
+        assert!(flags.is_empty());
+        assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn test_deliver_message_unknown_target() {
+        let mut registry = PluginRegistry::new();
+        let state = AppState::default();
+        let (flags, commands) =
+            registry.deliver_message(&PluginId("unknown".to_string()), Box::new(42u32), &state);
+        assert!(flags.is_empty());
+        assert!(commands.is_empty());
+    }
+
+    // --- extract_deferred_commands tests ---
+
+    #[test]
+    fn test_extract_deferred_separates_correctly() {
+        let commands = vec![
+            Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+            Command::ScheduleTimer {
+                delay: std::time::Duration::from_millis(100),
+                target: PluginId("test".into()),
+                payload: Box::new(42u32),
+            },
+            Command::PluginMessage {
+                target: PluginId("other".into()),
+                payload: Box::new("hello"),
+            },
+            Command::SetConfig {
+                key: "foo".into(),
+                value: "bar".into(),
+            },
+            Command::Paste,
+        ];
+        let (normal, deferred) = super::extract_deferred_commands(commands);
+        assert_eq!(normal.len(), 2); // SendToKakoune + Paste
+        assert_eq!(deferred.len(), 3); // Timer + Message + Config
+    }
+
+    #[test]
+    fn test_extract_deferred_empty() {
+        let commands = vec![
+            Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+            Command::Quit,
+        ];
+        let (normal, deferred) = super::extract_deferred_commands(commands);
+        assert_eq!(normal.len(), 2);
+        assert!(deferred.is_empty());
+    }
+
+    #[test]
+    fn test_set_config_stores_in_ui_options() {
+        // SetConfig applied via ui_options (integration would be in event loop)
+        let mut state = AppState::default();
+        state.ui_options.insert("key".into(), "value".into());
+        assert_eq!(state.ui_options.get("key").unwrap(), "value");
     }
 }

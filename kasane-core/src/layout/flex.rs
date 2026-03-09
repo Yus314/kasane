@@ -66,7 +66,7 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
                 height: 1u16.clamp(constraints.min_height, constraints.max_height),
             }
         }
-        Element::BufferRef { line_range } => {
+        Element::BufferRef { line_range, .. } => {
             let h = line_range.len() as u16;
             Size {
                 width: constraints.max_width,

@@ -52,8 +52,17 @@ fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResu
             ctx.grid
                 .put_line_with_base(area.y, area.x, atoms, area.w, None);
         }
-        Element::BufferRef { line_range } => {
-            paint_buffer_ref(ctx.grid, &area, line_range.clone(), ctx.state);
+        Element::BufferRef {
+            line_range,
+            line_backgrounds,
+        } => {
+            paint_buffer_ref(
+                ctx.grid,
+                &area,
+                line_range.clone(),
+                ctx.state,
+                line_backgrounds.as_deref(),
+            );
         }
         Element::Empty => {}
         Element::Flex { children, .. } => {
@@ -144,6 +153,7 @@ fn paint_buffer_ref(
     area: &Rect,
     line_range: std::ops::Range<usize>,
     state: &AppState,
+    line_backgrounds: Option<&[Option<Face>]>,
 ) {
     let has_line_dirty = !state.lines_dirty.is_empty();
     for y_offset in 0..area.h {
@@ -156,8 +166,12 @@ fn paint_buffer_ref(
         }
 
         if let Some(line) = state.lines.get(line_idx) {
-            grid.fill_row(y, &state.default_face);
-            grid.put_line_with_base(y, area.x, line, area.w, Some(&state.default_face));
+            // Use plugin background override if available, otherwise default_face
+            let base_face = line_backgrounds
+                .and_then(|bgs| bgs.get(line_idx).copied().flatten())
+                .unwrap_or(state.default_face);
+            grid.fill_row(y, &base_face);
+            grid.put_line_with_base(y, area.x, line, area.w, Some(&base_face));
         } else {
             // Padding row
             grid.fill_row(y, &state.padding_face);

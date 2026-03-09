@@ -1,8 +1,11 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::element::InteractiveId;
-use crate::input::{MouseButton, MouseEvent, MouseEventKind};
+use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{Command, Plugin, PluginId, PluginRegistry};
-use crate::protocol::{Face, KakouneRequest};
+use crate::protocol::{Face, KakouneRequest, KasaneRequest};
 use crate::render::CellGrid;
 use crate::state::update::{Msg, update};
 use crate::state::{AppState, DirtyFlags};
@@ -181,4 +184,172 @@ fn test_update_mouse_miss_forwards_to_kakoune() {
     // Should have been forwarded to Kakoune as a mouse press
     assert_eq!(commands.len(), 1);
     assert!(matches!(commands[0], Command::SendToKakoune(_)));
+}
+
+// --- Input observation tests ---
+
+#[test]
+fn test_observe_key_called_for_all_plugins() {
+    let observed = Arc::new(AtomicBool::new(false));
+
+    struct ObserverPlugin(Arc<AtomicBool>);
+    impl Plugin for ObserverPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("observer".into())
+        }
+        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let mut state = AppState::default();
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(ObserverPlugin(observed.clone())));
+    let mut grid = CellGrid::new(80, 24);
+    let key = KeyEvent {
+        key: Key::Char('x'),
+        modifiers: Modifiers::empty(),
+    };
+    let _ = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+    assert!(observed.load(Ordering::Relaxed));
+}
+
+#[test]
+fn test_observe_key_called_even_when_plugin_handles() {
+    // observe_key should be called for all plugins before handle_key
+    let observed = Arc::new(AtomicBool::new(false));
+
+    struct ObserverPlugin(Arc<AtomicBool>);
+    impl Plugin for ObserverPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("observer".into())
+        }
+        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    struct HandlerPlugin;
+    impl Plugin for HandlerPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("handler".into())
+        }
+        fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+            Some(vec![])
+        }
+    }
+
+    let mut state = AppState::default();
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(ObserverPlugin(observed.clone())));
+    registry.register(Box::new(HandlerPlugin));
+    let mut grid = CellGrid::new(80, 24);
+    let key = KeyEvent {
+        key: Key::Char('x'),
+        modifiers: Modifiers::empty(),
+    };
+    let _ = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+    assert!(observed.load(Ordering::Relaxed));
+}
+
+#[test]
+fn test_plugin_can_override_pageup() {
+    struct PageUpPlugin;
+    impl Plugin for PageUpPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("pageup_override".into())
+        }
+        fn handle_key(&mut self, key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+            if key.key == Key::PageUp {
+                Some(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
+                    "custom_pageup".to_string(),
+                ]))])
+            } else {
+                None
+            }
+        }
+    }
+
+    let mut state = AppState::default();
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(PageUpPlugin));
+    let mut grid = CellGrid::new(80, 24);
+    let key = KeyEvent {
+        key: Key::PageUp,
+        modifiers: Modifiers::empty(),
+    };
+    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+    assert_eq!(commands.len(), 1);
+    match &commands[0] {
+        Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
+            assert_eq!(keys[0], "custom_pageup");
+        }
+        _ => panic!("expected custom PageUp handler"),
+    }
+}
+
+#[test]
+fn test_observe_mouse_called_without_hit_test() {
+    let observed = Arc::new(AtomicBool::new(false));
+
+    struct MouseObserver(Arc<AtomicBool>);
+    impl Plugin for MouseObserver {
+        fn id(&self) -> PluginId {
+            PluginId("mouse_observer".into())
+        }
+        fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppState) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let mut state = AppState::default();
+    state.cols = 80;
+    state.rows = 24;
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(MouseObserver(observed.clone())));
+    // No interactive regions → hit_test returns None
+    let mut grid = CellGrid::new(80, 24);
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 5,
+        column: 10,
+    };
+    let _ = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+    assert!(observed.load(Ordering::Relaxed));
+}
+
+#[test]
+fn test_on_state_changed_dispatched_in_kakoune_msg() {
+    let called = Arc::new(AtomicBool::new(false));
+
+    struct StateWatcher(Arc<AtomicBool>);
+    impl Plugin for StateWatcher {
+        fn id(&self) -> PluginId {
+            PluginId("watcher".into())
+        }
+        fn on_state_changed(&mut self, _state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
+            if dirty.contains(DirtyFlags::BUFFER) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+            vec![]
+        }
+    }
+
+    let mut state = AppState::default();
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(StateWatcher(called.clone())));
+    let mut grid = CellGrid::new(80, 24);
+    let (flags, _) = update(
+        &mut state,
+        Msg::Kakoune(KakouneRequest::Draw {
+            lines: vec![make_line("hello")],
+            default_face: Face::default(),
+            padding_face: Face::default(),
+        }),
+        &mut registry,
+        &mut grid,
+        3,
+    );
+    assert!(flags.contains(DirtyFlags::BUFFER));
+    assert!(called.load(Ordering::Relaxed));
 }

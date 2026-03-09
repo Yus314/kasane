@@ -2,6 +2,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
+use crate::plugin::PluginRegistry;
 use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face, MenuStyle};
 use crate::state::{AppState, MenuColumns, MenuState};
@@ -63,19 +64,23 @@ pub(super) fn build_replacement_menu_overlay(
 }
 
 #[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION), allow(search_dropdown))]
-pub(super) fn build_menu_overlay(menu: &MenuState, state: &AppState) -> Option<Overlay> {
+pub(super) fn build_menu_overlay(
+    menu: &MenuState,
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> Option<Overlay> {
     if menu.items.is_empty() || menu.win_height == 0 {
         return None;
     }
 
     match menu.style {
-        MenuStyle::Inline => build_menu_inline(menu, state),
-        MenuStyle::Prompt => build_menu_prompt(menu, state),
+        MenuStyle::Inline => build_menu_inline(menu, state, registry),
+        MenuStyle::Prompt => build_menu_prompt(menu, state, registry),
         MenuStyle::Search => {
             if state.search_dropdown {
-                build_menu_search_dropdown(menu, state)
+                build_menu_search_dropdown(menu, state, registry)
             } else {
-                build_menu_search(menu, state)
+                build_menu_search(menu, state, registry)
             }
         }
     }
@@ -87,14 +92,24 @@ fn menu_placement(state: &AppState) -> MenuPlacement {
 }
 
 /// Build a single menu item element: face selection + styled line + container wrap.
-fn build_menu_item_element(menu: &MenuState, item_idx: usize, width: u16) -> Element {
-    let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
+fn build_menu_item_element(
+    menu: &MenuState,
+    item_idx: usize,
+    width: u16,
+    registry: &PluginRegistry,
+    state: &AppState,
+) -> Element {
+    let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
+    let face = if selected {
         menu.selected_item_face
     } else {
         menu.menu_face
     };
     let item = if item_idx < menu.items.len() {
-        build_styled_line_with_base(&menu.items[item_idx], &face, width)
+        let atoms = &menu.items[item_idx];
+        let transformed = registry.transform_menu_item(atoms, item_idx, selected, state);
+        let line = transformed.as_ref().unwrap_or(atoms);
+        build_styled_line_with_base(line, &face, width)
     } else {
         Element::text("", face)
     };
@@ -227,7 +242,11 @@ fn build_split_item_element(
     Element::container(Element::StyledLine(atoms), Style::from(face))
 }
 
-fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
+fn build_menu_inline(
+    menu: &MenuState,
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> Option<Overlay> {
     let win_w = (menu.effective_content_width(state.cols) + 1).min(state.cols);
     let content_w = win_w.saturating_sub(1);
     let screen_h = state.available_height();
@@ -258,7 +277,7 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
                 (Some(columns), Some(cw)) => {
                     build_split_item_element(menu, columns, item_idx, cw, content_w)
                 }
-                _ => build_menu_item_element(menu, item_idx, content_w),
+                _ => build_menu_item_element(menu, item_idx, content_w, registry, state),
             };
             FlexChild::fixed(element)
         })
@@ -279,7 +298,11 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     })
 }
 
-fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
+fn build_menu_prompt(
+    menu: &MenuState,
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> Option<Overlay> {
     if menu.columns == 0 {
         return None;
     }
@@ -298,7 +321,13 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     for line in 0..wh as usize {
         for col in 0..columns {
             let item_idx = (first_col + col) * stride + line;
-            grid_children.push(build_menu_item_element(menu, item_idx, col_w as u16));
+            grid_children.push(build_menu_item_element(
+                menu,
+                item_idx,
+                col_w as u16,
+                registry,
+                state,
+            ));
         }
     }
 
@@ -321,7 +350,11 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     })
 }
 
-fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
+fn build_menu_search(
+    menu: &MenuState,
+    state: &AppState,
+    _registry: &PluginRegistry,
+) -> Option<Overlay> {
     let status_row = state.available_height();
     let y = status_row.saturating_sub(1);
     let screen_w = state.cols as usize;
@@ -402,7 +435,11 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
 }
 
 /// Build a search menu as a vertical dropdown instead of the default inline bar.
-fn build_menu_search_dropdown(menu: &MenuState, state: &AppState) -> Option<Overlay> {
+fn build_menu_search_dropdown(
+    menu: &MenuState,
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> Option<Overlay> {
     let screen_h = state.available_height();
     let status_row = state.available_height();
     let max_h = 10u16.min(screen_h.saturating_sub(1));
@@ -416,7 +453,9 @@ fn build_menu_search_dropdown(menu: &MenuState, state: &AppState) -> Option<Over
     let item_rows: Vec<FlexChild> = (0..win_h)
         .map(|line| {
             let item_idx = menu.first_item + line as usize;
-            FlexChild::fixed(build_menu_item_element(menu, item_idx, content_w))
+            FlexChild::fixed(build_menu_item_element(
+                menu, item_idx, content_w, registry, state,
+            ))
         })
         .collect();
 
@@ -600,7 +639,8 @@ mod tests {
 
         let menu = state.menu.as_ref().unwrap();
         assert!(menu.columns_split.is_some());
-        let overlay = build_menu_inline(menu, &state);
+        let registry = PluginRegistry::new();
+        let overlay = build_menu_inline(menu, &state, &registry);
         assert!(overlay.is_some());
 
         let o = overlay.unwrap();

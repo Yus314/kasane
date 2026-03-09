@@ -10,7 +10,10 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::layout::build_hit_map;
-use kasane_core::plugin::{Command, CommandResult, PluginRegistry, execute_commands};
+use kasane_core::plugin::{
+    Command, CommandResult, DeferredCommand, PluginRegistry, execute_commands,
+    extract_deferred_commands,
+};
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::view::view_cached;
 use kasane_core::render::{
@@ -19,13 +22,13 @@ use kasane_core::render::{
 };
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
-use crate::GuiEvent;
 use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
 use crate::colors::ColorResolver;
 use crate::gpu::GpuState;
 use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
+use crate::{GuiEvent, TimerPayload};
 
 pub struct App<W: Write + Send + 'static> {
     // winit
@@ -67,18 +70,30 @@ pub struct App<W: Write + Send + 'static> {
     cursor_animation: CursorAnimation,
     cursor_dirty: bool,
     last_render_result: Option<RenderResult>,
+
+    // Event loop proxy for plugin timers
+    event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
 }
 
 impl<W: Write + Send + 'static> App<W> {
-    pub fn new(config: Config, kak_writer: W) -> Self {
+    pub fn new(
+        config: Config,
+        kak_writer: W,
+        event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
+    ) -> Self {
         let scroll_amount = config.scroll.lines_per_scroll;
+
+        let state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let _init_commands = registry.init_all(&state);
+        // init_commands will be executed once initial_resize_sent is true
 
         App {
             window: None,
             gpu: None,
             scene_renderer: None,
-            state: AppState::default(),
-            registry: PluginRegistry::new(),
+            state,
+            registry,
             grid: CellGrid::new(1, 1),
             backend: None,
             kak_writer,
@@ -96,6 +111,7 @@ impl<W: Write + Send + 'static> App<W> {
             cursor_animation: CursorAnimation::new(),
             cursor_dirty: false,
             last_render_result: None,
+            event_proxy,
         }
     }
 
@@ -196,6 +212,16 @@ impl<W: Write + Send + 'static> App<W> {
                     event_loop.exit();
                     return;
                 }
+                GuiEvent::PluginTimer(target, payload) => {
+                    let (flags, commands) =
+                        self.registry
+                            .deliver_message(&target, payload.0, &self.state);
+                    self.dirty |= flags;
+                    if self.exec_commands(commands) {
+                        event_loop.exit();
+                        return;
+                    }
+                }
             }
         }
     }
@@ -217,14 +243,60 @@ impl<W: Write + Send + 'static> App<W> {
         }
     }
 
-    /// Execute side-effect commands. Returns `true` if Quit was requested.
+    /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
     fn exec_commands(&mut self, commands: Vec<Command>) -> bool {
-        matches!(
-            execute_commands(commands, &mut self.kak_writer, &mut || {
+        let (normal, deferred) = extract_deferred_commands(commands);
+        if matches!(
+            execute_commands(normal, &mut self.kak_writer, &mut || {
                 self.backend.as_mut().and_then(|b| b.clipboard_get())
             }),
             CommandResult::Quit
-        )
+        ) {
+            return true;
+        }
+        self.handle_deferred(deferred)
+    }
+
+    /// Handle deferred commands (timers, inter-plugin messages, config overrides).
+    fn handle_deferred(&mut self, deferred: Vec<DeferredCommand>) -> bool {
+        for cmd in deferred {
+            match cmd {
+                DeferredCommand::PluginMessage { target, payload } => {
+                    let (flags, commands) =
+                        self.registry.deliver_message(&target, payload, &self.state);
+                    self.dirty |= flags;
+                    let (normal, nested) = extract_deferred_commands(commands);
+                    if matches!(
+                        execute_commands(normal, &mut self.kak_writer, &mut || {
+                            self.backend.as_mut().and_then(|b| b.clipboard_get())
+                        }),
+                        CommandResult::Quit
+                    ) {
+                        return true;
+                    }
+                    if self.handle_deferred(nested) {
+                        return true;
+                    }
+                }
+                DeferredCommand::ScheduleTimer {
+                    delay,
+                    target,
+                    payload,
+                } => {
+                    let proxy = self.event_proxy.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(delay);
+                        let _ =
+                            proxy.send_event(GuiEvent::PluginTimer(target, TimerPayload(payload)));
+                    });
+                }
+                DeferredCommand::SetConfig { key, value } => {
+                    self.state.ui_options.insert(key, value);
+                    self.dirty |= DirtyFlags::OPTIONS;
+                }
+            }
+        }
+        false
     }
 
     fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
@@ -336,6 +408,12 @@ impl<W: Write + Send + 'static> App<W> {
                 Err(e) => tracing::error!("[app] scene render failed: {e}"),
             }
         }
+    }
+}
+
+impl<W: Write + Send + 'static> Drop for App<W> {
+    fn drop(&mut self) {
+        self.registry.shutdown_all();
     }
 }
 

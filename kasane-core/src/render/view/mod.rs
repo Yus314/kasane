@@ -119,7 +119,26 @@ fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     let status_right = registry.collect_slot(Slot::StatusRight, state);
 
     // Build buffer row (center area + optional sidebars)
-    let buffer_element = Element::buffer_ref(0..buffer_rows);
+    // Add plugin line-decoration gutters
+    let mut buffer_left = buffer_left;
+    let mut buffer_right = buffer_right;
+    if let Some(gutter) = registry.build_left_gutter(state) {
+        buffer_left.insert(0, gutter);
+    }
+    if let Some(gutter) = registry.build_right_gutter(state) {
+        buffer_right.push(gutter);
+    }
+
+    // Collect line backgrounds and build BufferRef
+    let line_backgrounds = registry.collect_line_backgrounds(state);
+    let buffer_element = if line_backgrounds.is_some() {
+        Element::BufferRef {
+            line_range: 0..buffer_rows,
+            line_backgrounds,
+        }
+    } else {
+        Element::buffer_ref(0..buffer_rows)
+    };
     let buffer_row = if buffer_left.is_empty() && buffer_right.is_empty() {
         let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
         FlexChild::flexible(decorated, 1.0)
@@ -184,7 +203,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
     };
     let menu_overlay = match registry.get_replacement(replace_target, state) {
         Some(replacement) => menu::build_replacement_menu_overlay(replacement, menu_state, state),
-        None => menu::build_menu_overlay(menu_state, state),
+        None => menu::build_menu_overlay(menu_state, state, registry),
     };
     menu_overlay.map(|mut overlay| {
         overlay.element = registry.apply_decorator(DecorateTarget::Menu, overlay.element, state);
