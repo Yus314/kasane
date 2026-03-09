@@ -1,3 +1,4 @@
+use super::flex;
 use super::{FloatingWindow, MenuPlacement, Rect};
 use crate::protocol::{Coord, MenuStyle};
 use crate::state::AppState;
@@ -82,6 +83,48 @@ pub fn compute_pos(
         .max(rect.x as i32)
         .min((rect.x as i32 + rect.w as i32).saturating_sub(w as i32)) as u16;
     (y, x)
+}
+
+/// Lay out a single overlay element against a root area.
+/// Shared between `flex::place_stack` and the scene cache pipeline.
+pub fn layout_single_overlay(
+    overlay: &crate::element::Overlay,
+    root_area: Rect,
+    state: &AppState,
+) -> flex::LayoutResult {
+    let (ox, oy, ow, oh) = match &overlay.anchor {
+        crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
+            (root_area.x + *x, root_area.y + *y, *w, *h)
+        }
+        crate::element::OverlayAnchor::AnchorPoint {
+            coord,
+            prefer_above,
+            avoid,
+        } => {
+            let overlay_size = flex::measure(
+                &overlay.element,
+                flex::Constraints::loose(root_area.w, root_area.h),
+                state,
+            );
+            let (y, x) = compute_pos(
+                (coord.line, coord.column),
+                (overlay_size.height, overlay_size.width),
+                root_area,
+                avoid,
+                *prefer_above,
+            );
+            (x, y, overlay_size.width, overlay_size.height)
+        }
+    };
+
+    let overlay_area = Rect {
+        x: ox,
+        y: oy,
+        w: ow,
+        h: oh,
+    };
+
+    flex::place(&overlay.element, overlay_area, state)
 }
 
 /// Lay out an inline menu floating window (no borders).

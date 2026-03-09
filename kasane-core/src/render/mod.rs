@@ -19,7 +19,6 @@ pub use patch::{CursorPatch, MenuSelectionPatch, PaintPatch, StatusBarPatch};
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};
 pub use theme::Theme;
 
-use crate::element::Overlay;
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::plugin::PluginRegistry;
@@ -123,52 +122,6 @@ pub fn clear_block_cursor_face(state: &AppState, grid: &mut CellGrid, style: Cur
     if let Some(cell) = grid.get_mut(cx, cy) {
         cell.face = *base_face;
     }
-}
-
-// ---------------------------------------------------------------------------
-// Overlay layout helper
-// ---------------------------------------------------------------------------
-
-/// Lay out a single overlay element against a root area.
-/// Extracts the per-overlay logic from `place_stack` for use by `SceneCache`.
-pub(crate) fn layout_overlay(
-    overlay: &Overlay,
-    root_area: Rect,
-    state: &AppState,
-) -> flex::LayoutResult {
-    let (ox, oy, ow, oh) = match &overlay.anchor {
-        crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
-            (root_area.x + *x, root_area.y + *y, *w, *h)
-        }
-        crate::element::OverlayAnchor::AnchorPoint {
-            coord,
-            prefer_above,
-            avoid,
-        } => {
-            let overlay_size = flex::measure(
-                &overlay.element,
-                flex::Constraints::loose(root_area.w, root_area.h),
-                state,
-            );
-            let (y, x) = crate::layout::compute_pos(
-                (coord.line, coord.column),
-                (overlay_size.height, overlay_size.width),
-                root_area,
-                avoid,
-                *prefer_above,
-            );
-            (x, y, overlay_size.width, overlay_size.height)
-        }
-    };
-
-    let overlay_area = Rect {
-        x: ox,
-        y: oy,
-        w: ow,
-        h: oh,
-    };
-
-    flex::place(&overlay.element, overlay_area, state)
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +240,7 @@ pub fn scene_render_pipeline_scene_cached<'a>(
     // Menu section
     if scene_cache.menu_commands.is_none() {
         let cmds = if let Some(ref overlay) = sections.menu_overlay {
-            let overlay_layout = layout_overlay(overlay, root_area, state);
+            let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
             scene::scene_paint_section(
                 &overlay.element,
                 &overlay_layout,
@@ -311,7 +264,7 @@ pub fn scene_render_pipeline_scene_cached<'a>(
             .chain(sections.plugin_overlays.iter())
         {
             cmds.push(DrawCommand::BeginOverlay);
-            let overlay_layout = layout_overlay(overlay, root_area, state);
+            let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
             let overlay_cmds = scene::scene_paint_section(
                 &overlay.element,
                 &overlay_layout,
@@ -464,7 +417,7 @@ pub fn render_pipeline_sectioned(
         let menu_rect = sections
             .menu_overlay
             .as_ref()
-            .map(|overlay| layout_overlay(overlay, root_area, state).area);
+            .map(|overlay| crate::layout::layout_single_overlay(overlay, root_area, state).area);
 
         if let Some(menu_rect) = menu_rect {
             let element = sections.into_element();

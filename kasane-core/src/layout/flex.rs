@@ -499,36 +499,7 @@ fn place_stack(
     let mut children = vec![base_result];
 
     for overlay in overlays {
-        let (ox, oy, ow, oh) = match &overlay.anchor {
-            crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
-                (area.x + *x, area.y + *y, *w, *h)
-            }
-            crate::element::OverlayAnchor::AnchorPoint {
-                coord,
-                prefer_above,
-                avoid,
-            } => {
-                let overlay_size =
-                    measure(&overlay.element, Constraints::loose(area.w, area.h), state);
-                let (y, x) = crate::layout::compute_pos(
-                    (coord.line, coord.column),
-                    (overlay_size.height, overlay_size.width),
-                    area,
-                    avoid,
-                    *prefer_above,
-                );
-                (x, y, overlay_size.width, overlay_size.height)
-            }
-        };
-
-        let overlay_area = Rect {
-            x: ox,
-            y: oy,
-            w: ow,
-            h: oh,
-        };
-
-        let overlay_result = place(&overlay.element, overlay_area, state);
+        let overlay_result = crate::layout::layout_single_overlay(overlay, area, state);
         children.push(overlay_result);
     }
 
