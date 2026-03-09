@@ -8,7 +8,7 @@ use crate::element::{Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
 use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, Slot};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
-use crate::render::ViewCache;
+use crate::render::cache::{ViewCache, cache_dirty_snapshot};
 use crate::state::AppState;
 
 use crate::state::DirtyFlags;
@@ -107,21 +107,6 @@ pub(crate) fn view_sections_cached(
         menu_overlay,
         info_overlays,
         plugin_overlays,
-    }
-}
-
-/// Helper to determine if a ComponentCache needs recomputation.
-/// Returns ALL if the cache is empty (cold), or empty if cached (warm).
-/// The actual dirty flags from update() are handled by ViewCache::invalidate()
-/// which clears the ComponentCache::value when relevant flags are set.
-fn cache_dirty_snapshot<T: Clone>(
-    cache: &crate::render::ComponentCache<T>,
-    deps: crate::state::DirtyFlags,
-) -> crate::state::DirtyFlags {
-    if cache.value.is_none() {
-        deps // Force recomputation
-    } else {
-        crate::state::DirtyFlags::empty() // Use cached value
     }
 }
 
