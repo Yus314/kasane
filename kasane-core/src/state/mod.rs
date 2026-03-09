@@ -20,13 +20,17 @@ pub use update::{Msg, update};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct DirtyFlags: u8 {
-        const BUFFER  = 0b0000_0001;
-        const STATUS  = 0b0000_0010;
-        const MENU    = 0b0000_0100;
-        const INFO    = 0b0000_1000;
-        const OPTIONS = 0b0001_0000;
-        const ALL     = 0b0001_1111;
+    pub struct DirtyFlags: u16 {
+        const BUFFER          = 1 << 0;
+        const STATUS          = 1 << 1;
+        const MENU_STRUCTURE  = 1 << 2;
+        const MENU_SELECTION  = 1 << 3;
+        const INFO            = 1 << 4;
+        const OPTIONS         = 1 << 5;
+
+        const MENU = Self::MENU_STRUCTURE.bits() | Self::MENU_SELECTION.bits();
+        const ALL  = Self::BUFFER.bits() | Self::STATUS.bits()
+                   | Self::MENU.bits() | Self::INFO.bits() | Self::OPTIONS.bits();
     }
 }
 

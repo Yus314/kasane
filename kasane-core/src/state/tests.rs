@@ -627,6 +627,61 @@ fn test_pageup_with_modifier_not_intercepted() {
     }
 }
 
+// --- DirtyFlags split MENU tests ---
+
+#[test]
+fn test_menu_show_returns_menu_structure() {
+    let mut state = AppState::default();
+    let flags = state.apply(KakouneRequest::MenuShow {
+        items: vec![make_line("a")],
+        anchor: Coord { line: 0, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+    assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
+    assert!(!flags.contains(DirtyFlags::MENU_SELECTION));
+}
+
+#[test]
+fn test_menu_select_returns_menu_selection() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::MenuShow {
+        items: vec![make_line("a"), make_line("b")],
+        anchor: Coord { line: 0, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+    let flags = state.apply(KakouneRequest::MenuSelect { selected: 0 });
+    assert!(flags.contains(DirtyFlags::MENU_SELECTION));
+    assert!(!flags.contains(DirtyFlags::MENU_STRUCTURE));
+}
+
+#[test]
+fn test_menu_hide_returns_both_menu_flags() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::MenuShow {
+        items: vec![make_line("a")],
+        anchor: Coord { line: 0, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+    let flags = state.apply(KakouneRequest::MenuHide);
+    assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
+    assert!(flags.contains(DirtyFlags::MENU_SELECTION));
+    assert!(flags.contains(DirtyFlags::BUFFER));
+}
+
+#[test]
+fn test_menu_composite_contains_sub_flags() {
+    assert!(DirtyFlags::MENU.contains(DirtyFlags::MENU_STRUCTURE));
+    assert!(DirtyFlags::MENU.contains(DirtyFlags::MENU_SELECTION));
+    assert!(DirtyFlags::ALL.contains(DirtyFlags::MENU_STRUCTURE));
+    assert!(DirtyFlags::ALL.contains(DirtyFlags::MENU_SELECTION));
+}
+
 #[test]
 fn test_available_height() {
     let mut state = AppState::default();

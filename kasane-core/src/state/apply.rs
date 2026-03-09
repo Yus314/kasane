@@ -59,7 +59,7 @@ impl AppState {
                         max_height: self.menu_max_height,
                     },
                 ));
-                DirtyFlags::MENU
+                DirtyFlags::MENU_STRUCTURE
             }
             KakouneRequest::MenuSelect { selected } => {
                 if let Some(menu) = &mut self.menu {
@@ -73,7 +73,7 @@ impl AppState {
                     );
                     menu.select(selected);
                 }
-                DirtyFlags::MENU
+                DirtyFlags::MENU_SELECTION
             }
             KakouneRequest::MenuHide => {
                 self.menu = None;
