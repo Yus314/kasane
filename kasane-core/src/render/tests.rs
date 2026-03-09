@@ -1,4 +1,4 @@
-use super::test_helpers::{render_buffer, render_frame, render_status};
+use super::test_helpers::{render_buffer, render_frame, render_status, test_state_80x24};
 use super::*;
 use crate::layout::Rect;
 use crate::layout::flex;
@@ -690,15 +690,7 @@ fn test_view_cache_invalidate_options_clears_base() {
 /// Cached view output must match fresh construction.
 #[test]
 fn test_view_cached_matches_fresh() {
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
+    let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
     state.lines = vec![make_line("hello"), make_line("world")];
     state.status_line = make_line("status");
@@ -867,15 +859,7 @@ fn test_scene_cache_output_matches_uncached() {
     use super::scene_render_pipeline;
     use super::scene_render_pipeline_scene_cached;
 
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
+    let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
     state.lines = vec![make_line("hello"), make_line("world")];
     state.status_line = make_line("status");
@@ -912,15 +896,7 @@ fn test_scene_cache_output_matches_uncached() {
 fn test_scene_cache_warm_matches_cold() {
     use super::scene_render_pipeline_scene_cached;
 
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
+    let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
     state.lines = vec![make_line("hello"), make_line("world")];
     state.status_line = make_line("status");
@@ -965,15 +941,7 @@ fn test_scene_cache_warm_matches_cold() {
 fn test_scene_cache_menu_select_preserves_base() {
     use super::scene_render_pipeline_scene_cached;
 
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
+    let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
     state.lines = vec![make_line("hello")];
     state.status_line = make_line("status");
@@ -1035,15 +1003,7 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     use super::scene_render_pipeline;
     use super::scene_render_pipeline_scene_cached;
 
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
+    let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
     state.lines = vec![make_line("hello"), make_line("world")];
     state.status_line = make_line("status");
@@ -1110,15 +1070,7 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
 /// MenuSelect-only dirty should keep base cached and rebuild menu.
 #[test]
 fn test_view_cache_menu_select_reuses_base() {
-    let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Named(NamedColor::Black),
-        ..Face::default()
-    };
-    state.padding_face = state.default_face;
+    let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
     state.lines = vec![make_line("hello")];
     state.status_line = make_line("status");

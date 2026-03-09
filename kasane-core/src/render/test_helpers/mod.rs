@@ -163,3 +163,24 @@ pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWind
     };
     super::paint::paint_shadow(grid, &rect);
 }
+
+/// Standard 80×24 AppState with reasonable default faces.
+/// Tests can customize individual fields after the call.
+pub(super) fn test_state_80x24() -> AppState {
+    use crate::protocol::{Color, Face, NamedColor};
+    let mut state = AppState::default();
+    state.cols = 80;
+    state.rows = 24;
+    state.default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state.padding_face = state.default_face;
+    state.status_default_face = Face {
+        fg: Color::Named(NamedColor::Cyan),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state
+}

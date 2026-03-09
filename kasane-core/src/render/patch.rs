@@ -352,20 +352,7 @@ mod tests {
     use crate::test_utils::make_line;
 
     fn test_state() -> AppState {
-        let mut state = AppState::default();
-        state.cols = 80;
-        state.rows = 24;
-        state.default_face = Face {
-            fg: Color::Named(NamedColor::White),
-            bg: Color::Named(NamedColor::Black),
-            ..Face::default()
-        };
-        state.padding_face = state.default_face;
-        state.status_default_face = Face {
-            fg: Color::Named(NamedColor::Cyan),
-            bg: Color::Named(NamedColor::Black),
-            ..Face::default()
-        };
+        let mut state = crate::render::test_helpers::test_state_80x24();
         state.lines = vec![make_line("hello"), make_line("world")];
         state.status_line = vec![Atom {
             face: Face::default(),
