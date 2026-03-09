@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773038783410,
+  "lastUpdate": 1773040816946,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3095,6 +3095,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7643,
             "range": "± 16",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "d64e39dab027c86e2b84156b7ff9906648909497",
+          "message": "feat(render): two-column inline completion menu\n\nRender inline completion menus with separate candidate and docstring\ncolumns, eliminating the excessive padding that Kakoune inserts for\nalignment. Candidate column is capped at 40% of screen width; longer\ncandidates are truncated with \"…\".\n\n- truncate_atoms(): grapheme-aware truncation with ellipsis\n- build_split_item_element(): flat StyledLine with candidate+gap+doc\n- build_menu_inline: uses effective_content_width for narrower menus\n- build_replacement_menu_overlay / get_menu_rect: use effective width\n- MenuSelectionPatch: disabled for two-column menus (sectioned repaint\n  handles them efficiently)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T16:08:25+09:00",
+          "tree_id": "ba0ec96948592d8a4d3234dd4753d026bec9b9dc",
+          "url": "https://github.com/Yus314/kasane/commit/d64e39dab027c86e2b84156b7ff9906648909497"
+        },
+        "date": 1773040816663,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 150915,
+            "range": "± 2930",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 882892,
+            "range": "± 24228",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2119,
+            "range": "± 91",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 144561,
+            "range": "± 1709",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 156658,
+            "range": "± 7239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 121801,
+            "range": "± 3735",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3528755,
+            "range": "± 8434",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15830088,
+            "range": "± 55621",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1797083,
+            "range": "± 5518",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16613891,
+            "range": "± 100442",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7408,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55100,
+            "range": "± 704",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 637,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7659,
+            "range": "± 35",
             "unit": "ns/iter"
           }
         ]
