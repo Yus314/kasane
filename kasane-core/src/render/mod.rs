@@ -1,7 +1,6 @@
 pub mod cache;
 mod grid;
 pub mod markup;
-pub(crate) mod menu;
 pub mod paint;
 pub mod patch;
 pub mod scene;

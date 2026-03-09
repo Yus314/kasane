@@ -1,4 +1,5 @@
 pub(in crate::render) mod info;
+pub(in crate::render) mod menu;
 
 use super::grid::{self, CellGrid};
 use crate::state::AppState;
@@ -55,7 +56,7 @@ pub(super) fn render_frame(state: &AppState, grid: &mut CellGrid) {
     grid.clear(&state.default_face);
     render_buffer(state, grid); // Layer 0
     render_status(state, grid); // Layer 1
-    super::menu::render_menu(state, grid); // Layer 2 (+ shadow)
+    self::menu::render_menu(state, grid); // Layer 2 (+ shadow)
     info::render_info(state, grid); // Layer 3 (+ shadow)
 }
 

@@ -1,16 +1,9 @@
-#[cfg(test)]
-use super::grid::CellGrid;
-#[cfg(test)]
+use super::super::grid::CellGrid;
 use crate::layout::line_display_width;
-#[cfg(test)]
 use crate::protocol::MenuStyle;
-#[cfg(test)]
-use crate::state::AppState;
-#[cfg(test)]
-use crate::state::MenuState;
+use crate::state::{AppState, MenuState};
 
-#[cfg(test)]
-pub(super) fn render_menu(state: &AppState, grid: &mut CellGrid) {
+pub(in crate::render) fn render_menu(state: &AppState, grid: &mut CellGrid) {
     let menu = match &state.menu {
         Some(m) => m,
         None => return,
@@ -29,7 +22,6 @@ pub(super) fn render_menu(state: &AppState, grid: &mut CellGrid) {
 
 /// Draw a vertical scrollbar in the rightmost column of a region.
 /// Uses Kakoune's scrollbar calculation from terminal_ui.cc draw_menu.
-#[cfg(test)]
 fn draw_scrollbar(
     grid: &mut CellGrid,
     x: u16,
@@ -69,7 +61,6 @@ fn draw_scrollbar(
 
 /// Render an inline-style menu: vertical floating window without borders,
 /// with a scrollbar on the right edge.
-#[cfg(test)]
 fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
     use crate::layout::{MenuPlacement, layout_menu_inline};
 
@@ -133,7 +124,6 @@ fn render_menu_inline(menu: &MenuState, grid: &mut CellGrid) {
 
 /// Render a prompt-style menu: horizontal multi-column layout above the status bar.
 /// Items are arranged in column-major order with column-based scrolling.
-#[cfg(test)]
 fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
     if menu.items.is_empty() || menu.win_height == 0 || menu.columns == 0 {
         return;
@@ -201,7 +191,6 @@ fn render_menu_prompt(menu: &MenuState, grid: &mut CellGrid) {
 
 /// Render a search-style menu: single line of horizontally laid out items
 /// above the status bar, with `< ` / ` >` scroll indicators.
-#[cfg(test)]
 fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
     if menu.items.is_empty() {
         return;
