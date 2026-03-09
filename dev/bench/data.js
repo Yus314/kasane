@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773042953532,
+  "lastUpdate": 1773056536923,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3311,6 +3311,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7441,
             "range": "± 38",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "76a01d3ea53b1aff9be042aff6c9749ab246b31c",
+          "message": "feat(plugin): fix three critical blockers for real plugin usage\n\n1. Command::RequestRedraw(DirtyFlags): plugins can now trigger redraws\n   by returning RequestRedraw commands. extract_redraw_flags() merges\n   flags before returning from update().\n\n2. Plugin::contribute_overlay(): plugins can specify overlay positioning\n   via OverlayAnchor (AnchorPoint/Absolute) instead of being forced to\n   full-screen. Legacy Slot::Overlay is preserved with backward-compat\n   wrapping. PluginRegistry::collect_overlays() replaces inline code in\n   view_sections_cached().\n\n3. Mouse event routing via HitMap: flat precomputed map of interactive\n   regions, stored on PluginRegistry, rebuilt after each render frame.\n   Mouse events are hit-tested and routed to plugins before Kakoune\n   forwarding. Integrated in both TUI and GUI backends.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T20:31:15+09:00",
+          "tree_id": "e40f0fabcf9d501d0de3fd62bc3ddd89036d969f",
+          "url": "https://github.com/Yus314/kasane/commit/76a01d3ea53b1aff9be042aff6c9749ab246b31c"
+        },
+        "date": 1773056536595,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 148327,
+            "range": "± 2917",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 838648,
+            "range": "± 2423",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2005,
+            "range": "± 172",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 137275,
+            "range": "± 596",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 160554,
+            "range": "± 5630",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 125233,
+            "range": "± 3459",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3406547,
+            "range": "± 7110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15756756,
+            "range": "± 189569",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1757277,
+            "range": "± 5082",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16306342,
+            "range": "± 125972",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7974,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 59505,
+            "range": "± 574",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 620,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7581,
+            "range": "± 20",
             "unit": "ns/iter"
           }
         ]
