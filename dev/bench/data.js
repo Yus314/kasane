@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773056536923,
+  "lastUpdate": 1773059068244,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3419,6 +3419,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7581,
             "range": "± 20",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "230576259ecbee1f4d703b05e92277d10f477b6f",
+          "message": "feat(plugin): add lifecycle hooks, input observation, line decoration, menu transform, and command extension\n\nImplement Phase 4a plugin extensibility improvements:\n\n- Lifecycle: on_init/on_shutdown/on_state_changed hooks with PluginRegistry\n  init_all/shutdown_all orchestration\n- Input: observe_key/observe_mouse (non-consuming notification), reorder\n  dispatch so plugins can override builtin PageUp/PageDown\n- Line decoration: LineDecoration struct with left/right gutter elements\n  and per-line background override via contribute_line\n- Menu transform: transform_menu_item for per-item customization\n- Commands: ScheduleTimer, PluginMessage, SetConfig via DeferredCommand\n  extraction and recursive handling in both TUI and GUI event loops\n- AppState helpers: visible_line_range, buffer_line_count, has_menu,\n  has_info, is_prompt_mode\n- Proc macro: codegen for all new Plugin trait methods\n- Tests: 20+ new unit tests, 4 trybuild pass cases\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T21:13:26+09:00",
+          "tree_id": "13d09a6dc49b5e26009ab3149ab8da932f38ae57",
+          "url": "https://github.com/Yus314/kasane/commit/230576259ecbee1f4d703b05e92277d10f477b6f"
+        },
+        "date": 1773059067398,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 148138,
+            "range": "± 550",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 895069,
+            "range": "± 32289",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2058,
+            "range": "± 124",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 143517,
+            "range": "± 1037",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 157152,
+            "range": "± 5945",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 121814,
+            "range": "± 3549",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3423570,
+            "range": "± 16087",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15725817,
+            "range": "± 94415",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1760739,
+            "range": "± 6056",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16358313,
+            "range": "± 181337",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7972,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55526,
+            "range": "± 266",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 579,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7450,
+            "range": "± 53",
             "unit": "ns/iter"
           }
         ]
