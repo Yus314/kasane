@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773059068244,
+  "lastUpdate": 1773061284847,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3527,6 +3527,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7450,
             "range": "± 53",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "6ecf4c50d886ea0c6ec33c4420be15355098e660",
+          "message": "feat(plugin): add slot cache with L1 state hash and L3 DirtyFlags auto-derivation\n\nImplement ADR-010 Stage 5 L1+L3 optimizations for plugin rendering.\nWhen build_base() is recomputed (ViewCache miss), individual plugins'\ncontribute() calls are now skipped if:\n- L1: Plugin internal state hash unchanged (detected by DefaultHasher)\n- L3: The AppState fields the slot function reads haven't changed\n  (detected by auto-derived DirtyFlags from macro body analysis)\n\nKey changes:\n- Extract shared StateFieldVisitor/FIELD_FLAG_MAP into analysis.rs\n- Add Slot::index()/COUNT/ALL_VARIANTS for array-based cache indexing\n- Add Plugin::state_hash() and Plugin::slot_deps() trait methods\n- Add PluginSlotCache with RefCell in PluginRegistry\n- prepare_plugin_cache() two-level invalidation before each frame\n- #[kasane::plugin] macro: derive(Hash) on #[state], auto-derive slot_deps\n- Integration in both TUI and GUI event loops\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-09T21:50:08+09:00",
+          "tree_id": "af2432e3bbb127c14a51a0b5b415887b42535f4a",
+          "url": "https://github.com/Yus314/kasane/commit/6ecf4c50d886ea0c6ec33c4420be15355098e660"
+        },
+        "date": 1773061284487,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 145310,
+            "range": "± 1390",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 838797,
+            "range": "± 3679",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2039,
+            "range": "± 99",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 136641,
+            "range": "± 1968",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 156454,
+            "range": "± 5890",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 122801,
+            "range": "± 5499",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3407753,
+            "range": "± 31180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15739386,
+            "range": "± 50815",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1765958,
+            "range": "± 21481",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16292508,
+            "range": "± 363262",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7407,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55563,
+            "range": "± 204",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 575,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7452,
+            "range": "± 19",
             "unit": "ns/iter"
           }
         ]
