@@ -11,7 +11,7 @@ use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::plugin::{Command, CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::{CellGrid, RenderBackend, scene_render_pipeline};
+use kasane_core::render::{CellGrid, RenderBackend, ViewCache, scene_render_pipeline_cached};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use crate::GuiEvent;
@@ -54,6 +54,9 @@ pub struct App<W: Write + Send + 'static> {
     color_resolver: Option<ColorResolver>,
     scroll_amount: i32,
 
+    // View cache
+    view_cache: ViewCache,
+
     // Cursor animation
     cursor_animation: CursorAnimation,
 }
@@ -80,6 +83,7 @@ impl<W: Write + Send + 'static> App<W> {
             scroll_amount,
             config,
             color_resolver: None,
+            view_cache: ViewCache::new(),
             cursor_animation: CursorAnimation::new(),
         }
     }
@@ -257,7 +261,13 @@ impl<W: Write + Send + 'static> App<W> {
         };
 
         let cell_size = sr.cell_size();
-        let (commands, result) = scene_render_pipeline(&self.state, &self.registry, cell_size);
+        let (commands, result) = scene_render_pipeline_cached(
+            &self.state,
+            &self.registry,
+            cell_size,
+            self.dirty,
+            &mut self.view_cache,
+        );
 
         // Update cursor animation
         self.cursor_animation

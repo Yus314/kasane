@@ -8,11 +8,78 @@ use crate::element::{Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
 use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, Slot};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
+use crate::render::ViewCache;
 use crate::state::AppState;
 
-/// Build the full Element tree from application state.
+/// Build the full Element tree from application state (backward-compatible).
 pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
+    view_cached(state, registry, &mut ViewCache::new())
+}
+
+/// Build the full Element tree with subtree memoization via ViewCache.
+pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut ViewCache) -> Element {
     crate::perf::perf_span!("view");
+
+    // Section 1: Base (buffer + status bar + plugin slots)
+    let base = match cache.base {
+        Some(ref cached) => cached.clone(),
+        None => {
+            let b = build_base(state, registry);
+            cache.base = Some(b.clone());
+            b
+        }
+    };
+
+    // Collect overlays
+    let mut overlays = Vec::new();
+
+    // Section 2: Menu overlay
+    let menu_overlay = match cache.menu_overlay {
+        Some(ref cached) => cached.clone(),
+        None => {
+            let m = build_menu_section(state, registry);
+            cache.menu_overlay = Some(m.clone());
+            m
+        }
+    };
+    if let Some(overlay) = menu_overlay {
+        overlays.push(overlay);
+    }
+
+    // Section 3: Info overlays
+    let info_overlays = match cache.info_overlays {
+        Some(ref cached) => cached.clone(),
+        None => {
+            let infos = build_info_section(state, registry);
+            cache.info_overlays = Some(infos.clone());
+            infos
+        }
+    };
+    overlays.extend(info_overlays);
+
+    // Section 4: Plugin overlays (always rebuilt — no plugins yet)
+    let plugin_overlays = registry.collect_slot(Slot::Overlay, state);
+    for el in plugin_overlays {
+        overlays.push(Overlay {
+            element: el,
+            anchor: OverlayAnchor::Absolute {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            },
+        });
+    }
+
+    if overlays.is_empty() {
+        base
+    } else {
+        Element::stack(base, overlays)
+    }
+}
+
+/// Build the base layout: buffer + status bar + plugin slots.
+fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_rows = state.available_height() as usize;
 
     // Collect plugin slots
@@ -23,7 +90,6 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     let above_status = registry.collect_slot(Slot::AboveStatus, state);
     let status_left = registry.collect_slot(Slot::StatusLeft, state);
     let status_right = registry.collect_slot(Slot::StatusRight, state);
-    let plugin_overlays = registry.collect_slot(Slot::Overlay, state);
 
     // Build buffer row (center area + optional sidebars)
     let buffer_element = Element::buffer_ref(0..buffer_rows);
@@ -77,94 +143,71 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
         column_children.push(FlexChild::fixed(status_bar));
     }
 
-    let base = Element::column(column_children);
+    Element::column(column_children)
+}
 
-    // Collect overlays
+/// Build the menu overlay section.
+fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Overlay> {
+    let menu_state = state.menu.as_ref()?;
+    let replace_target = match menu_state.style {
+        MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
+        MenuStyle::Inline => ReplaceTarget::MenuInline,
+        MenuStyle::Search => ReplaceTarget::MenuSearch,
+    };
+    let menu_overlay = match registry.get_replacement(replace_target, state) {
+        Some(replacement) => menu::build_replacement_menu_overlay(replacement, menu_state, state),
+        None => menu::build_menu_overlay(menu_state, state),
+    };
+    menu_overlay.map(|mut overlay| {
+        overlay.element = registry.apply_decorator(DecorateTarget::Menu, overlay.element, state);
+        overlay
+    })
+}
+
+/// Build info overlay section with collision avoidance.
+fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
+    let menu_rect = super::menu::get_menu_rect(state);
+    let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
+    if let Some(mr) = menu_rect {
+        avoid_rects.push(mr);
+    }
+    // Add cursor position as a 1×1 avoid rect (collision avoidance)
+    avoid_rects.push(crate::layout::Rect {
+        x: state.cursor_pos.column as u16,
+        y: state.cursor_pos.line as u16,
+        w: 1,
+        h: 1,
+    });
+
     let mut overlays = Vec::new();
-
-    if let Some(ref menu_state) = state.menu {
-        let replace_target = match menu_state.style {
-            MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
-            MenuStyle::Inline => ReplaceTarget::MenuInline,
-            MenuStyle::Search => ReplaceTarget::MenuSearch,
+    for (info_idx, info_state) in state.infos.iter().enumerate() {
+        let replace_target = match info_state.style {
+            InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
+            InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
+            _ => None,
         };
-        let menu_overlay = match registry.get_replacement(replace_target, state) {
+        let info_overlay = match replace_target.and_then(|t| registry.get_replacement(t, state)) {
             Some(replacement) => {
-                menu::build_replacement_menu_overlay(replacement, menu_state, state)
+                info::build_replacement_info_overlay(replacement, info_state, state, &avoid_rects)
             }
-            None => menu::build_menu_overlay(menu_state, state),
+            None => info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx),
         };
-        if let Some(mut overlay) = menu_overlay {
+        if let Some(mut overlay) = info_overlay {
+            // Track this overlay's rect for subsequent infos to avoid
+            if let OverlayAnchor::Absolute { x, y, w, h } = &overlay.anchor {
+                avoid_rects.push(crate::layout::Rect {
+                    x: *x,
+                    y: *y,
+                    w: *w,
+                    h: *h,
+                });
+            }
             overlay.element =
-                registry.apply_decorator(DecorateTarget::Menu, overlay.element, state);
+                registry.apply_decorator(DecorateTarget::Info, overlay.element, state);
             overlays.push(overlay);
         }
     }
-
-    {
-        let menu_rect = super::menu::get_menu_rect(state);
-        let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
-        if let Some(mr) = menu_rect {
-            avoid_rects.push(mr);
-        }
-        // Add cursor position as a 1×1 avoid rect (collision avoidance)
-        avoid_rects.push(crate::layout::Rect {
-            x: state.cursor_pos.column as u16,
-            y: state.cursor_pos.line as u16,
-            w: 1,
-            h: 1,
-        });
-
-        for (info_idx, info_state) in state.infos.iter().enumerate() {
-            let replace_target = match info_state.style {
-                InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
-                InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
-                _ => None,
-            };
-            let info_overlay = match replace_target.and_then(|t| registry.get_replacement(t, state))
-            {
-                Some(replacement) => info::build_replacement_info_overlay(
-                    replacement,
-                    info_state,
-                    state,
-                    &avoid_rects,
-                ),
-                None => info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx),
-            };
-            if let Some(mut overlay) = info_overlay {
-                // Track this overlay's rect for subsequent infos to avoid
-                if let OverlayAnchor::Absolute { x, y, w, h } = &overlay.anchor {
-                    avoid_rects.push(crate::layout::Rect {
-                        x: *x,
-                        y: *y,
-                        w: *w,
-                        h: *h,
-                    });
-                }
-                overlay.element =
-                    registry.apply_decorator(DecorateTarget::Info, overlay.element, state);
-                overlays.push(overlay);
-            }
-        }
-    }
-
-    for el in plugin_overlays {
-        overlays.push(Overlay {
-            element: el,
-            anchor: OverlayAnchor::Absolute {
-                x: 0,
-                y: 0,
-                w: state.cols,
-                h: state.rows,
-            },
-        });
-    }
-
-    if overlays.is_empty() {
-        base
-    } else {
-        Element::stack(base, overlays)
-    }
+    overlays
 }
 
 fn build_status_bar(

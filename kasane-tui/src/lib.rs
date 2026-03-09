@@ -10,7 +10,7 @@ use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::plugin::{CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KakouneRequest;
-use kasane_core::render::{CellGrid, RenderBackend, render_pipeline};
+use kasane_core::render::{CellGrid, RenderBackend, ViewCache, render_pipeline_cached};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use backend::TuiBackend;
@@ -134,6 +134,7 @@ where
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
+    let mut view_cache = ViewCache::new();
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
@@ -240,7 +241,8 @@ where
 
         if !dirty.is_empty() {
             backend.begin_frame()?;
-            let result = render_pipeline(&state, &registry, &mut grid);
+            let result =
+                render_pipeline_cached(&state, &registry, &mut grid, dirty, &mut view_cache);
             let diffs = grid.diff();
             backend.draw(&diffs)?;
             backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;

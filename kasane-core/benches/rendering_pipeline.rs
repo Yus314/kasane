@@ -6,8 +6,10 @@ use kasane_core::layout::flex;
 use kasane_core::plugin::{DecorateTarget, PluginRegistry, Slot};
 use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
+use kasane_core::render::ViewCache;
 use kasane_core::render::paint;
 use kasane_core::render::view;
+use kasane_core::state::DirtyFlags;
 
 use fixtures::{
     draw_json, draw_request, draw_status_json, menu_show_json, realistic_state,
@@ -678,6 +680,42 @@ fn bench_scaling(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// View cache benchmarks
+// ---------------------------------------------------------------------------
+
+/// Bench: ViewCache warm vs cold on menu selection change
+fn bench_view_cache(c: &mut Criterion) {
+    let mut group = c.benchmark_group("view_cache");
+
+    let state = state_with_menu(50);
+    let registry = PluginRegistry::new();
+
+    // Cold: fresh cache (baseline — equivalent to uncached view)
+    group.bench_function("menu_select_cold", |b| {
+        b.iter(|| {
+            let mut cache = ViewCache::new();
+            cache.invalidate(DirtyFlags::ALL);
+            view::view_cached(&state, &registry, &mut cache)
+        });
+    });
+
+    // Warm: base is cached, only MENU_SELECTION is dirty
+    group.bench_function("menu_select_warm", |b| {
+        // Pre-populate cache
+        let mut cache = ViewCache::new();
+        cache.invalidate(DirtyFlags::ALL);
+        let _ = view::view_cached(&state, &registry, &mut cache);
+
+        b.iter(|| {
+            cache.invalidate(DirtyFlags::MENU_SELECTION);
+            view::view_cached(&state, &registry, &mut cache)
+        });
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Allocation benchmarks (feature-gated)
 // ---------------------------------------------------------------------------
 
@@ -918,11 +956,13 @@ criterion_group!(
         bench_scaling,
 );
 
+criterion_group!(cache, bench_view_cache);
+
 #[cfg(not(feature = "bench-alloc"))]
-criterion_main!(micro, integration, extended);
+criterion_main!(micro, integration, extended, cache);
 
 #[cfg(feature = "bench-alloc")]
 criterion_group!(alloc_benches, bench_allocations);
 
 #[cfg(feature = "bench-alloc")]
-criterion_main!(micro, integration, extended, alloc_benches);
+criterion_main!(micro, integration, extended, cache, alloc_benches);

@@ -16,11 +16,12 @@ pub use grid::{Cell, CellDiff, CellGrid};
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom};
 pub use theme::Theme;
 
+use crate::element::{Element, Overlay};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::plugin::PluginRegistry;
 use crate::protocol::CursorMode;
-use crate::state::AppState;
+use crate::state::{AppState, DirtyFlags};
 
 // ---------------------------------------------------------------------------
 // RenderBackend trait
@@ -121,6 +122,41 @@ pub fn clear_block_cursor_face(state: &AppState, grid: &mut CellGrid, style: Cur
 }
 
 // ---------------------------------------------------------------------------
+// ViewCache — subtree memoization for view()
+// ---------------------------------------------------------------------------
+
+/// Cache for memoized view subtrees. Each field stores the result of a view
+/// section so it can be reused when the corresponding DirtyFlags are not set.
+#[derive(Debug, Default)]
+pub struct ViewCache {
+    /// Base layout: buffer + status bar + plugin slots.
+    pub(crate) base: Option<Element>,
+    /// Menu overlay. `None` = uncached, `Some(None)` = no menu, `Some(Some(_))` = cached overlay.
+    pub(crate) menu_overlay: Option<Option<Overlay>>,
+    /// Info overlays.
+    pub(crate) info_overlays: Option<Vec<Overlay>>,
+}
+
+impl ViewCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Invalidate cached sections based on which flags are dirty.
+    pub fn invalidate(&mut self, dirty: DirtyFlags) {
+        if dirty.intersects(DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
+            self.base = None;
+        }
+        if dirty.intersects(DirtyFlags::MENU) {
+            self.menu_overlay = None;
+        }
+        if dirty.intersects(DirtyFlags::INFO) {
+            self.info_overlays = None;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Declarative render pipeline
 // ---------------------------------------------------------------------------
 
@@ -131,16 +167,33 @@ pub struct RenderResult {
     pub cursor_style: CursorStyle,
 }
 
-/// GUI 用シーンレンダリングパイプライン。
-/// view → layout → scene_paint → cursor を実行し、DrawCommand リストを返す。
+/// GUI 用シーンレンダリングパイプライン (backward-compatible).
 pub fn scene_render_pipeline(
     state: &AppState,
     registry: &PluginRegistry,
     cell_size: scene::CellSize,
 ) -> (Vec<DrawCommand>, RenderResult) {
+    scene_render_pipeline_cached(
+        state,
+        registry,
+        cell_size,
+        DirtyFlags::ALL,
+        &mut ViewCache::new(),
+    )
+}
+
+/// GUI 用シーンレンダリングパイプライン (cached variant).
+pub fn scene_render_pipeline_cached(
+    state: &AppState,
+    registry: &PluginRegistry,
+    cell_size: scene::CellSize,
+    dirty: DirtyFlags,
+    cache: &mut ViewCache,
+) -> (Vec<DrawCommand>, RenderResult) {
     crate::perf::perf_span!("scene_render_pipeline");
 
-    let element = view::view(state, registry);
+    cache.invalidate(dirty);
+    let element = view::view_cached(state, registry, cache);
     let root_area = Rect {
         x: 0,
         y: 0,
@@ -167,16 +220,33 @@ pub fn scene_render_pipeline(
     )
 }
 
-/// 宣言的レンダリングパイプラインを実行する。
-/// view → layout → paint → cursor 処理を行い、grid を更新する。
+/// 宣言的レンダリングパイプライン (backward-compatible).
 pub fn render_pipeline(
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
 ) -> RenderResult {
+    render_pipeline_cached(
+        state,
+        registry,
+        grid,
+        DirtyFlags::ALL,
+        &mut ViewCache::new(),
+    )
+}
+
+/// 宣言的レンダリングパイプライン (cached variant).
+pub fn render_pipeline_cached(
+    state: &AppState,
+    registry: &PluginRegistry,
+    grid: &mut CellGrid,
+    dirty: DirtyFlags,
+    cache: &mut ViewCache,
+) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
-    let element = view::view(state, registry);
+    cache.invalidate(dirty);
+    let element = view::view_cached(state, registry, cache);
     let root_area = Rect {
         x: 0,
         y: 0,
