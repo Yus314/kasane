@@ -155,14 +155,7 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
         FlexChild::flexible(Element::text("", info.face), 1.0),
     ]);
     let container = Element::stack(
-        Element::Container {
-            child: Box::new(base),
-            border: None,
-            shadow: false,
-            padding: Edges::ZERO,
-            style: Style::from(info.face),
-            title: None,
-        },
+        Element::container(base, Style::from(info.face)),
         vec![Overlay {
             element: framed_content,
             anchor: OverlayAnchor::Absolute {
@@ -221,16 +214,7 @@ fn build_info_framed(
 fn build_info_nonframed(info: &InfoState, win: &layout::FloatingWindow) -> Option<Element> {
     let content_col = build_content_column(&info.content, win.width, win.height, &info.face);
 
-    let container = Element::Container {
-        child: Box::new(content_col),
-        border: None,
-        shadow: false,
-        padding: Edges::ZERO,
-        style: Style::from(info.face),
-        title: None,
-    };
-
-    Some(container)
+    Some(Element::container(content_col, Style::from(info.face)))
 }
 
 /// Word-wrap content lines and produce resolved StyledLine atoms per visual row.

@@ -346,17 +346,11 @@ pub(crate) fn resolve_face(atom_face: &Face, base: &Face) -> Face {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Attributes, Color, Face, Line, NamedColor};
+    use crate::protocol::{Atom, Attributes, Color, Face, NamedColor};
+    use crate::test_utils::make_line;
 
     fn default_face() -> Face {
         Face::default()
-    }
-
-    fn make_line(text: &str) -> Line {
-        vec![Atom {
-            face: default_face(),
-            contents: text.into(),
-        }]
     }
 
     #[test]

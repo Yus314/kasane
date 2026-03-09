@@ -85,11 +85,7 @@ mod tests {
     use crate::layout::Rect;
     use crate::layout::flex::place;
     use crate::protocol::Face;
-    use crate::state::AppState;
-
-    fn default_state() -> AppState {
-        AppState::default()
-    }
+    use crate::test_utils::*;
 
     #[test]
     fn test_hit_interactive_inside() {

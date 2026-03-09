@@ -6,6 +6,13 @@ pub mod scene_renderer;
 
 pub use metrics::CellMetrics;
 
+/// Width of the cursor bar (CursorStyle::Bar) in pixels.
+pub(crate) const CURSOR_BAR_WIDTH: f32 = 2.0;
+/// Height of the cursor underline (CursorStyle::Underline) in pixels.
+pub(crate) const CURSOR_UNDERLINE_HEIGHT: f32 = 2.0;
+/// Thickness of the cursor outline (CursorStyle::Outline) border in pixels.
+pub(crate) const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
+
 use std::sync::Arc;
 
 use glyphon::Family;

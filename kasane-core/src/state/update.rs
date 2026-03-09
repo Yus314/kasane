@@ -48,18 +48,16 @@ pub fn update(
             if key.modifiers.is_empty() {
                 match key.key {
                     Key::PageUp => {
-                        let visible_lines = compute_visible_lines(state);
                         let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
-                            amount: -(visible_lines as i32),
+                            amount: -(state.available_height() as i32),
                             line: state.cursor_pos.line as u32,
                             column: state.cursor_pos.column as u32,
                         });
                         return (DirtyFlags::empty(), vec![cmd]);
                     }
                     Key::PageDown => {
-                        let visible_lines = compute_visible_lines(state);
                         let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
-                            amount: visible_lines as i32,
+                            amount: state.available_height() as i32,
                             line: state.cursor_pos.line as u32,
                             column: state.cursor_pos.column as u32,
                         });
@@ -246,10 +244,4 @@ fn handle_info_scroll(state: &mut AppState, mouse: &input::MouseEvent) -> bool {
         }
     }
     false
-}
-
-/// Compute the number of visible buffer lines for PageUp/PageDown scrolling.
-pub(super) fn compute_visible_lines(state: &AppState) -> u16 {
-    // Subtract 1 for the status bar row
-    state.available_height()
 }

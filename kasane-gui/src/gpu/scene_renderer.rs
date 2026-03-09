@@ -12,17 +12,10 @@ use winit::dpi::PhysicalSize;
 
 use kasane_core::element::BorderLineStyle;
 
-use super::CellMetrics;
 use super::bg_pipeline::BgPipeline;
 use super::border_pipeline::BorderPipeline;
+use super::{CURSOR_BAR_WIDTH, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT, CellMetrics};
 use crate::colors::ColorResolver;
-
-/// Width of the cursor bar (CursorStyle::Bar) in pixels.
-const CURSOR_BAR_WIDTH: f32 = 2.0;
-/// Height of the cursor underline (CursorStyle::Underline) in pixels.
-const CURSOR_UNDERLINE_HEIGHT: f32 = 2.0;
-/// Thickness of the cursor outline (CursorStyle::Outline) border in pixels.
-const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
 
 /// Scene-based GPU renderer that processes DrawCommands directly,
 /// bypassing the CellGrid intermediate representation.

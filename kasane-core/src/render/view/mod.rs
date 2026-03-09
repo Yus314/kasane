@@ -198,14 +198,10 @@ fn build_status_bar(
         children.push(FlexChild::fixed(mode_line));
     }
 
-    Element::Container {
-        child: Box::new(Element::row(children)),
-        border: None,
-        shadow: false,
-        padding: crate::element::Edges::ZERO,
-        style: Style::from(state.status_default_face),
-        title: None,
-    }
+    Element::container(
+        Element::row(children),
+        Style::from(state.status_default_face),
+    )
 }
 
 /// Build a StyledLine element from a protocol Line, resolving faces against a base.

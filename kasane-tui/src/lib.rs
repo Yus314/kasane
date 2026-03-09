@@ -1,5 +1,5 @@
-pub mod backend;
-pub mod input;
+mod backend;
+mod input;
 
 use std::io::Write;
 

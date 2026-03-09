@@ -1,4 +1,4 @@
-use crate::element::{Edges, Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
+use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::protocol::{Atom, Face, MenuStyle};
 use crate::state::{AppState, MenuState};
@@ -82,6 +82,21 @@ fn menu_placement(state: &AppState) -> MenuPlacement {
     MenuPlacement::from(state.menu_position)
 }
 
+/// Build a single menu item element: face selection + styled line + container wrap.
+fn build_menu_item_element(menu: &MenuState, item_idx: usize, width: u16) -> Element {
+    let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
+        menu.selected_item_face
+    } else {
+        menu.menu_face
+    };
+    let item = if item_idx < menu.items.len() {
+        build_styled_line_with_base(&menu.items[item_idx], &face, width)
+    } else {
+        Element::text("", face)
+    };
+    Element::container(item, Style::from(face))
+}
+
 fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     let win_w = (menu.max_item_width + 1).min(state.cols);
     let content_w = win_w.saturating_sub(1);
@@ -101,32 +116,12 @@ fn build_menu_inline(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     }
 
     // Build item rows
-    let mut item_rows: Vec<FlexChild> = Vec::new();
-    for line in 0..win.height {
-        let item_idx = menu.first_item + line as usize;
-        let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
-            menu.selected_item_face
-        } else {
-            menu.menu_face
-        };
-
-        let item_element = if item_idx < menu.items.len() {
-            build_styled_line_with_base(&menu.items[item_idx], &face, content_w)
-        } else {
-            Element::text("", face)
-        };
-
-        let padded = Element::Container {
-            child: Box::new(item_element),
-            border: None,
-            shadow: false,
-            padding: Edges::ZERO,
-            style: Style::from(face),
-            title: None,
-        };
-
-        item_rows.push(FlexChild::fixed(padded));
-    }
+    let item_rows: Vec<FlexChild> = (0..win.height)
+        .map(|line| {
+            let item_idx = menu.first_item + line as usize;
+            FlexChild::fixed(build_menu_item_element(menu, item_idx, content_w))
+        })
+        .collect();
 
     // Build scrollbar column
     let scrollbar = build_scrollbar(win.height, menu, &menu.menu_face);
@@ -162,28 +157,7 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     for line in 0..wh as usize {
         for col in 0..columns {
             let item_idx = (first_col + col) * stride + line;
-            let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
-                menu.selected_item_face
-            } else {
-                menu.menu_face
-            };
-
-            let item_element = if item_idx < menu.items.len() {
-                build_styled_line_with_base(&menu.items[item_idx], &face, col_w as u16)
-            } else {
-                Element::text("", face)
-            };
-
-            let padded = Element::Container {
-                child: Box::new(item_element),
-                border: None,
-                shadow: false,
-                padding: Edges::ZERO,
-                style: Style::from(face),
-                title: None,
-            };
-
-            grid_children.push(padded);
+            grid_children.push(build_menu_item_element(menu, item_idx, col_w as u16));
         }
     }
 
@@ -196,14 +170,7 @@ fn build_menu_prompt(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     ]);
 
     Some(Overlay {
-        element: Element::Container {
-            child: Box::new(row),
-            border: None,
-            shadow: false,
-            padding: Edges::ZERO,
-            style: Style::from(menu.menu_face),
-            title: None,
-        },
+        element: Element::container(row, Style::from(menu.menu_face)),
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y: start_y,
@@ -280,14 +247,7 @@ fn build_menu_search(menu: &MenuState, state: &AppState) -> Option<Overlay> {
         }
     }
 
-    let element = Element::Container {
-        child: Box::new(Element::StyledLine(atoms)),
-        border: None,
-        shadow: false,
-        padding: Edges::ZERO,
-        style: Style::from(menu.menu_face),
-        title: None,
-    };
+    let element = Element::container(Element::StyledLine(atoms), Style::from(menu.menu_face));
 
     Some(Overlay {
         element,
@@ -312,32 +272,12 @@ fn build_menu_search_dropdown(menu: &MenuState, state: &AppState) -> Option<Over
     // Place above the status bar
     let y = status_row.saturating_sub(win_h);
 
-    let mut item_rows: Vec<FlexChild> = Vec::new();
-    for line in 0..win_h {
-        let item_idx = menu.first_item + line as usize;
-        let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
-            menu.selected_item_face
-        } else {
-            menu.menu_face
-        };
-
-        let item_element = if item_idx < menu.items.len() {
-            build_styled_line_with_base(&menu.items[item_idx], &face, content_w)
-        } else {
-            Element::text("", face)
-        };
-
-        let padded = Element::Container {
-            child: Box::new(item_element),
-            border: None,
-            shadow: false,
-            padding: Edges::ZERO,
-            style: Style::from(face),
-            title: None,
-        };
-
-        item_rows.push(FlexChild::fixed(padded));
-    }
+    let item_rows: Vec<FlexChild> = (0..win_h)
+        .map(|line| {
+            let item_idx = menu.first_item + line as usize;
+            FlexChild::fixed(build_menu_item_element(menu, item_idx, content_w))
+        })
+        .collect();
 
     let scrollbar = build_scrollbar(win_h, menu, &menu.menu_face);
     let content_col = Element::column(item_rows);

@@ -5,6 +5,7 @@ use crate::layout::flex;
 use crate::plugin::PluginRegistry;
 use crate::protocol::{Atom, Color, Face, NamedColor};
 use crate::state::AppState;
+use crate::test_utils::make_line;
 
 #[test]
 fn test_render_buffer_resolves_default_face() {
@@ -259,13 +260,6 @@ fn test_clear_block_cursor_face_out_of_bounds() {
 }
 
 // --- Regression test: declarative pipeline vs imperative ---
-
-fn make_line(s: &str) -> Vec<Atom> {
-    vec![Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }]
-}
 
 /// Tree-sitter colors: verify that explicit RGB colors in atoms survive the
 /// full declarative pipeline (view → layout → paint) and match the old pipeline.

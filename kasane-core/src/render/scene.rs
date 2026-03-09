@@ -459,24 +459,10 @@ mod tests {
     use crate::layout::Rect;
     use crate::layout::flex::place;
     use crate::plugin::PluginRegistry;
-    use crate::protocol::{Atom, Face};
+    use crate::protocol::Face;
     use crate::render::CursorStyle;
     use crate::render::view;
-
-    fn default_state() -> AppState {
-        AppState::default()
-    }
-
-    fn root_area(w: u16, h: u16) -> Rect {
-        Rect { x: 0, y: 0, w, h }
-    }
-
-    fn make_line(s: &str) -> Vec<Atom> {
-        vec![Atom {
-            face: Face::default(),
-            contents: s.into(),
-        }]
-    }
+    use crate::test_utils::*;
 
     fn cell_size() -> CellSize {
         CellSize {

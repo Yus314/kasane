@@ -2,13 +2,7 @@ use super::*;
 use crate::element::Direction;
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
 use crate::state::AppState;
-
-fn make_line(s: &str) -> Line {
-    vec![Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }]
-}
+use crate::test_utils::make_line;
 
 #[test]
 fn test_view_empty_state() {

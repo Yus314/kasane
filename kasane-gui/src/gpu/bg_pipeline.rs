@@ -6,11 +6,11 @@ const INITIAL_BG_CAPACITY: usize = 256 * 64 + 8;
 /// Background quad rendering pipeline — owns the GPU pipeline, uniform buffer,
 /// bind group, instance buffer, and CPU-side scratch vector.
 pub struct BgPipeline {
-    pub pipeline: wgpu::RenderPipeline,
+    pipeline: wgpu::RenderPipeline,
     pub uniform_buffer: wgpu::Buffer,
-    pub uniform_bind_group: wgpu::BindGroup,
-    pub instance_buffer: wgpu::Buffer,
-    pub instance_capacity: usize,
+    uniform_bind_group: wgpu::BindGroup,
+    instance_buffer: wgpu::Buffer,
+    instance_capacity: usize,
     pub instances: Vec<f32>,
 }
 

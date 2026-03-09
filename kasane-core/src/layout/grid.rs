@@ -267,14 +267,7 @@ mod tests {
     use crate::element::{Align, Element, GridColumn};
     use crate::layout::flex::measure;
     use crate::protocol::Face;
-
-    fn default_state() -> AppState {
-        AppState::default()
-    }
-
-    fn root_area(w: u16, h: u16) -> Rect {
-        Rect { x: 0, y: 0, w, h }
-    }
+    use crate::test_utils::*;
 
     #[test]
     fn test_measure_grid_fixed_columns() {

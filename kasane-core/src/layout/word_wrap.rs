@@ -140,14 +140,7 @@ pub fn word_wrap_max_row_width(line: &Line, max_width: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Face};
-
-    fn make_line(s: &str) -> Line {
-        vec![Atom {
-            face: Face::default(),
-            contents: s.into(),
-        }]
-    }
+    use crate::test_utils::make_line;
 
     // ----- word_wrap_line_height tests -----
 

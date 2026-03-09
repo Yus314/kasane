@@ -5,7 +5,7 @@ use crate::gpu::CellMetrics;
 /// GUI backend implementing `RenderBackend`.
 ///
 /// Unlike the TUI backend, actual GPU rendering is done in `App::render_frame()`
-/// via `CellRenderer::render()` which needs the full `CellGrid`. This backend
+/// via `SceneRenderer::render()` which needs the full `CellGrid`. This backend
 /// provides the trait interface for `size()`, cursor, and clipboard operations.
 pub struct GuiBackend {
     metrics: CellMetrics,

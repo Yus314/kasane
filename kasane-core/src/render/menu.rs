@@ -328,14 +328,8 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Color, Coord, Face, Line, MenuStyle, NamedColor};
-
-    fn make_line(text: &str) -> Line {
-        vec![Atom {
-            face: Face::default(),
-            contents: text.into(),
-        }]
-    }
+    use crate::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
+    use crate::test_utils::make_line;
 
     fn make_menu_state(
         items: Vec<Line>,

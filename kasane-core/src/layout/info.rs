@@ -259,14 +259,7 @@ fn layout_info_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Atom, Face};
-
-    fn make_line(s: &str) -> Line {
-        vec![Atom {
-            face: Face::default(),
-            contents: s.into(),
-        }]
-    }
+    use crate::test_utils::make_line;
 
     #[test]
     fn test_layout_info_modal() {

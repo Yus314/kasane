@@ -217,7 +217,7 @@ fn paint_container(ctx: &mut PaintContext, args: &ContainerPaintArgs) {
     }
 }
 
-fn paint_border(
+pub(crate) fn paint_border(
     grid: &mut CellGrid,
     area: &Rect,
     face: &Face,
@@ -301,7 +301,7 @@ fn paint_border_title(
     }
 }
 
-fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
+pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
     let dim_face = Face {
         fg: Color::Default,
         bg: Color::Default,
@@ -337,22 +337,8 @@ mod tests {
         BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
     };
     use crate::layout::flex::place;
-    use crate::protocol::{Atom, Face};
-
-    fn default_state() -> AppState {
-        AppState::default()
-    }
-
-    fn root_area(w: u16, h: u16) -> Rect {
-        Rect { x: 0, y: 0, w, h }
-    }
-
-    fn make_line(s: &str) -> Vec<Atom> {
-        vec![Atom {
-            face: Face::default(),
-            contents: s.into(),
-        }]
-    }
+    use crate::protocol::Face;
+    use crate::test_utils::*;
 
     #[test]
     fn test_paint_text() {

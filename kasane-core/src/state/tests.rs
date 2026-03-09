@@ -1,15 +1,8 @@
-use super::update::compute_visible_lines;
 use super::*;
 use crate::plugin::{Command, PluginRegistry};
-use crate::protocol::{Atom, Face, InfoStyle, KakouneRequest, KasaneRequest, MenuStyle};
+use crate::protocol::{Face, InfoStyle, KakouneRequest, KasaneRequest, MenuStyle};
 use crate::render::CellGrid;
-
-fn make_line(s: &str) -> Line {
-    vec![Atom {
-        face: Face::default(),
-        contents: s.into(),
-    }]
-}
+use crate::test_utils::make_line;
 
 #[test]
 fn test_apply_draw() {
@@ -635,11 +628,11 @@ fn test_pageup_with_modifier_not_intercepted() {
 }
 
 #[test]
-fn test_compute_visible_lines() {
+fn test_available_height() {
     let mut state = AppState::default();
     state.rows = 24;
-    assert_eq!(compute_visible_lines(&state), 23);
+    assert_eq!(state.available_height(), 23);
 
     state.rows = 1;
-    assert_eq!(compute_visible_lines(&state), 0);
+    assert_eq!(state.available_height(), 0);
 }

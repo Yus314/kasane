@@ -136,57 +136,29 @@ pub(super) fn draw_border(
     truncated: bool,
     corners: (&str, &str, &str, &str), // (top-left, top-right, bottom-left, bottom-right)
 ) {
-    let x1 = win.x;
-    let y1 = win.y;
-    let x2 = win.x + win.width - 1;
-    let y2 = win.y + win.height - 1;
-    let bottom_dash = if truncated { "┄" } else { "─" };
-
-    // Corners
-    grid.put_char(x1, y1, corners.0, face);
-    grid.put_char(x2, y1, corners.1, face);
-    grid.put_char(x1, y2, corners.2, face);
-    grid.put_char(x2, y2, corners.3, face);
-
-    // Top and bottom edges
-    for x in (x1 + 1)..x2 {
-        grid.put_char(x, y1, "─", face);
-        grid.put_char(x, y2, bottom_dash, face);
-    }
-
-    // Left and right edges
-    for y in (y1 + 1)..y2 {
-        grid.put_char(x1, y, "│", face);
-        grid.put_char(x2, y, "│", face);
-    }
+    use crate::element::BorderLineStyle;
+    let border_style = match corners.0 {
+        "╭" => BorderLineStyle::Rounded,
+        "┌" => BorderLineStyle::Single,
+        "╔" => BorderLineStyle::Double,
+        "┏" => BorderLineStyle::Heavy,
+        _ => BorderLineStyle::Ascii,
+    };
+    let rect = crate::layout::Rect {
+        x: win.x,
+        y: win.y,
+        w: win.width,
+        h: win.height,
+    };
+    super::paint::paint_border(grid, &rect, face, truncated, border_style);
 }
 
 pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWindow) {
-    use crate::protocol::{Attributes, Color, Face};
-    let dim_face = Face {
-        fg: Color::Default,
-        bg: Color::Default,
-        underline: Color::Default,
-        attributes: Attributes::DIM,
+    let rect = crate::layout::Rect {
+        x: win.x,
+        y: win.y,
+        w: win.width,
+        h: win.height,
     };
-
-    // Right shadow (1 cell wide)
-    let sx = win.x + win.width;
-    if sx < grid.width() {
-        for y in (win.y + 1)..=(win.y + win.height) {
-            if y < grid.height() {
-                grid.put_char(sx, y, " ", &dim_face);
-            }
-        }
-    }
-
-    // Bottom shadow (1 cell tall)
-    let sy = win.y + win.height;
-    if sy < grid.height() {
-        for x in (win.x + 1)..=(win.x + win.width) {
-            if x < grid.width() {
-                grid.put_char(x, sy, " ", &dim_face);
-            }
-        }
-    }
+    super::paint::paint_shadow(grid, &rect);
 }
