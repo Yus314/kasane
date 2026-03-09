@@ -138,6 +138,27 @@ pub fn scene_paint(
     commands
 }
 
+/// Paint a single element subtree into a command buffer.
+/// Reusable for painting individual view sections (base, menu overlay, info overlay).
+pub fn scene_paint_section(
+    element: &Element,
+    layout: &LayoutResult,
+    state: &AppState,
+    theme: &Theme,
+    cell_size: CellSize,
+    cursor_style: super::CursorStyle,
+) -> Vec<DrawCommand> {
+    let mut commands = Vec::with_capacity(64);
+    let ctx = SceneContext {
+        state,
+        theme,
+        cell_size,
+        cursor_style,
+    };
+    scene_paint_inner(&ctx, element, layout, &mut commands);
+    commands
+}
+
 fn scene_paint_inner(
     ctx: &SceneContext,
     element: &Element,

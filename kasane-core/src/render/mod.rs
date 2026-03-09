@@ -157,14 +157,141 @@ impl ViewCache {
 }
 
 // ---------------------------------------------------------------------------
+// Overlay layout helper
+// ---------------------------------------------------------------------------
+
+/// Lay out a single overlay element against a root area.
+/// Extracts the per-overlay logic from `place_stack` for use by `SceneCache`.
+pub(crate) fn layout_overlay(
+    overlay: &Overlay,
+    root_area: Rect,
+    state: &AppState,
+) -> flex::LayoutResult {
+    let (ox, oy, ow, oh) = match &overlay.anchor {
+        crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
+            (root_area.x + *x, root_area.y + *y, *w, *h)
+        }
+        crate::element::OverlayAnchor::AnchorPoint {
+            coord,
+            prefer_above,
+            avoid,
+        } => {
+            let overlay_size = flex::measure(
+                &overlay.element,
+                flex::Constraints::loose(root_area.w, root_area.h),
+                state,
+            );
+            let (y, x) = crate::layout::compute_pos(
+                (coord.line, coord.column),
+                (overlay_size.height, overlay_size.width),
+                root_area,
+                avoid,
+                *prefer_above,
+            );
+            (x, y, overlay_size.width, overlay_size.height)
+        }
+    };
+
+    let overlay_area = Rect {
+        x: ox,
+        y: oy,
+        w: ow,
+        h: oh,
+    };
+
+    flex::place(&overlay.element, overlay_area, state)
+}
+
+// ---------------------------------------------------------------------------
 // Declarative render pipeline
 // ---------------------------------------------------------------------------
 
 /// レンダリングパイプラインの結果。バックエンド固有の描画に必要な情報を返す。
+#[derive(Debug, Clone, Copy)]
 pub struct RenderResult {
     pub cursor_x: u16,
     pub cursor_y: u16,
     pub cursor_style: CursorStyle,
+}
+
+// ---------------------------------------------------------------------------
+// SceneCache — DrawCommand-level caching per section
+// ---------------------------------------------------------------------------
+
+/// Cache for memoized `DrawCommand` lists per view section.
+/// Mirrors `ViewCache` invalidation: each DirtyFlag clears only its section.
+#[derive(Debug, Default)]
+pub struct SceneCache {
+    base_commands: Option<Vec<DrawCommand>>,
+    menu_commands: Option<Vec<DrawCommand>>,
+    info_commands: Option<Vec<DrawCommand>>,
+    composed: Vec<DrawCommand>,
+    cached_cell_size: Option<(u32, u32)>,
+    cached_dims: Option<(u16, u16)>,
+}
+
+impl SceneCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Invalidate cached sections based on dirty flags and cell size / dims changes.
+    pub fn invalidate(
+        &mut self,
+        dirty: DirtyFlags,
+        cell_size: scene::CellSize,
+        cols: u16,
+        rows: u16,
+    ) {
+        let cs_key = (cell_size.width.to_bits(), cell_size.height.to_bits());
+        let dims_key = (cols, rows);
+
+        if self.cached_cell_size != Some(cs_key) || self.cached_dims != Some(dims_key) {
+            self.base_commands = None;
+            self.menu_commands = None;
+            self.info_commands = None;
+            self.cached_cell_size = Some(cs_key);
+            self.cached_dims = Some(dims_key);
+            return;
+        }
+
+        if dirty.intersects(DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
+            self.base_commands = None;
+        }
+        if dirty.intersects(DirtyFlags::MENU) {
+            self.menu_commands = None;
+        }
+        if dirty.intersects(DirtyFlags::INFO) {
+            self.info_commands = None;
+        }
+    }
+
+    /// Returns true if all sections are cached.
+    pub fn is_fully_cached(&self) -> bool {
+        self.base_commands.is_some() && self.menu_commands.is_some() && self.info_commands.is_some()
+    }
+
+    /// Assemble the composed output from cached sections.
+    pub fn compose(&mut self) {
+        self.composed.clear();
+        if let Some(ref base) = self.base_commands {
+            self.composed.extend_from_slice(base);
+        }
+        if let Some(ref menu) = self.menu_commands
+            && !menu.is_empty()
+        {
+            self.composed.push(DrawCommand::BeginOverlay);
+            self.composed.extend_from_slice(menu);
+        }
+        if let Some(ref info) = self.info_commands {
+            self.composed.extend_from_slice(info);
+        }
+    }
+
+    /// Get a reference to the composed output.
+    pub fn composed_ref(&self) -> &[DrawCommand] {
+        &self.composed
+    }
 }
 
 /// GUI 用シーンレンダリングパイプライン (backward-compatible).
@@ -182,42 +309,135 @@ pub fn scene_render_pipeline(
     )
 }
 
-/// GUI 用シーンレンダリングパイプライン (cached variant).
+/// GUI 用シーンレンダリングパイプライン (cached variant — ViewCache only).
 pub fn scene_render_pipeline_cached(
     state: &AppState,
     registry: &PluginRegistry,
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
-    cache: &mut ViewCache,
+    view_cache: &mut ViewCache,
 ) -> (Vec<DrawCommand>, RenderResult) {
-    crate::perf::perf_span!("scene_render_pipeline");
+    let mut scene_cache = SceneCache::new();
+    let (commands, result) = scene_render_pipeline_scene_cached(
+        state,
+        registry,
+        cell_size,
+        dirty,
+        view_cache,
+        &mut scene_cache,
+    );
+    (commands.to_vec(), result)
+}
 
-    cache.invalidate(dirty);
-    let element = view::view_cached(state, registry, cache);
+/// Compute the RenderResult (cursor position + style) from AppState.
+fn compute_render_result(state: &AppState) -> RenderResult {
+    let style = cursor_style(state);
+    let cx = state.cursor_pos.column as u16;
+    let cy = match state.cursor_mode {
+        CursorMode::Prompt => state.rows.saturating_sub(1),
+        CursorMode::Buffer => state.cursor_pos.line as u16,
+    };
+    RenderResult {
+        cursor_x: cx,
+        cursor_y: cy,
+        cursor_style: style,
+    }
+}
+
+/// GUI 用シーンレンダリングパイプライン with DrawCommand-level caching.
+///
+/// Returns a slice into the SceneCache's composed buffer and the RenderResult.
+/// Per-section invalidation: only dirty sections are re-rendered.
+pub fn scene_render_pipeline_scene_cached<'a>(
+    state: &AppState,
+    registry: &PluginRegistry,
+    cell_size: scene::CellSize,
+    dirty: DirtyFlags,
+    view_cache: &mut ViewCache,
+    scene_cache: &'a mut SceneCache,
+) -> (&'a [DrawCommand], RenderResult) {
+    crate::perf::perf_span!("scene_render_pipeline_scene_cached");
+
+    let result = compute_render_result(state);
+
+    // Invalidate both caches
+    view_cache.invalidate(dirty);
+    scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
+
+    // Fast path: all sections cached
+    if scene_cache.is_fully_cached() {
+        scene_cache.compose();
+        return (scene_cache.composed_ref(), result);
+    }
+
+    // Get view sections (uses ViewCache)
+    let sections = view::view_sections_cached(state, registry, view_cache);
+
     let root_area = Rect {
         x: 0,
         y: 0,
         w: state.cols,
         h: state.rows,
     };
-    let layout_result = flex::place(&element, root_area, state);
     let theme = Theme::default_theme();
-    let style = cursor_style(state);
-    let commands = scene::scene_paint(&element, &layout_result, state, &theme, cell_size, style);
-    let cx = state.cursor_pos.column as u16;
-    let cy = match state.cursor_mode {
-        CursorMode::Prompt => state.rows.saturating_sub(1),
-        CursorMode::Buffer => state.cursor_pos.line as u16,
-    };
 
-    (
-        commands,
-        RenderResult {
-            cursor_x: cx,
-            cursor_y: cy,
-            cursor_style: style,
-        },
-    )
+    // Base section
+    if scene_cache.base_commands.is_none() {
+        let base_layout = flex::place(&sections.base, root_area, state);
+        let cmds = scene::scene_paint_section(
+            &sections.base,
+            &base_layout,
+            state,
+            &theme,
+            cell_size,
+            result.cursor_style,
+        );
+        scene_cache.base_commands = Some(cmds);
+    }
+
+    // Menu section
+    if scene_cache.menu_commands.is_none() {
+        let cmds = if let Some(ref overlay) = sections.menu_overlay {
+            let overlay_layout = layout_overlay(overlay, root_area, state);
+            scene::scene_paint_section(
+                &overlay.element,
+                &overlay_layout,
+                state,
+                &theme,
+                cell_size,
+                result.cursor_style,
+            )
+        } else {
+            Vec::new()
+        };
+        scene_cache.menu_commands = Some(cmds);
+    }
+
+    // Info + plugin overlays section
+    if scene_cache.info_commands.is_none() {
+        let mut cmds = Vec::new();
+        for overlay in sections
+            .info_overlays
+            .iter()
+            .chain(sections.plugin_overlays.iter())
+        {
+            cmds.push(DrawCommand::BeginOverlay);
+            let overlay_layout = layout_overlay(overlay, root_area, state);
+            let overlay_cmds = scene::scene_paint_section(
+                &overlay.element,
+                &overlay_layout,
+                state,
+                &theme,
+                cell_size,
+                result.cursor_style,
+            );
+            cmds.extend(overlay_cmds);
+        }
+        scene_cache.info_commands = Some(cmds);
+    }
+
+    scene_cache.compose();
+    (scene_cache.composed_ref(), result)
 }
 
 /// 宣言的レンダリングパイプライン (backward-compatible).

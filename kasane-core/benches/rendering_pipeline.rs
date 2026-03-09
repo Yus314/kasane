@@ -6,8 +6,11 @@ use kasane_core::layout::flex;
 use kasane_core::plugin::{DecorateTarget, PluginRegistry, Slot};
 use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
+use kasane_core::render::SceneCache;
 use kasane_core::render::ViewCache;
 use kasane_core::render::paint;
+use kasane_core::render::scene::CellSize;
+use kasane_core::render::scene_render_pipeline_scene_cached;
 use kasane_core::render::view;
 use kasane_core::state::DirtyFlags;
 
@@ -683,6 +686,101 @@ fn bench_scaling(c: &mut Criterion) {
 // View cache benchmarks
 // ---------------------------------------------------------------------------
 
+/// Bench: SceneCache cold (full pipeline, DirtyFlags::ALL)
+fn bench_scene_cache_cold(c: &mut Criterion) {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let cs = CellSize {
+        width: 10.0,
+        height: 20.0,
+    };
+
+    c.bench_function("scene_cache_cold", |b| {
+        b.iter(|| {
+            let mut view_cache = ViewCache::new();
+            let mut scene_cache = SceneCache::new();
+            scene_render_pipeline_scene_cached(
+                &state,
+                &registry,
+                cs,
+                DirtyFlags::ALL,
+                &mut view_cache,
+                &mut scene_cache,
+            )
+        });
+    });
+}
+
+/// Bench: SceneCache warm (all cached, near-zero work)
+fn bench_scene_cache_warm(c: &mut Criterion) {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let cs = CellSize {
+        width: 10.0,
+        height: 20.0,
+    };
+
+    // Pre-populate caches
+    let mut view_cache = ViewCache::new();
+    let mut scene_cache = SceneCache::new();
+    scene_render_pipeline_scene_cached(
+        &state,
+        &registry,
+        cs,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut scene_cache,
+    );
+
+    c.bench_function("scene_cache_warm", |b| {
+        b.iter(|| {
+            scene_render_pipeline_scene_cached(
+                &state,
+                &registry,
+                cs,
+                DirtyFlags::empty(),
+                &mut view_cache,
+                &mut scene_cache,
+            )
+        });
+    });
+}
+
+/// Bench: SceneCache with MENU_SELECTION only (base + info cached)
+fn bench_scene_cache_menu_select(c: &mut Criterion) {
+    let state = state_with_menu(50);
+    let registry = PluginRegistry::new();
+    let cs = CellSize {
+        width: 10.0,
+        height: 20.0,
+    };
+
+    // Pre-populate caches
+    let mut view_cache = ViewCache::new();
+    let mut scene_cache = SceneCache::new();
+    scene_render_pipeline_scene_cached(
+        &state,
+        &registry,
+        cs,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut scene_cache,
+    );
+
+    c.bench_function("scene_cache_menu_select", |b| {
+        b.iter(|| {
+            scene_render_pipeline_scene_cached(
+                &state,
+                &registry,
+                cs,
+                DirtyFlags::MENU_SELECTION,
+                &mut view_cache,
+                &mut scene_cache,
+            )
+        });
+    });
+}
+
 /// Bench: ViewCache warm vs cold on menu selection change
 fn bench_view_cache(c: &mut Criterion) {
     let mut group = c.benchmark_group("view_cache");
@@ -956,7 +1054,13 @@ criterion_group!(
         bench_scaling,
 );
 
-criterion_group!(cache, bench_view_cache);
+criterion_group!(
+    cache,
+    bench_view_cache,
+    bench_scene_cache_cold,
+    bench_scene_cache_warm,
+    bench_scene_cache_menu_select,
+);
 
 #[cfg(not(feature = "bench-alloc"))]
 criterion_main!(micro, integration, extended, cache);

@@ -11,7 +11,10 @@ use kasane_core::config::Config;
 use kasane_core::input::InputEvent;
 use kasane_core::plugin::{Command, CommandResult, PluginRegistry, execute_commands};
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::{CellGrid, RenderBackend, ViewCache, scene_render_pipeline_cached};
+use kasane_core::render::{
+    CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache,
+    scene_render_pipeline_scene_cached,
+};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use crate::GuiEvent;
@@ -54,11 +57,14 @@ pub struct App<W: Write + Send + 'static> {
     color_resolver: Option<ColorResolver>,
     scroll_amount: i32,
 
-    // View cache
+    // View cache + scene cache
     view_cache: ViewCache,
+    scene_cache: SceneCache,
 
     // Cursor animation
     cursor_animation: CursorAnimation,
+    cursor_dirty: bool,
+    last_render_result: Option<RenderResult>,
 }
 
 impl<W: Write + Send + 'static> App<W> {
@@ -84,7 +90,10 @@ impl<W: Write + Send + 'static> App<W> {
             config,
             color_resolver: None,
             view_cache: ViewCache::new(),
+            scene_cache: SceneCache::new(),
             cursor_animation: CursorAnimation::new(),
+            cursor_dirty: false,
+            last_render_result: None,
         }
     }
 
@@ -261,28 +270,57 @@ impl<W: Write + Send + 'static> App<W> {
         };
 
         let cell_size = sr.cell_size();
-        let (commands, result) = scene_render_pipeline_cached(
-            &self.state,
-            &self.registry,
-            cell_size,
-            self.dirty,
-            &mut self.view_cache,
-        );
 
-        // Update cursor animation
-        self.cursor_animation
-            .update_target(result.cursor_x, result.cursor_y);
-        let cursor_state = self
-            .cursor_animation
-            .tick(sr.metrics().cell_width, sr.metrics().cell_height);
+        // Only run the pipeline when there are actual dirty flags.
+        // Cursor-only animation reuses the cached scene commands.
+        if !self.dirty.is_empty() {
+            let (commands, result) = scene_render_pipeline_scene_cached(
+                &self.state,
+                &self.registry,
+                cell_size,
+                self.dirty,
+                &mut self.view_cache,
+                &mut self.scene_cache,
+            );
+            self.last_render_result = Some(result);
 
-        let gpu = self.gpu.as_ref().unwrap();
-        let resolver = self.color_resolver.as_ref().unwrap();
+            // Update cursor animation
+            self.cursor_animation
+                .update_target(result.cursor_x, result.cursor_y);
+            let cursor_state = self
+                .cursor_animation
+                .tick(sr.metrics().cell_width, sr.metrics().cell_height);
 
-        tracing::debug!("[app] scene render: {} commands", commands.len());
-        match sr.render_with_cursor(gpu, &commands, resolver, result.cursor_style, &cursor_state) {
-            Ok(()) => tracing::debug!("[app] render_frame complete"),
-            Err(e) => tracing::error!("[app] scene render failed: {e}"),
+            let gpu = self.gpu.as_ref().unwrap();
+            let resolver = self.color_resolver.as_ref().unwrap();
+
+            tracing::debug!("[app] scene render: {} commands", commands.len());
+            match sr.render_with_cursor(gpu, commands, resolver, result.cursor_style, &cursor_state)
+            {
+                Ok(()) => tracing::debug!("[app] render_frame complete"),
+                Err(e) => tracing::error!("[app] scene render failed: {e}"),
+            }
+        } else if let Some(result) = self.last_render_result {
+            // Cursor-only frame: reuse cached scene commands
+            self.cursor_animation
+                .update_target(result.cursor_x, result.cursor_y);
+            let cursor_state = self
+                .cursor_animation
+                .tick(sr.metrics().cell_width, sr.metrics().cell_height);
+
+            let gpu = self.gpu.as_ref().unwrap();
+            let resolver = self.color_resolver.as_ref().unwrap();
+            let commands = self.scene_cache.composed_ref();
+
+            tracing::debug!(
+                "[app] cursor-only render: {} cached commands",
+                commands.len()
+            );
+            match sr.render_with_cursor(gpu, commands, resolver, result.cursor_style, &cursor_state)
+            {
+                Ok(()) => tracing::debug!("[app] render_frame complete (cursor-only)"),
+                Err(e) => tracing::error!("[app] scene render failed: {e}"),
+            }
         }
     }
 }
@@ -332,9 +370,10 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
                 return;
             }
             WindowEvent::RedrawRequested => {
-                if !self.dirty.is_empty() {
+                if !self.dirty.is_empty() || self.cursor_dirty {
                     self.render_frame();
                     self.dirty = DirtyFlags::empty();
+                    self.cursor_dirty = false;
                 }
                 return;
             }
@@ -391,7 +430,7 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
             && let Some(ref window) = self.window
         {
             window.request_redraw();
-            self.dirty |= DirtyFlags::BUFFER; // Ensure render_frame runs
+            self.cursor_dirty = true;
         }
 
         if !self.dirty.is_empty()

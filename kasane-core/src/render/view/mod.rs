@@ -16,9 +16,39 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     view_cached(state, registry, &mut ViewCache::new())
 }
 
-/// Build the full Element tree with subtree memoization via ViewCache.
-pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut ViewCache) -> Element {
-    crate::perf::perf_span!("view");
+/// Decomposed view sections for per-section caching.
+pub(crate) struct ViewSections {
+    pub base: Element,
+    pub menu_overlay: Option<Overlay>,
+    pub info_overlays: Vec<Overlay>,
+    pub plugin_overlays: Vec<Overlay>,
+}
+
+impl ViewSections {
+    /// Assemble sections into the final Element tree.
+    pub fn into_element(self) -> Element {
+        let mut overlays = Vec::new();
+        if let Some(overlay) = self.menu_overlay {
+            overlays.push(overlay);
+        }
+        overlays.extend(self.info_overlays);
+        overlays.extend(self.plugin_overlays);
+
+        if overlays.is_empty() {
+            self.base
+        } else {
+            Element::stack(self.base, overlays)
+        }
+    }
+}
+
+/// Build the view sections with subtree memoization via ViewCache.
+pub(crate) fn view_sections_cached(
+    state: &AppState,
+    registry: &PluginRegistry,
+    cache: &mut ViewCache,
+) -> ViewSections {
+    crate::perf::perf_span!("view_sections");
 
     // Section 1: Base (buffer + status bar + plugin slots)
     let base = match cache.base {
@@ -30,9 +60,6 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
         }
     };
 
-    // Collect overlays
-    let mut overlays = Vec::new();
-
     // Section 2: Menu overlay
     let menu_overlay = match cache.menu_overlay {
         Some(ref cached) => cached.clone(),
@@ -42,9 +69,6 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
             m
         }
     };
-    if let Some(overlay) = menu_overlay {
-        overlays.push(overlay);
-    }
 
     // Section 3: Info overlays
     let info_overlays = match cache.info_overlays {
@@ -55,12 +79,12 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
             infos
         }
     };
-    overlays.extend(info_overlays);
 
     // Section 4: Plugin overlays (always rebuilt — no plugins yet)
-    let plugin_overlays = registry.collect_slot(Slot::Overlay, state);
-    for el in plugin_overlays {
-        overlays.push(Overlay {
+    let plugin_overlays: Vec<Overlay> = registry
+        .collect_slot(Slot::Overlay, state)
+        .into_iter()
+        .map(|el| Overlay {
             element: el,
             anchor: OverlayAnchor::Absolute {
                 x: 0,
@@ -68,14 +92,21 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
                 w: state.cols,
                 h: state.rows,
             },
-        });
-    }
+        })
+        .collect();
 
-    if overlays.is_empty() {
-        base
-    } else {
-        Element::stack(base, overlays)
+    ViewSections {
+        base,
+        menu_overlay,
+        info_overlays,
+        plugin_overlays,
     }
+}
+
+/// Build the full Element tree with subtree memoization via ViewCache.
+pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut ViewCache) -> Element {
+    crate::perf::perf_span!("view");
+    view_sections_cached(state, registry, cache).into_element()
 }
 
 /// Build the base layout: buffer + status bar + plugin slots.
