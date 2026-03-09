@@ -215,6 +215,7 @@ where
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
+    registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
     let init_commands = registry.init_all(&state);
     if matches!(
         execute_commands(init_commands, &mut kak_writer, &mut || backend

@@ -5,6 +5,7 @@ pub mod io;
 pub mod layout;
 mod perf;
 pub mod plugin;
+pub mod plugins;
 pub mod protocol;
 pub mod render;
 pub mod state;

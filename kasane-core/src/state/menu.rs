@@ -46,7 +46,7 @@ fn atoms_display_width(atoms: &[Atom]) -> usize {
 ///
 /// Detection heuristic: find the first atom with non-Default fg color,
 /// preceded by a whitespace-only atom (the alignment padding Kakoune inserts).
-fn split_single_item(item: &Line) -> ItemSplit {
+pub fn split_single_item(item: &Line) -> ItemSplit {
     for i in 1..item.len() {
         if item[i].face.fg != Color::Default && item[i - 1].contents.chars().all(|c| c == ' ') {
             // Strip trailing whitespace-only atoms from candidate

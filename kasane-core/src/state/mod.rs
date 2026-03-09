@@ -15,7 +15,7 @@ use crate::input::MouseButton;
 use crate::protocol::{Coord, CursorMode, Face, KasaneRequest, Line};
 
 pub use info::{InfoIdentity, InfoState};
-pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState};
+pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
 pub use update::{Msg, update};
 
 bitflags! {

@@ -85,6 +85,7 @@ impl<W: Write + Send + 'static> App<W> {
 
         let state = AppState::default();
         let mut registry = PluginRegistry::new();
+        registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
         let _init_commands = registry.init_all(&state);
         // init_commands will be executed once initial_resize_sent is true
 

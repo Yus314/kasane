@@ -188,8 +188,11 @@ fn build_split_item_element(
     item_idx: usize,
     candidate_col_w: u16,
     _content_w: u16,
+    registry: &PluginRegistry,
+    state: &AppState,
 ) -> Element {
-    let face = if item_idx < menu.items.len() && Some(item_idx) == menu.selected {
+    let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
+    let face = if selected {
         menu.selected_item_face
     } else {
         menu.menu_face
@@ -200,11 +203,21 @@ fn build_split_item_element(
     }
 
     let item = &menu.items[item_idx];
-    let split = &columns.splits[item_idx];
+    let transformed = registry.transform_menu_item(item, item_idx, selected, state);
+    let (effective_item, effective_split);
+    let split = if let Some(ref t) = transformed {
+        // Re-split after transform (icon atoms shift indices)
+        effective_item = t;
+        effective_split = crate::state::split_single_item(t);
+        &effective_split
+    } else {
+        effective_item = item;
+        &columns.splits[item_idx]
+    };
     let mut atoms: Vec<Atom> = Vec::new();
 
     // 1. Candidate portion: truncate if wider than candidate_col_w
-    let cand_atoms = &item[..split.candidate_end];
+    let cand_atoms = &effective_item[..split.candidate_end];
     let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face);
     // Pad candidate to candidate_col_w
     let cand_w: usize = cand_resolved
@@ -232,7 +245,7 @@ fn build_split_item_element(
     });
 
     // 3. Docstring portion: resolve faces (paint-level truncation handles overflow)
-    for atom in &item[split.docstring_start..] {
+    for atom in &effective_item[split.docstring_start..] {
         atoms.push(Atom {
             face: resolve_face(&atom.face, &face),
             contents: atom.contents.clone(),
@@ -274,9 +287,9 @@ fn build_menu_inline(
         .map(|line| {
             let item_idx = menu.first_item + line as usize;
             let element = match (&menu.columns_split, candidate_col_w) {
-                (Some(columns), Some(cw)) => {
-                    build_split_item_element(menu, columns, item_idx, cw, content_w)
-                }
+                (Some(columns), Some(cw)) => build_split_item_element(
+                    menu, columns, item_idx, cw, content_w, registry, state,
+                ),
                 _ => build_menu_item_element(menu, item_idx, content_w, registry, state),
             };
             FlexChild::fixed(element)
@@ -597,7 +610,9 @@ mod tests {
         let columns = menu.columns_split.as_ref().unwrap();
         let cand_w = columns.max_candidate_width.min(80 * 2 / 5);
 
-        let element = build_split_item_element(&menu, columns, 0, cand_w, 20);
+        let registry = PluginRegistry::new();
+        let state = AppState::default();
+        let element = build_split_item_element(&menu, columns, 0, cand_w, 20, &registry, &state);
         // Should be a Container wrapping a StyledLine
         if let Element::Container { child, .. } = &element {
             if let Element::StyledLine(atoms) = child.as_ref() {

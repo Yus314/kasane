@@ -191,8 +191,17 @@ fn scene_paint_inner(
                 max_width: pr.w,
             });
         }
-        Element::BufferRef { line_range, .. } => {
-            scene_paint_buffer_ref(ctx, &area, line_range.clone(), out);
+        Element::BufferRef {
+            line_range,
+            line_backgrounds,
+        } => {
+            scene_paint_buffer_ref(
+                ctx,
+                &area,
+                line_range.clone(),
+                line_backgrounds.as_deref(),
+                out,
+            );
         }
         Element::Empty => {}
         Element::Flex { children, .. } => {
@@ -265,6 +274,7 @@ fn scene_paint_buffer_ref(
     ctx: &SceneContext,
     area: &Rect,
     line_range: std::ops::Range<usize>,
+    line_backgrounds: Option<&[Option<Face>]>,
     out: &mut Vec<DrawCommand>,
 ) {
     let cs = ctx.cell_size;
@@ -276,7 +286,10 @@ fn scene_paint_buffer_ref(
         let row_w = area.w as f32 * cs.width;
 
         if let Some(line) = ctx.state.lines.get(line_idx) {
-            // Background fill for the row
+            // Background fill for the row (with optional per-line override)
+            let base_face = line_backgrounds
+                .and_then(|bgs| bgs.get(line_idx).copied().flatten())
+                .unwrap_or(ctx.state.default_face);
             out.push(DrawCommand::FillRect {
                 rect: PixelRect {
                     x: px,
@@ -284,11 +297,11 @@ fn scene_paint_buffer_ref(
                     w: row_w,
                     h: cs.height,
                 },
-                face: ctx.state.default_face,
+                face: base_face,
             });
             // Atoms — clear PrimaryCursor face at the cursor cell in
             // non-block cursor modes so the thin bar/underline is visible.
-            let mut resolved = resolve_atoms(line, Some(&ctx.state.default_face));
+            let mut resolved = resolve_atoms(line, Some(&base_face));
             if !matches!(
                 ctx.cursor_style,
                 super::CursorStyle::Block | super::CursorStyle::Outline
@@ -298,7 +311,7 @@ fn scene_paint_buffer_ref(
                 clear_cursor_atom(
                     &mut resolved,
                     ctx.state.cursor_pos.column as u16,
-                    &ctx.state.default_face,
+                    &base_face,
                 );
             }
             out.push(DrawCommand::DrawAtoms {
