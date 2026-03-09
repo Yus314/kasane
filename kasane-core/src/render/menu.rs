@@ -2,7 +2,9 @@
 use super::grid::CellGrid;
 #[cfg(test)]
 use crate::layout::line_display_width;
+#[cfg(test)]
 use crate::protocol::MenuStyle;
+#[cfg(test)]
 use crate::state::AppState;
 #[cfg(test)]
 use crate::state::MenuState;
@@ -18,62 +20,6 @@ pub(super) fn render_menu(state: &AppState, grid: &mut CellGrid) {
         MenuStyle::Prompt => render_menu_prompt(menu, grid),
         MenuStyle::Search => render_menu_search(menu, grid),
         MenuStyle::Inline => render_menu_inline(menu, grid),
-    }
-}
-
-/// Compute the screen rectangle of the active menu, for use in info popup placement.
-/// Returns `None` when there is no active menu (or it has zero size).
-pub fn get_menu_rect(state: &AppState) -> Option<crate::layout::Rect> {
-    use crate::layout::Rect;
-
-    let menu = state.menu.as_ref()?;
-    if menu.items.is_empty() || menu.win_height == 0 {
-        return None;
-    }
-
-    match menu.style {
-        MenuStyle::Prompt => {
-            let status_row = state.available_height();
-            let start_y = status_row.saturating_sub(menu.win_height);
-            Some(Rect {
-                x: 0,
-                y: start_y,
-                w: state.cols,
-                h: menu.win_height,
-            })
-        }
-        MenuStyle::Search => {
-            let status_row = state.available_height();
-            Some(Rect {
-                x: 0,
-                y: status_row.saturating_sub(1),
-                w: state.cols,
-                h: 1,
-            })
-        }
-        MenuStyle::Inline => {
-            let screen_h = state.available_height();
-            // +1 for scrollbar
-            let win_w = (menu.max_item_width + 1).min(state.cols);
-            let placement = crate::layout::MenuPlacement::from(state.menu_position);
-            let win = crate::layout::layout_menu_inline(
-                &menu.anchor,
-                win_w,
-                menu.win_height,
-                state.cols,
-                screen_h,
-                placement,
-            );
-            if win.width == 0 || win.height == 0 {
-                return None;
-            }
-            Some(Rect {
-                x: win.x,
-                y: win.y,
-                w: win.width,
-                h: win.height,
-            })
-        }
     }
 }
 
@@ -328,6 +274,7 @@ fn render_menu_search(menu: &MenuState, grid: &mut CellGrid) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::get_menu_rect;
     use crate::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
     use crate::test_utils::make_line;
 

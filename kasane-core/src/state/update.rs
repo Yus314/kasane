@@ -199,7 +199,7 @@ pub fn update(
 fn handle_info_scroll(state: &mut AppState, mouse: &input::MouseEvent) -> bool {
     let screen_h = state.available_height();
     let mut avoid: Vec<crate::layout::Rect> = Vec::new();
-    if let Some(mr) = crate::render::menu::get_menu_rect(state) {
+    if let Some(mr) = crate::layout::get_menu_rect(state) {
         avoid.push(mr);
     }
 

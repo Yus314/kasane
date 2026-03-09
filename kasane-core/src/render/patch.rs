@@ -196,7 +196,7 @@ impl PaintPatch for MenuSelectionPatch {
             None => return,
         };
 
-        let menu_rect = match crate::render::menu::get_menu_rect(state) {
+        let menu_rect = match crate::layout::get_menu_rect(state) {
             Some(r) => r,
             None => return,
         };

@@ -8,7 +8,7 @@ mod word_wrap;
 
 pub use hit_test::hit_test;
 pub use info::layout_info;
-pub use position::{compute_pos, layout_menu_inline};
+pub use position::{compute_pos, get_menu_rect, layout_menu_inline};
 pub(crate) use text::{ASSISTANT_CLIPPY, ASSISTANT_WIDTH};
 pub use text::{
     PROMPT_ASSISTANT_MIN_HEIGHT, PROMPT_ASSISTANT_WIDTH, is_word_char, line_display_width,

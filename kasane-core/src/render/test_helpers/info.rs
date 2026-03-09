@@ -17,7 +17,7 @@ pub(in crate::render) fn render_info(state: &AppState, grid: &mut CellGrid) {
         None => return,
     };
 
-    let menu_rect = crate::render::menu::get_menu_rect(state);
+    let menu_rect = crate::layout::get_menu_rect(state);
     let avoid: Vec<crate::layout::Rect> = menu_rect.into_iter().collect();
     let win = crate::layout::layout_info(
         &info.title,
