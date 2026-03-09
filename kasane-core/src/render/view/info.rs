@@ -49,7 +49,7 @@ pub(super) fn build_replacement_info_overlay(
     })
 }
 
-#[crate::kasane_component(deps(INFO))]
+#[crate::kasane_component(deps(INFO), allow(shadow_enabled))]
 pub(super) fn build_info_overlay_indexed(
     info: &InfoState,
     state: &AppState,

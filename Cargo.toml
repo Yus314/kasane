@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 kasane-core = { path = "kasane-core" }
 kasane-tui = { path = "kasane-tui" }
 kasane-macros = { path = "kasane-macros" }
-syn = { version = "2", features = ["full", "extra-traits"] }
+syn = { version = "2", features = ["full", "extra-traits", "visit"] }
 quote = "1"
 proc-macro2 = "1"
 serde = { version = "1", features = ["derive"] }

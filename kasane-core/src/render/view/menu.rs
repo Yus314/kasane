@@ -59,7 +59,7 @@ pub(super) fn build_replacement_menu_overlay(
     Some(Overlay { element, anchor })
 }
 
-#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION))]
+#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION), allow(search_dropdown))]
 pub(super) fn build_menu_overlay(menu: &MenuState, state: &AppState) -> Option<Overlay> {
     if menu.items.is_empty() || menu.win_height == 0 {
         return None;

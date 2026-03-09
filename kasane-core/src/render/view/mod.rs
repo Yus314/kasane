@@ -167,7 +167,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 }
 
 /// Build info overlay section with collision avoidance.
-#[crate::kasane_component(deps(INFO))]
+#[crate::kasane_component(deps(INFO), allow(cursor_pos))]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = super::menu::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
