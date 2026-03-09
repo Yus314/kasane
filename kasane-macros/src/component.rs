@@ -390,6 +390,10 @@ pub fn expand_kasane_component(attr: TokenStream, input: TokenStream) -> syn::Re
         // No AppState parameter → no field access analysis needed
     }
 
-    // Pass through unchanged
+    // Pass through unchanged.
+    // DEPS constants (e.g., BUILD_BASE_DEPS) are defined manually in view/mod.rs
+    // rather than being macro-generated, because the macro cannot reliably determine
+    // the crate path for DirtyFlags (crate::state vs kasane_core::state) across
+    // different invocation contexts.
     Ok(input)
 }

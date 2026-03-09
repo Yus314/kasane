@@ -594,31 +594,40 @@ fn test_declarative_matches_imperative_buffer_status() {
 #[test]
 fn test_view_cache_invalidate_buffer_clears_base() {
     let mut cache = ViewCache::new();
-    cache.base = Some(crate::element::Element::Empty);
-    cache.menu_overlay = Some(None);
-    cache.info_overlays = Some(vec![]);
+    cache.base.value = Some(crate::element::Element::Empty);
+    cache.menu_overlay.value = Some(None);
+    cache.info_overlays.value = Some(vec![]);
 
     cache.invalidate(DirtyFlags::BUFFER);
-    assert!(cache.base.is_none(), "BUFFER should clear base");
-    assert!(cache.menu_overlay.is_some(), "BUFFER should preserve menu");
-    assert!(cache.info_overlays.is_some(), "BUFFER should preserve info");
+    assert!(cache.base.value.is_none(), "BUFFER should clear base");
+    assert!(
+        cache.menu_overlay.value.is_some(),
+        "BUFFER should preserve menu"
+    );
+    assert!(
+        cache.info_overlays.value.is_some(),
+        "BUFFER should preserve info"
+    );
 }
 
 #[test]
 fn test_view_cache_invalidate_menu_selection_clears_menu() {
     let mut cache = ViewCache::new();
-    cache.base = Some(crate::element::Element::Empty);
-    cache.menu_overlay = Some(None);
-    cache.info_overlays = Some(vec![]);
+    cache.base.value = Some(crate::element::Element::Empty);
+    cache.menu_overlay.value = Some(None);
+    cache.info_overlays.value = Some(vec![]);
 
     cache.invalidate(DirtyFlags::MENU_SELECTION);
-    assert!(cache.base.is_some(), "MENU_SELECTION should preserve base");
     assert!(
-        cache.menu_overlay.is_none(),
+        cache.base.value.is_some(),
+        "MENU_SELECTION should preserve base"
+    );
+    assert!(
+        cache.menu_overlay.value.is_none(),
         "MENU_SELECTION should clear menu"
     );
     assert!(
-        cache.info_overlays.is_some(),
+        cache.info_overlays.value.is_some(),
         "MENU_SELECTION should preserve info"
     );
 }
@@ -626,47 +635,56 @@ fn test_view_cache_invalidate_menu_selection_clears_menu() {
 #[test]
 fn test_view_cache_invalidate_all_clears_everything() {
     let mut cache = ViewCache::new();
-    cache.base = Some(crate::element::Element::Empty);
-    cache.menu_overlay = Some(None);
-    cache.info_overlays = Some(vec![]);
+    cache.base.value = Some(crate::element::Element::Empty);
+    cache.menu_overlay.value = Some(None);
+    cache.info_overlays.value = Some(vec![]);
 
     cache.invalidate(DirtyFlags::ALL);
-    assert!(cache.base.is_none());
-    assert!(cache.menu_overlay.is_none());
-    assert!(cache.info_overlays.is_none());
+    assert!(cache.base.value.is_none());
+    assert!(cache.menu_overlay.value.is_none());
+    assert!(cache.info_overlays.value.is_none());
 }
 
 #[test]
 fn test_view_cache_invalidate_info_clears_info() {
     let mut cache = ViewCache::new();
-    cache.base = Some(crate::element::Element::Empty);
-    cache.menu_overlay = Some(None);
-    cache.info_overlays = Some(vec![]);
+    cache.base.value = Some(crate::element::Element::Empty);
+    cache.menu_overlay.value = Some(None);
+    cache.info_overlays.value = Some(vec![]);
 
     cache.invalidate(DirtyFlags::INFO);
-    assert!(cache.base.is_some(), "INFO should preserve base");
-    assert!(cache.menu_overlay.is_some(), "INFO should preserve menu");
-    assert!(cache.info_overlays.is_none(), "INFO should clear info");
+    assert!(cache.base.value.is_some(), "INFO should preserve base");
+    assert!(
+        cache.menu_overlay.value.is_some(),
+        "INFO should preserve menu"
+    );
+    assert!(
+        cache.info_overlays.value.is_none(),
+        "INFO should clear info"
+    );
 }
 
 #[test]
 fn test_view_cache_invalidate_status_clears_base() {
     let mut cache = ViewCache::new();
-    cache.base = Some(crate::element::Element::Empty);
-    cache.menu_overlay = Some(None);
+    cache.base.value = Some(crate::element::Element::Empty);
+    cache.menu_overlay.value = Some(None);
 
     cache.invalidate(DirtyFlags::STATUS);
-    assert!(cache.base.is_none(), "STATUS should clear base");
-    assert!(cache.menu_overlay.is_some(), "STATUS should preserve menu");
+    assert!(cache.base.value.is_none(), "STATUS should clear base");
+    assert!(
+        cache.menu_overlay.value.is_some(),
+        "STATUS should preserve menu"
+    );
 }
 
 #[test]
 fn test_view_cache_invalidate_options_clears_base() {
     let mut cache = ViewCache::new();
-    cache.base = Some(crate::element::Element::Empty);
+    cache.base.value = Some(crate::element::Element::Empty);
 
     cache.invalidate(DirtyFlags::OPTIONS);
-    assert!(cache.base.is_none(), "OPTIONS should clear base");
+    assert!(cache.base.value.is_none(), "OPTIONS should clear base");
 }
 
 /// Cached view output must match fresh construction.
@@ -1120,7 +1138,10 @@ fn test_view_cache_menu_select_reuses_base() {
     // Initial render (ALL dirty)
     let mut grid = CellGrid::new(state.cols, state.rows);
     render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
-    assert!(cache.base.is_some(), "base should be cached after render");
+    assert!(
+        cache.base.value.is_some(),
+        "base should be cached after render"
+    );
 
     // Select item
     state.apply(crate::protocol::KakouneRequest::MenuSelect { selected: 1 });
@@ -1134,7 +1155,7 @@ fn test_view_cache_menu_select_reuses_base() {
         &mut cache,
     );
     assert!(
-        cache.base.is_some(),
+        cache.base.value.is_some(),
         "base should remain cached on MENU_SELECTION"
     );
 }

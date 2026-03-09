@@ -6,9 +6,13 @@ use kasane_core::layout::flex;
 use kasane_core::plugin::{DecorateTarget, PluginRegistry, Slot};
 use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
+use kasane_core::render::LayoutCache;
 use kasane_core::render::SceneCache;
+use kasane_core::render::StatusBarPatch;
 use kasane_core::render::ViewCache;
 use kasane_core::render::paint;
+use kasane_core::render::render_pipeline_patched;
+use kasane_core::render::render_pipeline_sectioned;
 use kasane_core::render::scene::CellSize;
 use kasane_core::render::scene_render_pipeline_scene_cached;
 use kasane_core::render::view;
@@ -814,6 +818,203 @@ fn bench_view_cache(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Section-level paint benchmarks (S1)
+// ---------------------------------------------------------------------------
+
+/// Bench: Sectioned pipeline — STATUS only dirty (should repaint only status row)
+fn bench_section_paint_status_only(c: &mut Criterion) {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+    let mut layout_cache = LayoutCache::new();
+
+    // Initial full render to populate caches
+    render_pipeline_sectioned(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut layout_cache,
+    );
+    grid.swap();
+
+    c.bench_function("section_paint_status_only", |b| {
+        b.iter(|| {
+            render_pipeline_sectioned(
+                &state,
+                &registry,
+                &mut grid,
+                DirtyFlags::STATUS,
+                &mut view_cache,
+                &mut layout_cache,
+            )
+        });
+    });
+}
+
+/// Bench: Sectioned pipeline — MENU_SELECTION only dirty
+fn bench_section_paint_menu_select(c: &mut Criterion) {
+    let state = state_with_menu(50);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+    let mut layout_cache = LayoutCache::new();
+
+    // Initial full render
+    render_pipeline_sectioned(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut layout_cache,
+    );
+    grid.swap();
+
+    c.bench_function("section_paint_menu_select", |b| {
+        b.iter(|| {
+            render_pipeline_sectioned(
+                &state,
+                &registry,
+                &mut grid,
+                DirtyFlags::MENU_SELECTION,
+                &mut view_cache,
+                &mut layout_cache,
+            )
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Patch benchmarks (S3)
+// ---------------------------------------------------------------------------
+
+/// Bench: Patched pipeline — STATUS update via StatusBarPatch
+fn bench_patch_status_update(c: &mut Criterion) {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+    let mut layout_cache = LayoutCache::new();
+
+    // Initial full render
+    render_pipeline_patched(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut layout_cache,
+        &[],
+    );
+    grid.swap();
+
+    let status_patch = StatusBarPatch;
+    let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&status_patch];
+
+    c.bench_function("patch_status_update", |b| {
+        b.iter(|| {
+            render_pipeline_patched(
+                &state,
+                &registry,
+                &mut grid,
+                DirtyFlags::STATUS,
+                &mut view_cache,
+                &mut layout_cache,
+                &patches,
+            )
+        });
+    });
+}
+
+/// Bench: Patched pipeline — menu selection via MenuSelectionPatch
+fn bench_patch_menu_select(c: &mut Criterion) {
+    let state = state_with_menu(50);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+    let mut layout_cache = LayoutCache::new();
+
+    // Initial full render
+    render_pipeline_patched(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut layout_cache,
+        &[],
+    );
+    grid.swap();
+
+    let menu_patch = kasane_core::render::MenuSelectionPatch {
+        prev_selected: Some(0),
+    };
+    let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&menu_patch];
+
+    c.bench_function("patch_menu_select", |b| {
+        b.iter(|| {
+            render_pipeline_patched(
+                &state,
+                &registry,
+                &mut grid,
+                DirtyFlags::MENU_SELECTION,
+                &mut view_cache,
+                &mut layout_cache,
+                &patches,
+            )
+        });
+    });
+}
+
+/// Bench: Patched pipeline — cursor move via CursorPatch
+fn bench_patch_cursor_move(c: &mut Criterion) {
+    let mut state = typical_state(23);
+    state.cursor_pos = kasane_core::protocol::Coord {
+        line: 5,
+        column: 10,
+    };
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+    let mut layout_cache = LayoutCache::new();
+
+    // Initial full render
+    render_pipeline_patched(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+        &mut layout_cache,
+        &[],
+    );
+    grid.swap();
+
+    let cursor_patch = kasane_core::render::CursorPatch {
+        prev_cursor_x: 0,
+        prev_cursor_y: 0,
+    };
+    let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&cursor_patch];
+
+    c.bench_function("patch_cursor_move", |b| {
+        b.iter(|| {
+            render_pipeline_patched(
+                &state,
+                &registry,
+                &mut grid,
+                DirtyFlags::empty(),
+                &mut view_cache,
+                &mut layout_cache,
+                &patches,
+            )
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Allocation benchmarks (feature-gated)
 // ---------------------------------------------------------------------------
 
@@ -1062,11 +1263,32 @@ criterion_group!(
     bench_scene_cache_menu_select,
 );
 
+criterion_group!(
+    sectioned,
+    bench_section_paint_status_only,
+    bench_section_paint_menu_select,
+);
+
+criterion_group!(
+    patched,
+    bench_patch_status_update,
+    bench_patch_menu_select,
+    bench_patch_cursor_move,
+);
+
 #[cfg(not(feature = "bench-alloc"))]
-criterion_main!(micro, integration, extended, cache);
+criterion_main!(micro, integration, extended, cache, sectioned, patched);
 
 #[cfg(feature = "bench-alloc")]
 criterion_group!(alloc_benches, bench_allocations);
 
 #[cfg(feature = "bench-alloc")]
-criterion_main!(micro, integration, extended, cache, alloc_benches);
+criterion_main!(
+    micro,
+    integration,
+    extended,
+    cache,
+    sectioned,
+    patched,
+    alloc_benches
+);

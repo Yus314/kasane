@@ -204,6 +204,31 @@ impl CellGrid {
         }
     }
 
+    /// Clear only a rectangular region of the grid to the given face.
+    pub fn clear_region(&mut self, rect: &crate::layout::Rect, face: &Face) {
+        let x_end = (rect.x + rect.w).min(self.width);
+        let y_end = (rect.y + rect.h).min(self.height);
+        for y in rect.y..y_end {
+            self.dirty_rows[y as usize] = true;
+            for x in rect.x..x_end {
+                let idx = self.idx(x, y);
+                self.current[idx] = Cell {
+                    grapheme: CompactString::const_new(" "),
+                    face: *face,
+                    width: 1,
+                };
+            }
+        }
+    }
+
+    /// Mark rows within a rectangular region as dirty for diff.
+    pub fn mark_region_dirty(&mut self, rect: &crate::layout::Rect) {
+        let y_end = (rect.y + rect.h).min(self.height);
+        for y in rect.y..y_end {
+            self.dirty_rows[y as usize] = true;
+        }
+    }
+
     pub fn diff(&self) -> Vec<CellDiff> {
         crate::perf::perf_span!("grid_diff");
         if self.previous.is_empty() {

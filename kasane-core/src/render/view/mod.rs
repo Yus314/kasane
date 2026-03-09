@@ -11,6 +11,18 @@ use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::render::ViewCache;
 use crate::state::AppState;
 
+use crate::state::DirtyFlags;
+
+// DirtyFlags dependency masks for each component function.
+// These match the deps() annotations on the #[kasane_component] attributes.
+const BUILD_BASE_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
+    DirtyFlags::BUFFER.bits() | DirtyFlags::STATUS.bits() | DirtyFlags::OPTIONS.bits(),
+);
+const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
+    DirtyFlags::MENU_STRUCTURE.bits() | DirtyFlags::MENU_SELECTION.bits(),
+);
+const BUILD_INFO_SECTION_DEPS: DirtyFlags = DirtyFlags::INFO;
+
 /// Build the full Element tree from application state (backward-compatible).
 pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
     view_cached(state, registry, &mut ViewCache::new())
@@ -43,6 +55,10 @@ impl ViewSections {
 }
 
 /// Build the view sections with subtree memoization via ViewCache.
+///
+/// Uses `ComponentCache::get_or_insert` with the DEPS constants generated
+/// by `#[kasane_component]` to automatically skip recomputation when the
+/// relevant DirtyFlags are not set.
 pub(crate) fn view_sections_cached(
     state: &AppState,
     registry: &PluginRegistry,
@@ -50,35 +66,26 @@ pub(crate) fn view_sections_cached(
 ) -> ViewSections {
     crate::perf::perf_span!("view_sections");
 
-    // Section 1: Base (buffer + status bar + plugin slots)
-    let base = match cache.base {
-        Some(ref cached) => cached.clone(),
-        None => {
-            let b = build_base(state, registry);
-            cache.base = Some(b.clone());
-            b
-        }
-    };
+    // Section 1: Base — uses BUILD_BASE_DEPS (BUFFER | STATUS | OPTIONS)
+    let base = cache.base.get_or_insert(
+        cache_dirty_snapshot(&cache.base, BUILD_BASE_DEPS),
+        BUILD_BASE_DEPS,
+        || build_base(state, registry),
+    );
 
-    // Section 2: Menu overlay
-    let menu_overlay = match cache.menu_overlay {
-        Some(ref cached) => cached.clone(),
-        None => {
-            let m = build_menu_section(state, registry);
-            cache.menu_overlay = Some(m.clone());
-            m
-        }
-    };
+    // Section 2: Menu overlay — uses BUILD_MENU_SECTION_DEPS (MENU_STRUCTURE | MENU_SELECTION)
+    let menu_overlay = cache.menu_overlay.get_or_insert(
+        cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
+        BUILD_MENU_SECTION_DEPS,
+        || build_menu_section(state, registry),
+    );
 
-    // Section 3: Info overlays
-    let info_overlays = match cache.info_overlays {
-        Some(ref cached) => cached.clone(),
-        None => {
-            let infos = build_info_section(state, registry);
-            cache.info_overlays = Some(infos.clone());
-            infos
-        }
-    };
+    // Section 3: Info overlays — uses BUILD_INFO_SECTION_DEPS (INFO)
+    let info_overlays = cache.info_overlays.get_or_insert(
+        cache_dirty_snapshot(&cache.info_overlays, BUILD_INFO_SECTION_DEPS),
+        BUILD_INFO_SECTION_DEPS,
+        || build_info_section(state, registry),
+    );
 
     // Section 4: Plugin overlays (always rebuilt — no plugins yet)
     let plugin_overlays: Vec<Overlay> = registry
@@ -100,6 +107,21 @@ pub(crate) fn view_sections_cached(
         menu_overlay,
         info_overlays,
         plugin_overlays,
+    }
+}
+
+/// Helper to determine if a ComponentCache needs recomputation.
+/// Returns ALL if the cache is empty (cold), or empty if cached (warm).
+/// The actual dirty flags from update() are handled by ViewCache::invalidate()
+/// which clears the ComponentCache::value when relevant flags are set.
+fn cache_dirty_snapshot<T: Clone>(
+    cache: &crate::render::ComponentCache<T>,
+    deps: crate::state::DirtyFlags,
+) -> crate::state::DirtyFlags {
+    if cache.value.is_none() {
+        deps // Force recomputation
+    } else {
+        crate::state::DirtyFlags::empty() // Use cached value
     }
 }
 
