@@ -26,6 +26,7 @@ const KNOWN_FLAGS: &[&str] = &[
 const FIELD_FLAG_MAP: &[(&str, &[&str])] = &[
     // BUFFER
     ("lines", &["BUFFER"]),
+    ("lines_dirty", &["BUFFER"]),
     ("default_face", &["BUFFER"]),
     ("padding_face", &["BUFFER"]),
     ("cursor_mode", &["BUFFER"]),

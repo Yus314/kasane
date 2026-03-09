@@ -64,6 +64,7 @@ pub struct AppState {
     pub lines: Vec<Line>,
     pub default_face: Face,
     pub padding_face: Face,
+    pub lines_dirty: Vec<bool>,
 
     // Cursor (from set_cursor)
     pub cursor_mode: CursorMode,
@@ -153,6 +154,7 @@ impl Default for AppState {
             lines: Vec::new(),
             default_face: Face::default(),
             padding_face: Face::default(),
+            lines_dirty: Vec::new(),
             cursor_mode: CursorMode::Buffer,
             cursor_pos: Coord::default(),
             status_line: Vec::new(),

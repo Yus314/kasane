@@ -11,6 +11,7 @@ use kasane_core::render::SceneCache;
 use kasane_core::render::StatusBarPatch;
 use kasane_core::render::ViewCache;
 use kasane_core::render::paint;
+use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::render_pipeline_patched;
 use kasane_core::render::render_pipeline_sectioned;
 use kasane_core::render::scene::CellSize;
@@ -1015,6 +1016,106 @@ fn bench_patch_cursor_move(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Line-level dirty tracking benchmarks
+// ---------------------------------------------------------------------------
+
+/// Bench: Line-dirty single edit — render after 1-line change with swap_with_dirty
+fn bench_line_dirty_single_edit(c: &mut Criterion) {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+
+    // Initial full render
+    render_pipeline_cached(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+    );
+    grid.swap();
+
+    // "After" state: edit line 10
+    let edited_state = state_with_edit(&state, 10, 1);
+    // Simulate apply(Draw) to get lines_dirty
+    let mut state_after = state.clone();
+    let edited_lines = edited_state.lines.clone();
+    state_after.apply(kasane_core::protocol::KakouneRequest::Draw {
+        lines: edited_lines,
+        default_face: state.default_face,
+        padding_face: state.padding_face,
+    });
+
+    c.bench_function("line_dirty_single_edit", |b| {
+        b.iter(|| {
+            render_pipeline_cached(
+                &state_after,
+                &registry,
+                &mut grid,
+                DirtyFlags::BUFFER,
+                &mut view_cache,
+            );
+            let diffs = grid.diff();
+            grid.swap_with_dirty();
+            diffs.len()
+        });
+    });
+}
+
+/// Bench: Line-dirty all changed — no regression vs baseline when all lines differ
+fn bench_line_dirty_all_changed(c: &mut Criterion) {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut view_cache = ViewCache::new();
+
+    // Initial full render
+    render_pipeline_cached(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut view_cache,
+    );
+    grid.swap();
+
+    // All lines changed
+    let mut state_after = state.clone();
+    let draw = draw_request(23);
+    state_after.apply(draw);
+
+    c.bench_function("line_dirty_all_changed", |b| {
+        b.iter(|| {
+            render_pipeline_cached(
+                &state_after,
+                &registry,
+                &mut grid,
+                DirtyFlags::BUFFER,
+                &mut view_cache,
+            );
+            let diffs = grid.diff();
+            grid.swap_with_dirty();
+            diffs.len()
+        });
+    });
+}
+
+/// Bench: apply(Draw) with line comparison overhead
+fn bench_apply_draw_line_comparison(c: &mut Criterion) {
+    let base_state = typical_state(23);
+    let draw = draw_request(23);
+
+    c.bench_function("apply_draw_line_comparison", |b| {
+        b.iter_batched(
+            || (base_state.clone(), draw.clone()),
+            |(mut state, req)| state.apply(req),
+            BatchSize::SmallInput,
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Allocation benchmarks (feature-gated)
 // ---------------------------------------------------------------------------
 
@@ -1276,8 +1377,23 @@ criterion_group!(
     bench_patch_cursor_move,
 );
 
+criterion_group!(
+    line_dirty,
+    bench_line_dirty_single_edit,
+    bench_line_dirty_all_changed,
+    bench_apply_draw_line_comparison,
+);
+
 #[cfg(not(feature = "bench-alloc"))]
-criterion_main!(micro, integration, extended, cache, sectioned, patched);
+criterion_main!(
+    micro,
+    integration,
+    extended,
+    cache,
+    sectioned,
+    patched,
+    line_dirty
+);
 
 #[cfg(feature = "bench-alloc")]
 criterion_group!(alloc_benches, bench_allocations);
@@ -1290,5 +1406,6 @@ criterion_main!(
     cache,
     sectioned,
     patched,
+    line_dirty,
     alloc_benches
 );

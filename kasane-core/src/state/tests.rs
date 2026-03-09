@@ -691,3 +691,93 @@ fn test_available_height() {
     state.rows = 1;
     assert_eq!(state.available_height(), 0);
 }
+
+// --- Line-level dirty tracking tests ---
+
+#[test]
+fn test_apply_draw_lines_dirty_single_change() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb"), make_line("ccc")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    // Change only middle line
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("BBB"), make_line("ccc")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+    assert_eq!(state.lines_dirty, vec![false, true, false]);
+}
+
+#[test]
+fn test_apply_draw_lines_dirty_face_change() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    // Same lines but different default_face → all dirty
+    let new_face = Face {
+        fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
+        ..Face::default()
+    };
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb")],
+        default_face: new_face,
+        padding_face: Face::default(),
+    });
+    assert_eq!(state.lines_dirty, vec![true, true]);
+}
+
+#[test]
+fn test_apply_draw_lines_dirty_length_change() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    // Different number of lines → all dirty
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb"), make_line("ccc")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+    assert_eq!(state.lines_dirty, vec![true, true, true]);
+}
+
+#[test]
+fn test_apply_draw_lines_dirty_no_change() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    // Identical draw → all clean
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+    assert_eq!(state.lines_dirty, vec![false, false]);
+}
+
+#[test]
+fn test_apply_draw_lines_dirty_first_draw() {
+    let mut state = AppState::default();
+    // First draw (no prior lines) → all dirty
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("aaa"), make_line("bbb")],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+    assert_eq!(state.lines_dirty, vec![true, true]);
+}

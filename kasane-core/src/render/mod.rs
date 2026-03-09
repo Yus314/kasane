@@ -569,7 +569,17 @@ pub fn render_pipeline_cached(
         h: state.rows,
     };
     let layout_result = flex::place(&element, root_area, state);
-    grid.clear(&state.default_face);
+
+    // Line-level dirty optimization: when only BUFFER is dirty and some lines
+    // are clean, skip grid.clear() and let paint_buffer_ref() skip those lines.
+    // The grid retains valid content from the previous frame for clean rows.
+    let use_line_dirty = dirty == DirtyFlags::BUFFER
+        && !state.lines_dirty.is_empty()
+        && state.lines_dirty.iter().any(|d| !d);
+
+    if !use_line_dirty {
+        grid.clear(&state.default_face);
+    }
     paint::paint(&element, &layout_result, grid, state);
 
     let style = cursor_style(state);

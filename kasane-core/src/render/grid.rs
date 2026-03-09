@@ -273,6 +273,30 @@ impl CellGrid {
         diffs
     }
 
+    /// Swap only dirty rows from current into previous, preserving clean rows
+    /// in both buffers. After this call, `current` retains all painted content
+    /// (clean rows keep valid data from the previous frame for paint to skip),
+    /// and `previous` is updated only for dirty rows.
+    pub fn swap_with_dirty(&mut self) {
+        let w = self.width as usize;
+        let size = w * self.height as usize;
+        if self.previous.len() != size {
+            // First frame or resize: fall back to full swap
+            self.swap();
+            return;
+        }
+        for y in 0..self.height as usize {
+            if self.dirty_rows[y] {
+                let start = y * w;
+                let end = start + w;
+                self.previous[start..end].clone_from_slice(&self.current[start..end]);
+            }
+        }
+        for d in &mut self.dirty_rows {
+            *d = false;
+        }
+    }
+
     pub fn swap(&mut self) {
         crate::perf::perf_span!("grid_swap");
         std::mem::swap(&mut self.previous, &mut self.current);
@@ -630,5 +654,62 @@ mod tests {
                 .attributes
                 .contains(Attributes::STRIKETHROUGH)
         );
+    }
+
+    #[test]
+    fn test_swap_with_dirty_preserves_clean_rows() {
+        let mut grid = CellGrid::new(3, 3);
+        let face = default_face();
+        // Paint all rows
+        grid.put_char(0, 0, "A", &face);
+        grid.put_char(0, 1, "B", &face);
+        grid.put_char(0, 2, "C", &face);
+        // First frame: full swap to populate previous
+        grid.swap();
+
+        // Second frame: only modify row 1
+        grid.put_char(0, 0, "A", &face); // same
+        grid.put_char(0, 1, "X", &face); // changed
+        grid.put_char(0, 2, "C", &face); // same
+        // Mark only row 1 dirty (rows 0 and 2 are clean)
+        grid.dirty_rows[0] = false;
+        grid.dirty_rows[1] = true;
+        grid.dirty_rows[2] = false;
+
+        grid.swap_with_dirty();
+
+        // After swap_with_dirty: current retains all content
+        assert_eq!(grid.current[0].grapheme, "A");
+        assert_eq!(grid.current[3].grapheme, "X"); // row 1, col 0
+        assert_eq!(grid.current[6].grapheme, "C");
+        // previous was updated only for dirty row 1
+        assert_eq!(grid.previous[3].grapheme, "X");
+    }
+
+    #[test]
+    fn test_swap_with_dirty_first_frame_fallback() {
+        let mut grid = CellGrid::new(3, 2);
+        let face = default_face();
+        grid.put_char(0, 0, "A", &face);
+        // previous is empty → swap_with_dirty falls back to swap()
+        assert!(grid.previous.is_empty());
+        grid.swap_with_dirty();
+        // After fallback swap: previous is populated, current is reset
+        assert!(!grid.previous.is_empty());
+        assert_eq!(grid.previous[0].grapheme, "A");
+    }
+
+    #[test]
+    fn test_swap_with_dirty_dirty_rows_reset() {
+        let mut grid = CellGrid::new(3, 3);
+        let face = default_face();
+        grid.put_char(0, 0, "A", &face);
+        grid.swap(); // populate previous
+
+        grid.put_char(0, 1, "B", &face);
+        assert!(grid.dirty_rows[1]);
+        grid.swap_with_dirty();
+        // All dirty_rows should be false after swap_with_dirty
+        assert!(grid.dirty_rows.iter().all(|d| !d));
     }
 }

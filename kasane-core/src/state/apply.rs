@@ -19,6 +19,23 @@ impl AppState {
                             && atom.face.attributes.contains(Attributes::REVERSE)
                     })
                     .count();
+
+                // Line-level dirty tracking: compare old vs new lines
+                let face_changed =
+                    self.default_face != default_face || self.padding_face != padding_face;
+                let len_changed = self.lines.len() != lines.len();
+
+                if face_changed || len_changed {
+                    self.lines_dirty = vec![true; lines.len()];
+                } else {
+                    self.lines_dirty = self
+                        .lines
+                        .iter()
+                        .zip(lines.iter())
+                        .map(|(old, new)| old != new)
+                        .collect();
+                }
+
                 self.lines = lines;
                 self.default_face = default_face;
                 self.padding_face = padding_face;
@@ -117,6 +134,7 @@ impl AppState {
                 DirtyFlags::OPTIONS
             }
             KakouneRequest::Refresh { force } => {
+                self.lines_dirty = vec![true; self.lines.len()];
                 if force {
                     DirtyFlags::ALL
                 } else {

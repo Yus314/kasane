@@ -145,9 +145,15 @@ fn paint_buffer_ref(
     line_range: std::ops::Range<usize>,
     state: &AppState,
 ) {
+    let has_line_dirty = !state.lines_dirty.is_empty();
     for y_offset in 0..area.h {
         let line_idx = line_range.start + y_offset as usize;
         let y = area.y + y_offset;
+
+        // Skip clean lines — grid retains valid content from previous frame
+        if has_line_dirty && !state.lines_dirty.get(line_idx).copied().unwrap_or(true) {
+            continue;
+        }
 
         if let Some(line) = state.lines.get(line_idx) {
             grid.fill_row(y, &state.default_face);

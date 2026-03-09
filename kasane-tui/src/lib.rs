@@ -248,7 +248,8 @@ where
             backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;
             backend.end_frame()?;
             backend.flush()?;
-            grid.swap();
+            grid.swap_with_dirty();
+            state.lines_dirty.clear(); // consumed; prevent stale data next batch
         }
     }
 

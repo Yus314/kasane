@@ -540,3 +540,128 @@ fn long_line_truncated_at_screen_width() {
     let text = row_text(&grid, 0);
     assert_eq!(text.len(), 80);
 }
+
+// ===========================================================================
+// Line-level dirty tracking
+// ===========================================================================
+
+/// Helper: render with line-dirty optimization using render_pipeline_cached.
+fn render_with_dirty(state: &AppState, dirty: DirtyFlags, grid: &mut CellGrid) {
+    use kasane_core::render::{ViewCache, render_pipeline_cached};
+
+    let registry = PluginRegistry::new();
+    let mut cache = ViewCache::new();
+    render_pipeline_cached(state, &registry, grid, dirty, &mut cache);
+}
+
+#[test]
+fn test_line_dirty_single_edit_diff() {
+    // Frame 1: full render
+    let mut state = setup_state(vec![
+        make_line("line 0"),
+        make_line("line 1"),
+        make_line("line 2"),
+    ]);
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    render_with_dirty(&state, DirtyFlags::ALL, &mut grid);
+    grid.swap();
+
+    // Frame 2: edit only line 1
+    state.apply(KakouneRequest::Draw {
+        lines: vec![
+            make_line("line 0"),
+            make_line("EDITED"),
+            make_line("line 2"),
+        ],
+        default_face: state.default_face,
+        padding_face: state.padding_face,
+    });
+    assert_eq!(state.lines_dirty, vec![false, true, false]);
+
+    render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
+    let diffs = grid.diff();
+
+    // Only the changed line's cells should appear in diffs
+    let dirty_rows: std::collections::HashSet<u16> = diffs.iter().map(|d| d.y).collect();
+    assert!(dirty_rows.contains(&1), "changed line 1 should be in diffs");
+    assert!(
+        !dirty_rows.contains(&0),
+        "unchanged line 0 should NOT be in diffs"
+    );
+    assert!(
+        !dirty_rows.contains(&2),
+        "unchanged line 2 should NOT be in diffs"
+    );
+}
+
+#[test]
+fn test_line_dirty_consecutive_edits() {
+    let mut state = setup_state((0..23).map(|i| make_line(&format!("line {i}"))).collect());
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    render_with_dirty(&state, DirtyFlags::ALL, &mut grid);
+    grid.swap();
+
+    // Frame 2: edit line 5
+    let mut lines: Vec<Line> = (0..23).map(|i| make_line(&format!("line {i}"))).collect();
+    lines[5] = make_line("EDITED_5");
+    state.apply(KakouneRequest::Draw {
+        lines,
+        default_face: state.default_face,
+        padding_face: state.padding_face,
+    });
+    render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
+    let diffs = grid.diff();
+    let dirty_rows: std::collections::HashSet<u16> = diffs.iter().map(|d| d.y).collect();
+    assert!(dirty_rows.contains(&5));
+    assert!(!dirty_rows.contains(&0));
+    grid.swap_with_dirty();
+    state.lines_dirty.clear();
+
+    // Frame 3: edit line 10
+    let mut lines: Vec<Line> = state.lines.clone();
+    lines[10] = make_line("EDITED_10");
+    state.apply(KakouneRequest::Draw {
+        lines,
+        default_face: state.default_face,
+        padding_face: state.padding_face,
+    });
+    render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
+    let diffs = grid.diff();
+    let dirty_rows: std::collections::HashSet<u16> = diffs.iter().map(|d| d.y).collect();
+    assert!(dirty_rows.contains(&10));
+    assert!(
+        !dirty_rows.contains(&5),
+        "line 5 should not be in diffs (already synced)"
+    );
+}
+
+#[test]
+fn test_line_dirty_full_repaint_on_overlay() {
+    let mut state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
+    let mut grid = CellGrid::new(state.cols, state.rows);
+
+    // Show then hide a menu to get MENU|BUFFER dirty flags
+    state.apply(KakouneRequest::MenuShow {
+        items: vec![make_line("item")],
+        anchor: Coord { line: 0, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+    render_with_dirty(&state, DirtyFlags::ALL, &mut grid);
+    grid.swap();
+
+    let flags = state.apply(KakouneRequest::MenuHide);
+    // MenuHide returns MENU|BUFFER — not just BUFFER
+    assert!(flags.contains(DirtyFlags::MENU));
+    assert!(flags.contains(DirtyFlags::BUFFER));
+
+    // Full repaint should happen (dirty != BUFFER alone)
+    render_with_dirty(&state, flags, &mut grid);
+    // Should not crash; verifies the pipeline handles overlay dismissal correctly
+    let diffs = grid.diff();
+    assert!(
+        !diffs.is_empty(),
+        "full repaint after overlay hide should produce diffs"
+    );
+}
