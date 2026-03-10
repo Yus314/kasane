@@ -15,6 +15,8 @@ kasane の目指す姿は「プラグイン作成者のための UI 基盤」で
 - **Kakoune 専用**: Kakoune の JSON UI プロトコルに特化。不要な抽象化を避け、プラグイン作者にとって最適な API を提供する
 - **コンパイラ駆動**: proc macro がコンパイル時に依存解析・レイアウトキャッシュ・更新コード生成を行い、ランタイムコストを最小化する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング))
 
+> **API パリティの原則:** 組み込みプラグインは公開 Plugin trait API のみを使用し、`pub(crate)` に依存しない。外部プラグインが同等の機能を実装できることを保証する。詳細は [layer-responsibilities.md](./layer-responsibilities.md) を参照。
+
 ## 全体アーキテクチャ
 
 ```

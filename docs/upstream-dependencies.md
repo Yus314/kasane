@@ -30,6 +30,25 @@ Kakoune 上流の変更・PR に依存しており、ロードマップから分
 | **ブロッカー** | E-020 (スクロールバー本体) に依存。加えて、検索結果やエラーの全バッファ位置情報がプロトコルにない |
 | **関連 Issue** | [#2727](https://github.com/mawww/kakoune/issues/2727) |
 
+### R-052: 画面外カーソルインジケータ
+
+| | |
+|---|---|
+| **要件** | ビューポート外に存在するカーソル/選択範囲の方向と数をビューポート端に表示 |
+| **使用する API** | `Slot::BufferTop` / `BufferBottom` (未実証) |
+| **ブロッカー** | `draw` メッセージにカーソルの総数が含まれない。ビューポート内のカーソルのみ検出可能 |
+| **回避策の限界** | ビューポート外のカーソル数・位置を正確に把握する方法がない |
+| **元の分類** | Phase 4b 組み込みプラグイン |
+
+### E-040: アンダーラインバリエーション
+
+| | |
+|---|---|
+| **要件** | 波線 (curly)・点線 (dotted)・二重線 (double) 等のアンダーラインスタイル描画 |
+| **ブロッカー** | Face の `underline` 属性が on/off のみ。バリエーション情報をプロトコルが送信しない |
+| **回避策の限界** | バリエーション情報がプロトコルに含まれない限り、どのスタイルを適用すべきか判断不可能 |
+| **関連 Issue** | [#4138](https://github.com/mawww/kakoune/issues/4138) |
+
 ---
 
 ## ヒューリスティック回避可能だが品質に制限
@@ -45,6 +64,15 @@ Kakoune 上流の変更・PR に依存しており、ロードマップから分
 | **ブロッカー** | `draw_status` にコンテキスト種別が含まれない |
 | **回避策** | face 名やテキストパターンによる推定。ユーザーカスタマイズ (カスタム face) で破綻する |
 | **上流追跡** | [#5428](https://github.com/mawww/kakoune/issues/5428) |
+
+### R-027: 起動時 info キューイング
+
+| | |
+|---|---|
+| **要件** | 起動時に受信した info メッセージをキューイングし、UI 準備完了後に表示 |
+| **状態** | 保留 — 上流挙動を検証中 |
+| **関連 Issue** | [#5294](https://github.com/mawww/kakoune/issues/5294) |
+| **備考** | 上流で起動時の info 表示タイミングが改善される可能性あり。確認後、最小限のコア実装を検討 |
 
 ### E-002: ガターアイコン (完全版)
 
@@ -78,6 +106,8 @@ Kakoune 上流の変更・PR に依存しており、ロードマップから分
 | [#5428](https://github.com/mawww/kakoune/issues/5428) | draw_status context | R-062 | Open |
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | incremental draw | NF-004 (回避済み) | Open |
 | [#4687](https://github.com/mawww/kakoune/issues/4687) | atom type ambiguity | C-008 | Open |
+| [#5294](https://github.com/mawww/kakoune/issues/5294) | 起動時 info 表示 | R-027 | Open |
+| [#4138](https://github.com/mawww/kakoune/issues/4138) | underline variations | E-040 | Open |
 
 ---
 

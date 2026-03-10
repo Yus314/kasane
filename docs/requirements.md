@@ -39,6 +39,8 @@
 | **基盤** | Slot / Decorator / Replacement / Element で解決される | プラグイン作者も同じメカニズムを利用可能 |
 | **プロトコル制約** | Kakoune プロトコルの制限により完全解決不可 | ヒューリスティック回避。上流への貢献を追跡 |
 
+> **補完モデル:** 解決層は「どの仕組みで解決するか」(HOW) の分類。これを補完する「どのレイヤーが責任を持つか」(WHERE) の分類は[四層レイヤー責務モデル](./layer-responsibilities.md)を参照。
+
 ### 要件と解決層のマッピング
 
 #### 基本レンダリング (R-001〜R-009)
@@ -104,7 +106,7 @@
 |----|--------|------|------|
 | R-050 | レンダラ | ソフトウェアレンダリング | — 先送り |
 | R-051 | レンダラ | フォーカス追跡 | — 先送り |
-| R-052 | 基盤 | Slot または Decorator でインジケータ表示 | — 先送り |
+| R-052 | 基盤 | Slot または Decorator でインジケータ表示 | [上流依存](./upstream-dependencies.md) |
 
 #### ステータスバー (R-060〜R-064)
 
@@ -134,7 +136,7 @@
 | E-002 | 基盤 + プロトコル制約 | Slot::BufferLeft。行番号は PR #4737 依存 | ○ 部分実証 (ColorPreviewPlugin) | [上流依存](./upstream-dependencies.md) |
 | E-003 | 基盤 | Decorator(Buffer)。GUI バックエンドでサブピクセル描画 | | 5c (外部プラグイン) |
 | E-004 | 基盤 | Interactive Element でヒットテスト | ○ 部分実証 (ColorPreviewPlugin) | 5c (外部プラグイン) |
-| E-005 | 基盤 | OverlayAnchor::Absolute | | 4b |
+| E-005 | 基盤 | OverlayAnchor::Absolute | | 4b (コアインフラ + プラグイン実証) |
 | E-006 | 基盤 | Decorator(BufferLine) | ○ 部分実証 (CursorLinePlugin) | 4b |
 | E-010 | 基盤 | Flex による分割レイアウト | | 5a |
 | E-011 | 基盤 | Slot::Overlay | | 5a |
@@ -145,7 +147,7 @@
 | E-023 | レンダラ + プロトコル制約 | ビジュアルレイアウト計算。画面外情報は上流依存 | | 5c (外部プラグイン) |
 | E-030 | レンダラ | GUI バックエンド (winit) | | 4b |
 | E-031 | レンダラ | 独自 URL 検出 | | 5c (外部プラグイン) |
-| E-040 | レンダラ | アンダーラインスタイル描画 | | 4b |
+| E-040 | レンダラ | アンダーラインスタイル描画 | | [上流依存](./upstream-dependencies.md) (保留) |
 | E-041 | レンダラ | GUI バックエンド (glyphon) | | 5c (外部プラグイン) |
 
 ---
