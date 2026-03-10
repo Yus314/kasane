@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773123343900,
+  "lastUpdate": 1773125957506,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -4067,6 +4067,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7513,
             "range": "± 85",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "3abda3f16a57d9c302c32d8ca7877e44e58c9855",
+          "message": "docs: add four-layer responsibility model (ADR-012)\n\nEstablish systematic criteria for determining which layer owns a feature:\nupstream (Kakoune) / core / built-in plugin / external plugin.\nReclassify R-052 and E-040 as upstream-dependent, update Phase 4b scope.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T15:47:45+09:00",
+          "tree_id": "1e932658ff46164e821ddce3ccfbee51897a1279",
+          "url": "https://github.com/Yus314/kasane/commit/3abda3f16a57d9c302c32d8ca7877e44e58c9855"
+        },
+        "date": 1773125957140,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 150874,
+            "range": "± 1873",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 885864,
+            "range": "± 22628",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2170,
+            "range": "± 35",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 141859,
+            "range": "± 7443",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 156458,
+            "range": "± 5221",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 122074,
+            "range": "± 3535",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3450843,
+            "range": "± 11094",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15605537,
+            "range": "± 92636",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1774394,
+            "range": "± 16026",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16430796,
+            "range": "± 52147",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7393,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55508,
+            "range": "± 163",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 618,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7461,
+            "range": "± 26",
             "unit": "ns/iter"
           }
         ]
