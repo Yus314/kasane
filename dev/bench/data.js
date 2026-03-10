@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773069486298,
+  "lastUpdate": 1773121403931,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3743,6 +3743,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7526,
             "range": "± 23",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "e5e0a0caa4851c16d9f56cb4e9dc026fadd59543",
+          "message": "feat(plugin): add ColorPreviewPlugin with interactive color picker\n\nAdd a color preview plugin that detects hex colors (#RRGGBB, #RGB, rgb:RRGGBB)\nin buffer lines and provides:\n- Left gutter swatches showing detected colors\n- Floating overlay with interactive ▲/▼ arrows per RGB channel\n- Click to adjust color ±1, Ctrl/Shift+click for ±16 steps\n- Search-based buffer replacement via `exec -draft` for reliable edits\n- Registered in both TUI and GUI backends\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T14:32:16+09:00",
+          "tree_id": "7a14eade9967f30e3f181931162abc600bf905aa",
+          "url": "https://github.com/Yus314/kasane/commit/e5e0a0caa4851c16d9f56cb4e9dc026fadd59543"
+        },
+        "date": 1773121403637,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 152145,
+            "range": "± 1206",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 883881,
+            "range": "± 19402",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2226,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 147765,
+            "range": "± 3595",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 158120,
+            "range": "± 5397",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 123486,
+            "range": "± 3392",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3444328,
+            "range": "± 5523",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15658930,
+            "range": "± 39990",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1764887,
+            "range": "± 4766",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16380348,
+            "range": "± 52024",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 8009,
+            "range": "± 535",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55529,
+            "range": "± 104",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 617,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7459,
+            "range": "± 49",
             "unit": "ns/iter"
           }
         ]
