@@ -118,8 +118,13 @@ winit + wgpu + glyphon による GPU バックエンド。詳細は [gui-backend
 - R-052: 画面外カーソルインジケータ (Slot/Decorator で実装 — プラグインの実用例)
 - R-062: draw_status からのコンテキスト推定
 
-**最初の拡張プラグイン (プラグインシステム実証):**
-- E-002: ガターアイコン → `Slot::BufferLeft` の実証
+**プラグインシステム実証 — ✓ 完了:**
+- CursorLinePlugin: `contribute_line()` によるカーソル行背景ハイライト
+- ColorPreviewPlugin: `Slot::BufferLeft` (ガタースウォッチ) + `contribute_overlay()` (インタラクティブカラーピッカー) + `handle_mouse()` (色値編集)
+- マルチプラグインガター合成: 複数プラグインの `contribute_line()` 結果を水平合成
+
+**残りの拡張プラグイン:**
+- E-002: ガターアイコン → `Slot::BufferLeft` の実証 (行番号等、PR #4737 依存)
 - E-020: スクロールバー → `Slot::BufferRight` の実証
 - E-001: オーバーレイレイヤー → `Slot::Overlay` + `Decorator(Buffer)` の実証
 

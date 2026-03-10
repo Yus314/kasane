@@ -38,7 +38,8 @@
 | State | アプリケーション全体の状態。CoreState (Kakoune 由来) + プラグイン状態を保持 |
 | Msg | 状態変更を引き起こすメッセージ。Kakoune メッセージ、入力イベント、プラグインメッセージ等 |
 | update() | State と Msg を受け取り、State を更新して Command を返す関数。副作用は Command として明示化 |
-| Command | update() が返す副作用の記述。SendToKakoune, Paste, Quit |
+| Command | update() が返す副作用の記述。SendToKakoune, Paste, Quit, RequestRedraw, ScheduleTimer, PluginMessage, SetConfig |
+| DirtyFlags | AppState の変更箇所を示すビットフラグ (u16)。BUFFER, STATUS, MENU_STRUCTURE, MENU_SELECTION, INFO, OPTIONS の 6 種。on_state_changed() や PluginSlotCache の無効化判定に使用 |
 | CoreState | Kakoune プロトコル由来の状態 (バッファ行、カーソル、メニュー、ステータス等)。プラグインからは読み取り専用 |
 
 ## プラグインシステム
@@ -54,6 +55,17 @@
 | DecorateTarget | Decorator の適用対象 (Buffer, StatusBar, Menu, Info, BufferLine) |
 | ReplaceTarget | Replacement の適用対象 (MenuPrompt, MenuInline, InfoPrompt, StatusBar 等) |
 | proc macro | `#[kasane::plugin]`, `#[kasane::component]` 等の手続きマクロ。ボイラープレート自動生成・コンパイル時検証 |
+| LineDecoration | プラグインがバッファの各行に提供する装飾。left_gutter (左ガター Element)、right_gutter (右ガター Element)、background (行背景 Face) の 3 つのオプショナル要素で構成 |
+| contribute_overlay | Plugin トレイトのメソッド。プラグインが Overlay (位置指定付き浮動 Element) を一つ提供する拡張ポイント。Slot::Overlay とは独立 |
+| contribute_line | Plugin トレイトのメソッド。指定行の LineDecoration を返す。ガターアイコンや行背景の実装に使用 |
+| on_state_changed | Plugin トレイトのライフサイクルメソッド。AppState 更新時に DirtyFlags 付きで呼ばれる。プラグイン内部状態の同期に使用 |
+| observe_key / observe_mouse | Plugin トレイトの入力観測メソッド。全プラグインに通知されるが消費不可。内部状態の追跡に使用 |
+| state_hash | Plugin トレイトのメソッド。内部状態の u64 ハッシュを返す。PluginSlotCache の L1 キャッシュ層で差分判定に使用 |
+| slot_deps | Plugin トレイトのメソッド。指定 Slot の contribute() が依存する DirtyFlags を返す。PluginSlotCache の L3 キャッシュ層で使用 |
+| PluginSlotCache | PluginRegistry のメモリ内キャッシュ。L1 (state_hash) と L3 (slot_deps) の 2 階層で contribute() 結果をキャッシュし、不要な再計算を回避 |
+| transform_menu_item | Plugin トレイトのメソッド。メニューアイテム (Atom 配列) の描画前変換。アイコン追加等に使用 |
+| CursorLinePlugin | ビルトインプラグイン。カーソル行の背景色をハイライト。contribute_line() の実用例 |
+| ColorPreviewPlugin | ビルトインプラグイン。バッファ内の色コード (#RRGGBB, #RGB, rgb:RRGGBB) を検出し、ガタースウォッチとインタラクティブカラーピッカーを提供。contribute_line() + contribute_overlay() + handle_mouse() の実用例 |
 
 ## レイアウト
 

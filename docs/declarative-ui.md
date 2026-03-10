@@ -319,10 +319,14 @@ enum Command {
     SendToKakoune(KasaneRequest),
     Paste,
     Quit,
+    RequestRedraw(DirtyFlags),
+    ScheduleTimer { delay: Duration, target: PluginId, payload: Box<dyn Any + Send> },
+    PluginMessage { target: PluginId, payload: Box<dyn Any + Send> },
+    SetConfig { key: String, value: String },
 }
 ```
 
-> **注:** 当初設計の `Broadcast`/`Async` は将来のプラグイン間通信・非同期処理のための設計予約だったが、現実装では未使用のため削除された。`Paste` はクリップボード貼り付けの副作用として追加された。
+> **注:** 当初設計の `Broadcast`/`Async` は `PluginMessage`/`ScheduleTimer` に進化した。`RequestRedraw` はプラグインが再描画を要求するために使用 (DirtyFlags で再描画範囲を指定)。`SetConfig` はプラグインからの設定変更に使用。`ScheduleTimer` と `PluginMessage` はイベントループレベルで処理される `DeferredCommand` に変換される。
 
 ### update 関数
 
@@ -375,36 +379,75 @@ trait Plugin: Any {
     /// プラグインの一意な識別子
     fn id(&self) -> PluginId;
 
+    // --- ライフサイクルフック ---
+
+    /// プラグイン初期化。PluginRegistry への登録直後に呼ばれる
+    fn on_init(&mut self, _state: &AppState) -> Vec<Command> { vec![] }
+    /// プラグイン終了。アプリケーション終了時に呼ばれる
+    fn on_shutdown(&mut self) {}
+    /// 状態変更通知。AppState 更新後に DirtyFlags 付きで呼ばれる。プラグイン内部状態の同期に使用
+    fn on_state_changed(&mut self, _state: &AppState, _dirty: DirtyFlags) -> Vec<Command> { vec![] }
+
+    // --- 入力観測 (通知専用、消費不可) ---
+
+    /// キーイベント観測。全プラグインに通知される。handle_key() より先に呼ばれる
+    fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {}
+    /// マウスイベント観測。全プラグインに通知される。handle_mouse() より先に呼ばれる
+    fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppState) {}
+
+    // --- 状態更新・入力処理 ---
+
     /// イベント処理 (型消去された Msg をダウンキャストして処理)
-    fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command>;
+    fn update(&mut self, _msg: Box<dyn Any>, _state: &AppState) -> Vec<Command> { vec![] }
+    /// キーイベント処理 (first-wins: 最初に Some を返したプラグインが消費)
+    fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> { None }
+    /// マウスイベント処理 (InteractiveId ヒットテスト後に呼ばれる)
+    fn handle_mouse(&mut self, _event: &MouseEvent, _id: InteractiveId, _state: &AppState)
+        -> Option<Vec<Command>> { None }
 
-    /// キーイベント処理 (優先度順に問い合わせ)
-    fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>>;
+    // --- ビューキャッシュ ---
 
-    /// マウスイベント処理 (InteractiveId がマッチした時に呼ばれる)
-    fn handle_mouse(&mut self, event: &MouseEvent, id: InteractiveId, state: &AppState) -> Option<Vec<Command>>;
+    /// プラグイン内部状態の u64 ハッシュ。PluginSlotCache の L1 キャッシュ層で差分判定に使用
+    fn state_hash(&self) -> u64 { 0 }
+    /// 指定 Slot の contribute() が依存する DirtyFlags。PluginSlotCache の L3 キャッシュ層で使用
+    fn slot_deps(&self, _slot: Slot) -> DirtyFlags { DirtyFlags::ALL }
+
+    // --- ビュー寄与 ---
 
     /// Slot への Element 提供
-    fn contribute(&self, slot: Slot, state: &AppState) -> Option<Element>;
+    fn contribute(&self, _slot: Slot, _state: &AppState) -> Option<Element> { None }
+    /// 型付きオーバーレイ提供 (Slot::Overlay とは独立)
+    fn contribute_overlay(&self, _state: &AppState) -> Option<Overlay> { None }
 
     /// Decorator: 既存 Element のラップ
-    fn decorate(&self, target: DecorateTarget, element: Element, state: &AppState) -> Element {
+    fn decorate(&self, _target: DecorateTarget, element: Element, _state: &AppState) -> Element {
         element  // デフォルト: 変更なし
     }
 
     /// Replacement: 既存コンポーネントの差替
-    fn replace(&self, target: ReplaceTarget, state: &AppState) -> Option<Element> {
+    fn replace(&self, _target: ReplaceTarget, _state: &AppState) -> Option<Element> {
         None  // デフォルト: 差替なし
     }
 
     /// Decorator の適用優先度 (高い値 = 内側、先に適用)
-    fn decorator_priority(&self) -> u32 {
-        0
-    }
+    fn decorator_priority(&self) -> u32 { 0 }
+
+    // --- 行装飾 ---
+
+    /// バッファの指定行に対する装飾 (ガターアイコン、行背景) を提供
+    fn contribute_line(&self, _line: usize, _state: &AppState) -> Option<LineDecoration> { None }
+
+    // --- メニューアイテム変換 ---
+
+    /// メニューアイテム (Atom 配列) の描画前変換。アイコン追加等に使用
+    fn transform_menu_item(&self, _item: &[Atom], _index: usize, _selected: bool, _state: &AppState)
+        -> Option<Vec<Atom>> { None }
 }
 ```
 
-> **変更点:** 全メソッドの `&CoreState` → `&AppState` に統一。`handle_key` の `key: KeyEvent` → `key: &KeyEvent` (参照)。`handle_mouse` に `id: InteractiveId` パラメータ追加、`event: MouseEvent` → `event: &MouseEvent` (参照)。`keybindings()` → `decorator_priority()` に置き換え。
+> **変更点 (Phase 2–3):** 全メソッドの `&CoreState` → `&AppState` に統一。`handle_key` の `key: KeyEvent` → `key: &KeyEvent` (参照)。`handle_mouse` に `id: InteractiveId` パラメータ追加、`event: MouseEvent` → `event: &MouseEvent` (参照)。`keybindings()` → `decorator_priority()` に置き換え。
+>
+> **変更点 (Phase 3–4a):** ライフサイクルフック (`on_init`, `on_shutdown`, `on_state_changed`) 追加。入力観測 (`observe_key`, `observe_mouse`) 追加。ビューキャッシュ (`state_hash`, `slot_deps`) 追加。型付きオーバーレイ (`contribute_overlay`) 追加。行装飾 (`contribute_line`) 追加。メニューアイテム変換 (`transform_menu_item`) 追加。
 
 ### proc macro によるプラグイン定義
 
@@ -713,18 +756,18 @@ fn view(state: &State, core: &CoreState, menu: &MenuState) -> Element {
 
 ## イベント伝播
 
-### キーイベント (全プラグイン問い合わせ)
+### キーイベント (観測 + first-wins 処理)
 
-明示的な「フォーカス」概念を持たず、全プラグインの `handle_key()` を優先度順に問い合わせる。各プラグインは `AppState` を参照して自分が処理すべきか判断する。
+全プラグインに観測通知 (`observe_key`) を送った後、`handle_key()` を順に問い合わせる。各プラグインは `AppState` を参照して自分が処理すべきか判断する。
 
 ```
 キー入力
   │
   ▼
-グローバルキーバインドに一致？ ──→ 該当プラグインの Msg を update() へ
-  │ (不一致)
+observe_key() を全プラグインに通知 (消費不可、内部状態の追跡用)
+  │
   ▼
-全プラグインの handle_key() を優先度順に呼ぶ
+全プラグインの handle_key() を順に呼ぶ (first-wins)
   │  各プラグインは state を見て自己判断:
   │    - state.menu.is_some() なら Menu Replacement が処理
   │    - 自分の Overlay が active なら処理
@@ -732,6 +775,9 @@ fn view(state: &State, core: &CoreState, menu: &MenuState) -> Element {
   │
   ▼ 最初に Some(commands) を返したプラグインが勝つ
   │ (全て None の場合)
+  ▼
+組み込みキーバインド (PageUp/PageDown)
+  │ (不一致の場合)
   ▼
 デフォルト: Kakoune に転送
 ```
@@ -742,17 +788,23 @@ fn view(state: &State, core: &CoreState, menu: &MenuState) -> Element {
 - Replacement プラグインの自然なサポート: Menu Replacement は `state.menu.is_some()` のとき自動的にキーを受け取る
 - カーソル位置は state から決定的に計算: `cursor_mode == Prompt` → ステータスバー上、`menu.is_some()` → メニュー、それ以外 → バッファ
 
-### マウスイベント (InteractiveId ヒットテスト)
+### マウスイベント (観測 + InteractiveId ヒットテスト)
 
 ```
-マウスクリック (x, y)
+マウスイベント (x, y, kind, modifiers)
   │
   ▼
-レイアウト結果から InteractiveId を特定
+observe_mouse() を全プラグインに通知 (消費不可、内部状態の追跡用)
   │
   ▼
-該当プラグインの handle_mouse() を呼ぶ
+レイアウト結果から InteractiveId を特定 (hit_test)
+  │
+  ▼
+該当プラグインの handle_mouse() を呼ぶ (first-wins)
   │ (未処理の場合)
+  ▼
+組み込み処理 (info スクロール, スムーズスクロール, ドラッグ)
+  │
   ▼
 デフォルト: Kakoune に転送
 ```
@@ -848,10 +900,11 @@ enum StyleToken {
 - ✓ proc macro (`#[kasane::plugin]`) 完成
 - ✓ Decorator / Replacement メカニズム完成・統合
 
-**注:** プラグインシステムは完全に動作するが、実プラグインはまだ存在しない。Phase 4a で実プラグインを構築して API を実証する。
+### Phase 4: 拡張プラグイン実証 (進行中)
 
-### Phase 4: 拡張プラグイン実証
-
-- 実プラグイン構築によるプラグインシステムの実証
+**達成済み:**
+- ✓ CursorLinePlugin — `contribute_line()` による行背景ハイライトの実証
+- ✓ ColorPreviewPlugin — `contribute_line()` (ガタースウォッチ) + `contribute_overlay()` (インタラクティブオーバーレイ) + `handle_mouse()` (色値編集) の実証
+- ✓ マルチプラグインガター合成 — 複数プラグインの左/右ガター寄与を水平合成
 
 > **注:** GUI バックエンド (winit + wgpu + glyphon) は Phase G として独立して実装済み。詳細は [gui-backend.md](./gui-backend.md) を参照。

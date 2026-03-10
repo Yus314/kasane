@@ -126,25 +126,25 @@
 
 #### 拡張機能 (E-001〜E-041)
 
-| ID | 解決層 | 備考 |
-|----|--------|------|
-| E-001 | 基盤 | Slot::Overlay + Decorator(Buffer) |
-| E-002 | 基盤 + プロトコル制約 | Slot::BufferLeft。行番号は PR #4737 依存 |
-| E-003 | 基盤 | Decorator(Buffer)。GUI バックエンドでサブピクセル描画 |
-| E-004 | 基盤 | Interactive Element でヒットテスト |
-| E-005 | 基盤 | OverlayAnchor::Absolute |
-| E-006 | 基盤 | Decorator(BufferLine) |
-| E-010 | 基盤 | Flex による分割レイアウト |
-| E-011 | 基盤 | Slot::Overlay |
-| E-012 | 設定 + 基盤 | セマンティックスタイルトークン |
-| E-020 | 基盤 + プロトコル制約 | Slot::BufferRight。スクロール位置はプロトコル外 |
-| E-021 | 基盤 + プロトコル制約 | E-020 に依存 |
-| E-022 | 基盤 | Decorator(Buffer) + Interactive |
-| E-023 | レンダラ + プロトコル制約 | ビジュアルレイアウト計算。画面外情報は上流依存 |
-| E-030 | レンダラ | GUI バックエンド (winit) |
-| E-031 | レンダラ | 独自 URL 検出 |
-| E-040 | レンダラ | アンダーラインスタイル描画 |
-| E-041 | レンダラ | GUI バックエンド (cosmic-text) |
+| ID | 解決層 | 備考 | 状態 |
+|----|--------|------|------|
+| E-001 | 基盤 | Slot::Overlay + Decorator(Buffer) | ○ 部分実証 (ColorPreviewPlugin) |
+| E-002 | 基盤 + プロトコル制約 | Slot::BufferLeft。行番号は PR #4737 依存 | ○ 部分実証 (ColorPreviewPlugin) |
+| E-003 | 基盤 | Decorator(Buffer)。GUI バックエンドでサブピクセル描画 | |
+| E-004 | 基盤 | Interactive Element でヒットテスト | ○ 部分実証 (ColorPreviewPlugin) |
+| E-005 | 基盤 | OverlayAnchor::Absolute | |
+| E-006 | 基盤 | Decorator(BufferLine) | ○ 部分実証 (CursorLinePlugin) |
+| E-010 | 基盤 | Flex による分割レイアウト | |
+| E-011 | 基盤 | Slot::Overlay | |
+| E-012 | 設定 + 基盤 | セマンティックスタイルトークン | |
+| E-020 | 基盤 + プロトコル制約 | Slot::BufferRight。スクロール位置はプロトコル外 | |
+| E-021 | 基盤 + プロトコル制約 | E-020 に依存 | |
+| E-022 | 基盤 | Decorator(Buffer) + Interactive | |
+| E-023 | レンダラ + プロトコル制約 | ビジュアルレイアウト計算。画面外情報は上流依存 | |
+| E-030 | レンダラ | GUI バックエンド (winit) | |
+| E-031 | レンダラ | 独自 URL 検出 | |
+| E-040 | レンダラ | アンダーラインスタイル描画 | |
+| E-041 | レンダラ | GUI バックエンド (cosmic-text) | |
 
 ---
 
