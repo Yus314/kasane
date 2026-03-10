@@ -40,6 +40,15 @@ pub fn update(
 ) -> (DirtyFlags, Vec<Command>) {
     match msg {
         Msg::Kakoune(req) => {
+            let req_kind = match &req {
+                KakouneRequest::Draw { .. } => "Draw",
+                KakouneRequest::DrawStatus { .. } => "DrawStatus",
+                KakouneRequest::SetCursor { .. } => "SetCursor",
+                _ => "",
+            };
+            if !req_kind.is_empty() {
+                tracing::debug!(kind = req_kind, "incoming Kakoune request");
+            }
             let flags = state.apply(req);
             let mut commands = Vec::new();
             if !flags.is_empty() {
@@ -115,12 +124,17 @@ pub fn update(
 
             // Plugin mouse handling: route click/press to plugins via hit test
             if let Some(id) = registry.hit_test(mouse.column as u16, mouse.line as u16) {
+                tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
                 for plugin in registry.plugins_mut() {
                     if let Some(mut commands) = plugin.handle_mouse(&mouse, id, state) {
+                        tracing::debug!(count = commands.len(), "handle_mouse returned commands");
                         let flags = extract_redraw_flags(&mut commands);
                         return (flags, commands);
                     }
                 }
+                tracing::debug!(id = ?id, "no plugin handled mouse");
+            } else if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
+                tracing::debug!(col = mouse.column, line = mouse.line, kind = ?mouse.kind, "hit_test: no match");
             }
 
             // Selection-during-scroll: when dragging with left button and scrolling,

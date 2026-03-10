@@ -85,6 +85,7 @@ fn convert_mouse(event: CtMouseEvent) -> Option<InputEvent> {
         kind,
         line: event.row as u32,
         column: event.column as u32,
+        modifiers: convert_modifiers(event.modifiers),
     }))
 }
 

@@ -41,6 +41,7 @@ pub fn convert_window_event(
                     kind: MouseEventKind::Drag(btn),
                     line: row as u32,
                     column: col as u32,
+                    modifiers: Modifiers::empty(),
                 })]
             } else {
                 vec![]
@@ -64,6 +65,7 @@ pub fn convert_window_event(
                         kind: MouseEventKind::Press(btn),
                         line: row as u32,
                         column: col as u32,
+                        modifiers: Modifiers::empty(),
                     })]
                 }
                 ElementState::Released => {
@@ -72,6 +74,7 @@ pub fn convert_window_event(
                         kind: MouseEventKind::Release(btn),
                         line: row as u32,
                         column: col as u32,
+                        modifiers: Modifiers::empty(),
                     })]
                 }
             }
@@ -92,12 +95,14 @@ pub fn convert_window_event(
                     kind: MouseEventKind::ScrollUp,
                     line: row as u32,
                     column: col as u32,
+                    modifiers: Modifiers::empty(),
                 })]
             } else if lines < 0 {
                 vec![InputEvent::Mouse(MouseEvent {
                     kind: MouseEventKind::ScrollDown,
                     line: row as u32,
                     column: col as u32,
+                    modifiers: Modifiers::empty(),
                 })]
             } else {
                 vec![]
@@ -176,28 +181,43 @@ fn convert_key_event(event: &winit::event::KeyEvent) -> Option<InputEvent> {
 /// character is a lowercase letter (a-z). For all other characters, the
 /// shifted form is already encoded in the character itself.
 pub fn apply_modifiers(event: &mut InputEvent, winit_mods: &winit::keyboard::ModifiersState) {
-    if let InputEvent::Key(ke) = event {
-        let mut mods = Modifiers::empty();
-        if winit_mods.control_key() {
-            mods |= Modifiers::CTRL;
-        }
-        if winit_mods.alt_key() {
-            mods |= Modifiers::ALT;
-        }
-        if winit_mods.shift_key() {
-            let apply_shift = match ke.key {
-                // Shift is already baked into the character by winit.
-                // Only keep it for lowercase ASCII (Kakoune's <s-a> = A).
-                Key::Char(ch) => ch.is_ascii_lowercase(),
-                // Special keys always accept Shift.
-                _ => true,
-            };
-            if apply_shift {
-                mods |= Modifiers::SHIFT;
+    let mods = build_modifiers(winit_mods);
+    match event {
+        InputEvent::Key(ke) => {
+            let mut key_mods = mods;
+            if winit_mods.shift_key() {
+                let apply_shift = match ke.key {
+                    // Shift is already baked into the character by winit.
+                    // Only keep it for lowercase ASCII (Kakoune's <s-a> = A).
+                    Key::Char(ch) => ch.is_ascii_lowercase(),
+                    // Special keys always accept Shift.
+                    _ => true,
+                };
+                if !apply_shift {
+                    key_mods &= !Modifiers::SHIFT;
+                }
             }
+            ke.modifiers = key_mods;
         }
-        ke.modifiers = mods;
+        InputEvent::Mouse(me) => {
+            me.modifiers = mods;
+        }
+        _ => {}
     }
+}
+
+fn build_modifiers(winit_mods: &winit::keyboard::ModifiersState) -> Modifiers {
+    let mut mods = Modifiers::empty();
+    if winit_mods.control_key() {
+        mods |= Modifiers::CTRL;
+    }
+    if winit_mods.alt_key() {
+        mods |= Modifiers::ALT;
+    }
+    if winit_mods.shift_key() {
+        mods |= Modifiers::SHIFT;
+    }
+    mods
 }
 
 fn convert_ime(ime: &Ime) -> Vec<InputEvent> {

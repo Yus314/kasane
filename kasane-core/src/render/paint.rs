@@ -170,11 +170,11 @@ fn paint_buffer_ref(
             let base_face = line_backgrounds
                 .and_then(|bgs| bgs.get(line_idx).copied().flatten())
                 .unwrap_or(state.default_face);
-            grid.fill_row(y, &base_face);
+            grid.fill_region(y, area.x, area.w, &base_face);
             grid.put_line_with_base(y, area.x, line, area.w, Some(&base_face));
         } else {
             // Padding row
-            grid.fill_row(y, &state.padding_face);
+            grid.fill_region(y, area.x, area.w, &state.padding_face);
             let mut pad_face = state.padding_face;
             if pad_face.fg == pad_face.bg {
                 pad_face.fg = state.default_face.fg;

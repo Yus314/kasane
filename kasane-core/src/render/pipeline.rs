@@ -1,5 +1,5 @@
 use super::cache::{LayoutCache, ViewCache};
-use super::cursor::{clear_block_cursor_face, cursor_position, cursor_style};
+use super::cursor::{clear_block_cursor_face, cursor_position, cursor_style, find_buffer_x_offset};
 use super::grid::CellGrid;
 use super::scene::{self, DrawCommand, SceneCache};
 use super::theme::Theme;
@@ -11,12 +11,16 @@ use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
 
 /// Compute the RenderResult (cursor position + style) from AppState.
-fn compute_render_result(state: &AppState) -> RenderResult {
+fn compute_render_result(state: &AppState, buffer_x_offset: u16) -> RenderResult {
     let style = cursor_style(state);
     let cx = state.cursor_pos.column as u16;
     let cy = match state.cursor_mode {
         CursorMode::Prompt => state.rows.saturating_sub(1),
         CursorMode::Buffer => state.cursor_pos.line as u16,
+    };
+    let cx = match state.cursor_mode {
+        CursorMode::Buffer => cx + buffer_x_offset,
+        CursorMode::Prompt => cx,
     };
     RenderResult {
         cursor_x: cx,
@@ -74,19 +78,11 @@ pub fn scene_render_pipeline_scene_cached<'a>(
 ) -> (&'a [DrawCommand], RenderResult) {
     crate::perf::perf_span!("scene_render_pipeline_scene_cached");
 
-    let result = compute_render_result(state);
-
     // Invalidate both caches
     view_cache.invalidate(dirty);
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
-    // Fast path: all sections cached
-    if scene_cache.is_fully_cached() {
-        scene_cache.compose();
-        return (scene_cache.composed_ref(), result);
-    }
-
-    // Get view sections (uses ViewCache)
+    // Get view sections (uses ViewCache) — needed for buffer_x_offset even on fast path
     let sections = view::view_sections_cached(state, registry, view_cache);
 
     let root_area = Rect {
@@ -95,11 +91,22 @@ pub fn scene_render_pipeline_scene_cached<'a>(
         w: state.cols,
         h: state.rows,
     };
+
+    // Compute buffer_x_offset from the base layout
+    let base_layout = flex::place(&sections.base, root_area, state);
+    let buffer_x_offset = find_buffer_x_offset(&sections.base, &base_layout);
+    let result = compute_render_result(state, buffer_x_offset);
+
+    // Fast path: all sections cached
+    if scene_cache.is_fully_cached() {
+        scene_cache.compose();
+        return (scene_cache.composed_ref(), result);
+    }
+
     let theme = Theme::default_theme();
 
     // Base section
     if scene_cache.base_commands.is_none() {
-        let base_layout = flex::place(&sections.base, root_area, state);
         let cmds = scene::scene_paint_section(
             &sections.base,
             &base_layout,
@@ -203,9 +210,10 @@ pub fn render_pipeline_cached(
     }
     paint::paint(&element, &layout_result, grid, state);
 
+    let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
     let style = cursor_style(state);
-    clear_block_cursor_face(state, grid, style);
-    let (cx, cy) = cursor_position(state, grid);
+    clear_block_cursor_face(state, grid, style, buffer_x_offset);
+    let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
 
     RenderResult {
         cursor_x: cx,
@@ -272,9 +280,10 @@ pub fn render_pipeline_sectioned(
         grid.clear_region(&status_rect, &state.status_default_face);
         paint::paint(&element, &layout_result, grid, state);
 
+        let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
         let style = cursor_style(state);
-        clear_block_cursor_face(state, grid, style);
-        let (cx, cy) = cursor_position(state, grid);
+        clear_block_cursor_face(state, grid, style, buffer_x_offset);
+        let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
         return RenderResult {
             cursor_x: cx,
             cursor_y: cy,
@@ -302,11 +311,12 @@ pub fn render_pipeline_sectioned(
             paint::paint(&element, &layout_result, grid, state);
 
             layout_cache.root_area = Some(root_area);
-            layout_cache.base_layout = Some(layout_result);
+            layout_cache.base_layout = Some(layout_result.clone());
 
+            let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
             let style = cursor_style(state);
-            clear_block_cursor_face(state, grid, style);
-            let (cx, cy) = cursor_position(state, grid);
+            clear_block_cursor_face(state, grid, style, buffer_x_offset);
+            let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
             return RenderResult {
                 cursor_x: cx,
                 cursor_y: cy,
@@ -353,9 +363,16 @@ pub fn render_pipeline_patched(
 
     // Try each patch
     if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache) {
+        // Compute buffer_x_offset from cached layout if available
+        let buffer_x_offset = if let Some(ref base_layout) = layout_cache.base_layout {
+            let element = view::view_cached(state, registry, view_cache);
+            find_buffer_x_offset(&element, base_layout)
+        } else {
+            0
+        };
         let style = cursor_style(state);
-        clear_block_cursor_face(state, grid, style);
-        let (cx, cy) = cursor_position(state, grid);
+        clear_block_cursor_face(state, grid, style, buffer_x_offset);
+        let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
 
         let result = RenderResult {
             cursor_x: cx,

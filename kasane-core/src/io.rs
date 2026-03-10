@@ -4,7 +4,9 @@ use crate::protocol::{KakouneRequest, KasaneRequest};
 
 /// Send a KasaneRequest as JSON to the Kakoune process.
 pub fn send_request(writer: &mut impl Write, req: &KasaneRequest) {
-    let _ = writeln!(writer, "{}", req.to_json());
+    let json = req.to_json();
+    tracing::debug!(%json, "send_request");
+    let _ = writeln!(writer, "{}", json);
     let _ = writer.flush();
 }
 

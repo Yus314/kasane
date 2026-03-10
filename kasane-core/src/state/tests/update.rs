@@ -159,6 +159,7 @@ fn test_update_mouse_routes_to_plugin() {
         kind: MouseEventKind::Press(MouseButton::Left),
         line: 3,
         column: 7,
+        modifiers: Modifiers::empty(),
     };
     let (flags, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     // Plugin handled the mouse event and returned RequestRedraw(INFO)
@@ -178,6 +179,7 @@ fn test_update_mouse_miss_forwards_to_kakoune() {
         kind: MouseEventKind::Press(MouseButton::Left),
         line: 5,
         column: 10,
+        modifiers: Modifiers::empty(),
     };
     let (flags, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     assert!(flags.is_empty());
@@ -313,6 +315,7 @@ fn test_observe_mouse_called_without_hit_test() {
         kind: MouseEventKind::Press(MouseButton::Left),
         line: 5,
         column: 10,
+        modifiers: Modifiers::empty(),
     };
     let _ = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     assert!(observed.load(Ordering::Relaxed));

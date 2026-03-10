@@ -15,6 +15,7 @@ fn test_drag_state_press_activates() {
         kind: crate::input::MouseEventKind::Press(crate::input::MouseButton::Left),
         line: 5,
         column: 10,
+        modifiers: crate::input::Modifiers::empty(),
     };
     update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     assert_eq!(
@@ -41,6 +42,7 @@ fn test_drag_state_release_clears() {
         kind: crate::input::MouseEventKind::Release(crate::input::MouseButton::Left),
         line: 5,
         column: 10,
+        modifiers: crate::input::Modifiers::empty(),
     };
     update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     assert_eq!(state.drag, DragState::None);
@@ -60,6 +62,7 @@ fn test_drag_state_drag_keeps_active() {
         kind: crate::input::MouseEventKind::Drag(crate::input::MouseButton::Left),
         line: 3,
         column: 7,
+        modifiers: crate::input::Modifiers::empty(),
     };
     let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     // Drag sends MouseMove
@@ -89,6 +92,7 @@ fn test_selection_scroll_generates_two_commands() {
         kind: crate::input::MouseEventKind::ScrollDown,
         line: 10,
         column: 5,
+        modifiers: crate::input::Modifiers::empty(),
     };
     let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     assert_eq!(commands.len(), 2, "scroll + mouse_move expected");
@@ -124,6 +128,7 @@ fn test_selection_scroll_up_edge() {
         kind: crate::input::MouseEventKind::ScrollUp,
         line: 10,
         column: 5,
+        modifiers: crate::input::Modifiers::empty(),
     };
     let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
     assert_eq!(commands.len(), 2);

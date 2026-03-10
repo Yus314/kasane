@@ -53,6 +53,7 @@ pub struct MouseEvent {
     pub kind: MouseEventKind,
     pub line: u32,
     pub column: u32,
+    pub modifiers: Modifiers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -350,6 +351,7 @@ mod tests {
             kind: MouseEventKind::Press(MouseButton::Left),
             line: 5,
             column: 10,
+            modifiers: Modifiers::empty(),
         };
         let req = mouse_to_kakoune(&evt, 3).unwrap();
         assert_eq!(
@@ -370,6 +372,7 @@ mod tests {
             kind: MouseEventKind::Drag(MouseButton::Left),
             line: 3,
             column: 7,
+            modifiers: Modifiers::empty(),
         };
         let req = mouse_to_kakoune(&evt, 3).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 3, column: 7 });
@@ -383,6 +386,7 @@ mod tests {
             kind: MouseEventKind::Drag(MouseButton::Right),
             line: 1,
             column: 2,
+            modifiers: Modifiers::empty(),
         };
         let req = mouse_to_kakoune(&evt, 3).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 1, column: 2 });
@@ -423,6 +427,7 @@ mod tests {
             kind: MouseEventKind::ScrollDown,
             line: 0,
             column: 0,
+            modifiers: Modifiers::empty(),
         };
         let req = mouse_to_kakoune(&evt, 3).unwrap();
         assert_eq!(

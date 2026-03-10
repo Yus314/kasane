@@ -479,6 +479,8 @@ impl PluginRegistry {
 
     /// Build left gutter column from plugin line decorations.
     /// Returns None when no plugin provides gutter content (zero overhead).
+    /// When multiple plugins contribute to the same line, elements are composed
+    /// horizontally via `Element::row()`.
     pub fn build_left_gutter(&self, state: &AppState) -> Option<Element> {
         if self.plugins.is_empty() {
             return None;
@@ -487,17 +489,21 @@ impl PluginRegistry {
         let mut has_any = false;
         let mut rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         for line in 0..line_count {
-            let mut gutter_el: Option<Element> = None;
+            let mut parts: Vec<Element> = Vec::new();
             for plugin in &self.plugins {
                 if let Some(dec) = plugin.contribute_line(line, state)
                     && let Some(el) = dec.left_gutter
                 {
-                    gutter_el = Some(el);
+                    parts.push(el);
                     has_any = true;
-                    break;
                 }
             }
-            rows.push(FlexChild::fixed(gutter_el.unwrap_or(Element::Empty)));
+            let cell = match parts.len() {
+                0 => Element::text(" ", Face::default()),
+                1 => parts.pop().unwrap(),
+                _ => Element::row(parts.into_iter().map(FlexChild::fixed).collect()),
+            };
+            rows.push(FlexChild::fixed(cell));
         }
         if has_any {
             Some(Element::column(rows))
@@ -508,6 +514,8 @@ impl PluginRegistry {
 
     /// Build right gutter column from plugin line decorations.
     /// Returns None when no plugin provides gutter content (zero overhead).
+    /// When multiple plugins contribute to the same line, elements are composed
+    /// horizontally via `Element::row()`.
     pub fn build_right_gutter(&self, state: &AppState) -> Option<Element> {
         if self.plugins.is_empty() {
             return None;
@@ -516,17 +524,21 @@ impl PluginRegistry {
         let mut has_any = false;
         let mut rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         for line in 0..line_count {
-            let mut gutter_el: Option<Element> = None;
+            let mut parts: Vec<Element> = Vec::new();
             for plugin in &self.plugins {
                 if let Some(dec) = plugin.contribute_line(line, state)
                     && let Some(el) = dec.right_gutter
                 {
-                    gutter_el = Some(el);
+                    parts.push(el);
                     has_any = true;
-                    break;
                 }
             }
-            rows.push(FlexChild::fixed(gutter_el.unwrap_or(Element::Empty)));
+            let cell = match parts.len() {
+                0 => Element::text(" ", Face::default()),
+                1 => parts.pop().unwrap(),
+                _ => Element::row(parts.into_iter().map(FlexChild::fixed).collect()),
+            };
+            rows.push(FlexChild::fixed(cell));
         }
         if has_any {
             Some(Element::column(rows))
@@ -551,7 +563,6 @@ impl PluginRegistry {
                 {
                     *bg_slot = Some(bg);
                     has_any = true;
-                    break;
                 }
             }
         }
@@ -607,6 +618,7 @@ impl Default for PluginRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::element::Direction;
     use crate::protocol::Face;
 
     struct TestPlugin;
@@ -1180,6 +1192,181 @@ mod tests {
         assert!(registry.build_left_gutter(&state).is_none());
         assert!(registry.build_right_gutter(&state).is_none());
         assert!(registry.collect_line_backgrounds(&state).is_none());
+    }
+
+    // --- Multi-plugin composition tests ---
+
+    struct ColorSwatchPlugin;
+
+    impl Plugin for ColorSwatchPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("color_swatch".to_string())
+        }
+        fn contribute_line(&self, _line: usize, _state: &AppState) -> Option<LineDecoration> {
+            Some(LineDecoration {
+                left_gutter: Some(Element::text("●", Face::default())),
+                right_gutter: None,
+                background: None,
+            })
+        }
+    }
+
+    #[test]
+    fn test_multiple_plugins_gutter_composition() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LineNumberPlugin));
+        registry.register(Box::new(ColorSwatchPlugin));
+        let mut state = AppState::default();
+        state.lines = vec![vec![], vec![], vec![]];
+
+        let gutter = registry
+            .build_left_gutter(&state)
+            .expect("should have gutter");
+        // Outer is a column (vertical Flex)
+        if let Element::Flex { children, .. } = &gutter {
+            assert_eq!(children.len(), 3);
+            // Each row should be a horizontal Flex (row) composing both plugins
+            for child in children {
+                match &child.element {
+                    Element::Flex {
+                        direction: Direction::Row,
+                        children: row_children,
+                        ..
+                    } => {
+                        assert_eq!(row_children.len(), 2, "should compose 2 plugin elements");
+                    }
+                    _ => panic!(
+                        "expected row Flex for composed gutter, got {:?}",
+                        child.element
+                    ),
+                }
+            }
+        } else {
+            panic!("expected Flex column");
+        }
+    }
+
+    #[test]
+    fn test_background_last_wins() {
+        struct BgRed;
+        impl Plugin for BgRed {
+            fn id(&self) -> PluginId {
+                PluginId("bg_red".to_string())
+            }
+            fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+                if line == 1 {
+                    Some(LineDecoration {
+                        left_gutter: None,
+                        right_gutter: None,
+                        background: Some(Face {
+                            fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
+                            ..Face::default()
+                        }),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+
+        struct BgBlue;
+        impl Plugin for BgBlue {
+            fn id(&self) -> PluginId {
+                PluginId("bg_blue".to_string())
+            }
+            fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+                if line == 1 {
+                    Some(LineDecoration {
+                        left_gutter: None,
+                        right_gutter: None,
+                        background: Some(Face {
+                            fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
+                            ..Face::default()
+                        }),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(BgRed));
+        registry.register(Box::new(BgBlue));
+        let mut state = AppState::default();
+        state.lines = vec![vec![], vec![], vec![]];
+
+        let bgs = registry.collect_line_backgrounds(&state).unwrap();
+        assert!(bgs[0].is_none());
+        // Last-wins: BgBlue registered after BgRed, so blue wins
+        let bg = bgs[1].unwrap();
+        assert_eq!(
+            bg.fg,
+            crate::protocol::Color::Named(crate::protocol::NamedColor::Blue)
+        );
+        assert!(bgs[2].is_none());
+    }
+
+    #[test]
+    fn test_orthogonal_plugins_both_contribute() {
+        // Plugin A: background only (like CursorLinePlugin)
+        struct BgOnlyPlugin;
+        impl Plugin for BgOnlyPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("bg_only".to_string())
+            }
+            fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+                if line == 0 {
+                    Some(LineDecoration {
+                        left_gutter: None,
+                        right_gutter: None,
+                        background: Some(Face {
+                            fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Yellow),
+                            ..Face::default()
+                        }),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+        // Plugin B: left gutter only (like ColorPreviewPlugin)
+        struct GutterOnlyPlugin;
+        impl Plugin for GutterOnlyPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("gutter_only".to_string())
+            }
+            fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+                if line == 0 {
+                    Some(LineDecoration {
+                        left_gutter: Some(Element::text("▶", Face::default())),
+                        right_gutter: None,
+                        background: None,
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(BgOnlyPlugin));
+        registry.register(Box::new(GutterOnlyPlugin));
+        let mut state = AppState::default();
+        state.lines = vec![vec![], vec![]];
+
+        // Background from BgOnlyPlugin should be present
+        let bgs = registry.collect_line_backgrounds(&state).unwrap();
+        assert!(bgs[0].is_some());
+
+        // Left gutter from GutterOnlyPlugin should be present
+        let gutter = registry.build_left_gutter(&state).unwrap();
+        if let Element::Flex { children, .. } = &gutter {
+            // Line 0 has gutter content, line 1 is filler space
+            assert_eq!(children.len(), 2);
+        } else {
+            panic!("expected Flex column");
+        }
     }
 
     // --- Menu transform tests ---

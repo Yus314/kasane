@@ -204,6 +204,24 @@ impl CellGrid {
         }
     }
 
+    /// Fill a horizontal span of a single row with a face.
+    /// Only affects columns `x_start..x_start+width`, leaving other columns untouched.
+    pub fn fill_region(&mut self, y: u16, x_start: u16, width: u16, face: &Face) {
+        if y >= self.height {
+            return;
+        }
+        self.dirty_rows[y as usize] = true;
+        let x_end = (x_start + width).min(self.width);
+        for x in x_start..x_end {
+            let idx = self.idx(x, y);
+            self.current[idx] = Cell {
+                grapheme: CompactString::const_new(" "),
+                face: *face,
+                width: 1,
+            };
+        }
+    }
+
     /// Clear only a rectangular region of the grid to the given face.
     pub fn clear_region(&mut self, rect: &crate::layout::Rect, face: &Face) {
         let x_end = (rect.x + rect.w).min(self.width);
