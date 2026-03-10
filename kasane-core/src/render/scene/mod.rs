@@ -314,6 +314,12 @@ fn scene_paint_buffer_ref(
                     &base_face,
                 );
             }
+            // Differentiate secondary cursor faces
+            for coord in &ctx.state.secondary_cursors {
+                if coord.line as usize == line_idx {
+                    dim_cursor_atom(&mut resolved, coord.column as u16, &base_face);
+                }
+            }
             out.push(DrawCommand::DrawAtoms {
                 pos: PixelPos { x: px, y: py },
                 atoms: resolved,
@@ -464,6 +470,20 @@ fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<ResolvedAtom> 
             }
         })
         .collect()
+}
+
+/// Apply secondary cursor face to the atom at the given column.
+/// Uses the same scan logic as clear_cursor_atom but applies a dimmed face.
+fn dim_cursor_atom(atoms: &mut [ResolvedAtom], cursor_col: u16, base_face: &Face) {
+    let mut col: u16 = 0;
+    for atom in atoms.iter_mut() {
+        let w = line_display_width_str(&atom.contents) as u16;
+        if cursor_col >= col && cursor_col < col + w {
+            atom.face = super::cursor::make_secondary_cursor_face(&atom.face, base_face);
+            return;
+        }
+        col += w;
+    }
 }
 
 /// Clear the PrimaryCursor face from the atom at the given column so that

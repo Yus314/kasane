@@ -1,8 +1,8 @@
-use crate::protocol::{Coord, Face, InfoStyle, KakouneRequest, MenuStyle};
+use crate::protocol::{Attributes, Coord, Face, InfoStyle, KakouneRequest, MenuStyle};
 use crate::state::{AppState, DirtyFlags, MenuState};
 use crate::test_utils::make_line;
 
-use crate::protocol::Line;
+use crate::protocol::{Atom, Color, Line, NamedColor};
 
 #[test]
 fn test_apply_draw() {
@@ -303,4 +303,130 @@ fn test_select_out_of_range_resets() {
     menu.select(3);
     assert_eq!(menu.selected, None);
     assert_eq!(menu.first_item, 0);
+}
+
+// --- secondary cursor extraction tests ---
+
+/// Helper: create a cursor atom (FINAL_FG + REVERSE).
+fn cursor_atom(s: &str) -> Atom {
+    Atom {
+        face: Face {
+            fg: Color::Named(NamedColor::White),
+            bg: Color::Default,
+            underline: Color::Default,
+            attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+        },
+        contents: s.into(),
+    }
+}
+
+/// Helper: create a normal (non-cursor) atom.
+fn normal_atom(s: &str) -> Atom {
+    Atom {
+        face: Face::default(),
+        contents: s.into(),
+    }
+}
+
+#[test]
+fn test_draw_extracts_secondary_cursors_multiple() {
+    let mut state = AppState::default();
+    // Set primary cursor at line 0, column 5
+    state.cursor_pos = Coord { line: 0, column: 5 };
+
+    // Line: "hello" (5 chars) + cursor "w" at col 5 + "orld" (4 chars)
+    // + another cursor at col 10 (the "!" char)
+    let line = vec![
+        normal_atom("hello"),
+        cursor_atom("w"),
+        normal_atom("orld"),
+        cursor_atom("!"),
+    ];
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![line],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    assert_eq!(state.cursor_count, 2);
+    // Primary at (0, 5) is excluded; secondary at (0, 10) remains
+    assert_eq!(state.secondary_cursors.len(), 1);
+    assert_eq!(
+        state.secondary_cursors[0],
+        Coord {
+            line: 0,
+            column: 10
+        }
+    );
+}
+
+#[test]
+fn test_draw_single_cursor_no_secondary() {
+    let mut state = AppState::default();
+    state.cursor_pos = Coord { line: 0, column: 0 };
+
+    let line = vec![cursor_atom("h"), normal_atom("ello")];
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![line],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    assert_eq!(state.cursor_count, 1);
+    assert!(state.secondary_cursors.is_empty());
+}
+
+#[test]
+fn test_draw_no_cursors() {
+    let mut state = AppState::default();
+    let line = vec![normal_atom("hello world")];
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![line],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    assert_eq!(state.cursor_count, 0);
+    assert!(state.secondary_cursors.is_empty());
+}
+
+#[test]
+fn test_draw_cjk_column_width() {
+    let mut state = AppState::default();
+    // Primary cursor at column 4 (after two CJK chars = 4 display columns)
+    state.cursor_pos = Coord { line: 0, column: 4 };
+
+    // "漢字" is 4 display columns, then cursor at col 4
+    let line = vec![normal_atom("漢字"), cursor_atom("x")];
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![line],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    assert_eq!(state.cursor_count, 1);
+    assert!(state.secondary_cursors.is_empty());
+}
+
+#[test]
+fn test_draw_secondary_cursors_multiline() {
+    let mut state = AppState::default();
+    state.cursor_pos = Coord { line: 0, column: 0 };
+
+    let line0 = vec![cursor_atom("a"), normal_atom("bc")];
+    let line1 = vec![normal_atom("de"), cursor_atom("f")];
+
+    state.apply(KakouneRequest::Draw {
+        lines: vec![line0, line1],
+        default_face: Face::default(),
+        padding_face: Face::default(),
+    });
+
+    assert_eq!(state.cursor_count, 2);
+    assert_eq!(state.secondary_cursors.len(), 1);
+    assert_eq!(state.secondary_cursors[0], Coord { line: 1, column: 2 });
 }

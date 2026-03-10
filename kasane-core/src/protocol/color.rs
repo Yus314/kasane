@@ -102,6 +102,42 @@ fn named_color_str(c: NamedColor) -> &'static str {
     }
 }
 
+impl NamedColor {
+    /// Standard ANSI color to RGB mapping.
+    pub fn to_rgb(self) -> (u8, u8, u8) {
+        match self {
+            NamedColor::Black => (0, 0, 0),
+            NamedColor::Red => (205, 0, 0),
+            NamedColor::Green => (0, 205, 0),
+            NamedColor::Yellow => (205, 205, 0),
+            NamedColor::Blue => (0, 0, 238),
+            NamedColor::Magenta => (205, 0, 205),
+            NamedColor::Cyan => (0, 205, 205),
+            NamedColor::White => (229, 229, 229),
+            NamedColor::BrightBlack => (127, 127, 127),
+            NamedColor::BrightRed => (255, 0, 0),
+            NamedColor::BrightGreen => (0, 255, 0),
+            NamedColor::BrightYellow => (255, 255, 0),
+            NamedColor::BrightBlue => (92, 92, 255),
+            NamedColor::BrightMagenta => (255, 0, 255),
+            NamedColor::BrightCyan => (0, 255, 255),
+            NamedColor::BrightWhite => (255, 255, 255),
+        }
+    }
+}
+
+impl Color {
+    /// Convert to RGB tuple. Named colors use standard ANSI values.
+    /// Returns None for Color::Default (caller must resolve).
+    pub fn to_rgb(self) -> Option<(u8, u8, u8)> {
+        match self {
+            Color::Default => None,
+            Color::Named(n) => Some(n.to_rgb()),
+            Color::Rgb { r, g, b } => Some((r, g, b)),
+        }
+    }
+}
+
 fn parse_color(s: &str) -> Option<Color> {
     if s == "default" {
         return Some(Color::Default);

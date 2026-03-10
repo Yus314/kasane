@@ -1,6 +1,6 @@
 use super::super::test_helpers::{render_buffer, render_status};
 use super::super::*;
-use crate::protocol::{Atom, Color, CursorMode, Face, NamedColor};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
 use crate::state::AppState;
 
 #[test]
@@ -253,4 +253,156 @@ fn test_clear_block_cursor_face_out_of_bounds() {
     let mut grid = CellGrid::new(10, 5);
     // Should not panic
     clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar, 0);
+}
+
+// --- make_secondary_cursor_face tests ---
+
+fn cursor_face_white_on_black() -> Face {
+    Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        underline: Color::Default,
+        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+    }
+}
+
+#[test]
+fn test_secondary_face_removes_reverse() {
+    let cursor = cursor_face_white_on_black();
+    let default = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    let secondary = make_secondary_cursor_face(&cursor, &default);
+    assert!(
+        !secondary.attributes.contains(Attributes::REVERSE),
+        "REVERSE should be removed from secondary cursor face"
+    );
+    assert!(
+        secondary.attributes.contains(Attributes::FINAL_FG),
+        "FINAL_FG should be preserved"
+    );
+}
+
+#[test]
+fn test_secondary_face_has_blended_bg() {
+    let cursor = Face {
+        fg: Color::Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        },
+        bg: Color::Rgb { r: 0, g: 0, b: 0 },
+        underline: Color::Default,
+        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+    };
+    let default = Face {
+        fg: Color::Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        },
+        bg: Color::Rgb { r: 0, g: 0, b: 0 },
+        ..Face::default()
+    };
+    let secondary = make_secondary_cursor_face(&cursor, &default);
+
+    // Cursor color (fg) = white (255,255,255), bg = black (0,0,0)
+    // Blend: 0.4 * 255 + 0.6 * 0 = 102
+    match secondary.bg {
+        Color::Rgb { r, g, b } => {
+            assert_eq!(r, 102);
+            assert_eq!(g, 102);
+            assert_eq!(b, 102);
+        }
+        _ => panic!("expected RGB bg, got {:?}", secondary.bg),
+    }
+}
+
+#[test]
+fn test_secondary_face_preserves_text_color() {
+    let cursor = Face {
+        fg: Color::Rgb {
+            r: 200,
+            g: 200,
+            b: 200,
+        },
+        bg: Color::Rgb {
+            r: 50,
+            g: 50,
+            b: 50,
+        },
+        underline: Color::Default,
+        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+    };
+    let default = Face::default();
+    let secondary = make_secondary_cursor_face(&cursor, &default);
+
+    // fg should be the original bg (the text shown under REVERSE)
+    assert_eq!(
+        secondary.fg,
+        Color::Rgb {
+            r: 50,
+            g: 50,
+            b: 50
+        }
+    );
+}
+
+#[test]
+fn test_apply_secondary_cursor_faces_on_grid() {
+    let mut state = AppState::default();
+    state.default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state.secondary_cursors = vec![Coord { line: 0, column: 3 }];
+
+    let cursor_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        underline: Color::Default,
+        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+    };
+
+    let mut grid = CellGrid::new(10, 5);
+    grid.put_char(3, 0, "x", &cursor_face);
+
+    apply_secondary_cursor_faces(&state, &mut grid, 0);
+
+    let cell = grid.get(3, 0).unwrap();
+    // REVERSE should be gone
+    assert!(!cell.face.attributes.contains(Attributes::REVERSE));
+    // bg should be a blended RGB
+    assert!(matches!(cell.face.bg, Color::Rgb { .. }));
+}
+
+#[test]
+fn test_apply_secondary_cursor_faces_with_offset() {
+    let mut state = AppState::default();
+    state.default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    // column=2 in Kakoune coordinates, buffer starts at grid x=3
+    state.secondary_cursors = vec![Coord { line: 1, column: 2 }];
+
+    let cursor_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        underline: Color::Default,
+        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+    };
+
+    let mut grid = CellGrid::new(10, 5);
+    // buffer_x_offset=3, so the cell is at grid x=5
+    grid.put_char(5, 1, "y", &cursor_face);
+
+    apply_secondary_cursor_faces(&state, &mut grid, 3);
+
+    let cell = grid.get(5, 1).unwrap();
+    assert!(!cell.face.attributes.contains(Attributes::REVERSE));
 }

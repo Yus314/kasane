@@ -303,9 +303,20 @@ impl PaintPatch for CursorPatch {
     }
 
     fn apply_grid(&self, grid: &mut CellGrid, state: &AppState, _layout_cache: &LayoutCache) {
-        // Restore old cursor cell to default face
+        // Restore old cursor cell: if a secondary cursor sits there, use its face;
+        // otherwise restore to default.
         if let Some(cell) = grid.get_mut(self.prev_cursor_x, self.prev_cursor_y) {
-            cell.face = state.default_face;
+            let is_secondary = state.secondary_cursors.iter().any(|c| {
+                c.column as u16 == self.prev_cursor_x && c.line as u16 == self.prev_cursor_y
+            });
+            if is_secondary {
+                cell.face = crate::render::cursor::make_secondary_cursor_face(
+                    &cell.face,
+                    &state.default_face,
+                );
+            } else {
+                cell.face = state.default_face;
+            }
         }
 
         // The new cursor face will be applied by the caller (show_cursor / clear_block_cursor_face)

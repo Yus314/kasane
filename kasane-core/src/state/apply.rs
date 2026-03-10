@@ -1,4 +1,7 @@
-use crate::protocol::{Attributes, KakouneRequest};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
+use crate::protocol::{Attributes, Coord, KakouneRequest};
 
 use super::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 
@@ -10,15 +13,33 @@ impl AppState {
                 default_face,
                 padding_face,
             } => {
-                // Count cursor positions: atoms with FINAL_FG + REVERSE indicate cursor faces
-                self.cursor_count = lines
-                    .iter()
-                    .flat_map(|line| line.iter())
-                    .filter(|atom| {
-                        atom.face.attributes.contains(Attributes::FINAL_FG)
-                            && atom.face.attributes.contains(Attributes::REVERSE)
-                    })
-                    .count();
+                // Extract all cursor positions: atoms with FINAL_FG + REVERSE indicate cursor faces.
+                // Track coordinates using grapheme display widths for accurate column positions.
+                let mut all_cursors: Vec<Coord> = Vec::new();
+                for (line_idx, line) in lines.iter().enumerate() {
+                    let mut col: u32 = 0;
+                    for atom in line.iter() {
+                        let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
+                            && atom.face.attributes.contains(Attributes::REVERSE);
+                        if is_cursor {
+                            all_cursors.push(Coord {
+                                line: line_idx as i32,
+                                column: col as i32,
+                            });
+                        }
+                        for grapheme in atom.contents.as_str().graphemes(true) {
+                            if grapheme.starts_with(|c: char| c.is_control()) {
+                                continue;
+                            }
+                            col += UnicodeWidthStr::width(grapheme) as u32;
+                        }
+                    }
+                }
+                self.cursor_count = all_cursors.len();
+                self.secondary_cursors = all_cursors
+                    .into_iter()
+                    .filter(|c| *c != self.cursor_pos)
+                    .collect();
 
                 // Line-level dirty tracking: compare old vs new lines
                 let face_changed =

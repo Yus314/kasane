@@ -95,6 +95,9 @@ pub struct AppState {
 
     // Derived state
     pub cursor_count: usize,
+    /// Positions of secondary cursors (all cursors except primary).
+    /// Extracted from Draw message by comparing cursor atom coordinates against cursor_pos.
+    pub secondary_cursors: Vec<Coord>,
 
     // Mouse drag state
     pub drag: DragState,
@@ -196,6 +199,7 @@ impl Default for AppState {
             search_dropdown: false,
             status_at_top: false,
             cursor_count: 0,
+            secondary_cursors: Vec::new(),
             drag: DragState::None,
             smooth_scroll: false,
             scroll_animation: None,

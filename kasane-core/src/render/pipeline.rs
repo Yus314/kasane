@@ -1,5 +1,8 @@
 use super::cache::{LayoutCache, ViewCache};
-use super::cursor::{clear_block_cursor_face, cursor_position, cursor_style, find_buffer_x_offset};
+use super::cursor::{
+    apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style,
+    find_buffer_x_offset,
+};
 use super::grid::CellGrid;
 use super::scene::{self, DrawCommand, SceneCache};
 use super::theme::Theme;
@@ -211,6 +214,10 @@ pub fn render_pipeline_cached(
     paint::paint(&element, &layout_result, grid, state);
 
     let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
+
+    // Differentiate secondary cursor faces before clearing primary cursor
+    apply_secondary_cursor_faces(state, grid, buffer_x_offset);
+
     let style = cursor_style(state);
     clear_block_cursor_face(state, grid, style, buffer_x_offset);
     let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
