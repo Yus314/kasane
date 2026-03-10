@@ -80,13 +80,12 @@ impl<W: Write + Send + 'static> App<W> {
         config: Config,
         kak_writer: W,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
+        registry: PluginRegistry,
     ) -> Self {
         let scroll_amount = config.scroll.lines_per_scroll;
 
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
-        registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
-        registry.register(Box::new(kasane_core::plugins::ColorPreviewPlugin::new()));
+        let mut registry = registry;
         let _init_commands = registry.init_all(&state);
         // init_commands will be executed once initial_resize_sent is true
 

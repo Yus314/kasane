@@ -35,6 +35,7 @@ pub(crate) enum GuiEvent {
 pub fn run_gui<R, W, C>(
     config: Config,
     spawn_kakoune: impl FnOnce() -> Result<(R, W, C)>,
+    register_plugins: impl FnOnce(&mut kasane_core::plugin::PluginRegistry),
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -45,6 +46,12 @@ where
     let proxy = event_loop.create_proxy();
 
     let (kak_reader, kak_writer, _kak_child) = spawn_kakoune()?;
+
+    // Build plugin registry: built-in plugins first, then external
+    let mut registry = kasane_core::plugin::PluginRegistry::new();
+    registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
+    registry.register(Box::new(kasane_core::plugins::ColorPreviewPlugin::new()));
+    register_plugins(&mut registry);
 
     // Kakoune reader thread: forward JSON-RPC messages into the winit event loop
     let kak_proxy = proxy.clone();
@@ -63,7 +70,7 @@ where
         },
     );
 
-    let mut app_handler = app::App::new(config, kak_writer, proxy);
+    let mut app_handler = app::App::new(config, kak_writer, proxy, registry);
     event_loop.run_app(&mut app_handler)?;
     Ok(())
 }

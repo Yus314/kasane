@@ -191,6 +191,7 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
 pub fn run_tui<R, W, C>(
     config: Config,
     spawn_kakoune: impl FnOnce() -> Result<(R, W, C)>,
+    register_plugins: impl FnOnce(&mut PluginRegistry),
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -217,6 +218,7 @@ where
     let mut registry = PluginRegistry::new();
     registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
     registry.register(Box::new(kasane_core::plugins::ColorPreviewPlugin::new()));
+    register_plugins(&mut registry);
     let init_commands = registry.init_all(&state);
     if matches!(
         execute_commands(init_commands, &mut kak_writer, &mut || backend
