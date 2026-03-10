@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773125957506,
+  "lastUpdate": 1773126365816,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -4175,6 +4175,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7461,
             "range": "± 26",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "be479f3f2844ec48afcbbc247f35d0b544deafa9",
+          "message": "docs: align roadmap.md with four-layer responsibility model\n\n- Replace \"組み込み vs 外部\" criteria table with four-layer flowchart\n  reference, resolving conflict with API parity principle\n- Add upstream-dependency notes to R-052 in Phase 2 and Phase 4a lists\n- Remove E-040 (#4138) and R-052 (#2727) from Phase 4b issue categories\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T15:54:41+09:00",
+          "tree_id": "e4a38af571c8d15264a9ada389ef9f4d9fbbffa2",
+          "url": "https://github.com/Yus314/kasane/commit/be479f3f2844ec48afcbbc247f35d0b544deafa9"
+        },
+        "date": 1773126364898,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 151440,
+            "range": "± 564",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 828364,
+            "range": "± 14054",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2138,
+            "range": "± 98",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 143106,
+            "range": "± 619",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 158071,
+            "range": "± 5233",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 122965,
+            "range": "± 4730",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3457119,
+            "range": "± 6358",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15728802,
+            "range": "± 117716",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1770617,
+            "range": "± 5535",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16303199,
+            "range": "± 105396",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7956,
+            "range": "± 62",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55507,
+            "range": "± 371",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 598,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7652,
+            "range": "± 92",
             "unit": "ns/iter"
           }
         ]
