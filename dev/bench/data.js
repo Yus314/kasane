@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773121403931,
+  "lastUpdate": 1773122204271,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3851,6 +3851,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7459,
             "range": "± 49",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "7d2decbf4909e60494423a9b9d52ee736885d493",
+          "message": "docs: update Plugin trait, event propagation, glossary, and roadmap to reflect Phase 4a\n\n- declarative-ui.md: rewrite Plugin trait (8→18 methods), update Command enum,\n  add observe_key/observe_mouse to event propagation flows, update Phase 4 with\n  achieved CursorLinePlugin and ColorPreviewPlugin demos\n- glossary.md: add 12 plugin system terms (LineDecoration, PluginSlotCache, etc.),\n  update Command variants, add DirtyFlags\n- requirements.md: add status column to E-xxx table marking partial demos\n- roadmap.md: add completed plugin system demo section to Phase 4a\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T14:45:28+09:00",
+          "tree_id": "45c5850f9e385c6a035913c4afb21a6f5004fe4c",
+          "url": "https://github.com/Yus314/kasane/commit/7d2decbf4909e60494423a9b9d52ee736885d493"
+        },
+        "date": 1773122203854,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 157318,
+            "range": "± 3841",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 866456,
+            "range": "± 27992",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2239,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 148784,
+            "range": "± 2608",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 156468,
+            "range": "± 5376",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 122682,
+            "range": "± 3451",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3453870,
+            "range": "± 19374",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15676677,
+            "range": "± 63713",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1763591,
+            "range": "± 4570",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16336459,
+            "range": "± 80547",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7970,
+            "range": "± 265",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55499,
+            "range": "± 284",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 576,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7459,
+            "range": "± 24",
             "unit": "ns/iter"
           }
         ]
