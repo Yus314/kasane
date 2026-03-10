@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773122204271,
+  "lastUpdate": 1773123343900,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -3959,6 +3959,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7459,
             "range": "± 24",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "4e47c786e2705de8132ae9ca7837762a02c35de6",
+          "message": "docs: restructure roadmap Phase 4+, separate upstream blockers\n\n- Restructure Phase 4a/4b with detailed implementation strategies\n  and built-in vs external plugin classification criteria\n- Add Phase 5 outline (multi-pane + external plugin system)\n- Add independent performance track section\n- Create upstream-dependencies.md for Kakoune-blocked items\n  (E-002, E-020, E-021, R-062, E-001 full version)\n- Add Phase column to requirements.md extension feature table\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-10T15:04:17+09:00",
+          "tree_id": "2cfccfa1f208684c0c97e6ce72c8b4183d3e3b33",
+          "url": "https://github.com/Yus314/kasane/commit/4e47c786e2705de8132ae9ca7837762a02c35de6"
+        },
+        "date": 1773123343442,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 143905,
+            "range": "± 6751",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 860968,
+            "range": "± 36511",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2206,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 145323,
+            "range": "± 1099",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 156171,
+            "range": "± 5231",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 121990,
+            "range": "± 4157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3451123,
+            "range": "± 8189",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15611765,
+            "range": "± 68937",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1765893,
+            "range": "± 8363",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 16380438,
+            "range": "± 78381",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7434,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55657,
+            "range": "± 386",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 616,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7513,
+            "range": "± 85",
             "unit": "ns/iter"
           }
         ]
