@@ -214,7 +214,9 @@ tmux/WM に依存しない分割表示の実現。現在のアーキテクチャ
 
 ### 5b: 外部プラグインシステム
 
-現在の Plugin trait は `kasane-core` 内のコンパイル時結合のみ。ユーザーがエディタをリビルドせずにプラグインをインストール・有効化できる仕組みが必要。
+> **現状:** コンパイル時結合方式の外部プラグインは実現済み。`kasane-core::plugin_prelude` + `#[kasane_plugin]` マクロで外部クレートからプラグインを定義し、`kasane::run(|registry| { ... })` でカスタムバイナリとして配布できる。詳細は [external-plugins.md](./external-plugins.md) および `examples/line-numbers/` を参照。
+>
+> 以下はランタイムプラグインロード（リビルド不要のインストール・有効化）の将来計画。
 
 **候補アーキテクチャ:**
 

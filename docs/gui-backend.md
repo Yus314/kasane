@@ -64,10 +64,11 @@ kasane/
 │       │   └── rounded_rect.wgsl # 角丸矩形シェーダー
 │       └── cpu/
 │           └── mod.rs            # CPU フォールバック (未実装)
-└── kasane/                       # メインバイナリ
+└── kasane/                       # メインバイナリ + ライブラリ
     ├── Cargo.toml                # [features] gui = ["dep:kasane-gui"]
     └── src/
-        ├── main.rs               # エントリポイント (run_tui/run_gui 分岐)
+        ├── lib.rs                # kasane::run() エントリポイント (外部プラグインバイナリ用)
+        ├── main.rs               # デフォルトバイナリ
         ├── cli.rs                # CLI 引数パーサー
         └── process.rs            # Kakoune 子プロセス管理
 ```

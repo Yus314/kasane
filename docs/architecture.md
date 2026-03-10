@@ -132,9 +132,10 @@ kasane/
 │       │   └── rounded_rect.wgsl # 角丸矩形シェーダー
 │       └── cpu/
 │           └── mod.rs          # CPU フォールバック (未実装)
-└── kasane/                     # メインバイナリ (CLI パース、バックエンド選択)
+└── kasane/                     # メインバイナリ + ライブラリ (CLI パース、バックエンド選択)
     └── src/
-        ├── main.rs             # エントリポイント (run_tui/run_gui 分岐)
+        ├── lib.rs              # kasane::run() エントリポイント (外部プラグインバイナリ用)
+        ├── main.rs             # デフォルトバイナリ (kasane::run(|_| {}) を呼ぶのみ)
         ├── cli.rs              # CLI 引数パーサー
         └── process.rs          # Kakoune 子プロセス管理
 ```

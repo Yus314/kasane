@@ -14,7 +14,7 @@ cargo build                              # TUI only
 cargo build --features gui               # Include GPU backend
 
 # Test
-cargo test                               # All tests (~305)
+cargo test                               # All tests (~520)
 cargo test -p kasane-core                # Single crate
 cargo test -p kasane-core -- test_name   # Single test by name
 
@@ -36,7 +36,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 
 | Crate | Purpose |
 |---|---|
-| `kasane/` | Main binary — CLI parsing, Kakoune process management, logging |
+| `kasane/` | Main binary + library — CLI parsing, Kakoune process management, `kasane::run()` entry point for custom plugin binaries |
 | `kasane-core/` | Core library — protocol, state (TEA), element tree, layout, rendering, plugin system |
 | `kasane-tui/` | TUI backend — crossterm-based terminal rendering |
 | `kasane-gui/` | GPU backend — winit+wgpu+glyphon (feature-gated via `--features gui`) |
@@ -75,6 +75,8 @@ Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Grid`, `
 - **Replacement**: Replace entire components (menus, status bar)
 
 `PluginRegistry` in `kasane-core/src/plugin.rs` collects and applies contributions during `view()`.
+
+External crates can create plugins using `kasane_core::plugin_prelude` and register them via `kasane::run(|registry| { ... })`. See `docs/external-plugins.md` and `examples/line-numbers/`.
 
 ## Conventions
 
