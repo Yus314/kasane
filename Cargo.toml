@@ -1,5 +1,6 @@
 [workspace]
 members = ["kasane", "kasane-core", "kasane-tui", "kasane-macros", "kasane-gui"]
+exclude = ["examples/line-numbers"]
 resolver = "3"
 
 [workspace.package]

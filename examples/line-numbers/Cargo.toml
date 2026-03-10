@@ -1,0 +1,9 @@
+[package]
+name = "kasane-example-line-numbers"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+kasane = { path = "../../kasane" }
+kasane-core = { path = "../../kasane-core" }
