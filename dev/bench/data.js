@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773201705815,
+  "lastUpdate": 1773202685428,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -4499,6 +4499,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 6231,
             "range": "± 24",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "e2e950baa2960aaf72fe00ecb469aff46552cac3",
+          "message": "docs: revise Philosophy section to accurately reflect Kakoune's design\n\nRewrite Kakoune's description to align with mawww's stated philosophy:\nUnix composability, deliberate rejection of plugins, and json-ui as a\nsecondary benefit of client-server architecture. Remove \"Separation as\nvirtue\" bullet that misattributed design intent.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-11T13:06:43+09:00",
+          "tree_id": "8f474d1624a8e556932454058bdb749ed4528298",
+          "url": "https://github.com/Yus314/kasane/commit/e2e950baa2960aaf72fe00ecb469aff46552cac3"
+        },
+        "date": 1773202684785,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 147569,
+            "range": "± 3673",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 892839,
+            "range": "± 8597",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2159,
+            "range": "± 128",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 146403,
+            "range": "± 868",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 166004,
+            "range": "± 3481",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 135467,
+            "range": "± 2051",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3568173,
+            "range": "± 28907",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16702454,
+            "range": "± 36903",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1838982,
+            "range": "± 22769",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 17069289,
+            "range": "± 67071",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6917,
+            "range": "± 54",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 54805,
+            "range": "± 443",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 619,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7474,
+            "range": "± 37",
             "unit": "ns/iter"
           }
         ]
