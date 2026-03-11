@@ -8,15 +8,16 @@ An operating system for [Kakoune](https://kakoune.org/)'s UI — a plugin-extens
 
 ## Philosophy
 
-Kakoune's design delegates UI extension to plugins and external tools. In practice, this means relying on tmux, window managers, and ad-hoc scripts — with no unified platform for plugin authors to build on. The editor's own `kak -ui json` protocol cleanly separates the engine from the frontend, yet no frontend has leveraged this to provide a true plugin infrastructure.
+Kakoune follows the Unix philosophy: it does one thing well — code editing — and composes with external tools for everything else. Window management is left to tmux or system window managers. Extensions are shell scripts interacting via `%sh{}` and `kak -p`, not plugins — by deliberate design. Its client-server architecture also exposes a `kak -ui json` protocol that enables alternative frontends.
 
-Kasane fills this gap. It is an **operating system for editor UI**: a platform that provides primitives — declarative elements, layout, state access, side-effect commands, and input hooks — so that plugins can build anything from gutter decorations to fuzzy finders to entire window management systems.
+This means Kakoune users who want richer UI — git gutter signs, LSP diagnostics, fuzzy finders, or custom pane layouts — must assemble solutions across tmux, shell scripts, and window managers. Each tool has its own interface. There is no unified platform where these UI extensions can be built, composed, and shared.
+
+Kasane builds on Kakoune's foundation to fill this gap. It is an **operating system for editor UI**: a platform that provides primitives — declarative elements, layout, state access, side-effect commands, and input hooks — so that plugins can build anything from gutter decorations to fuzzy finders to entire window management systems.
 
 - **Plugin-first** — Kasane itself is minimal. Features belong in plugins, not the core.
 - **Graduated freedom** — Three extension mechanisms (Slot, Decorator, Replacement) offer increasing levels of control, from injecting elements at named points to replacing entire components.
 - **Declarative** — TEA (The Elm Architecture) with a pure `view()` function. Plugins declare what to render, not how to render it.
 - **Performance as prerequisite** — A plugin platform that slows down the editor is not viable. The rendering pipeline runs in ~49 µs/frame, leaving plugins ample headroom.
-- **Separation as virtue** — Kakoune's engine/frontend split is a deliberate design choice. Kasane honors it: the editor engine is untouched, and the frontend is fully replaceable.
 
 ## Features
 
