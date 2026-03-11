@@ -8,23 +8,21 @@ An operating system for [Kakoune](https://kakoune.org/)'s UI — a plugin-extens
 
 ## Philosophy
 
-Kakoune follows the Unix philosophy: it does one thing well — code editing — and composes with external tools for everything else. Window management is left to tmux or system window managers. Extensions are shell scripts interacting via `%sh{}` and `kak -p`, not plugins — by deliberate design. Its client-server architecture also exposes a `kak -ui json` protocol that enables alternative frontends.
+Kakoune follows the Unix philosophy: it does one thing well — code editing — and composes with external tools for everything else. Window management is left to tmux or system window managers. Extensions are shell scripts interacting via `%sh{}` and `kak -p`, not plugins — by deliberate design.
 
-This means Kakoune users who want richer UI — git gutter signs, LSP diagnostics, fuzzy finders, or custom pane layouts — must assemble solutions across tmux, shell scripts, and window managers. Each tool has its own interface. There is no unified platform where these UI extensions can be built, composed, and shared.
+Its client-server architecture also exposes a `kak -ui json` protocol that enables alternative frontends. This means Kakoune users who want richer UI — git gutter signs, LSP diagnostics, fuzzy finders, or custom pane layouts — must assemble solutions across tmux, shell scripts, and window managers, each with its own interface and no way to share or combine them.
 
-Kasane builds on Kakoune's foundation to fill this gap. It is an **operating system for editor UI**: a platform that provides primitives — declarative elements, layout, state access, side-effect commands, and input hooks — so that plugins can build anything from gutter decorations to fuzzy finders to entire window management systems.
+Kasane builds on this foundation to fill the gap. It is an **operating system for editor UI**: a platform that provides primitives — elements, layout, state access, commands, and input hooks — so that plugins can build anything from small decorations to entire window management systems.
 
 - **Plugin-first** — Kasane itself is minimal. Features belong in plugins, not the core.
 - **Graduated freedom** — Three extension mechanisms (Slot, Decorator, Replacement) offer increasing levels of control, from injecting elements at named points to replacing entire components.
 - **Declarative** — TEA (The Elm Architecture) with a pure `view()` function. Plugins declare what to render, not how to render it.
-- **Performance as prerequisite** — A plugin platform that slows down the editor is not viable. The rendering pipeline runs in ~49 µs/frame, leaving plugins ample headroom.
+- **Performance as prerequisite** — A plugin platform that slows down the editor is not viable. ~49 µs/frame at 80×24, leaving plugins ample headroom.
 
 ## Features
 
-- **Declarative UI** — Element tree + TEA (The Elm Architecture)
-- **Plugin system** — Slot / Decorator / Replacement extension points with `#[kasane::plugin]` proc macro
 - **Dual backend** — TUI (crossterm) and GPU (wgpu + glyphon)
-- **~49 µs/frame** — 328x headroom vs 16 ms budget at 60 FPS
+- **Plugin system** — Slot / Decorator / Replacement extension points with `#[kasane::plugin]` proc macro
 - **Compiled rendering** — PaintPatch, section caching, DirtyFlags-based memoization
 - **System clipboard** — direct integration via arboard (no xclip/xsel)
 - **Smooth scrolling** — with inertia support
@@ -38,7 +36,6 @@ Requires [Rust](https://rustup.rs/) (stable) and [Kakoune](https://kakoune.org/)
 ```bash
 git clone https://github.com/Yus314/kasane.git
 cd kasane
-cargo build --release
 
 # TUI only (default)
 cargo install --path kasane
@@ -69,7 +66,7 @@ See [docs/architecture.md](docs/architecture.md).
 
 ## Performance
 
-~49 µs/frame CPU pipeline at 80×24 (328x headroom vs 16 ms @ 60 FPS). See [docs/performance.md](docs/performance.md) for details.
+See [docs/performance.md](docs/performance.md).
 
 ## Plugins
 
