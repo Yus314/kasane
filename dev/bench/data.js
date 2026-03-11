@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773202685428,
+  "lastUpdate": 1773203018099,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -4607,6 +4607,114 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7474,
             "range": "± 37",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "74fa898c26c0e252a9aeece8a4bbef2c175cb2f7",
+          "message": "docs: reduce redundancy and improve clarity in README\n\n- Consolidate ~49 µs/frame mention to Philosophy only (was in 3 places)\n- Remove duplicate gutter/fuzzy-finder examples across paragraphs\n- Remove Features items already covered by Philosophy (Declarative UI, perf)\n- Remove redundant cargo build --release from Installation\n- Reduce jargon (side-effect commands → commands)\n- Improve paragraph flow in Philosophy section\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-11T13:12:23+09:00",
+          "tree_id": "a3ebb46cbd774e0dd5321e0c86a6886a61421851",
+          "url": "https://github.com/Yus314/kasane/commit/74fa898c26c0e252a9aeece8a4bbef2c175cb2f7"
+        },
+        "date": 1773203017621,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 149462,
+            "range": "± 796",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 842249,
+            "range": "± 36514",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2143,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 144425,
+            "range": "± 3366",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 165369,
+            "range": "± 4871",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 135305,
+            "range": "± 3580",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3572068,
+            "range": "± 47575",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16706626,
+            "range": "± 89599",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1837672,
+            "range": "± 43383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 17049946,
+            "range": "± 54182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6894,
+            "range": "± 242",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 54791,
+            "range": "± 165",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 620,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7472,
+            "range": "± 24",
             "unit": "ns/iter"
           }
         ]
