@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773387935630,
+  "lastUpdate": 1773393162339,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -4907,6 +4907,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7644,
             "range": "± 64",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "4e23ada9c41745019c61517a5b091edf928b2a91",
+          "message": "docs: update architecture to three-layer model after plugin migration\n\nCollapse the four-layer model (upstream/core/built-in plugins/external plugins)\ninto three layers (upstream/core/plugins) across all documentation. Built-in\nand external plugins are now unified under a single plugin layer with three\ndistribution forms: bundled WASM, FS-discovered WASM, and native.\n\nUpdate all plugin references: CursorLinePlugin → cursor_line,\nColorPreviewPlugin → color_preview (bundled WASM plugins).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T18:00:45+09:00",
+          "tree_id": "cca6fac6cfa0d021facce1d94c009b5897d20c3f",
+          "url": "https://github.com/Yus314/kasane/commit/4e23ada9c41745019c61517a5b091edf928b2a91"
+        },
+        "date": 1773393161831,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 123944,
+            "range": "± 4888",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 705036,
+            "range": "± 7772",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 1750,
+            "range": "± 66",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 118545,
+            "range": "± 1576",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4131575,
+            "range": "± 19516",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16949580,
+            "range": "± 52294",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1715353,
+            "range": "± 9872",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 19853777,
+            "range": "± 128374",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6914,
+            "range": "± 81",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 53982,
+            "range": "± 1114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 508,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 6605,
+            "range": "± 17",
             "unit": "ns/iter"
           }
         ]
