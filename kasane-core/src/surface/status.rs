@@ -1,7 +1,8 @@
 //! StatusBarSurface: built-in Surface for the status bar.
 //!
-//! Phase S2 will implement the full Surface trait here.
-//! For now this module declares the type so that the crate compiles.
+//! Delegates to [`crate::render::view::build_status_bar_surface`] which collects
+//! plugin slots (status_left, status_right, above_status), applies replacement
+//! and decorator, and assembles the status bar element.
 
 use crate::element::Element;
 use crate::plugin::Command;
@@ -50,9 +51,7 @@ impl Surface for StatusBarSurface {
     }
 
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
-        // Phase S2: will replicate build_status_bar() logic here.
-        let _ = ctx;
-        Element::Empty
+        crate::render::view::build_status_bar_surface(ctx.state, ctx.registry)
     }
 
     fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {

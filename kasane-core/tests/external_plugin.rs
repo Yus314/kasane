@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use kasane_core::plugin_prelude::*;
 
 #[kasane_plugin]

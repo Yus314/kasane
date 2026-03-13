@@ -1,5 +1,6 @@
 use super::*;
 use crate::element::Direction;
+use crate::plugin::SlotId;
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
 use crate::state::AppState;
 use crate::test_utils::make_line;
@@ -160,10 +161,11 @@ fn test_status_left_slot_in_status_bar() {
         fn id(&self) -> PluginId {
             PluginId("status_left".into())
         }
-        fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
-            match slot {
-                Slot::StatusLeft => Some(Element::text("[L]", Face::default())),
-                _ => None,
+        fn contribute_slot(&self, slot_id: &SlotId, _state: &AppState) -> Option<Element> {
+            if *slot_id == SlotId::STATUS_LEFT {
+                Some(Element::text("[L]", Face::default()))
+            } else {
+                None
             }
         }
     }

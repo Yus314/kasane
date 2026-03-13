@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for the plugin system:
 //!   `#[kasane_plugin]` macro → PluginRegistry → view → layout → paint → CellGrid
 //!

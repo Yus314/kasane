@@ -659,3 +659,129 @@ fn test_line_dirty_full_repaint_on_overlay() {
         "full repaint after overlay hide should produce diffs"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Surface model equivalence tests
+// ---------------------------------------------------------------------------
+
+/// Verify that the Surface-based pipeline produces identical CellGrid output
+/// as the legacy view_cached()-based pipeline.
+#[test]
+fn test_surface_pipeline_equivalence_empty_state() {
+    use kasane_core::render::ViewCache;
+    use kasane_core::render::pipeline::{render_pipeline, render_pipeline_surfaces_cached};
+    use kasane_core::state::DirtyFlags;
+    use kasane_core::surface::SurfaceRegistry;
+    use kasane_core::surface::buffer::KakouneBufferSurface;
+    use kasane_core::surface::status::StatusBarSurface;
+
+    let state = setup_state(vec![make_line("hello world"), make_line("second line")]);
+    let registry = PluginRegistry::new();
+
+    // Legacy pipeline
+    let mut legacy_grid = CellGrid::new(state.cols, state.rows);
+    let legacy_result = render_pipeline(&state, &registry, &mut legacy_grid);
+
+    // Surface pipeline
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry.register(Box::new(KakouneBufferSurface::new()));
+    surface_registry.register(Box::new(StatusBarSurface::new()));
+
+    let mut surface_grid = CellGrid::new(state.cols, state.rows);
+    let mut cache = ViewCache::new();
+    let surface_result = render_pipeline_surfaces_cached(
+        &state,
+        &registry,
+        &surface_registry,
+        &mut surface_grid,
+        DirtyFlags::ALL,
+        &mut cache,
+        &[],
+    );
+
+    // Compare cursor positions
+    assert_eq!(
+        legacy_result.cursor_x, surface_result.cursor_x,
+        "cursor_x mismatch"
+    );
+    assert_eq!(
+        legacy_result.cursor_y, surface_result.cursor_y,
+        "cursor_y mismatch"
+    );
+
+    // Compare cell grids
+    for y in 0..state.rows {
+        for x in 0..state.cols {
+            let l = legacy_grid.get(x, y);
+            let s = surface_grid.get(x, y);
+            if let (Some(l), Some(s)) = (l, s) {
+                assert_eq!(
+                    l.grapheme, s.grapheme,
+                    "grapheme mismatch at ({x}, {y}): legacy={:?} surface={:?}",
+                    l.grapheme, s.grapheme
+                );
+                assert_eq!(l.face, s.face, "face mismatch at ({x}, {y})");
+            }
+        }
+    }
+}
+
+/// Verify Surface pipeline equivalence with menu overlay.
+#[test]
+fn test_surface_pipeline_equivalence_with_menu() {
+    use kasane_core::render::ViewCache;
+    use kasane_core::render::pipeline::{render_pipeline, render_pipeline_surfaces_cached};
+    use kasane_core::state::DirtyFlags;
+    use kasane_core::surface::SurfaceRegistry;
+    use kasane_core::surface::buffer::KakouneBufferSurface;
+    use kasane_core::surface::status::StatusBarSurface;
+
+    let mut state = setup_state(vec![make_line("hello"), make_line("world")]);
+    state.apply(KakouneRequest::MenuShow {
+        items: vec![make_line("item1"), make_line("item2"), make_line("item3")],
+        anchor: Coord { line: 1, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+
+    let registry = PluginRegistry::new();
+
+    // Legacy pipeline
+    let mut legacy_grid = CellGrid::new(state.cols, state.rows);
+    let _legacy_result = render_pipeline(&state, &registry, &mut legacy_grid);
+
+    // Surface pipeline
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry.register(Box::new(KakouneBufferSurface::new()));
+    surface_registry.register(Box::new(StatusBarSurface::new()));
+    surface_registry.sync_ephemeral_surfaces(&state);
+
+    let mut surface_grid = CellGrid::new(state.cols, state.rows);
+    let mut cache = ViewCache::new();
+    let _surface_result = render_pipeline_surfaces_cached(
+        &state,
+        &registry,
+        &surface_registry,
+        &mut surface_grid,
+        DirtyFlags::ALL,
+        &mut cache,
+        &[],
+    );
+
+    // Compare cell grids
+    for y in 0..state.rows {
+        for x in 0..state.cols {
+            let l = legacy_grid.get(x, y);
+            let s = surface_grid.get(x, y);
+            if let (Some(l), Some(s)) = (l, s) {
+                assert_eq!(
+                    l.grapheme, s.grapheme,
+                    "grapheme mismatch at ({x}, {y}): legacy={:?} surface={:?}",
+                    l.grapheme, s.grapheme
+                );
+                assert_eq!(l.face, s.face, "face mismatch at ({x}, {y})");
+            }
+        }
+    }
+}

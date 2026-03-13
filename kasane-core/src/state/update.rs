@@ -1,5 +1,5 @@
 use crate::input;
-use crate::input::{InputEvent, Key, KeyEvent, MouseEvent};
+use crate::input::{InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{Command, PluginRegistry, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::render::CellGrid;
@@ -65,6 +65,7 @@ pub fn update(
             }
 
             // 2. Plugin handle_key chain (first-wins)
+            // PageUp/PageDown are handled by BuiltinInputPlugin (lowest priority).
             for plugin in registry.plugins_mut() {
                 if let Some(mut commands) = plugin.handle_key(&key, state) {
                     let flags = extract_redraw_flags(&mut commands);
@@ -72,30 +73,7 @@ pub fn update(
                 }
             }
 
-            // 3. Built-in PageUp/PageDown (plugins can override via handle_key above)
-            if key.modifiers.is_empty() {
-                match key.key {
-                    Key::PageUp => {
-                        let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
-                            amount: -(state.available_height() as i32),
-                            line: state.cursor_pos.line as u32,
-                            column: state.cursor_pos.column as u32,
-                        });
-                        return (DirtyFlags::empty(), vec![cmd]);
-                    }
-                    Key::PageDown => {
-                        let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
-                            amount: state.available_height() as i32,
-                            line: state.cursor_pos.line as u32,
-                            column: state.cursor_pos.column as u32,
-                        });
-                        return (DirtyFlags::empty(), vec![cmd]);
-                    }
-                    _ => {}
-                }
-            }
-
-            // 4. Forward to Kakoune
+            // 3. Forward to Kakoune
             let kak_key = input::key_to_kakoune(&key);
             let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
             (DirtyFlags::empty(), vec![cmd])

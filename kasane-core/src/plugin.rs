@@ -1,9 +1,11 @@
 use std::any::Any;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::time::Duration;
 
 use bitflags::bitflags;
+use compact_str::CompactString;
 
 use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor};
 use crate::input::{KeyEvent, MouseEvent};
@@ -31,12 +33,14 @@ bitflags! {
         const PANE_RENDERER    = 1 << 10;
         const SURFACE_PROVIDER    = 1 << 11;
         const WORKSPACE_OBSERVER  = 1 << 12;
+        const PAINT_HOOK         = 1 << 13;
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PluginId(pub String);
 
+#[deprecated(since = "0.2.0", note = "Use SlotId instead of Slot")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Slot {
     BufferLeft,
@@ -49,6 +53,7 @@ pub enum Slot {
     Overlay,
 }
 
+#[allow(deprecated)]
 impl Slot {
     pub const COUNT: usize = 8;
 
@@ -75,6 +80,68 @@ impl Slot {
         Self::StatusRight,
         Self::Overlay,
     ];
+}
+
+/// Open slot identifier that supports both well-known and custom plugin-defined slots.
+///
+/// Well-known slots have `const` definitions matching the legacy `Slot` enum variants.
+/// Plugins can define custom slots using arbitrary names (e.g., `SlotId::new("myplugin.sidebar")`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SlotId(pub CompactString);
+
+impl SlotId {
+    pub const BUFFER_LEFT: Self = Self(CompactString::const_new("kasane.buffer.left"));
+    pub const BUFFER_RIGHT: Self = Self(CompactString::const_new("kasane.buffer.right"));
+    pub const ABOVE_BUFFER: Self = Self(CompactString::const_new("kasane.buffer.above"));
+    pub const BELOW_BUFFER: Self = Self(CompactString::const_new("kasane.buffer.below"));
+    pub const ABOVE_STATUS: Self = Self(CompactString::const_new("kasane.status.above"));
+    pub const STATUS_LEFT: Self = Self(CompactString::const_new("kasane.status.left"));
+    pub const STATUS_RIGHT: Self = Self(CompactString::const_new("kasane.status.right"));
+    pub const OVERLAY: Self = Self(CompactString::const_new("kasane.overlay"));
+
+    /// Well-known SlotIds in the same order as `Slot::ALL_VARIANTS`.
+    #[allow(deprecated)]
+    const WELL_KNOWN: [SlotId; Slot::COUNT] = [
+        Self::BUFFER_LEFT,
+        Self::BUFFER_RIGHT,
+        Self::ABOVE_BUFFER,
+        Self::BELOW_BUFFER,
+        Self::ABOVE_STATUS,
+        Self::STATUS_LEFT,
+        Self::STATUS_RIGHT,
+        Self::OVERLAY,
+    ];
+
+    /// Create a custom slot identifier.
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self(name.into())
+    }
+
+    /// Get the slot name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Convert to a legacy `Slot` if this is a well-known slot.
+    #[allow(deprecated)]
+    pub fn to_legacy(&self) -> Option<Slot> {
+        Self::WELL_KNOWN
+            .iter()
+            .position(|wk| wk == self)
+            .map(|i| Slot::ALL_VARIANTS[i])
+    }
+
+    /// Check if this is a well-known (built-in) slot.
+    pub fn is_well_known(&self) -> bool {
+        Self::WELL_KNOWN.contains(self)
+    }
+}
+
+#[allow(deprecated)]
+impl From<Slot> for SlotId {
+    fn from(slot: Slot) -> Self {
+        Self::WELL_KNOWN[slot.index()].clone()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -104,6 +171,36 @@ pub struct LineDecoration {
     pub background: Option<Face>,
 }
 
+/// A post-paint hook that can modify the CellGrid after the standard paint pass.
+///
+/// PaintHooks enable plugins to apply custom rendering effects (e.g., highlights,
+/// overlays, visual indicators) directly on the cell grid without needing to
+/// participate in the Element tree.
+pub trait PaintHook: Send {
+    /// Unique identifier for this hook (typically `"plugin_id.hook_name"`).
+    fn id(&self) -> &str;
+
+    /// DirtyFlags that trigger this hook. The hook is skipped when none of these
+    /// flags are set.
+    fn deps(&self) -> DirtyFlags;
+
+    /// Optional surface filter. When `Some(id)`, only apply when that surface
+    /// was rendered. When `None`, apply on every paint pass.
+    fn surface_filter(&self) -> Option<crate::surface::SurfaceId> {
+        None
+    }
+
+    /// Apply the hook to the cell grid.
+    ///
+    /// `region` is the rectangular area that was painted (typically the full screen).
+    fn apply(
+        &self,
+        grid: &mut crate::render::CellGrid,
+        region: &crate::layout::Rect,
+        state: &AppState,
+    );
+}
+
 pub enum Command {
     SendToKakoune(KasaneRequest),
     Paste,
@@ -129,6 +226,8 @@ pub enum Command {
     Pane(PaneCommand),
     /// Workspace layout command (add/remove surface, focus, split, float, etc.).
     Workspace(WorkspaceCommand),
+    /// Register custom theme tokens with default faces.
+    RegisterThemeTokens(Vec<(String, Face)>),
 }
 
 /// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
@@ -148,6 +247,7 @@ pub enum DeferredCommand {
     },
     Pane(PaneCommand),
     Workspace(WorkspaceCommand),
+    RegisterThemeTokens(Vec<(String, Face)>),
 }
 
 /// Separate deferred commands from normal commands.
@@ -174,6 +274,9 @@ pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<D
             }
             Command::Pane(cmd) => deferred.push(DeferredCommand::Pane(cmd)),
             Command::Workspace(cmd) => deferred.push(DeferredCommand::Workspace(cmd)),
+            Command::RegisterThemeTokens(tokens) => {
+                deferred.push(DeferredCommand::RegisterThemeTokens(tokens))
+            }
             other => normal.push(other),
         }
     }
@@ -217,7 +320,8 @@ pub fn execute_commands(
             | Command::PluginMessage { .. }
             | Command::SetConfig { .. }
             | Command::Pane(_)
-            | Command::Workspace(_) => {}
+            | Command::Workspace(_)
+            | Command::RegisterThemeTokens(_) => {}
         }
     }
     CommandResult::Continue
@@ -285,10 +389,14 @@ pub trait Plugin: Any {
 
     /// DirtyFlags dependencies for contribute() on a given slot (L3).
     /// Default: ALL (always recompute when any AppState change occurs).
+    #[deprecated(since = "0.2.0", note = "Override slot_id_deps() instead")]
+    #[allow(deprecated)]
     fn slot_deps(&self, _slot: Slot) -> DirtyFlags {
         DirtyFlags::ALL
     }
 
+    #[deprecated(since = "0.2.0", note = "Override contribute_slot() instead")]
+    #[allow(deprecated)]
     fn contribute(&self, _slot: Slot, _state: &AppState) -> Option<Element> {
         None
     }
@@ -329,6 +437,33 @@ pub trait Plugin: Any {
     /// Contribute an element to a custom named slot defined by another plugin.
     fn contribute_named_slot(&self, _name: &str, _state: &AppState) -> Option<Element> {
         None
+    }
+
+    // --- SlotId-based contributions (open slot system) ---
+
+    /// Contribute an element to an open SlotId.
+    ///
+    /// Default implementation delegates to `contribute()` for well-known slots
+    /// and `contribute_named_slot()` for custom slots.
+    #[allow(deprecated)]
+    fn contribute_slot(&self, slot_id: &SlotId, state: &AppState) -> Option<Element> {
+        if let Some(legacy) = slot_id.to_legacy() {
+            self.contribute(legacy, state)
+        } else {
+            self.contribute_named_slot(slot_id.as_str(), state)
+        }
+    }
+
+    /// DirtyFlags dependencies for `contribute_slot()` on a given SlotId.
+    ///
+    /// Default implementation delegates to `slot_deps()` for well-known slots
+    /// and returns `DirtyFlags::ALL` for custom slots.
+    #[allow(deprecated)]
+    fn slot_id_deps(&self, slot_id: &SlotId) -> DirtyFlags {
+        slot_id
+            .to_legacy()
+            .map(|s| self.slot_deps(s))
+            .unwrap_or(DirtyFlags::ALL)
     }
 
     // --- Menu item transformation ---
@@ -399,16 +534,29 @@ pub trait Plugin: Any {
 
     /// Notification that the workspace layout has changed.
     fn on_workspace_changed(&mut self, _query: &crate::workspace::WorkspaceQuery<'_>) {}
+
+    // --- Paint hooks (Phase 5) ---
+
+    /// Return paint hooks owned by this plugin.
+    /// Called once during initialization; returned hooks are registered for use
+    /// in the rendering pipeline (applied after the standard paint pass).
+    fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
+        vec![]
+    }
 }
 
 /// Cached result for a single plugin's slot contributions.
 #[derive(Default)]
+#[allow(deprecated)]
 struct PluginCacheEntry {
     last_state_hash: u64,
     /// `None` = not cached. `Some(x)` = cached contribute() result.
     slots: [Option<Option<Element>>; Slot::COUNT],
     /// `None` = not cached. `Some(x)` = cached contribute_overlay() result.
     overlay: Option<Option<Overlay>>,
+    /// Cache for custom (non-well-known) SlotId contributions.
+    /// Key present = cached; value = the contribute_slot() result.
+    custom_slots: HashMap<SlotId, Option<Element>>,
 }
 
 struct PluginSlotCache {
@@ -478,6 +626,7 @@ impl PluginRegistry {
 
     /// Invalidate slot cache entries based on dirty flags and state hash changes.
     /// Call once per frame before rendering (during the mutable phase).
+    #[allow(deprecated)]
     pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
         let cache = self.slot_cache.get_mut();
         self.any_plugin_state_changed = false;
@@ -498,17 +647,24 @@ impl PluginRegistry {
                     *slot_entry = None;
                 }
                 entry.overlay = None;
+                entry.custom_slots.clear();
                 self.any_plugin_state_changed = true;
                 continue; // all slots already invalidated
             }
 
             // L3: check per-slot dirty flag intersection
-            for slot in &Slot::ALL_VARIANTS {
-                let slot_deps = plugin.slot_deps(*slot);
+            for (idx, wk) in SlotId::WELL_KNOWN.iter().enumerate() {
+                let slot_deps = plugin.slot_id_deps(wk);
                 if dirty.intersects(slot_deps) {
-                    entry.slots[slot.index()] = None;
+                    entry.slots[idx] = None;
                 }
             }
+
+            // L3: custom slot dirty flag intersection
+            entry.custom_slots.retain(|slot_id, _| {
+                let deps = plugin.slot_id_deps(slot_id);
+                !dirty.intersects(deps)
+            });
 
             // L3: overlay dirty flag intersection
             let overlay_deps = plugin.overlay_deps();
@@ -538,6 +694,28 @@ impl PluginRegistry {
         self.plugins.iter_mut()
     }
 
+    /// Collect surfaces from all plugins. Call after `init_all()`.
+    pub fn collect_plugin_surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+        let mut surfaces = Vec::new();
+        for plugin in &mut self.plugins {
+            surfaces.extend(plugin.surfaces());
+        }
+        surfaces
+    }
+
+    /// Collect paint hooks from all plugins. Call after `init_all()`.
+    pub fn collect_paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
+        let mut hooks = Vec::new();
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if self.capabilities[i].contains(PluginCapabilities::PAINT_HOOK) {
+                hooks.extend(plugin.paint_hooks());
+            }
+        }
+        hooks
+    }
+
+    #[deprecated(since = "0.2.0", note = "Use collect_slot_by_id() instead")]
+    #[allow(deprecated)]
     pub fn collect_slot(&self, slot: Slot, state: &AppState) -> Vec<Element> {
         let mut cache = self.slot_cache.borrow_mut();
         let slot_idx = slot.index();
@@ -553,8 +731,9 @@ impl PluginRegistry {
                     return cached.clone();
                 }
 
-                // Cache miss — compute and store
-                let result = plugin.contribute(slot, state);
+                // Cache miss — compute via contribute_slot (supports both legacy and new API)
+                let slot_id = SlotId::from(slot);
+                let result = plugin.contribute_slot(&slot_id, state);
 
                 // Ensure entry exists (grow if needed)
                 while cache.entries.len() <= i {
@@ -567,8 +746,57 @@ impl PluginRegistry {
             .collect()
     }
 
+    /// Collect contributions for an open SlotId.
+    ///
+    /// For well-known slots, delegates to the existing `collect_slot()` with its
+    /// high-performance array-based cache. For custom slots, uses a HashMap-based
+    /// cache with the same L1+L3 invalidation strategy.
+    #[allow(deprecated)]
+    pub fn collect_slot_by_id(&self, slot_id: &SlotId, state: &AppState) -> Vec<Element> {
+        // Fast path: well-known slots use the existing array cache
+        if let Some(legacy) = slot_id.to_legacy() {
+            return self.collect_slot(legacy, state);
+        }
+
+        // Custom slot path: HashMap-based cache
+        let mut cache = self.slot_cache.borrow_mut();
+
+        self.plugins
+            .iter()
+            .enumerate()
+            .filter_map(|(i, plugin)| {
+                let caps = self.capabilities[i];
+                if !caps.intersects(
+                    PluginCapabilities::NAMED_SLOT | PluginCapabilities::SLOT_CONTRIBUTOR,
+                ) {
+                    return None;
+                }
+
+                // Check custom slot cache
+                if let Some(entry) = cache.entries.get(i)
+                    && let Some(cached) = entry.custom_slots.get(slot_id)
+                {
+                    return cached.clone();
+                }
+
+                // Cache miss — compute and store
+                let result = plugin.contribute_slot(slot_id, state);
+
+                while cache.entries.len() <= i {
+                    cache.entries.push(PluginCacheEntry::default());
+                }
+                cache.entries[i]
+                    .custom_slots
+                    .insert(slot_id.clone(), result.clone());
+
+                result
+            })
+            .collect()
+    }
+
     /// Collect overlays from plugins: both typed overlays (contribute_overlay)
     /// and legacy Slot::Overlay contributions (wrapped in full-screen Absolute anchor).
+    #[allow(deprecated)]
     pub fn collect_overlays(&self, state: &AppState) -> Vec<Overlay> {
         let mut overlays = Vec::new();
         let mut cache = self.slot_cache.borrow_mut();
@@ -600,7 +828,7 @@ impl PluginRegistry {
 
             // Legacy: Slot::Overlay → full-screen Absolute (backward compat)
             if caps.contains(PluginCapabilities::SLOT_CONTRIBUTOR)
-                && let Some(element) = plugin.contribute(Slot::Overlay, state)
+                && let Some(element) = plugin.contribute_slot(&SlotId::OVERLAY, state)
             {
                 overlays.push(Overlay {
                     element,
@@ -838,6 +1066,7 @@ impl Default for PluginRegistry {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::element::Direction;
@@ -2099,5 +2328,264 @@ mod tests {
         // Second prepare with same hash → no change
         registry.prepare_plugin_cache(DirtyFlags::ALL);
         assert!(!registry.any_plugin_state_changed());
+    }
+
+    // --- SlotId tests ---
+
+    #[test]
+    fn test_slot_id_to_legacy_roundtrip() {
+        // All well-known SlotIds should roundtrip through Slot
+        for slot in Slot::ALL_VARIANTS {
+            let slot_id = SlotId::from(slot);
+            assert!(slot_id.is_well_known(), "{slot_id:?} should be well-known");
+            let back = slot_id.to_legacy().expect("should convert back to Slot");
+            assert_eq!(back, slot, "roundtrip failed for {slot:?}");
+        }
+    }
+
+    #[test]
+    fn test_slot_id_custom_not_well_known() {
+        let custom = SlotId::new("my.plugin.sidebar");
+        assert!(!custom.is_well_known());
+        assert_eq!(custom.to_legacy(), None);
+        assert_eq!(custom.as_str(), "my.plugin.sidebar");
+    }
+
+    #[test]
+    fn test_collect_slot_by_id_well_known_delegates() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(TestPlugin));
+        let state = AppState::default();
+
+        // TestPlugin contributes to Slot::AboveBuffer
+        let via_id = registry.collect_slot_by_id(&SlotId::ABOVE_BUFFER, &state);
+        let via_legacy = registry.collect_slot(Slot::AboveBuffer, &state);
+        assert_eq!(via_id.len(), via_legacy.len());
+        assert_eq!(via_id.len(), 1);
+    }
+
+    struct CustomSlotPlugin {
+        slot_name: String,
+    }
+
+    impl Plugin for CustomSlotPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("custom_slot".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::NAMED_SLOT
+        }
+
+        fn contribute_named_slot(&self, name: &str, _state: &AppState) -> Option<Element> {
+            if name == self.slot_name {
+                Some(Element::text("custom", Face::default()))
+            } else {
+                None
+            }
+        }
+
+        fn slot_id_deps(&self, slot_id: &SlotId) -> DirtyFlags {
+            if slot_id.as_str() == self.slot_name {
+                DirtyFlags::BUFFER
+            } else {
+                DirtyFlags::empty()
+            }
+        }
+    }
+
+    #[test]
+    fn test_collect_slot_by_id_custom() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(CustomSlotPlugin {
+            slot_name: "my.sidebar".into(),
+        }));
+        let state = AppState::default();
+
+        let result = registry.collect_slot_by_id(&SlotId::new("my.sidebar"), &state);
+        assert_eq!(result.len(), 1);
+
+        let empty = registry.collect_slot_by_id(&SlotId::new("other.slot"), &state);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn test_custom_slot_cache_invalidation() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(CustomSlotPlugin {
+            slot_name: "my.sidebar".into(),
+        }));
+        let state = AppState::default();
+        let slot_id = SlotId::new("my.sidebar");
+
+        // First call populates cache
+        let r1 = registry.collect_slot_by_id(&slot_id, &state);
+        assert_eq!(r1.len(), 1);
+
+        // BUFFER dirty → should invalidate (CustomSlotPlugin's slot_id_deps returns BUFFER)
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
+        let r2 = registry.collect_slot_by_id(&slot_id, &state);
+        assert_eq!(r2.len(), 1);
+
+        // STATUS dirty → should NOT invalidate custom slot (deps = BUFFER only)
+        registry.prepare_plugin_cache(DirtyFlags::STATUS);
+        let r3 = registry.collect_slot_by_id(&slot_id, &state);
+        assert_eq!(r3.len(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // PaintHook tests
+    // -----------------------------------------------------------------------
+
+    struct TestPaintHook {
+        id: &'static str,
+        deps: DirtyFlags,
+        surface_filter: Option<crate::surface::SurfaceId>,
+    }
+
+    impl PaintHook for TestPaintHook {
+        fn id(&self) -> &str {
+            self.id
+        }
+        fn deps(&self) -> DirtyFlags {
+            self.deps
+        }
+        fn surface_filter(&self) -> Option<crate::surface::SurfaceId> {
+            self.surface_filter.clone()
+        }
+        fn apply(
+            &self,
+            grid: &mut crate::render::CellGrid,
+            _region: &crate::layout::Rect,
+            _state: &AppState,
+        ) {
+            // Write a marker character at (0, 0) to prove the hook ran
+            if let Some(cell) = grid.get_mut(0, 0) {
+                cell.grapheme = compact_str::CompactString::new(self.id);
+            }
+        }
+    }
+
+    struct PaintHookPlugin {
+        hooks: Vec<Box<dyn PaintHook>>,
+    }
+
+    impl Plugin for PaintHookPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("paint-hook-test".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::PAINT_HOOK
+        }
+
+        fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
+            // Re-create hooks each time (test simplicity)
+            self.hooks
+                .iter()
+                .map(|h| -> Box<dyn PaintHook> {
+                    Box::new(TestPaintHook {
+                        id: match h.id() {
+                            "hook-a" => "hook-a",
+                            "hook-b" => "hook-b",
+                            _ => "unknown",
+                        },
+                        deps: h.deps(),
+                        surface_filter: h.surface_filter(),
+                    })
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn test_collect_paint_hooks() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(PaintHookPlugin {
+            hooks: vec![
+                Box::new(TestPaintHook {
+                    id: "hook-a",
+                    deps: DirtyFlags::BUFFER,
+                    surface_filter: None,
+                }),
+                Box::new(TestPaintHook {
+                    id: "hook-b",
+                    deps: DirtyFlags::STATUS,
+                    surface_filter: None,
+                }),
+            ],
+        }));
+        let hooks = registry.collect_paint_hooks();
+        assert_eq!(hooks.len(), 2);
+        assert_eq!(hooks[0].id(), "hook-a");
+        assert_eq!(hooks[1].id(), "hook-b");
+    }
+
+    #[test]
+    fn test_paint_hook_applies_to_grid() {
+        use crate::layout::Rect;
+        use crate::render::CellGrid;
+
+        let mut grid = CellGrid::new(10, 5);
+        let state = AppState::default();
+        let region = Rect {
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 5,
+        };
+        let hook = TestPaintHook {
+            id: "X",
+            deps: DirtyFlags::ALL,
+            surface_filter: None,
+        };
+        hook.apply(&mut grid, &region, &state);
+        assert_eq!(grid.get(0, 0).unwrap().grapheme.as_str(), "X");
+    }
+
+    #[test]
+    fn test_apply_paint_hooks_deps_filtering() {
+        use crate::layout::Rect;
+        use crate::render::CellGrid;
+        use crate::render::pipeline::apply_paint_hooks;
+
+        let mut grid = CellGrid::new(10, 5);
+        let state = AppState::default();
+        let region = Rect {
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 5,
+        };
+
+        // Hook depends on STATUS, but dirty is BUFFER → should NOT run
+        let hooks: Vec<Box<dyn PaintHook>> = vec![Box::new(TestPaintHook {
+            id: "Z",
+            deps: DirtyFlags::STATUS,
+            surface_filter: None,
+        })];
+        apply_paint_hooks(&hooks, &mut grid, &region, &state, DirtyFlags::BUFFER);
+        // Cell (0,0) should still be the default (space)
+        assert_ne!(grid.get(0, 0).unwrap().grapheme.as_str(), "Z");
+
+        // Now with matching dirty flags → should run
+        apply_paint_hooks(&hooks, &mut grid, &region, &state, DirtyFlags::STATUS);
+        assert_eq!(grid.get(0, 0).unwrap().grapheme.as_str(), "Z");
+    }
+
+    #[test]
+    fn test_paint_hook_no_capability_not_collected() {
+        struct NoPaintHookPlugin;
+        impl Plugin for NoPaintHookPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("no-hook".to_string())
+            }
+            // capabilities() defaults to empty — no PAINT_HOOK
+        }
+
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(NoPaintHookPlugin));
+        let hooks = registry.collect_paint_hooks();
+        assert!(hooks.is_empty());
     }
 }

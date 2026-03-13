@@ -26,8 +26,15 @@ struct PluginDef {
     replacements: Vec<ReplacementBinding>,
 }
 
+enum SlotTarget {
+    /// Legacy: `#[slot(Slot::BufferLeft)]` — matches on `kasane_core::plugin::Slot` enum.
+    Legacy(ExprPath),
+    /// Custom: `#[slot("my.custom.slot")]` — matches on `kasane_core::plugin::SlotId`.
+    Named(String),
+}
+
 struct SlotBinding {
-    slot_path: ExprPath,
+    target: SlotTarget,
     fn_name: Ident,
     /// Derived DirtyFlags names for this slot (e.g., ["BUFFER", "STATUS"]).
     /// Empty means fallback to ALL.
@@ -100,11 +107,11 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
                     "transform_menu_item" => def.has_transform_menu_item = true,
                     _ => {}
                 }
-                // Check for #[slot(Slot::*)]
-                if let Some(slot_path) = extract_single_path_attr(&f.attrs, "slot")? {
+                // Check for #[slot(Slot::*)] or #[slot("custom.name")]
+                if let Some(target) = extract_slot_attr(&f.attrs)? {
                     let dirty_deps = derive_slot_deps(f);
                     def.slots.push(SlotBinding {
-                        slot_path,
+                        target,
                         fn_name: f.sig.ident.clone(),
                         dirty_deps,
                     });
@@ -170,6 +177,33 @@ fn derive_slot_deps(func: &ItemFn) -> Vec<String> {
 
 fn has_attr(attrs: &[Attribute], name: &str) -> bool {
     attrs.iter().any(|a| a.path().is_ident(name))
+}
+
+/// Extract a `SlotTarget` from `#[slot(Slot::BufferLeft)]` or `#[slot("my.custom.slot")]`.
+fn extract_slot_attr(attrs: &[Attribute]) -> syn::Result<Option<SlotTarget>> {
+    for attr in attrs {
+        if attr.path().is_ident("slot") {
+            let expr: Expr = attr.parse_args()?;
+            return match expr {
+                Expr::Path(p) => Ok(Some(SlotTarget::Legacy(p))),
+                Expr::Lit(lit) => {
+                    if let Lit::Str(s) = &lit.lit {
+                        Ok(Some(SlotTarget::Named(s.value())))
+                    } else {
+                        Err(Error::new_spanned(
+                            attr,
+                            "expected a path or string literal in #[slot(...)]",
+                        ))
+                    }
+                }
+                _ => Err(Error::new_spanned(
+                    attr,
+                    "expected a path (Slot::X) or string literal in #[slot(...)]",
+                )),
+            };
+        }
+    }
+    Ok(None)
 }
 
 /// Extract a path like `Slot::BufferLeft` from `#[slot(Slot::BufferLeft)]`.
@@ -278,7 +312,7 @@ fn gen_update_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
     }
 }
 
-/// Generates the `Plugin::contribute()` trait method implementation (slot dispatch).
+/// Generates the `Plugin::contribute()` and `Plugin::contribute_slot()` trait method implementations.
 ///
 /// Returns an empty TokenStream if the plugin defines no slots.
 fn gen_contribute_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
@@ -288,25 +322,68 @@ fn gen_contribute_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
         return quote! {};
     }
 
-    let slot_arms: Vec<_> = def
+    // Legacy contribute() — only includes Legacy slots
+    let legacy_arms: Vec<_> = def
         .slots
         .iter()
-        .map(|sb| {
-            let slot_path = &sb.slot_path;
-            let fn_name = &sb.fn_name;
-            quote! {
-                kasane_core::plugin::#slot_path => #mod_ident::#fn_name(&self.state, _state),
+        .filter_map(|sb| {
+            if let SlotTarget::Legacy(slot_path) = &sb.target {
+                let fn_name = &sb.fn_name;
+                Some(quote! {
+                    kasane_core::plugin::#slot_path => #mod_ident::#fn_name(&self.state, _state),
+                })
+            } else {
+                None
             }
         })
         .collect();
 
-    quote! {
-        fn contribute(&self, _slot: kasane_core::plugin::Slot, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
-            match _slot {
-                #(#slot_arms)*
-                _ => None,
+    let contribute_fn = if !legacy_arms.is_empty() {
+        quote! {
+            #[allow(deprecated)]
+            fn contribute(&self, _slot: kasane_core::plugin::Slot, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
+                match _slot {
+                    #(#legacy_arms)*
+                    _ => None,
+                }
             }
         }
+    } else {
+        quote! {}
+    };
+
+    // Named slot: contribute_named_slot() — only includes Named slots
+    let named_arms: Vec<_> = def
+        .slots
+        .iter()
+        .filter_map(|sb| {
+            if let SlotTarget::Named(name) = &sb.target {
+                let fn_name = &sb.fn_name;
+                Some(quote! {
+                    #name => #mod_ident::#fn_name(&self.state, _state),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let contribute_named_fn = if !named_arms.is_empty() {
+        quote! {
+            fn contribute_named_slot(&self, _name: &str, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
+                match _name {
+                    #(#named_arms)*
+                    _ => None,
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        #contribute_fn
+        #contribute_named_fn
     }
 }
 
@@ -522,7 +599,25 @@ fn gen_state_hash_impl(def: &PluginDef) -> TokenStream {
     }
 }
 
-/// Generates the `Plugin::slot_deps()` implementation (L3 auto-derivation).
+/// Build a DirtyFlags expression from a SlotBinding's dirty_deps list.
+fn dirty_deps_to_flags_expr(dirty_deps: &[String]) -> TokenStream {
+    if dirty_deps.is_empty() {
+        // No flagged fields accessed → never dirty from AppState
+        quote! { kasane_core::state::DirtyFlags::empty() }
+    } else if dirty_deps.len() == 1 && dirty_deps[0] == "ALL" {
+        quote! { kasane_core::state::DirtyFlags::ALL }
+    } else {
+        let flag_idents: Vec<_> = dirty_deps.iter().map(|f| format_ident!("{}", f)).collect();
+        let first = &flag_idents[0];
+        let rest = &flag_idents[1..];
+        quote! {
+            kasane_core::state::DirtyFlags::#first
+            #(| kasane_core::state::DirtyFlags::#rest)*
+        }
+    }
+}
+
+/// Generates the `Plugin::slot_deps()` and `Plugin::slot_id_deps()` implementations (L3 auto-derivation).
 ///
 /// Only generated when the plugin has slot bindings.
 fn gen_slot_deps_impl(def: &PluginDef) -> TokenStream {
@@ -530,43 +625,79 @@ fn gen_slot_deps_impl(def: &PluginDef) -> TokenStream {
         return quote! {};
     }
 
-    let slot_arms: Vec<_> = def
+    // Legacy slot_deps() — only for Legacy slots
+    let legacy_arms: Vec<_> = def
         .slots
         .iter()
-        .map(|sb| {
-            let slot_path = &sb.slot_path;
-            let flags_expr = if sb.dirty_deps.is_empty() {
-                // No flagged fields accessed → never dirty from AppState
-                quote! { kasane_core::state::DirtyFlags::empty() }
-            } else if sb.dirty_deps.len() == 1 && sb.dirty_deps[0] == "ALL" {
-                quote! { kasane_core::state::DirtyFlags::ALL }
+        .filter_map(|sb| {
+            if let SlotTarget::Legacy(slot_path) = &sb.target {
+                let flags_expr = dirty_deps_to_flags_expr(&sb.dirty_deps);
+                Some(quote! {
+                    kasane_core::plugin::#slot_path => #flags_expr,
+                })
             } else {
-                let flag_idents: Vec<_> = sb
-                    .dirty_deps
-                    .iter()
-                    .map(|f| format_ident!("{}", f))
-                    .collect();
-                let first = &flag_idents[0];
-                let rest = &flag_idents[1..];
-                quote! {
-                    kasane_core::state::DirtyFlags::#first
-                    #(| kasane_core::state::DirtyFlags::#rest)*
-                }
-            };
-
-            quote! {
-                kasane_core::plugin::#slot_path => #flags_expr,
+                None
             }
         })
         .collect();
 
-    quote! {
-        fn slot_deps(&self, _slot: kasane_core::plugin::Slot) -> kasane_core::state::DirtyFlags {
-            match _slot {
-                #(#slot_arms)*
-                _ => kasane_core::state::DirtyFlags::empty(),
+    let slot_deps_fn = if !legacy_arms.is_empty() {
+        quote! {
+            #[allow(deprecated)]
+            fn slot_deps(&self, _slot: kasane_core::plugin::Slot) -> kasane_core::state::DirtyFlags {
+                match _slot {
+                    #(#legacy_arms)*
+                    _ => kasane_core::state::DirtyFlags::empty(),
+                }
             }
         }
+    } else {
+        quote! {}
+    };
+
+    // slot_id_deps() — includes both Legacy (via well-known name) and Named slots
+    let has_named = def
+        .slots
+        .iter()
+        .any(|sb| matches!(sb.target, SlotTarget::Named(_)));
+    let slot_id_deps_fn = if has_named {
+        let named_arms: Vec<_> = def
+            .slots
+            .iter()
+            .filter_map(|sb| {
+                if let SlotTarget::Named(name) = &sb.target {
+                    let flags_expr = dirty_deps_to_flags_expr(&sb.dirty_deps);
+                    Some(quote! {
+                        #name => #flags_expr,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        quote! {
+            #[allow(deprecated)]
+            fn slot_id_deps(&self, _slot_id: &kasane_core::plugin::SlotId) -> kasane_core::state::DirtyFlags {
+                // Check custom named slots first
+                match _slot_id.as_str() {
+                    #(#named_arms)*
+                    _ => {
+                        // Delegate well-known slots to slot_deps()
+                        _slot_id.to_legacy()
+                            .map(|s| self.slot_deps(s))
+                            .unwrap_or(kasane_core::state::DirtyFlags::ALL)
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        #slot_deps_fn
+        #slot_id_deps_fn
     }
 }
 

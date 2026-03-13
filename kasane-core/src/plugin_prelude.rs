@@ -7,13 +7,15 @@
 pub use crate::kasane_plugin;
 
 // Plugin trait and types
+#[allow(deprecated)]
+pub use crate::plugin::Slot;
 pub use crate::plugin::{
-    Command, DecorateTarget, LineDecoration, Plugin, PluginCapabilities, PluginId, PluginRegistry,
-    ReplaceTarget, Slot,
+    Command, DecorateTarget, LineDecoration, PaintHook, Plugin, PluginCapabilities, PluginId,
+    PluginRegistry, ReplaceTarget, SlotId,
 };
 
 // Element tree
-pub use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor};
+pub use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor, StyleToken};
 
 // Protocol types
 pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor};

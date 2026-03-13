@@ -10,9 +10,26 @@ use super::{RenderResult, paint, patch, view};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
+use crate::plugin::PaintHook;
 use crate::plugin::PluginRegistry;
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
+use crate::surface::SurfaceRegistry;
+
+/// Apply paint hooks that match the current dirty flags.
+pub fn apply_paint_hooks(
+    hooks: &[Box<dyn PaintHook>],
+    grid: &mut CellGrid,
+    region: &Rect,
+    state: &AppState,
+    dirty: DirtyFlags,
+) {
+    for hook in hooks {
+        if dirty.intersects(hook.deps()) {
+            hook.apply(grid, region, state);
+        }
+    }
+}
 
 /// Compute the RenderResult (cursor position + style) from AppState.
 fn compute_render_result(
@@ -202,6 +219,18 @@ pub fn render_pipeline_cached(
     dirty: DirtyFlags,
     cache: &mut ViewCache,
 ) -> RenderResult {
+    render_pipeline_cached_with_hooks(state, registry, grid, dirty, cache, &[])
+}
+
+/// 宣言的レンダリングパイプライン (cached variant with paint hooks).
+pub fn render_pipeline_cached_with_hooks(
+    state: &AppState,
+    registry: &PluginRegistry,
+    grid: &mut CellGrid,
+    dirty: DirtyFlags,
+    cache: &mut ViewCache,
+    paint_hooks: &[Box<dyn PaintHook>],
+) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
     cache.invalidate(dirty);
@@ -225,6 +254,11 @@ pub fn render_pipeline_cached(
         grid.clear(&state.default_face);
     }
     paint::paint(&element, &layout_result, grid, state);
+
+    // Apply plugin paint hooks after standard paint
+    if !paint_hooks.is_empty() {
+        apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
+    }
 
     let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
 
@@ -456,4 +490,363 @@ fn debug_assert_grid_equivalent(patched: &CellGrid, reference: &CellGrid, _state
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Surface-based rendering pipeline (cached)
+// ---------------------------------------------------------------------------
+
+/// Surface-based cached rendering pipeline (TUI).
+///
+/// Uses `SurfaceRegistry` as the element source while maintaining all
+/// caching optimizations (ViewCache, line-dirty, paint hooks).
+pub fn render_pipeline_surfaces_cached(
+    state: &AppState,
+    plugin_registry: &PluginRegistry,
+    surface_registry: &SurfaceRegistry,
+    grid: &mut CellGrid,
+    dirty: DirtyFlags,
+    cache: &mut ViewCache,
+    paint_hooks: &[Box<dyn PaintHook>],
+) -> RenderResult {
+    crate::perf::perf_span!("render_pipeline_surfaces_cached");
+
+    cache.invalidate(dirty);
+    let sections =
+        view::surface_view_sections_cached(state, plugin_registry, surface_registry, cache);
+    let element = sections.into_element();
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let layout_result = flex::place(&element, root_area, state);
+
+    let use_line_dirty = dirty == DirtyFlags::BUFFER
+        && !state.lines_dirty.is_empty()
+        && state.lines_dirty.iter().any(|d| !d);
+
+    if !use_line_dirty {
+        grid.clear(&state.default_face);
+    }
+    paint::paint(&element, &layout_result, grid, state);
+
+    if !paint_hooks.is_empty() {
+        apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
+    }
+
+    let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
+    apply_secondary_cursor_faces(state, grid, buffer_x_offset);
+
+    let style = cursor_style(state, plugin_registry);
+    clear_block_cursor_face(state, grid, style, buffer_x_offset);
+    let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+
+    RenderResult {
+        cursor_x: cx,
+        cursor_y: cy,
+        cursor_style: style,
+    }
+}
+
+/// Surface-based section-aware rendering pipeline (TUI).
+///
+/// Mirrors `render_pipeline_sectioned` but uses SurfaceRegistry.
+#[allow(clippy::too_many_arguments)]
+pub fn render_pipeline_surfaces_sectioned(
+    state: &AppState,
+    plugin_registry: &PluginRegistry,
+    surface_registry: &SurfaceRegistry,
+    grid: &mut CellGrid,
+    dirty: DirtyFlags,
+    view_cache: &mut ViewCache,
+    layout_cache: &mut LayoutCache,
+    paint_hooks: &[Box<dyn PaintHook>],
+) -> RenderResult {
+    crate::perf::perf_span!("render_pipeline_surfaces_sectioned");
+
+    layout_cache.invalidate(dirty, state.cols, state.rows);
+
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+
+    // Only STATUS dirty: repaint just the status bar row
+    if dirty == DirtyFlags::STATUS {
+        let status_y = layout_cache.status_row.unwrap_or_else(|| {
+            if state.status_at_top {
+                0
+            } else {
+                state.rows.saturating_sub(1)
+            }
+        });
+
+        view_cache.invalidate(dirty);
+        let sections = view::surface_view_sections_cached(
+            state,
+            plugin_registry,
+            surface_registry,
+            view_cache,
+        );
+        let element = sections.into_element();
+        let layout_result = flex::place(&element, root_area, state);
+
+        layout_cache.status_row = Some(status_y);
+        layout_cache.root_area = Some(root_area);
+        layout_cache.base_layout = Some(layout_result.clone());
+
+        let status_rect = Rect {
+            x: 0,
+            y: status_y,
+            w: state.cols,
+            h: 1,
+        };
+        grid.clear_region(&status_rect, &state.status_default_face);
+        paint::paint(&element, &layout_result, grid, state);
+
+        let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
+        let style = cursor_style(state, plugin_registry);
+        clear_block_cursor_face(state, grid, style, buffer_x_offset);
+        let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+        return RenderResult {
+            cursor_x: cx,
+            cursor_y: cy,
+            cursor_style: style,
+        };
+    }
+
+    // Only MENU_SELECTION dirty: repaint just the menu overlay area
+    if dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some() {
+        view_cache.invalidate(dirty);
+        let sections = view::surface_view_sections_cached(
+            state,
+            plugin_registry,
+            surface_registry,
+            view_cache,
+        );
+        let menu_rect = sections
+            .menu_overlay
+            .as_ref()
+            .map(|overlay| crate::layout::layout_single_overlay(overlay, root_area, state).area);
+
+        if let Some(menu_rect) = menu_rect {
+            let element = sections.into_element();
+            let layout_result = flex::place(&element, root_area, state);
+
+            grid.clear_region(&menu_rect, &state.default_face);
+            paint::paint(&element, &layout_result, grid, state);
+
+            layout_cache.root_area = Some(root_area);
+            layout_cache.base_layout = Some(layout_result.clone());
+
+            let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
+            let style = cursor_style(state, plugin_registry);
+            clear_block_cursor_face(state, grid, style, buffer_x_offset);
+            let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+            return RenderResult {
+                cursor_x: cx,
+                cursor_y: cy,
+                cursor_style: style,
+            };
+        }
+    }
+
+    // Fallback: full pipeline
+    let result = render_pipeline_surfaces_cached(
+        state,
+        plugin_registry,
+        surface_registry,
+        grid,
+        dirty,
+        view_cache,
+        paint_hooks,
+    );
+
+    let element =
+        view::surface_view_sections_cached(state, plugin_registry, surface_registry, view_cache)
+            .into_element();
+    let layout_result = flex::place(&element, root_area, state);
+    let status_y = if state.status_at_top {
+        0
+    } else {
+        state.rows.saturating_sub(1)
+    };
+    layout_cache.status_row = Some(status_y);
+    layout_cache.root_area = Some(root_area);
+    layout_cache.base_layout = Some(layout_result);
+
+    result
+}
+
+/// Surface-based patched rendering pipeline (TUI).
+///
+/// Mirrors `render_pipeline_patched` but uses SurfaceRegistry.
+/// Tries compiled paint patches first, then section-level, then full pipeline.
+#[allow(clippy::too_many_arguments)]
+pub fn render_pipeline_surfaces_patched(
+    state: &AppState,
+    plugin_registry: &PluginRegistry,
+    surface_registry: &SurfaceRegistry,
+    grid: &mut CellGrid,
+    dirty: DirtyFlags,
+    view_cache: &mut ViewCache,
+    layout_cache: &mut LayoutCache,
+    patches: &[&dyn patch::PaintPatch],
+    paint_hooks: &[Box<dyn PaintHook>],
+) -> RenderResult {
+    crate::perf::perf_span!("render_pipeline_surfaces_patched");
+
+    // Try each patch
+    let plugins_changed = plugin_registry.any_plugin_state_changed();
+    if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache, plugins_changed) {
+        let buffer_x_offset = if let Some(ref base_layout) = layout_cache.base_layout {
+            let element = view::surface_view_sections_cached(
+                state,
+                plugin_registry,
+                surface_registry,
+                view_cache,
+            )
+            .into_element();
+            find_buffer_x_offset(&element, base_layout)
+        } else {
+            0
+        };
+        let style = cursor_style(state, plugin_registry);
+        clear_block_cursor_face(state, grid, style, buffer_x_offset);
+        let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+
+        let result = RenderResult {
+            cursor_x: cx,
+            cursor_y: cy,
+            cursor_style: style,
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            let mut ref_grid = CellGrid::new(grid.width(), grid.height());
+            let mut ref_cache = ViewCache::new();
+            render_pipeline_surfaces_cached(
+                state,
+                plugin_registry,
+                surface_registry,
+                &mut ref_grid,
+                DirtyFlags::ALL,
+                &mut ref_cache,
+                &[],
+            );
+            debug_assert_grid_equivalent(grid, &ref_grid, state);
+        }
+
+        view_cache.invalidate(dirty);
+        return result;
+    }
+
+    // Fall through to section-level
+    render_pipeline_surfaces_sectioned(
+        state,
+        plugin_registry,
+        surface_registry,
+        grid,
+        dirty,
+        view_cache,
+        layout_cache,
+        paint_hooks,
+    )
+}
+
+/// Surface-based rendering pipeline (GPU).
+///
+/// Uses `SurfaceRegistry` via cached view sections for the GPU backend.
+pub fn scene_render_pipeline_surfaces_cached<'a>(
+    state: &AppState,
+    plugin_registry: &PluginRegistry,
+    surface_registry: &SurfaceRegistry,
+    cell_size: scene::CellSize,
+    dirty: DirtyFlags,
+    view_cache: &mut ViewCache,
+    scene_cache: &'a mut SceneCache,
+) -> (&'a [DrawCommand], RenderResult) {
+    crate::perf::perf_span!("scene_render_pipeline_surfaces_cached");
+
+    view_cache.invalidate(dirty);
+    scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
+
+    let sections =
+        view::surface_view_sections_cached(state, plugin_registry, surface_registry, view_cache);
+
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+
+    let base_layout = flex::place(&sections.base, root_area, state);
+    let buffer_x_offset = find_buffer_x_offset(&sections.base, &base_layout);
+    let result = compute_render_result(state, plugin_registry, buffer_x_offset);
+
+    if scene_cache.is_fully_cached() {
+        scene_cache.compose();
+        return (scene_cache.composed_ref(), result);
+    }
+
+    let theme = Theme::default_theme();
+
+    if scene_cache.base_commands.is_none() {
+        let cmds = scene::scene_paint_section(
+            &sections.base,
+            &base_layout,
+            state,
+            &theme,
+            cell_size,
+            result.cursor_style,
+        );
+        scene_cache.base_commands = Some(cmds);
+    }
+
+    if scene_cache.menu_commands.is_none() {
+        let cmds = if let Some(ref overlay) = sections.menu_overlay {
+            let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
+            scene::scene_paint_section(
+                &overlay.element,
+                &overlay_layout,
+                state,
+                &theme,
+                cell_size,
+                result.cursor_style,
+            )
+        } else {
+            Vec::new()
+        };
+        scene_cache.menu_commands = Some(cmds);
+    }
+
+    if scene_cache.info_commands.is_none() {
+        let mut cmds = Vec::new();
+        for overlay in sections
+            .info_overlays
+            .iter()
+            .chain(sections.plugin_overlays.iter())
+        {
+            cmds.push(DrawCommand::BeginOverlay);
+            let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
+            let overlay_cmds = scene::scene_paint_section(
+                &overlay.element,
+                &overlay_layout,
+                state,
+                &theme,
+                cell_size,
+                result.cursor_style,
+            );
+            cmds.extend(overlay_cmds);
+        }
+        scene_cache.info_commands = Some(cmds);
+    }
+
+    scene_cache.compose();
+    (scene_cache.composed_ref(), result)
 }

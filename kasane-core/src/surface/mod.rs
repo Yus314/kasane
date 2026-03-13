@@ -281,6 +281,135 @@ impl SurfaceRegistry {
         self.compose_node(self.workspace.root(), state, plugin_registry, &rects, total)
     }
 
+    /// Compose the full UI: workspace content + status bar + overlays.
+    ///
+    /// This is the Surface-based equivalent of `view_cached()`. It:
+    /// 1. Renders the workspace tree content (buffer panes) via Surface::view()
+    /// 2. Adds the StatusBarSurface output (top or bottom based on `status_at_top`)
+    /// 3. Uses the existing view layer for overlay positioning (menu, info, plugin)
+    ///
+    /// Overlay surfaces (menu, info) are managed via `sync_ephemeral_surfaces()`
+    /// for lifecycle, but their view output uses the existing positioning functions
+    /// from `render::view` which correctly compute anchor positions.
+    pub fn compose_full_view(
+        &self,
+        state: &AppState,
+        plugin_registry: &PluginRegistry,
+        total: Rect,
+    ) -> Element {
+        use crate::element::FlexChild;
+        use crate::render::view;
+
+        let dummy_ctx = |surface_id: SurfaceId| ViewContext {
+            state,
+            rect: total,
+            focused: self.workspace.focused() == surface_id,
+            registry: plugin_registry,
+            surface_id,
+        };
+
+        // 1. Build workspace content (buffer panes)
+        let workspace_content = self.compose_view(state, plugin_registry, total);
+
+        // 2. Build status bar (if StatusBarSurface is registered)
+        let status_bar = self
+            .surfaces
+            .get(&SurfaceId::STATUS)
+            .map(|s| s.view(&dummy_ctx(SurfaceId::STATUS)));
+
+        // 3. Compose base: Column [status(top?), workspace(flex), status(bottom?)]
+        let base = match status_bar {
+            Some(status) => {
+                let mut children = Vec::new();
+                if state.status_at_top {
+                    children.push(FlexChild::fixed(status));
+                    children.push(FlexChild::flexible(workspace_content, 1.0));
+                } else {
+                    children.push(FlexChild::flexible(workspace_content, 1.0));
+                    children.push(FlexChild::fixed(status));
+                }
+                Element::column(children)
+            }
+            None => workspace_content,
+        };
+
+        // 4. Collect overlays using the view layer's positioning functions.
+        // These correctly compute anchor positions for menus and info popups.
+        let mut overlays = Vec::new();
+        if let Some(overlay) = view::build_menu_section_standalone(state, plugin_registry) {
+            overlays.push(overlay);
+        }
+        overlays.extend(view::build_info_section_standalone(state, plugin_registry));
+        overlays.extend(plugin_registry.collect_overlays(state));
+
+        // 5. Assemble into final tree
+        if overlays.is_empty() {
+            base
+        } else {
+            Element::stack(base, overlays)
+        }
+    }
+
+    /// Compose view decomposed into sections for per-section caching.
+    ///
+    /// Returns the same structure as `view::ViewSections`:
+    /// - `base`: workspace content + status bar
+    /// - `menu_overlay`, `info_overlays`, `plugin_overlays`: overlay sections
+    pub(crate) fn compose_view_sections(
+        &self,
+        state: &AppState,
+        plugin_registry: &PluginRegistry,
+        total: Rect,
+    ) -> crate::render::view::ViewSections {
+        use crate::element::FlexChild;
+        use crate::render::view;
+
+        let dummy_ctx = |surface_id: SurfaceId| ViewContext {
+            state,
+            rect: total,
+            focused: self.workspace.focused() == surface_id,
+            registry: plugin_registry,
+            surface_id,
+        };
+
+        // 1. Build workspace content (buffer panes)
+        let workspace_content = self.compose_view(state, plugin_registry, total);
+
+        // 2. Build status bar (if StatusBarSurface is registered)
+        let status_bar = self
+            .surfaces
+            .get(&SurfaceId::STATUS)
+            .map(|s| s.view(&dummy_ctx(SurfaceId::STATUS)));
+
+        // 3. Compose base: Column [status(top?), workspace(flex), status(bottom?)]
+        let base = match status_bar {
+            Some(status) => {
+                let mut children = Vec::new();
+                if state.status_at_top {
+                    children.push(FlexChild::fixed(status));
+                    children.push(FlexChild::flexible(workspace_content, 1.0));
+                } else {
+                    children.push(FlexChild::flexible(workspace_content, 1.0));
+                    children.push(FlexChild::fixed(status));
+                }
+                Element::column(children)
+            }
+            None => workspace_content,
+        };
+
+        // 4. Decomposed overlay sections
+        let menu_overlay = view::build_menu_section_standalone(state, plugin_registry);
+        let info_overlays = view::build_info_section_standalone(state, plugin_registry);
+        let plugin_overlays = plugin_registry.collect_overlays(state);
+
+        view::ViewSections {
+            base,
+            menu_overlay,
+            info_overlays,
+            plugin_overlays,
+        }
+    }
+
     fn compose_node(
         &self,
         node: &crate::workspace::WorkspaceNode,

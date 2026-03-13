@@ -119,21 +119,35 @@ impl GridColumn {
 }
 
 /// Semantic style tokens for theme-driven rendering.
+///
+/// An open type: plugins can define custom tokens by constructing
+/// `StyleToken` with arbitrary names (e.g., `StyleToken::new("myplugin.highlight")`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StyleToken {
-    BufferText,
-    BufferPadding,
-    StatusLine,
-    StatusMode,
-    MenuItemNormal,
-    MenuItemSelected,
-    MenuScrollbar,
-    MenuScrollbarThumb,
-    InfoText,
-    InfoBorder,
-    Border,
-    Shadow,
-    Custom(CompactString),
+pub struct StyleToken(pub CompactString);
+
+impl StyleToken {
+    pub const BUFFER_TEXT: Self = Self(CompactString::const_new("buffer.text"));
+    pub const BUFFER_PADDING: Self = Self(CompactString::const_new("buffer.padding"));
+    pub const STATUS_LINE: Self = Self(CompactString::const_new("status.line"));
+    pub const STATUS_MODE: Self = Self(CompactString::const_new("status.mode"));
+    pub const MENU_ITEM_NORMAL: Self = Self(CompactString::const_new("menu.item.normal"));
+    pub const MENU_ITEM_SELECTED: Self = Self(CompactString::const_new("menu.item.selected"));
+    pub const MENU_SCROLLBAR: Self = Self(CompactString::const_new("menu.scrollbar"));
+    pub const MENU_SCROLLBAR_THUMB: Self = Self(CompactString::const_new("menu.scrollbar.thumb"));
+    pub const INFO_TEXT: Self = Self(CompactString::const_new("info.text"));
+    pub const INFO_BORDER: Self = Self(CompactString::const_new("info.border"));
+    pub const BORDER: Self = Self(CompactString::const_new("border"));
+    pub const SHADOW: Self = Self(CompactString::const_new("shadow"));
+
+    /// Create a custom style token with an arbitrary name.
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self(name.into())
+    }
+
+    /// Get the token name.
+    pub fn name(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Style can be either a direct Face or a semantic StyleToken resolved via Theme.
@@ -533,7 +547,7 @@ mod tests {
 
     #[test]
     fn test_style_token() {
-        let style = Style::Token(StyleToken::MenuItemNormal);
+        let style = Style::Token(StyleToken::MENU_ITEM_NORMAL);
         assert_eq!(style.face(), None);
     }
 

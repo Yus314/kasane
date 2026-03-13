@@ -1,14 +1,11 @@
 //! KakouneBufferSurface: built-in Surface for the Kakoune buffer area.
 //!
-//! Delegates to [`crate::render::view::view_cached`] to produce the full
-//! Element tree (buffer + status bar + overlays). This guarantees pixel-identical
-//! output with the non-Surface rendering path.
-
-use std::cell::RefCell;
+//! Builds the buffer content (BufferRef + gutters + above/below slots) without
+//! the status bar or overlays. Those are handled by separate surfaces
+//! (StatusBarSurface, MenuSurface, InfoSurface).
 
 use crate::element::Element;
 use crate::plugin::Command;
-use crate::render::ViewCache;
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
@@ -16,10 +13,11 @@ use super::{
     ViewContext,
 };
 
-/// Built-in surface that renders the full Kakoune UI (buffer + status bar).
+/// Built-in surface that renders the Kakoune buffer content.
 ///
-/// Internally delegates to `view_cached()` so that the existing rendering
-/// optimizations (ViewCache, section memoization) are preserved.
+/// Delegates to `build_buffer_content()` which collects plugin slots
+/// (buffer_left, buffer_right, above_buffer, below_buffer), builds gutters,
+/// and assembles the buffer element tree.
 ///
 /// Declares the following extension slots:
 /// - `kasane.buffer.left` — left gutter area
@@ -29,7 +27,6 @@ use super::{
 /// - `kasane.buffer.overlay` — overlay on top of the buffer
 pub struct KakouneBufferSurface {
     slots: Vec<SlotDeclaration>,
-    view_cache: RefCell<ViewCache>,
 }
 
 impl KakouneBufferSurface {
@@ -42,13 +39,7 @@ impl KakouneBufferSurface {
                 SlotDeclaration::new("kasane.buffer.below", SlotPosition::After),
                 SlotDeclaration::new("kasane.buffer.overlay", SlotPosition::Overlay),
             ],
-            view_cache: RefCell::new(ViewCache::new()),
         }
-    }
-
-    /// Invalidate internal caches based on dirty flags.
-    pub fn invalidate(&self, dirty: DirtyFlags) {
-        self.view_cache.borrow_mut().invalidate(dirty);
     }
 }
 
@@ -68,7 +59,7 @@ impl Surface for KakouneBufferSurface {
     }
 
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
-        crate::render::view::view_cached(ctx.state, ctx.registry, &mut self.view_cache.borrow_mut())
+        crate::render::view::build_buffer_content(ctx.state, ctx.registry)
     }
 
     fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
@@ -76,7 +67,6 @@ impl Surface for KakouneBufferSurface {
     }
 
     fn on_state_changed(&mut self, _state: &AppState, _dirty: DirtyFlags) -> Vec<Command> {
-        self.invalidate(_dirty);
         vec![]
     }
 

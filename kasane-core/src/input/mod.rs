@@ -1,3 +1,6 @@
+pub mod builtin;
+pub use builtin::BuiltinInputPlugin;
+
 use bitflags::bitflags;
 
 // ---------------------------------------------------------------------------

@@ -15,10 +15,10 @@ use kasane_core::plugin::{
     extract_deferred_commands,
 };
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::view::view_cached;
+use kasane_core::render::view::surface_view_sections_cached;
 use kasane_core::render::{
     CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache,
-    scene_render_pipeline_scene_cached,
+    scene_render_pipeline_surfaces_cached,
 };
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 use kasane_core::surface::SurfaceRegistry;
@@ -146,6 +146,14 @@ impl<W: Write + Send + 'static> App<W> {
 
         let mut surface_registry = SurfaceRegistry::new();
         surface_registry.register(Box::new(KakouneBufferSurface::new()));
+        surface_registry.register(Box::new(
+            kasane_core::surface::status::StatusBarSurface::new(),
+        ));
+
+        // Collect plugin-owned surfaces
+        for surface in registry.collect_plugin_surfaces() {
+            surface_registry.register(surface);
+        }
 
         App {
             window: None,
@@ -364,6 +372,10 @@ impl<W: Write + Send + 'static> App<W> {
                 DeferredCommand::Workspace(ws_cmd) => {
                     dispatch_workspace_command(&mut self.surface_registry, ws_cmd, &mut self.dirty);
                 }
+                DeferredCommand::RegisterThemeTokens(_tokens) => {
+                    // Theme token registration will be handled when Theme is
+                    // accessible from the event loop (Phase 1 completion).
+                }
             }
         }
         false
@@ -420,9 +432,10 @@ impl<W: Write + Send + 'static> App<W> {
         if !self.dirty.is_empty() {
             self.surface_registry.sync_ephemeral_surfaces(&self.state);
             self.registry.prepare_plugin_cache(self.dirty);
-            let (commands, result) = scene_render_pipeline_scene_cached(
+            let (commands, result) = scene_render_pipeline_surfaces_cached(
                 &self.state,
                 &self.registry,
+                &self.surface_registry,
                 cell_size,
                 self.dirty,
                 &mut self.view_cache,
@@ -448,7 +461,13 @@ impl<W: Write + Send + 'static> App<W> {
             }
 
             // Rebuild HitMap from cached view tree for plugin mouse routing
-            let element = view_cached(&self.state, &self.registry, &mut self.view_cache);
+            let element = surface_view_sections_cached(
+                &self.state,
+                &self.registry,
+                &self.surface_registry,
+                &mut self.view_cache,
+            )
+            .into_element();
             let root_area = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,

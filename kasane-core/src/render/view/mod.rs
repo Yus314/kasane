@@ -6,7 +6,7 @@ mod tests;
 
 use crate::element::{Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
-use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, Slot};
+use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, SlotId};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::render::cache::{ViewCache, cache_dirty_snapshot};
 use crate::state::AppState;
@@ -29,7 +29,7 @@ pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
 }
 
 /// Decomposed view sections for per-section caching.
-pub(crate) struct ViewSections {
+pub struct ViewSections {
     pub base: Element,
     pub menu_overlay: Option<Overlay>,
     pub info_overlays: Vec<Overlay>,
@@ -98,6 +98,62 @@ pub(crate) fn view_sections_cached(
     }
 }
 
+/// Build the view sections using SurfaceRegistry as the element source.
+///
+/// Uses the same ViewCache infrastructure as `view_sections_cached`, but the
+/// base element comes from `SurfaceRegistry::compose_view_sections()` instead
+/// of `build_base()`. This enables workspace-aware layouts while preserving
+/// all caching optimizations.
+pub fn surface_view_sections_cached(
+    state: &AppState,
+    registry: &PluginRegistry,
+    surface_registry: &crate::surface::SurfaceRegistry,
+    cache: &mut ViewCache,
+) -> ViewSections {
+    crate::perf::perf_span!("surface_view_sections");
+
+    let root_area = crate::layout::Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+
+    // Section 1: Base from SurfaceRegistry (workspace + status)
+    let base = cache.base.get_or_insert(
+        cache_dirty_snapshot(&cache.base, BUILD_BASE_DEPS),
+        BUILD_BASE_DEPS,
+        || {
+            let sections = surface_registry.compose_view_sections(state, registry, root_area);
+            sections.base
+        },
+    );
+
+    // Section 2: Menu overlay (same as legacy)
+    let menu_overlay = cache.menu_overlay.get_or_insert(
+        cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
+        BUILD_MENU_SECTION_DEPS,
+        || build_menu_section(state, registry),
+    );
+
+    // Section 3: Info overlays (same as legacy)
+    let info_overlays = cache.info_overlays.get_or_insert(
+        cache_dirty_snapshot(&cache.info_overlays, BUILD_INFO_SECTION_DEPS),
+        BUILD_INFO_SECTION_DEPS,
+        || build_info_section(state, registry),
+    );
+
+    // Section 4: Plugin overlays
+    let plugin_overlays = registry.collect_overlays(state);
+
+    ViewSections {
+        base,
+        menu_overlay,
+        info_overlays,
+        plugin_overlays,
+    }
+}
+
 /// Build the full Element tree with subtree memoization via ViewCache.
 pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut ViewCache) -> Element {
     crate::perf::perf_span!("view");
@@ -109,14 +165,14 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
 fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_rows = state.available_height() as usize;
 
-    // Collect plugin slots
-    let above_buffer = registry.collect_slot(Slot::AboveBuffer, state);
-    let below_buffer = registry.collect_slot(Slot::BelowBuffer, state);
-    let buffer_left = registry.collect_slot(Slot::BufferLeft, state);
-    let buffer_right = registry.collect_slot(Slot::BufferRight, state);
-    let above_status = registry.collect_slot(Slot::AboveStatus, state);
-    let status_left = registry.collect_slot(Slot::StatusLeft, state);
-    let status_right = registry.collect_slot(Slot::StatusRight, state);
+    // Collect plugin slots via open SlotId system
+    let above_buffer = registry.collect_slot_by_id(&SlotId::ABOVE_BUFFER, state);
+    let below_buffer = registry.collect_slot_by_id(&SlotId::BELOW_BUFFER, state);
+    let buffer_left = registry.collect_slot_by_id(&SlotId::BUFFER_LEFT, state);
+    let buffer_right = registry.collect_slot_by_id(&SlotId::BUFFER_RIGHT, state);
+    let above_status = registry.collect_slot_by_id(&SlotId::ABOVE_STATUS, state);
+    let status_left = registry.collect_slot_by_id(&SlotId::STATUS_LEFT, state);
+    let status_right = registry.collect_slot_by_id(&SlotId::STATUS_RIGHT, state);
 
     // Build buffer row (center area + optional sidebars)
     // Add plugin line-decoration gutters
@@ -289,8 +345,109 @@ fn build_status_bar(
     )
 }
 
+/// Build a complete status bar element, collecting slots and applying replacement/decorator.
+///
+/// Used by StatusBarSurface to produce the status bar element tree.
+pub(crate) fn build_status_bar_surface(state: &AppState, registry: &PluginRegistry) -> Element {
+    let above_status = registry.collect_slot_by_id(&SlotId::ABOVE_STATUS, state);
+    let status_left = registry.collect_slot_by_id(&SlotId::STATUS_LEFT, state);
+    let status_right = registry.collect_slot_by_id(&SlotId::STATUS_RIGHT, state);
+
+    let status_bar = registry
+        .get_replacement(ReplaceTarget::StatusBar, state)
+        .unwrap_or_else(|| build_status_bar(state, status_left, status_right));
+    let status_bar = registry.apply_decorator(DecorateTarget::StatusBar, status_bar, state);
+
+    if above_status.is_empty() {
+        status_bar
+    } else {
+        let mut children = Vec::new();
+        for el in above_status {
+            children.push(FlexChild::fixed(el));
+        }
+        children.push(FlexChild::fixed(status_bar));
+        Element::column(children)
+    }
+}
+
+/// Build the buffer content element (without status bar or overlays).
+///
+/// Used by KakouneBufferSurface to produce the buffer element tree.
+pub(crate) fn build_buffer_content(state: &AppState, registry: &PluginRegistry) -> Element {
+    let buffer_rows = state.available_height() as usize;
+
+    let above_buffer = registry.collect_slot_by_id(&SlotId::ABOVE_BUFFER, state);
+    let below_buffer = registry.collect_slot_by_id(&SlotId::BELOW_BUFFER, state);
+    let buffer_left = registry.collect_slot_by_id(&SlotId::BUFFER_LEFT, state);
+    let buffer_right = registry.collect_slot_by_id(&SlotId::BUFFER_RIGHT, state);
+
+    // Add plugin line-decoration gutters
+    let mut buffer_left = buffer_left;
+    let mut buffer_right = buffer_right;
+    if let Some(gutter) = registry.build_left_gutter(state) {
+        buffer_left.insert(0, gutter);
+    }
+    if let Some(gutter) = registry.build_right_gutter(state) {
+        buffer_right.push(gutter);
+    }
+
+    // Collect line backgrounds and build BufferRef
+    let line_backgrounds = registry.collect_line_backgrounds(state);
+    let buffer_element = if line_backgrounds.is_some() {
+        Element::BufferRef {
+            line_range: 0..buffer_rows,
+            line_backgrounds,
+        }
+    } else {
+        Element::buffer_ref(0..buffer_rows)
+    };
+    let buffer_row = if buffer_left.is_empty() && buffer_right.is_empty() {
+        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
+        FlexChild::flexible(decorated, 1.0)
+    } else {
+        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
+        let mut row_children = Vec::new();
+        for el in buffer_left {
+            row_children.push(FlexChild::fixed(el));
+        }
+        row_children.push(FlexChild::flexible(decorated, 1.0));
+        for el in buffer_right {
+            row_children.push(FlexChild::fixed(el));
+        }
+        FlexChild::flexible(Element::row(row_children), 1.0)
+    };
+
+    // Build column (above + buffer + below)
+    let mut column_children = Vec::new();
+    for el in above_buffer {
+        column_children.push(FlexChild::fixed(el));
+    }
+    column_children.push(buffer_row);
+    for el in below_buffer {
+        column_children.push(FlexChild::fixed(el));
+    }
+
+    Element::column(column_children)
+}
+
+/// Build the menu overlay section (non-cached, for Surface pipeline).
+pub(crate) fn build_menu_section_standalone(
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> Option<Overlay> {
+    build_menu_section(state, registry)
+}
+
+/// Build the info overlay section (non-cached, for Surface pipeline).
+pub(crate) fn build_info_section_standalone(
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> Vec<Overlay> {
+    build_info_section(state, registry)
+}
+
 /// Build a StyledLine element from a protocol Line, resolving faces against a base.
-pub(super) fn build_styled_line_with_base(
+pub(crate) fn build_styled_line_with_base(
     line: &Line,
     base_face: &Face,
     _max_width: u16,

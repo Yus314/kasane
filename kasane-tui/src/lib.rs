@@ -14,10 +14,10 @@ use kasane_core::plugin::{
     extract_deferred_commands,
 };
 use kasane_core::protocol::KakouneRequest;
-use kasane_core::render::view::view_cached;
+use kasane_core::render::view::surface_view_sections_cached;
 use kasane_core::render::{
     CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
-    ViewCache, render_pipeline_patched,
+    ViewCache, render_pipeline_surfaces_patched,
 };
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 use kasane_core::surface::SurfaceRegistry;
@@ -89,6 +89,10 @@ fn handle_deferred(
             }
             DeferredCommand::Workspace(ws_cmd) => {
                 dispatch_workspace_command(surface_registry, ws_cmd, dirty);
+            }
+            DeferredCommand::RegisterThemeTokens(_tokens) => {
+                // Theme token registration will be handled when Theme is
+                // accessible from the event loop (Phase 1 completion).
             }
         }
     }
@@ -322,6 +326,17 @@ where
     // Surface registry
     let mut surface_registry = SurfaceRegistry::new();
     surface_registry.register(Box::new(KakouneBufferSurface::new()));
+    surface_registry.register(Box::new(
+        kasane_core::surface::status::StatusBarSurface::new(),
+    ));
+
+    // Collect plugin-owned surfaces
+    for surface in registry.collect_plugin_surfaces() {
+        surface_registry.register(surface);
+    }
+
+    // Collect paint hooks from plugins
+    let paint_hooks = registry.collect_paint_hooks();
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
@@ -454,14 +469,16 @@ where
             backend.begin_frame()?;
             let patches: &[&dyn kasane_core::render::PaintPatch] =
                 &[&status_patch, &menu_patch, &cursor_patch];
-            let result = render_pipeline_patched(
+            let result = render_pipeline_surfaces_patched(
                 &state,
                 &registry,
+                &surface_registry,
                 &mut grid,
                 dirty,
                 &mut view_cache,
                 &mut layout_cache,
                 patches,
+                &paint_hooks,
             );
             let diffs = grid.diff();
             backend.draw(&diffs)?;
@@ -477,7 +494,9 @@ where
             menu_patch.prev_selected = state.menu.as_ref().and_then(|m| m.selected);
 
             // Rebuild HitMap from cached view tree for plugin mouse routing
-            let element = view_cached(&state, &registry, &mut view_cache);
+            let element =
+                surface_view_sections_cached(&state, &registry, &surface_registry, &mut view_cache)
+                    .into_element();
             let root_area = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 mod fixtures;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};

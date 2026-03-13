@@ -3,8 +3,10 @@ use std::cell::{Cell, RefCell};
 
 use kasane_core::element::{Element, InteractiveId, Overlay};
 use kasane_core::input::{KeyEvent, MouseEvent};
+#[allow(deprecated)]
+use kasane_core::plugin::Slot;
 use kasane_core::plugin::{
-    Command, DecorateTarget, LineDecoration, Plugin, PluginId, ReplaceTarget, Slot,
+    Command, DecorateTarget, LineDecoration, Plugin, PluginId, ReplaceTarget, SlotId,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::state::{AppState, DirtyFlags};
@@ -36,6 +38,7 @@ impl WasmPlugin {
     }
 }
 
+#[allow(deprecated)]
 impl Plugin for WasmPlugin {
     fn id(&self) -> PluginId {
         self.plugin_id.clone()
@@ -359,6 +362,16 @@ impl Plugin for WasmPlugin {
                 );
                 None
             }
+        }
+    }
+
+    // --- SlotId-based contributions ---
+
+    fn contribute_slot(&self, slot_id: &SlotId, state: &AppState) -> Option<Element> {
+        if let Some(legacy) = slot_id.to_legacy() {
+            self.contribute(legacy, state)
+        } else {
+            self.contribute_named_slot(slot_id.as_str(), state)
         }
     }
 
