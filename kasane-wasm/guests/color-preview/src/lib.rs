@@ -479,6 +479,8 @@ impl Guest for ColorPreviewPlugin {
     kasane_plugin_sdk::default_decorate!();
     kasane_plugin_sdk::default_decorator_priority!();
     kasane_plugin_sdk::default_update!();
+    kasane_plugin_sdk::default_cursor_style!();
+    kasane_plugin_sdk::default_named_slot!();
 }
 
 export!(ColorPreviewPlugin);

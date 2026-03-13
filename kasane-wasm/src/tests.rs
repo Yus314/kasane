@@ -264,8 +264,8 @@ fn discover_skips_disabled_plugins() {
     let mut registry = PluginRegistry::new();
     crate::discover_and_register(&config, &mut registry);
 
-    // cursor-line skipped, line-numbers + color-preview loaded
-    assert_eq!(registry.plugin_count(), 2);
+    // cursor-line skipped, line-numbers + color-preview + sel-badge loaded
+    assert_eq!(registry.plugin_count(), 3);
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn color_preview_handle_mouse_consumes_release() {
 // --- bundled plugin tests ---
 
 #[test]
-fn register_bundled_plugins_loads_two() {
+fn register_bundled_plugins_loads_three() {
     let config = PluginsConfig {
         auto_discover: false,
         path: None,
@@ -462,7 +462,7 @@ fn register_bundled_plugins_loads_two() {
     let mut registry = PluginRegistry::new();
     crate::register_bundled_plugins(&config, &mut registry);
 
-    assert_eq!(registry.plugin_count(), 2);
+    assert_eq!(registry.plugin_count(), 3);
 }
 
 #[test]
@@ -475,7 +475,7 @@ fn register_bundled_plugins_respects_disabled() {
     let mut registry = PluginRegistry::new();
     crate::register_bundled_plugins(&config, &mut registry);
 
-    assert_eq!(registry.plugin_count(), 1);
+    assert_eq!(registry.plugin_count(), 2);
 }
 
 #[test]
@@ -487,7 +487,7 @@ fn filesystem_plugin_overrides_bundled() {
     };
     let mut registry = PluginRegistry::new();
     crate::register_bundled_plugins(&config, &mut registry);
-    assert_eq!(registry.plugin_count(), 2);
+    assert_eq!(registry.plugin_count(), 3);
 
     // Register another plugin with the same ID
     let loader = WasmPluginLoader::new().unwrap();
@@ -496,8 +496,8 @@ fn filesystem_plugin_overrides_bundled() {
     assert_eq!(plugin.id().0, "cursor_line");
     registry.register(Box::new(plugin));
 
-    // Should still be 2, not 3 (replaced, not added)
-    assert_eq!(registry.plugin_count(), 2);
+    // Should still be 3, not 4 (replaced, not added)
+    assert_eq!(registry.plugin_count(), 3);
 }
 
 #[test]
