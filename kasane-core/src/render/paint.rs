@@ -223,7 +223,7 @@ fn paint_container(ctx: &mut PaintContext, args: &ContainerPaintArgs) {
             area,
             &border_face,
             false,
-            border_config.line_style,
+            border_config.line_style.clone(),
         );
         // Title on top border
         if let Some(title_atoms) = args.title {
@@ -248,13 +248,34 @@ pub(crate) fn paint_border(
         return;
     }
 
+    // Custom border chars storage (must outlive the match)
+    let custom_strs: [String; 6];
     // (top-left, top-right, bottom-left, bottom-right, horizontal, vertical)
-    let (tl, tr, bl, br, horiz, vert) = match border_style {
+    let (tl, tr, bl, br, horiz, vert): (&str, &str, &str, &str, &str, &str) = match border_style {
         BorderLineStyle::Single => ("┌", "┐", "└", "┘", "─", "│"),
         BorderLineStyle::Rounded => ("╭", "╮", "╰", "╯", "─", "│"),
         BorderLineStyle::Double => ("╔", "╗", "╚", "╝", "═", "║"),
         BorderLineStyle::Heavy => ("┏", "┓", "┗", "┛", "━", "┃"),
         BorderLineStyle::Ascii => ("+", "+", "+", "+", "-", "|"),
+        BorderLineStyle::Custom(ref chars) => {
+            // chars: [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow]
+            custom_strs = [
+                chars[0].to_string(), // TL
+                chars[2].to_string(), // TR
+                chars[6].to_string(), // BL
+                chars[4].to_string(), // BR
+                chars[1].to_string(), // T (horizontal)
+                chars[7].to_string(), // L (vertical)
+            ];
+            (
+                custom_strs[0].as_str(),
+                custom_strs[1].as_str(),
+                custom_strs[2].as_str(),
+                custom_strs[3].as_str(),
+                custom_strs[4].as_str(),
+                custom_strs[5].as_str(),
+            )
+        }
     };
 
     let x1 = area.x;
@@ -266,6 +287,7 @@ pub(crate) fn paint_border(
             BorderLineStyle::Double => "┄",
             BorderLineStyle::Heavy => "┅",
             BorderLineStyle::Ascii => ".",
+            BorderLineStyle::Custom(_) => horiz,
             _ => "┄",
         }
     } else {

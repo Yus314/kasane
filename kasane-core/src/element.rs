@@ -169,13 +169,15 @@ impl InteractiveId {
 }
 
 /// Line style for borders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BorderLineStyle {
     Single,
     Rounded,
     Double,
     Heavy,
     Ascii,
+    /// Custom border characters: [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow].
+    Custom(Box<[char; 11]>),
 }
 
 /// Backward-compatible alias used in the Element tree.

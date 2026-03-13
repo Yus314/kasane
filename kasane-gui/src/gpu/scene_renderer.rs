@@ -313,7 +313,7 @@ impl SceneRenderer {
                     } => {
                         let border_color = color_resolver.resolve(face.fg, true);
                         let (corner_radius, border_width) =
-                            border_style_params(*line_style, cell_h);
+                            border_style_params(line_style.clone(), cell_h);
                         let fill = match fill_face {
                             Some(ff) => color_resolver.resolve(ff.bg, false),
                             None => [0.0, 0.0, 0.0, 0.0],
@@ -673,6 +673,7 @@ fn border_style_params(style: BorderLineStyle, cell_height: f32) -> (f32, f32) {
         BorderLineStyle::Double => (0.0, base),
         BorderLineStyle::Heavy => (0.0, base * 2.0),
         BorderLineStyle::Ascii => (0.0, base),
+        BorderLineStyle::Custom(_) => (0.0, base),
     }
 }
 
