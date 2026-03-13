@@ -15,7 +15,7 @@ struct CursorLinePlugin;
 
 impl Guest for CursorLinePlugin {
     fn get_id() -> String {
-        "wasm_cursor_line".to_string()
+        "cursor_line".to_string()
     }
 
     fn on_state_changed(dirty_flags: u16) -> Vec<Command> {

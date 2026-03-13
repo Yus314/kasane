@@ -335,11 +335,19 @@ impl PluginRegistry {
     }
 
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
-        self.plugins.push(plugin);
-        self.slot_cache
-            .get_mut()
-            .entries
-            .push(PluginCacheEntry::default());
+        let id = plugin.id();
+        if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
+            // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
+            self.plugins[pos] = plugin;
+            // Reset the cache entry for the replaced plugin
+            self.slot_cache.get_mut().entries[pos] = PluginCacheEntry::default();
+        } else {
+            self.plugins.push(plugin);
+            self.slot_cache
+                .get_mut()
+                .entries
+                .push(PluginCacheEntry::default());
+        }
     }
 
     /// Invalidate slot cache entries based on dirty flags and state hash changes.
@@ -1313,7 +1321,7 @@ mod tests {
 
     #[test]
     fn test_orthogonal_plugins_both_contribute() {
-        // Plugin A: background only (like CursorLinePlugin)
+        // Plugin A: background only (like cursor_line bundled WASM plugin)
         struct BgOnlyPlugin;
         impl Plugin for BgOnlyPlugin {
             fn id(&self) -> PluginId {
@@ -1334,7 +1342,7 @@ mod tests {
                 }
             }
         }
-        // Plugin B: left gutter only (like ColorPreviewPlugin)
+        // Plugin B: left gutter only (like color_preview bundled WASM plugin)
         struct GutterOnlyPlugin;
         impl Plugin for GutterOnlyPlugin {
             fn id(&self) -> PluginId {

@@ -297,7 +297,7 @@ pub struct PluginsConfig {
     pub auto_discover: bool,
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
     pub path: Option<String>,
-    /// Plugin IDs to disable (by plugin ID, e.g. "wasm_cursor_line").
+    /// Plugin IDs to disable (by plugin ID, e.g. "cursor_line").
     pub disabled: Vec<String>,
 }
 
@@ -467,7 +467,7 @@ maximized = true
 [plugins]
 auto_discover = false
 path = "/custom/plugins"
-disabled = ["wasm_cursor_line", "wasm_line_numbers"]
+disabled = ["cursor_line", "line_numbers"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(!config.plugins.auto_discover);

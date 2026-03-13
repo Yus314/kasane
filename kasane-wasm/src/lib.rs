@@ -64,6 +64,51 @@ impl WasmPluginLoader {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Bundled WASM plugins (embedded via include_bytes!)
+// ---------------------------------------------------------------------------
+
+const BUNDLED_CURSOR_LINE: &[u8] = include_bytes!("../bundled/cursor-line.wasm");
+const BUNDLED_COLOR_PREVIEW: &[u8] = include_bytes!("../bundled/color-preview.wasm");
+
+/// Register bundled WASM plugins that are embedded in the binary.
+///
+/// These provide default functionality (cursor line highlight, color preview)
+/// without requiring the user to install .wasm files. Plugins whose ID appears
+/// in `plugins_config.disabled` are skipped. Later registrations with the same
+/// ID (e.g. from filesystem discovery) will replace bundled versions.
+pub fn register_bundled_plugins(
+    plugins_config: &kasane_core::config::PluginsConfig,
+    registry: &mut kasane_core::plugin::PluginRegistry,
+) {
+    let loader = match WasmPluginLoader::new() {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("failed to create WASM plugin loader for bundled plugins: {e}");
+            return;
+        }
+    };
+
+    for (name, bytes) in [
+        ("cursor_line", BUNDLED_CURSOR_LINE),
+        ("color_preview", BUNDLED_COLOR_PREVIEW),
+    ] {
+        if plugins_config.disabled.contains(&name.to_string()) {
+            tracing::info!("bundled WASM plugin {name} disabled by config");
+            continue;
+        }
+        match loader.load(bytes) {
+            Ok(plugin) => {
+                tracing::info!("loaded bundled WASM plugin {name}");
+                registry.register(Box::new(plugin));
+            }
+            Err(e) => {
+                tracing::error!("failed to load bundled WASM plugin {name}: {e}");
+            }
+        }
+    }
+}
+
 /// Discover and register WASM plugins from the plugins directory.
 ///
 /// Scans `plugins_config.plugins_dir()` for `*.wasm` files, loads each one,

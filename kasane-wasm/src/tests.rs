@@ -23,7 +23,7 @@ fn load_line_numbers_plugin() -> crate::WasmPlugin {
 #[test]
 fn plugin_id() {
     let plugin = load_cursor_line_plugin();
-    assert_eq!(plugin.id().0, "wasm_cursor_line");
+    assert_eq!(plugin.id().0, "cursor_line");
 }
 
 #[test]
@@ -259,13 +259,13 @@ fn discover_skips_disabled_plugins() {
                 .to_string_lossy()
                 .into_owned(),
         ),
-        disabled: vec!["wasm_cursor_line".to_string()],
+        disabled: vec!["cursor_line".to_string()],
     };
     let mut registry = PluginRegistry::new();
     crate::discover_and_register(&config, &mut registry);
 
-    // Only line-numbers should be loaded
-    assert_eq!(registry.plugin_count(), 1);
+    // cursor-line skipped, line-numbers + color-preview loaded
+    assert_eq!(registry.plugin_count(), 2);
 }
 
 #[test]
@@ -297,6 +297,207 @@ fn discover_handles_missing_directory() {
     // Should not panic, just silently skip
     crate::discover_and_register(&config, &mut registry);
     assert_eq!(registry.plugin_count(), 0);
+}
+
+// --- color-preview plugin tests ---
+
+fn load_color_preview_plugin() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("color-preview.wasm").expect("failed to load fixture");
+    loader.load(&bytes).expect("failed to load plugin")
+}
+
+fn make_state_with_lines(lines: &[&str]) -> AppState {
+    use kasane_core::protocol::{Atom, Face};
+    let mut state = AppState::default();
+    state.lines = lines
+        .iter()
+        .map(|s| {
+            vec![Atom {
+                face: Face::default(),
+                contents: (*s).into(),
+            }]
+        })
+        .collect();
+    state.lines_dirty = vec![true; lines.len()];
+    state
+}
+
+#[test]
+fn color_preview_plugin_id() {
+    let plugin = load_color_preview_plugin();
+    assert_eq!(plugin.id().0, "color_preview");
+}
+
+#[test]
+fn color_preview_detects_colors_in_line() {
+    let mut plugin = load_color_preview_plugin();
+    let state = make_state_with_lines(&["#ff0000"]);
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+
+    let dec = plugin.contribute_line(0, &state);
+    assert!(dec.is_some());
+    let dec = dec.unwrap();
+    assert!(dec.left_gutter.is_some());
+    assert!(dec.background.is_none());
+}
+
+#[test]
+fn color_preview_no_decoration_without_colors() {
+    let mut plugin = load_color_preview_plugin();
+    let state = make_state_with_lines(&["no colors here"]);
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+
+    assert!(plugin.contribute_line(0, &state).is_none());
+}
+
+#[test]
+fn color_preview_overlay_on_color_line() {
+    let mut plugin = load_color_preview_plugin();
+    let mut state = make_state_with_lines(&["#3498db"]);
+    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+
+    let overlay = plugin.contribute_overlay(&state);
+    assert!(overlay.is_some());
+}
+
+#[test]
+fn color_preview_no_overlay_on_plain_line() {
+    let mut plugin = load_color_preview_plugin();
+    let mut state = make_state_with_lines(&["no colors here", "#ff0000"]);
+    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+
+    assert!(plugin.contribute_overlay(&state).is_none());
+}
+
+#[test]
+fn color_preview_state_hash_changes() {
+    let mut plugin = load_color_preview_plugin();
+    let h1 = plugin.state_hash();
+
+    let state = make_state_with_lines(&["#aabbcc"]);
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    let h2 = plugin.state_hash();
+
+    assert_ne!(h1, h2);
+}
+
+#[test]
+fn color_preview_skips_non_buffer_dirty() {
+    let mut plugin = load_color_preview_plugin();
+    let h1 = plugin.state_hash();
+
+    let state = make_state_with_lines(&["#aabbcc"]);
+    plugin.on_state_changed(&state, DirtyFlags::STATUS);
+    let h2 = plugin.state_hash();
+
+    assert_eq!(h1, h2);
+}
+
+#[test]
+fn color_preview_handle_mouse_increments() {
+    use kasane_core::element::InteractiveId;
+    use kasane_core::input::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    let mut plugin = load_color_preview_plugin();
+    let mut state = make_state_with_lines(&["#100000"]);
+    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+
+    // R up button: id = 2000 + 0*6 + 0 = 2000
+    let event = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 0,
+        column: 0,
+        modifiers: Modifiers::empty(),
+    };
+    let result = plugin.handle_mouse(&event, InteractiveId(2000), &state);
+    assert!(result.is_some());
+    let cmds = result.unwrap();
+    assert_eq!(cmds.len(), 1);
+    // Should be a SendToKakoune command
+    match &cmds[0] {
+        kasane_core::plugin::Command::SendToKakoune(
+            kasane_core::protocol::KasaneRequest::Keys(keys),
+        ) => {
+            let joined: String = keys.join("");
+            assert!(joined.contains("#110000"), "Expected #110000 in: {joined}");
+        }
+        _ => panic!("Expected SendToKakoune Keys"),
+    }
+}
+
+#[test]
+fn color_preview_handle_mouse_consumes_release() {
+    use kasane_core::element::InteractiveId;
+    use kasane_core::input::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    let mut plugin = load_color_preview_plugin();
+    let mut state = make_state_with_lines(&["#ff0000"]);
+    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+
+    let event = MouseEvent {
+        kind: MouseEventKind::Release(MouseButton::Left),
+        line: 0,
+        column: 0,
+        modifiers: Modifiers::empty(),
+    };
+    let result = plugin.handle_mouse(&event, InteractiveId(2000), &state);
+    assert!(result.is_some());
+    assert!(result.unwrap().is_empty());
+}
+
+// --- bundled plugin tests ---
+
+#[test]
+fn register_bundled_plugins_loads_two() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        disabled: vec![],
+    };
+    let mut registry = PluginRegistry::new();
+    crate::register_bundled_plugins(&config, &mut registry);
+
+    assert_eq!(registry.plugin_count(), 2);
+}
+
+#[test]
+fn register_bundled_plugins_respects_disabled() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        disabled: vec!["color_preview".to_string()],
+    };
+    let mut registry = PluginRegistry::new();
+    crate::register_bundled_plugins(&config, &mut registry);
+
+    assert_eq!(registry.plugin_count(), 1);
+}
+
+#[test]
+fn filesystem_plugin_overrides_bundled() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        disabled: vec![],
+    };
+    let mut registry = PluginRegistry::new();
+    crate::register_bundled_plugins(&config, &mut registry);
+    assert_eq!(registry.plugin_count(), 2);
+
+    // Register another plugin with the same ID
+    let loader = WasmPluginLoader::new().unwrap();
+    let bytes = crate::load_wasm_fixture("cursor-line.wasm").unwrap();
+    let plugin = loader.load(&bytes).unwrap();
+    assert_eq!(plugin.id().0, "cursor_line");
+    registry.register(Box::new(plugin));
+
+    // Should still be 2, not 3 (replaced, not added)
+    assert_eq!(registry.plugin_count(), 2);
 }
 
 #[test]
