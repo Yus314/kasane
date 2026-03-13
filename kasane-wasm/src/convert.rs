@@ -1,10 +1,12 @@
 //! Type conversions between WIT-generated types and kasane-core types.
 
+use std::time::Duration;
+
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
-use kasane_core::plugin::Command;
+use kasane_core::plugin::{Command, DecorateTarget, PluginId, ReplaceTarget};
 use kasane_core::protocol::{Atom, Attributes, Color, Coord, Face, KasaneRequest, NamedColor};
 use kasane_core::state::DirtyFlags;
 
@@ -66,6 +68,92 @@ pub(crate) fn wit_atom_to_atom(wa: &wit::Atom) -> Atom {
 }
 
 // ---------------------------------------------------------------------------
+// Face / Color / Atom conversions (native → WIT)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn color_to_wit(c: &Color) -> wit::Color {
+    match c {
+        Color::Default => wit::Color::DefaultColor,
+        Color::Named(n) => wit::Color::Named(named_to_wit(*n)),
+        Color::Rgb { r, g, b } => wit::Color::Rgb(wit::RgbColor {
+            r: *r,
+            g: *g,
+            b: *b,
+        }),
+    }
+}
+
+fn named_to_wit(n: NamedColor) -> wit::NamedColor {
+    match n {
+        NamedColor::Black => wit::NamedColor::Black,
+        NamedColor::Red => wit::NamedColor::Red,
+        NamedColor::Green => wit::NamedColor::Green,
+        NamedColor::Yellow => wit::NamedColor::Yellow,
+        NamedColor::Blue => wit::NamedColor::Blue,
+        NamedColor::Magenta => wit::NamedColor::Magenta,
+        NamedColor::Cyan => wit::NamedColor::Cyan,
+        NamedColor::White => wit::NamedColor::White,
+        NamedColor::BrightBlack => wit::NamedColor::BrightBlack,
+        NamedColor::BrightRed => wit::NamedColor::BrightRed,
+        NamedColor::BrightGreen => wit::NamedColor::BrightGreen,
+        NamedColor::BrightYellow => wit::NamedColor::BrightYellow,
+        NamedColor::BrightBlue => wit::NamedColor::BrightBlue,
+        NamedColor::BrightMagenta => wit::NamedColor::BrightMagenta,
+        NamedColor::BrightCyan => wit::NamedColor::BrightCyan,
+        NamedColor::BrightWhite => wit::NamedColor::BrightWhite,
+    }
+}
+
+pub(crate) fn face_to_wit(f: &Face) -> wit::Face {
+    wit::Face {
+        fg: color_to_wit(&f.fg),
+        bg: color_to_wit(&f.bg),
+        underline: color_to_wit(&f.underline),
+        attributes: f.attributes.bits(),
+    }
+}
+
+pub(crate) fn atom_to_wit(a: &Atom) -> wit::Atom {
+    wit::Atom {
+        face: face_to_wit(&a.face),
+        contents: a.contents.to_string(),
+    }
+}
+
+pub(crate) fn atoms_to_wit(atoms: &[Atom]) -> Vec<wit::Atom> {
+    atoms.iter().map(atom_to_wit).collect()
+}
+
+pub(crate) fn wit_atoms_to_atoms(atoms: &[wit::Atom]) -> Vec<Atom> {
+    atoms.iter().map(wit_atom_to_atom).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Decorate / Replace target conversions (native → WIT)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn decorate_target_to_wit(target: &DecorateTarget) -> wit::DecorateTarget {
+    match target {
+        DecorateTarget::Buffer => wit::DecorateTarget::Buffer,
+        DecorateTarget::StatusBar => wit::DecorateTarget::StatusBar,
+        DecorateTarget::Menu => wit::DecorateTarget::Menu,
+        DecorateTarget::Info => wit::DecorateTarget::Info,
+        DecorateTarget::BufferLine(line) => wit::DecorateTarget::BufferLine(*line as u32),
+    }
+}
+
+pub(crate) fn replace_target_to_wit(target: &ReplaceTarget) -> wit::ReplaceTarget {
+    match target {
+        ReplaceTarget::MenuPrompt => wit::ReplaceTarget::MenuPrompt,
+        ReplaceTarget::MenuInline => wit::ReplaceTarget::MenuInline,
+        ReplaceTarget::MenuSearch => wit::ReplaceTarget::MenuSearch,
+        ReplaceTarget::InfoPrompt => wit::ReplaceTarget::InfoPrompt,
+        ReplaceTarget::InfoModal => wit::ReplaceTarget::InfoModal,
+        ReplaceTarget::StatusBar => wit::ReplaceTarget::StatusBar,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Command conversion (WIT → native)
 // ---------------------------------------------------------------------------
 
@@ -80,6 +168,15 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         wit::Command::SetConfig(entry) => Command::SetConfig {
             key: entry.key.clone(),
             value: entry.value.clone(),
+        },
+        wit::Command::ScheduleTimer(tc) => Command::ScheduleTimer {
+            delay: Duration::from_millis(tc.delay_ms),
+            target: PluginId(tc.target_plugin.clone()),
+            payload: Box::new(tc.payload.clone()),
+        },
+        wit::Command::PluginMessage(mc) => Command::PluginMessage {
+            target: PluginId(mc.target_plugin.clone()),
+            payload: Box::new(mc.payload.clone()),
         },
     }
 }
@@ -480,6 +577,133 @@ mod tests {
         assert!(matches!(
             mouse_event_kind_to_wit(&MouseEventKind::ScrollDown),
             wit::MouseEventKind::ScrollDown
+        ));
+    }
+
+    // --- native → WIT conversion tests ---
+
+    #[test]
+    fn convert_color_to_wit_default() {
+        assert!(matches!(
+            color_to_wit(&Color::Default),
+            wit::Color::DefaultColor
+        ));
+    }
+
+    #[test]
+    fn convert_color_to_wit_rgb() {
+        match color_to_wit(&Color::Rgb {
+            r: 10,
+            g: 20,
+            b: 30,
+        }) {
+            wit::Color::Rgb(rgb) => {
+                assert_eq!((rgb.r, rgb.g, rgb.b), (10, 20, 30));
+            }
+            other => panic!("expected Rgb, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn convert_color_to_wit_named() {
+        match color_to_wit(&Color::Named(NamedColor::BrightCyan)) {
+            wit::Color::Named(n) => assert!(matches!(n, wit::NamedColor::BrightCyan)),
+            other => panic!("expected Named, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn convert_face_roundtrip() {
+        let native = Face {
+            fg: Color::Named(NamedColor::Red),
+            bg: Color::Rgb { r: 1, g: 2, b: 3 },
+            underline: Color::Default,
+            attributes: Attributes::BOLD | Attributes::ITALIC,
+        };
+        let wit_f = face_to_wit(&native);
+        let back = wit_face_to_face(&wit_f);
+        assert_eq!(native.fg, back.fg);
+        assert_eq!(native.bg, back.bg);
+        assert_eq!(native.underline, back.underline);
+        assert_eq!(native.attributes, back.attributes);
+    }
+
+    #[test]
+    fn convert_atom_roundtrip() {
+        let native = Atom {
+            face: Face::default(),
+            contents: "hello".into(),
+        };
+        let wit_a = atom_to_wit(&native);
+        let back = wit_atom_to_atom(&wit_a);
+        assert_eq!(native.contents.as_str(), back.contents.as_str());
+    }
+
+    #[test]
+    fn convert_command_schedule_timer() {
+        let wc = wit::Command::ScheduleTimer(wit::TimerConfig {
+            delay_ms: 500,
+            target_plugin: "my_plugin".into(),
+            payload: vec![1, 2, 3],
+        });
+        match wit_command_to_command(&wc) {
+            Command::ScheduleTimer {
+                delay,
+                target,
+                payload,
+            } => {
+                assert_eq!(delay, Duration::from_millis(500));
+                assert_eq!(target.0, "my_plugin");
+                let bytes = payload.downcast::<Vec<u8>>().unwrap();
+                assert_eq!(*bytes, vec![1, 2, 3]);
+            }
+            _ => panic!("unexpected command variant"),
+        }
+    }
+
+    #[test]
+    fn convert_command_plugin_message() {
+        let wc = wit::Command::PluginMessage(wit::MessageConfig {
+            target_plugin: "other".into(),
+            payload: vec![42],
+        });
+        match wit_command_to_command(&wc) {
+            Command::PluginMessage { target, payload } => {
+                assert_eq!(target.0, "other");
+                let bytes = payload.downcast::<Vec<u8>>().unwrap();
+                assert_eq!(*bytes, vec![42]);
+            }
+            _ => panic!("unexpected command variant"),
+        }
+    }
+
+    #[test]
+    fn convert_decorate_target() {
+        use kasane_core::plugin::DecorateTarget;
+        assert!(matches!(
+            decorate_target_to_wit(&DecorateTarget::Buffer),
+            wit::DecorateTarget::Buffer
+        ));
+        assert!(matches!(
+            decorate_target_to_wit(&DecorateTarget::StatusBar),
+            wit::DecorateTarget::StatusBar
+        ));
+        match decorate_target_to_wit(&DecorateTarget::BufferLine(42)) {
+            wit::DecorateTarget::BufferLine(n) => assert_eq!(n, 42),
+            other => panic!("expected BufferLine, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn convert_replace_target() {
+        use kasane_core::plugin::ReplaceTarget;
+        assert!(matches!(
+            replace_target_to_wit(&ReplaceTarget::MenuPrompt),
+            wit::ReplaceTarget::MenuPrompt
+        ));
+        assert!(matches!(
+            replace_target_to_wit(&ReplaceTarget::StatusBar),
+            wit::ReplaceTarget::StatusBar
         ));
     }
 }

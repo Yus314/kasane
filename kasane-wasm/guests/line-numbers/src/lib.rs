@@ -54,6 +54,11 @@ impl Guest for LineNumbersPlugin {
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
     kasane_plugin_sdk::default_overlay!();
+    kasane_plugin_sdk::default_menu_transform!();
+    kasane_plugin_sdk::default_replace!();
+    kasane_plugin_sdk::default_decorate!();
+    kasane_plugin_sdk::default_decorator_priority!();
+    kasane_plugin_sdk::default_update!();
 }
 
 /// Right-aligned number with trailing space: "  1 ", " 42 "

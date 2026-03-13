@@ -1,4 +1,4 @@
-package kasane:plugin@0.2.0;
+package kasane:plugin@0.3.0;
 
 interface types {
     enum named-color {
@@ -65,10 +65,21 @@ interface types {
         quit,
         request-redraw(u16),
         set-config(config-entry),
+        schedule-timer(timer-config),
+        plugin-message(message-config),
     }
     record config-entry {
         key: string,
         value: string,
+    }
+    record timer-config {
+        delay-ms: u64,
+        target-plugin: string,
+        payload: list<u8>,
+    }
+    record message-config {
+        target-plugin: string,
+        payload: list<u8>,
     }
 
     /// Interactive element ID for mouse hit testing.
@@ -151,7 +162,7 @@ interface types {
         anchor: overlay-anchor,
     }
 
-    // --- Phase 4 types (element builder) ---
+    // --- Element builder types ---
 
     enum border-line-style { single, rounded, double, heavy, ascii }
 
@@ -172,10 +183,31 @@ interface types {
         child: element-handle,
         flex: f32,
     }
+
+    // --- v0.3.0: Decorator / Replacement / Menu types ---
+
+    /// Target for element decoration (wrapping).
+    variant decorate-target {
+        buffer,
+        status-bar,
+        menu,
+        info,
+        buffer-line(u32),
+    }
+
+    /// Target for component replacement.
+    enum replace-target {
+        menu-prompt,
+        menu-inline,
+        menu-search,
+        info-prompt,
+        info-modal,
+        status-bar,
+    }
 }
 
 interface host-state {
-    use types.{face};
+    use types.{face, atom};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -184,15 +216,37 @@ interface host-state {
     get-rows: func() -> u16;
     is-focused: func() -> bool;
 
-    // --- Phase 2: buffer line access ---
+    // --- Buffer line access ---
     get-line-text: func(line: u32) -> option<string>;
     is-line-dirty: func(line: u32) -> bool;
+
+    // --- v0.3.0 Tier 1: Status bar state ---
+    get-status-prompt: func() -> list<atom>;
+    get-status-content: func() -> list<atom>;
+    get-status-line: func() -> list<atom>;
+    get-status-mode-line: func() -> list<atom>;
+    get-status-default-face: func() -> face;
+
+    // --- v0.3.0 Tier 2: Menu / Info state ---
+    has-menu: func() -> bool;
+    get-menu-item-count: func() -> u32;
+    get-menu-item: func(index: u32) -> option<list<atom>>;
+    get-menu-selected: func() -> s32;
+    has-info: func() -> bool;
+    get-info-count: func() -> u32;
+
+    // --- v0.3.0 Tier 3: General state ---
+    get-ui-option: func(key: string) -> option<string>;
+    get-cursor-mode: func() -> u8;
+    get-widget-columns: func() -> u16;
+    get-default-face: func() -> face;
+    get-padding-face: func() -> face;
 }
 
 /// Host-provided functions for building Element trees.
 /// Handles are valid only within the current plugin call scope.
 interface element-builder {
-    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry};
+    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay};
 
     /// Create a text element with a direct face.
     create-text: func(content: string, face: face) -> element-handle;
@@ -206,12 +260,8 @@ interface element-builder {
     /// Create a horizontal row of fixed-size children.
     create-row: func(children: list<element-handle>) -> element-handle;
 
-    // --- Phase 3: interactive elements ---
-
     /// Create an interactive wrapper element for mouse hit testing.
     create-interactive: func(child: element-handle, id: interactive-id) -> element-handle;
-
-    // --- Phase 4: advanced element builders ---
 
     /// Create a 2D grid layout.
     create-grid: func(columns: list<grid-width>, children: list<element-handle>, col-gap: u16, row-gap: u16) -> element-handle;
@@ -227,10 +277,23 @@ interface element-builder {
 
     /// Create a horizontal flex layout with proportional children.
     create-row-flex: func(children: list<flex-entry>, gap: u16) -> element-handle;
+
+    // --- v0.3.0: Advanced element builders ---
+
+    /// Create a container with full styling (border, shadow, padding, face, title).
+    create-container-styled: func(child: element-handle, border: option<border-line-style>,
+        shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
+
+    /// Create a scrollable wrapper.
+    create-scrollable: func(child: element-handle, offset: u16, vertical: bool) -> element-handle;
+
+    /// Create a stack (base element + overlay layers).
+    create-stack: func(base: element-handle, overlays: list<overlay>) -> element-handle;
 }
 
 interface plugin-api {
-    use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay};
+    use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
+               atom, decorate-target, replace-target};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -272,6 +335,31 @@ interface plugin-api {
 
     /// Contribute an overlay element with positioning.
     contribute-overlay: func() -> option<overlay>;
+
+    // --- v0.3.0: Menu transformation ---
+
+    /// Transform a menu item before rendering. Return None for no change.
+    transform-menu-item: func(item: list<atom>, index: u32, selected: bool) -> option<list<atom>>;
+
+    // --- v0.3.0: Replacement ---
+
+    /// Replace a UI component entirely. Return None for no replacement.
+    replace: func(target: replace-target) -> option<element-handle>;
+
+    // --- v0.3.0: Decorator ---
+
+    /// Decorate (wrap) an existing element. The element-handle refers to the
+    /// original element injected into the arena at handle 0.
+    /// Return the (possibly wrapped) element handle.
+    decorate: func(target: decorate-target, element: element-handle) -> element-handle;
+
+    /// Priority for decorator ordering (lower = applied first). Default: 0.
+    decorator-priority: func() -> u32;
+
+    // --- v0.3.0: Inter-plugin messaging ---
+
+    /// Receive a message from another plugin (payload is opaque bytes).
+    update: func(payload: list<u8>) -> list<command>;
 }
 
 world kasane-plugin {

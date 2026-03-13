@@ -3,7 +3,10 @@ use std::cell::{Cell, RefCell};
 
 use kasane_core::element::{Element, InteractiveId, Overlay};
 use kasane_core::input::{KeyEvent, MouseEvent};
-use kasane_core::plugin::{Command, LineDecoration, Plugin, PluginId, Slot};
+use kasane_core::plugin::{
+    Command, DecorateTarget, LineDecoration, Plugin, PluginId, ReplaceTarget, Slot,
+};
+use kasane_core::protocol::Atom;
 use kasane_core::state::{AppState, DirtyFlags};
 
 use crate::bindings;
@@ -229,8 +232,112 @@ impl Plugin for WasmPlugin {
         }
     }
 
-    fn update(&mut self, _msg: Box<dyn Any>, _state: &AppState) -> Vec<Command> {
-        // WASM plugins cannot receive Box<dyn Any> messages
-        vec![]
+    // --- v0.3.0: Menu transformation ---
+
+    fn transform_menu_item(
+        &self,
+        item: &[Atom],
+        index: usize,
+        selected: bool,
+        state: &AppState,
+    ) -> Option<Vec<Atom>> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_item = convert::atoms_to_wit(item);
+        match plugin_api.call_transform_menu_item(&mut *store, &wit_item, index as u32, selected) {
+            Ok(Some(transformed)) => Some(convert::wit_atoms_to_atoms(&transformed)),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.transform_menu_item failed: {e}",
+                    self.plugin_id.0
+                );
+                None
+            }
+        }
+    }
+
+    // --- v0.3.0: Replacement ---
+
+    fn replace(&self, target: ReplaceTarget, state: &AppState) -> Option<Element> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_target = convert::replace_target_to_wit(&target);
+        match plugin_api.call_replace(&mut *store, wit_target) {
+            Ok(Some(handle)) => Some(store.data_mut().take_root_element(handle)),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.replace({target:?}) failed: {e}",
+                    self.plugin_id.0
+                );
+                None
+            }
+        }
+    }
+
+    // --- v0.3.0: Decorator ---
+
+    fn decorate(&self, target: DecorateTarget, element: Element, state: &AppState) -> Element {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        // Inject the existing element as handle 0
+        let original_handle = store.data_mut().inject_element(element);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_target = convert::decorate_target_to_wit(&target);
+        match plugin_api.call_decorate(&mut *store, wit_target, original_handle) {
+            Ok(result_handle) => store.data_mut().take_root_element(result_handle),
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.decorate({target:?}) failed: {e}",
+                    self.plugin_id.0
+                );
+                // On error, try to recover the original element
+                store.data_mut().take_root_element(original_handle)
+            }
+        }
+    }
+
+    fn decorator_priority(&self) -> u32 {
+        let mut store = self.store.borrow_mut();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_decorator_priority(&mut *store) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.decorator_priority failed: {e}",
+                    self.plugin_id.0
+                );
+                0
+            }
+        }
+    }
+
+    // --- v0.3.0: Inter-plugin messaging ---
+
+    fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
+        // WASM plugins receive messages as Vec<u8> bytes
+        if let Ok(bytes) = msg.downcast::<Vec<u8>>() {
+            let store = self.store.get_mut();
+            host::sync_from_app_state(store.data_mut(), state);
+            let plugin_api = self.instance.kasane_plugin_plugin_api();
+            match plugin_api.call_update(store, &bytes) {
+                Ok(cmds) => convert::wit_commands_to_commands(&cmds),
+                Err(e) => {
+                    tracing::error!("WASM plugin {}.update failed: {e}", self.plugin_id.0);
+                    vec![]
+                }
+            }
+        } else {
+            tracing::warn!(
+                "WASM plugin {} received non-byte message, ignoring",
+                self.plugin_id.0
+            );
+            vec![]
+        }
     }
 }

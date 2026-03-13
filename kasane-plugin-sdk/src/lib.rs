@@ -210,6 +210,60 @@ macro_rules! default_overlay {
     };
 }
 
+/// Default menu transformation stub (returns None = no change).
+#[macro_export]
+macro_rules! default_menu_transform {
+    () => {
+        fn transform_menu_item(
+            _item: Vec<Atom>,
+            _index: u32,
+            _selected: bool,
+        ) -> Option<Vec<Atom>> {
+            None
+        }
+    };
+}
+
+/// Default replacement stub (returns None for all targets).
+#[macro_export]
+macro_rules! default_replace {
+    () => {
+        fn replace(_target: ReplaceTarget) -> Option<ElementHandle> {
+            None
+        }
+    };
+}
+
+/// Default decorator stub (passes through the element unchanged).
+#[macro_export]
+macro_rules! default_decorate {
+    () => {
+        fn decorate(_target: DecorateTarget, element: ElementHandle) -> ElementHandle {
+            element
+        }
+    };
+}
+
+/// Default decorator priority stub (returns 0).
+#[macro_export]
+macro_rules! default_decorator_priority {
+    () => {
+        fn decorator_priority() -> u32 {
+            0
+        }
+    };
+}
+
+/// Default update stub (returns empty command list).
+#[macro_export]
+macro_rules! default_update {
+    () => {
+        fn update(_payload: Vec<u8>) -> Vec<Command> {
+            vec![]
+        }
+    };
+}
+
 /// Route slot-based dispatch. Returns `None` for unmatched slots.
 ///
 /// # Example
