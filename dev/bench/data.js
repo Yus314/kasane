@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773406608605,
+  "lastUpdate": 1773414254022,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -5387,6 +5387,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7464,
             "range": "± 36",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "8e7aff29d1e554e2e9f783b1007f654acdc62c85",
+          "message": "feat(core): complete extensibility architecture redesign (Phases 1-5)\n\nImplement the core privilege exclusion plan to make the plugin system\nfully symmetric and extensible:\n\n- Phase 1: Open StyleToken from closed enum to struct(CompactString)\n- Phase 2: Extract BuiltinInputPlugin for overridable PageUp/PageDown\n- Phase 3: Slot enum → SlotId migration with custom slot support\n- Phase 3e: Deprecate Slot enum, migrate internals to SlotId API\n- Phase 4: Activate Surface model as the rendering element source\n- Phase 5: Add PaintHook trait for post-paint grid modifications\n\nBoth TUI and GUI backends now use Surface-based cached rendering\npipelines (render_pipeline_surfaces_patched / scene_render_pipeline_\nsurfaces_cached) with full ViewCache, LayoutCache, and PaintPatch\noptimization support.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T23:51:59+09:00",
+          "tree_id": "96671f5c42480835d0c9b2eb2eaed0ae272f5ab4",
+          "url": "https://github.com/Yus314/kasane/commit/8e7aff29d1e554e2e9f783b1007f654acdc62c85"
+        },
+        "date": 1773414253019,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 145205,
+            "range": "± 3262",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 836267,
+            "range": "± 51277",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2038,
+            "range": "± 135",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 144200,
+            "range": "± 3645",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4807004,
+            "range": "± 86330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16724075,
+            "range": "± 70005",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1753535,
+            "range": "± 7043",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20077930,
+            "range": "± 75424",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7404,
+            "range": "± 83",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 56896,
+            "range": "± 357",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 594,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7369,
+            "range": "± 62",
             "unit": "ns/iter"
           }
         ]
