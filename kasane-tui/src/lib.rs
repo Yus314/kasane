@@ -15,7 +15,10 @@ use kasane_core::plugin::{
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::view::view_cached;
-use kasane_core::render::{CellGrid, RenderBackend, ViewCache, render_pipeline_cached};
+use kasane_core::render::{
+    CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
+    ViewCache, render_pipeline_patched,
+};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 
 use backend::TuiBackend;
@@ -229,6 +232,17 @@ where
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
     let mut view_cache = ViewCache::new();
+    let mut layout_cache = LayoutCache::new();
+
+    // Paint patches for fast-path rendering
+    let status_patch = StatusBarPatch;
+    let mut menu_patch = MenuSelectionPatch {
+        prev_selected: None,
+    };
+    let mut cursor_patch = CursorPatch {
+        prev_cursor_x: 0,
+        prev_cursor_y: 0,
+    };
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
@@ -341,8 +355,17 @@ where
         if !dirty.is_empty() {
             registry.prepare_plugin_cache(dirty);
             backend.begin_frame()?;
-            let result =
-                render_pipeline_cached(&state, &registry, &mut grid, dirty, &mut view_cache);
+            let patches: &[&dyn kasane_core::render::PaintPatch] =
+                &[&status_patch, &menu_patch, &cursor_patch];
+            let result = render_pipeline_patched(
+                &state,
+                &registry,
+                &mut grid,
+                dirty,
+                &mut view_cache,
+                &mut layout_cache,
+                patches,
+            );
             let diffs = grid.diff();
             backend.draw(&diffs)?;
             backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;
@@ -350,6 +373,11 @@ where
             backend.flush()?;
             grid.swap_with_dirty();
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
+
+            // Update patch state for next frame
+            cursor_patch.prev_cursor_x = result.cursor_x;
+            cursor_patch.prev_cursor_y = result.cursor_y;
+            menu_patch.prev_selected = state.menu.as_ref().and_then(|m| m.selected);
 
             // Rebuild HitMap from cached view tree for plugin mouse routing
             let element = view_cached(&state, &registry, &mut view_cache);

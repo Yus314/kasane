@@ -345,13 +345,20 @@ impl PaintPatch for CursorPatch {
 
 /// Try to apply a paint patch for the given dirty flags.
 /// Returns true if a patch was applied, false to fall through to the full pipeline.
+///
+/// When `plugins_changed` is true, all patches are refused because plugin state
+/// may have affected the region a patch would repaint (e.g. a StatusRight slot update).
 pub fn try_apply_grid_patch(
     patches: &[&dyn PaintPatch],
     grid: &mut CellGrid,
     state: &AppState,
     dirty: DirtyFlags,
     layout_cache: &LayoutCache,
+    plugins_changed: bool,
 ) -> bool {
+    if plugins_changed {
+        return false;
+    }
     for patch in patches {
         if patch.can_apply(dirty, state) {
             patch.apply_grid(grid, state, layout_cache);
@@ -481,6 +488,7 @@ mod tests {
             &state,
             DirtyFlags::STATUS,
             &layout_cache,
+            false,
         ));
 
         // BUFFER dirty → no patch
@@ -490,6 +498,17 @@ mod tests {
             &state,
             DirtyFlags::BUFFER,
             &layout_cache,
+            false,
+        ));
+
+        // plugins_changed → no patch even for STATUS
+        assert!(!try_apply_grid_patch(
+            &patches,
+            &mut grid,
+            &state,
+            DirtyFlags::STATUS,
+            &layout_cache,
+            true,
         ));
     }
 }

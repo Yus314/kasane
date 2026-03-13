@@ -382,7 +382,8 @@ pub fn render_pipeline_patched(
     crate::perf::perf_span!("render_pipeline_patched");
 
     // Try each patch
-    if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache) {
+    let plugins_changed = registry.any_plugin_state_changed();
+    if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache, plugins_changed) {
         // Compute buffer_x_offset from cached layout if available
         let buffer_x_offset = if let Some(ref base_layout) = layout_cache.base_layout {
             let element = view::view_cached(state, registry, view_cache);

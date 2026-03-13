@@ -3,11 +3,30 @@ use std::cell::RefCell;
 use std::io::Write;
 use std::time::Duration;
 
+use bitflags::bitflags;
+
 use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::layout::HitMap;
 use crate::protocol::{Face, KasaneRequest};
 use crate::state::{AppState, DirtyFlags};
+
+bitflags! {
+    /// Declares which Plugin trait methods a plugin actually implements.
+    /// Used by PluginRegistry to skip WASM boundary crossings for non-participating plugins.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PluginCapabilities: u32 {
+        const SLOT_CONTRIBUTOR = 1 << 0;
+        const LINE_DECORATION  = 1 << 1;
+        const OVERLAY          = 1 << 2;
+        const DECORATOR        = 1 << 3;
+        const REPLACEMENT      = 1 << 4;
+        const MENU_TRANSFORM   = 1 << 5;
+        const CURSOR_STYLE     = 1 << 6;
+        const INPUT_HANDLER    = 1 << 7;
+        const NAMED_SLOT       = 1 << 8;
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PluginId(pub String);
@@ -308,6 +327,19 @@ pub trait Plugin: Any {
     ) -> Option<Vec<crate::protocol::Atom>> {
         None
     }
+
+    /// Declare which capabilities this plugin supports.
+    /// Used by PluginRegistry to skip calls to non-participating plugins.
+    /// Default: ALL (conservative; every method will be called).
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::all()
+    }
+
+    /// DirtyFlags dependencies for contribute_overlay() (L3 overlay caching).
+    /// Default: ALL (always recompute).
+    fn overlay_deps(&self) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
 }
 
 /// Cached result for a single plugin's slot contributions.
@@ -316,6 +348,8 @@ struct PluginCacheEntry {
     last_state_hash: u64,
     /// `None` = not cached. `Some(x)` = cached contribute() result.
     slots: [Option<Option<Element>>; Slot::COUNT],
+    /// `None` = not cached. `Some(x)` = cached contribute_overlay() result.
+    overlay: Option<Option<Overlay>>,
 }
 
 struct PluginSlotCache {
@@ -332,16 +366,20 @@ impl PluginSlotCache {
 
 pub struct PluginRegistry {
     plugins: Vec<Box<dyn Plugin>>,
+    capabilities: Vec<PluginCapabilities>,
     hit_map: HitMap,
     slot_cache: RefCell<PluginSlotCache>,
+    any_plugin_state_changed: bool,
 }
 
 impl PluginRegistry {
     pub fn new() -> Self {
         PluginRegistry {
             plugins: Vec::new(),
+            capabilities: Vec::new(),
             hit_map: HitMap::new(),
             slot_cache: RefCell::new(PluginSlotCache::new()),
+            any_plugin_state_changed: false,
         }
     }
 
@@ -349,15 +387,29 @@ impl PluginRegistry {
         self.plugins.len()
     }
 
+    /// Check if any registered plugin has the given capability.
+    fn has_capability(&self, cap: PluginCapabilities) -> bool {
+        self.capabilities.iter().any(|c| c.contains(cap))
+    }
+
+    /// Returns true if any plugin's state_hash changed during the last
+    /// `prepare_plugin_cache()` call.
+    pub fn any_plugin_state_changed(&self) -> bool {
+        self.any_plugin_state_changed
+    }
+
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
         let id = plugin.id();
+        let caps = plugin.capabilities();
         if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
             self.plugins[pos] = plugin;
+            self.capabilities[pos] = caps;
             // Reset the cache entry for the replaced plugin
             self.slot_cache.get_mut().entries[pos] = PluginCacheEntry::default();
         } else {
             self.plugins.push(plugin);
+            self.capabilities.push(caps);
             self.slot_cache
                 .get_mut()
                 .entries
@@ -369,6 +421,7 @@ impl PluginRegistry {
     /// Call once per frame before rendering (during the mutable phase).
     pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
         let cache = self.slot_cache.get_mut();
+        self.any_plugin_state_changed = false;
 
         // Grow entries if plugins were registered after last prepare
         while cache.entries.len() < self.plugins.len() {
@@ -379,12 +432,14 @@ impl PluginRegistry {
             let entry = &mut cache.entries[i];
             let current_hash = plugin.state_hash();
 
-            // L1: state hash changed → invalidate all slot entries for this plugin
+            // L1: state hash changed → invalidate all slot entries + overlay for this plugin
             if current_hash != entry.last_state_hash {
                 entry.last_state_hash = current_hash;
                 for slot_entry in &mut entry.slots {
                     *slot_entry = None;
                 }
+                entry.overlay = None;
+                self.any_plugin_state_changed = true;
                 continue; // all slots already invalidated
             }
 
@@ -394,6 +449,12 @@ impl PluginRegistry {
                 if dirty.intersects(slot_deps) {
                     entry.slots[slot.index()] = None;
                 }
+            }
+
+            // L3: overlay dirty flag intersection
+            let overlay_deps = plugin.overlay_deps();
+            if dirty.intersects(overlay_deps) {
+                entry.overlay = None;
             }
         }
     }
@@ -451,13 +512,37 @@ impl PluginRegistry {
     /// and legacy Slot::Overlay contributions (wrapped in full-screen Absolute anchor).
     pub fn collect_overlays(&self, state: &AppState) -> Vec<Overlay> {
         let mut overlays = Vec::new();
-        for plugin in &self.plugins {
-            // Typed overlay with plugin-specified anchor
-            if let Some(overlay) = plugin.contribute_overlay(state) {
-                overlays.push(overlay);
+        let mut cache = self.slot_cache.borrow_mut();
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            let caps = self.capabilities[i];
+
+            // Typed overlay with plugin-specified anchor (with L3 caching)
+            if caps.contains(PluginCapabilities::OVERLAY) {
+                // Check cache
+                let entry = cache.entries.get(i);
+                if let Some(entry) = entry
+                    && let Some(ref cached) = entry.overlay
+                {
+                    if let Some(overlay) = cached.clone() {
+                        overlays.push(overlay);
+                    }
+                } else {
+                    let result = plugin.contribute_overlay(state);
+                    // Ensure entry exists
+                    while cache.entries.len() <= i {
+                        cache.entries.push(PluginCacheEntry::default());
+                    }
+                    cache.entries[i].overlay = Some(result.clone());
+                    if let Some(overlay) = result {
+                        overlays.push(overlay);
+                    }
+                }
             }
+
             // Legacy: Slot::Overlay → full-screen Absolute (backward compat)
-            if let Some(element) = plugin.contribute(Slot::Overlay, state) {
+            if caps.contains(PluginCapabilities::SLOT_CONTRIBUTOR)
+                && let Some(element) = plugin.contribute(Slot::Overlay, state)
+            {
                 overlays.push(Overlay {
                     element,
                     anchor: OverlayAnchor::Absolute {
@@ -487,7 +572,13 @@ impl PluginRegistry {
         element: Element,
         state: &AppState,
     ) -> Element {
-        let mut decorators: Vec<&dyn Plugin> = self.plugins.iter().map(|p| p.as_ref()).collect();
+        let mut decorators: Vec<&dyn Plugin> = self
+            .plugins
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.capabilities[*i].contains(PluginCapabilities::DECORATOR))
+            .map(|(_, p)| p.as_ref())
+            .collect();
         decorators.sort_by_key(|p| std::cmp::Reverse(p.decorator_priority()));
         decorators
             .into_iter()
@@ -498,8 +589,10 @@ impl PluginRegistry {
     pub fn get_replacement(&self, target: ReplaceTarget, state: &AppState) -> Option<Element> {
         self.plugins
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|p| p.replace(target, state))
+            .filter(|(i, _)| self.capabilities[*i].contains(PluginCapabilities::REPLACEMENT))
+            .find_map(|(_, p)| p.replace(target, state))
     }
 
     // --- Line decoration ---
@@ -509,7 +602,7 @@ impl PluginRegistry {
     /// When multiple plugins contribute to the same line, elements are composed
     /// horizontally via `Element::row()`.
     pub fn build_left_gutter(&self, state: &AppState) -> Option<Element> {
-        if self.plugins.is_empty() {
+        if !self.has_capability(PluginCapabilities::LINE_DECORATION) {
             return None;
         }
         let line_count = state.visible_line_range().len();
@@ -517,7 +610,10 @@ impl PluginRegistry {
         let mut rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         for line in 0..line_count {
             let mut parts: Vec<Element> = Vec::new();
-            for plugin in &self.plugins {
+            for (i, plugin) in self.plugins.iter().enumerate() {
+                if !self.capabilities[i].contains(PluginCapabilities::LINE_DECORATION) {
+                    continue;
+                }
                 if let Some(dec) = plugin.contribute_line(line, state)
                     && let Some(el) = dec.left_gutter
                 {
@@ -544,7 +640,7 @@ impl PluginRegistry {
     /// When multiple plugins contribute to the same line, elements are composed
     /// horizontally via `Element::row()`.
     pub fn build_right_gutter(&self, state: &AppState) -> Option<Element> {
-        if self.plugins.is_empty() {
+        if !self.has_capability(PluginCapabilities::LINE_DECORATION) {
             return None;
         }
         let line_count = state.visible_line_range().len();
@@ -552,7 +648,10 @@ impl PluginRegistry {
         let mut rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         for line in 0..line_count {
             let mut parts: Vec<Element> = Vec::new();
-            for plugin in &self.plugins {
+            for (i, plugin) in self.plugins.iter().enumerate() {
+                if !self.capabilities[i].contains(PluginCapabilities::LINE_DECORATION) {
+                    continue;
+                }
                 if let Some(dec) = plugin.contribute_line(line, state)
                     && let Some(el) = dec.right_gutter
                 {
@@ -577,14 +676,17 @@ impl PluginRegistry {
     /// Collect background overrides from all plugins for visible lines.
     /// Returns None when no plugin provides any background (zero overhead).
     pub fn collect_line_backgrounds(&self, state: &AppState) -> Option<Vec<Option<Face>>> {
-        if self.plugins.is_empty() {
+        if !self.has_capability(PluginCapabilities::LINE_DECORATION) {
             return None;
         }
         let line_count = state.visible_line_range().len();
         let mut backgrounds: Vec<Option<Face>> = vec![None; line_count];
         let mut has_any = false;
         for (line, bg_slot) in backgrounds.iter_mut().enumerate().take(line_count) {
-            for plugin in &self.plugins {
+            for (i, plugin) in self.plugins.iter().enumerate() {
+                if !self.capabilities[i].contains(PluginCapabilities::LINE_DECORATION) {
+                    continue;
+                }
                 if let Some(dec) = plugin.contribute_line(line, state)
                     && let Some(bg) = dec.background
                 {
@@ -607,7 +709,10 @@ impl PluginRegistry {
         state: &AppState,
     ) -> Option<Vec<crate::protocol::Atom>> {
         let mut current: Option<Vec<crate::protocol::Atom>> = None;
-        for plugin in &self.plugins {
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::MENU_TRANSFORM) {
+                continue;
+            }
             let input = current.as_deref().unwrap_or(item);
             if let Some(transformed) = plugin.transform_menu_item(input, index, selected, state) {
                 current = Some(transformed);
@@ -620,7 +725,10 @@ impl PluginRegistry {
 
     /// Query plugins for a cursor style override. Returns the first non-None.
     pub fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
-        for plugin in &self.plugins {
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::CURSOR_STYLE) {
+                continue;
+            }
             if let Some(style) = plugin.cursor_style_override(state) {
                 return Some(style);
             }
@@ -633,7 +741,10 @@ impl PluginRegistry {
     /// Collect elements contributed to a custom named slot.
     pub fn collect_named_slot(&self, name: &str, state: &AppState) -> Vec<Element> {
         let mut elements = Vec::new();
-        for plugin in &self.plugins {
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::NAMED_SLOT) {
+                continue;
+            }
             if let Some(el) = plugin.contribute_named_slot(name, state) {
                 elements.push(el);
             }
@@ -1709,5 +1820,225 @@ mod tests {
         let mut state = AppState::default();
         state.ui_options.insert("key".into(), "value".into());
         assert_eq!(state.ui_options.get("key").unwrap(), "value");
+    }
+
+    // --- Capability indexing tests ---
+
+    /// Plugin that only provides line decorations (no slots, no overlays, etc.)
+    struct LineDecorationOnlyPlugin;
+
+    impl Plugin for LineDecorationOnlyPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("line-deco".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::LINE_DECORATION
+        }
+
+        fn contribute_line(&self, line: usize, _state: &AppState) -> Option<LineDecoration> {
+            if line == 0 {
+                Some(LineDecoration {
+                    left_gutter: Some(Element::text("1", Face::default())),
+                    right_gutter: None,
+                    background: None,
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Plugin that only provides menu transforms.
+    struct MenuTransformOnlyPlugin;
+
+    impl Plugin for MenuTransformOnlyPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("menu-tx".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::MENU_TRANSFORM
+        }
+
+        fn transform_menu_item(
+            &self,
+            _item: &[crate::protocol::Atom],
+            _index: usize,
+            _selected: bool,
+            _state: &AppState,
+        ) -> Option<Vec<crate::protocol::Atom>> {
+            Some(vec![crate::protocol::Atom {
+                contents: "transformed".into(),
+                face: Face::default(),
+            }])
+        }
+    }
+
+    #[test]
+    fn test_capability_indexing_skips_non_participating() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(LineDecorationOnlyPlugin));
+        registry.register(Box::new(MenuTransformOnlyPlugin));
+
+        let mut state = AppState::default();
+        state.lines = vec![crate::test_utils::make_line("hello")];
+
+        // LineDecorationOnlyPlugin has no MENU_TRANSFORM → should not be called
+        // MenuTransformOnlyPlugin has MENU_TRANSFORM → should transform
+        let item = vec![crate::protocol::Atom {
+            contents: "original".into(),
+            face: Face::default(),
+        }];
+        let result = registry.transform_menu_item(&item, 0, false, &state);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap()[0].contents, "transformed");
+
+        // MenuTransformOnlyPlugin has no LINE_DECORATION → should not be called for gutters
+        // LineDecorationOnlyPlugin has LINE_DECORATION → provides gutter
+        let gutter = registry.build_left_gutter(&state);
+        assert!(gutter.is_some());
+    }
+
+    #[test]
+    fn test_capability_indexing_no_line_decoration_returns_none() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(MenuTransformOnlyPlugin));
+        let state = AppState::default();
+
+        // No plugin has LINE_DECORATION → early return None
+        assert!(registry.build_left_gutter(&state).is_none());
+        assert!(registry.build_right_gutter(&state).is_none());
+        assert!(registry.collect_line_backgrounds(&state).is_none());
+    }
+
+    // --- Overlay caching tests ---
+
+    struct OverlayPlugin {
+        call_count: std::cell::Cell<u32>,
+    }
+
+    impl Plugin for OverlayPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("overlay-test".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::OVERLAY
+        }
+
+        fn contribute_overlay(&self, state: &AppState) -> Option<Overlay> {
+            self.call_count.set(self.call_count.get() + 1);
+            Some(Overlay {
+                element: Element::text("overlay", Face::default()),
+                anchor: crate::element::OverlayAnchor::Absolute {
+                    x: 0,
+                    y: 0,
+                    w: state.cols,
+                    h: state.rows,
+                },
+            })
+        }
+
+        fn overlay_deps(&self) -> DirtyFlags {
+            DirtyFlags::BUFFER
+        }
+    }
+
+    #[test]
+    fn test_overlay_caching_returns_cached_on_second_call() {
+        let mut registry = PluginRegistry::new();
+        let plugin = OverlayPlugin {
+            call_count: std::cell::Cell::new(0),
+        };
+        registry.register(Box::new(plugin));
+        let state = AppState::default();
+
+        // First call: cache miss
+        let overlays = registry.collect_overlays(&state);
+        assert_eq!(overlays.len(), 1);
+
+        // Second call: should hit cache (no prepare_plugin_cache between calls)
+        let overlays2 = registry.collect_overlays(&state);
+        assert_eq!(overlays2.len(), 1);
+    }
+
+    #[test]
+    fn test_overlay_cache_invalidated_on_dirty_deps() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(OverlayPlugin {
+            call_count: std::cell::Cell::new(0),
+        }));
+        let state = AppState::default();
+
+        // Populate cache
+        let _ = registry.collect_overlays(&state);
+
+        // Invalidate with BUFFER (overlay_deps includes BUFFER)
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
+
+        // Should recompute
+        let overlays = registry.collect_overlays(&state);
+        assert_eq!(overlays.len(), 1);
+    }
+
+    #[test]
+    fn test_overlay_cache_not_invalidated_on_unrelated_dirty() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(OverlayPlugin {
+            call_count: std::cell::Cell::new(0),
+        }));
+        let state = AppState::default();
+
+        // Populate cache
+        let _ = registry.collect_overlays(&state);
+
+        // STATUS doesn't intersect overlay_deps (BUFFER) → cache stays
+        registry.prepare_plugin_cache(DirtyFlags::STATUS);
+
+        // Should still return cached
+        let overlays = registry.collect_overlays(&state);
+        assert_eq!(overlays.len(), 1);
+    }
+
+    // --- Plugin state change guard tests ---
+
+    struct StatefulPlugin {
+        hash: u64,
+    }
+
+    impl Plugin for StatefulPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("stateful".to_string())
+        }
+
+        fn state_hash(&self) -> u64 {
+            self.hash
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::SLOT_CONTRIBUTOR
+        }
+
+        fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
+            match slot {
+                Slot::StatusRight => Some(Element::text("badge", Face::default())),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn test_any_plugin_state_changed_flag() {
+        let mut registry = PluginRegistry::new();
+        registry.register(Box::new(StatefulPlugin { hash: 1 }));
+
+        // Initial prepare: hash differs from default 0 → changed
+        registry.prepare_plugin_cache(DirtyFlags::ALL);
+        assert!(registry.any_plugin_state_changed());
+
+        // Second prepare with same hash → no change
+        registry.prepare_plugin_cache(DirtyFlags::ALL);
+        assert!(!registry.any_plugin_state_changed());
     }
 }

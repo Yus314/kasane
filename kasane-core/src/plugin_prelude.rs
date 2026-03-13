@@ -8,7 +8,8 @@ pub use crate::kasane_plugin;
 
 // Plugin trait and types
 pub use crate::plugin::{
-    Command, DecorateTarget, LineDecoration, Plugin, PluginId, PluginRegistry, ReplaceTarget, Slot,
+    Command, DecorateTarget, LineDecoration, Plugin, PluginCapabilities, PluginId, PluginRegistry,
+    ReplaceTarget, Slot,
 };
 
 // Element tree
