@@ -11,7 +11,7 @@
 | スコープ | **完全なフロントエンド置換** | ターミナル UI を完全に置き換え、段階的に拡張機能を追加 |
 | 描画方式 | **TUI + GUI ハイブリッド** | TUI (MVP) で SSH/tmux ワークフローを維持、GUI で全 Issue 解決 |
 | TUI ライブラリ | **crossterm 直接** | 完全な描画制御。GUI バックエンドとの抽象化に最適 |
-| GUI ツールキット | **winit + wgpu + cosmic-text** | Alacritty/Zed 同等のアプローチ。Phase 4 で実装 |
+| GUI ツールキット | **winit + wgpu + glyphon** | cosmic-term 同等のスタック。詳細は [ADR-014](#adr-014-gui-技術スタック--winit--wgpu--glyphon) |
 | 設定形式 | **TOML + ui_options 併用** | TOML で静的設定 (型安全)、Kakoune ui_options で動的設定 |
 | crate 構成 | **Cargo workspace** | kasane-core + kasane-tui + kasane (bin)。Phase 4 で kasane-gui 追加 |
 | Kakoune バージョン | **最新安定版のみ** | 新しいプロトコル機能を活用 |
@@ -826,3 +826,42 @@ L1 キャッシュ (DirtyFlags) により、状態変更のないフレームで
 - ネイティブプラグインは Decorator/Replacement 等 WIT 未公開 API のためのエスケープハッチとして維持
 - ホスト関数パターン (ゲスト→ホスト呼び出しで状態取得) を主要なデータフローとして確立
 - Component Model のコンパイル結果のキャッシュ (`Engine::precompile_component`) を活用し、2 回目以降の起動を高速化
+
+## ADR-014: GUI 技術スタック — winit + wgpu + glyphon
+
+**状態:** 決定済み
+
+**コンテキスト:**
+ADR-001 で TUI + GUI ハイブリッド方式を採用した後、GUI バックエンドの具体的な技術スタックとイベントループ設計を検討した。
+
+### 14-1: 描画スタック — winit + wgpu + glyphon
+
+**決定:** ウィンドウ管理に winit、GPU 描画に wgpu、テキストレンダリングに glyphon を採用する。
+
+| ライブラリ | 役割 |
+|-----------|------|
+| winit | ウィンドウ管理・入力イベント・IME |
+| wgpu | GPU 描画 API (Vulkan/Metal/DX12/GL 抽象) |
+| glyphon | テキストレンダリング (cosmic-text + swash + etagere アトラス) |
+
+**選定根拠:** cosmic-term (COSMIC Desktop 公式ターミナル) が同一スタックを本番運用しており、モノスペースグリッド描画の実績がある。glyphon は cosmic-text のフォントシェーピング (rustybuzz) + swash ラスタライズ + etagere アトラスパッキングを wgpu パイプラインに統合する。
+
+**不採用の選択肢:**
+
+| 候補 | 不採用理由 |
+|------|-----------|
+| OpenGL (glutin + glow) | macOS が OpenGL を非推奨化。wgpu が内部で OpenGL ES バックエンドを持つ |
+| Native API (Metal/Vulkan 直接) | プラットフォーム毎に個別レンダラーが必要。保守コストが倍増 |
+| CPU のみ (softbuffer + tiny-skia) | 60fps スムーズスクロールの主パスとしては不足。フォールバックとして検討したが未実装 |
+| egui | イミディエイトモードが TEA リテインドモードと競合。モノスペースグリッドに非特化 |
+| Vello (Linebender) | グリフキャッシュなし (毎フレームベクターパス描画)、API 不安定 (3-5ヶ月毎に破壊的変更)、compute shader 必須 |
+
+### 14-2: イベントループ — run_tui/run_gui 分岐
+
+**決定:** CLI 引数 `--ui gui` でイベントループ全体を切り替える方式 (run_tui/run_gui 分岐) を採用する。
+
+**根拠:**
+- winit の `run_app()` はメインスレッドを完全に占有するため、TUI の既存 `recv_timeout` ループとは共存できない
+- GUI 側はメインスレッドに winit イベントループ (`ApplicationHandler`)、別スレッドに Kakoune Reader を配置し、`EventLoopProxy` で合流する
+
+**不採用:** `pump_events` 方式 — macOS で動作しない (Cocoa/AppKit の制約。winit ドキュメントに "not supported on iOS, macOS, Web" と明記)。
