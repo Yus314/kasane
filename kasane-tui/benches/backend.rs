@@ -84,6 +84,38 @@ impl MockBackend {
         Ok(())
     }
 
+    fn draw_grid(&mut self, grid: &CellGrid) -> anyhow::Result<()> {
+        let mut last_face: Option<Face> = None;
+        let mut last_x: u16 = u16::MAX;
+        let mut last_y: u16 = u16::MAX;
+
+        for (x, y, cell) in grid.iter_diffs() {
+            let expected_x = if last_y == y { last_x } else { u16::MAX };
+            if x != expected_x {
+                queue!(self.buf, cursor::MoveTo(x, y))?;
+            }
+
+            let face = &cell.face;
+            if last_face.as_ref() != Some(face) {
+                emit_sgr_diff(&mut self.buf, last_face.as_ref(), face)?;
+                last_face = Some(*face);
+            }
+
+            let s = if cell.grapheme.is_empty() {
+                " "
+            } else {
+                &cell.grapheme
+            };
+            queue!(self.buf, style::Print(s))?;
+
+            last_x = x + cell.width.max(1) as u16;
+            last_y = y;
+        }
+
+        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
+        Ok(())
+    }
+
     fn flush(&mut self) {
         self.buf.clear();
     }
@@ -135,6 +167,57 @@ fn convert_attribute(attr: Attributes) -> Option<CtAttribute> {
         Attributes::STRIKETHROUGH => Some(CtAttribute::CrossedOut),
         _ => None,
     }
+}
+
+/// Incremental SGR: emit only the escape codes that differ between faces.
+fn emit_sgr_diff(buf: &mut Vec<u8>, old: Option<&Face>, new: &Face) -> anyhow::Result<()> {
+    match old {
+        None => {
+            queue!(buf, SetAttribute(CtAttribute::Reset))?;
+            queue!(
+                buf,
+                SetForegroundColor(convert_color(new.fg)),
+                SetBackgroundColor(convert_color(new.bg))
+            )?;
+            if new.underline != Color::Default {
+                queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
+            }
+            for attr in new.attributes.iter() {
+                if let Some(ct_attr) = convert_attribute(attr) {
+                    queue!(buf, SetAttribute(ct_attr))?;
+                }
+            }
+        }
+        Some(old) => {
+            if old.attributes != new.attributes {
+                queue!(buf, SetAttribute(CtAttribute::Reset))?;
+                queue!(
+                    buf,
+                    SetForegroundColor(convert_color(new.fg)),
+                    SetBackgroundColor(convert_color(new.bg))
+                )?;
+                if new.underline != Color::Default {
+                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
+                }
+                for attr in new.attributes.iter() {
+                    if let Some(ct_attr) = convert_attribute(attr) {
+                        queue!(buf, SetAttribute(ct_attr))?;
+                    }
+                }
+            } else {
+                if old.fg != new.fg {
+                    queue!(buf, SetForegroundColor(convert_color(new.fg)))?;
+                }
+                if old.bg != new.bg {
+                    queue!(buf, SetBackgroundColor(convert_color(new.bg)))?;
+                }
+                if old.underline != new.underline {
+                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +307,90 @@ fn typical_state(line_count: usize) -> AppState {
         contents: "normal".into(),
     }];
     state
+}
+
+/// Render a full frame and return the grid (previous buffer empty = full redraw).
+fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
+    let mut state = typical_state(line_count);
+    state.cols = cols;
+    state.rows = rows;
+    let registry = PluginRegistry::new();
+    let area = Rect {
+        x: 0,
+        y: 0,
+        w: cols,
+        h: rows,
+    };
+    let element = view::view(&state, &registry);
+    let layout = flex::place(&element, area, &state);
+    let mut grid = CellGrid::new(cols, rows);
+    grid.clear(&state.default_face);
+    paint::paint(&element, &layout, &mut grid, &state);
+    grid
+}
+
+/// Generate grid for an incremental 1-line edit.
+fn generate_incremental_grid() -> CellGrid {
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+
+    let mut grid = CellGrid::new(state.cols, state.rows);
+
+    // "before" frame
+    let element = view::view(&state, &registry);
+    let layout = flex::place(&element, area, &state);
+    grid.clear(&state.default_face);
+    paint::paint(&element, &layout, &mut grid, &state);
+    grid.swap();
+
+    // "after": modify 1 line
+    let mut edited = state.clone();
+    edited.lines[10] = vec![
+        Atom {
+            face: Face {
+                fg: Color::Rgb { r: 255, g: 0, b: 0 },
+                bg: Color::Default,
+                ..Face::default()
+            },
+            contents: "edited_line_10".into(),
+        },
+        Atom {
+            face: Face::default(),
+            contents: " // modified".into(),
+        },
+    ];
+
+    let element = view::view(&edited, &registry);
+    let layout = flex::place(&element, area, &edited);
+    grid.clear(&edited.default_face);
+    paint::paint(&element, &layout, &mut grid, &edited);
+    grid
+}
+
+/// Generate grid with realistic data.
+fn generate_realistic_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
+    let mut state = realistic_state(line_count);
+    state.cols = cols;
+    state.rows = rows;
+    let registry = PluginRegistry::new();
+    let area = Rect {
+        x: 0,
+        y: 0,
+        w: cols,
+        h: rows,
+    };
+    let element = view::view(&state, &registry);
+    let layout = flex::place(&element, area, &state);
+    let mut grid = CellGrid::new(cols, rows);
+    grid.clear(&state.default_face);
+    paint::paint(&element, &layout, &mut grid, &state);
+    grid
 }
 
 /// Render a full frame and return the diffs (full redraw — previous buffer is empty).
@@ -690,6 +857,91 @@ fn bench_backend_draw(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark draw_grid (optimized path with cursor auto-advance + incremental SGR)
+fn bench_draw_grid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("draw_grid");
+
+    // Full redraw
+    for (cols, rows, lines, label) in [(80, 24, 23, "80x24"), (200, 60, 59, "200x60")] {
+        let grid = generate_grid(cols, rows, lines);
+        group.bench_function(BenchmarkId::new("full_redraw", label), |b| {
+            let mut backend = MockBackend::new();
+            b.iter(|| {
+                backend.begin_frame().unwrap();
+                backend.draw_grid(&grid).unwrap();
+                backend.end_frame().unwrap();
+                let bytes = backend.bytes_generated();
+                backend.flush();
+                criterion::black_box(bytes)
+            });
+        });
+    }
+
+    // Incremental: 1 line changed
+    {
+        let grid = generate_incremental_grid();
+        group.bench_function("incremental_1line", |b| {
+            let mut backend = MockBackend::new();
+            b.iter(|| {
+                backend.begin_frame().unwrap();
+                backend.draw_grid(&grid).unwrap();
+                backend.end_frame().unwrap();
+                let bytes = backend.bytes_generated();
+                backend.flush();
+                criterion::black_box(bytes)
+            });
+        });
+    }
+
+    // Realistic data
+    {
+        let grid = generate_realistic_grid(80, 24, 23);
+        group.bench_function(BenchmarkId::new("full_redraw_realistic", "80x24"), |b| {
+            let mut backend = MockBackend::new();
+            b.iter(|| {
+                backend.begin_frame().unwrap();
+                backend.draw_grid(&grid).unwrap();
+                backend.end_frame().unwrap();
+                let bytes = backend.bytes_generated();
+                backend.flush();
+                criterion::black_box(bytes)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark: compare escape byte output between draw() and draw_grid()
+fn bench_sgr_bytes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sgr_bytes");
+
+    let diffs = generate_realistic_diffs(80, 24, 23);
+    let grid = generate_realistic_grid(80, 24, 23);
+
+    group.bench_function("draw_old", |b| {
+        let mut backend = MockBackend::new();
+        b.iter(|| {
+            backend.draw(&diffs).unwrap();
+            let bytes = backend.bytes_generated();
+            backend.flush();
+            criterion::black_box(bytes)
+        });
+    });
+
+    group.bench_function("draw_grid_new", |b| {
+        let mut backend = MockBackend::new();
+        b.iter(|| {
+            backend.draw_grid(&grid).unwrap();
+            let bytes = backend.bytes_generated();
+            backend.flush();
+            criterion::black_box(bytes)
+        });
+    });
+
+    group.finish();
+}
+
 /// E2E pipeline: JSON bytes → parse → apply → render → diff → backend.draw → escape bytes
 fn bench_e2e_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("e2e_pipeline");
@@ -755,5 +1007,11 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_backend_draw, bench_e2e_pipeline);
+criterion_group!(
+    benches,
+    bench_backend_draw,
+    bench_draw_grid,
+    bench_sgr_bytes,
+    bench_e2e_pipeline
+);
 criterion_main!(benches);

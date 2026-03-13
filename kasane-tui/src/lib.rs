@@ -480,8 +480,7 @@ where
                 patches,
                 &paint_hooks,
             );
-            let diffs = grid.diff();
-            backend.draw(&diffs)?;
+            backend.draw_grid(&grid)?;
             backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;
             backend.end_frame()?;
             backend.flush()?;

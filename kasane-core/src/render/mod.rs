@@ -47,6 +47,13 @@ pub trait RenderBackend {
     fn show_cursor(&mut self, x: u16, y: u16, style: CursorStyle) -> anyhow::Result<()>;
     fn hide_cursor(&mut self) -> anyhow::Result<()>;
 
+    /// Draw directly from the CellGrid, avoiding the CellDiff intermediate.
+    /// Backends can override this for optimized rendering (e.g. cursor
+    /// auto-advance, incremental SGR). Default falls back to `draw()`.
+    fn draw_grid(&mut self, grid: &CellGrid) -> anyhow::Result<()> {
+        self.draw(&grid.diff())
+    }
+
     /// Read text from the system clipboard. Returns None if unavailable.
     fn clipboard_get(&mut self) -> Option<String> {
         None

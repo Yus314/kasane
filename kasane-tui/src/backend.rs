@@ -17,7 +17,7 @@ use crossterm::{
     },
 };
 use kasane_core::protocol::{Attributes, Color, Face, NamedColor};
-use kasane_core::render::{CellDiff, CursorStyle, RenderBackend};
+use kasane_core::render::{CellDiff, CellGrid, CursorStyle, RenderBackend};
 
 pub struct TuiBackend {
     stdout: Stdout,
@@ -128,6 +128,42 @@ impl RenderBackend for TuiBackend {
         Ok(())
     }
 
+    fn draw_grid(&mut self, grid: &CellGrid) -> anyhow::Result<()> {
+        let mut last_face: Option<Face> = None;
+        let mut last_x: u16 = u16::MAX;
+        let mut last_y: u16 = u16::MAX;
+
+        for (x, y, cell) in grid.iter_diffs() {
+            // Cursor auto-advance: skip MoveTo when the terminal cursor is
+            // already at the right position (previous print advanced it).
+            let expected_x = if last_y == y { last_x } else { u16::MAX };
+            if x != expected_x {
+                queue!(self.buf, cursor::MoveTo(x, y))?;
+            }
+
+            let face = &cell.face;
+            if last_face.as_ref() != Some(face) {
+                emit_sgr_diff(&mut self.buf, last_face.as_ref(), face)?;
+                last_face = Some(*face);
+            }
+
+            let s = if cell.grapheme.is_empty() {
+                " "
+            } else {
+                &cell.grapheme
+            };
+            queue!(self.buf, style::Print(s))?;
+
+            // Track cursor position after print
+            last_x = x + cell.width.max(1) as u16;
+            last_y = y;
+        }
+
+        // Reset at the end
+        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
+        Ok(())
+    }
+
     fn flush(&mut self) -> anyhow::Result<()> {
         self.stdout.write_all(&self.buf)?;
         self.stdout.flush()?;
@@ -162,6 +198,62 @@ impl RenderBackend for TuiBackend {
             false
         }
     }
+}
+
+/// Emit only the SGR codes that differ between `old` and `new` faces.
+/// When `old` is None (first cell), emits a full reset + set.
+fn emit_sgr_diff(buf: &mut Vec<u8>, old: Option<&Face>, new: &Face) -> anyhow::Result<()> {
+    match old {
+        None => {
+            // First cell: full reset + set
+            queue!(buf, SetAttribute(CtAttribute::Reset))?;
+            queue!(
+                buf,
+                SetForegroundColor(convert_color(new.fg)),
+                SetBackgroundColor(convert_color(new.bg))
+            )?;
+            if new.underline != Color::Default {
+                queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
+            }
+            for attr in new.attributes.iter() {
+                if let Some(ct_attr) = convert_attribute(attr) {
+                    queue!(buf, SetAttribute(ct_attr))?;
+                }
+            }
+        }
+        Some(old) => {
+            // Attributes changed: we must reset and re-apply since there's no
+            // individual "unset bold" etc. that works reliably across terminals.
+            if old.attributes != new.attributes {
+                queue!(buf, SetAttribute(CtAttribute::Reset))?;
+                queue!(
+                    buf,
+                    SetForegroundColor(convert_color(new.fg)),
+                    SetBackgroundColor(convert_color(new.bg))
+                )?;
+                if new.underline != Color::Default {
+                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
+                }
+                for attr in new.attributes.iter() {
+                    if let Some(ct_attr) = convert_attribute(attr) {
+                        queue!(buf, SetAttribute(ct_attr))?;
+                    }
+                }
+            } else {
+                // Same attributes — only emit changed colors
+                if old.fg != new.fg {
+                    queue!(buf, SetForegroundColor(convert_color(new.fg)))?;
+                }
+                if old.bg != new.bg {
+                    queue!(buf, SetBackgroundColor(convert_color(new.bg)))?;
+                }
+                if old.underline != new.underline {
+                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn convert_color(color: Color) -> CtColor {
