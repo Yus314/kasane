@@ -139,7 +139,7 @@ cargo run -p kasane-core --bin alloc_budget --features bench-alloc
 Output is JSON with per-phase allocation counts and bytes:
 
 ```json
-{"full_frame":{"count":41,"bytes":276060},"view":{"count":8,"bytes":1190},...}
+{"full_frame":{"count":31,"bytes":275924},"view":{"count":6,"bytes":1176},...}
 ```
 
 ### CI integration

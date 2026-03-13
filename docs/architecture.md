@@ -56,10 +56,22 @@ kasane/
 │       ├── lib.rs              # クレートルート
 │       ├── element.rs          # Element ツリー型定義 (宣言的 UI の中核)
 │       ├── plugin.rs           # Plugin trait、PluginRegistry、Slot/Decorator/Replacement
-│       ├── input.rs            # 入力イベント → Kakoune キー変換
+│       ├── input/              # 入力処理
+│       │   ├── mod.rs          # 入力イベント → Kakoune キー変換
+│       │   └── builtin.rs     # 組み込みキーバインド (PageUp/PageDown 等)
 │       ├── config.rs           # TOML 設定パーサー (ThemeConfig, MenuConfig, SearchConfig 含む)
 │       ├── io.rs               # I/O ユーティリティ
 │       ├── perf.rs             # パフォーマンス計測ユーティリティ
+│       ├── pane.rs             # ペイン管理
+│       ├── workspace.rs        # ワークスペースレイアウト
+│       ├── plugin_prelude.rs   # プラグイン公開モジュール (外部クレート用 re-export)
+│       ├── test_support.rs     # テストサポートユーティリティ
+│       ├── surface/            # Surface 実装 (描画面抽象化)
+│       │   ├── mod.rs          # モジュールルート
+│       │   ├── buffer.rs       # バッファサーフェス
+│       │   ├── menu.rs         # メニューサーフェス
+│       │   ├── status.rs       # ステータスバーサーフェス
+│       │   └── info.rs         # Info ポップアップサーフェス
 │       ├── bin/
 │       │   └── alloc_budget.rs # アロケーション予算分析ツール
 │       ├── protocol/           # JSON-RPC パーサー
@@ -90,13 +102,23 @@ kasane/
 │           ├── grid.rs         # CellGrid — セルの二次元配列、差分描画
 │           ├── paint.rs        # paint() — Element + LayoutResult → CellGrid 描画
 │           ├── patch.rs        # PaintPatch trait + 組み込みパッチ (StatusBar/MenuSelection/Cursor)
-│           ├── scene.rs        # DrawCommand — GUI シーンベース描画用コマンド
+│           ├── cursor.rs       # カーソルレンダリング (primary/secondary、フォーカス連動)
+│           ├── pipeline.rs     # レンダリングパイプライン管理
+│           ├── cache.rs        # ViewCache/ComponentCache (描画キャッシュ)
+│           ├── scene/          # GUI シーンベース描画
+│           │   ├── mod.rs      # DrawCommand 定義
+│           │   └── cache.rs    # SceneCache (DrawCommand レベルキャッシュ)
 │           ├── theme.rs        # Theme (StyleToken → Face マッピング、face spec パーサー)
 │           ├── markup.rs       # マークアップパーサー ({face_spec}text{default})
 │           ├── test_helpers/   # テストヘルパー
 │           │   ├── mod.rs      # 共通テストヘルパー
 │           │   └── info.rs     # Info ポップアップ用テストヘルパー
-│           ├── tests.rs        # テスト
+│           ├── tests/          # テスト
+│           │   ├── mod.rs
+│           │   ├── pipeline.rs # パイプラインテスト
+│           │   ├── view_cache.rs
+│           │   ├── scene_cache.rs
+│           │   └── cursor.rs   # カーソルテスト
 │           ├── menu.rs         # メニュー描画
 │           └── view/           # view() — Element ツリー構築
 │               ├── mod.rs      # view() 関数、build_* 関数群
@@ -112,7 +134,8 @@ kasane/
 │   └── src/
 │       ├── lib.rs              # proc macro エントリポイント
 │       ├── plugin.rs           # #[kasane_plugin] — Plugin trait 実装の自動生成
-│       └── component.rs        # #[kasane_component] — deps() アノテーション、AST フィールドアクセス解析、allow() エスケープハッチ、FIELD_FLAG_MAP 検証
+│       ├── component.rs        # #[kasane_component] — deps() アノテーション、AST フィールドアクセス解析、allow() エスケープハッチ、FIELD_FLAG_MAP 検証
+│       └── analysis.rs         # 共有 AST 解析コード (StateFieldVisitor, FIELD_FLAG_MAP)
 ├── kasane-gui/                 # GPU バックエンド (winit + wgpu + glyphon)
 │   └── src/
 │       ├── lib.rs              # クレートルート、run_gui() エントリポイント
@@ -132,12 +155,41 @@ kasane/
 │       │   └── rounded_rect.wgsl # 角丸矩形シェーダー
 │       └── cpu/
 │           └── mod.rs          # CPU フォールバック (未実装)
-└── kasane/                     # メインバイナリ + ライブラリ (CLI パース、バックエンド選択)
-    └── src/
-        ├── lib.rs              # kasane::run() エントリポイント (外部プラグインバイナリ用)
-        ├── main.rs             # デフォルトバイナリ (kasane::run(|_| {}) を呼ぶのみ)
-        ├── cli.rs              # CLI 引数パーサー
-        └── process.rs          # Kakoune 子プロセス管理
+├── kasane/                     # メインバイナリ + ライブラリ (CLI パース、バックエンド選択)
+│   └── src/
+│       ├── lib.rs              # kasane::run() エントリポイント (外部プラグインバイナリ用)
+│       ├── main.rs             # デフォルトバイナリ (kasane::run(|_| {}) を呼ぶのみ)
+│       ├── cli.rs              # CLI 引数パーサー
+│       └── process.rs          # Kakoune 子プロセス管理
+├── kasane-wasm/                # WASM プラグインランタイム (wasmtime Component Model)
+│   ├── src/
+│   │   ├── lib.rs              # クレートルート、register_bundled_plugins()
+│   │   ├── adapter.rs          # WasmPlugin — Plugin trait の WASM アダプター実装
+│   │   ├── host.rs             # ホスト関数 (ゲスト→ホスト呼び出し、AppState 参照)
+│   │   ├── convert.rs          # WIT 型 ↔ Rust 型 変換
+│   │   └── tests.rs            # テスト
+│   ├── wit/
+│   │   └── plugin.wit          # WIT インターフェース定義
+│   ├── bundled/                # ビルド済みバンドルプラグイン (include_bytes! 用)
+│   │   ├── cursor-line.wasm
+│   │   ├── color-preview.wasm
+│   │   └── sel-badge.wasm
+│   └── guests/                 # WASM ゲストプラグインソース
+│       ├── cursor-line/        # カーソル行ハイライト
+│       ├── color-preview/      # 色コード検出 + ピッカー
+│       ├── sel-badge/          # 選択数バッジ
+│       └── line-numbers/       # 行番号
+├── kasane-plugin-sdk/          # WASM ゲストプラグイン用 SDK
+│   └── src/
+│       └── lib.rs              # WIT バインディング、定数、ヘルパーマクロ
+└── kasane-wasm-bench/          # WASM ベンチマークスイート (Phase W0 ゲート検証)
+    ├── src/
+    │   └── lib.rs              # ベンチマークハーネス
+    └── guests/                 # ベンチマーク用ゲスト
+        ├── string-echo/        # 文字列エコー (canonical ABI 計測)
+        ├── element-builder/    # Element 構築 (gutter_24 計測)
+        ├── state-reader/       # 状態読取 (ホスト関数呼び出し計測)
+        └── component-plugin/   # フルサイクル (realistic simulation 計測)
 ```
 
 ## 通信プロトコル

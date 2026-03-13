@@ -43,6 +43,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
 | `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, bundled plugins (`bundled/`), guest sources (`guests/`) |
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros |
+| `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
 
 ## Architecture
 
@@ -86,4 +87,4 @@ External crates can create plugins using `kasane_core::plugin_prelude` and regis
 - **Documentation**: `docs/` directory (requirements, architecture, ADRs, roadmap) — currently in Japanese, being migrated to English
 - **Rust edition**: 2024
 - **Dev environment**: Nix flake + direnv (provides Rust toolchain, GUI deps, pre-commit hooks)
-- **Performance**: ~40 μs CPU per frame at 80×24. Benchmarks tracked in CI with 115% alert threshold
+- **Performance**: ~49 μs CPU per frame at 80×24. Benchmarks tracked in CI with 115% alert threshold

@@ -101,17 +101,19 @@
 | Extension Point | 実証プラグイン | 状態 |
 |-----------------|---------------|------|
 | `Slot::BufferLeft` | color_preview (ガタースウォッチ), line-numbers (行番号) | 実証済み |
+| `Slot::StatusRight` | sel-badge (選択数バッジ) | 実証済み |
 | `contribute_line()` | cursor_line (行背景ハイライト), color_preview (ガタースウォッチ) | 実証済み |
 | `contribute_overlay()` | color_preview (カラーピッカー) | 実証済み |
 | `handle_mouse()` | color_preview (色値編集) | 実証済み |
 | `Slot::Overlay` | 内部使用 (info/menu) | 実証済み (プラグインとしては未実証) |
 | `Slot::BufferRight` | — | 未実証 (上流ブロッカーで先送り) |
 | `Slot::BufferTop` / `BufferBottom` | — | 未実証 |
-| `Decorator(Buffer)` | — | メカニズム存在、実プラグインなし (ネイティブ専用) |
-| `Replacement` | — | メカニズム存在、実プラグインなし (ネイティブ専用) |
-| `OverlayAnchor::Absolute` | — | 設計のみ、未実装 |
-
-> **Note:** Decorator / Replacement / transform_menu_item は WIT に未公開のため、現時点ではネイティブプラグイン (`kasane::run()`) でのみ使用可能。
+| `Decorator(Buffer)` | — | WASM v0.3.0 で公開済み、実プラグインなし |
+| `Replacement` | — | WASM v0.3.0 で公開済み、実プラグインなし |
+| `transform_menu_item()` | — | WASM v0.3.0 で公開済み、実プラグインなし |
+| `cursor_style_override()` | — | メカニズム存在 (ネイティブ + WASM v0.4.0)、実プラグインなし |
+| `contribute_named_slot()` | — | メカニズム存在 (ネイティブ + WASM v0.4.0)、実プラグインなし |
+| `OverlayAnchor::Absolute` | 内部使用 (メニュー/検索バー) | ✓ インフラ実装済み (プラグインとしては未実証) |
 
 ---
 

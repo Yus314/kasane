@@ -931,10 +931,10 @@ fn my_plugin_contributes_gutter() {
 | プラグイン | パス | 行数 | 主な機能 |
 |---|---|---|---|
 | cursor-line (WASM) | `kasane-wasm/guests/cursor-line/` | 73行 | `contribute_line()`, `state_hash()` — カーソル行ハイライト |
-| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 74行 | `contribute()` (STATUS_RIGHT), `route_slots!` — 選択数バッジ |
-| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 93行 | `contribute()` (BUFFER_LEFT), `element_builder` — 行番号 |
-| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 568行 | `contribute_line()`, `contribute_overlay()`, `handle_mouse()` — 色検出・ピッカー |
-| line-numbers (ネイティブ) | `examples/line-numbers/` | 38行 | `#[kasane_plugin]`, `#[slot]`, `kasane::run()` — 行番号 |
+| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 73行 | `contribute()` (STATUS_RIGHT), `route_slots!` — 選択数バッジ |
+| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92行 | `contribute()` (BUFFER_LEFT), `element_builder` — 行番号 |
+| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 567行 | `contribute_line()`, `contribute_overlay()`, `handle_mouse()` — 色検出・ピッカー |
+| line-numbers (ネイティブ) | `examples/line-numbers/` | 37行 | `#[kasane_plugin]`, `#[slot]`, `kasane::run()` — 行番号 |
 
 ## 12. 付録: WASM vs ネイティブ比較表
 

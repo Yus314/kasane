@@ -85,3 +85,29 @@
 | measure() | レイアウト計算の第1段階 (下→上)。各要素が制約内でのサイズを報告 |
 | place() | レイアウト計算の第2段階 (上→下)。親が子の具体的な位置を決定 |
 | LayoutResult | レイアウト計算の結果。各要素の画面上の矩形 (Rect) |
+
+## Surface & Workspace
+
+| 用語 | 説明 |
+|------|------|
+| Surface | 画面領域を所有する描画単位。`id()`, `size_hint()`, `view()`, `handle_event()` 等のメソッドを持つ trait。コア UI コンポーネントとプラグインが対等に画面を所有する設計の基盤 |
+| SurfaceId | Surface の一意な識別子 (u32)。定数定義: BUFFER=0, STATUS=1, MENU=2, INFO_BASE=10, PLUGIN_BASE=100 |
+| SurfaceRegistry | Surface インスタンスと Workspace レイアウトツリーを管理。`compose_view()` / `compose_full_view()` で全 Surface を統合した Element ツリーを構築 |
+| ViewContext / EventContext | Surface に渡されるコンテキスト (AppState, Rect, フォーカス状態, PluginRegistry) |
+| WorkspaceNode | Workspace レイアウトツリーのノード。Leaf / Split / Tabs / Float の 4 種 |
+| Workspace | ルートノード管理、フォーカストラッキング (履歴スタック)、`compute_rects()` / `surface_at()` |
+| WorkspaceCommand | ワークスペース操作コマンド: AddSurface / RemoveSurface / Focus / FocusDirection / Resize / Swap / Float / Unfloat |
+| Placement | 新 Surface の配置指定: SplitFocused / SplitFrom / Tab / TabIn / Dock / Float |
+| SlotId | オープンスロットシステム。legacy `Slot` enum (deprecated) を置き換え、`SlotId::new("myplugin.sidebar")` でカスタムスロットを定義可能 |
+| PaintHook | paint 後の CellGrid 直接変更を行う trait。DirtyFlags ベース + Surface フィルタで対象を制御 |
+| PluginCapabilities | プラグインが参加する拡張ポイントを示す bitflags (14 種)。非参加プラグインの WASM 境界呼び出しをスキップする最適化に使用 |
+
+## レンダリング最適化
+
+| 用語 | 説明 |
+|------|------|
+| ViewCache | Element ツリーのセクション別キャッシュ (base, menu, info)。DirtyFlags に基づき無効化 |
+| ComponentCache\<T\> | 汎用メモ化ラッパー。`get_or_insert()` / `invalidate()` で値をキャッシュ |
+| SceneCache | DrawCommand レベルのセクション別キャッシュ (GUI 用)。ViewCache と同じ無効化ルール |
+| LayoutCache | base_layout, status_row, root_area をキャッシュ。セクション別再描画の基盤 |
+| PaintPatch | 最小限のセル更新で CellGrid を修正する trait。StatusBarPatch (~80 cells), MenuSelectionPatch (~10 cells), CursorPatch (2 cells) の 3 種が組み込み |

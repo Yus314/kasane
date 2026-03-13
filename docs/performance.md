@@ -381,51 +381,52 @@ Multiple `DecorateTarget::BufferLine` decorators create N * M function calls (N 
 
 **Future mitigation**: `Element::VirtualList` for visible-range-only rendering.
 
-## Compiler-Driven Optimization (ADR-010) Evaluation
+## Compiler-Driven Optimization (ADR-010) — Implementation Status
 
-[ADR-010](./decisions.md) defines a three-stage compilation model. Evaluation against real benchmark data:
+[ADR-010](./decisions.md) defines a multi-stage compilation model. All four stages have been implemented.
 
-### Stage 1: Input Memoization
-
-| Metric | Value |
-|---|---|
-| Current view() cost | 0.24 us (0 plugins) / 2.35 us (10 plugins) |
-| Expected savings | 0.2-2.3 us |
-| Assessment | At 0.24 us, savings are negligible. Becomes worthwhile with real plugins (>2 us). |
-
-**Recommendation**: Implement when first real plugins exist (Phase 4a validation).
-
-### Stage 2: Static Layout Cache
+### Stage 1: DirtyFlags-Based View Memoization — Implemented
 
 | Metric | Value |
 |---|---|
-| Current place() cost | 0.37 us |
-| Target threshold | 5 us (14x headroom) |
-| Cache memory cost | ~1.5 KB (50B/node * 30 nodes) |
-| Cache invalidation | u16 comparison * 2 per frame |
+| view() cost | 0.24 us (0 plugins) / 2.35 us (10 plugins) |
+| Implementation | ViewCache, ComponentCache\<T\>, DirtyFlags u16, MENU→MENU_STRUCTURE+MENU_SELECTION split |
+| Result | view() sections skipped entirely when corresponding DirtyFlags are clear |
 
-**Recommendation**: Defer until place() exceeds 5 us.
-
-### Stage 3: Fine-Grained Update Code Generation
+### Stage 2: Verified Dependency Tracking — Implemented
 
 | Metric | Value |
 |---|---|
-| Current paint() cost | 26.3 us (80x24) / 83.6 us (200x60) |
-| Terminal I/O cost | 163-1,012 us (backend.draw) |
-| paint as % of I/O | 2-25% |
-| Potential savings | ~23 us at 80x24 |
+| Implementation | `#[kasane::component(deps(FLAG, ...))]` proc macro, AST-based field access analysis, FIELD_FLAG_MAP |
+| Compile-time check | Accesses to state fields not covered by declared deps cause compile error |
+| Escape hatch | `allow(field, ...)` for intentional dependency gaps |
 
-**Recommendation**: Defer. Simpler optimizations (fast-path ASCII fill, dirty region skipping) offer better ROI than code generation.
+### Stage 3: SceneCache (DrawCommand-Level Caching) — Implemented
 
-### Overall Verdict
+| Metric | Value |
+|---|---|
+| Implementation | Per-section DrawCommand caching (base, menu, info) |
+| Invalidation | Mirrors ViewCache: BUFFER\|STATUS\|OPTIONS→base, MENU→menu, INFO→info |
+| GPU benefit | Cursor-only frames reuse cached scene (0 us pipeline work) |
 
-ADR-010 is architecturally sound but premature. The CPU pipeline (49 us) is dominated by clear()+paint() (30.7 us) and diff() (12.2 us), which are better addressed by:
+### Stage 4: Compiled Paint Patches — Implemented
 
-1. **DirtyFlags per-component skip** -- avoid full repaint on status-only changes
-2. **Container fill fast-path** -- `fill_row()` instead of per-cell `put_char()`
-3. **Streaming diff** -- eliminate 196 KB allocation per frame
+| Metric | Value |
+|---|---|
+| StatusBarPatch | STATUS-only dirty → repaint ~80 cells (vs 1,920 full) |
+| MenuSelectionPatch | MENU_SELECTION-only dirty → swap face on ~10 cells |
+| CursorPatch | Cursor moved, no dirty flags → swap face on 2 cells |
+| LayoutCache | base_layout, status_row, root_area cached with per-section invalidation |
 
-These simpler optimizations should be pursued first. ADR-010 stages become relevant when plugin count grows or when terminal I/O is no longer the bottleneck (e.g., GPU backend).
+### Overall Result
+
+All four stages are operational. The pipeline automatically selects the minimal repaint path:
+
+1. **PaintPatch** (2-80 cells) → **sectioned repaint** (~1 section) → **full pipeline** (fallback)
+
+Remaining optimization opportunities (not yet implemented):
+- **Container fill fast-path** -- `fill_row()` instead of per-cell `put_char()`
+- **Streaming diff** -- eliminate 196 KB allocation per frame
 
 ## WASM Plugin Benchmarks
 
@@ -456,12 +457,12 @@ See [ADR-013](./decisions.md#adr-013-wasm-プラグインランタイム--compon
 
 ### Realistic Plugin Simulation
 
-| Scenario | Measured | Budget (40 μs) | Notes |
+| Scenario | Measured | Budget (~49 μs) | Notes |
 |---|---|---|---|
-| 1 plugin full frame | **1.80 μs** | 4.5% | |
-| 3 plugins full frame | **5.45 μs** | 13.6% | |
-| 5 plugins full frame | **8.91 μs** | 22.3% | |
-| 10 plugins full frame | **18.0 μs** | 45.0% | |
+| 1 plugin full frame | **1.80 μs** | 3.7% | |
+| 3 plugins full frame | **5.45 μs** | 11.1% | |
+| 5 plugins full frame | **8.91 μs** | 18.2% | |
+| 10 plugins full frame | **18.0 μs** | 36.7% | |
 | Cache hit (no state change) | **0.26 ns** | ~0% | DirtyFlags skip |
 
 Scaling is linear at **~1.8 μs per plugin**.
@@ -489,49 +490,88 @@ Total startup for 10 plugins ≈ 10 ms. Cacheable via `Engine::precompile_compon
 1. **Terminal I/O is dominant**: CPU pipeline (49 us) is 1-20% of terminal I/O (163-1,012 us). Improving diff accuracy (minimizing changed cells) matters more than optimizing grid operations.
 2. **Avoid allocations on hot paths**: Minimize heap allocations in paint, layout, and diff. BufferRef pattern avoids large data clones. Target: <50 allocations per frame.
 3. **Measure before optimizing**: `cargo bench --bench rendering_pipeline` for measurement, CI detects >15% regressions. All optimization decisions are data-driven.
-4. **Bound plugin costs**: Native plugins: 10 add ~4 us (view 2.35 us + dispatch 1.70 us). WASM plugins: 10 add ~18 us. Monitor linear scaling; investigate if total exceeds ~20 us (native) or ~25 us (WASM).
+4. **Bound plugin costs**: Native plugins: 10 add ~4 us (view 2.35 us + dispatch 1.70 us). WASM plugins: 10 add ~18 us. Monitor linear scaling; investigate if total exceeds ~20 us (native) or ~30 us (WASM).
 5. **Cache only when needed**: place() has 14x headroom to threshold. VirtualList and layout caching are deferred until problems are observed.
 6. **WASM + caching synergy**: DirtyFlags-based caching eliminates WASM calls on unchanged frames (0.26 ns cache hit). Design WASM plugin APIs to maximize cache hit rate.
 
-## `#[kasane::component]` コンパイラ駆動最適化
+## High Refresh Rate Analysis (240Hz)
 
-`#[kasane::component]` macro は Svelte 的な「コンパイラに仕事をさせる」思想に基づき、宣言的な view() から最適化されたコードを段階的に生成する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング)):
+Frame budget at 240fps: **4.17 ms (4,170 μs)**.
 
-**段階 1: 入力メモ化**
+### CPU Pipeline vs 240fps Budget
 
-入力パラメータの前回値を保持し、全入力が同一なら Element 構築をスキップする:
+| | 80×24 | 200×60 | 300×80 | Budget |
+|---|---|---|---|---|
+| CPU pipeline (view→diff→swap) | 49 μs | 223 μs | 399 μs | 4,170 μs |
+| WASM plugins (10) | 18 μs | 18 μs | 18 μs | |
+| **CPU total** | **~67 μs** | **~241 μs** | **~417 μs** | **4,170 μs** |
+| **Budget usage** | **1.6%** | **5.8%** | **10.0%** | |
+
+The CPU pipeline is well within 240fps budget even at large display sizes.
+
+### Backend Considerations
+
+**TUI**: Not meaningful at 240fps. Terminal emulators refresh at 60-120Hz. `backend.draw()` cost (100-3,000 μs) is dominated by terminal I/O, not Kasane.
+
+**GUI (wgpu)**: Achievable. The CPU pipeline leaves ~3,750 μs for GPU rendering and presentation at 80×24. With PaintPatch and DirtyFlags, animation frames (smooth scroll, cursor blink) bypass most of the CPU pipeline:
+
+```
+Content frame:    parse → apply → view → place → paint → diff → draw  (~49 μs + I/O)
+Animation frame:  ──────────── skip ────────────── → scroll offset → GPU draw
+```
+
+### Limiting Factors
+
+| Factor | Impact at 240fps | Mitigation |
+|---|---|---|
+| JSON-RPC parse (500 lines) | 2.68 ms = 64% of budget | Kakoune sends only viewport lines (24-80) |
+| diff() allocation (196 KB/frame) | GC pressure → jitter at high frame rates | Streaming diff (not yet implemented) |
+| Event source rate | Kakoune is reactive, not 240Hz | Only animation frames need 240fps |
+
+### Conclusion
+
+240fps is achievable for the GPU backend with animation path separation (zero-cost redraws when no new Kakoune data arrives). The CPU pipeline has 4-8x headroom. The primary optimization target is eliminating per-frame allocations (diff's 196 KB) to reduce tail latency jitter under sustained high frame rates.
+
+## `#[kasane::component]` Compiler-Driven Optimization
+
+The `#[kasane::component]` macro follows Svelte's "let the compiler do the work" philosophy, progressively generating optimized code from declarative `view()` functions ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング)):
+
+**Stage 1: Input Memoization**
+
+Retains previous input parameter values and skips Element construction when all inputs are identical:
 
 ```rust
 #[kasane::component]
 fn file_tree(entries: &[Entry], selected: usize) -> Element { ... }
-// → entries, selected が前回と同じなら、キャッシュ済み Element を返す
+// → If entries and selected are unchanged, returns cached Element
 ```
 
-**段階 2: 静的レイアウトキャッシュ**
+**Stage 2: Static Layout Cache**
 
-proc macro が構造の静的部分を検出し、レイアウトを一度だけ計算する。
+The proc macro detects structurally static parts and calculates layout only once.
 
-**段階 3: 細粒度更新コード生成**
+**Stage 3: Fine-Grained Update Code Generation**
 
-proc macro が各 Element の依存する入力パラメータを AST レベルで静的解析し、変更されたセルのみ CellGrid を直接更新するコードを生成する。
+The proc macro statically analyzes each Element's input parameter dependencies at the AST level and generates code that directly updates only the changed cells in CellGrid.
 
-**二層レンダリングモデル:**
+**Two-Layer Rendering Model:**
 
 ```
               +---------------------+
-              |   宣言的 API 層      |  ← プラグイン作者が触る
-              |  (Element, view())   |
+              |  Declarative API    |  ← Plugin authors work here
+              |  (Element, view())  |
               +------+--------------+
                      |
          +-----------+----------+
          v                      v
-  コンパイル済みパス       インタープリタパス
-  (proc macro 生成)       (汎用 Element ツリー)
+  Compiled path          Interpreter path
+  (proc macro gen)       (generic Element tree)
          |                      |
-  静的構造 → 直接         Element → layout()
-    CellGrid 更新          → paint() → CellGrid
+  Static structure →     Element → layout()
+    direct CellGrid        → paint() → CellGrid
+    update
 ```
 
-- **コンパイル済みパス**: `#[kasane::component]` が静的解析できる部分。Element ツリーを経由せず直接 CellGrid を更新
-- **インタープリタパス**: プラグインが `Plugin::contribute()` で動的に Element を提供する部分。従来のフルパス
-- **フォールバック**: `#[kasane::component]` なしのコードはインタープリタパスで動作。最適化はオプトインで、正しさは常にインタープリタパスが保証する
+- **Compiled path**: Parts that `#[kasane::component]` can statically analyze. Updates CellGrid directly, bypassing the Element tree.
+- **Interpreter path**: Parts where plugins dynamically provide Elements via `Plugin::contribute()`. Uses the full pipeline.
+- **Fallback**: Code without `#[kasane::component]` runs through the interpreter path. Optimization is opt-in; correctness is always guaranteed by the interpreter path.
