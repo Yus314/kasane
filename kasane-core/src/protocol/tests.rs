@@ -62,7 +62,7 @@ fn test_parse_draw_with_rgb_faces() {
     // Simulates gruvbox-style draw message with RGB default_face
     let json = r#"{"jsonrpc":"2.0","method":"draw","params":[[
         [{"face":{"fg":"rgb:ebdbb2","bg":"rgb:282828","underline":"default","attributes":[]},"contents":"hello"}]
-    ],{"fg":"rgb:ebdbb2","bg":"rgb:282828","underline":"default","attributes":[]},{"fg":"rgb:504945","bg":"rgb:282828","underline":"default","attributes":[]}]}"#;
+    ],{"line":0,"column":0},{"fg":"rgb:ebdbb2","bg":"rgb:282828","underline":"default","attributes":[]},{"fg":"rgb:504945","bg":"rgb:282828","underline":"default","attributes":[]},0]}"#;
     let mut buf = json.as_bytes().to_vec();
     let req = parse_request(&mut buf).unwrap();
     match req {
@@ -70,6 +70,7 @@ fn test_parse_draw_with_rgb_faces() {
             lines,
             default_face,
             padding_face,
+            ..
         } => {
             assert_eq!(lines.len(), 1);
             assert_eq!(lines[0][0].contents, "hello");
@@ -163,7 +164,7 @@ fn test_coord_deserialize() {
 fn test_parse_draw() {
     let json = r#"{"jsonrpc":"2.0","method":"draw","params":[[
         [{"face":{"fg":"default","bg":"default"},"contents":"hello"}]
-    ],{"fg":"default","bg":"default"},{"fg":"default","bg":"default"}]}"#;
+    ],{"line":0,"column":0},{"fg":"default","bg":"default"},{"fg":"default","bg":"default"},0]}"#;
     let mut buf = json.as_bytes().to_vec();
     let req = parse_request(&mut buf).unwrap();
     match req {
@@ -178,7 +179,7 @@ fn test_parse_draw() {
 #[test]
 fn test_parse_draw_real_kakoune() {
     // Real Kakoune output format
-    let json = r#"{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "test\u000a" }]], { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }] }"#;
+    let json = r#"{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "test\u000a" }]], { "line": 0, "column": 0 }, { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, 0] }"#;
     let mut buf = json.as_bytes().to_vec();
     let req = parse_request(&mut buf).unwrap();
     match req {
@@ -199,6 +200,8 @@ fn test_parse_draw_real_kakoune() {
 fn test_parse_draw_status() {
     let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[
         [{"face":{"fg":"default","bg":"default"},"contents":":"}],
+        [{"face":{"fg":"default","bg":"default"},"contents":"hello"}],
+        3,
         [{"face":{"fg":"default","bg":"default"},"contents":"insert"},
          {"face":{"fg":"default","bg":"default"},"contents":" 1 sel"}],
         {"fg":"default","bg":"default"}
@@ -207,29 +210,18 @@ fn test_parse_draw_status() {
     let req = parse_request(&mut buf).unwrap();
     match req {
         KakouneRequest::DrawStatus {
-            status_line,
+            prompt,
+            content,
+            content_cursor_pos,
             mode_line,
             ..
         } => {
-            assert_eq!(status_line[0].contents, ":");
+            assert_eq!(prompt[0].contents, ":");
+            assert_eq!(content[0].contents, "hello");
+            assert_eq!(content_cursor_pos, 3);
             assert_eq!(mode_line[0].contents, "insert");
         }
         _ => panic!("expected DrawStatus"),
-    }
-}
-
-#[test]
-fn test_parse_set_cursor() {
-    let json =
-        r#"{"jsonrpc":"2.0","method":"set_cursor","params":["buffer",{"line":0,"column":1}]}"#;
-    let mut buf = json.as_bytes().to_vec();
-    let req = parse_request(&mut buf).unwrap();
-    match req {
-        KakouneRequest::SetCursor { mode, coord } => {
-            assert_eq!(mode, CursorMode::Buffer);
-            assert_eq!(coord, Coord { line: 0, column: 1 });
-        }
-        _ => panic!("expected SetCursor"),
     }
 }
 
@@ -421,12 +413,11 @@ fn test_kasane_request_menu_select_json() {
 
 #[test]
 fn test_parse_real_kakoune_session() {
-    // Real messages captured from `kak -ui json`
+    // Real messages captured from `kak -ui json` (new protocol format)
     let messages = [
         r#"{ "jsonrpc": "2.0", "method": "set_ui_options", "params": [{}] }"#,
-        r#"{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "black", "bg": "white", "underline": "default", "attributes": ["final_fg","final_bg"] }, "contents": "t" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "est\u000a" }]], { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }] }"#,
-        r#"{ "jsonrpc": "2.0", "method": "draw_status", "params": [[], [{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "file.txt 1:1 " }, { "face": { "fg": "black", "bg": "yellow", "underline": "default", "attributes": [] }, "contents": "" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, "contents": "1 sel" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " - client0@[session]" }], { "fg": "cyan", "bg": "default", "underline": "default", "attributes": [] }] }"#,
-        r#"{ "jsonrpc": "2.0", "method": "set_cursor", "params": ["buffer", { "line": 0, "column": 1 }] }"#,
+        r#"{ "jsonrpc": "2.0", "method": "draw", "params": [[[{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "black", "bg": "white", "underline": "default", "attributes": ["final_fg","final_bg"] }, "contents": "t" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "est\u000a" }]], { "line": 0, "column": 1 }, { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, 0] }"#,
+        r#"{ "jsonrpc": "2.0", "method": "draw_status", "params": [[], [], -1, [{ "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": "file.txt 1:1 " }, { "face": { "fg": "black", "bg": "yellow", "underline": "default", "attributes": [] }, "contents": "" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " " }, { "face": { "fg": "blue", "bg": "default", "underline": "default", "attributes": [] }, "contents": "1 sel" }, { "face": { "fg": "default", "bg": "default", "underline": "default", "attributes": [] }, "contents": " - client0@[session]" }], { "fg": "cyan", "bg": "default", "underline": "default", "attributes": [] }] }"#,
         r#"{ "jsonrpc": "2.0", "method": "refresh", "params": [false] }"#,
     ];
 

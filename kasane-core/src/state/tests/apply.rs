@@ -1,4 +1,4 @@
-use crate::protocol::{Attributes, Coord, Face, InfoStyle, KakouneRequest, MenuStyle};
+use crate::protocol::{Attributes, Coord, CursorMode, Face, InfoStyle, KakouneRequest, MenuStyle};
 use crate::state::{AppState, DirtyFlags, MenuState};
 use crate::test_utils::make_line;
 
@@ -9,35 +9,97 @@ fn test_apply_draw() {
     let mut state = AppState::default();
     let flags = state.apply(KakouneRequest::Draw {
         lines: vec![make_line("hello")],
+        cursor_pos: Coord { line: 0, column: 3 },
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     });
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert_eq!(state.lines.len(), 1);
 }
 
 #[test]
-fn test_apply_set_cursor() {
+fn test_draw_updates_cursor_pos() {
     let mut state = AppState::default();
-    let flags = state.apply(KakouneRequest::SetCursor {
-        mode: crate::protocol::CursorMode::Buffer,
-        coord: Coord { line: 0, column: 3 },
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("hello")],
+        cursor_pos: Coord {
+            line: 5,
+            column: 10,
+        },
+        default_face: Face::default(),
+        padding_face: Face::default(),
+        widget_columns: 0,
     });
-    assert!(flags.contains(DirtyFlags::BUFFER));
-    assert_eq!(state.cursor_pos.column, 3);
-    assert_eq!(state.cursor_mode, crate::protocol::CursorMode::Buffer);
+    assert_eq!(
+        state.cursor_pos,
+        Coord {
+            line: 5,
+            column: 10
+        }
+    );
+}
+
+#[test]
+fn test_draw_stores_widget_columns() {
+    let mut state = AppState::default();
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("hello")],
+        cursor_pos: Coord::default(),
+        default_face: Face::default(),
+        padding_face: Face::default(),
+        widget_columns: 3,
+    });
+    assert_eq!(state.widget_columns, 3);
+}
+
+#[test]
+fn test_draw_status_derives_cursor_mode_prompt() {
+    let mut state = AppState::default();
+    let flags = state.apply(KakouneRequest::DrawStatus {
+        prompt: make_line(":"),
+        content: make_line("quit"),
+        content_cursor_pos: 4,
+        mode_line: make_line("normal"),
+        default_face: Face::default(),
+    });
+    assert!(flags.contains(DirtyFlags::STATUS));
+    assert!(flags.contains(DirtyFlags::BUFFER)); // mode changed
+    assert_eq!(state.cursor_mode, CursorMode::Prompt);
+    assert_eq!(state.status_content_cursor_pos, 4);
+}
+
+#[test]
+fn test_draw_status_derives_cursor_mode_buffer() {
+    let mut state = AppState::default();
+    let flags = state.apply(KakouneRequest::DrawStatus {
+        prompt: make_line(""),
+        content: make_line(""),
+        content_cursor_pos: -1,
+        mode_line: make_line("normal"),
+        default_face: Face::default(),
+    });
+    assert!(flags.contains(DirtyFlags::STATUS));
+    assert!(!flags.contains(DirtyFlags::BUFFER)); // mode unchanged (already Buffer)
+    assert_eq!(state.cursor_mode, CursorMode::Buffer);
 }
 
 #[test]
 fn test_apply_draw_status() {
     let mut state = AppState::default();
     let flags = state.apply(KakouneRequest::DrawStatus {
-        status_line: make_line(":q"),
+        prompt: make_line(":"),
+        content: make_line("q"),
+        content_cursor_pos: 1,
         mode_line: make_line("insert"),
         default_face: Face::default(),
     });
     assert!(flags.contains(DirtyFlags::STATUS));
-    assert_eq!(state.status_line[0].contents, ":q");
+    assert_eq!(state.status_prompt[0].contents, ":");
+    assert_eq!(state.status_content[0].contents, "q");
+    // Combined status_line = prompt + content
+    assert_eq!(state.status_line[0].contents, ":");
+    assert_eq!(state.status_line[1].contents, "q");
     assert_eq!(state.status_mode_line[0].contents, "insert");
 }
 
@@ -331,8 +393,6 @@ fn normal_atom(s: &str) -> Atom {
 #[test]
 fn test_draw_extracts_secondary_cursors_multiple() {
     let mut state = AppState::default();
-    // Set primary cursor at line 0, column 5
-    state.cursor_pos = Coord { line: 0, column: 5 };
 
     // Line: "hello" (5 chars) + cursor "w" at col 5 + "orld" (4 chars)
     // + another cursor at col 10 (the "!" char)
@@ -343,10 +403,13 @@ fn test_draw_extracts_secondary_cursors_multiple() {
         cursor_atom("!"),
     ];
 
+    // Primary cursor at line 0, column 5 (from draw message)
     state.apply(KakouneRequest::Draw {
         lines: vec![line],
+        cursor_pos: Coord { line: 0, column: 5 },
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     });
 
     assert_eq!(state.cursor_count, 2);
@@ -364,14 +427,15 @@ fn test_draw_extracts_secondary_cursors_multiple() {
 #[test]
 fn test_draw_single_cursor_no_secondary() {
     let mut state = AppState::default();
-    state.cursor_pos = Coord { line: 0, column: 0 };
 
     let line = vec![cursor_atom("h"), normal_atom("ello")];
 
     state.apply(KakouneRequest::Draw {
         lines: vec![line],
+        cursor_pos: Coord { line: 0, column: 0 },
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     });
 
     assert_eq!(state.cursor_count, 1);
@@ -385,8 +449,10 @@ fn test_draw_no_cursors() {
 
     state.apply(KakouneRequest::Draw {
         lines: vec![line],
+        cursor_pos: Coord::default(),
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     });
 
     assert_eq!(state.cursor_count, 0);
@@ -396,16 +462,17 @@ fn test_draw_no_cursors() {
 #[test]
 fn test_draw_cjk_column_width() {
     let mut state = AppState::default();
-    // Primary cursor at column 4 (after two CJK chars = 4 display columns)
-    state.cursor_pos = Coord { line: 0, column: 4 };
 
     // "漢字" is 4 display columns, then cursor at col 4
     let line = vec![normal_atom("漢字"), cursor_atom("x")];
 
+    // Primary cursor at column 4 (after two CJK chars = 4 display columns)
     state.apply(KakouneRequest::Draw {
         lines: vec![line],
+        cursor_pos: Coord { line: 0, column: 4 },
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     });
 
     assert_eq!(state.cursor_count, 1);
@@ -415,15 +482,16 @@ fn test_draw_cjk_column_width() {
 #[test]
 fn test_draw_secondary_cursors_multiline() {
     let mut state = AppState::default();
-    state.cursor_pos = Coord { line: 0, column: 0 };
 
     let line0 = vec![cursor_atom("a"), normal_atom("bc")];
     let line1 = vec![normal_atom("de"), cursor_atom("f")];
 
     state.apply(KakouneRequest::Draw {
         lines: vec![line0, line1],
+        cursor_pos: Coord { line: 0, column: 0 },
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     });
 
     assert_eq!(state.cursor_count, 2);

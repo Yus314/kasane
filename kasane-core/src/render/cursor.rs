@@ -2,6 +2,7 @@ use super::CursorStyle;
 use super::grid::CellGrid;
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
+use crate::layout::line_display_width;
 use crate::protocol::{Attributes, Color, CursorMode, Face};
 use crate::state::AppState;
 
@@ -43,16 +44,23 @@ pub fn find_buffer_x_offset(element: &Element, layout: &LayoutResult) -> u16 {
 /// `buffer_x_offset` accounts for left gutter columns.
 /// Returns (x, y) coordinates for the terminal cursor.
 pub fn cursor_position(state: &AppState, grid: &CellGrid, buffer_x_offset: u16) -> (u16, u16) {
-    let cx = state.cursor_pos.column as u16;
-    let cy = match state.cursor_mode {
-        CursorMode::Prompt => grid.height().saturating_sub(1),
-        CursorMode::Buffer => state.cursor_pos.line as u16,
-    };
-    let cx = match state.cursor_mode {
-        CursorMode::Buffer => cx + buffer_x_offset,
-        CursorMode::Prompt => cx,
-    };
-    (cx, cy)
+    match state.cursor_mode {
+        CursorMode::Buffer => {
+            let cx = state.cursor_pos.column as u16 + buffer_x_offset;
+            let cy = state.cursor_pos.line as u16;
+            (cx, cy)
+        }
+        CursorMode::Prompt => {
+            let prompt_width = line_display_width(&state.status_prompt) as u16;
+            let cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            let cy = if state.status_at_top {
+                0
+            } else {
+                grid.height().saturating_sub(1)
+            };
+            (cx, cy)
+        }
+    }
 }
 
 /// Determine the cursor style from the application state.
@@ -94,14 +102,22 @@ pub fn clear_block_cursor_face(
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
     }
-    let cx = state.cursor_pos.column as u16;
-    let cy = match state.cursor_mode {
-        CursorMode::Prompt => grid.height().saturating_sub(1),
-        CursorMode::Buffer => state.cursor_pos.line as u16,
-    };
-    let cx = match state.cursor_mode {
-        CursorMode::Buffer => cx + buffer_x_offset,
-        CursorMode::Prompt => cx,
+    let (cx, cy) = match state.cursor_mode {
+        CursorMode::Buffer => {
+            let cx = state.cursor_pos.column as u16 + buffer_x_offset;
+            let cy = state.cursor_pos.line as u16;
+            (cx, cy)
+        }
+        CursorMode::Prompt => {
+            let prompt_width = line_display_width(&state.status_prompt) as u16;
+            let cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            let cy = if state.status_at_top {
+                0
+            } else {
+                grid.height().saturating_sub(1)
+            };
+            (cx, cy)
+        }
     };
     let base_face = match state.cursor_mode {
         CursorMode::Buffer => &state.default_face,

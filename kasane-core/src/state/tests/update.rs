@@ -5,7 +5,7 @@ use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{Command, Plugin, PluginId, PluginRegistry};
-use crate::protocol::{Face, KakouneRequest, KasaneRequest};
+use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
 use crate::render::CellGrid;
 use crate::state::update::{Msg, update};
 use crate::state::{AppState, DirtyFlags};
@@ -43,8 +43,10 @@ fn test_update_kakoune_draw() {
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
+            cursor_pos: Coord::default(),
             default_face: Face::default(),
             padding_face: Face::default(),
+            widget_columns: 0,
         }),
         &mut registry,
         &mut grid,
@@ -346,8 +348,10 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
+            cursor_pos: Coord::default(),
             default_face: Face::default(),
             padding_face: Face::default(),
+            widget_columns: 0,
         }),
         &mut registry,
         &mut grid,

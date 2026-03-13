@@ -47,24 +47,26 @@ fn parse_method(
 
     match method {
         "draw" => {
-            let (lines, default_face, padding_face) = de_params(method, params)?;
+            let (lines, cursor_pos, default_face, padding_face, widget_columns) =
+                de_params(method, params)?;
             Ok(KakouneRequest::Draw {
                 lines,
+                cursor_pos,
                 default_face,
                 padding_face,
+                widget_columns,
             })
         }
         "draw_status" => {
-            let (status_line, mode_line, default_face) = de_params(method, params)?;
+            let (prompt, content, content_cursor_pos, mode_line, default_face) =
+                de_params(method, params)?;
             Ok(KakouneRequest::DrawStatus {
-                status_line,
+                prompt,
+                content,
+                content_cursor_pos,
                 mode_line,
                 default_face,
             })
-        }
-        "set_cursor" => {
-            let (mode, coord) = de_params(method, params)?;
-            Ok(KakouneRequest::SetCursor { mode, coord })
         }
         "menu_show" => {
             let (items, anchor, selected_item_face, menu_face, style) = de_params(method, params)?;

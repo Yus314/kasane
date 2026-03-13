@@ -220,7 +220,11 @@ fn test_clear_block_cursor_face_block_noop() {
 fn test_clear_block_cursor_face_prompt() {
     let mut state = AppState::default();
     state.cursor_mode = crate::protocol::CursorMode::Prompt;
-    state.cursor_pos = crate::protocol::Coord { line: 0, column: 1 };
+    state.status_prompt = vec![Atom {
+        face: Face::default(),
+        contents: ":".into(),
+    }];
+    state.status_content_cursor_pos = 3;
     state.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
@@ -233,12 +237,12 @@ fn test_clear_block_cursor_face_prompt() {
         bg: Color::Named(NamedColor::White),
         ..Face::default()
     };
-    // Prompt cursor is at the last row
-    grid.put_char(1, 4, "p", &cursor_face);
+    // Prompt cursor at col = prompt_width(1) + cursor_pos(3) = 4, last row = 4
+    grid.put_char(4, 4, "p", &cursor_face);
 
     clear_block_cursor_face(&state, &mut grid, CursorStyle::Bar, 0);
 
-    let cell = grid.get(1, 4).unwrap();
+    let cell = grid.get(4, 4).unwrap();
     assert_eq!(cell.face, state.status_default_face);
 }
 

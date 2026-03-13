@@ -468,7 +468,16 @@ pub fn draw_realistic_json(line_count: usize) -> Vec<u8> {
         ..Face::default()
     };
     let padding_face = default_face;
-    to_json_bytes("draw", (&lines, &default_face, &padding_face))
+    to_json_bytes(
+        "draw",
+        (
+            &lines,
+            &Coord::default(),
+            &default_face,
+            &padding_face,
+            0u16,
+        ),
+    )
 }
 
 /// Create a state with `n` lines modified starting at `start_line` (simulating an edit).
@@ -539,6 +548,7 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
     let lines: Vec<Line> = (0..line_count).map(make_colored_line).collect();
     KakouneRequest::Draw {
         lines,
+        cursor_pos: Coord::default(),
         default_face: Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Black),
@@ -549,6 +559,7 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
             bg: Color::Named(NamedColor::Black),
             ..Face::default()
         },
+        widget_columns: 0,
     }
 }
 
@@ -593,15 +604,25 @@ pub fn draw_json(line_count: usize) -> Vec<u8> {
         ..Face::default()
     };
     let padding_face = default_face;
-    to_json_bytes("draw", (&lines, &default_face, &padding_face))
+    to_json_bytes(
+        "draw",
+        (
+            &lines,
+            &Coord::default(),
+            &default_face,
+            &padding_face,
+            0u16,
+        ),
+    )
 }
 
 /// JSON-RPC "draw_status" message as raw bytes.
 pub fn draw_status_json() -> Vec<u8> {
-    let status_line: Line = vec![Atom {
+    let prompt: Line = vec![Atom {
         face: Face::default(),
         contents: " NORMAL ".into(),
     }];
+    let content: Line = Vec::new();
     let mode_line: Line = vec![Atom {
         face: Face::default(),
         contents: "normal".into(),
@@ -611,20 +632,9 @@ pub fn draw_status_json() -> Vec<u8> {
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    to_json_bytes("draw_status", (&status_line, &mode_line, &default_face))
-}
-
-/// JSON-RPC "set_cursor" message as raw bytes.
-pub fn set_cursor_json() -> Vec<u8> {
     to_json_bytes(
-        "set_cursor",
-        (
-            "buffer",
-            Coord {
-                line: 5,
-                column: 10,
-            },
-        ),
+        "draw_status",
+        (&prompt, &content, -1i32, &mode_line, &default_face),
     )
 }
 

@@ -339,7 +339,7 @@ fn resize_updates_grid() {
 
 #[test]
 fn parse_draw_and_render() {
-    let json = r#"{"jsonrpc":"2.0","method":"draw","params":[[[{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"fn main()"}]],{"fg":"white","bg":"black","underline":"default","attributes":[]},{"fg":"white","bg":"black","underline":"default","attributes":[]}]}"#;
+    let json = r#"{"jsonrpc":"2.0","method":"draw","params":[[[{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"fn main()"}]],{"line":0,"column":0},{"fg":"white","bg":"black","underline":"default","attributes":[]},{"fg":"white","bg":"black","underline":"default","attributes":[]},0]}"#;
     let mut buf = json.as_bytes().to_vec();
     let req = kasane_core::protocol::parse_request(&mut buf).unwrap();
 
@@ -354,7 +354,7 @@ fn parse_draw_and_render() {
 
 #[test]
 fn parse_draw_status_and_render() {
-    let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[[{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"[scratch]"}],[{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"insert"}],{"fg":"cyan","bg":"default","underline":"default","attributes":[]}]}"#;
+    let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[[{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"[scratch]"}],[],-1,[{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"insert"}],{"fg":"cyan","bg":"default","underline":"default","attributes":[]}]}"#;
     let mut buf = json.as_bytes().to_vec();
     let req = kasane_core::protocol::parse_request(&mut buf).unwrap();
 
@@ -453,8 +453,10 @@ fn update_kakoune_draw_message() {
 
     let req = KakouneRequest::Draw {
         lines: vec![make_line("updated content")],
+        cursor_pos: Coord::default(),
         default_face: Face::default(),
         padding_face: Face::default(),
+        widget_columns: 0,
     };
     let (flags, cmds) = update(&mut state, Msg::Kakoune(req), &mut registry, &mut grid, 3);
     assert!(flags.contains(DirtyFlags::BUFFER));
@@ -559,8 +561,10 @@ fn test_line_dirty_single_edit_diff() {
             make_line("EDITED"),
             make_line("line 2"),
         ],
+        cursor_pos: Coord::default(),
         default_face: state.default_face,
         padding_face: state.padding_face,
+        widget_columns: 0,
     });
     assert_eq!(state.lines_dirty, vec![false, true, false]);
 
@@ -592,8 +596,10 @@ fn test_line_dirty_consecutive_edits() {
     lines[5] = make_line("EDITED_5");
     state.apply(KakouneRequest::Draw {
         lines,
+        cursor_pos: Coord::default(),
         default_face: state.default_face,
         padding_face: state.padding_face,
+        widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
     let diffs = grid.diff();
@@ -608,8 +614,10 @@ fn test_line_dirty_consecutive_edits() {
     lines[10] = make_line("EDITED_10");
     state.apply(KakouneRequest::Draw {
         lines,
+        cursor_pos: Coord::default(),
         default_face: state.default_face,
         padding_face: state.padding_face,
+        widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
     let diffs = grid.diff();

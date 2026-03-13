@@ -66,14 +66,20 @@ pub struct AppState {
     pub padding_face: Face,
     pub lines_dirty: Vec<bool>,
 
-    // Cursor (from set_cursor)
+    // Cursor (from draw message)
     pub cursor_mode: CursorMode,
     pub cursor_pos: Coord,
 
     // Status
+    pub status_prompt: Line,
+    pub status_content: Line,
+    pub status_content_cursor_pos: i32,
     pub status_line: Line,
     pub status_mode_line: Line,
     pub status_default_face: Face,
+
+    // Widget columns (flag-lines highlighter column count from draw)
+    pub widget_columns: u16,
 
     // Floating windows
     pub menu: Option<MenuState>,
@@ -185,9 +191,13 @@ impl Default for AppState {
             lines_dirty: Vec::new(),
             cursor_mode: CursorMode::Buffer,
             cursor_pos: Coord::default(),
+            status_prompt: Vec::new(),
+            status_content: Vec::new(),
+            status_content_cursor_pos: -1,
             status_line: Vec::new(),
             status_mode_line: Vec::new(),
             status_default_face: Face::default(),
+            widget_columns: 0,
             menu: None,
             infos: Vec::new(),
             ui_options: HashMap::new(),

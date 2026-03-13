@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Attributes, Coord, KakouneRequest};
+use crate::protocol::{Attributes, Coord, CursorMode, KakouneRequest};
 
 use super::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 
@@ -10,9 +10,13 @@ impl AppState {
         match request {
             KakouneRequest::Draw {
                 lines,
+                cursor_pos,
                 default_face,
                 padding_face,
+                widget_columns,
             } => {
+                self.cursor_pos = cursor_pos;
+
                 // Extract all cursor positions: atoms with FINAL_FG + REVERSE indicate cursor faces.
                 // Track coordinates using grapheme display widths for accurate column positions.
                 let mut all_cursors: Vec<Coord> = Vec::new();
@@ -41,6 +45,8 @@ impl AppState {
                     .filter(|c| *c != self.cursor_pos)
                     .collect();
 
+                self.widget_columns = widget_columns;
+
                 // Line-level dirty tracking: compare old vs new lines
                 let face_changed =
                     self.default_face != default_face || self.padding_face != padding_face;
@@ -63,19 +69,38 @@ impl AppState {
                 DirtyFlags::BUFFER
             }
             KakouneRequest::DrawStatus {
-                status_line,
+                prompt,
+                content,
+                content_cursor_pos,
                 mode_line,
                 default_face,
             } => {
-                self.status_line = status_line;
+                self.status_prompt = prompt.clone();
+                self.status_content = content.clone();
+                self.status_content_cursor_pos = content_cursor_pos;
+
+                // Derive CursorMode from content_cursor_pos
+                let new_mode = if content_cursor_pos >= 0 {
+                    CursorMode::Prompt
+                } else {
+                    CursorMode::Buffer
+                };
+                let mode_changed = self.cursor_mode != new_mode;
+                self.cursor_mode = new_mode;
+
+                // Combine prompt + content into status_line for view/patch compatibility
+                let mut combined = prompt;
+                combined.extend(content);
+                self.status_line = combined;
+
                 self.status_mode_line = mode_line;
                 self.status_default_face = default_face;
-                DirtyFlags::STATUS
-            }
-            KakouneRequest::SetCursor { mode, coord } => {
-                self.cursor_mode = mode;
-                self.cursor_pos = coord;
-                DirtyFlags::BUFFER
+
+                if mode_changed {
+                    DirtyFlags::STATUS | DirtyFlags::BUFFER
+                } else {
+                    DirtyFlags::STATUS
+                }
             }
             KakouneRequest::MenuShow {
                 items,

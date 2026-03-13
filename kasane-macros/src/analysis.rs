@@ -28,7 +28,11 @@ pub const FIELD_FLAG_MAP: &[(&str, &[&str])] = &[
     ("cursor_pos", &["BUFFER"]),
     ("cursor_count", &["BUFFER"]),
     ("secondary_cursors", &["BUFFER"]),
+    ("widget_columns", &["BUFFER"]),
     // STATUS
+    ("status_prompt", &["STATUS"]),
+    ("status_content", &["STATUS"]),
+    ("status_content_cursor_pos", &["STATUS"]),
     ("status_line", &["STATUS"]),
     ("status_mode_line", &["STATUS"]),
     ("status_default_face", &["STATUS"]),

@@ -27,7 +27,7 @@ pub struct Coord {
 // CursorMode / MenuStyle / InfoStyle
 // ---------------------------------------------------------------------------
 
-/// Cursor display mode sent by Kakoune's `set_cursor` message.
+/// Cursor display mode derived from `draw_status` cursor position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CursorMode {
@@ -78,17 +78,17 @@ impl InfoStyle {
 pub enum KakouneRequest {
     Draw {
         lines: Vec<Line>,
+        cursor_pos: Coord,
         default_face: Face,
         padding_face: Face,
+        widget_columns: u16,
     },
     DrawStatus {
-        status_line: Line,
+        prompt: Line,
+        content: Line,
+        content_cursor_pos: i32,
         mode_line: Line,
         default_face: Face,
-    },
-    SetCursor {
-        mode: CursorMode,
-        coord: Coord,
     },
     MenuShow {
         items: Vec<Line>,

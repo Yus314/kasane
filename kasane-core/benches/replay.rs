@@ -5,23 +5,19 @@ use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::parse_request;
 use kasane_core::render::{CellGrid, render_pipeline};
 
-use fixtures::{draw_json, draw_status_json, menu_show_json, set_cursor_json, typical_state};
+use fixtures::{draw_json, draw_status_json, menu_show_json, typical_state};
 
 // ---------------------------------------------------------------------------
 // Trace generators — build message sequences programmatically
 // ---------------------------------------------------------------------------
 
-/// Normal editing: draw_status + set_cursor + draw repeated (typing simulation)
+/// Normal editing: draw_status + draw repeated (typing simulation)
 fn generate_normal_editing() -> Vec<Vec<u8>> {
     let mut msgs = Vec::with_capacity(50);
-    for _ in 0..16 {
+    for _ in 0..25 {
         msgs.push(draw_status_json());
-        msgs.push(set_cursor_json());
         msgs.push(draw_json(23));
     }
-    // Pad to ~50
-    msgs.push(draw_status_json());
-    msgs.push(set_cursor_json());
     msgs.truncate(50);
     msgs
 }
@@ -37,7 +33,6 @@ fn generate_menu_completion() -> Vec<Vec<u8>> {
     // Show menu
     msgs.push(menu_show_json(10));
     msgs.push(draw_json(23));
-    msgs.push(set_cursor_json());
     // Browse completions (status updates)
     for _ in 0..5 {
         msgs.push(draw_status_json());
@@ -47,7 +42,6 @@ fn generate_menu_completion() -> Vec<Vec<u8>> {
     msgs.push(menu_show_json(30));
     msgs.push(draw_json(23));
     msgs.push(draw_status_json());
-    msgs.push(set_cursor_json());
     msgs.truncate(20);
     msgs
 }
@@ -56,9 +50,8 @@ fn generate_menu_completion() -> Vec<Vec<u8>> {
 fn generate_mixed_session() -> Vec<Vec<u8>> {
     let mut msgs = Vec::with_capacity(200);
     // Typing phase
-    for _ in 0..20 {
+    for _ in 0..30 {
         msgs.push(draw_status_json());
-        msgs.push(set_cursor_json());
         msgs.push(draw_json(23));
     }
     // Scroll phase
@@ -72,9 +65,8 @@ fn generate_mixed_session() -> Vec<Vec<u8>> {
         msgs.push(draw_json(23));
     }
     // More typing
-    for _ in 0..20 {
+    for _ in 0..30 {
         msgs.push(draw_status_json());
-        msgs.push(set_cursor_json());
         msgs.push(draw_json(23));
     }
     msgs.truncate(200);

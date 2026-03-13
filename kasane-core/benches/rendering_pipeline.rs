@@ -21,7 +21,7 @@ use kasane_core::state::DirtyFlags;
 
 use fixtures::{
     draw_json, draw_request, draw_status_json, menu_show_json, realistic_state,
-    registry_with_plugins, set_cursor_json, state_with_edit, state_with_menu, typical_state,
+    registry_with_plugins, state_with_edit, state_with_menu, typical_state,
 };
 
 // ---------------------------------------------------------------------------
@@ -390,26 +390,21 @@ fn bench_incremental_edit(c: &mut Criterion) {
     group.finish();
 }
 
-/// Bench 11: Realistic message sequence — draw_status + set_cursor + draw → full render
+/// Bench 11: Realistic message sequence — draw_status + draw → full render
 fn bench_message_sequence(c: &mut Criterion) {
     let registry = PluginRegistry::new();
     let draw_status = kasane_core::protocol::KakouneRequest::DrawStatus {
-        status_line: vec![kasane_core::protocol::Atom {
+        prompt: vec![kasane_core::protocol::Atom {
             face: kasane_core::protocol::Face::default(),
             contents: " INSERT ".into(),
         }],
+        content: Vec::new(),
+        content_cursor_pos: -1,
         mode_line: vec![kasane_core::protocol::Atom {
             face: kasane_core::protocol::Face::default(),
             contents: "insert".into(),
         }],
         default_face: kasane_core::protocol::Face::default(),
-    };
-    let set_cursor = kasane_core::protocol::KakouneRequest::SetCursor {
-        mode: kasane_core::protocol::CursorMode::Buffer,
-        coord: kasane_core::protocol::Coord {
-            line: 10,
-            column: 15,
-        },
     };
     let draw = draw_request(23);
     let base_state = typical_state(23);
@@ -423,18 +418,10 @@ fn bench_message_sequence(c: &mut Criterion) {
 
     c.bench_function("message_sequence", |b| {
         b.iter_batched(
-            || {
-                (
-                    base_state.clone(),
-                    draw_status.clone(),
-                    set_cursor.clone(),
-                    draw.clone(),
-                )
-            },
-            |(mut state, msg1, msg2, msg3)| {
+            || (base_state.clone(), draw_status.clone(), draw.clone()),
+            |(mut state, msg1, msg2)| {
                 state.apply(msg1);
                 state.apply(msg2);
-                state.apply(msg3);
                 let element = view::view(&state, &registry);
                 let layout = flex::place(&element, area, &state);
                 grid.clear(&state.default_face);
@@ -482,16 +469,6 @@ fn bench_parse_request(c: &mut Criterion) {
         )
     });
 
-    // set_cursor (minimal message)
-    let json = set_cursor_json();
-    group.bench_function("set_cursor", |b| {
-        b.iter_batched(
-            || json.clone(),
-            |mut buf| parse_request(&mut buf).unwrap(),
-            BatchSize::SmallInput,
-        )
-    });
-
     // menu_show with 50 items
     let json = menu_show_json(50);
     group.bench_function("menu_show_50", |b| {
@@ -529,10 +506,12 @@ fn bench_state_apply(c: &mut Criterion) {
     // DrawStatus
     {
         let request = kasane_core::protocol::KakouneRequest::DrawStatus {
-            status_line: vec![kasane_core::protocol::Atom {
+            prompt: vec![kasane_core::protocol::Atom {
                 face: kasane_core::protocol::Face::default(),
                 contents: " NORMAL ".into(),
             }],
+            content: Vec::new(),
+            content_cursor_pos: -1,
             mode_line: vec![kasane_core::protocol::Atom {
                 face: kasane_core::protocol::Face::default(),
                 contents: "normal".into(),
@@ -541,25 +520,6 @@ fn bench_state_apply(c: &mut Criterion) {
         };
         let base_state = typical_state(23);
         group.bench_function("draw_status", |b| {
-            b.iter_batched(
-                || (base_state.clone(), request.clone()),
-                |(mut state, req)| state.apply(req),
-                BatchSize::SmallInput,
-            )
-        });
-    }
-
-    // SetCursor
-    {
-        let request = kasane_core::protocol::KakouneRequest::SetCursor {
-            mode: kasane_core::protocol::CursorMode::Buffer,
-            coord: kasane_core::protocol::Coord {
-                line: 5,
-                column: 10,
-            },
-        };
-        let base_state = typical_state(23);
-        group.bench_function("set_cursor", |b| {
             b.iter_batched(
                 || (base_state.clone(), request.clone()),
                 |(mut state, req)| state.apply(req),
@@ -1043,8 +1003,10 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
     let edited_lines = edited_state.lines.clone();
     state_after.apply(kasane_core::protocol::KakouneRequest::Draw {
         lines: edited_lines,
+        cursor_pos: kasane_core::protocol::Coord::default(),
         default_face: state.default_face,
         padding_face: state.padding_face,
+        widget_columns: 0,
     });
 
     c.bench_function("line_dirty_single_edit", |b| {

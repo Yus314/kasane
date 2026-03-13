@@ -159,10 +159,11 @@ fn parse_request_under_500us() {
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
+    let cursor_pos = kasane_core::protocol::Coord::default();
     let json = serde_json::to_vec(&serde_json::json!({
         "jsonrpc": "2.0",
         "method": "draw",
-        "params": [lines, default_face, default_face]
+        "params": [lines, cursor_pos, default_face, default_face, 0]
     }))
     .unwrap();
 
@@ -200,6 +201,7 @@ fn state_apply_under_200us() {
                 }]
             })
             .collect(),
+        cursor_pos: kasane_core::protocol::Coord::default(),
         default_face: Face {
             fg: Color::Named(NamedColor::White),
             bg: Color::Named(NamedColor::Black),
@@ -210,6 +212,7 @@ fn state_apply_under_200us() {
             bg: Color::Named(NamedColor::Black),
             ..Face::default()
         },
+        widget_columns: 0,
     };
     let base = typical_state(23);
 

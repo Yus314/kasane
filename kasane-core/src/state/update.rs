@@ -43,7 +43,6 @@ pub fn update(
             let req_kind = match &req {
                 KakouneRequest::Draw { .. } => "Draw",
                 KakouneRequest::DrawStatus { .. } => "DrawStatus",
-                KakouneRequest::SetCursor { .. } => "SetCursor",
                 _ => "",
             };
             if !req_kind.is_empty() {

@@ -9,6 +9,7 @@ use super::theme::Theme;
 use super::{RenderResult, paint, patch, view};
 use crate::layout::Rect;
 use crate::layout::flex;
+use crate::layout::line_display_width;
 use crate::plugin::PluginRegistry;
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
@@ -16,14 +17,22 @@ use crate::state::{AppState, DirtyFlags};
 /// Compute the RenderResult (cursor position + style) from AppState.
 fn compute_render_result(state: &AppState, buffer_x_offset: u16) -> RenderResult {
     let style = cursor_style(state);
-    let cx = state.cursor_pos.column as u16;
-    let cy = match state.cursor_mode {
-        CursorMode::Prompt => state.rows.saturating_sub(1),
-        CursorMode::Buffer => state.cursor_pos.line as u16,
-    };
-    let cx = match state.cursor_mode {
-        CursorMode::Buffer => cx + buffer_x_offset,
-        CursorMode::Prompt => cx,
+    let (cx, cy) = match state.cursor_mode {
+        CursorMode::Buffer => {
+            let cx = state.cursor_pos.column as u16 + buffer_x_offset;
+            let cy = state.cursor_pos.line as u16;
+            (cx, cy)
+        }
+        CursorMode::Prompt => {
+            let prompt_width = line_display_width(&state.status_prompt) as u16;
+            let cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            let cy = if state.status_at_top {
+                0
+            } else {
+                state.rows.saturating_sub(1)
+            };
+            (cx, cy)
+        }
     };
     RenderResult {
         cursor_x: cx,
