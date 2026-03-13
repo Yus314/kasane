@@ -204,12 +204,7 @@ fn paint_container(ctx: &mut PaintContext, args: &ContainerPaintArgs) {
     }
 
     // Fill entire container area with face
-    for row in 0..area.h {
-        let y = area.y + row;
-        for x in area.x..(area.x + area.w).min(ctx.grid.width()) {
-            ctx.grid.put_char(x, y, " ", face);
-        }
-    }
+    ctx.grid.clear_region(area, face);
 
     // Border
     if let Some(border_config) = args.border {
@@ -552,6 +547,43 @@ mod tests {
         // "world" at (5,0)
         assert_eq!(grid.get(5, 0).unwrap().grapheme, "w");
         assert_eq!(grid.get(9, 0).unwrap().grapheme, "d");
+    }
+
+    #[test]
+    fn test_paint_container_over_wide_chars() {
+        let state = default_state();
+        let mut grid = CellGrid::new(20, 10);
+        // Place wide chars in the grid before painting container
+        let wide_face = Face::default();
+        grid.put_char(1, 0, "漢", &wide_face);
+        grid.put_char(3, 0, "字", &wide_face);
+        grid.put_char(1, 1, "あ", &wide_face);
+
+        let el = Element::Container {
+            child: Box::new(Element::text("hi", Face::default())),
+            border: Some(BorderConfig::from(BorderLineStyle::Rounded)),
+            shadow: false,
+            padding: Edges::ZERO,
+            style: Style::from(Face::default()),
+            title: None,
+        };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 6,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+        paint(&el, &layout, &mut grid, &state);
+
+        // Container fill should have replaced wide chars with spaces
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "╭");
+        assert_eq!(grid.get(1, 0).unwrap().grapheme, "─");
+        assert_eq!(grid.get(0, 1).unwrap().grapheme, "│");
+        // Interior: child "hi" is painted, no leftover wide chars
+        assert_eq!(grid.get(1, 1).unwrap().grapheme, "h");
+        assert_eq!(grid.get(1, 1).unwrap().width, 1);
+        assert_eq!(grid.get(2, 1).unwrap().grapheme, "i");
     }
 
     #[test]
