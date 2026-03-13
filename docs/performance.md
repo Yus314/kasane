@@ -427,10 +427,68 @@ ADR-010 is architecturally sound but premature. The CPU pipeline (49 us) is domi
 
 These simpler optimizations should be pursued first. ADR-010 stages become relevant when plugin count grows or when terminal I/O is no longer the bottleneck (e.g., GPU backend).
 
+## WASM Plugin Benchmarks
+
+Measured with `cargo bench -p kasane-wasm-bench` (wasmtime 42, Component Model, criterion).
+See [ADR-013](./decisions.md#adr-013-wasm-プラグインランタイム--component-model-採用) for the full decision record.
+
+### Raw WASM Overhead
+
+| Benchmark | Measured | Notes |
+|---|---|---|
+| Empty call (noop) | **26.5 ns** | WASM boundary crossing cost |
+| Integer call (add) | **23.5 ns** | |
+| Host import (1x) | **29.2 ns** | Guest → host function call |
+| Host import (10x) | **77.5 ns** | ~5 ns per additional host call |
+| Native noop | 1.2 ns | Baseline comparison |
+
+### Component Model Call Overhead
+
+| Function | Raw Module | Component Model | Ratio | Notes |
+|---|---|---|---|---|
+| noop | 26.5 ns | **552 ns** | 20.8x | ~500 ns canonical ABI overhead |
+| add | 23.5 ns | **556 ns** | 23.7x | |
+| echo_string 100B | 59 ns | **758 ns** | 12.9x | |
+| build_gutter 24 | 1.50 μs | **6.12 μs** | 4.1x | Overhead amortizes over payload |
+| on_state_changed | 42 ns | **787 ns** | 18.7x | 3 host calls inside |
+| contribute_lines 24 | 75 ns | **1.04 μs** | 13.9x | |
+| full_cycle | 115 ns | **1.84 μs** | 16.0x | state_changed + contribute_lines |
+
+### Realistic Plugin Simulation
+
+| Scenario | Measured | Budget (40 μs) | Notes |
+|---|---|---|---|
+| 1 plugin full frame | **1.80 μs** | 4.5% | |
+| 3 plugins full frame | **5.45 μs** | 13.6% | |
+| 5 plugins full frame | **8.91 μs** | 22.3% | |
+| 10 plugins full frame | **18.0 μs** | 45.0% | |
+| Cache hit (no state change) | **0.26 ns** | ~0% | DirtyFlags skip |
+
+Scaling is linear at **~1.8 μs per plugin**.
+
+### WASM vs Native Comparison
+
+| Operation | Native | WASM (CM) | Ratio | Notes |
+|---|---|---|---|---|
+| cursor_line full cycle | 9.5 ns | 2.01 μs | 212x | Absolute cost (2 μs) is negligible |
+| gutter_24 | 1.63 μs | 6.18 μs | 3.8x | Ratio drops with real computation |
+
+### Instantiation Cost (Startup Only)
+
+| Operation | Measured | Notes |
+|---|---|---|
+| Component compilation | **9.97 ms** | One-time at startup |
+| 1 instance | **29.3 μs** | Per-Store |
+| 5 instances | **131 μs** | |
+| 10 instances | **280 μs** | |
+
+Total startup for 10 plugins ≈ 10 ms. Cacheable via `Engine::precompile_component`.
+
 ## Performance Principles
 
 1. **Terminal I/O is dominant**: CPU pipeline (49 us) is 1-20% of terminal I/O (163-1,012 us). Improving diff accuracy (minimizing changed cells) matters more than optimizing grid operations.
 2. **Avoid allocations on hot paths**: Minimize heap allocations in paint, layout, and diff. BufferRef pattern avoids large data clones. Target: <50 allocations per frame.
 3. **Measure before optimizing**: `cargo bench --bench rendering_pipeline` for measurement, CI detects >15% regressions. All optimization decisions are data-driven.
-4. **Bound plugin costs**: Currently 10 plugins add ~4 us (view 2.35 us + dispatch 1.70 us). Monitor linear scaling; investigate if total exceeds ~20 us.
+4. **Bound plugin costs**: Native plugins: 10 add ~4 us (view 2.35 us + dispatch 1.70 us). WASM plugins: 10 add ~18 us. Monitor linear scaling; investigate if total exceeds ~20 us (native) or ~25 us (WASM).
 5. **Cache only when needed**: place() has 14x headroom to threshold. VirtualList and layout caching are deferred until problems are observed.
+6. **WASM + caching synergy**: DirtyFlags-based caching eliminates WASM calls on unchanged frames (0.26 ns cache hit). Design WASM plugin APIs to maximize cache hit rate.

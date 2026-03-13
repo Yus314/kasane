@@ -1,0 +1,29 @@
+[package]
+name = "kasane-wasm-bench"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+wasmtime = "42"
+wasmtime-wasi = "42"
+anyhow = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "raw_overhead"
+harness = false
+
+[[bench]]
+name = "data_crossing"
+harness = false
+
+[[bench]]
+name = "component_model"
+harness = false
+
+[[bench]]
+name = "realistic"
+harness = false

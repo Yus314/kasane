@@ -3,6 +3,9 @@ pub mod process;
 
 pub use kasane_core;
 
+#[cfg(feature = "wasm-plugins")]
+pub use kasane_wasm;
+
 use anyhow::Result;
 use kasane_core::config::Config;
 use kasane_core::plugin::PluginRegistry;

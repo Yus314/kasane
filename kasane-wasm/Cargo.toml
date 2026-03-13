@@ -1,0 +1,12 @@
+[package]
+name = "kasane-wasm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kasane-core = { workspace = true }
+wasmtime = "42"
+wasmtime-wasi = "42"
+anyhow = { workspace = true }
+tracing = { workspace = true }

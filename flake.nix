@@ -19,6 +19,7 @@
         pkgs = import nixpkgs { inherit system overlays; };
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rustfmt" "clippy" ];
+          targets = [ "wasm32-unknown-unknown" "wasm32-wasip2" ];
         };
         isLinux = pkgs.stdenv.isLinux;
 

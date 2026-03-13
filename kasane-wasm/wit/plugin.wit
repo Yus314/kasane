@@ -1,0 +1,110 @@
+package kasane:plugin@0.1.0;
+
+interface types {
+    enum named-color {
+        black,
+        red,
+        green,
+        yellow,
+        blue,
+        magenta,
+        cyan,
+        white,
+        bright-black,
+        bright-red,
+        bright-green,
+        bright-yellow,
+        bright-blue,
+        bright-magenta,
+        bright-cyan,
+        bright-white,
+    }
+
+    record rgb-color {
+        r: u8,
+        g: u8,
+        b: u8,
+    }
+
+    variant color {
+        default-color,
+        named(named-color),
+        rgb(rgb-color),
+    }
+
+    /// Attribute bitflags as u16 (matches kasane-core Attributes layout).
+    type attribute-flags = u16;
+
+    record face {
+        fg: color,
+        bg: color,
+        underline: color,
+        attributes: attribute-flags,
+    }
+
+    /// Line background decoration.
+    record line-background {
+        face: face,
+    }
+
+    /// Opaque handle to a host-side Element.
+    type element-handle = u32;
+}
+
+interface host-state {
+    use types.{face};
+
+    get-cursor-line: func() -> s32;
+    get-cursor-col: func() -> s32;
+    get-line-count: func() -> u32;
+    get-cols: func() -> u16;
+    get-rows: func() -> u16;
+    is-focused: func() -> bool;
+}
+
+/// Host-provided functions for building Element trees.
+/// Handles are valid only within the current plugin call scope.
+interface element-builder {
+    use types.{face, element-handle};
+
+    /// Create a text element with a direct face.
+    create-text: func(content: string, face: face) -> element-handle;
+
+    /// Create a vertical column of fixed-size children.
+    create-column: func(children: list<element-handle>) -> element-handle;
+
+    /// Create a horizontal row of fixed-size children.
+    create-row: func(children: list<element-handle>) -> element-handle;
+}
+
+interface plugin-api {
+    use types.{line-background, element-handle};
+
+    /// Unique plugin identifier.
+    get-id: func() -> string;
+
+    /// Lifecycle hooks.
+    on-init: func();
+    on-shutdown: func();
+    on-state-changed: func(dirty-flags: u16);
+
+    /// Line decoration (background only).
+    contribute-line: func(line: u32) -> option<line-background>;
+
+    /// Contribute an Element to a named slot.
+    /// Slot indices: 0=BufferLeft, 1=BufferRight, 2=AboveBuffer,
+    /// 3=BelowBuffer, 4=AboveStatus, 5=StatusLeft, 6=StatusRight, 7=Overlay.
+    contribute: func(slot: u8) -> option<element-handle>;
+
+    /// Plugin state hash for view caching (L1).
+    state-hash: func() -> u64;
+
+    /// DirtyFlags dependencies for a given slot index (L3).
+    slot-deps: func(slot: u8) -> u16;
+}
+
+world kasane-plugin {
+    import host-state;
+    import element-builder;
+    export plugin-api;
+}

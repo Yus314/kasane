@@ -1,0 +1,57 @@
+package kasane:bench@0.1.0;
+
+interface host-api {
+    get-cursor-line: func() -> s32;
+    get-cursor-col: func() -> s32;
+    get-line-count: func() -> u32;
+    get-cols: func() -> u16;
+    get-rows: func() -> u16;
+    is-focused: func() -> bool;
+}
+
+interface plugin-api {
+    record color {
+        r: u8,
+        g: u8,
+        b: u8,
+    }
+
+    variant face-color {
+        none,
+        rgb(color),
+    }
+
+    record face {
+        fg: face-color,
+        bg: face-color,
+        bold: bool,
+    }
+
+    record text-element {
+        content: string,
+        face: face,
+    }
+
+    record gutter-result {
+        lines: list<text-element>,
+    }
+
+    record line-decoration {
+        has-background: bool,
+        bg-r: u8,
+        bg-g: u8,
+        bg-b: u8,
+    }
+
+    noop: func();
+    add: func(a: s32, b: s32) -> s32;
+    echo-string: func(input: string) -> string;
+    build-gutter: func(line-count: u32) -> gutter-result;
+    on-state-changed: func(dirty-flags: u16);
+    contribute-lines: func(start: u32, end-exclusive: u32) -> list<option<line-decoration>>;
+}
+
+world bench-plugin {
+    import host-api;
+    export plugin-api;
+}

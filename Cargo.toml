@@ -1,6 +1,6 @@
 [workspace]
-members = ["kasane", "kasane-core", "kasane-tui", "kasane-macros", "kasane-gui"]
-exclude = ["examples/line-numbers"]
+members = ["kasane", "kasane-core", "kasane-tui", "kasane-macros", "kasane-gui", "kasane-wasm-bench", "kasane-wasm"]
+exclude = ["examples/line-numbers", "examples/wasm-test", "kasane-wasm-bench/guests/string-echo", "kasane-wasm-bench/guests/element-builder", "kasane-wasm-bench/guests/state-reader", "kasane-wasm-bench/guests/component-plugin", "kasane-wasm/guests/cursor-line", "kasane-wasm/guests/line-numbers"]
 resolver = "3"
 
 [workspace.package]
@@ -36,6 +36,7 @@ bitflags = "2"
 compact_str = { version = "0.9", features = ["serde"] }
 bytemuck = { version = "1", features = ["derive"] }
 kasane-gui = { path = "kasane-gui" }
+kasane-wasm = { path = "kasane-wasm" }
 winit = "0.30"
 wgpu = "28"
 glyphon = "0.10"
