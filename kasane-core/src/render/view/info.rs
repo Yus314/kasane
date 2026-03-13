@@ -35,7 +35,7 @@ fn compute_info_window(
 }
 
 /// Build an info overlay using a replacement element with the same anchor as the default.
-pub(super) fn build_replacement_info_overlay(
+pub(crate) fn build_replacement_info_overlay(
     element: Element,
     info: &InfoState,
     state: &AppState,
@@ -50,7 +50,7 @@ pub(super) fn build_replacement_info_overlay(
 }
 
 #[crate::kasane_component(deps(INFO), allow(shadow_enabled))]
-pub(super) fn build_info_overlay_indexed(
+pub(crate) fn build_info_overlay_indexed(
     info: &InfoState,
     state: &AppState,
     avoid: &[crate::layout::Rect],

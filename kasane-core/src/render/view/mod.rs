@@ -1,5 +1,5 @@
-mod info;
-mod menu;
+pub(crate) mod info;
+pub(crate) mod menu;
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests;

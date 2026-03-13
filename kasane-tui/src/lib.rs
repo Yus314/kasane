@@ -20,6 +20,8 @@ use kasane_core::render::{
     ViewCache, render_pipeline_patched,
 };
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
+use kasane_core::surface::SurfaceRegistry;
+use kasane_core::surface::buffer::KakouneBufferSurface;
 
 use backend::TuiBackend;
 use input::convert_event;
@@ -37,6 +39,7 @@ fn handle_deferred(
     deferred: Vec<DeferredCommand>,
     state: &mut AppState,
     registry: &mut PluginRegistry,
+    surface_registry: &mut SurfaceRegistry,
     kak_writer: &mut impl Write,
     backend: &mut TuiBackend,
     dirty: &mut DirtyFlags,
@@ -58,6 +61,7 @@ fn handle_deferred(
                     nested_deferred,
                     state,
                     registry,
+                    surface_registry,
                     kak_writer,
                     backend,
                     dirty,
@@ -80,9 +84,67 @@ fn handle_deferred(
             DeferredCommand::SetConfig { key, value } => {
                 kasane_core::state::apply_set_config(state, dirty, &key, &value);
             }
+            DeferredCommand::Pane(_) => {
+                // Pane commands will be handled in Phase 5a-1
+            }
+            DeferredCommand::Workspace(ws_cmd) => {
+                dispatch_workspace_command(surface_registry, ws_cmd, dirty);
+            }
         }
     }
     false
+}
+
+/// Dispatch a workspace command to the SurfaceRegistry.
+fn dispatch_workspace_command(
+    surface_registry: &mut SurfaceRegistry,
+    cmd: kasane_core::workspace::WorkspaceCommand,
+    dirty: &mut DirtyFlags,
+) {
+    use kasane_core::workspace::WorkspaceCommand;
+    match cmd {
+        WorkspaceCommand::AddSurface {
+            surface_id,
+            placement,
+        } => {
+            let ws = surface_registry.workspace_mut();
+            match placement {
+                kasane_core::workspace::Placement::SplitFocused { direction, ratio } => {
+                    let focused = ws.focused();
+                    ws.root_mut().split(focused, direction, ratio, surface_id);
+                }
+                kasane_core::workspace::Placement::SplitFrom {
+                    target,
+                    direction,
+                    ratio,
+                } => {
+                    ws.root_mut().split(target, direction, ratio, surface_id);
+                }
+                _ => {} // Tab, Dock, Float — handled in future phases
+            }
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::RemoveSurface(id) => {
+            surface_registry.workspace_mut().close(id);
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::Focus(id) => {
+            surface_registry.workspace_mut().focus(id);
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::FocusDirection(_) => {
+            // Direction-based focus navigation — future phase
+        }
+        WorkspaceCommand::Swap(a, b) => {
+            let _ = (a, b); // Swap — future phase
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::Resize { .. }
+        | WorkspaceCommand::Float { .. }
+        | WorkspaceCommand::Unfloat(_) => {
+            // Future phases
+        }
+    }
 }
 
 /// 単一イベントを処理する。終了が必要な場合 true を返す。
@@ -91,6 +153,7 @@ fn process_event(
     event: Event,
     state: &mut AppState,
     registry: &mut PluginRegistry,
+    surface_registry: &mut SurfaceRegistry,
     grid: &mut CellGrid,
     scroll_amount: i32,
     kak_writer: &mut impl Write,
@@ -116,7 +179,16 @@ fn process_event(
             ) {
                 return true;
             }
-            handle_deferred(deferred, state, registry, kak_writer, backend, dirty, tx)
+            handle_deferred(
+                deferred,
+                state,
+                registry,
+                surface_registry,
+                kak_writer,
+                backend,
+                dirty,
+                tx,
+            )
         }
         Event::Input(input_event) => {
             let (flags, commands) =
@@ -132,7 +204,16 @@ fn process_event(
             ) {
                 return true;
             }
-            handle_deferred(deferred, state, registry, kak_writer, backend, dirty, tx)
+            handle_deferred(
+                deferred,
+                state,
+                registry,
+                surface_registry,
+                kak_writer,
+                backend,
+                dirty,
+                tx,
+            )
         }
         Event::PluginTimer(target, payload) => {
             let (flags, commands) = registry.deliver_message(&target, payload, state);
@@ -144,7 +225,16 @@ fn process_event(
             ) {
                 return true;
             }
-            handle_deferred(deferred, state, registry, kak_writer, backend, dirty, tx)
+            handle_deferred(
+                deferred,
+                state,
+                registry,
+                surface_registry,
+                kak_writer,
+                backend,
+                dirty,
+                tx,
+            )
         }
         Event::KakouneDied => true,
     }
@@ -229,6 +319,10 @@ where
         return Ok(());
     }
 
+    // Surface registry
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry.register(Box::new(KakouneBufferSurface::new()));
+
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
     let mut view_cache = ViewCache::new();
@@ -308,6 +402,7 @@ where
             first,
             &mut state,
             &mut registry,
+            &mut surface_registry,
             &mut grid,
             scroll_amount,
             &mut kak_writer,
@@ -336,6 +431,7 @@ where
                 event,
                 &mut state,
                 &mut registry,
+                &mut surface_registry,
                 &mut grid,
                 scroll_amount,
                 &mut kak_writer,
@@ -353,6 +449,7 @@ where
         }
 
         if !dirty.is_empty() {
+            surface_registry.sync_ephemeral_surfaces(&state);
             registry.prepare_plugin_cache(dirty);
             backend.begin_frame()?;
             let patches: &[&dyn kasane_core::render::PaintPatch] =

@@ -8,8 +8,10 @@ use bitflags::bitflags;
 use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::layout::HitMap;
+use crate::pane::{PaneCommand, PaneId, PanePermissions};
 use crate::protocol::{Face, KasaneRequest};
 use crate::state::{AppState, DirtyFlags};
+use crate::workspace::WorkspaceCommand;
 
 bitflags! {
     /// Declares which Plugin trait methods a plugin actually implements.
@@ -25,6 +27,10 @@ bitflags! {
         const CURSOR_STYLE     = 1 << 6;
         const INPUT_HANDLER    = 1 << 7;
         const NAMED_SLOT       = 1 << 8;
+        const PANE_LIFECYCLE   = 1 << 9;
+        const PANE_RENDERER    = 1 << 10;
+        const SURFACE_PROVIDER    = 1 << 11;
+        const WORKSPACE_OBSERVER  = 1 << 12;
     }
 }
 
@@ -119,6 +125,10 @@ pub enum Command {
         key: String,
         value: String,
     },
+    /// Pane management command (split, close, focus, etc.).
+    Pane(PaneCommand),
+    /// Workspace layout command (add/remove surface, focus, split, float, etc.).
+    Workspace(WorkspaceCommand),
 }
 
 /// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
@@ -136,6 +146,8 @@ pub enum DeferredCommand {
         key: String,
         value: String,
     },
+    Pane(PaneCommand),
+    Workspace(WorkspaceCommand),
 }
 
 /// Separate deferred commands from normal commands.
@@ -160,6 +172,8 @@ pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<D
             Command::SetConfig { key, value } => {
                 deferred.push(DeferredCommand::SetConfig { key, value })
             }
+            Command::Pane(cmd) => deferred.push(DeferredCommand::Pane(cmd)),
+            Command::Workspace(cmd) => deferred.push(DeferredCommand::Workspace(cmd)),
             other => normal.push(other),
         }
     }
@@ -201,7 +215,9 @@ pub fn execute_commands(
             // Deferred commands should be extracted before reaching execute_commands
             Command::ScheduleTimer { .. }
             | Command::PluginMessage { .. }
-            | Command::SetConfig { .. } => {}
+            | Command::SetConfig { .. }
+            | Command::Pane(_)
+            | Command::Workspace(_) => {}
         }
     }
     CommandResult::Continue
@@ -340,6 +356,49 @@ pub trait Plugin: Any {
     fn overlay_deps(&self) -> DirtyFlags {
         DirtyFlags::ALL
     }
+
+    // --- Pane lifecycle hooks (Phase 5) ---
+
+    /// Called when a new pane is created.
+    fn on_pane_created(&mut self, _pane_id: PaneId, _state: &AppState) {}
+
+    /// Called when a pane is closed.
+    fn on_pane_closed(&mut self, _pane_id: PaneId) {}
+
+    /// Called when focus changes between panes.
+    fn on_focus_changed(&mut self, _from: Option<PaneId>, _to: PaneId, _state: &AppState) {}
+
+    /// Render plugin-owned pane content. Return `None` if this plugin does not
+    /// own the given pane.
+    fn render_pane(&self, _pane_id: PaneId, _cols: u16, _rows: u16) -> Option<Element> {
+        None
+    }
+
+    /// Handle a key event for a plugin-owned pane.
+    fn handle_pane_key(&mut self, _pane_id: PaneId, _key: &KeyEvent) -> Option<Vec<Command>> {
+        None
+    }
+
+    /// Pane permission flags for this plugin. Default: none.
+    fn pane_permissions(&self) -> PanePermissions {
+        PanePermissions::empty()
+    }
+
+    // --- Surface system hooks (Phase S) ---
+
+    /// Return surfaces owned by this plugin.
+    /// Called once during initialization; returned surfaces are registered in the SurfaceRegistry.
+    fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+        vec![]
+    }
+
+    /// Request where plugin-owned surfaces should be placed in the workspace.
+    fn workspace_request(&self) -> Option<crate::workspace::Placement> {
+        None
+    }
+
+    /// Notification that the workspace layout has changed.
+    fn on_workspace_changed(&mut self, _query: &crate::workspace::WorkspaceQuery<'_>) {}
 }
 
 /// Cached result for a single plugin's slot contributions.

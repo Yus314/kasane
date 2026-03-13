@@ -10,7 +10,7 @@ use crate::state::{AppState, MenuColumns, MenuState};
 use super::build_styled_line_with_base;
 
 /// Build a menu overlay using a replacement element with the same anchor as the default.
-pub(super) fn build_replacement_menu_overlay(
+pub(crate) fn build_replacement_menu_overlay(
     element: Element,
     menu: &MenuState,
     state: &AppState,
@@ -64,7 +64,7 @@ pub(super) fn build_replacement_menu_overlay(
 }
 
 #[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION), allow(search_dropdown))]
-pub(super) fn build_menu_overlay(
+pub(crate) fn build_menu_overlay(
     menu: &MenuState,
     state: &AppState,
     registry: &PluginRegistry,
