@@ -249,6 +249,116 @@ fn test_treesitter_colors_persist_across_frames() {
     );
 }
 
+/// Stage P3: Verify line_dirty optimization works with BUFFER|STATUS.
+#[test]
+fn test_line_dirty_buffer_and_status() {
+    use crate::state::DirtyFlags;
+
+    let mut state = AppState::default();
+    state.cols = 20;
+    state.rows = 5;
+    state.default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state.padding_face = state.default_face;
+    state.status_default_face = state.default_face;
+    state.lines = vec![
+        make_line("line0"),
+        make_line("line1"),
+        make_line("line2"),
+        make_line("line3"),
+    ];
+    state.status_line = make_line("status");
+
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut cache = ViewCache::new();
+
+    // Frame 1: full render (first frame — swap_with_dirty falls back to swap)
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid.swap_with_dirty();
+
+    // Frame 2: identical content — populates both current and previous properly
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid.swap_with_dirty();
+    // Now swap_with_dirty preserved current (it has content from frame 2)
+
+    // Frame 3: change only line 1 and status, with BUFFER|STATUS dirty
+    state.lines[1] = make_line("CHANGED");
+    state.status_line = make_line("new_st");
+    state.lines_dirty = vec![false, true, false, false];
+
+    render_pipeline_cached(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::BUFFER | DirtyFlags::STATUS,
+        &mut cache,
+    );
+
+    // Verify: line 0 should still have old content (clean row preserved)
+    assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");
+    assert_eq!(grid.get(4, 0).unwrap().grapheme, "0");
+
+    // Changed line should have new content
+    assert_eq!(grid.get(0, 1).unwrap().grapheme, "C");
+
+    // Status bar should be repainted
+    let status_y = state.rows - 1;
+    assert_eq!(grid.get(0, status_y).unwrap().grapheme, "n");
+}
+
+/// Stage P3: Verify BUFFER-only still works identically (regression test).
+#[test]
+fn test_line_dirty_buffer_only_regression() {
+    use crate::state::DirtyFlags;
+
+    let mut state = AppState::default();
+    state.cols = 20;
+    state.rows = 5;
+    state.default_face = Face {
+        fg: Color::Named(NamedColor::White),
+        bg: Color::Named(NamedColor::Black),
+        ..Face::default()
+    };
+    state.padding_face = state.default_face;
+    state.status_default_face = state.default_face;
+    state.lines = vec![
+        make_line("line0"),
+        make_line("line1"),
+        make_line("line2"),
+        make_line("line3"),
+    ];
+    state.status_line = make_line("status");
+
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut cache = ViewCache::new();
+
+    // Frame 1: full render (first frame)
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid.swap_with_dirty();
+
+    // Frame 2: identical — establishes current with valid content
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid.swap_with_dirty();
+
+    // Frame 3: change only line 2, BUFFER dirty only
+    state.lines[2] = make_line("EDIT2");
+    state.lines_dirty = vec![false, false, true, false];
+
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::BUFFER, &mut cache);
+
+    // Clean lines preserved
+    assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");
+    assert_eq!(grid.get(0, 1).unwrap().grapheme, "l");
+
+    // Changed line updated
+    assert_eq!(grid.get(0, 2).unwrap().grapheme, "E");
+}
+
 /// Compare the buffer and status bar regions between old and new pipelines.
 /// The old pipeline uses render_frame() which includes render_buffer + render_status.
 /// The new pipeline uses view() → layout() → paint().

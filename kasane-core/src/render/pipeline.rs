@@ -31,6 +31,37 @@ pub fn apply_paint_hooks(
     }
 }
 
+/// Selective clear: when BUFFER is dirty and line-level dirty info is available,
+/// skip clearing buffer rows (paint_buffer_ref will skip clean lines) and only
+/// clear non-buffer sections that are dirty. This extends line-dirty optimization
+/// to BUFFER|STATUS and other BUFFER-containing combinations.
+fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
+    let line_dirty_active = dirty.contains(DirtyFlags::BUFFER)
+        && !state.lines_dirty.is_empty()
+        && state.lines_dirty.iter().any(|d| !d);
+
+    if line_dirty_active {
+        // Clear only non-buffer sections; buffer lines handled by paint_buffer_ref
+        if dirty.intersects(DirtyFlags::STATUS) {
+            let status_y = if state.status_at_top {
+                0
+            } else {
+                state.rows.saturating_sub(1)
+            };
+            let status_rect = Rect {
+                x: 0,
+                y: status_y,
+                w: state.cols,
+                h: 1,
+            };
+            grid.clear_region(&status_rect, &state.status_default_face);
+        }
+        // Menu/info overlays paint over buffer anyway — no separate clear needed
+    } else {
+        grid.clear(&state.default_face);
+    }
+}
+
 /// Compute the RenderResult (cursor position + style) from AppState.
 fn compute_render_result(
     state: &AppState,
@@ -243,16 +274,10 @@ pub fn render_pipeline_cached_with_hooks(
     };
     let layout_result = flex::place(&element, root_area, state);
 
-    // Line-level dirty optimization: when only BUFFER is dirty and some lines
-    // are clean, skip grid.clear() and let paint_buffer_ref() skip those lines.
-    // The grid retains valid content from the previous frame for clean rows.
-    let use_line_dirty = dirty == DirtyFlags::BUFFER
-        && !state.lines_dirty.is_empty()
-        && state.lines_dirty.iter().any(|d| !d);
-
-    if !use_line_dirty {
-        grid.clear(&state.default_face);
-    }
+    // Line-level dirty optimization: when BUFFER is dirty and some lines
+    // are clean, skip full grid.clear() and only clear non-buffer sections.
+    // paint_buffer_ref() skips clean lines, reusing previous frame content.
+    selective_clear(grid, state, dirty);
     paint::paint(&element, &layout_result, grid, state);
 
     // Apply plugin paint hooks after standard paint
@@ -523,13 +548,7 @@ pub fn render_pipeline_surfaces_cached(
     };
     let layout_result = flex::place(&element, root_area, state);
 
-    let use_line_dirty = dirty == DirtyFlags::BUFFER
-        && !state.lines_dirty.is_empty()
-        && state.lines_dirty.iter().any(|d| !d);
-
-    if !use_line_dirty {
-        grid.clear(&state.default_face);
-    }
+    selective_clear(grid, state, dirty);
     paint::paint(&element, &layout_result, grid, state);
 
     if !paint_hooks.is_empty() {
