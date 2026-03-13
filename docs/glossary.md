@@ -64,16 +64,16 @@
 | slot_deps | Plugin トレイトのメソッド。指定 Slot の contribute() が依存する DirtyFlags を返す。PluginSlotCache の L3 キャッシュ層で使用 |
 | PluginSlotCache | PluginRegistry のメモリ内キャッシュ。L1 (state_hash) と L3 (slot_deps) の 2 階層で contribute() 結果をキャッシュし、不要な再計算を回避 |
 | transform_menu_item | Plugin トレイトのメソッド。メニューアイテム (Atom 配列) の描画前変換。アイコン追加等に使用 |
-| CursorLinePlugin | ビルトインプラグイン。カーソル行の背景色をハイライト。contribute_line() の実用例 |
-| ColorPreviewPlugin | ビルトインプラグイン。バッファ内の色コード (#RRGGBB, #RGB, rgb:RRGGBB) を検出し、ガタースウォッチとインタラクティブカラーピッカーを提供。contribute_line() + contribute_overlay() + handle_mouse() の実用例 |
+| cursor_line | バンドル WASM プラグイン。カーソル行の背景色をハイライト。contribute_line() の実用例。ソース: `kasane-wasm/guests/cursor-line/` |
+| color_preview | バンドル WASM プラグイン。バッファ内の色コード (#RRGGBB, #RGB, rgb:RRGGBB) を検出し、ガタースウォッチとインタラクティブカラーピッカーを提供。contribute_line() + contribute_overlay() + handle_mouse() の実用例。ソース: `kasane-wasm/guests/color-preview/` |
 
 ## レイヤー責務
 
 | 用語 | 説明 |
 |------|------|
-| 四層レイヤー責務モデル | 機能の責務境界を上流 (Kakoune) / コア (kasane-core) / 組み込みプラグイン / 外部プラグインの四層で分類するモデル。判断フローチャートで機能の所属レイヤーを決定する。詳細は [layer-responsibilities.md](./layer-responsibilities.md) |
-| API パリティ | 組み込みプラグインと外部プラグインが同一の Plugin trait API を使用する原則。組み込みプラグインが `pub(crate)` を使用しないことで保証される |
-| API 実証 | 未実証の Plugin trait extension point を実プラグインで検証すること。組み込みプラグインの主要な役割の一つ |
+| 三層レイヤー責務モデル | 機能の責務境界を上流 (Kakoune) / コア (kasane-core) / プラグインの三層で分類するモデル。判断フローチャートで機能の所属レイヤーを決定する。詳細は [layer-responsibilities.md](./layer-responsibilities.md) |
+| バンドル WASM プラグイン | `include_bytes!` でバイナリに埋め込まれたデフォルトプラグイン (cursor_line, color_preview)。FS 発見プラグインで上書き可能 |
+| API 実証 | 未実証の Plugin trait extension point を実プラグインで検証すること。`examples/` と `kasane-wasm/guests/` が参照実装として機能する |
 | フロントエンドネイティブ | OS やウィンドウシステムに固有の能力 (フォーカス検知、D&D、クリップボード等)。コアレイヤーに属する機能の一カテゴリ |
 
 ## レイアウト

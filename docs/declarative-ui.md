@@ -15,7 +15,7 @@ kasane の目指す姿は「プラグイン作成者のための UI 基盤」で
 - **Kakoune 専用**: Kakoune の JSON UI プロトコルに特化。不要な抽象化を避け、プラグイン作者にとって最適な API を提供する
 - **コンパイラ駆動**: proc macro がコンパイル時に依存解析・レイアウトキャッシュ・更新コード生成を行い、ランタイムコストを最小化する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング))
 
-> **API パリティの原則:** 組み込みプラグインは公開 Plugin trait API のみを使用し、`pub(crate)` に依存しない。外部プラグインが同等の機能を実装できることを保証する。詳細は [layer-responsibilities.md](./layer-responsibilities.md) を参照。
+> **プラグインシステム:** デフォルト機能はバンドル WASM プラグインとして提供される。参照実装は `kasane-wasm/guests/` と `examples/` を参照。レイヤー責務の判断基準は [layer-responsibilities.md](./layer-responsibilities.md) を参照。
 
 ## 全体アーキテクチャ
 
@@ -905,8 +905,9 @@ enum StyleToken {
 ### Phase 4: 拡張プラグイン実証 (進行中)
 
 **達成済み:**
-- ✓ CursorLinePlugin — `contribute_line()` による行背景ハイライトの実証
-- ✓ ColorPreviewPlugin — `contribute_line()` (ガタースウォッチ) + `contribute_overlay()` (インタラクティブオーバーレイ) + `handle_mouse()` (色値編集) の実証
+- ✓ cursor_line (バンドル WASM) — `contribute_line()` による行背景ハイライトの実証
+- ✓ color_preview (バンドル WASM) — `contribute_line()` (ガタースウォッチ) + `contribute_overlay()` (インタラクティブオーバーレイ) + `handle_mouse()` (色値編集) の実証
+- 内部プラグイン (`kasane-core/src/plugins/`) は WASM バンドルに移行し削除済み
 - ✓ マルチプラグインガター合成 — 複数プラグインの左/右ガター寄与を水平合成
 
 > **注:** GUI バックエンド (winit + wgpu + glyphon) は Phase G として独立して実装済み。詳細は [gui-backend.md](./gui-backend.md) を参照。

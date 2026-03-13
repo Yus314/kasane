@@ -214,4 +214,16 @@ fn my_plugin_contributes_gutter() {
 
 ## サンプル
 
-[`examples/line-numbers/`](../examples/line-numbers/) に行番号プラグインの完全な実装例があります。
+- [`examples/line-numbers/`](../examples/line-numbers/) — ネイティブプラグインの完全な実装例 (行番号)
+- [`kasane-wasm/guests/cursor-line/`](../kasane-wasm/guests/cursor-line/) — WASM プラグインの最小例 (カーソル行ハイライト)
+- [`kasane-wasm/guests/color-preview/`](../kasane-wasm/guests/color-preview/) — WASM プラグインの応用例 (色検出・インタラクティブピッカー)
+
+## プラグイン登録順序
+
+Kasane は以下の順序でプラグインを登録します:
+
+1. **バンドル WASM** — バイナリに埋め込まれたデフォルトプラグイン (cursor_line, color_preview)
+2. **FS 発見 WASM** — `~/.local/share/kasane/plugins/*.wasm` から自動発見。同じ ID のバンドルプラグインを上書き可能
+3. **ユーザーコールバック** — `kasane::run(|registry| { ... })` で登録されるネイティブプラグイン
+
+`config.toml` の `[plugins].disabled` でプラグイン ID を指定すると、バンドル・FS 発見ともにスキップされます。

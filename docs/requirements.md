@@ -132,12 +132,12 @@
 
 | ID | 解決層 | 備考 | 状態 | Phase |
 |----|--------|------|------|-------|
-| E-001 | 基盤 | Slot::Overlay + Decorator(Buffer) | ○ 部分実証 (ColorPreviewPlugin) | [上流依存](./upstream-dependencies.md) (完全版) |
-| E-002 | 基盤 + プロトコル制約 | Slot::BufferLeft。行番号は PR #4737 依存 | ○ 部分実証 (ColorPreviewPlugin) | [上流依存](./upstream-dependencies.md) |
+| E-001 | 基盤 | Slot::Overlay + Decorator(Buffer) | ○ 部分実証 (color_preview) | [上流依存](./upstream-dependencies.md) (完全版) |
+| E-002 | 基盤 + プロトコル制約 | Slot::BufferLeft。行番号は PR #4737 依存 | ○ 部分実証 (color_preview) | [上流依存](./upstream-dependencies.md) |
 | E-003 | 基盤 | Decorator(Buffer)。GUI バックエンドでサブピクセル描画 | | 5c (外部プラグイン) |
-| E-004 | 基盤 | Interactive Element でヒットテスト | ○ 部分実証 (ColorPreviewPlugin) | 5c (外部プラグイン) |
+| E-004 | 基盤 | Interactive Element でヒットテスト | ○ 部分実証 (color_preview) | 5c (外部プラグイン) |
 | E-005 | 基盤 | OverlayAnchor::Absolute | ○ インフラ実装済み (プラグイン実証は未) | 4b (プラグイン実証) |
-| E-006 | 基盤 | Decorator(BufferLine) | ○ 部分実証 (CursorLinePlugin) | 4b |
+| E-006 | 基盤 | Decorator(BufferLine) | ○ 部分実証 (cursor_line) | 4b |
 | E-010 | 基盤 | Flex による分割レイアウト | | 5a |
 | E-011 | 基盤 | Slot::Overlay | | 5a |
 | E-012 | 設定 + 基盤 | セマンティックスタイルトークン | | 5a |
