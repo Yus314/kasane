@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773394482080,
+  "lastUpdate": 1773396891849,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -5099,6 +5099,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7514,
             "range": "± 18",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "798aed381dd114974ff219b1be6b90b15f76fcaa",
+          "message": "feat(wasm): add sel-badge bundled plugin and rebuild guests for WIT v0.4.0\n\nSelection badge (\" N sel \") is now a bundled WASM plugin contributing to\nSlot::StatusRight. All WASM guests rebuilt against WIT v0.4.0 with\ncursor-style-override and contribute-named default impls.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T19:02:26+09:00",
+          "tree_id": "411058a20895090c49c6612974e09531a4184e97",
+          "url": "https://github.com/Yus314/kasane/commit/798aed381dd114974ff219b1be6b90b15f76fcaa"
+        },
+        "date": 1773396891227,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 143210,
+            "range": "± 5090",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 861543,
+            "range": "± 8147",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2126,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 142473,
+            "range": "± 9695",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4823759,
+            "range": "± 11935",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16871102,
+            "range": "± 199535",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1771941,
+            "range": "± 7830",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20261251,
+            "range": "± 58802",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6856,
+            "range": "± 68",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55199,
+            "range": "± 4669",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 617,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7441,
+            "range": "± 72",
             "unit": "ns/iter"
           }
         ]
