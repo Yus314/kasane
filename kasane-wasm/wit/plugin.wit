@@ -1,4 +1,4 @@
-package kasane:plugin@0.3.0;
+package kasane:plugin@0.4.0;
 
 interface types {
     enum named-color {
@@ -207,7 +207,7 @@ interface types {
 }
 
 interface host-state {
-    use types.{face, atom};
+    use types.{face, atom, coord};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -241,6 +241,26 @@ interface host-state {
     get-widget-columns: func() -> u16;
     get-default-face: func() -> face;
     get-padding-face: func() -> face;
+
+    // --- v0.4.0 Tier 4: Multi-cursor ---
+    get-cursor-count: func() -> u32;
+    get-secondary-cursor-count: func() -> u32;
+    get-secondary-cursor: func(index: u32) -> option<coord>;
+
+    // --- v0.4.0 Tier 5: Config ---
+    get-config-string: func(key: string) -> option<string>;
+
+    // --- v0.4.0 Tier 6: Info content ---
+    get-info-title: func(index: u32) -> option<list<atom>>;
+    get-info-content: func(index: u32) -> option<list<list<atom>>>;
+    get-info-style: func(index: u32) -> option<string>;
+    get-info-anchor: func(index: u32) -> option<coord>;
+
+    // --- v0.4.0 Tier 7: Menu details ---
+    get-menu-anchor: func() -> option<coord>;
+    get-menu-style: func() -> option<string>;
+    get-menu-face: func() -> option<face>;
+    get-menu-selected-face: func() -> option<face>;
 }
 
 /// Host-provided functions for building Element trees.
@@ -289,6 +309,14 @@ interface element-builder {
 
     /// Create a stack (base element + overlay layers).
     create-stack: func(base: element-handle, overlays: list<overlay>) -> element-handle;
+
+    // --- v0.4.0: Custom border container ---
+
+    /// Create a container with custom border characters.
+    /// `border-chars` must have exactly 11 single-character strings:
+    /// [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow].
+    create-container-custom-border: func(child: element-handle, border-chars: list<string>,
+        shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
 }
 
 interface plugin-api {
@@ -355,6 +383,17 @@ interface plugin-api {
 
     /// Priority for decorator ordering (lower = applied first). Default: 0.
     decorator-priority: func() -> u32;
+
+    // --- v0.4.0: Cursor style override ---
+
+    /// Override cursor style. Return None to defer to default logic.
+    /// 0=Block, 1=Bar, 2=Underline, 3=Outline.
+    cursor-style-override: func() -> option<u8>;
+
+    // --- v0.4.0: Named slot contributions ---
+
+    /// Contribute an element to a custom named slot.
+    contribute-named: func(slot-name: string) -> option<element-handle>;
 
     // --- v0.3.0: Inter-plugin messaging ---
 

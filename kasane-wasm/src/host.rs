@@ -1,6 +1,8 @@
-use kasane_core::element::{Direction, Element, FlexChild, InteractiveId, Overlay, Style};
-use kasane_core::protocol::{CursorMode, Face, Line};
-use kasane_core::state::AppState;
+use kasane_core::element::{
+    BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay, Style,
+};
+use kasane_core::protocol::{Coord, CursorMode, Face, Line};
+use kasane_core::state::{AppState, InfoState};
 use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::bindings;
@@ -43,6 +45,22 @@ pub(crate) struct HostState {
     pub default_face: Face,
     pub padding_face: Face,
 
+    // --- v0.4.0 Tier 4: Multi-cursor ---
+    pub cursor_count: u32,
+    pub secondary_cursors: Vec<Coord>,
+
+    // --- v0.4.0 Tier 5: Config ---
+    pub config_values: std::collections::HashMap<String, String>,
+
+    // --- v0.4.0 Tier 6: Info content ---
+    pub infos: Vec<InfoState>,
+
+    // --- v0.4.0 Tier 7: Menu details ---
+    pub menu_anchor: Option<Coord>,
+    pub menu_style: Option<String>,
+    pub menu_face: Option<Face>,
+    pub menu_selected_face: Option<Face>,
+
     /// Element arena: WASM plugins build elements via host calls, stored here.
     /// Cleared before each `contribute()` call.
     pub elements: Vec<Element>,
@@ -77,6 +95,14 @@ impl Default for HostState {
             widget_columns: 0,
             default_face: Face::default(),
             padding_face: Face::default(),
+            cursor_count: 0,
+            secondary_cursors: Vec::new(),
+            config_values: std::collections::HashMap::new(),
+            infos: Vec::new(),
+            menu_anchor: None,
+            menu_style: None,
+            menu_face: None,
+            menu_selected_face: None,
             elements: Vec::new(),
             wasi: WasiCtxBuilder::new().build(),
             table: wasmtime::component::ResourceTable::new(),
@@ -183,6 +209,79 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
     fn get_padding_face(&mut self) -> bindings::kasane::plugin::types::Face {
         convert::face_to_wit(&self.padding_face)
+    }
+
+    // --- v0.4.0 Tier 4: Multi-cursor ---
+    fn get_cursor_count(&mut self) -> u32 {
+        self.cursor_count
+    }
+    fn get_secondary_cursor_count(&mut self) -> u32 {
+        self.secondary_cursors.len() as u32
+    }
+    fn get_secondary_cursor(
+        &mut self,
+        index: u32,
+    ) -> Option<bindings::kasane::plugin::types::Coord> {
+        self.secondary_cursors
+            .get(index as usize)
+            .map(|c| bindings::kasane::plugin::types::Coord {
+                line: c.line,
+                column: c.column,
+            })
+    }
+
+    // --- v0.4.0 Tier 5: Config ---
+    fn get_config_string(&mut self, key: String) -> Option<String> {
+        self.config_values.get(&key).cloned()
+    }
+
+    // --- v0.4.0 Tier 6: Info content ---
+    fn get_info_title(&mut self, index: u32) -> Option<Vec<bindings::kasane::plugin::types::Atom>> {
+        self.infos
+            .get(index as usize)
+            .map(|info| convert::atoms_to_wit(&info.title))
+    }
+    fn get_info_content(
+        &mut self,
+        index: u32,
+    ) -> Option<Vec<Vec<bindings::kasane::plugin::types::Atom>>> {
+        self.infos.get(index as usize).map(|info| {
+            info.content
+                .iter()
+                .map(|line| convert::atoms_to_wit(line))
+                .collect()
+        })
+    }
+    fn get_info_style(&mut self, index: u32) -> Option<String> {
+        self.infos
+            .get(index as usize)
+            .map(|info| convert::info_style_to_string(&info.style))
+    }
+    fn get_info_anchor(&mut self, index: u32) -> Option<bindings::kasane::plugin::types::Coord> {
+        self.infos
+            .get(index as usize)
+            .map(|info| bindings::kasane::plugin::types::Coord {
+                line: info.anchor.line,
+                column: info.anchor.column,
+            })
+    }
+
+    // --- v0.4.0 Tier 7: Menu details ---
+    fn get_menu_anchor(&mut self) -> Option<bindings::kasane::plugin::types::Coord> {
+        self.menu_anchor
+            .map(|c| bindings::kasane::plugin::types::Coord {
+                line: c.line,
+                column: c.column,
+            })
+    }
+    fn get_menu_style(&mut self) -> Option<String> {
+        self.menu_style.clone()
+    }
+    fn get_menu_face(&mut self) -> Option<bindings::kasane::plugin::types::Face> {
+        self.menu_face.map(|f| convert::face_to_wit(&f))
+    }
+    fn get_menu_selected_face(&mut self) -> Option<bindings::kasane::plugin::types::Face> {
+        self.menu_selected_face.map(|f| convert::face_to_wit(&f))
     }
 }
 
@@ -411,6 +510,43 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         self.elements.push(element);
         handle
     }
+
+    fn create_container_custom_border(
+        &mut self,
+        child: u32,
+        border_chars: Vec<String>,
+        shadow: bool,
+        padding: bindings::kasane::plugin::types::Edges,
+        style: bindings::kasane::plugin::types::Face,
+        title: Option<Vec<bindings::kasane::plugin::types::Atom>>,
+    ) -> u32 {
+        let child_element = self.take_element(child);
+        let title_line: Option<Line> =
+            title.map(|atoms| atoms.iter().map(convert::wit_atom_to_atom).collect());
+
+        // Parse 11 border chars: [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow]
+        let border_config = if border_chars.len() == 11 {
+            let mut chars = [' '; 11];
+            for (i, s) in border_chars.iter().enumerate() {
+                chars[i] = s.chars().next().unwrap_or(' ');
+            }
+            Some(BorderConfig::new(BorderLineStyle::Custom(Box::new(chars))))
+        } else {
+            None
+        };
+
+        let element = Element::Container {
+            child: Box::new(child_element),
+            border: border_config,
+            shadow,
+            padding: convert::wit_edges_to_edges(&padding),
+            style: Style::Direct(convert::wit_face_to_face(&style)),
+            title: title_line,
+        };
+        let handle = self.elements.len() as u32;
+        self.elements.push(element);
+        handle
+    }
 }
 
 impl HostState {
@@ -480,4 +616,54 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     host.widget_columns = state.widget_columns;
     host.default_face = state.default_face;
     host.padding_face = state.padding_face;
+
+    // Tier 4: Multi-cursor
+    host.cursor_count = state.cursor_count as u32;
+    host.secondary_cursors.clone_from(&state.secondary_cursors);
+
+    // Tier 5: Config
+    host.config_values.clear();
+    host.config_values
+        .insert("shadow_enabled".into(), state.shadow_enabled.to_string());
+    host.config_values
+        .insert("padding_char".into(), state.padding_char.clone());
+    host.config_values.insert(
+        "menu_position".into(),
+        convert::menu_position_to_string(&state.menu_position),
+    );
+    host.config_values
+        .insert("status_at_top".into(), state.status_at_top.to_string());
+    host.config_values
+        .insert("smooth_scroll".into(), state.smooth_scroll.to_string());
+    host.config_values
+        .insert("search_dropdown".into(), state.search_dropdown.to_string());
+    host.config_values.insert(
+        "cursor.secondary_blend".into(),
+        state.secondary_blend_ratio.to_string(),
+    );
+    host.config_values
+        .insert("scrollbar.thumb".into(), state.scrollbar_thumb.clone());
+    host.config_values
+        .insert("scrollbar.track".into(), state.scrollbar_track.clone());
+
+    // Include plugin-defined config
+    for (k, v) in &state.plugin_config {
+        host.config_values.insert(k.clone(), v.clone());
+    }
+
+    // Tier 6: Info content
+    host.infos.clone_from(&state.infos);
+
+    // Tier 7: Menu details
+    if let Some(menu) = &state.menu {
+        host.menu_anchor = Some(menu.anchor);
+        host.menu_style = Some(convert::menu_style_to_string(&menu.style));
+        host.menu_face = Some(menu.menu_face);
+        host.menu_selected_face = Some(menu.selected_item_face);
+    } else {
+        host.menu_anchor = None;
+        host.menu_style = None;
+        host.menu_face = None;
+        host.menu_selected_face = None;
+    }
 }

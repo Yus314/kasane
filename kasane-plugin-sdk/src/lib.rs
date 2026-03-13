@@ -254,6 +254,26 @@ macro_rules! default_decorator_priority {
     };
 }
 
+/// Default cursor style override stub (returns None = no override).
+#[macro_export]
+macro_rules! default_cursor_style {
+    () => {
+        fn cursor_style_override() -> Option<u8> {
+            None
+        }
+    };
+}
+
+/// Default named slot contribution stub (returns None).
+#[macro_export]
+macro_rules! default_named_slot {
+    () => {
+        fn contribute_named(_slot_name: String) -> Option<ElementHandle> {
+            None
+        }
+    };
+}
+
 /// Default update stub (returns empty command list).
 #[macro_export]
 macro_rules! default_update {

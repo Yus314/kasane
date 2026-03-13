@@ -3,11 +3,14 @@
 use std::time::Duration;
 
 use crate::bindings::kasane::plugin::types as wit;
+use kasane_core::config::MenuPosition;
 use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{Command, DecorateTarget, PluginId, ReplaceTarget};
-use kasane_core::protocol::{Atom, Attributes, Color, Coord, Face, KasaneRequest, NamedColor};
+use kasane_core::protocol::{
+    Atom, Attributes, Color, Coord, Face, InfoStyle, KasaneRequest, MenuStyle, NamedColor,
+};
 use kasane_core::state::DirtyFlags;
 
 // ---------------------------------------------------------------------------
@@ -305,6 +308,36 @@ pub(crate) fn wit_grid_width_to_grid_column(gw: &wit::GridWidth) -> GridColumn {
         wit::GridWidth::Fixed(w) => GridColumn::fixed(*w),
         wit::GridWidth::FlexWidth(f) => GridColumn::flex(*f),
         wit::GridWidth::AutoWidth => GridColumn::auto(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Style / config string conversions (native → string)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn info_style_to_string(style: &InfoStyle) -> String {
+    match style {
+        InfoStyle::Prompt => "prompt".into(),
+        InfoStyle::Modal => "modal".into(),
+        InfoStyle::Inline => "inline".into(),
+        InfoStyle::InlineAbove => "inlineAbove".into(),
+        InfoStyle::MenuDoc => "menuDoc".into(),
+    }
+}
+
+pub(crate) fn menu_style_to_string(style: &MenuStyle) -> String {
+    match style {
+        MenuStyle::Prompt => "prompt".into(),
+        MenuStyle::Search => "search".into(),
+        MenuStyle::Inline => "inline".into(),
+    }
+}
+
+pub(crate) fn menu_position_to_string(pos: &MenuPosition) -> String {
+    match pos {
+        MenuPosition::Auto => "auto".into(),
+        MenuPosition::Above => "above".into(),
+        MenuPosition::Below => "below".into(),
     }
 }
 
