@@ -247,6 +247,81 @@ impl CellGrid {
         }
     }
 
+    /// Same logic as `diff()` but reuses the provided buffer, avoiding per-frame allocation.
+    pub fn diff_into(&self, buf: &mut Vec<CellDiff>) {
+        crate::perf::perf_span!("grid_diff_into");
+        buf.clear();
+        if self.previous.is_empty() {
+            // Full redraw
+            for (i, cell) in self.current.iter().enumerate() {
+                if cell.width > 0 {
+                    let x = (i % self.width as usize) as u16;
+                    let y = (i / self.width as usize) as u16;
+                    buf.push(CellDiff {
+                        x,
+                        y,
+                        cell: cell.clone(),
+                    });
+                }
+            }
+            return;
+        }
+
+        let w = self.width as usize;
+        for row in 0..self.height as usize {
+            if !self.dirty_rows[row] {
+                continue;
+            }
+            let row_start = row * w;
+            let row_end = row_start + w;
+            for i in row_start..row_end {
+                let curr = &self.current[i];
+                let prev = &self.previous[i];
+                if curr != prev && curr.width > 0 {
+                    buf.push(CellDiff {
+                        x: (i % w) as u16,
+                        y: row as u16,
+                        cell: curr.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Zero-copy iterator yielding `(x, y, &Cell)` for changed cells.
+    /// Uses the same dirty-row and previous-comparison logic as `diff()`,
+    /// but yields references instead of cloning.
+    pub fn iter_diffs(&self) -> impl Iterator<Item = (u16, u16, &Cell)> + '_ {
+        let w = self.width as usize;
+        let full_redraw = self.previous.is_empty();
+        self.current
+            .iter()
+            .enumerate()
+            .filter(move |(i, cell)| {
+                if cell.width == 0 {
+                    return false;
+                }
+                if full_redraw {
+                    return true;
+                }
+                let row = i / w;
+                if !self.dirty_rows[row] {
+                    return false;
+                }
+                **cell != self.previous[*i]
+            })
+            .map(move |(i, cell)| {
+                let x = (i % w) as u16;
+                let y = (i / w) as u16;
+                (x, y, cell)
+            })
+    }
+
+    /// Returns true if this is the first frame (no previous buffer yet).
+    pub fn is_first_frame(&self) -> bool {
+        self.previous.is_empty()
+    }
+
     pub fn diff(&self) -> Vec<CellDiff> {
         crate::perf::perf_span!("grid_diff");
         if self.previous.is_empty() {
@@ -682,6 +757,106 @@ mod tests {
         // After fallback swap: previous is populated, current is reset
         assert!(!grid.previous.is_empty());
         assert_eq!(grid.previous[0].grapheme, "A");
+    }
+
+    #[test]
+    fn test_diff_into_matches_diff() {
+        // Full redraw case
+        let mut grid = CellGrid::new(3, 2);
+        let face = default_face();
+        grid.put_char(0, 0, "A", &face);
+        grid.put_char(1, 0, "B", &face);
+
+        let diffs = grid.diff();
+        let mut buf = Vec::new();
+        grid.diff_into(&mut buf);
+        assert_eq!(diffs.len(), buf.len());
+        for (d, b) in diffs.iter().zip(buf.iter()) {
+            assert_eq!(d.x, b.x);
+            assert_eq!(d.y, b.y);
+            assert_eq!(d.cell, b.cell);
+        }
+
+        // Incremental case
+        grid.swap();
+        grid.put_char(1, 0, "X", &face);
+        let diffs = grid.diff();
+        grid.diff_into(&mut buf);
+        assert_eq!(diffs.len(), buf.len());
+        for (d, b) in diffs.iter().zip(buf.iter()) {
+            assert_eq!(d.x, b.x);
+            assert_eq!(d.y, b.y);
+            assert_eq!(d.cell, b.cell);
+        }
+
+        // Empty diff case: swap then reproduce same content
+        grid.swap();
+        grid.put_char(0, 0, "A", &face);
+        grid.put_char(1, 0, "X", &face);
+        let diffs = grid.diff();
+        grid.diff_into(&mut buf);
+        assert_eq!(diffs.len(), buf.len(), "empty diff: lengths should match");
+        for (d, b) in diffs.iter().zip(buf.iter()) {
+            assert_eq!(d.x, b.x);
+            assert_eq!(d.y, b.y);
+            assert_eq!(d.cell, b.cell);
+        }
+    }
+
+    #[test]
+    fn test_diff_into_reuses_capacity() {
+        let mut grid = CellGrid::new(10, 5);
+        let face = default_face();
+        grid.put_char(0, 0, "A", &face);
+
+        let mut buf = Vec::new();
+        grid.diff_into(&mut buf);
+        let cap_after_first = buf.capacity();
+        assert!(cap_after_first > 0);
+
+        // Second call with same-size result shouldn't grow
+        grid.diff_into(&mut buf);
+        assert_eq!(buf.capacity(), cap_after_first);
+    }
+
+    #[test]
+    fn test_iter_diffs_matches_diff() {
+        // Full redraw
+        let mut grid = CellGrid::new(3, 2);
+        let face = default_face();
+        grid.put_char(0, 0, "A", &face);
+        grid.put_char(2, 1, "Z", &face);
+
+        let diffs = grid.diff();
+        let iter_results: Vec<_> = grid.iter_diffs().collect();
+        assert_eq!(diffs.len(), iter_results.len());
+        for (d, (x, y, cell)) in diffs.iter().zip(iter_results.iter()) {
+            assert_eq!(d.x, *x);
+            assert_eq!(d.y, *y);
+            assert_eq!(&d.cell, *cell);
+        }
+
+        // Incremental
+        grid.swap();
+        grid.put_char(1, 0, "X", &face);
+        let diffs = grid.diff();
+        let iter_results: Vec<_> = grid.iter_diffs().collect();
+        assert_eq!(diffs.len(), iter_results.len());
+        for (d, (x, y, cell)) in diffs.iter().zip(iter_results.iter()) {
+            assert_eq!(d.x, *x);
+            assert_eq!(d.y, *y);
+            assert_eq!(&d.cell, *cell);
+        }
+    }
+
+    #[test]
+    fn test_is_first_frame() {
+        let mut grid = CellGrid::new(3, 2);
+        assert!(grid.is_first_frame());
+        grid.swap();
+        assert!(!grid.is_first_frame());
+        grid.invalidate_all();
+        assert!(grid.is_first_frame());
     }
 
     #[test]

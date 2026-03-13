@@ -185,6 +185,104 @@ fn bench_grid_diff(c: &mut Criterion) {
     group.finish();
 }
 
+/// Bench: grid.diff_into() — zero-allocation alternative to diff()
+fn bench_grid_diff_into(c: &mut Criterion) {
+    let mut group = c.benchmark_group("grid_diff_into");
+
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let element = view::view(&state, &registry);
+    let area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let layout = flex::place(&element, area, &state);
+
+    // Full redraw (previous is empty)
+    {
+        let mut grid = CellGrid::new(state.cols, state.rows);
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+
+        let mut buf = Vec::with_capacity(state.cols as usize * state.rows as usize);
+        group.bench_function("full_redraw", |b| {
+            b.iter(|| grid.diff_into(&mut buf));
+        });
+    }
+
+    // Incremental (previous populated, same content → empty diff)
+    {
+        let mut grid = CellGrid::new(state.cols, state.rows);
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+        grid.swap();
+        grid.clear(&state.default_face);
+        paint::paint(&element, &layout, &mut grid, &state);
+
+        let mut buf = Vec::with_capacity(state.cols as usize * state.rows as usize);
+        group.bench_function("incremental", |b| {
+            b.iter(|| grid.diff_into(&mut buf));
+        });
+    }
+
+    group.finish();
+}
+
+/// Bench: line_dirty optimization with BUFFER|STATUS (P3)
+fn bench_line_dirty_buffer_status(c: &mut Criterion) {
+    let mut group = c.benchmark_group("line_dirty_buffer_status");
+
+    let mut state = typical_state(23);
+    state.status_default_face = state.default_face;
+    let registry = PluginRegistry::new();
+
+    // Prepare warm grid (2 frames to get past swap fallback)
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut cache = ViewCache::new();
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid.swap_with_dirty();
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid.swap_with_dirty();
+
+    // Now simulate editing 1 line with BUFFER|STATUS dirty
+    let mut edited = state.clone();
+    edited.lines[10] = vec![kasane_core::protocol::Atom {
+        face: kasane_core::protocol::Face::default(),
+        contents: "EDITED_LINE".into(),
+    }];
+    edited.lines_dirty = vec![false; 23];
+    edited.lines_dirty[10] = true;
+
+    group.bench_function("1_line_changed", |b| {
+        b.iter_batched(
+            || {
+                // Setup: create a warm grid each iteration
+                let mut g = CellGrid::new(state.cols, state.rows);
+                let mut c = ViewCache::new();
+                render_pipeline_cached(&state, &registry, &mut g, DirtyFlags::ALL, &mut c);
+                g.swap_with_dirty();
+                render_pipeline_cached(&state, &registry, &mut g, DirtyFlags::ALL, &mut c);
+                g.swap_with_dirty();
+                (g, c)
+            },
+            |(mut g, mut c)| {
+                render_pipeline_cached(
+                    &edited,
+                    &registry,
+                    &mut g,
+                    DirtyFlags::BUFFER | DirtyFlags::STATUS,
+                    &mut c,
+                );
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.finish();
+}
+
 /// Bench 5: Decorator chain
 fn bench_decorator_chain(c: &mut Criterion) {
     let mut group = c.benchmark_group("decorator_chain");
@@ -665,14 +763,15 @@ fn bench_scene_cache_cold(c: &mut Criterion) {
         b.iter(|| {
             let mut view_cache = ViewCache::new();
             let mut scene_cache = SceneCache::new();
-            scene_render_pipeline_scene_cached(
+            let (cmds, result) = scene_render_pipeline_scene_cached(
                 &state,
                 &registry,
                 cs,
                 DirtyFlags::ALL,
                 &mut view_cache,
                 &mut scene_cache,
-            )
+            );
+            criterion::black_box((cmds.len(), result));
         });
     });
 }
@@ -700,14 +799,15 @@ fn bench_scene_cache_warm(c: &mut Criterion) {
 
     c.bench_function("scene_cache_warm", |b| {
         b.iter(|| {
-            scene_render_pipeline_scene_cached(
+            let (cmds, result) = scene_render_pipeline_scene_cached(
                 &state,
                 &registry,
                 cs,
                 DirtyFlags::empty(),
                 &mut view_cache,
                 &mut scene_cache,
-            )
+            );
+            criterion::black_box((cmds.len(), result));
         });
     });
 }
@@ -735,14 +835,15 @@ fn bench_scene_cache_menu_select(c: &mut Criterion) {
 
     c.bench_function("scene_cache_menu_select", |b| {
         b.iter(|| {
-            scene_render_pipeline_scene_cached(
+            let (cmds, result) = scene_render_pipeline_scene_cached(
                 &state,
                 &registry,
                 cs,
                 DirtyFlags::MENU_SELECTION,
                 &mut view_cache,
                 &mut scene_cache,
-            )
+            );
+            criterion::black_box((cmds.len(), result));
         });
     });
 }
@@ -1331,6 +1432,7 @@ criterion_group!(
     bench_flex_layout,
     bench_paint,
     bench_grid_diff,
+    bench_grid_diff_into,
     bench_grid_clear,
     bench_decorator_chain,
     bench_plugin_dispatch,
@@ -1380,6 +1482,7 @@ criterion_group!(
     bench_line_dirty_single_edit,
     bench_line_dirty_all_changed,
     bench_apply_draw_line_comparison,
+    bench_line_dirty_buffer_status,
 );
 
 criterion_group!(
