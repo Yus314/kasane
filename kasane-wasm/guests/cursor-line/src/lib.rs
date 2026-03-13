@@ -4,7 +4,7 @@ use std::cell::Cell;
 
 use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::host_state;
-use kasane::plugin::types::{Color, ElementHandle, Face, LineBackground, RgbColor};
+use kasane::plugin::types::*;
 use kasane_plugin_sdk::dirty;
 
 thread_local! {
@@ -18,18 +18,21 @@ impl Guest for CursorLinePlugin {
         "wasm_cursor_line".to_string()
     }
 
-    fn on_state_changed(dirty_flags: u16) {
+    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
         if dirty_flags & dirty::BUFFER != 0 {
             let line = host_state::get_cursor_line();
             ACTIVE_LINE.set(line);
         }
+        vec![]
     }
 
-    fn contribute_line(line: u32) -> Option<LineBackground> {
+    fn contribute_line(line: u32) -> Option<LineDecoration> {
         let active = ACTIVE_LINE.get();
         if line as i32 == active {
-            Some(LineBackground {
-                face: Face {
+            Some(LineDecoration {
+                left_gutter: None,
+                right_gutter: None,
+                background: Some(Face {
                     fg: Color::DefaultColor,
                     bg: Color::Rgb(RgbColor {
                         r: 40,
@@ -38,7 +41,7 @@ impl Guest for CursorLinePlugin {
                     }),
                     underline: Color::DefaultColor,
                     attributes: 0,
-                },
+                }),
             })
         } else {
             None
@@ -56,6 +59,8 @@ impl Guest for CursorLinePlugin {
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
     kasane_plugin_sdk::default_contribute!();
+    kasane_plugin_sdk::default_input!();
+    kasane_plugin_sdk::default_overlay!();
 }
 
 export!(CursorLinePlugin);

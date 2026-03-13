@@ -1,7 +1,8 @@
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 
-use kasane_core::element::Element;
+use kasane_core::element::{Element, InteractiveId, Overlay};
+use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{Command, LineDecoration, Plugin, PluginId, Slot};
 use kasane_core::state::{AppState, DirtyFlags};
 
@@ -41,15 +42,19 @@ impl Plugin for WasmPlugin {
         let store = self.store.get_mut();
         host::sync_from_app_state(store.data_mut(), state);
         let plugin_api = self.instance.kasane_plugin_plugin_api();
-        if let Err(e) = plugin_api.call_on_init(store) {
-            tracing::error!("WASM plugin {}.on_init failed: {e}", self.plugin_id.0);
+        match plugin_api.call_on_init(store) {
+            Ok(cmds) => convert::wit_commands_to_commands(&cmds),
+            Err(e) => {
+                tracing::error!("WASM plugin {}.on_init failed: {e}", self.plugin_id.0);
+                vec![]
+            }
         }
-        vec![]
     }
 
     fn on_shutdown(&mut self) {
         let store = self.store.get_mut();
         let plugin_api = self.instance.kasane_plugin_plugin_api();
+        // on_shutdown returns commands but we can't execute them during shutdown
         if let Err(e) = plugin_api.call_on_shutdown(store) {
             tracing::error!("WASM plugin {}.on_shutdown failed: {e}", self.plugin_id.0);
         }
@@ -60,13 +65,16 @@ impl Plugin for WasmPlugin {
         host::sync_from_app_state(store.data_mut(), state);
         let plugin_api = self.instance.kasane_plugin_plugin_api();
 
-        if let Err(e) = plugin_api.call_on_state_changed(&mut *store, dirty.bits()) {
-            tracing::error!(
-                "WASM plugin {}.on_state_changed failed: {e}",
-                self.plugin_id.0
-            );
-            return vec![];
-        }
+        let cmds = match plugin_api.call_on_state_changed(&mut *store, dirty.bits()) {
+            Ok(cmds) => convert::wit_commands_to_commands(&cmds),
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.on_state_changed failed: {e}",
+                    self.plugin_id.0
+                );
+                return vec![];
+            }
+        };
 
         // Update cached state hash
         match plugin_api.call_state_hash(store) {
@@ -76,7 +84,7 @@ impl Plugin for WasmPlugin {
             }
         }
 
-        vec![]
+        cmds
     }
 
     fn state_hash(&self) -> u64 {
@@ -98,13 +106,23 @@ impl Plugin for WasmPlugin {
     fn contribute_line(&self, line: usize, state: &AppState) -> Option<LineDecoration> {
         let mut store = self.store.borrow_mut();
         host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
         let plugin_api = self.instance.kasane_plugin_plugin_api();
         match plugin_api.call_contribute_line(&mut *store, line as u32) {
-            Ok(Some(bg)) => Some(LineDecoration {
-                left_gutter: None,
-                right_gutter: None,
-                background: Some(convert::wit_face_to_face(&bg.face)),
-            }),
+            Ok(Some(dec)) => {
+                let left_gutter = dec
+                    .left_gutter
+                    .map(|h| store.data_mut().take_root_element(h));
+                let right_gutter = dec
+                    .right_gutter
+                    .map(|h| store.data_mut().take_root_element(h));
+                let background = dec.background.as_ref().map(convert::wit_face_to_face);
+                Some(LineDecoration {
+                    left_gutter,
+                    right_gutter,
+                    background,
+                })
+            }
             Ok(None) => None,
             Err(e) => {
                 tracing::error!(
@@ -129,6 +147,83 @@ impl Plugin for WasmPlugin {
                     "WASM plugin {}.contribute({slot:?}) failed: {e}",
                     self.plugin_id.0
                 );
+                None
+            }
+        }
+    }
+
+    fn contribute_overlay(&self, state: &AppState) -> Option<Overlay> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_contribute_overlay(&mut *store) {
+            Ok(Some(wit_overlay)) => {
+                let element = store.data_mut().take_root_element(wit_overlay.element);
+                let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&wit_overlay.anchor);
+                Some(Overlay { element, anchor })
+            }
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.contribute_overlay failed: {e}",
+                    self.plugin_id.0
+                );
+                None
+            }
+        }
+    }
+
+    fn observe_key(&mut self, key: &KeyEvent, state: &AppState) {
+        let store = self.store.get_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_key = convert::key_event_to_wit(key);
+        if let Err(e) = plugin_api.call_observe_key(store, &wit_key) {
+            tracing::error!("WASM plugin {}.observe_key failed: {e}", self.plugin_id.0);
+        }
+    }
+
+    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppState) {
+        let store = self.store.get_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_event = convert::mouse_event_to_wit(event);
+        if let Err(e) = plugin_api.call_observe_mouse(store, wit_event) {
+            tracing::error!("WASM plugin {}.observe_mouse failed: {e}", self.plugin_id.0);
+        }
+    }
+
+    fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>> {
+        let store = self.store.get_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_key = convert::key_event_to_wit(key);
+        match plugin_api.call_handle_key(store, &wit_key) {
+            Ok(Some(cmds)) => Some(convert::wit_commands_to_commands(&cmds)),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!("WASM plugin {}.handle_key failed: {e}", self.plugin_id.0);
+                None
+            }
+        }
+    }
+
+    fn handle_mouse(
+        &mut self,
+        event: &MouseEvent,
+        id: InteractiveId,
+        state: &AppState,
+    ) -> Option<Vec<Command>> {
+        let store = self.store.get_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_event = convert::mouse_event_to_wit(event);
+        match plugin_api.call_handle_mouse(store, wit_event, id.0) {
+            Ok(Some(cmds)) => Some(convert::wit_commands_to_commands(&cmds)),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!("WASM plugin {}.handle_mouse failed: {e}", self.plugin_id.0);
                 None
             }
         }

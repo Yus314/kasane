@@ -1,4 +1,4 @@
-package kasane:plugin@0.1.0;
+package kasane:plugin@0.2.0;
 
 interface types {
     enum named-color {
@@ -42,13 +42,136 @@ interface types {
         attributes: attribute-flags,
     }
 
-    /// Line background decoration.
-    record line-background {
+    /// A styled text fragment (face + content).
+    record atom {
         face: face,
+        contents: string,
+    }
+
+    /// Line decoration with optional gutter elements and background.
+    record line-decoration {
+        left-gutter: option<element-handle>,
+        right-gutter: option<element-handle>,
+        background: option<face>,
     }
 
     /// Opaque handle to a host-side Element.
     type element-handle = u32;
+
+    /// Commands that WASM plugins can return to the host.
+    variant command {
+        send-keys(list<string>),
+        paste,
+        quit,
+        request-redraw(u16),
+        set-config(config-entry),
+    }
+    record config-entry {
+        key: string,
+        value: string,
+    }
+
+    /// Interactive element ID for mouse hit testing.
+    type interactive-id = u32;
+
+    /// Modifier key bitflags (CTRL=1, ALT=2, SHIFT=4).
+    type modifier-flags = u8;
+
+    enum mouse-button { left, middle, right }
+
+    variant mouse-event-kind {
+        press(mouse-button),
+        release(mouse-button),
+        move-event,
+        drag(mouse-button),
+        scroll-up,
+        scroll-down,
+    }
+
+    record mouse-event {
+        kind: mouse-event-kind,
+        line: u32,
+        column: u32,
+        modifiers: modifier-flags,
+    }
+
+    variant key-code {
+        character(string),
+        backspace,
+        delete,
+        enter,
+        tab,
+        escape,
+        up,
+        down,
+        left-arrow,
+        right-arrow,
+        home,
+        end,
+        page-up,
+        page-down,
+        f-key(u8),
+    }
+
+    record key-event {
+        key: key-code,
+        modifiers: modifier-flags,
+    }
+
+    record coord {
+        line: s32,
+        column: s32,
+    }
+
+    record rect {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    }
+
+    variant overlay-anchor {
+        absolute(absolute-anchor),
+        anchor-point(anchor-point-config),
+    }
+    record absolute-anchor {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    }
+    record anchor-point-config {
+        coord: coord,
+        prefer-above: bool,
+        avoid: list<rect>,
+    }
+
+    record overlay {
+        element: element-handle,
+        anchor: overlay-anchor,
+    }
+
+    // --- Phase 4 types (element builder) ---
+
+    enum border-line-style { single, rounded, double, heavy, ascii }
+
+    record edges {
+        top: u16,
+        right: u16,
+        bottom: u16,
+        left: u16,
+    }
+
+    variant grid-width {
+        fixed(u16),
+        flex-width(f32),
+        auto-width,
+    }
+
+    record flex-entry {
+        child: element-handle,
+        flex: f32,
+    }
 }
 
 interface host-state {
@@ -60,36 +183,65 @@ interface host-state {
     get-cols: func() -> u16;
     get-rows: func() -> u16;
     is-focused: func() -> bool;
+
+    // --- Phase 2: buffer line access ---
+    get-line-text: func(line: u32) -> option<string>;
+    is-line-dirty: func(line: u32) -> bool;
 }
 
 /// Host-provided functions for building Element trees.
 /// Handles are valid only within the current plugin call scope.
 interface element-builder {
-    use types.{face, element-handle};
+    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry};
 
     /// Create a text element with a direct face.
     create-text: func(content: string, face: face) -> element-handle;
+
+    /// Create a styled line from a list of atoms.
+    create-styled-line: func(atoms: list<atom>) -> element-handle;
 
     /// Create a vertical column of fixed-size children.
     create-column: func(children: list<element-handle>) -> element-handle;
 
     /// Create a horizontal row of fixed-size children.
     create-row: func(children: list<element-handle>) -> element-handle;
+
+    // --- Phase 3: interactive elements ---
+
+    /// Create an interactive wrapper element for mouse hit testing.
+    create-interactive: func(child: element-handle, id: interactive-id) -> element-handle;
+
+    // --- Phase 4: advanced element builders ---
+
+    /// Create a 2D grid layout.
+    create-grid: func(columns: list<grid-width>, children: list<element-handle>, col-gap: u16, row-gap: u16) -> element-handle;
+
+    /// Create a container with optional border, shadow, and padding.
+    create-container: func(child: element-handle, border: option<border-line-style>, shadow: bool, padding: edges) -> element-handle;
+
+    /// Create an empty element.
+    create-empty: func() -> element-handle;
+
+    /// Create a vertical flex layout with proportional children.
+    create-column-flex: func(children: list<flex-entry>, gap: u16) -> element-handle;
+
+    /// Create a horizontal flex layout with proportional children.
+    create-row-flex: func(children: list<flex-entry>, gap: u16) -> element-handle;
 }
 
 interface plugin-api {
-    use types.{line-background, element-handle};
+    use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
 
-    /// Lifecycle hooks.
-    on-init: func();
-    on-shutdown: func();
-    on-state-changed: func(dirty-flags: u16);
+    /// Lifecycle hooks — return commands to execute.
+    on-init: func() -> list<command>;
+    on-shutdown: func() -> list<command>;
+    on-state-changed: func(dirty-flags: u16) -> list<command>;
 
-    /// Line decoration (background only).
-    contribute-line: func(line: u32) -> option<line-background>;
+    /// Line decoration (gutter elements + background).
+    contribute-line: func(line: u32) -> option<line-decoration>;
 
     /// Contribute an Element to a named slot.
     /// Slot indices: 0=BufferLeft, 1=BufferRight, 2=AboveBuffer,
@@ -101,6 +253,25 @@ interface plugin-api {
 
     /// DirtyFlags dependencies for a given slot index (L3).
     slot-deps: func(slot: u8) -> u16;
+
+    // --- Input handling ---
+
+    /// Handle a mouse event on an interactive element owned by this plugin.
+    /// Return Some(commands) to consume the event, None to pass through.
+    handle-mouse: func(event: mouse-event, id: interactive-id) -> option<list<command>>;
+
+    /// Handle a key event (first-wins among plugins).
+    /// Return Some(commands) to consume the event, None to pass through.
+    handle-key: func(event: key-event) -> option<list<command>>;
+
+    /// Observe a key event (notification only, cannot consume).
+    observe-key: func(event: key-event);
+
+    /// Observe a mouse event (notification only, cannot consume).
+    observe-mouse: func(event: mouse-event);
+
+    /// Contribute an overlay element with positioning.
+    contribute-overlay: func() -> option<overlay>;
 }
 
 world kasane-plugin {

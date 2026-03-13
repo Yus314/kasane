@@ -3,7 +3,7 @@ kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
 use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::element_builder;
 use kasane::plugin::host_state;
-use kasane::plugin::types::{Color, ElementHandle, Face, LineBackground, NamedColor};
+use kasane::plugin::types::*;
 use kasane_plugin_sdk::{dirty, slot};
 
 struct LineNumbersPlugin;
@@ -52,6 +52,8 @@ impl Guest for LineNumbersPlugin {
 
     kasane_plugin_sdk::default_lifecycle!();
     kasane_plugin_sdk::default_line!();
+    kasane_plugin_sdk::default_input!();
+    kasane_plugin_sdk::default_overlay!();
 }
 
 /// Right-aligned number with trailing space: "  1 ", " 42 "

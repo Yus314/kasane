@@ -38,6 +38,8 @@
 //!     kasane_plugin_sdk::default_lifecycle!();
 //!     kasane_plugin_sdk::default_line!();
 //!     kasane_plugin_sdk::default_cache!();
+//!     kasane_plugin_sdk::default_input!();
+//!     kasane_plugin_sdk::default_overlay!();
 //! }
 //!
 //! export!(MyPlugin);
@@ -66,6 +68,13 @@ pub mod dirty {
     pub const OPTIONS: u16 = 1 << 5;
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
     pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS;
+}
+
+/// Modifier key bitflags matching `kasane_core::input::Modifiers`.
+pub mod modifiers {
+    pub const CTRL: u8 = 0b0000_0001;
+    pub const ALT: u8 = 0b0000_0010;
+    pub const SHIFT: u8 = 0b0000_0100;
 }
 
 /// Bundled WIT interface definition (for reference/testing; not usable with proc macros).
@@ -113,27 +122,33 @@ macro_rules! default_lifecycle {
     };
 }
 
-/// Default on_init stub (no-op).
+/// Default on_init stub (returns empty command list).
 #[macro_export]
 macro_rules! default_init {
     () => {
-        fn on_init() {}
+        fn on_init() -> Vec<Command> {
+            vec![]
+        }
     };
 }
 
-/// Default on_shutdown stub (no-op).
+/// Default on_shutdown stub (returns empty command list).
 #[macro_export]
 macro_rules! default_shutdown {
     () => {
-        fn on_shutdown() {}
+        fn on_shutdown() -> Vec<Command> {
+            vec![]
+        }
     };
 }
 
-/// Default on_state_changed stub (no-op).
+/// Default on_state_changed stub (returns empty command list).
 #[macro_export]
 macro_rules! default_state_changed {
     () => {
-        fn on_state_changed(_dirty_flags: u16) {}
+        fn on_state_changed(_dirty_flags: u16) -> Vec<Command> {
+            vec![]
+        }
     };
 }
 
@@ -141,7 +156,7 @@ macro_rules! default_state_changed {
 #[macro_export]
 macro_rules! default_line {
     () => {
-        fn contribute_line(_line: u32) -> Option<LineBackground> {
+        fn contribute_line(_line: u32) -> Option<LineDecoration> {
             None
         }
     };
@@ -165,6 +180,31 @@ macro_rules! default_cache {
 macro_rules! default_contribute {
     () => {
         fn contribute(_slot: u8) -> Option<ElementHandle> {
+            None
+        }
+    };
+}
+
+/// Default input handling stubs (handle_mouse, handle_key, observe_key, observe_mouse).
+#[macro_export]
+macro_rules! default_input {
+    () => {
+        fn handle_mouse(_event: MouseEvent, _id: InteractiveId) -> Option<Vec<Command>> {
+            None
+        }
+        fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
+            None
+        }
+        fn observe_key(_event: KeyEvent) {}
+        fn observe_mouse(_event: MouseEvent) {}
+    };
+}
+
+/// Default overlay stub (contribute_overlay returns None).
+#[macro_export]
+macro_rules! default_overlay {
+    () => {
+        fn contribute_overlay() -> Option<Overlay> {
             None
         }
     };
@@ -239,5 +279,12 @@ mod tests {
     fn dirty_all_matches_bitflags() {
         // Ensure our constants match kasane-core's DirtyFlags::ALL = 0x3F
         assert_eq!(dirty::ALL, 0x3F);
+    }
+
+    #[test]
+    fn modifier_constants_match() {
+        assert_eq!(modifiers::CTRL, 0x01);
+        assert_eq!(modifiers::ALT, 0x02);
+        assert_eq!(modifiers::SHIFT, 0x04);
     }
 }
