@@ -1,5 +1,8 @@
+use std::path::PathBuf;
+
+use kasane_core::config::PluginsConfig;
 use kasane_core::element::{Direction, Element};
-use kasane_core::plugin::{Plugin, Slot};
+use kasane_core::plugin::{Plugin, PluginRegistry, Slot};
 use kasane_core::protocol::Color;
 use kasane_core::state::{AppState, DirtyFlags};
 
@@ -223,4 +226,75 @@ fn line_numbers_width_adapts_to_line_count() {
         }
         other => panic!("expected Column Flex, got {other:?}"),
     }
+}
+
+// --- discover_and_register tests ---
+
+#[test]
+fn discover_loads_fixtures_directory() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec![],
+    };
+    let mut registry = PluginRegistry::new();
+    crate::discover_and_register(&config, &mut registry);
+
+    // Should have loaded both cursor-line.wasm and line-numbers.wasm
+    assert!(registry.plugin_count() >= 2, "expected at least 2 plugins");
+}
+
+#[test]
+fn discover_skips_disabled_plugins() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec!["wasm_cursor_line".to_string()],
+    };
+    let mut registry = PluginRegistry::new();
+    crate::discover_and_register(&config, &mut registry);
+
+    // Only line-numbers should be loaded
+    assert_eq!(registry.plugin_count(), 1);
+}
+
+#[test]
+fn discover_does_nothing_when_disabled() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec![],
+    };
+    let mut registry = PluginRegistry::new();
+    crate::discover_and_register(&config, &mut registry);
+
+    assert_eq!(registry.plugin_count(), 0);
+}
+
+#[test]
+fn discover_handles_missing_directory() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some("/nonexistent/path/to/plugins".to_string()),
+        disabled: vec![],
+    };
+    let mut registry = PluginRegistry::new();
+    // Should not panic, just silently skip
+    crate::discover_and_register(&config, &mut registry);
+    assert_eq!(registry.plugin_count(), 0);
 }

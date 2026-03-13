@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
+default = ["wasm-plugins"]
 gui = ["dep:kasane-gui"]
 wasm-plugins = ["dep:kasane-wasm"]
 

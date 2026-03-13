@@ -16,6 +16,7 @@ pub struct Config {
     pub window: WindowConfig,
     pub font: FontConfig,
     pub colors: ColorsConfig,
+    pub plugins: PluginsConfig,
 }
 
 /// Menu configuration.
@@ -288,6 +289,52 @@ impl Default for ColorsConfig {
     }
 }
 
+/// Plugin configuration.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct PluginsConfig {
+    /// Automatically discover .wasm plugins from the plugins directory.
+    pub auto_discover: bool,
+    /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
+    pub path: Option<String>,
+    /// Plugin IDs to disable (by plugin ID, e.g. "wasm_cursor_line").
+    pub disabled: Vec<String>,
+}
+
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        PluginsConfig {
+            auto_discover: true,
+            path: None,
+            disabled: Vec::new(),
+        }
+    }
+}
+
+impl PluginsConfig {
+    /// Resolve the plugins directory path.
+    pub fn plugins_dir(&self) -> std::path::PathBuf {
+        if let Some(ref p) = self.path {
+            std::path::PathBuf::from(p)
+        } else {
+            dirs_data_path().join("plugins")
+        }
+    }
+}
+
+fn dirs_data_path() -> std::path::PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        std::path::PathBuf::from(xdg).join("kasane")
+    } else if let Ok(home) = std::env::var("HOME") {
+        std::path::PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("kasane")
+    } else {
+        std::path::PathBuf::from("kasane-data")
+    }
+}
+
 impl Config {
     pub fn load() -> Self {
         let config_path = dirs_config_path();
@@ -404,6 +451,37 @@ maximized = true
         assert_eq!(config.colors.default_fg, "#d4d4d4");
         assert_eq!(config.colors.default_bg, "#1e1e1e");
         assert_eq!(config.colors.red, "#cd3131");
+    }
+
+    #[test]
+    fn test_plugins_config_defaults() {
+        let config = Config::default();
+        assert!(config.plugins.auto_discover);
+        assert!(config.plugins.path.is_none());
+        assert!(config.plugins.disabled.is_empty());
+    }
+
+    #[test]
+    fn test_plugins_config_custom() {
+        let toml_str = r#"
+[plugins]
+auto_discover = false
+path = "/custom/plugins"
+disabled = ["wasm_cursor_line", "wasm_line_numbers"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(!config.plugins.auto_discover);
+        assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
+        assert_eq!(config.plugins.disabled.len(), 2);
+    }
+
+    #[test]
+    fn test_plugins_dir_custom_path() {
+        let pc = PluginsConfig {
+            path: Some("/my/plugins".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(pc.plugins_dir(), std::path::PathBuf::from("/my/plugins"));
     }
 
     #[test]

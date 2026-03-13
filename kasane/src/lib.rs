@@ -101,23 +101,45 @@ fn run_inner(
         },
     };
 
+    // Wrap user-provided plugin registration to also discover WASM plugins
+    let wrapped_register = wrap_with_wasm_discovery(config.plugins.clone(), register_plugins);
+
     match resolved_ui {
         UiMode::Tui => kasane_tui::run_tui(
             config,
             move || process::spawn_kakoune(&kak_args),
-            register_plugins,
+            wrapped_register,
         ),
         #[cfg(feature = "gui")]
         UiMode::Gui => kasane_gui::run_gui(
             config,
             move || process::spawn_kakoune(&kak_args),
-            register_plugins,
+            wrapped_register,
         ),
         #[cfg(not(feature = "gui"))]
         UiMode::Gui => {
-            let _ = register_plugins;
+            let _ = wrapped_register;
             eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
             std::process::exit(1);
+        }
+    }
+}
+
+fn wrap_with_wasm_discovery(
+    plugins_config: kasane_core::config::PluginsConfig,
+    register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static,
+) -> impl FnOnce(&mut PluginRegistry) + Send + 'static {
+    move |registry: &mut PluginRegistry| {
+        register_plugins(registry);
+
+        #[cfg(feature = "wasm-plugins")]
+        {
+            kasane_wasm::discover_and_register(&plugins_config, registry);
+        }
+
+        #[cfg(not(feature = "wasm-plugins"))]
+        {
+            let _ = plugins_config;
         }
     }
 }

@@ -330,6 +330,10 @@ impl PluginRegistry {
         }
     }
 
+    pub fn plugin_count(&self) -> usize {
+        self.plugins.len()
+    }
+
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
         self.plugins.push(plugin);
         self.slot_cache
