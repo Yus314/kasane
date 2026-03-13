@@ -80,7 +80,7 @@ Kakoune 上流の変更・PR に依存しており、ロードマップから分
 |---|---|
 | **要件** | 行番号ガターにコードアクション、エラー/警告、git diff 等のアイコンをネイティブ描画 |
 | **使用する API** | `Slot::BufferLeft` (実証済み — ColorPreviewPlugin) |
-| **ブロッカー** | `draw` メッセージの atom に種別 (行番号 / 仮想テキスト / コード) が含まれない。行番号の区別には [PR #4707](https://github.com/mawww/kakoune/pull/4707) / [PR #4737](https://github.com/mawww/kakoune/pull/4737) が必要 |
+| **ブロッカー** | `draw` メッセージの atom に種別 (行番号 / 仮想テキスト / コード) が含まれない。行番号の区別には [PR #4707](https://github.com/mawww/kakoune/pull/4707) が必要。`widget_columns` は利用可能 (PR #5455 マージ済み) |
 | **回避策** | `LineNumbers` / `LineNumberCursor` 等の face 名パターンマッチで推定可能だが、カスタム face に非対応 |
 | **部分実証** | ColorPreviewPlugin でガタースウォッチ (色コードのある行のみ) は動作済み |
 
@@ -91,7 +91,7 @@ Kakoune 上流の変更・PR に依存しており、ロードマップから分
 | **要件** | メインバッファ上に独立した描画レイヤーを重畳。仮想テキストをバッファ変更なしに表示 |
 | **使用する API** | `Slot::Overlay` + `Decorator(Buffer)` |
 | **ブロッカー (部分)** | バッファ内の正確な位置にオーバーレイを配置するには、atom の意味 (行番号 vs コード) を区別する必要がある (C-008) |
-| **回避策** | face ヒューリスティックで行番号幅を推定し、コード領域のオフセットを計算 |
+| **回避策** | `widget_columns` (PR #5455 マージ済み) でガター幅を取得可能。face ヒューリスティック不要に |
 | **部分実証** | ColorPreviewPlugin のカラーピッカーオーバーレイは動作済み (ただしバッファ左端固定) |
 
 ---
@@ -101,7 +101,8 @@ Kakoune 上流の変更・PR に依存しており、ロードマップから分
 | 上流 ID | 内容 | 影響する項目 | 状態 |
 |---------|------|-------------|------|
 | [PR #4707](https://github.com/mawww/kakoune/pull/4707) | atom に type フィールド追加 | E-001, E-002, C-008 | Open |
-| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | 行番号 atom の種別区別 | E-002 | Open |
+| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup コンテキスト追加 | E-002 | Closed (superseded by PR #5455) |
+| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | draw に widget_columns 追加 | E-001, E-002 | **Merged** — 対応済み |
 | [PR #5304](https://github.com/mawww/kakoune/pull/5304) | scroll position protocol | E-020, E-021 | Open |
 | [#5428](https://github.com/mawww/kakoune/issues/5428) | draw_status context | R-062 | Open |
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | incremental draw | NF-004 (回避済み) | Open |

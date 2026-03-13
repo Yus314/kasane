@@ -48,7 +48,7 @@ Kakoune が内部で持つ計算結果（文字幅、メニュースクロール
 
 ### 4.1 カーソル検出 — `FINAL_FG + REVERSE` ヒューリスティック
 
-**制約:** Kakoune は `set_cursor` メッセージでカーソル座標のみを伝え、以下の情報を提供しない:
+**制約:** Kakoune は `draw` メッセージの `cursor_pos` でカーソル座標を伝えるが、以下の情報を提供しない:
 - マルチカーソルの総数
 - カーソルの種別 (Primary / Secondary)
 - カーソルの面名 (PrimaryCursor / SecondaryCursor 等)
@@ -255,9 +255,10 @@ MousePress { button: String, line: u32, column: u32 }
 | PR | タイトル | 状態 | 最終更新 | 見込み |
 |----|---------|------|---------|-------|
 | [#4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に Face 名を追加 | OPEN | 2026-01 | **停滞**。mawww は DisplayAtom フラグを推奨。6コメント |
-| [#4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup コンテキスト追加 | OPEN | 2026-01 | **実装方針合意済み**。`widget_columns` フィールドの追加。2コメント |
+| [#4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup コンテキスト追加 | CLOSED | 2026-01 | PR #5455 に統合 |
+| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | `set_cursor` 削除 + `widget_columns` 追加 | MERGED | 2026-03 | **対応済み** |
 
-**分析:** PR #4737 は mawww が具体的な実装方針を示しており（「DisplayBuffer に `widget_columns` フィールドを追加」）、マージの可能性が最も高い。PR #4707 は mawww が別アプローチを推奨しているため、そのままではマージされない見込み。
+**分析:** PR #5455 がマージされ、`set_cursor` メッセージは削除された。`cursor_pos` は `draw` と `draw_status` に統合され、`widget_columns` が `draw` に追加された。PR #4707 は mawww が別アプローチを推奨しているため、そのままではマージされない見込み。
 
 ### 8.2 追跡中の上流 Issue
 
@@ -280,7 +281,7 @@ MousePress { button: String, line: u32, column: u32 }
 
 ### 9.2 中期 (Phase 4b 以降)
 
-- **PR #4737 のマージ後**: `widget_columns` を利用してガター/コンテンツの分離を実装。R-052 (画面外カーソル), E-023 (表示行ナビゲーション) を解放
+- **`widget_columns` 利用** (PR #5455 マージ済み): ガター/コンテンツの分離を実装可能。E-001 (オーバーレイ), E-002 (ガターアイコン) の精度向上に活用
 - **PR #5428 が進展した場合**: `status_style` を利用して R-062 のヒューリスティック推定を廃止
 - **上流が進まない場合**: Kakoune パッチのフォークを検討するか、Kasane 側のヒューリスティックをより堅牢にする
 
