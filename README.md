@@ -70,7 +70,7 @@ See [docs/performance.md](docs/performance.md).
 
 ## Plugins
 
-Kasane supports external plugins as standalone Rust binaries. See [docs/external-plugins.md](docs/external-plugins.md) and [examples/line-numbers/](examples/line-numbers/).
+Kasane supports external plugins as standalone Rust binaries and WASM modules. See [docs/plugin-development.md](docs/plugin-development.md) and [examples/line-numbers/](examples/line-numbers/).
 
 ## Contributing
 

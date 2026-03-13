@@ -492,3 +492,46 @@ Total startup for 10 plugins ≈ 10 ms. Cacheable via `Engine::precompile_compon
 4. **Bound plugin costs**: Native plugins: 10 add ~4 us (view 2.35 us + dispatch 1.70 us). WASM plugins: 10 add ~18 us. Monitor linear scaling; investigate if total exceeds ~20 us (native) or ~25 us (WASM).
 5. **Cache only when needed**: place() has 14x headroom to threshold. VirtualList and layout caching are deferred until problems are observed.
 6. **WASM + caching synergy**: DirtyFlags-based caching eliminates WASM calls on unchanged frames (0.26 ns cache hit). Design WASM plugin APIs to maximize cache hit rate.
+
+## `#[kasane::component]` コンパイラ駆動最適化
+
+`#[kasane::component]` macro は Svelte 的な「コンパイラに仕事をさせる」思想に基づき、宣言的な view() から最適化されたコードを段階的に生成する ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化--svelte-的二層レンダリング)):
+
+**段階 1: 入力メモ化**
+
+入力パラメータの前回値を保持し、全入力が同一なら Element 構築をスキップする:
+
+```rust
+#[kasane::component]
+fn file_tree(entries: &[Entry], selected: usize) -> Element { ... }
+// → entries, selected が前回と同じなら、キャッシュ済み Element を返す
+```
+
+**段階 2: 静的レイアウトキャッシュ**
+
+proc macro が構造の静的部分を検出し、レイアウトを一度だけ計算する。
+
+**段階 3: 細粒度更新コード生成**
+
+proc macro が各 Element の依存する入力パラメータを AST レベルで静的解析し、変更されたセルのみ CellGrid を直接更新するコードを生成する。
+
+**二層レンダリングモデル:**
+
+```
+              +---------------------+
+              |   宣言的 API 層      |  ← プラグイン作者が触る
+              |  (Element, view())   |
+              +------+--------------+
+                     |
+         +-----------+----------+
+         v                      v
+  コンパイル済みパス       インタープリタパス
+  (proc macro 生成)       (汎用 Element ツリー)
+         |                      |
+  静的構造 → 直接         Element → layout()
+    CellGrid 更新          → paint() → CellGrid
+```
+
+- **コンパイル済みパス**: `#[kasane::component]` が静的解析できる部分。Element ツリーを経由せず直接 CellGrid を更新
+- **インタープリタパス**: プラグインが `Plugin::contribute()` で動的に Element を提供する部分。従来のフルパス
+- **フォールバック**: `#[kasane::component]` なしのコードはインタープリタパスで動作。最適化はオプトインで、正しさは常にインタープリタパスが保証する

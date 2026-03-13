@@ -7,7 +7,7 @@
 - [decisions.md](./decisions.md) — ADR-001 (TUI+GUI ハイブリッド) で GUI バックエンドの方針を決定済み
 - [architecture.md](./architecture.md) — crate 構成図、バックエンドの責務表
 - [roadmap.md](./roadmap.md) — Phase 4b として位置づけ
-- [declarative-ui.md](./declarative-ui.md) — Element ツリー + TEA + プラグイン基盤
+- [plugin-development.md](./plugin-development.md) — Element ツリー + TEA + プラグイン基盤
 
 ## 技術スタック
 

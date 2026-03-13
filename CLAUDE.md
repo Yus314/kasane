@@ -78,7 +78,7 @@ Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Grid`, `
 
 `PluginRegistry` in `kasane-core/src/plugin.rs` collects and applies contributions during `view()`.
 
-External crates can create plugins using `kasane_core::plugin_prelude` and register them via `kasane::run(|registry| { ... })`. See `docs/external-plugins.md` and `examples/line-numbers/`.
+External crates can create plugins using `kasane_core::plugin_prelude` and register them via `kasane::run(|registry| { ... })`. See `docs/plugin-development.md` and `examples/line-numbers/`.
 
 ## Conventions
 

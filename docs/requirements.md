@@ -18,7 +18,7 @@
 **関連ドキュメント:**
 - [技術的意思決定記録](./decisions.md)
 - [アーキテクチャ設計書](./architecture.md)
-- [宣言的 UI アーキテクチャ設計書](./declarative-ui.md)
+- [プラグイン開発ガイド](./plugin-development.md)
 - [パフォーマンス分析](./performance.md)
 - [実装ロードマップ](./roadmap.md)
 - [JSON UI プロトコル仕様](./json-ui-protocol.md)
@@ -262,7 +262,7 @@
 
 ## 4. 拡張機能要件
 
-Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacement) 上で実現する拡張機能。多くはプラグインとして実装され、コアフレームワークの拡張性を実証する。設計の詳細は [declarative-ui.md](./declarative-ui.md) を参照。
+Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacement) 上で実現する拡張機能。多くはプラグインとして実装され、コアフレームワークの拡張性を実証する。設計の詳細は [plugin-development.md](./plugin-development.md) を参照。
 
 ### 4.1 仮想テキスト・オーバーレイ
 

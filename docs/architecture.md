@@ -171,7 +171,7 @@ kasane/
 
 ### 宣言的 UI レイヤーの責務
 
-kasane-core は宣言的 UI レイヤー (ADR-009) を実装済み。詳細は [declarative-ui.md](./declarative-ui.md) を参照。
+kasane-core は宣言的 UI レイヤー (ADR-009) を実装済み。詳細は [plugin-development.md](./plugin-development.md) を参照。
 
 | コンポーネント | 担当 | 説明 |
 |--------------|------|------|
@@ -223,4 +223,92 @@ DirtyFlags チェック
 ├── PaintPatch 適用可能 → パッチ (2〜80 セル更新)
 ├── セクション別再描画可能 → セクション単位 repaint
 └── フォールバック → フルパイプライン (view → place → paint → diff)
+```
+
+## レイアウト計算の詳細
+
+二段階アルゴリズム (Flutter モデル):
+
+### Phase 1: Measure (下→上)
+
+各要素が「与えられた制約内で自分はこのサイズ」と報告する。
+
+```rust
+struct Constraints {
+    min_width: u16, max_width: u16,
+    min_height: u16, max_height: u16,
+}
+
+fn measure(element: &Element, constraints: Constraints) -> Size;
+```
+
+### Phase 2: Place (上→下)
+
+親が子の具体的な位置を決定する。
+
+```rust
+struct LayoutResult {
+    area: Rect,
+    children: Vec<LayoutResult>,
+}
+
+fn place(element: &Element, area: Rect) -> LayoutResult;
+```
+
+### Flex レイアウトの計算手順
+
+1. 固定子 (flex=0.0) を先に測定し、必要なサイズを確定
+2. 残り空間を flex 値の比率で可変子に分配
+3. min/max 制約を適用し、溢れた分を再分配
+4. 各子の位置を direction に従って配置
+
+### Overlay の配置
+
+Overlay は通常の Flex レイアウトとは独立に計算する:
+
+1. base 要素を通常通りレイアウト
+2. 各 Overlay の要素を測定 (サイズ確定)
+3. AnchorPoint の場合は既存の `compute_pos` ロジックで位置決定 (画面端クランプ、フリップ、衝突回避)
+
+## 描画: paint()
+
+レイアウト計算後、Element ツリーを CellGrid に描画する。`&AppState` を渡すことで BufferRef パターンが可能になる。
+
+```rust
+fn paint(
+    element: &Element,
+    layout: &LayoutResult,
+    grid: &mut CellGrid,
+    state: &AppState,
+    theme: &Theme,
+) {
+    match element {
+        Element::Text(text, style) => {
+            let face = theme.resolve(style);
+            grid.put_str(layout.area, text, &face);
+        }
+        Element::StyledLine(atoms) => {
+            grid.put_atoms(layout.area, atoms);
+        }
+        Element::BufferRef { line_range } => {
+            // clone なし。state.core.lines から直接描画
+            for (i, line) in state.core.lines[line_range.clone()].iter().enumerate() {
+                grid.put_atoms(layout.area.row(i), line);
+            }
+        }
+        Element::Flex { children, .. } => {
+            for (child, child_layout) in children.iter().zip(&layout.children) {
+                paint(&child.element, child_layout, grid, state, theme);
+            }
+        }
+        Element::Stack { base, overlays } => {
+            paint(base, &layout.children[0], grid, state, theme);
+            for (overlay, overlay_layout) in overlays.iter().zip(&layout.children[1..]) {
+                paint(&overlay.element, overlay_layout, grid, state, theme);
+            }
+        }
+        // Grid, Scrollable, Container, Interactive は同様に再帰
+        _ => {}
+    }
+}
 ```
