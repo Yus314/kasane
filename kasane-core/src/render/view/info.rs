@@ -59,7 +59,7 @@ pub(super) fn build_info_overlay_indexed(
     let win = compute_info_window(info, state, avoid)?;
 
     let element = match info.style {
-        InfoStyle::Prompt => build_info_prompt(info, &win),
+        InfoStyle::Prompt => build_info_prompt(info, &win, state),
         InfoStyle::Modal => build_info_framed(info, &win, state.shadow_enabled),
         InfoStyle::Inline | InfoStyle::InlineAbove | InfoStyle::MenuDoc => {
             build_info_nonframed(info, &win)
@@ -81,7 +81,11 @@ pub(super) fn build_info_overlay_indexed(
     })
 }
 
-fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<Element> {
+fn build_info_prompt(
+    info: &InfoState,
+    win: &layout::FloatingWindow,
+    state: &AppState,
+) -> Option<Element> {
     if win.width < ASSISTANT_WIDTH + 5 || win.height < 3 {
         return None;
     }
@@ -101,19 +105,24 @@ fn build_info_prompt(info: &InfoState, win: &layout::FloatingWindow) -> Option<E
         .unwrap_or(0);
     let trimmed = &info.content[..content_end];
 
-    // Build assistant column
-    let asst_top = ((total_h as i32 - ASSISTANT_CLIPPY.len() as i32 + 1) / 2).max(0) as usize;
+    // Build assistant column (use custom art if configured)
+    let art_len = state
+        .assistant_art
+        .as_ref()
+        .map_or(ASSISTANT_CLIPPY.len(), |a| a.len());
+    let asst_top = ((total_h as i32 - art_len as i32 + 1) / 2).max(0) as usize;
     let mut asst_rows: Vec<FlexChild> = Vec::new();
     for row in 0..total_h {
         let idx = if row >= asst_top {
-            (row - asst_top).min(ASSISTANT_CLIPPY.len() - 1)
+            (row - asst_top).min(art_len - 1)
         } else {
-            ASSISTANT_CLIPPY.len() - 1
+            art_len - 1
         };
-        asst_rows.push(FlexChild::fixed(Element::text(
-            ASSISTANT_CLIPPY[idx],
-            info.face,
-        )));
+        let line_str: &str = match &state.assistant_art {
+            Some(custom) => &custom[idx],
+            None => ASSISTANT_CLIPPY[idx],
+        };
+        asst_rows.push(FlexChild::fixed(Element::text(line_str, info.face)));
     }
     let assistant_col = Element::column(asst_rows);
 

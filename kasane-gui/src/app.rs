@@ -292,8 +292,12 @@ impl<W: Write + Send + 'static> App<W> {
                     });
                 }
                 DeferredCommand::SetConfig { key, value } => {
-                    self.state.ui_options.insert(key, value);
-                    self.dirty |= DirtyFlags::OPTIONS;
+                    kasane_core::state::apply_set_config(
+                        &mut self.state,
+                        &mut self.dirty,
+                        &key,
+                        &value,
+                    );
                 }
             }
         }

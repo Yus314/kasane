@@ -75,8 +75,7 @@ fn handle_deferred(
                 });
             }
             DeferredCommand::SetConfig { key, value } => {
-                state.ui_options.insert(key, value);
-                *dirty |= DirtyFlags::OPTIONS;
+                kasane_core::state::apply_set_config(state, dirty, &key, &value);
             }
         }
     }

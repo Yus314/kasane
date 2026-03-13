@@ -279,13 +279,6 @@ fn build_status_bar(
     for el in status_right {
         children.push(FlexChild::fixed(el));
     }
-    // Cursor count badge: show when there are multiple selections
-    if state.cursor_count > 1 {
-        let badge_text = format!(" {} sel ", state.cursor_count);
-        let badge = Element::text(badge_text, state.status_default_face);
-        children.push(FlexChild::fixed(badge));
-    }
-
     if mode_width > 0 {
         children.push(FlexChild::fixed(mode_line));
     }

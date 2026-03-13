@@ -297,7 +297,13 @@ fn build_menu_inline(
         .collect();
 
     // Build scrollbar column
-    let scrollbar = build_scrollbar(win.height, menu, &menu.menu_face);
+    let scrollbar = build_scrollbar(
+        win.height,
+        menu,
+        &menu.menu_face,
+        &state.scrollbar_thumb,
+        &state.scrollbar_track,
+    );
 
     let content_col = Element::column(item_rows);
     let row = Element::row(vec![
@@ -345,7 +351,13 @@ fn build_menu_prompt(
     }
 
     // Add scrollbar
-    let scrollbar = build_scrollbar(wh, menu, &menu.menu_face);
+    let scrollbar = build_scrollbar(
+        wh,
+        menu,
+        &menu.menu_face,
+        &state.scrollbar_thumb,
+        &state.scrollbar_track,
+    );
     let content = Element::grid(grid_columns, grid_children);
     let row = Element::row(vec![
         FlexChild::flexible(content, 1.0),
@@ -472,7 +484,13 @@ fn build_menu_search_dropdown(
         })
         .collect();
 
-    let scrollbar = build_scrollbar(win_h, menu, &menu.menu_face);
+    let scrollbar = build_scrollbar(
+        win_h,
+        menu,
+        &menu.menu_face,
+        &state.scrollbar_thumb,
+        &state.scrollbar_track,
+    );
     let content_col = Element::column(item_rows);
     let row = Element::row(vec![
         FlexChild::flexible(content_col, 1.0),
@@ -490,7 +508,13 @@ fn build_menu_search_dropdown(
     })
 }
 
-fn build_scrollbar(win_height: u16, menu: &MenuState, face: &Face) -> Element {
+fn build_scrollbar(
+    win_height: u16,
+    menu: &MenuState,
+    face: &Face,
+    thumb: &str,
+    track: &str,
+) -> Element {
     let wh = win_height as usize;
     let item_count = menu.items.len();
     let columns = menu.columns as usize;
@@ -508,9 +532,9 @@ fn build_scrollbar(win_height: u16, menu: &MenuState, face: &Face) -> Element {
     let mut rows: Vec<FlexChild> = Vec::new();
     for row in 0..wh {
         let ch = if row >= mark_y && row < mark_y + mark_h {
-            "█"
+            thumb
         } else {
-            "░"
+            track
         };
         rows.push(FlexChild::fixed(Element::text(ch, *face)));
     }

@@ -98,6 +98,12 @@ pub struct AppState {
     pub menu_position: MenuPosition,
     pub search_dropdown: bool,
     pub status_at_top: bool,
+    pub scrollbar_thumb: String,
+    pub scrollbar_track: String,
+    pub assistant_art: Option<Vec<String>>,
+
+    // Plugin-defined config store
+    pub plugin_config: HashMap<String, String>,
 
     // Derived state
     pub cursor_count: usize,
@@ -107,6 +113,9 @@ pub struct AppState {
 
     // Mouse drag state
     pub drag: DragState,
+
+    // Cursor settings
+    pub secondary_blend_ratio: f32,
 
     // Scroll settings
     pub smooth_scroll: bool,
@@ -162,6 +171,60 @@ impl AppState {
     }
 }
 
+/// Apply a SetConfig command to AppState.
+///
+/// Known keys are dispatched to their respective fields; unknown keys are
+/// stored in `plugin_config` for plugin-defined configuration.
+pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str, value: &str) {
+    match key {
+        "shadow_enabled" => {
+            state.shadow_enabled = value == "true";
+            *dirty |= DirtyFlags::OPTIONS;
+        }
+        "padding_char" => {
+            state.padding_char = value.to_string();
+            *dirty |= DirtyFlags::BUFFER;
+        }
+        "search_dropdown" => {
+            state.search_dropdown = value == "true";
+            *dirty |= DirtyFlags::OPTIONS;
+        }
+        "status_at_top" => {
+            state.status_at_top = value == "true";
+            *dirty |= DirtyFlags::OPTIONS;
+        }
+        "smooth_scroll" => {
+            state.smooth_scroll = value == "true";
+        }
+        "cursor.secondary_blend" => {
+            if let Ok(ratio) = value.parse::<f32>() {
+                state.secondary_blend_ratio = ratio.clamp(0.0, 1.0);
+                *dirty |= DirtyFlags::BUFFER;
+            }
+        }
+        "scrollbar.thumb" => {
+            state.scrollbar_thumb = value.to_string();
+            *dirty |= DirtyFlags::MENU_STRUCTURE;
+        }
+        "scrollbar.track" => {
+            state.scrollbar_track = value.to_string();
+            *dirty |= DirtyFlags::MENU_STRUCTURE;
+        }
+        _ => {
+            // Unknown keys go to ui_options (for Kakoune ui_options) or plugin_config
+            if key.contains('.') {
+                // Plugin-namespaced keys (e.g. "color-preview.opacity")
+                state
+                    .plugin_config
+                    .insert(key.to_string(), value.to_string());
+            } else {
+                state.ui_options.insert(key.to_string(), value.to_string());
+            }
+            *dirty |= DirtyFlags::OPTIONS;
+        }
+    }
+}
+
 /// スクロールアニメーションを1フレーム進める。
 /// アニメーションが存在した場合 true を返す。
 pub fn tick_scroll_animation(state: &mut AppState, kak_writer: &mut impl std::io::Write) -> bool {
@@ -208,9 +271,14 @@ impl Default for AppState {
             menu_position: MenuPosition::Auto,
             search_dropdown: false,
             status_at_top: false,
+            scrollbar_thumb: "\u{2588}".to_string(), // █
+            scrollbar_track: "\u{2591}".to_string(), // ░
+            assistant_art: None,
+            plugin_config: HashMap::new(),
             cursor_count: 0,
             secondary_cursors: Vec::new(),
             drag: DragState::None,
+            secondary_blend_ratio: 0.4,
             smooth_scroll: false,
             scroll_animation: None,
             cols: 80,
