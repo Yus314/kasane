@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773414254022,
+  "lastUpdate": 1773424965559,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -5483,6 +5483,498 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7369,
             "range": "± 62",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "1a7da1328871917ff8ce46c0ba0bf0b1e80ee83d",
+          "message": "docs: add ADR-015 and update performance docs for rendering pipeline optimization\n\n- Add ADR-015 entry to decisions.md (4-stage rendering pipeline optimization)\n- Update performance.md: frame flow (draw_grid), backend benchmarks,\n  bottleneck analysis (container fill/diff allocation resolved),\n  ADR-015 section with benchmark results, 240Hz analysis\n- Update roadmap.md: mark 4 performance items as done\n- Update CLAUDE.md: rendering pipeline diagram and performance numbers\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-14T02:38:08+09:00",
+          "tree_id": "6c0d79cf236bdef424ef4ee4cc23b1bf325c9a6e",
+          "url": "https://github.com/Yus314/kasane/commit/1a7da1328871917ff8ce46c0ba0bf0b1e80ee83d"
+        },
+        "date": 1773424965040,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 578,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 6858,
+            "range": "± 507",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 337,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 28245,
+            "range": "± 107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 97134,
+            "range": "± 339",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 32998,
+            "range": "± 273",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 25181,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 13534,
+            "range": "± 173",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 31433,
+            "range": "± 67",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 12734,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3314,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 20691,
+            "range": "± 129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 39,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 139,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 245,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 249,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 750,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1266,
+            "range": "± 49",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 46170,
+            "range": "± 157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 35710,
+            "range": "± 365",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 58133,
+            "range": "± 983",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 57975,
+            "range": "± 411",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 58394,
+            "range": "± 317",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 43280,
+            "range": "± 185",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 45588,
+            "range": "± 364",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 35779,
+            "range": "± 305",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 64064,
+            "range": "± 756",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 555290,
+            "range": "± 14742",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2713952,
+            "range": "± 11208",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3045,
+            "range": "± 60",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 56505,
+            "range": "± 916",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 12771,
+            "range": "± 169",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 50156,
+            "range": "± 236",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 266192,
+            "range": "± 8597",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 927,
+            "range": "± 2879",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5882,
+            "range": "± 57",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 46127,
+            "range": "± 184",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 201799,
+            "range": "± 889",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 363995,
+            "range": "± 867",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 2970535,
+            "range": "± 76860",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 5931041,
+            "range": "± 186442",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 13507,
+            "range": "± 502",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 81716,
+            "range": "± 802",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 162029,
+            "range": "± 551",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 4231,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 3392,
+            "range": "± 45",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 18201,
+            "range": "± 57",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 5349,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 14681,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 26166,
+            "range": "± 133",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 40560,
+            "range": "± 166",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_status_update",
+            "value": 1271,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_menu_select",
+            "value": 3895,
+            "range": "± 130",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_cursor_move",
+            "value": 201,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 6246,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 3813,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 12934,
+            "range": "± 1471",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 6971,
+            "range": "± 27311",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collect_slot_cached_hit",
+            "value": 504,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collect_slot_cached_miss",
+            "value": 3289,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 154068,
+            "range": "± 1004",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 863549,
+            "range": "± 3659",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2065,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 142323,
+            "range": "± 1480",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 51373,
+            "range": "± 176",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 276798,
+            "range": "± 1585",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 21138,
+            "range": "± 191",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 51381,
+            "range": "± 3810",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 141387,
+            "range": "± 1922",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 51116,
+            "range": "± 181",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3994492,
+            "range": "± 20409",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15097644,
+            "range": "± 82953",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1584376,
+            "range": "± 6770",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 17572956,
+            "range": "± 69064",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7398,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 54752,
+            "range": "± 317",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 595,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7363,
+            "range": "± 11",
             "unit": "ns/iter"
           }
         ]
