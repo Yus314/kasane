@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773402155096,
+  "lastUpdate": 1773406608605,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -5291,6 +5291,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 6640,
             "range": "± 42",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "c9ed533f8ec7863457448fb4dc7e828fdfe0eba7",
+          "message": "feat(surface): add Surface Model architecture with workspace, ephemeral surfaces, and slot discovery\n\nIntroduce the Surface abstraction that treats all screen regions as\nfirst-class objects, eliminating the core/plugin asymmetry. Core\ncomponents (buffer, status bar, menu, info popups) and plugin-provided\nsurfaces now share the same trait and lifecycle.\n\nKey additions:\n- Surface trait with view/event/slot APIs (surface/mod.rs)\n- SurfaceRegistry with compose_view, route_event, sync_ephemeral_surfaces\n- Workspace generalized pane manager using SurfaceId (workspace.rs)\n- KakouneBufferSurface delegates to view_cached() for pixel-identical output\n- MenuSurface/InfoSurface as ephemeral floating surfaces\n- Surface-local named slots: all_declared_slots() and slot_owner()\n- Plugin capabilities: SURFACE_PROVIDER, WORKSPACE_OBSERVER\n- TUI and GUI event loops wired with SurfaceRegistry + workspace dispatch\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T21:44:36+09:00",
+          "tree_id": "15fae3a8f6dbb0fecd25e829d615a46e05803b24",
+          "url": "https://github.com/Yus314/kasane/commit/c9ed533f8ec7863457448fb4dc7e828fdfe0eba7"
+        },
+        "date": 1773406607469,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 149218,
+            "range": "± 1474",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 847823,
+            "range": "± 11421",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2119,
+            "range": "± 72",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 136441,
+            "range": "± 489",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4739529,
+            "range": "± 13696",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16773461,
+            "range": "± 62637",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1759786,
+            "range": "± 6295",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20044237,
+            "range": "± 420816",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7967,
+            "range": "± 162",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55687,
+            "range": "± 153",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 595,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7464,
+            "range": "± 36",
             "unit": "ns/iter"
           }
         ]
