@@ -22,7 +22,7 @@ Kasane builds on this foundation to fill the gap. It is an **operating system fo
 ## Features
 
 - **Dual backend** — TUI (crossterm) and GPU (wgpu + glyphon)
-- **Plugin system** — Slot / Decorator / Replacement extension points with `#[kasane::plugin]` proc macro
+- **Plugin system** — Slot / Decorator / Replacement extension points; WASM (Component Model) and native (`#[kasane::plugin]`) plugins
 - **Compiled rendering** — PaintPatch, section caching, DirtyFlags-based memoization
 - **System clipboard** — direct integration via arboard (no xclip/xsel)
 - **Smooth scrolling** — with inertia support
