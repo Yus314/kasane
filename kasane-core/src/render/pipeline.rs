@@ -15,8 +15,12 @@ use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
 
 /// Compute the RenderResult (cursor position + style) from AppState.
-fn compute_render_result(state: &AppState, buffer_x_offset: u16) -> RenderResult {
-    let style = cursor_style(state);
+fn compute_render_result(
+    state: &AppState,
+    registry: &PluginRegistry,
+    buffer_x_offset: u16,
+) -> RenderResult {
+    let style = cursor_style(state, registry);
     let (cx, cy) = match state.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
@@ -107,7 +111,7 @@ pub fn scene_render_pipeline_scene_cached<'a>(
     // Compute buffer_x_offset from the base layout
     let base_layout = flex::place(&sections.base, root_area, state);
     let buffer_x_offset = find_buffer_x_offset(&sections.base, &base_layout);
-    let result = compute_render_result(state, buffer_x_offset);
+    let result = compute_render_result(state, registry, buffer_x_offset);
 
     // Fast path: all sections cached
     if scene_cache.is_fully_cached() {
@@ -227,7 +231,7 @@ pub fn render_pipeline_cached(
     // Differentiate secondary cursor faces before clearing primary cursor
     apply_secondary_cursor_faces(state, grid, buffer_x_offset);
 
-    let style = cursor_style(state);
+    let style = cursor_style(state, registry);
     clear_block_cursor_face(state, grid, style, buffer_x_offset);
     let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
 
@@ -297,7 +301,7 @@ pub fn render_pipeline_sectioned(
         paint::paint(&element, &layout_result, grid, state);
 
         let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
-        let style = cursor_style(state);
+        let style = cursor_style(state, registry);
         clear_block_cursor_face(state, grid, style, buffer_x_offset);
         let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
         return RenderResult {
@@ -330,7 +334,7 @@ pub fn render_pipeline_sectioned(
             layout_cache.base_layout = Some(layout_result.clone());
 
             let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
-            let style = cursor_style(state);
+            let style = cursor_style(state, registry);
             clear_block_cursor_face(state, grid, style, buffer_x_offset);
             let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
             return RenderResult {
@@ -386,7 +390,7 @@ pub fn render_pipeline_patched(
         } else {
             0
         };
-        let style = cursor_style(state);
+        let style = cursor_style(state, registry);
         clear_block_cursor_face(state, grid, style, buffer_x_offset);
         let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
 

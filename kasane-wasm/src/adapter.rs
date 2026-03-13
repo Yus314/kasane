@@ -317,6 +317,51 @@ impl Plugin for WasmPlugin {
         }
     }
 
+    // --- v0.4.0: Cursor style override ---
+
+    fn cursor_style_override(&self, state: &AppState) -> Option<kasane_core::render::CursorStyle> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_cursor_style_override(&mut *store) {
+            Ok(Some(code)) => match code {
+                0 => Some(kasane_core::render::CursorStyle::Block),
+                1 => Some(kasane_core::render::CursorStyle::Bar),
+                2 => Some(kasane_core::render::CursorStyle::Underline),
+                3 => Some(kasane_core::render::CursorStyle::Outline),
+                _ => None,
+            },
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.cursor_style_override failed: {e}",
+                    self.plugin_id.0
+                );
+                None
+            }
+        }
+    }
+
+    // --- v0.4.0: Named slot contributions ---
+
+    fn contribute_named_slot(&self, name: &str, state: &AppState) -> Option<Element> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_contribute_named(&mut *store, name) {
+            Ok(Some(handle)) => Some(store.data_mut().take_root_element(handle)),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.contribute_named({name}) failed: {e}",
+                    self.plugin_id.0
+                );
+                None
+            }
+        }
+    }
+
     // --- v0.3.0: Inter-plugin messaging ---
 
     fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {

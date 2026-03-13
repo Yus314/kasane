@@ -72,7 +72,7 @@ fn test_cursor_style_ui_option_bar() {
     state
         .ui_options
         .insert("kasane_cursor_style".into(), "bar".into());
-    assert_eq!(cursor_style(&state), CursorStyle::Bar);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Bar);
 }
 
 #[test]
@@ -81,14 +81,14 @@ fn test_cursor_style_ui_option_underline() {
     state
         .ui_options
         .insert("kasane_cursor_style".into(), "underline".into());
-    assert_eq!(cursor_style(&state), CursorStyle::Underline);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Underline);
 }
 
 #[test]
 fn test_cursor_style_prompt_mode() {
     let mut state = AppState::default();
     state.cursor_mode = CursorMode::Prompt;
-    assert_eq!(cursor_style(&state), CursorStyle::Bar);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Bar);
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn test_cursor_style_insert_mode_line() {
         face: Face::default(),
         contents: "insert".into(),
     }];
-    assert_eq!(cursor_style(&state), CursorStyle::Bar);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Bar);
 }
 
 #[test]
@@ -108,20 +108,20 @@ fn test_cursor_style_replace_mode_line() {
         face: Face::default(),
         contents: "replace".into(),
     }];
-    assert_eq!(cursor_style(&state), CursorStyle::Underline);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Underline);
 }
 
 #[test]
 fn test_cursor_style_default_block() {
     let state = AppState::default();
-    assert_eq!(cursor_style(&state), CursorStyle::Block);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Block);
 }
 
 #[test]
 fn test_cursor_style_unfocused_outline() {
     let mut state = AppState::default();
     state.focused = false;
-    assert_eq!(cursor_style(&state), CursorStyle::Outline);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Outline);
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_cursor_style_ui_option_overrides_unfocused() {
     state
         .ui_options
         .insert("kasane_cursor_style".into(), "bar".into());
-    assert_eq!(cursor_style(&state), CursorStyle::Bar);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Bar);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn test_cursor_style_ui_option_overrides_mode_line() {
         face: Face::default(),
         contents: "insert".into(),
     }];
-    assert_eq!(cursor_style(&state), CursorStyle::Block);
+    assert_eq!(cursor_style_default(&state), CursorStyle::Block);
 }
 
 // --- clear_block_cursor_face tests ---
@@ -278,7 +278,7 @@ fn test_secondary_face_removes_reverse() {
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    let secondary = make_secondary_cursor_face(&cursor, &default);
+    let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
     assert!(
         !secondary.attributes.contains(Attributes::REVERSE),
         "REVERSE should be removed from secondary cursor face"
@@ -310,7 +310,7 @@ fn test_secondary_face_has_blended_bg() {
         bg: Color::Rgb { r: 0, g: 0, b: 0 },
         ..Face::default()
     };
-    let secondary = make_secondary_cursor_face(&cursor, &default);
+    let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
 
     // Cursor color (fg) = white (255,255,255), bg = black (0,0,0)
     // Blend: 0.4 * 255 + 0.6 * 0 = 102
@@ -341,7 +341,7 @@ fn test_secondary_face_preserves_text_color() {
         attributes: Attributes::FINAL_FG | Attributes::REVERSE,
     };
     let default = Face::default();
-    let secondary = make_secondary_cursor_face(&cursor, &default);
+    let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
 
     // fg should be the original bg (the text shown under REVERSE)
     assert_eq!(

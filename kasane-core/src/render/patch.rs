@@ -313,6 +313,7 @@ impl PaintPatch for CursorPatch {
                 cell.face = crate::render::cursor::make_secondary_cursor_face(
                     &cell.face,
                     &state.default_face,
+                    state.secondary_blend_ratio,
                 );
             } else {
                 cell.face = state.default_face;

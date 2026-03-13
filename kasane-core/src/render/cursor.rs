@@ -65,8 +65,16 @@ pub fn cursor_position(state: &AppState, grid: &CellGrid, buffer_x_offset: u16) 
 
 /// Determine the cursor style from the application state.
 ///
-/// Priority: ui_option `kasane_cursor_style` > prompt mode > mode_line heuristic > Block.
-pub fn cursor_style(state: &AppState) -> CursorStyle {
+/// Priority: plugin override > ui_option `kasane_cursor_style` > prompt mode > mode_line heuristic > Block.
+pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginRegistry) -> CursorStyle {
+    if let Some(style) = registry.cursor_style_override(state) {
+        return style;
+    }
+    cursor_style_default(state)
+}
+
+/// Default cursor style logic without plugin overrides.
+pub fn cursor_style_default(state: &AppState) -> CursorStyle {
     if let Some(style) = state.ui_options.get("kasane_cursor_style") {
         return match style.as_str() {
             "bar" => CursorStyle::Bar,
@@ -128,9 +136,6 @@ pub fn clear_block_cursor_face(
     }
 }
 
-/// Blend ratio for secondary cursor background: 40% cursor color, 60% background.
-const SECONDARY_BLEND_RATIO: f32 = 0.4;
-
 /// Resolve a color to RGB, falling back to a default RGB when the color is `Default`.
 fn color_to_rgb(color: Color, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
     color.to_rgb().unwrap_or(fallback)
@@ -146,8 +151,13 @@ fn blend_rgb(a: (u8, u8, u8), b: (u8, u8, u8), ratio: f32) -> (u8, u8, u8) {
 /// Generate a face for secondary cursors.
 ///
 /// Removes REVERSE from the cursor face and sets bg to a blended color
-/// (40% cursor color + 60% background) to visually differentiate from primary.
-pub fn make_secondary_cursor_face(cursor_face: &Face, default_face: &Face) -> Face {
+/// using the given blend ratio (default 0.4 = 40% cursor color + 60% background)
+/// to visually differentiate from primary.
+pub fn make_secondary_cursor_face(
+    cursor_face: &Face,
+    default_face: &Face,
+    blend_ratio: f32,
+) -> Face {
     // The cursor face has REVERSE set, so fg and bg are swapped visually.
     // The "cursor color" is the visual foreground (which is face.bg when REVERSE is on,
     // but in Kakoune's FINAL_FG+REVERSE scheme the visual highlight comes from
@@ -169,7 +179,7 @@ pub fn make_secondary_cursor_face(cursor_face: &Face, default_face: &Face) -> Fa
     let cursor_color_rgb = color_to_rgb(cursor_face.fg, default_fg_rgb);
     let bg_rgb = color_to_rgb(cursor_face.bg, default_bg_rgb);
 
-    let blended = blend_rgb(cursor_color_rgb, bg_rgb, SECONDARY_BLEND_RATIO);
+    let blended = blend_rgb(cursor_color_rgb, bg_rgb, blend_ratio);
 
     Face {
         fg: cursor_face.bg, // text color (was displayed as fg under REVERSE)
@@ -190,7 +200,11 @@ pub fn apply_secondary_cursor_faces(state: &AppState, grid: &mut CellGrid, buffe
         let x = coord.column as u16 + buffer_x_offset;
         let y = coord.line as u16;
         if let Some(cell) = grid.get_mut(x, y) {
-            cell.face = make_secondary_cursor_face(&cell.face, &state.default_face);
+            cell.face = make_secondary_cursor_face(
+                &cell.face,
+                &state.default_face,
+                state.secondary_blend_ratio,
+            );
         }
     }
 }

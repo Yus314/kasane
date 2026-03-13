@@ -281,6 +281,21 @@ pub trait Plugin: Any {
         None
     }
 
+    // --- Cursor style ---
+
+    /// Override the cursor style. Return None to defer to the default logic.
+    /// First non-None result from any plugin is used.
+    fn cursor_style_override(&self, _state: &AppState) -> Option<crate::render::CursorStyle> {
+        None
+    }
+
+    // --- Named slot contributions ---
+
+    /// Contribute an element to a custom named slot defined by another plugin.
+    fn contribute_named_slot(&self, _name: &str, _state: &AppState) -> Option<Element> {
+        None
+    }
+
     // --- Menu item transformation ---
 
     /// Transform a menu item before rendering. Return None for no change.
@@ -599,6 +614,31 @@ impl PluginRegistry {
             }
         }
         current
+    }
+
+    // --- Cursor style override ---
+
+    /// Query plugins for a cursor style override. Returns the first non-None.
+    pub fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
+        for plugin in &self.plugins {
+            if let Some(style) = plugin.cursor_style_override(state) {
+                return Some(style);
+            }
+        }
+        None
+    }
+
+    // --- Named slot contributions ---
+
+    /// Collect elements contributed to a custom named slot.
+    pub fn collect_named_slot(&self, name: &str, state: &AppState) -> Vec<Element> {
+        let mut elements = Vec::new();
+        for plugin in &self.plugins {
+            if let Some(el) = plugin.contribute_named_slot(name, state) {
+                elements.push(el);
+            }
+        }
+        elements
     }
 
     // --- Plugin message delivery ---
