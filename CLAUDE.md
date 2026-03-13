@@ -56,8 +56,7 @@ Kakoune (kak -ui json)
   → view(&state, &registry)   # state → Element tree (with plugin contributions)
   → place(&element, rect)     # Element tree → Layout (flexbox + overlay positioning)
   → paint(&element, &layout)  # Layout → CellGrid (2D cell buffer)
-  → grid.diff()               # Dirty cell detection
-  → backend.draw()            # TUI (crossterm) or GPU (wgpu)
+  → backend.draw_grid()       # TUI: zero-copy diff + incremental SGR (or GPU: wgpu)
 ```
 
 ### TEA (The Elm Architecture)
@@ -87,4 +86,4 @@ External crates can create plugins using `kasane_core::plugin_prelude` and regis
 - **Documentation**: `docs/` directory (requirements, architecture, ADRs, roadmap) — currently in Japanese, being migrated to English
 - **Rust edition**: 2024
 - **Dev environment**: Nix flake + direnv (provides Rust toolchain, GUI deps, pre-commit hooks)
-- **Performance**: ~49 μs CPU per frame at 80×24. Benchmarks tracked in CI with 115% alert threshold
+- **Performance**: ~49 μs CPU per frame at 80×24 (~21 μs with line-dirty optimization). TUI backend I/O: ~58 μs at 80×24 (ADR-015 draw_grid). Benchmarks tracked in CI with 115% alert threshold

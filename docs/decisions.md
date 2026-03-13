@@ -865,3 +865,47 @@ ADR-001 で TUI + GUI ハイブリッド方式を採用した後、GUI バック
 - GUI 側はメインスレッドに winit イベントループ (`ApplicationHandler`)、別スレッドに Kakoune Reader を配置し、`EventLoopProxy` で合流する
 
 **不採用:** `pump_events` 方式 — macOS で動作しない (Cocoa/AppKit の制約。winit ドキュメントに "not supported on iOS, macOS, Web" と明記)。
+
+---
+
+## ADR-015: レンダリングパイプライン性能改善
+
+**決定:** レンダリングパイプラインの4つの構造的非効率を段階的に解消する。
+
+### 背景
+
+CPU パイプラインは ~49 μs (80×24) でフレーム予算内だが、以下の非効率がスケーリングとリソースを浪費していた:
+
+1. **フレーム毎アロケーション**: `grid.diff()` が毎フレーム `Vec<CellDiff>` を割り当て (フル再描画時 ~196 KB、フレーム毎ヒープ割り当ての 71%)
+2. **非効率なエスケープシーケンス生成**: `TuiBackend::draw()` が全セルに `MoveTo` を出力し、Face 変更のたびに全 SGR 属性をリセット+再適用
+3. **line_dirty 最適化の狭いカバレッジ**: `dirty == DirtyFlags::BUFFER` の完全一致のみ。`BUFFER|STATUS` (最も一般的なバッチ) では無効
+4. **コンテナ塗りつぶしオーバーヘッド**: `paint_container` が per-cell `put_char(" ")` でワイド文字クリーンアップチェックを実行
+
+### 実装 (4 ステージ)
+
+| ステージ | 内容 | 主要変更 | 改善効果 |
+|----------|------|----------|----------|
+| P4 | コンテナ塗りつぶし最適化 | `put_char()` ループ → `clear_region()` | ~0.5-2 μs/container |
+| P1 | ゼロアロケーション diff | `diff_into()`, `iter_diffs()`, `is_first_frame()` | 196 KB/frame → 0 |
+| P3 | line_dirty カバレッジ拡張 | `selective_clear()` で BUFFER\|STATUS 対応 | ~57% CPU 削減 (1行変更時) |
+| P2 | 直接グリッド描画 + SGR 差分 | `draw_grid()` + カーソル自動前進 + `emit_sgr_diff()` | 2.4-3x 高速化 |
+
+### ベンチマーク結果
+
+| 指標 | Before | After | 改善率 |
+|------|--------|-------|--------|
+| `backend.draw()` 80×24 全セル | 163 μs | 58 μs (`draw_grid`) | 2.8x |
+| `backend.draw()` 200×60 全セル | 1,010 μs | 335 μs (`draw_grid`) | 3.0x |
+| diff フェーズ アロケーション | 196 KB/frame | 0 | 100% 削減 |
+| BUFFER\|STATUS 1行変更 | ~49 μs | ~21 μs | 57% 削減 |
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|----------|----------|
+| `kasane-core/src/render/grid.rs` | `diff_into()`, `iter_diffs()`, `is_first_frame()` 追加 |
+| `kasane-core/src/render/paint.rs` | コンテナ塗りつぶしを `clear_region()` に置換 |
+| `kasane-core/src/render/pipeline.rs` | `selective_clear()` ヘルパー、line_dirty ゲート拡張 |
+| `kasane-core/src/render/mod.rs` | `RenderBackend` に `draw_grid()` 追加 (デフォルト実装付き) |
+| `kasane-tui/src/backend.rs` | `draw_grid()` 実装 (カーソル自動前進 + SGR 差分) |
+| `kasane-tui/src/lib.rs` | イベントループを `draw_grid()` に切り替え |

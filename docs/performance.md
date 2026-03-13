@@ -26,10 +26,7 @@ place(&element, area)   -- Layout calculation (flexbox + grid + overlay)
 grid.clear() + paint()  -- CellGrid rendering
   |
   v
-grid.diff()             -- O(w*h) dirty cell detection
-  |
-  v
-backend.draw(&diffs)    -- O(changed_cells) -- terminal I/O (dominant cost)
+backend.draw_grid(&grid) -- O(changed_cells) -- diff + escape gen + I/O (dominant cost)
 backend.flush()
   |
   v
@@ -50,12 +47,12 @@ Measured with `cargo bench --bench rendering_pipeline`.
 | `grid.diff()` (full redraw) | O(w*h) | 24.2 us | First frame only; builds all CellDiffs |
 | `grid.swap()` | O(w*h) | ~5.3 us | Buffer swap + previous clear |
 | **CPU pipeline total** | | **48.8 us** | `full_frame` benchmark |
-| `backend.draw()` | O(changed_cells) | **100-3,000 us** | Escape sequence generation + I/O |
+| `backend.draw_grid()` | O(changed_cells) | **58-335 us** | Zero-copy diff + incremental SGR + I/O |
 | `backend.flush()` | O(1) | **50-500 us** | stdout write |
 
 Note: paint-only cost (26.3 us) is derived from the `paint/80x24` benchmark (30.7 us, which includes `grid.clear()`) minus `grid_clear/80x24` (4.4 us). swap cost (~5.3 us) is the residual from the `full_frame` benchmark.
 
-**Dominant cost: terminal I/O (`backend.draw()` + `backend.flush()`).**
+**Dominant cost: terminal I/O (`backend.draw_grid()` + `backend.flush()`).**
 The CPU pipeline totals ~49 us, which is **0.3%** of a 16 ms frame budget.
 
 ## Existing Optimizations
@@ -234,6 +231,15 @@ Full frame scales sub-linearly with area (cache effects). diff() scales linearly
 
 Measured with `kasane-tui/benches/backend.rs` using MockBackend (no real terminal I/O).
 
+### draw_grid (ADR-015 optimized path)
+
+| Benchmark | What It Measures | Measured | Notes |
+|---|---|---|---|
+| `draw_grid/full_redraw/80x24` | 80x24 all cells | 58 us | Cursor auto-advance + incremental SGR |
+| `draw_grid/full_redraw/200x60` | 200x60 all cells | 335 us | Large screen |
+
+### draw (legacy CellDiff path)
+
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
 | `backend_draw/full_redraw/80x24` | 80x24 all cells | 163 us | Escape sequence generation |
@@ -241,7 +247,7 @@ Measured with `kasane-tui/benches/backend.rs` using MockBackend (no real termina
 | `backend_draw/incremental_1line` | 1 line changed | 2.32 us | Most common pattern |
 | `backend_draw/full_redraw_realistic/80x24` | Realistic data at 80x24 | 150 us | Diverse Face values |
 
-The realistic benchmark is slightly faster than uniform because the uniform benchmark alternates Face on every cell, causing more style transition escape sequences.
+**ADR-015 improvement:** `draw_grid()` is **2.4x faster** than the legacy `draw()` path at 80×24 (58 μs vs 163 μs) by eliminating per-cell `MoveTo` commands via cursor auto-advance and reducing SGR escape volume via incremental diff (`emit_sgr_diff`).
 
 ## E2E Pipeline Benchmarks
 
@@ -266,7 +272,7 @@ Measured with `--features bench-alloc` (debug profile, single frame at 80x24).
 | **full_frame total** | **31** | **275,924** | |
 | parse_request (100 lines) | 1,847 | 275,172 | JSON parsing dominates |
 
-**Key finding**: diff() accounts for 71% of per-frame bytes (196 KB) due to CellDiff vector allocation. JSON parsing allocates heavily (1,847 allocs for 100 lines) but is amortized by simd_json's speed.
+**Key finding**: diff() accounted for 71% of per-frame bytes (196 KB) due to CellDiff vector allocation. **This has been eliminated by ADR-015**: the TUI event loop now uses `draw_grid()` with `iter_diffs()` (zero-copy, zero allocation). JSON parsing allocates heavily (1,847 allocs for 100 lines) but is amortized by simd_json's speed.
 
 ## Allocation Hotspots (Code Analysis)
 
@@ -339,24 +345,23 @@ Element tree uses owned types, which would require cloning all buffer lines ever
 
 **Resolution: BufferRef pattern (implemented)**. `Element::BufferRef { line_range }` eliminates clone cost. view() at 0.24 us (0 plugins) confirms BufferRef's effectiveness.
 
-### Severity: Medium
+### Severity: Medium (Resolved by ADR-015)
 
-#### Container Fill Loop
+#### Container Fill Loop — Resolved
 
-`paint.rs` performs O(w*h) `put_char(" ")` calls for container background fill. Each call triggers:
-- Bounds checking
-- Wide-char boundary cleanup (6-8 conditional branches)
-- CompactString construction
+`paint.rs` previously performed O(w*h) `put_char(" ")` calls for container background fill. Each call triggered bounds checking, wide-char boundary cleanup (6-8 conditional branches), and CompactString construction.
 
-A `fill_row()` bulk operation would avoid per-cell overhead.
+**Resolution (ADR-015 P4):** Replaced with `clear_region()` bulk operation, eliminating per-cell overhead.
+
+#### diff() Allocation Dominance — Resolved
+
+diff() previously allocated 196 KB per frame (71% of total) due to CellDiff owning cloned Cell data.
+
+**Resolution (ADR-015 P1+P2):** `diff_into()` reuses a caller-provided buffer (zero allocation on warm path). `iter_diffs()` provides zero-copy iteration yielding `&Cell` references. The TUI event loop now uses `draw_grid()` which calls `iter_diffs()` directly, eliminating all CellDiff allocation.
 
 #### grid.diff() Exceeds Target
 
 diff() at 12.2 us (incremental) exceeds the original 10 us target. Cell comparison involves CompactString (24B) + Face (16B) + u8 per cell. The `dirty_rows` optimization helps but the per-cell comparison cost is inherently higher than estimated.
-
-#### diff() Allocation Dominance
-
-diff() allocates 196 KB per frame (71% of total) due to CellDiff owning cloned Cell data. A reference-based or streaming diff API could eliminate this.
 
 #### BufferLine Decorator Multiplicative Cost
 
@@ -424,9 +429,55 @@ All four stages are operational. The pipeline automatically selects the minimal 
 
 1. **PaintPatch** (2-80 cells) → **sectioned repaint** (~1 section) → **full pipeline** (fallback)
 
-Remaining optimization opportunities (not yet implemented):
-- **Container fill fast-path** -- `fill_row()` instead of per-cell `put_char()`
-- **Streaming diff** -- eliminate 196 KB allocation per frame
+All identified optimization opportunities have been addressed by ADR-015:
+- **Container fill** → `clear_region()` (P4)
+- **Zero-alloc diff** → `diff_into()` / `iter_diffs()` (P1)
+- **Line-dirty expansion** → `selective_clear()` for BUFFER|STATUS (P3)
+- **Backend SGR optimization** → `draw_grid()` with cursor auto-advance + incremental SGR diff (P2)
+
+## Rendering Pipeline Optimization (ADR-015) — Implementation Status
+
+[ADR-015](./decisions.md) addresses four structural inefficiencies in the rendering pipeline. All four stages have been implemented.
+
+### Stage P4: Container Fill Bulk Optimization — Implemented
+
+Replaced per-cell `put_char(" ")` loop in `paint_container` with `clear_region()`. Eliminates per-cell bounds checking, wide-char cleanup branches, and CompactString construction. ~0.5–2 μs savings per container paint.
+
+### Stage P1: Zero-Allocation Diff Path — Implemented
+
+| Method | Description | Allocation |
+|---|---|---|
+| `diff_into(&mut buf)` | Reuses caller-provided `Vec<CellDiff>` | 0 (warm buffer) |
+| `iter_diffs()` | Zero-copy iterator yielding `(u16, u16, &Cell)` | 0 |
+| `is_first_frame()` | Returns `self.previous.is_empty()` | N/A |
+
+`diff_into()` incremental: 12.3 μs vs `diff()` 13.3 μs (−7%, plus zero allocation).
+
+### Stage P3: Line-Dirty Coverage Expansion — Implemented
+
+Extended line-dirty optimization from `dirty == DirtyFlags::BUFFER` (exact match) to `dirty.contains(DirtyFlags::BUFFER)`. The common case of `BUFFER|STATUS` (Draw + DrawStatus in same batch) now benefits from per-line dirty tracking via `selective_clear()`.
+
+| Scenario | Before | After | Savings |
+|---|---|---|---|
+| BUFFER\|STATUS, 1 line changed | ~49 μs (full pipeline) | ~21 μs | −57% |
+
+### Stage P2: Direct-Grid Backend Draw + Incremental SGR — Implemented
+
+`draw_grid()` on `RenderBackend` trait iterates `grid.iter_diffs()` directly, with two optimizations:
+1. **Cursor auto-advance**: Skip `MoveTo` for consecutive cells on the same row (terminal auto-advances after Print)
+2. **Incremental SGR**: `emit_sgr_diff()` compares faces field-by-field, emitting only changed attributes/colors
+
+| Benchmark | Legacy `draw()` | Optimized `draw_grid()` | Speedup |
+|---|---|---|---|
+| Full redraw 80×24 | 163 μs | 58 μs | 2.8x |
+| Full redraw 200×60 | 1,010 μs | 335 μs | 3.0x |
+
+### Overall ADR-015 Impact
+
+- **TUI backend I/O**: 2.4–3x faster escape sequence generation
+- **Per-frame allocation**: 196 KB → 0 (diff phase)
+- **Common editing pattern** (BUFFER|STATUS, 1 line): ~57% CPU pipeline reduction
+- **Container paint**: ~0.5–2 μs savings per container
 
 ## WASM Plugin Benchmarks
 
@@ -487,7 +538,7 @@ Total startup for 10 plugins ≈ 10 ms. Cacheable via `Engine::precompile_compon
 
 ## Performance Principles
 
-1. **Terminal I/O is dominant**: CPU pipeline (49 us) is 1-20% of terminal I/O (163-1,012 us). Improving diff accuracy (minimizing changed cells) matters more than optimizing grid operations.
+1. **Terminal I/O is dominant**: CPU pipeline (49 us) is 1-20% of terminal I/O (58-335 us with `draw_grid()`). Improving diff accuracy (minimizing changed cells) matters more than optimizing grid operations.
 2. **Avoid allocations on hot paths**: Minimize heap allocations in paint, layout, and diff. BufferRef pattern avoids large data clones. Target: <50 allocations per frame.
 3. **Measure before optimizing**: `cargo bench --bench rendering_pipeline` for measurement, CI detects >15% regressions. All optimization decisions are data-driven.
 4. **Bound plugin costs**: Native plugins: 10 add ~4 us (view 2.35 us + dispatch 1.70 us). WASM plugins: 10 add ~18 us. Monitor linear scaling; investigate if total exceeds ~20 us (native) or ~30 us (WASM).
@@ -525,12 +576,12 @@ Animation frame:  ──────────── skip ──────�
 | Factor | Impact at 240fps | Mitigation |
 |---|---|---|
 | JSON-RPC parse (500 lines) | 2.68 ms = 64% of budget | Kakoune sends only viewport lines (24-80) |
-| diff() allocation (196 KB/frame) | GC pressure → jitter at high frame rates | Streaming diff (not yet implemented) |
+| ~~diff() allocation (196 KB/frame)~~ | ~~GC pressure → jitter~~ | Resolved: `draw_grid()` + `iter_diffs()` = zero allocation |
 | Event source rate | Kakoune is reactive, not 240Hz | Only animation frames need 240fps |
 
 ### Conclusion
 
-240fps is achievable for the GPU backend with animation path separation (zero-cost redraws when no new Kakoune data arrives). The CPU pipeline has 4-8x headroom. The primary optimization target is eliminating per-frame allocations (diff's 196 KB) to reduce tail latency jitter under sustained high frame rates.
+240fps is achievable for the GPU backend with animation path separation (zero-cost redraws when no new Kakoune data arrives). The CPU pipeline has 4-8x headroom. Per-frame diff allocation (formerly 196 KB) has been eliminated by ADR-015's `iter_diffs()` zero-copy path.
 
 ## `#[kasane::component]` Compiler-Driven Optimization
 
