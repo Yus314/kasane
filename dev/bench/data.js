@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773396891849,
+  "lastUpdate": 1773402155096,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -5195,6 +5195,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7441,
             "range": "± 72",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "2642e904defbc2086c510378dcc2797308819591",
+          "message": "feat(plugin): add capability indexing, overlay caching, and PaintPatch integration\n\nPhase 1 of WASM-first architecture evolution:\n\n- Wire render_pipeline_patched() into TUI event loop with StatusBarPatch,\n  MenuSelectionPatch, and CursorPatch for fast-path cell-level updates\n- Add plugin state hash guard: patches are refused when any plugin's\n  state_hash() changed, preventing stale output from skipped view layer\n- Add PluginCapabilities bitflags to skip WASM boundary crossings for\n  non-participating plugins (9 capabilities: SLOT_CONTRIBUTOR,\n  LINE_DECORATION, OVERLAY, DECORATOR, REPLACEMENT, MENU_TRANSFORM,\n  CURSOR_STYLE, INPUT_HANDLER, NAMED_SLOT)\n- Add L3 overlay caching with overlay_deps() dirty flag intersection,\n  matching existing slot caching strategy\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T20:30:32+09:00",
+          "tree_id": "a9997288407b04abaa2ac932bbaf08551951c24a",
+          "url": "https://github.com/Yus314/kasane/commit/2642e904defbc2086c510378dcc2797308819591"
+        },
+        "date": 1773402154571,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 125919,
+            "range": "± 603",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 724720,
+            "range": "± 23788",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 1776,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 121180,
+            "range": "± 374",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4172734,
+            "range": "± 15510",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17124857,
+            "range": "± 116508",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1724469,
+            "range": "± 2377",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20146356,
+            "range": "± 109031",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7398,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 51780,
+            "range": "± 193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 533,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 6640,
+            "range": "± 42",
             "unit": "ns/iter"
           }
         ]
