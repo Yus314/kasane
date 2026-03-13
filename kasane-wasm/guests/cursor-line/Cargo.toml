@@ -9,6 +9,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
+kasane-plugin-sdk = { path = "../../../kasane-plugin-sdk" }
 wit-bindgen = "0.41"
 
 [profile.release]

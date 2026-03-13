@@ -298,3 +298,13 @@ fn discover_handles_missing_directory() {
     crate::discover_and_register(&config, &mut registry);
     assert_eq!(registry.plugin_count(), 0);
 }
+
+#[test]
+fn sdk_wit_matches_host_wit() {
+    let host_wit = include_str!("../wit/plugin.wit");
+    let sdk_wit = include_str!("../../kasane-plugin-sdk/wit/plugin.wit");
+    assert_eq!(
+        host_wit, sdk_wit,
+        "SDK WIT and host WIT are out of sync — update kasane-plugin-sdk/wit/plugin.wit"
+    );
+}

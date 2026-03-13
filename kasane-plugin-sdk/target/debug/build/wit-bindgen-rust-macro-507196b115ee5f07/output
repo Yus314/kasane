@@ -1,0 +1,2 @@
+cargo:rerun-if-changed=build.rs
+cargo:rustc-env=DEBUG_OUTPUT_DIR=/home/kaki/kasane/kasane-plugin-sdk/target/debug/build/wit-bindgen-rust-macro-507196b115ee5f07/out

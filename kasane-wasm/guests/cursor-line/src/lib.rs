@@ -1,12 +1,11 @@
-wit_bindgen::generate!({
-    world: "kasane-plugin",
-    path: "../../wit",
-});
+kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
 
 use std::cell::Cell;
 
 use exports::kasane::plugin::plugin_api::Guest;
+use kasane::plugin::host_state;
 use kasane::plugin::types::{Color, ElementHandle, Face, LineBackground, RgbColor};
+use kasane_plugin_sdk::dirty;
 
 thread_local! {
     static ACTIVE_LINE: Cell<i32> = const { Cell::new(-1) };
@@ -19,13 +18,9 @@ impl Guest for CursorLinePlugin {
         "wasm_cursor_line".to_string()
     }
 
-    fn on_init() {}
-    fn on_shutdown() {}
-
     fn on_state_changed(dirty_flags: u16) {
-        // BUFFER flag = 0x01
-        if dirty_flags & 0x01 != 0 {
-            let line = kasane::plugin::host_state::get_cursor_line();
+        if dirty_flags & dirty::BUFFER != 0 {
+            let line = host_state::get_cursor_line();
             ACTIVE_LINE.set(line);
         }
     }
@@ -50,10 +45,6 @@ impl Guest for CursorLinePlugin {
         }
     }
 
-    fn contribute(_slot: u8) -> Option<ElementHandle> {
-        None
-    }
-
     fn state_hash() -> u64 {
         ACTIVE_LINE.get() as u64
     }
@@ -61,6 +52,10 @@ impl Guest for CursorLinePlugin {
     fn slot_deps(_slot: u8) -> u16 {
         0
     }
+
+    kasane_plugin_sdk::default_init!();
+    kasane_plugin_sdk::default_shutdown!();
+    kasane_plugin_sdk::default_contribute!();
 }
 
 export!(CursorLinePlugin);
