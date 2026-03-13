@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773393162339,
+  "lastUpdate": 1773394482080,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -5003,6 +5003,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 6605,
             "range": "± 17",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "c3f7822b0cdfd71aaa7a0722a6ce88fea8dd75d8",
+          "message": "feat(wasm): upgrade WIT to v0.3.0 — close native Plugin trait feature gap\n\nAdd all missing Plugin trait capabilities to the WASM interface:\n- G1: Decorator system (decorate + decorator-priority exports, element injection)\n- G2: Replacement system (replace-target enum + replace export)\n- G3: Menu transformation (transform-menu-item export, native↔WIT atom conversion)\n- G4: Inter-plugin messaging (update export, Vec<u8> payload downcast)\n- G5: Host state expansion (Tier 1-3: status bar, menu/info, ui-options, faces)\n- G6: Command expansion (schedule-timer, plugin-message variants)\n- G7: Element builder expansion (create-container-styled, create-scrollable, create-stack)\n\nSDK adds default_menu_transform/replace/decorate/decorator_priority/update macros.\nAll three bundled guests updated and rebuilt for v0.3.0.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T18:22:33+09:00",
+          "tree_id": "7135b77de4856e4ba6466f39a1ec64f54ab4e6f1",
+          "url": "https://github.com/Yus314/kasane/commit/c3f7822b0cdfd71aaa7a0722a6ce88fea8dd75d8"
+        },
+        "date": 1773394481173,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 148686,
+            "range": "± 6048",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 811298,
+            "range": "± 43033",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2037,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 140996,
+            "range": "± 315",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4764366,
+            "range": "± 118602",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16734006,
+            "range": "± 71800",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1750333,
+            "range": "± 6593",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20010535,
+            "range": "± 471127",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6928,
+            "range": "± 96",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55361,
+            "range": "± 92",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 722,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7514,
+            "range": "± 18",
             "unit": "ns/iter"
           }
         ]
