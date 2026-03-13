@@ -47,10 +47,8 @@ where
 
     let (kak_reader, kak_writer, _kak_child) = spawn_kakoune()?;
 
-    // Build plugin registry: built-in plugins first, then external
+    // Build plugin registry
     let mut registry = kasane_core::plugin::PluginRegistry::new();
-    registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
-    registry.register(Box::new(kasane_core::plugins::ColorPreviewPlugin::new()));
     register_plugins(&mut registry);
 
     // Kakoune reader thread: forward JSON-RPC messages into the winit event loop

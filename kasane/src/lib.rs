@@ -130,10 +130,11 @@ fn wrap_with_wasm_discovery(
     register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static,
 ) -> impl FnOnce(&mut PluginRegistry) + Send + 'static {
     move |registry: &mut PluginRegistry| {
-        register_plugins(registry);
-
         #[cfg(feature = "wasm-plugins")]
         {
+            // 1. Bundled WASM plugins (default functionality)
+            kasane_wasm::register_bundled_plugins(&plugins_config, registry);
+            // 2. Filesystem-discovered WASM plugins (can override bundled)
             kasane_wasm::discover_and_register(&plugins_config, registry);
         }
 
@@ -141,5 +142,8 @@ fn wrap_with_wasm_discovery(
         {
             let _ = plugins_config;
         }
+
+        // 3. User-provided callback plugins
+        register_plugins(registry);
     }
 }

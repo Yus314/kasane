@@ -216,8 +216,6 @@ where
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(kasane_core::plugins::CursorLinePlugin::new()));
-    registry.register(Box::new(kasane_core::plugins::ColorPreviewPlugin::new()));
     register_plugins(&mut registry);
     let init_commands = registry.init_all(&state);
     if matches!(
