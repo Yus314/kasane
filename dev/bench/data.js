@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773203018099,
+  "lastUpdate": 1773386495425,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -4715,6 +4715,102 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7472,
             "range": "± 24",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "13ba03721f2709b9250fa7c32a62e5b9c842c040",
+          "message": "feat(wasm): add auto-discovery for WASM plugins from XDG data directory\n\nPlugins placed in ~/.local/share/kasane/plugins/*.wasm are automatically\nloaded at startup. Config options in [plugins] section:\n- auto_discover (default: true)\n- path (custom plugins directory)\n- disabled (list of plugin IDs to skip)\n\nwasm-plugins feature is now enabled by default in the kasane binary.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-13T16:09:27+09:00",
+          "tree_id": "cc46b303f3f96f085e8343ff9ce24707a921af76",
+          "url": "https://github.com/Yus314/kasane/commit/13ba03721f2709b9250fa7c32a62e5b9c842c040"
+        },
+        "date": 1773386494528,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 154123,
+            "range": "± 3011",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 829657,
+            "range": "± 7128",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2035,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 141113,
+            "range": "± 3004",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4821014,
+            "range": "± 21946",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 16787516,
+            "range": "± 76780",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1759516,
+            "range": "± 12638",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20068541,
+            "range": "± 196168",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7401,
+            "range": "± 26",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 55622,
+            "range": "± 107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 598,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7525,
+            "range": "± 27",
             "unit": "ns/iter"
           }
         ]
