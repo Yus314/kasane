@@ -2,12 +2,14 @@
 //!   `#[kasane_plugin]` macro → PluginRegistry → view → layout → paint → CellGrid
 //!
 //! These tests verify the end-to-end plugin pipeline, covering:
-//! Lifecycle, Input, Event/Message, and MenuTransform.
+//! Lifecycle, Input, Event/Message, MenuTransform, Transform, and CursorStyle.
 
+use kasane_core::element::Element;
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
-use kasane_core::plugin::{Command, PluginRegistry};
+use kasane_core::plugin::{Command, Plugin, PluginId, PluginRegistry};
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
+use kasane_core::render::{CursorStyle, cursor_style, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
@@ -240,4 +242,97 @@ fn menu_transform_adds_prefix() {
         "alpha",
         "second atom should be the original item"
     );
+}
+
+// ===========================================================================
+// Test 4: Buffer transform adds banner
+// ===========================================================================
+
+#[kasane_plugin]
+mod buffer_banner {
+    use kasane_core::element::{Element, FlexChild};
+    #[allow(unused_imports)]
+    use kasane_core::plugin::TransformTarget;
+    use kasane_core::protocol::Face;
+    use kasane_core::state::AppState;
+
+    #[state]
+    #[derive(Default)]
+    pub struct State;
+
+    #[transform(TransformTarget::Buffer)]
+    pub fn wrap_buffer(_state: &State, element: Element, _core: &AppState) -> Element {
+        Element::column(vec![
+            FlexChild::fixed(Element::text("[buffer transformed]", Face::default())),
+            FlexChild::flexible(element, 1.0),
+        ])
+    }
+}
+
+#[test]
+fn buffer_transform_adds_banner() {
+    let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
+
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(BufferBannerPlugin::new()));
+    registry.init_all(&state);
+
+    let transformed = registry.apply_transform_chain(
+        kasane_core::plugin::TransformTarget::Buffer,
+        || Element::buffer_ref(0..2),
+        &state,
+    );
+    match transformed {
+        Element::Flex { children, .. } => {
+            assert_eq!(
+                children.len(),
+                2,
+                "transform should wrap the buffer in a column"
+            );
+        }
+        other => panic!("expected transformed buffer wrapper, got {other:?}"),
+    }
+
+    let grid = render_with_registry(&state, &registry);
+    assert_eq!(row_text(&grid, 0), "[buffer transformed]");
+    assert_eq!(row_text(&grid, 1), "line 0");
+    assert_eq!(row_text(&grid, 2), "line 1");
+}
+
+// ===========================================================================
+// Test 5: Cursor style override wins over default logic
+// ===========================================================================
+
+struct UnderlineCursorPlugin;
+
+impl Plugin for UnderlineCursorPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("underline_cursor".into())
+    }
+
+    fn capabilities(&self) -> kasane_core::plugin::PluginCapabilities {
+        kasane_core::plugin::PluginCapabilities::CURSOR_STYLE
+    }
+
+    fn cursor_style_override(&self, _state: &AppState) -> Option<CursorStyle> {
+        Some(CursorStyle::Underline)
+    }
+}
+
+#[test]
+fn cursor_style_override_wins_over_default_logic() {
+    let mut state = setup_state(vec![make_line("text")]);
+    state.focused = false;
+
+    assert_eq!(cursor_style_default(&state), CursorStyle::Outline);
+
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(UnderlineCursorPlugin));
+    registry.init_all(&state);
+
+    assert_eq!(
+        registry.cursor_style_override(&state),
+        Some(CursorStyle::Underline)
+    );
+    assert_eq!(cursor_style(&state, &registry), CursorStyle::Underline);
 }

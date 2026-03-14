@@ -16,7 +16,7 @@ Kasane プラグインには 2 つの開発パスがある。
 | API | WIT 経由 (`host-state` + `element-builder`) | `&AppState` 直接参照 |
 | 依存 | `kasane-plugin-sdk` + `wit-bindgen` | `kasane` + `kasane-core` |
 
-初めてのプラグインには WASM パスを推奨する。ネイティブパスは `&AppState` への完全アクセスが必要な場合や、まだ WASM parity がない escape hatch を使う場合に向いている。
+初めてのプラグインには WASM パスを推奨する。ネイティブパスは `&AppState` への完全アクセスが必要な場合や、まだ WASM parity がない escape hatch を使う場合に向いている。ネイティブでは `Plugin` trait の直接実装と proc macro 補助の両方を使える。
 
 ### 1.2 このガイドの読み方
 
@@ -239,7 +239,7 @@ kasane = { path = "../kasane" }
 kasane-core = { path = "../kasane-core" }
 ```
 
-`Plugin` trait を直接実装し、`kasane::run()` でプラグインを登録してカスタムバイナリとして配布する。`PluginCapabilities` で使用する機能を明示する。
+`Plugin` trait を直接実装し、`kasane::run()` でプラグインを登録してカスタムバイナリとして配布する。`PluginCapabilities` で使用する機能を明示する。`#[kasane_plugin]` macro は使える hook では便利だが、現時点では hook parity が完全ではないため、一部機能では直接実装が必要になる。
 
 ## 3. 次に読む文書
 
