@@ -1,16 +1,14 @@
-#![allow(deprecated)]
 //! Integration tests for the plugin system:
 //!   `#[kasane_plugin]` macro → PluginRegistry → view → layout → paint → CellGrid
 //!
-//! These tests verify the end-to-end plugin pipeline, covering all extension points:
-//! Slot, Decorator, Replacement, Overlay, LineDecoration, Lifecycle, Input, Event/Message,
-//! and MenuTransform.
+//! These tests verify the end-to-end plugin pipeline, covering:
+//! Lifecycle, Input, Event/Message, and MenuTransform.
 
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex::place;
-use kasane_core::plugin::{Command, PluginRegistry, Slot};
+use kasane_core::plugin::{Command, PluginRegistry};
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
@@ -59,274 +57,7 @@ fn row_text(grid: &CellGrid, y: u16) -> String {
 }
 
 // ===========================================================================
-// Test 1: Multi-Extension-Point E2E
-// ===========================================================================
-
-#[kasane_plugin]
-mod multi_ext_plugin {
-    use kasane_core::element::Element;
-    use kasane_core::plugin::{Command, LineDecoration};
-    use kasane_core::protocol::{Color, Face};
-    use kasane_core::state::{AppState, DirtyFlags};
-
-    #[state]
-    #[derive(Default)]
-    pub struct State {
-        pub active_line: i32,
-    }
-
-    pub fn on_state_changed(state: &mut State, core: &AppState, dirty: DirtyFlags) -> Vec<Command> {
-        if dirty.intersects(DirtyFlags::BUFFER) {
-            state.active_line = core.cursor_pos.line;
-        }
-        vec![]
-    }
-
-    #[slot(Slot::BufferLeft)]
-    pub fn view(_state: &State, core: &AppState) -> Option<Element> {
-        let count = core.lines.len();
-        Some(Element::text(format!("{count}L"), Face::default()))
-    }
-
-    pub fn contribute_line(state: &State, line: usize, _core: &AppState) -> Option<LineDecoration> {
-        if line == state.active_line as usize {
-            Some(LineDecoration {
-                left_gutter: None,
-                right_gutter: None,
-                background: Some(Face {
-                    bg: Color::Rgb {
-                        r: 50,
-                        g: 50,
-                        b: 60,
-                    },
-                    ..Face::default()
-                }),
-            })
-        } else {
-            None
-        }
-    }
-}
-
-#[test]
-fn multi_extension_plugin_e2e() {
-    let mut state = setup_state(vec![
-        make_line("first line"),
-        make_line("second line"),
-        make_line("third line"),
-    ]);
-    state.cursor_pos = Coord { line: 1, column: 0 };
-
-    let mut registry = PluginRegistry::new();
-    registry.register(Box::new(MultiExtPluginPlugin::new()));
-    registry.init_all(&state);
-
-    // Simulate state change notification (as update() would do)
-    for plugin in registry.plugins_mut() {
-        plugin.on_state_changed(&state, DirtyFlags::BUFFER);
-    }
-    registry.prepare_plugin_cache(DirtyFlags::BUFFER);
-
-    // Assertion 1: Slot contribute produces the expected element via the macro-generated path
-    let slot_elements = registry.collect_slot(Slot::BufferLeft, &state);
-    assert_eq!(
-        slot_elements.len(),
-        1,
-        "BufferLeft slot should have 1 contributed element"
-    );
-    // Verify the element reaches the view pipeline (gutter column is allocated)
-    let grid = render_with_registry(&state, &registry);
-    let r0 = row_text(&grid, 0);
-    assert!(
-        r0.contains("first line"),
-        "row 0 should contain buffer text, got: {r0:?}"
-    );
-
-    // Assertion 2: active_line (row 1) has Rgb(50,50,60) background from contribute_line
-    let target_bg = Color::Rgb {
-        r: 50,
-        g: 50,
-        b: 60,
-    };
-    let mut found_active_bg = false;
-    for x in 0..grid.width() {
-        if let Some(cell) = grid.get(x, 1)
-            && cell.face.bg == target_bg
-        {
-            found_active_bg = true;
-            break;
-        }
-    }
-    assert!(
-        found_active_bg,
-        "active line (row 1) should have Rgb(50,50,60) background"
-    );
-
-    // Assertion 3: non-active line (row 0) does NOT have that background
-    let mut found_non_active_bg = false;
-    for x in 0..grid.width() {
-        if let Some(cell) = grid.get(x, 0)
-            && cell.face.bg == target_bg
-        {
-            found_non_active_bg = true;
-            break;
-        }
-    }
-    assert!(
-        !found_non_active_bg,
-        "non-active line (row 0) should NOT have Rgb(50,50,60) background"
-    );
-}
-
-// ===========================================================================
-// Test 2: Decorator wraps buffer
-// ===========================================================================
-
-#[kasane_plugin]
-mod border_deco_plugin {
-    use kasane_core::element::{BorderConfig, BorderLineStyle, Element};
-    use kasane_core::state::AppState;
-
-    #[state]
-    #[derive(Default)]
-    pub struct State;
-
-    #[decorate(DecorateTarget::Buffer, priority = 10)]
-    pub fn decorate(_state: &State, element: Element, _core: &AppState) -> Element {
-        Element::Container {
-            child: Box::new(element),
-            border: Some(BorderConfig::new(BorderLineStyle::Rounded)),
-            shadow: false,
-            padding: kasane_core::element::Edges::ZERO,
-            style: kasane_core::element::Style::Direct(kasane_core::protocol::Face::default()),
-            title: None,
-        }
-    }
-}
-
-#[test]
-fn decorator_wraps_buffer() {
-    let state = setup_state(vec![make_line("hello")]);
-
-    let mut registry = PluginRegistry::new();
-    registry.register(Box::new(BorderDecoPluginPlugin::new()));
-    registry.init_all(&state);
-    registry.prepare_plugin_cache(DirtyFlags::ALL);
-
-    let grid = render_with_registry(&state, &registry);
-
-    // Assertion 1: row 0 contains rounded border character "╭"
-    let r0 = row_text(&grid, 0);
-    assert!(
-        r0.contains('╭'),
-        "row 0 should contain rounded border '╭', got: {r0:?}"
-    );
-
-    // Assertion 2: "hello" still appears somewhere in the grid
-    let mut found_hello = false;
-    for y in 0..grid.height() {
-        if row_text(&grid, y).contains("hello") {
-            found_hello = true;
-            break;
-        }
-    }
-    assert!(found_hello, "buffer text 'hello' should still be visible");
-}
-
-// ===========================================================================
-// Test 3: Replacement replaces status bar
-// ===========================================================================
-
-#[kasane_plugin]
-mod custom_status_plugin {
-    use kasane_core::element::Element;
-    use kasane_core::protocol::Face;
-    use kasane_core::state::AppState;
-
-    #[state]
-    #[derive(Default)]
-    pub struct State;
-
-    #[replace(ReplaceTarget::StatusBar)]
-    pub fn replace(_state: &State, _core: &AppState) -> Option<Element> {
-        Some(Element::text("CUSTOM-STATUS", Face::default()))
-    }
-}
-
-#[test]
-fn replacement_replaces_status_bar() {
-    let state = setup_state(vec![make_line("buffer content")]);
-
-    let mut registry = PluginRegistry::new();
-    registry.register(Box::new(CustomStatusPluginPlugin::new()));
-    registry.init_all(&state);
-    registry.prepare_plugin_cache(DirtyFlags::ALL);
-
-    let grid = render_with_registry(&state, &registry);
-
-    // Status bar is at row 23 (last row of 24-row terminal)
-    let status = row_text(&grid, 23);
-
-    // Assertion 1: custom status text appears
-    assert!(
-        status.contains("CUSTOM-STATUS"),
-        "status bar should contain 'CUSTOM-STATUS', got: {status:?}"
-    );
-
-    // Assertion 2: built-in status text is gone
-    assert!(
-        !status.contains("main.rs"),
-        "status bar should NOT contain 'main.rs' (replaced), got: {status:?}"
-    );
-}
-
-// ===========================================================================
-// Test 4: Overlay slot renders
-// ===========================================================================
-
-#[kasane_plugin]
-mod overlay_slot_plugin {
-    use kasane_core::element::Element;
-    use kasane_core::protocol::Face;
-    use kasane_core::state::AppState;
-
-    #[state]
-    #[derive(Default)]
-    pub struct State;
-
-    #[slot(Slot::Overlay)]
-    pub fn view(_state: &State, _core: &AppState) -> Option<Element> {
-        Some(Element::text("OVERLAY-TEXT", Face::default()))
-    }
-}
-
-#[test]
-fn overlay_slot_renders() {
-    let state = setup_state(vec![make_line("buffer line")]);
-
-    let mut registry = PluginRegistry::new();
-    registry.register(Box::new(OverlaySlotPluginPlugin::new()));
-    registry.init_all(&state);
-    registry.prepare_plugin_cache(DirtyFlags::ALL);
-
-    let grid = render_with_registry(&state, &registry);
-
-    // Assertion: overlay text appears somewhere in the grid
-    let mut found = false;
-    for y in 0..grid.height() {
-        if row_text(&grid, y).contains("OVERLAY-TEXT") {
-            found = true;
-            break;
-        }
-    }
-    assert!(
-        found,
-        "overlay text 'OVERLAY-TEXT' should be visible in the grid"
-    );
-}
-
-// ===========================================================================
-// Test 5: handle_key first-wins
+// Test 1: handle_key first-wins
 // ===========================================================================
 
 #[kasane_plugin]
@@ -397,7 +128,7 @@ fn handle_key_first_wins() {
 }
 
 // ===========================================================================
-// Test 6: Plugin message delivery
+// Test 2: Plugin message delivery
 // ===========================================================================
 
 #[kasane_plugin]
@@ -453,7 +184,7 @@ fn plugin_message_delivery() {
 }
 
 // ===========================================================================
-// Test 7: Menu transform adds prefix
+// Test 3: Menu transform adds prefix
 // ===========================================================================
 
 #[kasane_plugin]

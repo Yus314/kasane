@@ -8,8 +8,8 @@ use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, Ove
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AnnotateContext, Command, ContribSizeHint, ContributeContext, DecorateTarget, OverlayContext,
-    PluginId, ReplaceTarget, SlotId, TransformContext, TransformTarget,
+    AnnotateContext, Command, ContribSizeHint, ContributeContext, OverlayContext, PluginId, SlotId,
+    TransformContext, TransformTarget,
 };
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, InfoStyle, KasaneRequest, MenuStyle, NamedColor,
@@ -17,8 +17,36 @@ use kasane_core::protocol::{
 use kasane_core::state::DirtyFlags;
 
 // ---------------------------------------------------------------------------
-// Face / Color conversions (WIT → native)
+// Bidirectional enum conversion macro
 // ---------------------------------------------------------------------------
+
+/// Generate two functions that map 1:1 between a WIT enum and a native enum.
+macro_rules! bidirectional_enum {
+    ($to_native:ident: $wit_ty:ty => $native_ty:ty,
+     $to_wit:ident: $native_ty2:ty => $wit_ty2:ty,
+     { $($variant:ident),* $(,)? }) => {
+        fn $to_native(w: $wit_ty) -> $native_ty {
+            match w { $( <$wit_ty>::$variant => <$native_ty>::$variant, )* }
+        }
+        fn $to_wit(n: $native_ty) -> $wit_ty {
+            match n { $( <$native_ty>::$variant => <$wit_ty>::$variant, )* }
+        }
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Face / Color conversions (WIT ↔ native)
+// ---------------------------------------------------------------------------
+
+bidirectional_enum! {
+    wit_named_to_named: wit::NamedColor => NamedColor,
+    named_to_wit: NamedColor => wit::NamedColor,
+    {
+        Black, Red, Green, Yellow, Blue, Magenta, Cyan, White,
+        BrightBlack, BrightRed, BrightGreen, BrightYellow,
+        BrightBlue, BrightMagenta, BrightCyan, BrightWhite,
+    }
+}
 
 pub(crate) fn wit_face_to_face(wf: &wit::Face) -> Face {
     Face {
@@ -38,27 +66,6 @@ fn wit_color_to_color(wc: &wit::Color) -> Color {
             g: rgb.g,
             b: rgb.b,
         },
-    }
-}
-
-fn wit_named_to_named(wn: wit::NamedColor) -> NamedColor {
-    match wn {
-        wit::NamedColor::Black => NamedColor::Black,
-        wit::NamedColor::Red => NamedColor::Red,
-        wit::NamedColor::Green => NamedColor::Green,
-        wit::NamedColor::Yellow => NamedColor::Yellow,
-        wit::NamedColor::Blue => NamedColor::Blue,
-        wit::NamedColor::Magenta => NamedColor::Magenta,
-        wit::NamedColor::Cyan => NamedColor::Cyan,
-        wit::NamedColor::White => NamedColor::White,
-        wit::NamedColor::BrightBlack => NamedColor::BrightBlack,
-        wit::NamedColor::BrightRed => NamedColor::BrightRed,
-        wit::NamedColor::BrightGreen => NamedColor::BrightGreen,
-        wit::NamedColor::BrightYellow => NamedColor::BrightYellow,
-        wit::NamedColor::BrightBlue => NamedColor::BrightBlue,
-        wit::NamedColor::BrightMagenta => NamedColor::BrightMagenta,
-        wit::NamedColor::BrightCyan => NamedColor::BrightCyan,
-        wit::NamedColor::BrightWhite => NamedColor::BrightWhite,
     }
 }
 
@@ -89,27 +96,6 @@ pub(crate) fn color_to_wit(c: &Color) -> wit::Color {
     }
 }
 
-fn named_to_wit(n: NamedColor) -> wit::NamedColor {
-    match n {
-        NamedColor::Black => wit::NamedColor::Black,
-        NamedColor::Red => wit::NamedColor::Red,
-        NamedColor::Green => wit::NamedColor::Green,
-        NamedColor::Yellow => wit::NamedColor::Yellow,
-        NamedColor::Blue => wit::NamedColor::Blue,
-        NamedColor::Magenta => wit::NamedColor::Magenta,
-        NamedColor::Cyan => wit::NamedColor::Cyan,
-        NamedColor::White => wit::NamedColor::White,
-        NamedColor::BrightBlack => wit::NamedColor::BrightBlack,
-        NamedColor::BrightRed => wit::NamedColor::BrightRed,
-        NamedColor::BrightGreen => wit::NamedColor::BrightGreen,
-        NamedColor::BrightYellow => wit::NamedColor::BrightYellow,
-        NamedColor::BrightBlue => wit::NamedColor::BrightBlue,
-        NamedColor::BrightMagenta => wit::NamedColor::BrightMagenta,
-        NamedColor::BrightCyan => wit::NamedColor::BrightCyan,
-        NamedColor::BrightWhite => wit::NamedColor::BrightWhite,
-    }
-}
-
 pub(crate) fn face_to_wit(f: &Face) -> wit::Face {
     wit::Face {
         fg: color_to_wit(&f.fg),
@@ -132,31 +118,6 @@ pub(crate) fn atoms_to_wit(atoms: &[Atom]) -> Vec<wit::Atom> {
 
 pub(crate) fn wit_atoms_to_atoms(atoms: &[wit::Atom]) -> Vec<Atom> {
     atoms.iter().map(wit_atom_to_atom).collect()
-}
-
-// ---------------------------------------------------------------------------
-// Decorate / Replace target conversions (native → WIT)
-// ---------------------------------------------------------------------------
-
-pub(crate) fn decorate_target_to_wit(target: &DecorateTarget) -> wit::DecorateTarget {
-    match target {
-        DecorateTarget::Buffer => wit::DecorateTarget::Buffer,
-        DecorateTarget::StatusBar => wit::DecorateTarget::StatusBar,
-        DecorateTarget::Menu => wit::DecorateTarget::Menu,
-        DecorateTarget::Info => wit::DecorateTarget::Info,
-        DecorateTarget::BufferLine(line) => wit::DecorateTarget::BufferLine(*line as u32),
-    }
-}
-
-pub(crate) fn replace_target_to_wit(target: &ReplaceTarget) -> wit::ReplaceTarget {
-    match target {
-        ReplaceTarget::MenuPrompt => wit::ReplaceTarget::MenuPrompt,
-        ReplaceTarget::MenuInline => wit::ReplaceTarget::MenuInline,
-        ReplaceTarget::MenuSearch => wit::ReplaceTarget::MenuSearch,
-        ReplaceTarget::InfoPrompt => wit::ReplaceTarget::InfoPrompt,
-        ReplaceTarget::InfoModal => wit::ReplaceTarget::InfoModal,
-        ReplaceTarget::StatusBar => wit::ReplaceTarget::StatusBar,
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -348,14 +309,8 @@ pub(crate) fn menu_position_to_string(pos: &MenuPosition) -> String {
 // v0.5.0: Contribute / Transform / Annotate conversions
 // ---------------------------------------------------------------------------
 
-#[allow(deprecated)]
 pub(crate) fn slot_id_to_index(slot_id: &SlotId) -> u8 {
-    if let Some(legacy) = slot_id.to_legacy() {
-        legacy.index() as u8
-    } else {
-        // Custom slots don't have a numeric index; use 255 as sentinel
-        255
-    }
+    slot_id.well_known_index().map_or(255, |i| i as u8)
 }
 
 pub(crate) fn contribute_context_to_wit(ctx: &ContributeContext) -> wit::ContributeContext {
@@ -796,35 +751,5 @@ mod tests {
             }
             _ => panic!("unexpected command variant"),
         }
-    }
-
-    #[test]
-    fn convert_decorate_target() {
-        use kasane_core::plugin::DecorateTarget;
-        assert!(matches!(
-            decorate_target_to_wit(&DecorateTarget::Buffer),
-            wit::DecorateTarget::Buffer
-        ));
-        assert!(matches!(
-            decorate_target_to_wit(&DecorateTarget::StatusBar),
-            wit::DecorateTarget::StatusBar
-        ));
-        match decorate_target_to_wit(&DecorateTarget::BufferLine(42)) {
-            wit::DecorateTarget::BufferLine(n) => assert_eq!(n, 42),
-            other => panic!("expected BufferLine, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn convert_replace_target() {
-        use kasane_core::plugin::ReplaceTarget;
-        assert!(matches!(
-            replace_target_to_wit(&ReplaceTarget::MenuPrompt),
-            wit::ReplaceTarget::MenuPrompt
-        ));
-        assert!(matches!(
-            replace_target_to_wit(&ReplaceTarget::StatusBar),
-            wit::ReplaceTarget::StatusBar
-        ));
     }
 }

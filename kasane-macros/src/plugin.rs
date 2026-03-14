@@ -1,10 +1,6 @@
-use std::collections::HashSet;
-
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{Attribute, Error, Expr, ExprPath, Ident, Item, ItemFn, ItemMod, Lit, parse2};
-
-use crate::analysis::*;
+use syn::{Attribute, Error, Expr, ExprPath, Ident, Item, ItemMod, Lit, parse2};
 
 /// Parsed information extracted from the module.
 struct PluginDef {
@@ -19,39 +15,9 @@ struct PluginDef {
     has_observe_mouse: bool,
     has_handle_key: bool,
     has_handle_mouse: bool,
-    has_contribute_line: bool,
     has_annotate_line: bool,
     has_transform_menu_item: bool,
-    slots: Vec<SlotBinding>,
-    decorators: Vec<DecoratorBinding>,
-    replacements: Vec<ReplacementBinding>,
     transforms: Vec<TransformBinding>,
-}
-
-enum SlotTarget {
-    /// Legacy: `#[slot(Slot::BufferLeft)]` — matches on `kasane_core::plugin::Slot` enum.
-    Legacy(ExprPath),
-    /// Custom: `#[slot("my.custom.slot")]` — matches on `kasane_core::plugin::SlotId`.
-    Named(String),
-}
-
-struct SlotBinding {
-    target: SlotTarget,
-    fn_name: Ident,
-    /// Derived DirtyFlags names for this slot (e.g., ["BUFFER", "STATUS"]).
-    /// Empty means fallback to ALL.
-    dirty_deps: Vec<String>,
-}
-
-struct DecoratorBinding {
-    target_path: ExprPath,
-    priority: Option<u32>,
-    fn_name: Ident,
-}
-
-struct ReplacementBinding {
-    target_path: ExprPath,
-    fn_name: Ident,
 }
 
 struct TransformBinding {
@@ -82,12 +48,8 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
         has_observe_mouse: false,
         has_handle_key: false,
         has_handle_mouse: false,
-        has_contribute_line: false,
         has_annotate_line: false,
         has_transform_menu_item: false,
-        slots: Vec::new(),
-        decorators: Vec::new(),
-        replacements: Vec::new(),
         transforms: Vec::new(),
     };
 
@@ -113,34 +75,9 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
                     "observe_mouse" => def.has_observe_mouse = true,
                     "handle_key" => def.has_handle_key = true,
                     "handle_mouse" => def.has_handle_mouse = true,
-                    "contribute_line" => def.has_contribute_line = true,
                     "annotate_line" => def.has_annotate_line = true,
                     "transform_menu_item" => def.has_transform_menu_item = true,
                     _ => {}
-                }
-                // Check for #[slot(Slot::*)] or #[slot("custom.name")]
-                if let Some(target) = extract_slot_attr(&f.attrs)? {
-                    let dirty_deps = derive_slot_deps(f);
-                    def.slots.push(SlotBinding {
-                        target,
-                        fn_name: f.sig.ident.clone(),
-                        dirty_deps,
-                    });
-                }
-                // Check for #[decorate(DecorateTarget::*, priority = N)]
-                if let Some((target_path, priority)) = extract_decorate_attr(&f.attrs)? {
-                    def.decorators.push(DecoratorBinding {
-                        target_path,
-                        priority,
-                        fn_name: f.sig.ident.clone(),
-                    });
-                }
-                // Check for #[replace(ReplaceTarget::*)]
-                if let Some(target_path) = extract_single_path_attr(&f.attrs, "replace")? {
-                    def.replacements.push(ReplacementBinding {
-                        target_path,
-                        fn_name: f.sig.ident.clone(),
-                    });
                 }
                 // Check for #[transform(TransformTarget::*, priority = N)]
                 if let Some((target_path, priority)) = extract_transform_attr(&f.attrs)? {
@@ -159,128 +96,8 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
     Ok(generated)
 }
 
-/// Derive DirtyFlags dependencies from a slot function's body by analyzing AppState field accesses.
-fn derive_slot_deps(func: &ItemFn) -> Vec<String> {
-    let Some(state_ident) = find_appstate_param(func) else {
-        // No AppState parameter → fall back to ALL
-        return vec!["ALL".to_string()];
-    };
-
-    let mut visitor = StateFieldVisitor {
-        state_ident,
-        accessed_fields: HashSet::new(),
-    };
-    syn::visit::Visit::visit_item_fn(&mut visitor, func);
-
-    // Map accessed fields to DirtyFlags
-    let mut flag_set: HashSet<String> = HashSet::new();
-    for field in &visitor.accessed_fields {
-        if let Some(required_flags) = flags_for_field(field) {
-            for flag in expand_flag_strs(required_flags) {
-                flag_set.insert(flag);
-            }
-        }
-        // Fields not in FIELD_FLAG_MAP are free reads — no flag needed
-    }
-
-    if flag_set.is_empty() {
-        // Function accesses no flagged fields → never needs recomputation from AppState changes.
-        // Return empty (will be rendered as DirtyFlags::empty()).
-        return vec![];
-    }
-
-    let mut flags: Vec<String> = flag_set.into_iter().collect();
-    flags.sort();
-    flags
-}
-
 fn has_attr(attrs: &[Attribute], name: &str) -> bool {
     attrs.iter().any(|a| a.path().is_ident(name))
-}
-
-/// Extract a `SlotTarget` from `#[slot(Slot::BufferLeft)]` or `#[slot("my.custom.slot")]`.
-fn extract_slot_attr(attrs: &[Attribute]) -> syn::Result<Option<SlotTarget>> {
-    for attr in attrs {
-        if attr.path().is_ident("slot") {
-            let expr: Expr = attr.parse_args()?;
-            return match expr {
-                Expr::Path(p) => Ok(Some(SlotTarget::Legacy(p))),
-                Expr::Lit(lit) => {
-                    if let Lit::Str(s) = &lit.lit {
-                        Ok(Some(SlotTarget::Named(s.value())))
-                    } else {
-                        Err(Error::new_spanned(
-                            attr,
-                            "expected a path or string literal in #[slot(...)]",
-                        ))
-                    }
-                }
-                _ => Err(Error::new_spanned(
-                    attr,
-                    "expected a path (Slot::X) or string literal in #[slot(...)]",
-                )),
-            };
-        }
-    }
-    Ok(None)
-}
-
-/// Extract a path like `Slot::BufferLeft` from `#[slot(Slot::BufferLeft)]`.
-fn extract_single_path_attr(attrs: &[Attribute], attr_name: &str) -> syn::Result<Option<ExprPath>> {
-    for attr in attrs {
-        if attr.path().is_ident(attr_name) {
-            let expr: Expr = attr.parse_args()?;
-            if let Expr::Path(p) = expr {
-                return Ok(Some(p));
-            }
-            return Err(Error::new_spanned(
-                attr,
-                format!("expected a path in #[{attr_name}(...)]"),
-            ));
-        }
-    }
-    Ok(None)
-}
-
-/// Extract `#[decorate(DecorateTarget::Buffer, priority = 10)]`
-fn extract_decorate_attr(attrs: &[Attribute]) -> syn::Result<Option<(ExprPath, Option<u32>)>> {
-    for attr in attrs {
-        if attr.path().is_ident("decorate") {
-            let args: syn::punctuated::Punctuated<Expr, syn::Token![,]> =
-                attr.parse_args_with(syn::punctuated::Punctuated::parse_terminated)?;
-
-            let mut target: Option<ExprPath> = None;
-            let mut priority: Option<u32> = None;
-
-            for expr in args {
-                match &expr {
-                    Expr::Path(p) => {
-                        target = Some(p.clone());
-                    }
-                    Expr::Assign(assign) => {
-                        if let Expr::Path(left) = &*assign.left
-                            && left.path.is_ident("priority")
-                            && let Expr::Lit(lit) = &*assign.right
-                            && let Lit::Int(int_lit) = &lit.lit
-                        {
-                            priority = Some(int_lit.base10_parse()?);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            let Some(target) = target else {
-                return Err(Error::new_spanned(
-                    attr,
-                    "#[decorate(...)] requires a DecorateTarget path",
-                ));
-            };
-
-            return Ok(Some((target, priority)));
-        }
-    }
-    Ok(None)
 }
 
 /// Extract `#[transform(TransformTarget::StatusBar, priority = 50)]`
@@ -372,169 +189,6 @@ fn gen_update_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
     }
 }
 
-/// Generates the `Plugin::contribute()` and `Plugin::contribute_slot()` trait method implementations.
-///
-/// Returns an empty TokenStream if the plugin defines no slots.
-fn gen_contribute_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
-    let mod_ident = &def.mod_ident;
-    let _ = struct_name;
-    if def.slots.is_empty() {
-        return quote! {};
-    }
-
-    // Legacy contribute() — only includes Legacy slots
-    let legacy_arms: Vec<_> = def
-        .slots
-        .iter()
-        .filter_map(|sb| {
-            if let SlotTarget::Legacy(slot_path) = &sb.target {
-                let fn_name = &sb.fn_name;
-                Some(quote! {
-                    kasane_core::plugin::#slot_path => #mod_ident::#fn_name(&self.state, _state),
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let contribute_fn = if !legacy_arms.is_empty() {
-        quote! {
-            #[allow(deprecated)]
-            fn contribute(&self, _slot: kasane_core::plugin::Slot, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
-                match _slot {
-                    #(#legacy_arms)*
-                    _ => None,
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    // Named slot: contribute_named_slot() — only includes Named slots
-    let named_arms: Vec<_> = def
-        .slots
-        .iter()
-        .filter_map(|sb| {
-            if let SlotTarget::Named(name) = &sb.target {
-                let fn_name = &sb.fn_name;
-                Some(quote! {
-                    #name => #mod_ident::#fn_name(&self.state, _state),
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let contribute_named_fn = if !named_arms.is_empty() {
-        quote! {
-            fn contribute_named_slot(&self, _name: &str, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
-                match _name {
-                    #(#named_arms)*
-                    _ => None,
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    quote! {
-        #contribute_fn
-        #contribute_named_fn
-    }
-}
-
-/// Generates the `Plugin::decorate()` and `Plugin::decorator_priority()` trait method
-/// implementations.
-///
-/// Returns an empty TokenStream if the plugin defines no decorators.
-fn gen_decorate_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
-    let mod_ident = &def.mod_ident;
-    let _ = struct_name;
-    if def.decorators.is_empty() {
-        return quote! {};
-    }
-
-    let decorate_arms: Vec<_> = def
-        .decorators
-        .iter()
-        .map(|db| {
-            let target_path = &db.target_path;
-            let fn_name = &db.fn_name;
-            quote! {
-                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _element, _state),
-            }
-        })
-        .collect();
-
-    let decorate_fn = quote! {
-        fn decorate(&self, _target: kasane_core::plugin::DecorateTarget, _element: kasane_core::element::Element, _state: &kasane_core::state::AppState) -> kasane_core::element::Element {
-            match _target {
-                #(#decorate_arms)*
-                _ => _element,
-            }
-        }
-    };
-
-    // Plugin::decorator_priority() — use the max priority among decorators, or omit
-    let max_priority = def
-        .decorators
-        .iter()
-        .filter_map(|d| d.priority)
-        .max()
-        .unwrap_or(0);
-    let priority_fn = if max_priority > 0 {
-        let lit = syn::LitInt::new(&max_priority.to_string(), Span::call_site());
-        quote! {
-            fn decorator_priority(&self) -> u32 {
-                #lit
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    quote! {
-        #decorate_fn
-        #priority_fn
-    }
-}
-
-/// Generates the `Plugin::replace()` trait method implementation.
-///
-/// Returns an empty TokenStream if the plugin defines no replacements.
-fn gen_replace_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
-    let mod_ident = &def.mod_ident;
-    let _ = struct_name;
-    if def.replacements.is_empty() {
-        return quote! {};
-    }
-
-    let replace_arms: Vec<_> = def
-        .replacements
-        .iter()
-        .map(|rb| {
-            let target_path = &rb.target_path;
-            let fn_name = &rb.fn_name;
-            quote! {
-                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _state),
-            }
-        })
-        .collect();
-
-    quote! {
-        fn replace(&self, _target: kasane_core::plugin::ReplaceTarget, _state: &kasane_core::state::AppState) -> Option<kasane_core::element::Element> {
-            match _target {
-                #(#replace_arms)*
-                _ => None,
-            }
-        }
-    }
-}
-
 /// Generates lifecycle hook implementations (on_init, on_shutdown, on_state_changed).
 fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
     let mod_ident = &def.mod_ident;
@@ -607,20 +261,6 @@ fn gen_input_impl(def: &PluginDef) -> TokenStream {
     tokens
 }
 
-/// Generates contribute_line implementation.
-fn gen_contribute_line_impl(def: &PluginDef) -> TokenStream {
-    let mod_ident = &def.mod_ident;
-    if def.has_contribute_line {
-        quote! {
-            fn contribute_line(&self, _line: usize, _state: &kasane_core::state::AppState) -> Option<kasane_core::plugin::LineDecoration> {
-                #mod_ident::contribute_line(&self.state, _line, _state)
-            }
-        }
-    } else {
-        quote! {}
-    }
-}
-
 /// Generates transform_menu_item implementation.
 fn gen_transform_menu_item_impl(def: &PluginDef) -> TokenStream {
     let mod_ident = &def.mod_ident;
@@ -656,108 +296,6 @@ fn gen_state_hash_impl(def: &PluginDef) -> TokenStream {
         }
     } else {
         quote! {}
-    }
-}
-
-/// Build a DirtyFlags expression from a SlotBinding's dirty_deps list.
-fn dirty_deps_to_flags_expr(dirty_deps: &[String]) -> TokenStream {
-    if dirty_deps.is_empty() {
-        // No flagged fields accessed → never dirty from AppState
-        quote! { kasane_core::state::DirtyFlags::empty() }
-    } else if dirty_deps.len() == 1 && dirty_deps[0] == "ALL" {
-        quote! { kasane_core::state::DirtyFlags::ALL }
-    } else {
-        let flag_idents: Vec<_> = dirty_deps.iter().map(|f| format_ident!("{}", f)).collect();
-        let first = &flag_idents[0];
-        let rest = &flag_idents[1..];
-        quote! {
-            kasane_core::state::DirtyFlags::#first
-            #(| kasane_core::state::DirtyFlags::#rest)*
-        }
-    }
-}
-
-/// Generates the `Plugin::slot_deps()` and `Plugin::slot_id_deps()` implementations (L3 auto-derivation).
-///
-/// Only generated when the plugin has slot bindings.
-fn gen_slot_deps_impl(def: &PluginDef) -> TokenStream {
-    if def.slots.is_empty() {
-        return quote! {};
-    }
-
-    // Legacy slot_deps() — only for Legacy slots
-    let legacy_arms: Vec<_> = def
-        .slots
-        .iter()
-        .filter_map(|sb| {
-            if let SlotTarget::Legacy(slot_path) = &sb.target {
-                let flags_expr = dirty_deps_to_flags_expr(&sb.dirty_deps);
-                Some(quote! {
-                    kasane_core::plugin::#slot_path => #flags_expr,
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let slot_deps_fn = if !legacy_arms.is_empty() {
-        quote! {
-            #[allow(deprecated)]
-            fn slot_deps(&self, _slot: kasane_core::plugin::Slot) -> kasane_core::state::DirtyFlags {
-                match _slot {
-                    #(#legacy_arms)*
-                    _ => kasane_core::state::DirtyFlags::empty(),
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    // slot_id_deps() — includes both Legacy (via well-known name) and Named slots
-    let has_named = def
-        .slots
-        .iter()
-        .any(|sb| matches!(sb.target, SlotTarget::Named(_)));
-    let slot_id_deps_fn = if has_named {
-        let named_arms: Vec<_> = def
-            .slots
-            .iter()
-            .filter_map(|sb| {
-                if let SlotTarget::Named(name) = &sb.target {
-                    let flags_expr = dirty_deps_to_flags_expr(&sb.dirty_deps);
-                    Some(quote! {
-                        #name => #flags_expr,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        quote! {
-            #[allow(deprecated)]
-            fn slot_id_deps(&self, _slot_id: &kasane_core::plugin::SlotId) -> kasane_core::state::DirtyFlags {
-                // Check custom named slots first
-                match _slot_id.as_str() {
-                    #(#named_arms)*
-                    _ => {
-                        // Delegate well-known slots to slot_deps()
-                        _slot_id.to_legacy()
-                            .map(|s| self.slot_deps(s))
-                            .unwrap_or(kasane_core::state::DirtyFlags::ALL)
-                    }
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    quote! {
-        #slot_deps_fn
-        #slot_id_deps_fn
     }
 }
 
@@ -845,29 +383,8 @@ fn gen_annotate_line_impl(def: &PluginDef) -> TokenStream {
 fn gen_capabilities_impl(def: &PluginDef) -> TokenStream {
     let mut caps = Vec::new();
 
-    if !def.slots.is_empty() {
-        caps.push(quote! { kasane_core::plugin::PluginCapabilities::SLOT_CONTRIBUTOR });
-        // Also set CONTRIBUTOR since slots map to contribute_to via default
-        caps.push(quote! { kasane_core::plugin::PluginCapabilities::CONTRIBUTOR });
-        if def
-            .slots
-            .iter()
-            .any(|s| matches!(s.target, SlotTarget::Named(_)))
-        {
-            caps.push(quote! { kasane_core::plugin::PluginCapabilities::NAMED_SLOT });
-        }
-    }
-    if def.has_contribute_line || def.has_annotate_line {
-        caps.push(quote! { kasane_core::plugin::PluginCapabilities::LINE_DECORATION });
-    }
     if def.has_annotate_line {
         caps.push(quote! { kasane_core::plugin::PluginCapabilities::ANNOTATOR });
-    }
-    if !def.decorators.is_empty() {
-        caps.push(quote! { kasane_core::plugin::PluginCapabilities::DECORATOR });
-    }
-    if !def.replacements.is_empty() {
-        caps.push(quote! { kasane_core::plugin::PluginCapabilities::REPLACEMENT });
     }
     if !def.transforms.is_empty() {
         caps.push(quote! { kasane_core::plugin::PluginCapabilities::TRANSFORMER });
@@ -904,15 +421,10 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
     let update_impl = gen_update_impl(def, &struct_name);
     let lifecycle_impl = gen_lifecycle_impl(def);
     let input_impl = gen_input_impl(def);
-    let contribute_impl = gen_contribute_impl(def, &struct_name);
-    let decorate_impl = gen_decorate_impl(def, &struct_name);
-    let replace_impl = gen_replace_impl(def, &struct_name);
     let transform_impl = gen_transform_impl(def);
-    let contribute_line_impl = gen_contribute_line_impl(def);
     let annotate_line_impl = gen_annotate_line_impl(def);
     let transform_menu_item_impl = gen_transform_menu_item_impl(def);
     let state_hash_impl = gen_state_hash_impl(def);
-    let slot_deps_impl = gen_slot_deps_impl(def);
     let capabilities_impl = gen_capabilities_impl(def);
 
     Ok(quote! {
@@ -940,20 +452,15 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
             #input_impl
             #update_impl
             #state_hash_impl
-            #slot_deps_impl
-            #contribute_impl
-            #decorate_impl
-            #replace_impl
             #transform_impl
-            #contribute_line_impl
             #annotate_line_impl
             #transform_menu_item_impl
         }
     })
 }
 
-/// Strip our custom attributes (#[state], #[event], #[slot(...)], #[decorate(...)],
-/// #[replace(...)], #[keybind(...)]) from module items so they don't cause compiler errors.
+/// Strip our custom attributes (#[state], #[event], #[transform(...)],
+/// #[keybind(...)]) from module items so they don't cause compiler errors.
 fn strip_custom_attrs(module: &ItemMod) -> TokenStream {
     let vis = &module.vis;
     let ident = &module.ident;
@@ -976,9 +483,6 @@ fn strip_custom_attrs(module: &ItemMod) -> TokenStream {
 const CUSTOM_ATTRS: &[&str] = &[
     "state",
     "event",
-    "slot",
-    "decorate",
-    "replace",
     "transform",
     "keybind",
     "lifecycle",

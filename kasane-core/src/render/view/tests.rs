@@ -154,16 +154,30 @@ fn test_status_bar_resolves_default_face() {
 
 #[test]
 fn test_status_left_slot_in_status_bar() {
-    use crate::plugin::{Plugin, PluginId};
+    use crate::plugin::{
+        ContribSizeHint, ContributeContext, Contribution, Plugin, PluginCapabilities, PluginId,
+    };
 
     struct StatusLeftPlugin;
     impl Plugin for StatusLeftPlugin {
         fn id(&self) -> PluginId {
             PluginId("status_left".into())
         }
-        fn contribute_slot(&self, slot_id: &SlotId, _state: &AppState) -> Option<Element> {
-            if *slot_id == SlotId::STATUS_LEFT {
-                Some(Element::text("[L]", Face::default()))
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::CONTRIBUTOR
+        }
+        fn contribute_to(
+            &self,
+            region: &SlotId,
+            _state: &AppState,
+            _ctx: &ContributeContext,
+        ) -> Option<Contribution> {
+            if *region == SlotId::STATUS_LEFT {
+                Some(Contribution {
+                    element: Element::text("[L]", Face::default()),
+                    priority: 0,
+                    size_hint: ContribSizeHint::Auto,
+                })
             } else {
                 None
             }

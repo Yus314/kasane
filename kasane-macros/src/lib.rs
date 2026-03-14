@@ -10,9 +10,9 @@ use proc_macro::TokenStream;
 /// - `#[state] struct State { ... }` — plugin state type
 /// - `#[event] enum Msg { ... }` — message type
 /// - `fn update(state: &mut State, msg: Msg, core: &AppState) -> Vec<Command>` — state update
-/// - `#[slot(Slot::*)] fn view(state: &State, core: &AppState) -> Option<Element>` — slot contribution
-/// - `#[decorate(DecorateTarget::*, priority = N)] fn decorate(...)` — decorator
-/// - `#[replace(ReplaceTarget::*)] fn replace(...)` — replacement
+/// - `#[transform(TransformTarget::*, priority = N)] fn transform(...)` — element transformer
+/// - `fn annotate_line(state: &State, line: usize, core: &AppState, ctx: &AnnotateContext) -> Option<LineAnnotation>` — line annotation
+/// - `fn transform_menu_item(...)` — menu item transformer
 ///
 /// Generates a `{PascalCase}Plugin` struct with a `Plugin` trait impl.
 #[proc_macro_attribute]

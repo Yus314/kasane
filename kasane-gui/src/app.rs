@@ -32,58 +32,6 @@ use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
 use crate::{GuiEvent, TimerPayload};
 
-/// Dispatch a workspace command to the SurfaceRegistry.
-fn dispatch_workspace_command(
-    surface_registry: &mut SurfaceRegistry,
-    cmd: kasane_core::workspace::WorkspaceCommand,
-    dirty: &mut DirtyFlags,
-) {
-    use kasane_core::workspace::WorkspaceCommand;
-    match cmd {
-        WorkspaceCommand::AddSurface {
-            surface_id,
-            placement,
-        } => {
-            let ws = surface_registry.workspace_mut();
-            match placement {
-                kasane_core::workspace::Placement::SplitFocused { direction, ratio } => {
-                    let focused = ws.focused();
-                    ws.root_mut().split(focused, direction, ratio, surface_id);
-                }
-                kasane_core::workspace::Placement::SplitFrom {
-                    target,
-                    direction,
-                    ratio,
-                } => {
-                    ws.root_mut().split(target, direction, ratio, surface_id);
-                }
-                _ => {} // Tab, Dock, Float — handled in future phases
-            }
-            *dirty |= DirtyFlags::ALL;
-        }
-        WorkspaceCommand::RemoveSurface(id) => {
-            surface_registry.workspace_mut().close(id);
-            *dirty |= DirtyFlags::ALL;
-        }
-        WorkspaceCommand::Focus(id) => {
-            surface_registry.workspace_mut().focus(id);
-            *dirty |= DirtyFlags::ALL;
-        }
-        WorkspaceCommand::FocusDirection(_) => {
-            // Direction-based focus navigation — future phase
-        }
-        WorkspaceCommand::Swap(a, b) => {
-            let _ = (a, b); // Swap — future phase
-            *dirty |= DirtyFlags::ALL;
-        }
-        WorkspaceCommand::Resize { .. }
-        | WorkspaceCommand::Float { .. }
-        | WorkspaceCommand::Unfloat(_) => {
-            // Future phases
-        }
-    }
-}
-
 pub struct App<W: Write + Send + 'static> {
     // winit
     window: Option<Arc<Window>>,
@@ -372,7 +320,11 @@ impl<W: Write + Send + 'static> App<W> {
                     // Pane commands will be handled in Phase 5a-1
                 }
                 DeferredCommand::Workspace(ws_cmd) => {
-                    dispatch_workspace_command(&mut self.surface_registry, ws_cmd, &mut self.dirty);
+                    kasane_core::workspace::dispatch_workspace_command(
+                        &mut self.surface_registry,
+                        ws_cmd,
+                        &mut self.dirty,
+                    );
                 }
                 DeferredCommand::RegisterThemeTokens(_tokens) => {
                     // Theme token registration will be handled when Theme is

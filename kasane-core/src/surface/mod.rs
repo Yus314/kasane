@@ -340,7 +340,23 @@ impl SurfaceRegistry {
             overlays.push(overlay);
         }
         overlays.extend(view::build_info_section_standalone(state, plugin_registry));
-        overlays.extend(plugin_registry.collect_overlays(state));
+        {
+            let overlay_ctx = crate::plugin::OverlayContext {
+                screen_cols: state.cols,
+                screen_rows: state.rows,
+                menu_rect: None,
+                existing_overlays: vec![],
+            };
+            overlays.extend(
+                plugin_registry
+                    .collect_overlays_with_ctx(state, &overlay_ctx)
+                    .into_iter()
+                    .map(|oc| crate::element::Overlay {
+                        element: oc.element,
+                        anchor: oc.anchor,
+                    }),
+            );
+        }
 
         // 5. Assemble into final tree
         if overlays.is_empty() {
@@ -400,7 +416,20 @@ impl SurfaceRegistry {
         // 4. Decomposed overlay sections
         let menu_overlay = view::build_menu_section_standalone(state, plugin_registry);
         let info_overlays = view::build_info_section_standalone(state, plugin_registry);
-        let plugin_overlays = plugin_registry.collect_overlays(state);
+        let overlay_ctx = crate::plugin::OverlayContext {
+            screen_cols: state.cols,
+            screen_rows: state.rows,
+            menu_rect: None,
+            existing_overlays: vec![],
+        };
+        let plugin_overlays: Vec<crate::element::Overlay> = plugin_registry
+            .collect_overlays_with_ctx(state, &overlay_ctx)
+            .into_iter()
+            .map(|oc| crate::element::Overlay {
+                element: oc.element,
+                anchor: oc.anchor,
+            })
+            .collect();
 
         view::ViewSections {
             base,

@@ -197,6 +197,7 @@ pub fn expand_flags(flags: &[Ident]) -> HashSet<String> {
 }
 
 /// Expand string flag names (same logic as `expand_flags` but from strings).
+#[cfg(test)]
 pub fn expand_flag_strs(flags: &[&str]) -> HashSet<String> {
     let mut expanded = HashSet::new();
     for flag in flags {

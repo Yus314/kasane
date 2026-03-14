@@ -1,14 +1,17 @@
-#![allow(dead_code, unused_imports, deprecated)]
+#![allow(dead_code, unused_imports)]
 
 use std::any::Any;
 
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
-use kasane_core::plugin::{Command, DecorateTarget, Plugin, PluginId, PluginRegistry, Slot};
+use kasane_core::plugin::{
+    Command, ContribSizeHint, ContributeContext, Contribution, Plugin, PluginCapabilities,
+    PluginId, PluginRegistry, SlotId,
+};
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
 };
-use kasane_core::state::AppState;
+use kasane_core::state::{AppState, DirtyFlags};
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -24,37 +27,29 @@ impl Plugin for BenchPlugin {
         PluginId(self.id.clone())
     }
 
-    fn update(&mut self, _msg: Box<dyn Any>, _state: &AppState) -> Vec<Command> {
-        vec![]
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
     }
 
-    fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
-        None
-    }
-
-    fn handle_mouse(
-        &mut self,
-        _event: &MouseEvent,
-        _id: InteractiveId,
+    fn contribute_to(
+        &self,
+        region: &SlotId,
         _state: &AppState,
-    ) -> Option<Vec<Command>> {
-        None
-    }
-
-    fn contribute(&self, slot: Slot, _state: &AppState) -> Option<Element> {
-        match slot {
-            Slot::StatusRight => Some(Element::text(format!("[{}]", self.id), Default::default())),
-            _ => None,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region == &SlotId::STATUS_RIGHT {
+            Some(Contribution {
+                element: Element::text(format!("[{}]", self.id), Default::default()),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        } else {
+            None
         }
     }
 
-    fn decorate(&self, _target: DecorateTarget, element: Element, _state: &AppState) -> Element {
-        // Wrap in a transparent container (minimal overhead, realistic decoration)
-        element
-    }
-
-    fn decorator_priority(&self) -> u32 {
-        0
+    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+        DirtyFlags::STATUS
     }
 }
 

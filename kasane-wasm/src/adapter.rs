@@ -1,14 +1,12 @@
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 
-use kasane_core::element::{Element, InteractiveId, Overlay};
+use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
-#[allow(deprecated)]
-use kasane_core::plugin::Slot;
 use kasane_core::plugin::{
     AnnotateContext, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
-    DecorateTarget, LineAnnotation, LineDecoration, OverlayContext, OverlayContribution, Plugin,
-    PluginId, ReplaceTarget, SlotId, TransformContext, TransformTarget,
+    LineAnnotation, OverlayContext, OverlayContribution, Plugin, PluginCapabilities, PluginId,
+    SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::state::{AppState, DirtyFlags};
@@ -40,7 +38,6 @@ impl WasmPlugin {
     }
 }
 
-#[allow(deprecated)]
 impl Plugin for WasmPlugin {
     fn id(&self) -> PluginId {
         self.plugin_id.clone()
@@ -97,89 +94,6 @@ impl Plugin for WasmPlugin {
 
     fn state_hash(&self) -> u64 {
         self.cached_state_hash.get()
-    }
-
-    fn slot_deps(&self, slot: Slot) -> DirtyFlags {
-        let mut store = self.store.borrow_mut();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        match plugin_api.call_slot_deps(&mut *store, slot.index() as u8) {
-            Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-            Err(e) => {
-                tracing::error!("WASM plugin {}.slot_deps failed: {e}", self.plugin_id.0);
-                DirtyFlags::ALL
-            }
-        }
-    }
-
-    fn contribute_line(&self, line: usize, state: &AppState) -> Option<LineDecoration> {
-        let mut store = self.store.borrow_mut();
-        host::sync_from_app_state(store.data_mut(), state);
-        store.data_mut().elements.clear();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        match plugin_api.call_contribute_line(&mut *store, line as u32) {
-            Ok(Some(dec)) => {
-                let left_gutter = dec
-                    .left_gutter
-                    .map(|h| store.data_mut().take_root_element(h));
-                let right_gutter = dec
-                    .right_gutter
-                    .map(|h| store.data_mut().take_root_element(h));
-                let background = dec.background.as_ref().map(convert::wit_face_to_face);
-                Some(LineDecoration {
-                    left_gutter,
-                    right_gutter,
-                    background,
-                })
-            }
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.contribute_line failed: {e}",
-                    self.plugin_id.0
-                );
-                None
-            }
-        }
-    }
-
-    fn contribute(&self, slot: Slot, state: &AppState) -> Option<Element> {
-        let mut store = self.store.borrow_mut();
-        host::sync_from_app_state(store.data_mut(), state);
-        store.data_mut().elements.clear();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        match plugin_api.call_contribute(&mut *store, slot.index() as u8) {
-            Ok(Some(handle)) => Some(store.data_mut().take_root_element(handle)),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.contribute({slot:?}) failed: {e}",
-                    self.plugin_id.0
-                );
-                None
-            }
-        }
-    }
-
-    fn contribute_overlay(&self, state: &AppState) -> Option<Overlay> {
-        let mut store = self.store.borrow_mut();
-        host::sync_from_app_state(store.data_mut(), state);
-        store.data_mut().elements.clear();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        match plugin_api.call_contribute_overlay(&mut *store) {
-            Ok(Some(wit_overlay)) => {
-                let element = store.data_mut().take_root_element(wit_overlay.element);
-                let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&wit_overlay.anchor);
-                Some(Overlay { element, anchor })
-            }
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.contribute_overlay failed: {e}",
-                    self.plugin_id.0
-                );
-                None
-            }
-        }
     }
 
     fn observe_key(&mut self, key: &KeyEvent, state: &AppState) {
@@ -263,65 +177,6 @@ impl Plugin for WasmPlugin {
         }
     }
 
-    // --- v0.3.0: Replacement ---
-
-    fn replace(&self, target: ReplaceTarget, state: &AppState) -> Option<Element> {
-        let mut store = self.store.borrow_mut();
-        host::sync_from_app_state(store.data_mut(), state);
-        store.data_mut().elements.clear();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        let wit_target = convert::replace_target_to_wit(&target);
-        match plugin_api.call_replace(&mut *store, wit_target) {
-            Ok(Some(handle)) => Some(store.data_mut().take_root_element(handle)),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.replace({target:?}) failed: {e}",
-                    self.plugin_id.0
-                );
-                None
-            }
-        }
-    }
-
-    // --- v0.3.0: Decorator ---
-
-    fn decorate(&self, target: DecorateTarget, element: Element, state: &AppState) -> Element {
-        let mut store = self.store.borrow_mut();
-        host::sync_from_app_state(store.data_mut(), state);
-        store.data_mut().elements.clear();
-        // Inject the existing element as handle 0
-        let original_handle = store.data_mut().inject_element(element);
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        let wit_target = convert::decorate_target_to_wit(&target);
-        match plugin_api.call_decorate(&mut *store, wit_target, original_handle) {
-            Ok(result_handle) => store.data_mut().take_root_element(result_handle),
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.decorate({target:?}) failed: {e}",
-                    self.plugin_id.0
-                );
-                // On error, try to recover the original element
-                store.data_mut().take_root_element(original_handle)
-            }
-        }
-    }
-
-    fn decorator_priority(&self) -> u32 {
-        let mut store = self.store.borrow_mut();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        match plugin_api.call_decorator_priority(&mut *store) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.decorator_priority failed: {e}",
-                    self.plugin_id.0
-                );
-                0
-            }
-        }
-    }
-
     // --- v0.4.0: Cursor style override ---
 
     fn cursor_style_override(&self, state: &AppState) -> Option<kasane_core::render::CursorStyle> {
@@ -347,37 +202,7 @@ impl Plugin for WasmPlugin {
         }
     }
 
-    // --- v0.4.0: Named slot contributions ---
-
-    fn contribute_named_slot(&self, name: &str, state: &AppState) -> Option<Element> {
-        let mut store = self.store.borrow_mut();
-        host::sync_from_app_state(store.data_mut(), state);
-        store.data_mut().elements.clear();
-        let plugin_api = self.instance.kasane_plugin_plugin_api();
-        match plugin_api.call_contribute_named(&mut *store, name) {
-            Ok(Some(handle)) => Some(store.data_mut().take_root_element(handle)),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!(
-                    "WASM plugin {}.contribute_named({name}) failed: {e}",
-                    self.plugin_id.0
-                );
-                None
-            }
-        }
-    }
-
-    // --- SlotId-based contributions ---
-
-    fn contribute_slot(&self, slot_id: &SlotId, state: &AppState) -> Option<Element> {
-        if let Some(legacy) = slot_id.to_legacy() {
-            self.contribute(legacy, state)
-        } else {
-            self.contribute_named_slot(slot_id.as_str(), state)
-        }
-    }
-
-    // --- v0.5.0: Contribute / Transform / Annotate ---
+    // --- Contribute / Transform / Annotate ---
 
     fn contribute_to(
         &self,
@@ -560,11 +385,11 @@ impl Plugin for WasmPlugin {
         }
     }
 
-    // Note: capabilities() uses default (excludes CONTRIBUTOR/TRANSFORMER/ANNOTATOR)
-    // WASM plugins that implement new APIs will need capabilities to be detected
-    // from which WIT exports they override vs return defaults.
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::all()
+    }
 
-    // --- v0.3.0: Inter-plugin messaging ---
+    // --- Inter-plugin messaging ---
 
     fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
         // WASM plugins receive messages as Vec<u8> bytes

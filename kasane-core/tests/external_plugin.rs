@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use kasane_core::plugin_prelude::*;
 
 #[kasane_plugin]
@@ -16,26 +15,19 @@ mod test_external {
         state.init_called = true;
         vec![]
     }
-
-    #[slot(Slot::StatusLeft)]
-    pub fn status(_state: &State, _core: &AppState) -> Option<Element> {
-        Some(Element::text("ext", Face::default()))
-    }
 }
 
 #[test]
-fn external_plugin_registers_and_contributes() {
+fn external_plugin_registers_and_inits() {
     let mut registry = PluginRegistry::new();
     registry.register(Box::new(TestExternalPlugin::new()));
     let state = AppState::default();
     let _ = registry.init_all(&state);
-    let elements = registry.collect_slot(Slot::StatusLeft, &state);
-    assert_eq!(elements.len(), 1);
+    // No panic = success; plugin was registered and initialized
 }
 
 #[test]
 fn external_plugin_lifecycle() {
-    // Verify lifecycle hooks work with the prelude-based plugin
     let mut plugin = TestExternalPlugin::new();
     assert!(!plugin.state.init_called);
 

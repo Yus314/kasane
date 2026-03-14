@@ -1,10 +1,9 @@
-#![allow(deprecated)]
 mod fixtures;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
-use kasane_core::plugin::{DecorateTarget, PluginRegistry, Slot};
+use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
 use kasane_core::render::LayoutCache;
@@ -279,56 +278,6 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
-
-    group.finish();
-}
-
-/// Bench 5: Decorator chain
-fn bench_decorator_chain(c: &mut Criterion) {
-    let mut group = c.benchmark_group("decorator_chain");
-
-    let state = typical_state(23);
-    let element = kasane_core::element::Element::buffer_ref(0..23);
-
-    for n in [1, 5, 10] {
-        let registry = registry_with_plugins(n);
-        group.bench_with_input(BenchmarkId::new("plugins", n), &n, |b, _| {
-            b.iter(|| registry.apply_decorator(DecorateTarget::Buffer, element.clone(), &state));
-        });
-    }
-
-    group.finish();
-}
-
-/// Bench 6: Plugin dispatch (all 8 slots collect + decorator apply)
-fn bench_plugin_dispatch(c: &mut Criterion) {
-    let mut group = c.benchmark_group("plugin_dispatch");
-
-    let state = typical_state(23);
-    let element = kasane_core::element::Element::buffer_ref(0..23);
-
-    let all_slots = [
-        Slot::BufferLeft,
-        Slot::BufferRight,
-        Slot::AboveBuffer,
-        Slot::BelowBuffer,
-        Slot::AboveStatus,
-        Slot::StatusLeft,
-        Slot::StatusRight,
-        Slot::Overlay,
-    ];
-
-    for n in [1, 5, 10] {
-        let registry = registry_with_plugins(n);
-        group.bench_with_input(BenchmarkId::new("plugins", n), &n, |b, _| {
-            b.iter(|| {
-                for &slot in &all_slots {
-                    let _ = registry.collect_slot(slot, &state);
-                }
-                registry.apply_decorator(DecorateTarget::Buffer, element.clone(), &state);
-            });
-        });
-    }
 
     group.finish();
 }
@@ -1180,41 +1129,6 @@ fn bench_apply_draw_line_comparison(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// Plugin slot cache benchmarks (L1/L3)
-// ---------------------------------------------------------------------------
-
-/// Bench: collect_slot with warm cache (all plugins cached → zero contribute() calls)
-fn bench_collect_slot_cached_hit(c: &mut Criterion) {
-    let state = typical_state(23);
-    let mut registry = registry_with_plugins(10);
-
-    // Warm the cache: prepare + collect
-    registry.prepare_plugin_cache(DirtyFlags::ALL);
-    registry.collect_slot(Slot::StatusRight, &state);
-
-    // Now prepare with empty dirty → all cached
-    registry.prepare_plugin_cache(DirtyFlags::empty());
-
-    c.bench_function("collect_slot_cached_hit", |b| {
-        b.iter(|| registry.collect_slot(Slot::StatusRight, &state));
-    });
-}
-
-/// Bench: collect_slot with cold cache (all plugins recomputed)
-fn bench_collect_slot_cached_miss(c: &mut Criterion) {
-    let state = typical_state(23);
-    let mut registry = registry_with_plugins(10);
-
-    c.bench_function("collect_slot_cached_miss", |b| {
-        b.iter(|| {
-            // Invalidate everything each iteration
-            registry.prepare_plugin_cache(DirtyFlags::ALL);
-            registry.collect_slot(Slot::StatusRight, &state)
-        });
-    });
-}
-
-// ---------------------------------------------------------------------------
 // Allocation benchmarks (feature-gated)
 // ---------------------------------------------------------------------------
 
@@ -1434,8 +1348,6 @@ criterion_group!(
     bench_grid_diff,
     bench_grid_diff_into,
     bench_grid_clear,
-    bench_decorator_chain,
-    bench_plugin_dispatch,
 );
 
 criterion_group!(
@@ -1485,12 +1397,6 @@ criterion_group!(
     bench_line_dirty_buffer_status,
 );
 
-criterion_group!(
-    slot_cache,
-    bench_collect_slot_cached_hit,
-    bench_collect_slot_cached_miss,
-);
-
 #[cfg(not(feature = "bench-alloc"))]
 criterion_main!(
     micro,
@@ -1500,7 +1406,6 @@ criterion_main!(
     sectioned,
     patched,
     line_dirty,
-    slot_cache
 );
 
 #[cfg(feature = "bench-alloc")]
@@ -1515,6 +1420,5 @@ criterion_main!(
     sectioned,
     patched,
     line_dirty,
-    slot_cache,
     alloc_benches
 );

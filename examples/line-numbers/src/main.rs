@@ -1,16 +1,27 @@
 use kasane::kasane_core::plugin_prelude::*;
 
-#[kasane_plugin]
-mod line_numbers {
-    use kasane::kasane_core::plugin_prelude::*;
+struct LineNumbersPlugin;
 
-    #[state]
-    #[derive(Default)]
-    pub struct State;
+impl Plugin for LineNumbersPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("line_numbers".into())
+    }
 
-    #[slot(Slot::BufferLeft)]
-    pub fn gutter(_state: &State, core: &AppState) -> Option<Element> {
-        let total = core.lines.len();
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region != &SlotId::BUFFER_LEFT {
+            return None;
+        }
+
+        let total = state.lines.len();
         let width = total.to_string().len().max(2);
 
         let children: Vec<_> = (0..total)
@@ -26,12 +37,20 @@ mod line_numbers {
             })
             .collect();
 
-        Some(Element::column(children))
+        Some(Contribution {
+            element: Element::column(children),
+            priority: 0,
+            size_hint: ContribSizeHint::Auto,
+        })
+    }
+
+    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+        DirtyFlags::BUFFER_CONTENT
     }
 }
 
 fn main() {
     kasane::run(|registry| {
-        registry.register(Box::new(LineNumbersPlugin::new()));
+        registry.register(Box::new(LineNumbersPlugin));
     });
 }

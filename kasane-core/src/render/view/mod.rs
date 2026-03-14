@@ -72,36 +72,13 @@ pub(crate) fn view_sections_cached(
 ) -> ViewSections {
     crate::perf::perf_span!("view_sections");
 
-    // Section 1: Base — uses BUILD_BASE_DEPS (BUFFER | STATUS | OPTIONS)
     let base = cache.base.get_or_insert(
         cache_dirty_snapshot(&cache.base, BUILD_BASE_DEPS),
         BUILD_BASE_DEPS,
         || build_base(state, registry),
     );
 
-    // Section 2: Menu overlay — uses BUILD_MENU_SECTION_DEPS (MENU_STRUCTURE | MENU_SELECTION)
-    let menu_overlay = cache.menu_overlay.get_or_insert(
-        cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
-        BUILD_MENU_SECTION_DEPS,
-        || build_menu_section(state, registry),
-    );
-
-    // Section 3: Info overlays — uses BUILD_INFO_SECTION_DEPS (INFO)
-    let info_overlays = cache.info_overlays.get_or_insert(
-        cache_dirty_snapshot(&cache.info_overlays, BUILD_INFO_SECTION_DEPS),
-        BUILD_INFO_SECTION_DEPS,
-        || build_info_section(state, registry),
-    );
-
-    // Section 4: Plugin overlays (typed + legacy Slot::Overlay)
-    let plugin_overlays = registry.collect_overlays(state);
-
-    ViewSections {
-        base,
-        menu_overlay,
-        info_overlays,
-        plugin_overlays,
-    }
+    build_sections_with_base(base, state, registry, cache)
 }
 
 /// Build the view sections using SurfaceRegistry as the element source.
@@ -125,7 +102,6 @@ pub fn surface_view_sections_cached(
         h: state.rows,
     };
 
-    // Section 1: Base from SurfaceRegistry (workspace + status)
     let base = cache.base.get_or_insert(
         cache_dirty_snapshot(&cache.base, BUILD_BASE_DEPS),
         BUILD_BASE_DEPS,
@@ -135,22 +111,42 @@ pub fn surface_view_sections_cached(
         },
     );
 
-    // Section 2: Menu overlay (same as legacy)
+    build_sections_with_base(base, state, registry, cache)
+}
+
+/// Shared helper: build menu, info, and plugin overlay sections around a given base.
+fn build_sections_with_base(
+    base: Element,
+    state: &AppState,
+    registry: &PluginRegistry,
+    cache: &mut ViewCache,
+) -> ViewSections {
     let menu_overlay = cache.menu_overlay.get_or_insert(
         cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
         BUILD_MENU_SECTION_DEPS,
         || build_menu_section(state, registry),
     );
 
-    // Section 3: Info overlays (same as legacy)
     let info_overlays = cache.info_overlays.get_or_insert(
         cache_dirty_snapshot(&cache.info_overlays, BUILD_INFO_SECTION_DEPS),
         BUILD_INFO_SECTION_DEPS,
         || build_info_section(state, registry),
     );
 
-    // Section 4: Plugin overlays
-    let plugin_overlays = registry.collect_overlays(state);
+    let overlay_ctx = crate::plugin::OverlayContext {
+        screen_cols: state.cols,
+        screen_rows: state.rows,
+        menu_rect: None,
+        existing_overlays: vec![],
+    };
+    let plugin_overlays: Vec<Overlay> = registry
+        .collect_overlays_with_ctx(state, &overlay_ctx)
+        .into_iter()
+        .map(|oc| Overlay {
+            element: oc.element,
+            anchor: oc.anchor,
+        })
+        .collect();
 
     ViewSections {
         base,

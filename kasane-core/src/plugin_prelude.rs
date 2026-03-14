@@ -7,13 +7,11 @@
 pub use crate::kasane_plugin;
 
 // Plugin trait and types
-#[allow(deprecated)]
-pub use crate::plugin::Slot;
 pub use crate::plugin::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, Command, ContribSizeHint,
-    ContributeContext, Contribution, DecorateTarget, LineAnnotation, LineDecoration,
-    OverlayContext, OverlayContribution, PaintHook, Plugin, PluginCapabilities, PluginId,
-    PluginRegistry, ReplaceTarget, SlotId, TransformContext, TransformTarget,
+    ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
+    PaintHook, Plugin, PluginCapabilities, PluginId, PluginRegistry, SlotId, TransformContext,
+    TransformTarget,
 };
 
 // Element tree

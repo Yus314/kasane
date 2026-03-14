@@ -1,9 +1,10 @@
-#![allow(deprecated)]
 use std::path::PathBuf;
 
 use kasane_core::config::PluginsConfig;
 use kasane_core::element::{Direction, Element};
-use kasane_core::plugin::{Plugin, PluginRegistry, Slot};
+use kasane_core::plugin::{
+    AnnotateContext, ContributeContext, OverlayContext, Plugin, PluginRegistry, SlotId,
+};
 use kasane_core::protocol::Color;
 use kasane_core::state::{AppState, DirtyFlags};
 
@@ -21,6 +22,26 @@ fn load_line_numbers_plugin() -> crate::WasmPlugin {
     loader.load(&bytes).expect("failed to load plugin")
 }
 
+fn default_annotate_ctx() -> AnnotateContext {
+    AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+    }
+}
+
+fn default_contribute_ctx(state: &AppState) -> ContributeContext {
+    ContributeContext::new(state, None)
+}
+
+fn default_overlay_ctx() -> OverlayContext {
+    OverlayContext {
+        screen_cols: 80,
+        screen_rows: 24,
+        menu_rect: None,
+        existing_overlays: vec![],
+    }
+}
+
 #[test]
 fn plugin_id() {
     let plugin = load_cursor_line_plugin();
@@ -34,12 +55,14 @@ fn highlight_active_line() {
     state.cursor_pos.line = 3;
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    let dec = plugin.contribute_line(3, &state);
-    assert!(dec.is_some());
-    let dec = dec.unwrap();
-    assert!(dec.background.is_some());
+    let ctx = default_annotate_ctx();
+    let ann = plugin.annotate_line_with_ctx(3, &state, &ctx);
+    assert!(ann.is_some());
+    let ann = ann.unwrap();
+    assert!(ann.background.is_some());
+    let bg = ann.background.unwrap();
     assert_eq!(
-        dec.background.unwrap().bg,
+        bg.face.bg,
         Color::Rgb {
             r: 40,
             g: 40,
@@ -55,25 +78,27 @@ fn no_highlight_on_other_lines() {
     state.cursor_pos.line = 3;
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    assert!(plugin.contribute_line(0, &state).is_none());
-    assert!(plugin.contribute_line(2, &state).is_none());
-    assert!(plugin.contribute_line(4, &state).is_none());
+    let ctx = default_annotate_ctx();
+    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
+    assert!(plugin.annotate_line_with_ctx(2, &state, &ctx).is_none());
+    assert!(plugin.annotate_line_with_ctx(4, &state, &ctx).is_none());
 }
 
 #[test]
 fn tracks_cursor_movement() {
     let mut plugin = load_cursor_line_plugin();
     let mut state = AppState::default();
+    let ctx = default_annotate_ctx();
 
     state.cursor_pos.line = 0;
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
-    assert!(plugin.contribute_line(0, &state).is_some());
-    assert!(plugin.contribute_line(5, &state).is_none());
+    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_some());
+    assert!(plugin.annotate_line_with_ctx(5, &state, &ctx).is_none());
 
     state.cursor_pos.line = 5;
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
-    assert!(plugin.contribute_line(0, &state).is_none());
-    assert!(plugin.contribute_line(5, &state).is_some());
+    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
+    assert!(plugin.annotate_line_with_ctx(5, &state, &ctx).is_some());
 }
 
 #[test]
@@ -87,13 +112,6 @@ fn state_hash_changes_on_line_change() {
     let h2 = plugin.state_hash();
 
     assert_ne!(h1, h2);
-}
-
-#[test]
-fn slot_deps_returns_empty() {
-    let plugin = load_cursor_line_plugin();
-    assert_eq!(plugin.slot_deps(Slot::BufferLeft), DirtyFlags::empty());
-    assert_eq!(plugin.slot_deps(Slot::StatusRight), DirtyFlags::empty());
 }
 
 #[test]
@@ -112,9 +130,13 @@ fn cursor_line_contribute_returns_none() {
     let mut plugin = load_cursor_line_plugin();
     let state = AppState::default();
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    let ctx = default_contribute_ctx(&state);
     // cursor-line plugin has no slot contributions
-    assert!(plugin.contribute(Slot::BufferLeft, &state).is_none());
-    assert!(plugin.contribute(Slot::Overlay, &state).is_none());
+    assert!(
+        plugin
+            .contribute_to(&SlotId::BUFFER_LEFT, &state, &ctx)
+            .is_none()
+    );
 }
 
 // --- line-numbers plugin tests ---
@@ -132,11 +154,12 @@ fn line_numbers_contribute_buffer_left() {
     state.lines = vec![vec![], vec![], vec![]]; // 3 lines
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    let element = plugin.contribute(Slot::BufferLeft, &state);
-    assert!(element.is_some());
+    let ctx = default_contribute_ctx(&state);
+    let contrib = plugin.contribute_to(&SlotId::BUFFER_LEFT, &state, &ctx);
+    assert!(contrib.is_some());
 
     // Should be a column with 3 children
-    match element.unwrap() {
+    match contrib.unwrap().element {
         Element::Flex {
             direction: Direction::Column,
             children,
@@ -165,17 +188,30 @@ fn line_numbers_no_contribution_for_other_slots() {
     state.lines = vec![vec![]];
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    assert!(plugin.contribute(Slot::BufferRight, &state).is_none());
-    assert!(plugin.contribute(Slot::StatusLeft, &state).is_none());
-    assert!(plugin.contribute(Slot::Overlay, &state).is_none());
+    let ctx = default_contribute_ctx(&state);
+    assert!(
+        plugin
+            .contribute_to(&SlotId::BUFFER_RIGHT, &state, &ctx)
+            .is_none()
+    );
+    assert!(
+        plugin
+            .contribute_to(&SlotId::STATUS_LEFT, &state, &ctx)
+            .is_none()
+    );
 }
 
 #[test]
 fn line_numbers_empty_buffer_returns_none() {
     let plugin = load_line_numbers_plugin();
     let state = AppState::default();
+    let ctx = default_contribute_ctx(&state);
     // default lines is empty
-    assert!(plugin.contribute(Slot::BufferLeft, &state).is_none());
+    assert!(
+        plugin
+            .contribute_to(&SlotId::BUFFER_LEFT, &state, &ctx)
+            .is_none()
+    );
 }
 
 #[test]
@@ -192,10 +228,11 @@ fn line_numbers_state_hash_changes_with_line_count() {
 }
 
 #[test]
-fn line_numbers_slot_deps() {
+fn line_numbers_contribute_deps() {
     let plugin = load_line_numbers_plugin();
-    assert_eq!(plugin.slot_deps(Slot::BufferLeft), DirtyFlags::BUFFER);
-    assert_eq!(plugin.slot_deps(Slot::Overlay), DirtyFlags::empty());
+    // BufferLeft depends on BUFFER
+    let deps = plugin.contribute_deps(&SlotId::BUFFER_LEFT);
+    assert!(deps.intersects(DirtyFlags::BUFFER));
 }
 
 #[test]
@@ -206,8 +243,11 @@ fn line_numbers_width_adapts_to_line_count() {
     state.lines = (0..100).map(|_| vec![]).collect();
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    let element = plugin.contribute(Slot::BufferLeft, &state).unwrap();
-    match element {
+    let ctx = default_contribute_ctx(&state);
+    let contrib = plugin
+        .contribute_to(&SlotId::BUFFER_LEFT, &state, &ctx)
+        .unwrap();
+    match contrib.element {
         Element::Flex {
             direction: Direction::Column,
             children,
@@ -336,11 +376,12 @@ fn color_preview_detects_colors_in_line() {
     let state = make_state_with_lines(&["#ff0000"]);
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    let dec = plugin.contribute_line(0, &state);
-    assert!(dec.is_some());
-    let dec = dec.unwrap();
-    assert!(dec.left_gutter.is_some());
-    assert!(dec.background.is_none());
+    let ctx = default_annotate_ctx();
+    let ann = plugin.annotate_line_with_ctx(0, &state, &ctx);
+    assert!(ann.is_some());
+    let ann = ann.unwrap();
+    assert!(ann.left_gutter.is_some());
+    assert!(ann.background.is_none());
 }
 
 #[test]
@@ -349,7 +390,8 @@ fn color_preview_no_decoration_without_colors() {
     let state = make_state_with_lines(&["no colors here"]);
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    assert!(plugin.contribute_line(0, &state).is_none());
+    let ctx = default_annotate_ctx();
+    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
 }
 
 #[test]
@@ -359,7 +401,8 @@ fn color_preview_overlay_on_color_line() {
     state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    let overlay = plugin.contribute_overlay(&state);
+    let ctx = default_overlay_ctx();
+    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
     assert!(overlay.is_some());
 }
 
@@ -370,7 +413,8 @@ fn color_preview_no_overlay_on_plain_line() {
     state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
     plugin.on_state_changed(&state, DirtyFlags::BUFFER);
 
-    assert!(plugin.contribute_overlay(&state).is_none());
+    let ctx = default_overlay_ctx();
+    assert!(plugin.contribute_overlay_with_ctx(&state, &ctx).is_none());
 }
 
 #[test]

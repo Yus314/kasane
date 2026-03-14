@@ -10,7 +10,8 @@ use std::collections::HashMap;
 
 use crate::layout::Rect;
 use crate::pane::SplitDirection;
-use crate::surface::SurfaceId;
+use crate::state::DirtyFlags;
+use crate::surface::{SurfaceId, SurfaceRegistry};
 
 /// Position for docking a surface in a well-known area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -358,6 +359,59 @@ pub enum WorkspaceCommand {
     Float { surface_id: SurfaceId, rect: Rect },
     /// Return a floating surface to the tiled layout.
     Unfloat(SurfaceId),
+}
+
+/// Dispatch a workspace command to the SurfaceRegistry.
+///
+/// Shared implementation used by both TUI and GUI event loops.
+pub fn dispatch_workspace_command(
+    surface_registry: &mut SurfaceRegistry,
+    cmd: WorkspaceCommand,
+    dirty: &mut DirtyFlags,
+) {
+    match cmd {
+        WorkspaceCommand::AddSurface {
+            surface_id,
+            placement,
+        } => {
+            let ws = surface_registry.workspace_mut();
+            match placement {
+                Placement::SplitFocused { direction, ratio } => {
+                    let focused = ws.focused();
+                    ws.root_mut().split(focused, direction, ratio, surface_id);
+                }
+                Placement::SplitFrom {
+                    target,
+                    direction,
+                    ratio,
+                } => {
+                    ws.root_mut().split(target, direction, ratio, surface_id);
+                }
+                _ => {} // Tab, Dock, Float — handled in future phases
+            }
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::RemoveSurface(id) => {
+            surface_registry.workspace_mut().close(id);
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::Focus(id) => {
+            surface_registry.workspace_mut().focus(id);
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::FocusDirection(_) => {
+            // Direction-based focus navigation — future phase
+        }
+        WorkspaceCommand::Swap(a, b) => {
+            let _ = (a, b); // Swap — future phase
+            *dirty |= DirtyFlags::ALL;
+        }
+        WorkspaceCommand::Resize { .. }
+        | WorkspaceCommand::Float { .. }
+        | WorkspaceCommand::Unfloat(_) => {
+            // Future phases
+        }
+    }
 }
 
 /// Manages the workspace layout tree and focus state.
