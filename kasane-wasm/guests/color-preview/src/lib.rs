@@ -473,6 +473,73 @@ impl Guest for ColorPreviewPlugin {
         0
     }
 
+    fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
+        STATE.with(|state| {
+            let state = state.borrow();
+            let cl = state.color_lines.get(&(line as usize))?;
+            let swatch = build_swatch(&cl.colors);
+            Some(LineAnnotation {
+                left_gutter: Some(swatch),
+                right_gutter: None,
+                background: None,
+            })
+        })
+    }
+
+    fn annotate_deps() -> u16 {
+        dirty::BUFFER
+    }
+
+    fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {
+        STATE.with(|state| {
+            let state = state.borrow();
+            let line_idx = state.active_line as usize;
+            let cl = state.color_lines.get(&line_idx)?;
+
+            let entries: Vec<FlexEntry> = cl
+                .colors
+                .iter()
+                .enumerate()
+                .map(|(idx, entry)| {
+                    let grid = build_color_grid(entry, idx);
+                    FlexEntry { child: grid, flex: 0.0 }
+                })
+                .collect();
+
+            let inner = element_builder::create_column_flex(&entries, 1);
+
+            let padding = Edges { top: 0, right: 0, bottom: 0, left: 0 };
+            let container = element_builder::create_container(
+                inner,
+                Some(BorderLineStyle::Rounded),
+                false,
+                padding,
+            );
+
+            let cursor_line = host_state::get_cursor_line();
+            let cursor_col = host_state::get_cursor_col();
+
+            // Build avoid list from menu_rect + existing_overlays
+            let mut avoid = ctx.existing_overlays;
+            if let Some(menu_rect) = ctx.menu_rect {
+                avoid.push(menu_rect);
+            }
+
+            Some(OverlayContribution {
+                element: container,
+                anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
+                    coord: Coord {
+                        line: cursor_line,
+                        column: cursor_col,
+                    },
+                    prefer_above: false,
+                    avoid,
+                }),
+                z_index: 0,
+            })
+        })
+    }
+
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_menu_transform!();
     kasane_plugin_sdk::default_replace!();
@@ -481,6 +548,11 @@ impl Guest for ColorPreviewPlugin {
     kasane_plugin_sdk::default_update!();
     kasane_plugin_sdk::default_cursor_style!();
     kasane_plugin_sdk::default_named_slot!();
+    kasane_plugin_sdk::default_contribute_to!();
+    kasane_plugin_sdk::default_transform!();
+    kasane_plugin_sdk::default_transform_priority!();
+    kasane_plugin_sdk::default_contribute_deps!();
+    kasane_plugin_sdk::default_transform_deps!();
 }
 
 export!(ColorPreviewPlugin);

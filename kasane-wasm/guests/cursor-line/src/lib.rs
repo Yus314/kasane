@@ -56,6 +56,36 @@ impl Guest for CursorLinePlugin {
         0
     }
 
+    fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
+        let active = ACTIVE_LINE.get();
+        if line as i32 == active {
+            Some(LineAnnotation {
+                left_gutter: None,
+                right_gutter: None,
+                background: Some(BackgroundLayer {
+                    face: Face {
+                        fg: Color::DefaultColor,
+                        bg: Color::Rgb(RgbColor {
+                            r: 40,
+                            g: 40,
+                            b: 50,
+                        }),
+                        underline: Color::DefaultColor,
+                        attributes: 0,
+                    },
+                    z_order: 0,
+                    blend_opaque: true,
+                }),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn annotate_deps() -> u16 {
+        dirty::BUFFER
+    }
+
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
     kasane_plugin_sdk::default_contribute!();
@@ -68,6 +98,12 @@ impl Guest for CursorLinePlugin {
     kasane_plugin_sdk::default_update!();
     kasane_plugin_sdk::default_cursor_style!();
     kasane_plugin_sdk::default_named_slot!();
+    kasane_plugin_sdk::default_contribute_to!();
+    kasane_plugin_sdk::default_transform!();
+    kasane_plugin_sdk::default_transform_priority!();
+    kasane_plugin_sdk::default_overlay_v2!();
+    kasane_plugin_sdk::default_contribute_deps!();
+    kasane_plugin_sdk::default_transform_deps!();
 }
 
 export!(CursorLinePlugin);

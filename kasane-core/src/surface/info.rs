@@ -32,10 +32,11 @@ impl Surface for InfoSurface {
         SizeHint::fill()
     }
 
+    #[allow(deprecated)]
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
         if let Some(info_state) = ctx.state.infos.get(self.index) {
             use crate::element::OverlayAnchor;
-            use crate::plugin::{DecorateTarget, ReplaceTarget};
+            use crate::plugin::ReplaceTarget;
             use crate::protocol::InfoStyle;
             use crate::render::view::info;
 
@@ -91,11 +92,23 @@ impl Surface for InfoSurface {
                 };
             match info_overlay {
                 Some(mut overlay) => {
-                    overlay.element = ctx.registry.apply_decorator(
-                        DecorateTarget::Info,
-                        overlay.element,
+                    use crate::plugin::TransformTarget;
+                    overlay.element = ctx.registry.apply_transform_chain(
+                        TransformTarget::Info,
+                        || overlay.element.clone(),
                         ctx.state,
                     );
+                    if let Some(tt) = match info_state.style {
+                        InfoStyle::Prompt => Some(TransformTarget::InfoPrompt),
+                        InfoStyle::Modal => Some(TransformTarget::InfoModal),
+                        _ => None,
+                    } {
+                        overlay.element = ctx.registry.apply_transform_chain(
+                            tt,
+                            || overlay.element.clone(),
+                            ctx.state,
+                        );
+                    }
                     overlay.element
                 }
                 None => Element::Empty,

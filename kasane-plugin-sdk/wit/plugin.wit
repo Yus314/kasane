@@ -204,6 +204,77 @@ interface types {
         info-modal,
         status-bar,
     }
+
+    // --- v0.5.0: Contribute / Transform / Annotate types ---
+
+    record contribute-context {
+        available-width: u16,
+        available-height: u16,
+        visible-line-start: u32,
+        visible-line-end: u32,
+        screen-cols: u16,
+        screen-rows: u16,
+    }
+
+    variant contrib-size-hint {
+        auto,
+        fixed-size(u16),
+        flex-ratio(f32),
+    }
+
+    record contribution {
+        element: element-handle,
+        priority: s16,
+        size-hint: contrib-size-hint,
+    }
+
+    enum transform-target {
+        buffer,
+        buffer-line,
+        status-bar-t,
+        menu-t,
+        menu-prompt-t,
+        menu-inline-t,
+        menu-search-t,
+        info-t,
+        info-prompt-t,
+        info-modal-t,
+    }
+
+    record transform-context {
+        is-default: bool,
+        chain-position: u32,
+    }
+
+    record annotate-context {
+        line-width: u16,
+        gutter-width: u16,
+    }
+
+    record background-layer {
+        face: face,
+        z-order: s16,
+        blend-opaque: bool,
+    }
+
+    record line-annotation {
+        left-gutter: option<element-handle>,
+        right-gutter: option<element-handle>,
+        background: option<background-layer>,
+    }
+
+    record overlay-context {
+        screen-cols: u16,
+        screen-rows: u16,
+        menu-rect: option<rect>,
+        existing-overlays: list<rect>,
+    }
+
+    record overlay-contribution {
+        element: element-handle,
+        anchor: overlay-anchor,
+        z-index: s16,
+    }
 }
 
 interface host-state {
@@ -321,7 +392,9 @@ interface element-builder {
 
 interface plugin-api {
     use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
-               atom, decorate-target, replace-target};
+               atom, decorate-target, replace-target,
+               contribute-context, contribution, transform-target, transform-context,
+               annotate-context, line-annotation, overlay-context, overlay-contribution};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -399,6 +472,32 @@ interface plugin-api {
 
     /// Receive a message from another plugin (payload is opaque bytes).
     update: func(payload: list<u8>) -> list<command>;
+
+    // --- v0.5.0: Contribute / Transform / Annotate ---
+
+    /// Contribute an element to a region with layout context.
+    contribute-to: func(region: u8, ctx: contribute-context) -> option<contribution>;
+
+    /// Transform an element for a given target (replaces decorate + replace).
+    transform-element: func(target: transform-target, element: element-handle, ctx: transform-context) -> element-handle;
+
+    /// Priority for transform chain ordering.
+    transform-priority: func() -> s16;
+
+    /// Annotate a buffer line (replaces contribute-line).
+    annotate-line: func(line: u32, ctx: annotate-context) -> option<line-annotation>;
+
+    /// Contribute an overlay with collision-avoidance context.
+    contribute-overlay-v2: func(ctx: overlay-context) -> option<overlay-contribution>;
+
+    /// DirtyFlags dependencies for contribute-to.
+    contribute-deps: func(region: u8) -> u16;
+
+    /// DirtyFlags dependencies for transform on a given target.
+    transform-deps: func(target: transform-target) -> u16;
+
+    /// DirtyFlags dependencies for annotate-line.
+    annotate-deps: func() -> u16;
 }
 
 world kasane-plugin {

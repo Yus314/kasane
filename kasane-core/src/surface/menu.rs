@@ -26,12 +26,13 @@ impl Surface for MenuSurface {
         SizeHint::fill()
     }
 
+    #[allow(deprecated)]
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
         // Delegate to the existing menu rendering pipeline.
         // The actual overlay positioning is handled by the Overlay/OverlayAnchor
         // system in the view layer, not by Surface layout.
         if let Some(menu_state) = ctx.state.menu.as_ref() {
-            use crate::plugin::{DecorateTarget, ReplaceTarget};
+            use crate::plugin::{ReplaceTarget, TransformTarget};
             use crate::protocol::MenuStyle;
             use crate::render::view::menu;
 
@@ -39,6 +40,11 @@ impl Surface for MenuSurface {
                 MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
                 MenuStyle::Inline => ReplaceTarget::MenuInline,
                 MenuStyle::Search => ReplaceTarget::MenuSearch,
+            };
+            let transform_target = match menu_state.style {
+                MenuStyle::Prompt => TransformTarget::MenuPrompt,
+                MenuStyle::Inline => TransformTarget::MenuInline,
+                MenuStyle::Search => TransformTarget::MenuSearch,
             };
             let menu_overlay = match ctx.registry.get_replacement(replace_target, ctx.state) {
                 Some(replacement) => {
@@ -48,9 +54,14 @@ impl Surface for MenuSurface {
             };
             match menu_overlay {
                 Some(mut overlay) => {
-                    overlay.element = ctx.registry.apply_decorator(
-                        DecorateTarget::Menu,
-                        overlay.element,
+                    overlay.element = ctx.registry.apply_transform_chain(
+                        TransformTarget::Menu,
+                        || overlay.element.clone(),
+                        ctx.state,
+                    );
+                    overlay.element = ctx.registry.apply_transform_chain(
+                        transform_target,
+                        || overlay.element.clone(),
                         ctx.state,
                     );
                     overlay.element

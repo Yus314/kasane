@@ -348,6 +348,9 @@ impl PaintPatch for CursorPatch {
 ///
 /// When `plugins_changed` is true, all patches are refused because plugin state
 /// may have affected the region a patch would repaint (e.g. a StatusRight slot update).
+///
+/// C6: When a TRANSFORMER plugin exists for StatusBar, the StatusBarPatch is
+/// bypassed to ensure the transform chain is applied via the full pipeline.
 pub fn try_apply_grid_patch(
     patches: &[&dyn PaintPatch],
     grid: &mut CellGrid,
@@ -360,6 +363,37 @@ pub fn try_apply_grid_patch(
         return false;
     }
     for patch in patches {
+        if patch.can_apply(dirty, state) {
+            patch.apply_grid(grid, state, layout_cache);
+            return true;
+        }
+    }
+    false
+}
+
+/// Like `try_apply_grid_patch` but also checks transform participation (C6).
+///
+/// StatusBarPatch is bypassed when a TRANSFORMER plugin exists, ensuring the
+/// transform chain is applied via the full pipeline.
+pub fn try_apply_grid_patch_with_registry(
+    patches: &[&dyn PaintPatch],
+    grid: &mut CellGrid,
+    state: &AppState,
+    dirty: DirtyFlags,
+    layout_cache: &LayoutCache,
+    plugins_changed: bool,
+    registry: &crate::plugin::PluginRegistry,
+) -> bool {
+    if plugins_changed {
+        return false;
+    }
+    let has_status_transform =
+        registry.has_transform_for(crate::plugin::TransformTarget::StatusBar);
+    for patch in patches {
+        // C6: bypass StatusBarPatch if TRANSFORMER exists for StatusBar
+        if has_status_transform && patch.deps() == DirtyFlags::STATUS {
+            continue;
+        }
         if patch.can_apply(dirty, state) {
             patch.apply_grid(grid, state, layout_cache);
             return true;

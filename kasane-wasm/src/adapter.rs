@@ -6,7 +6,9 @@ use kasane_core::input::{KeyEvent, MouseEvent};
 #[allow(deprecated)]
 use kasane_core::plugin::Slot;
 use kasane_core::plugin::{
-    Command, DecorateTarget, LineDecoration, Plugin, PluginId, ReplaceTarget, SlotId,
+    AnnotateContext, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
+    DecorateTarget, LineAnnotation, LineDecoration, OverlayContext, OverlayContribution, Plugin,
+    PluginId, ReplaceTarget, SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::state::{AppState, DirtyFlags};
@@ -374,6 +376,192 @@ impl Plugin for WasmPlugin {
             self.contribute_named_slot(slot_id.as_str(), state)
         }
     }
+
+    // --- v0.5.0: Contribute / Transform / Annotate ---
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        let slot_index = convert::slot_id_to_index(region);
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_ctx = convert::contribute_context_to_wit(ctx);
+        match plugin_api.call_contribute_to(&mut *store, slot_index, wit_ctx) {
+            Ok(Some(wit_contrib)) => {
+                let element = store.data_mut().take_root_element(wit_contrib.element);
+                Some(Contribution {
+                    element,
+                    priority: wit_contrib.priority,
+                    size_hint: convert::wit_size_hint_to_size_hint(&wit_contrib.size_hint),
+                })
+            }
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!("WASM plugin {}.contribute_to failed: {e}", self.plugin_id.0);
+                None
+            }
+        }
+    }
+
+    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
+        let slot_index = convert::slot_id_to_index(region);
+        let mut store = self.store.borrow_mut();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_contribute_deps(&mut *store, slot_index) {
+            Ok(bits) => DirtyFlags::from_bits_truncate(bits),
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.contribute_deps failed: {e}",
+                    self.plugin_id.0
+                );
+                DirtyFlags::ALL
+            }
+        }
+    }
+
+    fn transform(
+        &self,
+        target: &TransformTarget,
+        element: Element,
+        state: &AppState,
+        ctx: &TransformContext,
+    ) -> Element {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let original_handle = store.data_mut().inject_element(element);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_target = convert::transform_target_to_wit(target);
+        let wit_ctx = convert::transform_context_to_wit(ctx);
+        match plugin_api.call_transform_element(&mut *store, wit_target, original_handle, wit_ctx) {
+            Ok(result_handle) => store.data_mut().take_root_element(result_handle),
+            Err(e) => {
+                tracing::error!("WASM plugin {}.transform failed: {e}", self.plugin_id.0);
+                store.data_mut().take_root_element(original_handle)
+            }
+        }
+    }
+
+    fn transform_priority(&self) -> i16 {
+        let mut store = self.store.borrow_mut();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_transform_priority(&mut *store) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.transform_priority failed: {e}",
+                    self.plugin_id.0
+                );
+                0
+            }
+        }
+    }
+
+    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
+        let mut store = self.store.borrow_mut();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_target = convert::transform_target_to_wit(target);
+        match plugin_api.call_transform_deps(&mut *store, wit_target) {
+            Ok(bits) => DirtyFlags::from_bits_truncate(bits),
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.transform_deps failed: {e}",
+                    self.plugin_id.0
+                );
+                DirtyFlags::ALL
+            }
+        }
+    }
+
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        state: &AppState,
+        ctx: &AnnotateContext,
+    ) -> Option<LineAnnotation> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_ctx = convert::annotate_context_to_wit(ctx);
+        match plugin_api.call_annotate_line(&mut *store, line as u32, wit_ctx) {
+            Ok(Some(wit_ann)) => {
+                let left_gutter = wit_ann
+                    .left_gutter
+                    .map(|h| store.data_mut().take_root_element(h));
+                let right_gutter = wit_ann
+                    .right_gutter
+                    .map(|h| store.data_mut().take_root_element(h));
+                let background = wit_ann.background.as_ref().map(|bg| BackgroundLayer {
+                    face: convert::wit_face_to_face(&bg.face),
+                    z_order: bg.z_order,
+                    blend: BlendMode::Opaque, // blend_opaque reserved for future use
+                });
+                Some(LineAnnotation {
+                    left_gutter,
+                    right_gutter,
+                    background,
+                })
+            }
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!("WASM plugin {}.annotate_line failed: {e}", self.plugin_id.0);
+                None
+            }
+        }
+    }
+
+    fn annotate_deps(&self) -> DirtyFlags {
+        let mut store = self.store.borrow_mut();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        match plugin_api.call_annotate_deps(&mut *store) {
+            Ok(bits) => DirtyFlags::from_bits_truncate(bits),
+            Err(e) => {
+                tracing::error!("WASM plugin {}.annotate_deps failed: {e}", self.plugin_id.0);
+                DirtyFlags::ALL
+            }
+        }
+    }
+
+    fn contribute_overlay_with_ctx(
+        &self,
+        state: &AppState,
+        ctx: &OverlayContext,
+    ) -> Option<OverlayContribution> {
+        let mut store = self.store.borrow_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        store.data_mut().elements.clear();
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_ctx = convert::overlay_context_to_wit(ctx);
+        match plugin_api.call_contribute_overlay_v2(&mut *store, &wit_ctx) {
+            Ok(Some(wit_oc)) => {
+                let element = store.data_mut().take_root_element(wit_oc.element);
+                let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&wit_oc.anchor);
+                Some(OverlayContribution {
+                    element,
+                    anchor,
+                    z_index: wit_oc.z_index,
+                })
+            }
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!(
+                    "WASM plugin {}.contribute_overlay_v2 failed: {e}",
+                    self.plugin_id.0
+                );
+                None
+            }
+        }
+    }
+
+    // Note: capabilities() uses default (excludes CONTRIBUTOR/TRANSFORMER/ANNOTATOR)
+    // WASM plugins that implement new APIs will need capabilities to be detected
+    // from which WIT exports they override vs return defaults.
 
     // --- v0.3.0: Inter-plugin messaging ---
 

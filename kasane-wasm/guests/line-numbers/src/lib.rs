@@ -50,6 +50,44 @@ impl Guest for LineNumbersPlugin {
         })
     }
 
+    fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
+        kasane_plugin_sdk::route_slots!(region, {
+            slot::BUFFER_LEFT => {
+                let total = host_state::get_line_count();
+                if total == 0 {
+                    return None;
+                }
+
+                let width = digit_count(total).max(2) as usize;
+                let mut children = Vec::with_capacity(total as usize);
+                for i in 1..=total {
+                    let num = right_pad(i, width);
+                    let face = Face {
+                        fg: Color::Named(NamedColor::Cyan),
+                        bg: Color::DefaultColor,
+                        underline: Color::DefaultColor,
+                        attributes: 0,
+                    };
+                    let text_handle = element_builder::create_text(&num, face);
+                    children.push(text_handle);
+                }
+
+                let el = element_builder::create_column(&children);
+                Some(Contribution {
+                    element: el,
+                    priority: 0,
+                    size_hint: ContribSizeHint::Auto,
+                })
+            },
+        })
+    }
+
+    fn contribute_deps(region: u8) -> u16 {
+        kasane_plugin_sdk::route_slot_deps!(region, {
+            slot::BUFFER_LEFT => dirty::BUFFER,
+        })
+    }
+
     kasane_plugin_sdk::default_lifecycle!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
@@ -61,6 +99,12 @@ impl Guest for LineNumbersPlugin {
     kasane_plugin_sdk::default_update!();
     kasane_plugin_sdk::default_cursor_style!();
     kasane_plugin_sdk::default_named_slot!();
+    kasane_plugin_sdk::default_transform!();
+    kasane_plugin_sdk::default_transform_priority!();
+    kasane_plugin_sdk::default_annotate!();
+    kasane_plugin_sdk::default_overlay_v2!();
+    kasane_plugin_sdk::default_transform_deps!();
+    kasane_plugin_sdk::default_annotate_deps!();
 }
 
 /// Right-aligned number with trailing space: "  1 ", " 42 "

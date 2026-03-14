@@ -10,8 +10,10 @@ pub use crate::kasane_plugin;
 #[allow(deprecated)]
 pub use crate::plugin::Slot;
 pub use crate::plugin::{
-    Command, DecorateTarget, LineDecoration, PaintHook, Plugin, PluginCapabilities, PluginId,
-    PluginRegistry, ReplaceTarget, SlotId,
+    AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, Command, ContribSizeHint,
+    ContributeContext, Contribution, DecorateTarget, LineAnnotation, LineDecoration,
+    OverlayContext, OverlayContribution, PaintHook, Plugin, PluginCapabilities, PluginId,
+    PluginRegistry, ReplaceTarget, SlotId, TransformContext, TransformTarget,
 };
 
 // Element tree

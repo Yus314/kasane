@@ -20,10 +20,12 @@ struct PluginDef {
     has_handle_key: bool,
     has_handle_mouse: bool,
     has_contribute_line: bool,
+    has_annotate_line: bool,
     has_transform_menu_item: bool,
     slots: Vec<SlotBinding>,
     decorators: Vec<DecoratorBinding>,
     replacements: Vec<ReplacementBinding>,
+    transforms: Vec<TransformBinding>,
 }
 
 enum SlotTarget {
@@ -52,6 +54,12 @@ struct ReplacementBinding {
     fn_name: Ident,
 }
 
+struct TransformBinding {
+    target_path: ExprPath,
+    priority: Option<i16>,
+    fn_name: Ident,
+}
+
 pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
     let module: ItemMod = parse2(input)?;
 
@@ -75,10 +83,12 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
         has_handle_key: false,
         has_handle_mouse: false,
         has_contribute_line: false,
+        has_annotate_line: false,
         has_transform_menu_item: false,
         slots: Vec::new(),
         decorators: Vec::new(),
         replacements: Vec::new(),
+        transforms: Vec::new(),
     };
 
     for item in items {
@@ -104,6 +114,7 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
                     "handle_key" => def.has_handle_key = true,
                     "handle_mouse" => def.has_handle_mouse = true,
                     "contribute_line" => def.has_contribute_line = true,
+                    "annotate_line" => def.has_annotate_line = true,
                     "transform_menu_item" => def.has_transform_menu_item = true,
                     _ => {}
                 }
@@ -128,6 +139,14 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
                 if let Some(target_path) = extract_single_path_attr(&f.attrs, "replace")? {
                     def.replacements.push(ReplacementBinding {
                         target_path,
+                        fn_name: f.sig.ident.clone(),
+                    });
+                }
+                // Check for #[transform(TransformTarget::*, priority = N)]
+                if let Some((target_path, priority)) = extract_transform_attr(&f.attrs)? {
+                    def.transforms.push(TransformBinding {
+                        target_path,
+                        priority: priority.map(|p| p as i16),
                         fn_name: f.sig.ident.clone(),
                     });
                 }
@@ -255,6 +274,47 @@ fn extract_decorate_attr(attrs: &[Attribute]) -> syn::Result<Option<(ExprPath, O
                 return Err(Error::new_spanned(
                     attr,
                     "#[decorate(...)] requires a DecorateTarget path",
+                ));
+            };
+
+            return Ok(Some((target, priority)));
+        }
+    }
+    Ok(None)
+}
+
+/// Extract `#[transform(TransformTarget::StatusBar, priority = 50)]`
+fn extract_transform_attr(attrs: &[Attribute]) -> syn::Result<Option<(ExprPath, Option<u32>)>> {
+    for attr in attrs {
+        if attr.path().is_ident("transform") {
+            let args: syn::punctuated::Punctuated<Expr, syn::Token![,]> =
+                attr.parse_args_with(syn::punctuated::Punctuated::parse_terminated)?;
+
+            let mut target: Option<ExprPath> = None;
+            let mut priority: Option<u32> = None;
+
+            for expr in args {
+                match &expr {
+                    Expr::Path(p) => {
+                        target = Some(p.clone());
+                    }
+                    Expr::Assign(assign) => {
+                        if let Expr::Path(left) = &*assign.left
+                            && left.path.is_ident("priority")
+                            && let Expr::Lit(lit) = &*assign.right
+                            && let Lit::Int(int_lit) = &lit.lit
+                        {
+                            priority = Some(int_lit.base10_parse()?);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let Some(target) = target else {
+                return Err(Error::new_spanned(
+                    attr,
+                    "#[transform(...)] requires a TransformTarget path",
                 ));
             };
 
@@ -701,6 +761,137 @@ fn gen_slot_deps_impl(def: &PluginDef) -> TokenStream {
     }
 }
 
+/// Generates the `Plugin::transform()` and `Plugin::transform_priority()` trait method
+/// implementations for the new Transform API.
+fn gen_transform_impl(def: &PluginDef) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    if def.transforms.is_empty() {
+        return quote! {};
+    }
+
+    let transform_arms: Vec<_> = def
+        .transforms
+        .iter()
+        .map(|tb| {
+            let target_path = &tb.target_path;
+            let fn_name = &tb.fn_name;
+            quote! {
+                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _element, _state),
+            }
+        })
+        .collect();
+
+    let transform_fn = quote! {
+        fn transform(
+            &self,
+            _target: &kasane_core::plugin::TransformTarget,
+            _element: kasane_core::element::Element,
+            _state: &kasane_core::state::AppState,
+            _ctx: &kasane_core::plugin::TransformContext,
+        ) -> kasane_core::element::Element {
+            match _target {
+                #(#transform_arms)*
+                _ => _element,
+            }
+        }
+    };
+
+    // transform_priority() — use the max priority among transforms
+    let max_priority = def
+        .transforms
+        .iter()
+        .filter_map(|t| t.priority)
+        .max()
+        .unwrap_or(0);
+    let priority_fn = if max_priority != 0 {
+        let lit = syn::LitInt::new(&max_priority.to_string(), Span::call_site());
+        quote! {
+            fn transform_priority(&self) -> i16 {
+                #lit
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        #transform_fn
+        #priority_fn
+    }
+}
+
+/// Generates the `Plugin::annotate_line_with_ctx()` implementation.
+///
+/// Detected by function name `annotate_line` in the module.
+fn gen_annotate_line_impl(def: &PluginDef) -> TokenStream {
+    let mod_ident = &def.mod_ident;
+    if def.has_annotate_line {
+        quote! {
+            fn annotate_line_with_ctx(
+                &self,
+                _line: usize,
+                _state: &kasane_core::state::AppState,
+                _ctx: &kasane_core::plugin::AnnotateContext,
+            ) -> Option<kasane_core::plugin::LineAnnotation> {
+                #mod_ident::annotate_line(&self.state, _line, _state, _ctx)
+            }
+        }
+    } else {
+        quote! {}
+    }
+}
+
+/// Generates the `Plugin::capabilities()` method with accurate flags.
+fn gen_capabilities_impl(def: &PluginDef) -> TokenStream {
+    let mut caps = Vec::new();
+
+    if !def.slots.is_empty() {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::SLOT_CONTRIBUTOR });
+        // Also set CONTRIBUTOR since slots map to contribute_to via default
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::CONTRIBUTOR });
+        if def
+            .slots
+            .iter()
+            .any(|s| matches!(s.target, SlotTarget::Named(_)))
+        {
+            caps.push(quote! { kasane_core::plugin::PluginCapabilities::NAMED_SLOT });
+        }
+    }
+    if def.has_contribute_line || def.has_annotate_line {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::LINE_DECORATION });
+    }
+    if def.has_annotate_line {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::ANNOTATOR });
+    }
+    if !def.decorators.is_empty() {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::DECORATOR });
+    }
+    if !def.replacements.is_empty() {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::REPLACEMENT });
+    }
+    if !def.transforms.is_empty() {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::TRANSFORMER });
+    }
+    if def.has_transform_menu_item {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::MENU_TRANSFORM });
+    }
+    if def.has_handle_key || def.has_handle_mouse {
+        caps.push(quote! { kasane_core::plugin::PluginCapabilities::INPUT_HANDLER });
+    }
+
+    // Only generate if we have specific caps (not all)
+    if caps.is_empty() {
+        // No capabilities detected — use default (which excludes new API flags)
+        return quote! {};
+    }
+
+    quote! {
+        fn capabilities(&self) -> kasane_core::plugin::PluginCapabilities {
+            #(#caps)|*
+        }
+    }
+}
+
 fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<TokenStream> {
     let mod_ident = &def.mod_ident;
     let struct_name = format_ident!("{}Plugin", to_pascal_case(&mod_ident.to_string()));
@@ -716,10 +907,13 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
     let contribute_impl = gen_contribute_impl(def, &struct_name);
     let decorate_impl = gen_decorate_impl(def, &struct_name);
     let replace_impl = gen_replace_impl(def, &struct_name);
+    let transform_impl = gen_transform_impl(def);
     let contribute_line_impl = gen_contribute_line_impl(def);
+    let annotate_line_impl = gen_annotate_line_impl(def);
     let transform_menu_item_impl = gen_transform_menu_item_impl(def);
     let state_hash_impl = gen_state_hash_impl(def);
     let slot_deps_impl = gen_slot_deps_impl(def);
+    let capabilities_impl = gen_capabilities_impl(def);
 
     Ok(quote! {
         #cleaned_module
@@ -741,6 +935,7 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
                 kasane_core::plugin::PluginId(#id_str.to_string())
             }
 
+            #capabilities_impl
             #lifecycle_impl
             #input_impl
             #update_impl
@@ -749,7 +944,9 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
             #contribute_impl
             #decorate_impl
             #replace_impl
+            #transform_impl
             #contribute_line_impl
+            #annotate_line_impl
             #transform_menu_item_impl
         }
     })
@@ -782,6 +979,7 @@ const CUSTOM_ATTRS: &[&str] = &[
     "slot",
     "decorate",
     "replace",
+    "transform",
     "keybind",
     "lifecycle",
     "input",

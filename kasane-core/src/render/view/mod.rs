@@ -6,7 +6,10 @@ mod tests;
 
 use crate::element::{Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
-use crate::plugin::{DecorateTarget, PluginRegistry, ReplaceTarget, SlotId};
+use crate::plugin::{
+    AnnotateContext, ContribSizeHint, ContributeContext, Contribution, PluginRegistry,
+    ReplaceTarget, SlotId, TransformTarget,
+};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::render::cache::{ViewCache, cache_dirty_snapshot};
 use crate::state::AppState;
@@ -164,29 +167,41 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
 #[crate::kasane_component(deps(BUFFER, STATUS, OPTIONS))]
 fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_rows = state.available_height() as usize;
+    let ctx = ContributeContext::new(state, None);
 
-    // Collect plugin slots via open SlotId system
-    let above_buffer = registry.collect_slot_by_id(&SlotId::ABOVE_BUFFER, state);
-    let below_buffer = registry.collect_slot_by_id(&SlotId::BELOW_BUFFER, state);
-    let buffer_left = registry.collect_slot_by_id(&SlotId::BUFFER_LEFT, state);
-    let buffer_right = registry.collect_slot_by_id(&SlotId::BUFFER_RIGHT, state);
-    let above_status = registry.collect_slot_by_id(&SlotId::ABOVE_STATUS, state);
-    let status_left = registry.collect_slot_by_id(&SlotId::STATUS_LEFT, state);
-    let status_right = registry.collect_slot_by_id(&SlotId::STATUS_RIGHT, state);
+    // Collect plugin contributions via new API
+    let above_buffer = registry.collect_contributions(&SlotId::ABOVE_BUFFER, state, &ctx);
+    let below_buffer = registry.collect_contributions(&SlotId::BELOW_BUFFER, state, &ctx);
+    let buffer_left = registry.collect_contributions(&SlotId::BUFFER_LEFT, state, &ctx);
+    let buffer_right = registry.collect_contributions(&SlotId::BUFFER_RIGHT, state, &ctx);
+    let above_status = registry.collect_contributions(&SlotId::ABOVE_STATUS, state, &ctx);
+    let status_left = registry.collect_contributions(&SlotId::STATUS_LEFT, state, &ctx);
+    let status_right = registry.collect_contributions(&SlotId::STATUS_RIGHT, state, &ctx);
 
     // Build buffer row (center area + optional sidebars)
-    // Add plugin line-decoration gutters
-    let mut buffer_left = buffer_left;
-    let mut buffer_right = buffer_right;
-    if let Some(gutter) = registry.build_left_gutter(state) {
-        buffer_left.insert(0, gutter);
+    // Add plugin line-annotation gutters
+    let annotate_ctx = AnnotateContext {
+        line_width: state.cols,
+        gutter_width: 0,
+    };
+    let annotations = registry.collect_annotations(state, &annotate_ctx);
+    let mut left_elements: Vec<Element> = Vec::new();
+    let mut right_elements: Vec<Element> = Vec::new();
+    if let Some(gutter) = annotations.left_gutter {
+        left_elements.push(gutter);
     }
-    if let Some(gutter) = registry.build_right_gutter(state) {
-        buffer_right.push(gutter);
+    for c in buffer_left {
+        left_elements.push(c.element);
+    }
+    for c in buffer_right {
+        right_elements.push(c.element);
+    }
+    if let Some(gutter) = annotations.right_gutter {
+        right_elements.push(gutter);
     }
 
     // Collect line backgrounds and build BufferRef
-    let line_backgrounds = registry.collect_line_backgrounds(state);
+    let line_backgrounds = annotations.line_backgrounds;
     let buffer_element = if line_backgrounds.is_some() {
         Element::BufferRef {
             line_range: 0..buffer_rows,
@@ -195,52 +210,57 @@ fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     } else {
         Element::buffer_ref(0..buffer_rows)
     };
-    let buffer_row = if buffer_left.is_empty() && buffer_right.is_empty() {
-        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
-        FlexChild::flexible(decorated, 1.0)
+    let buffer_row = if left_elements.is_empty() && right_elements.is_empty() {
+        let transformed =
+            registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, state);
+        FlexChild::flexible(transformed, 1.0)
     } else {
-        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
+        let transformed =
+            registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, state);
         let mut row_children = Vec::new();
-        for el in buffer_left {
+        for el in left_elements {
             row_children.push(FlexChild::fixed(el));
         }
-        row_children.push(FlexChild::flexible(decorated, 1.0));
-        for el in buffer_right {
+        row_children.push(FlexChild::flexible(transformed, 1.0));
+        for el in right_elements {
             row_children.push(FlexChild::fixed(el));
         }
         FlexChild::flexible(Element::row(row_children), 1.0)
     };
 
-    // Build status bar (with replacement + decorator support)
-    let status_bar = registry
-        .get_replacement(ReplaceTarget::StatusBar, state)
-        .unwrap_or_else(|| build_status_bar(state, status_left, status_right));
-    let status_bar = registry.apply_decorator(DecorateTarget::StatusBar, status_bar, state);
+    // Build status bar (with transform chain — replaces get_replacement + apply_decorator)
+    let status_left_elements: Vec<Element> = status_left.into_iter().map(|c| c.element).collect();
+    let status_right_elements: Vec<Element> = status_right.into_iter().map(|c| c.element).collect();
+    let status_bar = registry.apply_transform_chain(
+        TransformTarget::StatusBar,
+        || build_status_bar(state, status_left_elements, status_right_elements),
+        state,
+    );
 
     // Build main column (status bar position: top or bottom)
     let mut column_children = Vec::new();
     if state.status_at_top {
         column_children.push(FlexChild::fixed(status_bar));
-        for el in above_status {
-            column_children.push(FlexChild::fixed(el));
+        for c in above_status {
+            column_children.push(contribution_to_flex_child(c));
         }
-        for el in above_buffer {
-            column_children.push(FlexChild::fixed(el));
+        for c in above_buffer {
+            column_children.push(contribution_to_flex_child(c));
         }
         column_children.push(buffer_row);
-        for el in below_buffer {
-            column_children.push(FlexChild::fixed(el));
+        for c in below_buffer {
+            column_children.push(contribution_to_flex_child(c));
         }
     } else {
-        for el in above_buffer {
-            column_children.push(FlexChild::fixed(el));
+        for c in above_buffer {
+            column_children.push(contribution_to_flex_child(c));
         }
         column_children.push(buffer_row);
-        for el in below_buffer {
-            column_children.push(FlexChild::fixed(el));
+        for c in below_buffer {
+            column_children.push(contribution_to_flex_child(c));
         }
-        for el in above_status {
-            column_children.push(FlexChild::fixed(el));
+        for c in above_status {
+            column_children.push(contribution_to_flex_child(c));
         }
         column_children.push(FlexChild::fixed(status_bar));
     }
@@ -248,10 +268,32 @@ fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     Element::column(column_children)
 }
 
+/// Convert a Contribution to a FlexChild using its size hint.
+fn contribution_to_flex_child(c: Contribution) -> FlexChild {
+    match c.size_hint {
+        ContribSizeHint::Auto => FlexChild::fixed(c.element),
+        ContribSizeHint::Fixed(n) => FlexChild {
+            element: c.element,
+            flex: 0.0,
+            min_size: Some(n),
+            max_size: Some(n),
+        },
+        ContribSizeHint::Flex(f) => FlexChild::flexible(c.element, f),
+    }
+}
+
 /// Build the menu overlay section.
 #[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION))]
+#[allow(deprecated)]
 fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Overlay> {
     let menu_state = state.menu.as_ref()?;
+    let transform_target = match menu_state.style {
+        MenuStyle::Prompt => TransformTarget::MenuPrompt,
+        MenuStyle::Inline => TransformTarget::MenuInline,
+        MenuStyle::Search => TransformTarget::MenuSearch,
+    };
+
+    // Check for style-specific replacement via old API (backward compat)
     let replace_target = match menu_state.style {
         MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
         MenuStyle::Inline => ReplaceTarget::MenuInline,
@@ -262,13 +304,21 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
         None => menu::build_menu_overlay(menu_state, state, registry),
     };
     menu_overlay.map(|mut overlay| {
-        overlay.element = registry.apply_decorator(DecorateTarget::Menu, overlay.element, state);
+        // Apply transform chain (Menu generic + style-specific)
+        overlay.element = registry.apply_transform_chain(
+            TransformTarget::Menu,
+            || overlay.element.clone(),
+            state,
+        );
+        overlay.element =
+            registry.apply_transform_chain(transform_target, || overlay.element.clone(), state);
         overlay
     })
 }
 
 /// Build info overlay section with collision avoidance.
 #[crate::kasane_component(deps(INFO), allow(cursor_pos))]
+#[allow(deprecated)]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
@@ -306,8 +356,23 @@ fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overla
                     h: *h,
                 });
             }
-            overlay.element =
-                registry.apply_decorator(DecorateTarget::Info, overlay.element, state);
+            // Apply transform chain (Info generic + style-specific)
+            overlay.element = registry.apply_transform_chain(
+                TransformTarget::Info,
+                || overlay.element.clone(),
+                state,
+            );
+            if let Some(transform_target) = match info_state.style {
+                InfoStyle::Prompt => Some(TransformTarget::InfoPrompt),
+                InfoStyle::Modal => Some(TransformTarget::InfoModal),
+                _ => None,
+            } {
+                overlay.element = registry.apply_transform_chain(
+                    transform_target,
+                    || overlay.element.clone(),
+                    state,
+                );
+            }
             overlays.push(overlay);
         }
     }
@@ -349,21 +414,31 @@ fn build_status_bar(
 ///
 /// Used by StatusBarSurface to produce the status bar element tree.
 pub(crate) fn build_status_bar_surface(state: &AppState, registry: &PluginRegistry) -> Element {
-    let above_status = registry.collect_slot_by_id(&SlotId::ABOVE_STATUS, state);
-    let status_left = registry.collect_slot_by_id(&SlotId::STATUS_LEFT, state);
-    let status_right = registry.collect_slot_by_id(&SlotId::STATUS_RIGHT, state);
+    let ctx = ContributeContext::new(state, None);
+    let above_status = registry.collect_contributions(&SlotId::ABOVE_STATUS, state, &ctx);
+    let status_left: Vec<Element> = registry
+        .collect_contributions(&SlotId::STATUS_LEFT, state, &ctx)
+        .into_iter()
+        .map(|c| c.element)
+        .collect();
+    let status_right: Vec<Element> = registry
+        .collect_contributions(&SlotId::STATUS_RIGHT, state, &ctx)
+        .into_iter()
+        .map(|c| c.element)
+        .collect();
 
-    let status_bar = registry
-        .get_replacement(ReplaceTarget::StatusBar, state)
-        .unwrap_or_else(|| build_status_bar(state, status_left, status_right));
-    let status_bar = registry.apply_decorator(DecorateTarget::StatusBar, status_bar, state);
+    let status_bar = registry.apply_transform_chain(
+        TransformTarget::StatusBar,
+        || build_status_bar(state, status_left, status_right),
+        state,
+    );
 
     if above_status.is_empty() {
         status_bar
     } else {
         let mut children = Vec::new();
-        for el in above_status {
-            children.push(FlexChild::fixed(el));
+        for c in above_status {
+            children.push(contribution_to_flex_child(c));
         }
         children.push(FlexChild::fixed(status_bar));
         Element::column(children)
@@ -375,24 +450,36 @@ pub(crate) fn build_status_bar_surface(state: &AppState, registry: &PluginRegist
 /// Used by KakouneBufferSurface to produce the buffer element tree.
 pub(crate) fn build_buffer_content(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_rows = state.available_height() as usize;
+    let ctx = ContributeContext::new(state, None);
 
-    let above_buffer = registry.collect_slot_by_id(&SlotId::ABOVE_BUFFER, state);
-    let below_buffer = registry.collect_slot_by_id(&SlotId::BELOW_BUFFER, state);
-    let buffer_left = registry.collect_slot_by_id(&SlotId::BUFFER_LEFT, state);
-    let buffer_right = registry.collect_slot_by_id(&SlotId::BUFFER_RIGHT, state);
+    let above_buffer = registry.collect_contributions(&SlotId::ABOVE_BUFFER, state, &ctx);
+    let below_buffer = registry.collect_contributions(&SlotId::BELOW_BUFFER, state, &ctx);
+    let buffer_left = registry.collect_contributions(&SlotId::BUFFER_LEFT, state, &ctx);
+    let buffer_right = registry.collect_contributions(&SlotId::BUFFER_RIGHT, state, &ctx);
 
-    // Add plugin line-decoration gutters
-    let mut buffer_left = buffer_left;
-    let mut buffer_right = buffer_right;
-    if let Some(gutter) = registry.build_left_gutter(state) {
-        buffer_left.insert(0, gutter);
+    // Collect line annotations (gutter + backgrounds)
+    let annotate_ctx = AnnotateContext {
+        line_width: state.cols,
+        gutter_width: 0,
+    };
+    let annotations = registry.collect_annotations(state, &annotate_ctx);
+    let mut left_elements: Vec<Element> = Vec::new();
+    let mut right_elements: Vec<Element> = Vec::new();
+    if let Some(gutter) = annotations.left_gutter {
+        left_elements.push(gutter);
     }
-    if let Some(gutter) = registry.build_right_gutter(state) {
-        buffer_right.push(gutter);
+    for c in buffer_left {
+        left_elements.push(c.element);
+    }
+    for c in buffer_right {
+        right_elements.push(c.element);
+    }
+    if let Some(gutter) = annotations.right_gutter {
+        right_elements.push(gutter);
     }
 
     // Collect line backgrounds and build BufferRef
-    let line_backgrounds = registry.collect_line_backgrounds(state);
+    let line_backgrounds = annotations.line_backgrounds;
     let buffer_element = if line_backgrounds.is_some() {
         Element::BufferRef {
             line_range: 0..buffer_rows,
@@ -401,17 +488,19 @@ pub(crate) fn build_buffer_content(state: &AppState, registry: &PluginRegistry) 
     } else {
         Element::buffer_ref(0..buffer_rows)
     };
-    let buffer_row = if buffer_left.is_empty() && buffer_right.is_empty() {
-        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
-        FlexChild::flexible(decorated, 1.0)
+    let buffer_row = if left_elements.is_empty() && right_elements.is_empty() {
+        let transformed =
+            registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, state);
+        FlexChild::flexible(transformed, 1.0)
     } else {
-        let decorated = registry.apply_decorator(DecorateTarget::Buffer, buffer_element, state);
+        let transformed =
+            registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, state);
         let mut row_children = Vec::new();
-        for el in buffer_left {
+        for el in left_elements {
             row_children.push(FlexChild::fixed(el));
         }
-        row_children.push(FlexChild::flexible(decorated, 1.0));
-        for el in buffer_right {
+        row_children.push(FlexChild::flexible(transformed, 1.0));
+        for el in right_elements {
             row_children.push(FlexChild::fixed(el));
         }
         FlexChild::flexible(Element::row(row_children), 1.0)
@@ -419,12 +508,12 @@ pub(crate) fn build_buffer_content(state: &AppState, registry: &PluginRegistry) 
 
     // Build column (above + buffer + below)
     let mut column_children = Vec::new();
-    for el in above_buffer {
-        column_children.push(FlexChild::fixed(el));
+    for c in above_buffer {
+        column_children.push(contribution_to_flex_child(c));
     }
     column_children.push(buffer_row);
-    for el in below_buffer {
-        column_children.push(FlexChild::fixed(el));
+    for c in below_buffer {
+        column_children.push(contribution_to_flex_child(c));
     }
 
     Element::column(column_children)

@@ -7,7 +7,10 @@ use kasane_core::config::MenuPosition;
 use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
-use kasane_core::plugin::{Command, DecorateTarget, PluginId, ReplaceTarget};
+use kasane_core::plugin::{
+    AnnotateContext, Command, ContribSizeHint, ContributeContext, DecorateTarget, OverlayContext,
+    PluginId, ReplaceTarget, SlotId, TransformContext, TransformTarget,
+};
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, InfoStyle, KasaneRequest, MenuStyle, NamedColor,
 };
@@ -338,6 +341,91 @@ pub(crate) fn menu_position_to_string(pos: &MenuPosition) -> String {
         MenuPosition::Auto => "auto".into(),
         MenuPosition::Above => "above".into(),
         MenuPosition::Below => "below".into(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v0.5.0: Contribute / Transform / Annotate conversions
+// ---------------------------------------------------------------------------
+
+#[allow(deprecated)]
+pub(crate) fn slot_id_to_index(slot_id: &SlotId) -> u8 {
+    if let Some(legacy) = slot_id.to_legacy() {
+        legacy.index() as u8
+    } else {
+        // Custom slots don't have a numeric index; use 255 as sentinel
+        255
+    }
+}
+
+pub(crate) fn contribute_context_to_wit(ctx: &ContributeContext) -> wit::ContributeContext {
+    wit::ContributeContext {
+        available_width: ctx.available_width,
+        available_height: ctx.available_height,
+        visible_line_start: ctx.visible_lines.start as u32,
+        visible_line_end: ctx.visible_lines.end as u32,
+        screen_cols: ctx.screen_cols,
+        screen_rows: ctx.screen_rows,
+    }
+}
+
+pub(crate) fn wit_size_hint_to_size_hint(wsh: &wit::ContribSizeHint) -> ContribSizeHint {
+    match wsh {
+        wit::ContribSizeHint::Auto => ContribSizeHint::Auto,
+        wit::ContribSizeHint::FixedSize(n) => ContribSizeHint::Fixed(*n),
+        wit::ContribSizeHint::FlexRatio(f) => ContribSizeHint::Flex(*f),
+    }
+}
+
+pub(crate) fn transform_target_to_wit(target: &TransformTarget) -> wit::TransformTarget {
+    match target {
+        TransformTarget::Buffer => wit::TransformTarget::Buffer,
+        TransformTarget::BufferLine(_) => wit::TransformTarget::BufferLine,
+        TransformTarget::StatusBar => wit::TransformTarget::StatusBarT,
+        TransformTarget::Menu => wit::TransformTarget::MenuT,
+        TransformTarget::MenuPrompt => wit::TransformTarget::MenuPromptT,
+        TransformTarget::MenuInline => wit::TransformTarget::MenuInlineT,
+        TransformTarget::MenuSearch => wit::TransformTarget::MenuSearchT,
+        TransformTarget::Info => wit::TransformTarget::InfoT,
+        TransformTarget::InfoPrompt => wit::TransformTarget::InfoPromptT,
+        TransformTarget::InfoModal => wit::TransformTarget::InfoModalT,
+    }
+}
+
+pub(crate) fn transform_context_to_wit(ctx: &TransformContext) -> wit::TransformContext {
+    wit::TransformContext {
+        is_default: ctx.is_default,
+        chain_position: ctx.chain_position as u32,
+    }
+}
+
+pub(crate) fn annotate_context_to_wit(ctx: &AnnotateContext) -> wit::AnnotateContext {
+    wit::AnnotateContext {
+        line_width: ctx.line_width,
+        gutter_width: ctx.gutter_width,
+    }
+}
+
+pub(crate) fn overlay_context_to_wit(ctx: &OverlayContext) -> wit::OverlayContext {
+    wit::OverlayContext {
+        screen_cols: ctx.screen_cols,
+        screen_rows: ctx.screen_rows,
+        menu_rect: ctx.menu_rect.map(|r| wit::Rect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+        }),
+        existing_overlays: ctx
+            .existing_overlays
+            .iter()
+            .map(|r| wit::Rect {
+                x: r.x,
+                y: r.y,
+                w: r.w,
+                h: r.h,
+            })
+            .collect(),
     }
 }
 

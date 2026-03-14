@@ -56,6 +56,37 @@ impl Guest for SelBadgePlugin {
         })
     }
 
+    fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
+        kasane_plugin_sdk::route_slots!(region, {
+            slot::STATUS_RIGHT => {
+                let count = CURSOR_COUNT.get();
+                if count > 1 {
+                    let text = format!(" {} sel ", count);
+                    let face = Face {
+                        fg: Color::DefaultColor,
+                        bg: Color::DefaultColor,
+                        underline: Color::DefaultColor,
+                        attributes: 0,
+                    };
+                    let el = element_builder::create_text(&text, face);
+                    Some(Contribution {
+                        element: el,
+                        priority: 0,
+                        size_hint: ContribSizeHint::Auto,
+                    })
+                } else {
+                    None
+                }
+            },
+        })
+    }
+
+    fn contribute_deps(region: u8) -> u16 {
+        kasane_plugin_sdk::route_slot_deps!(region, {
+            slot::STATUS_RIGHT => dirty::BUFFER,
+        })
+    }
+
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
     kasane_plugin_sdk::default_line!();
@@ -68,6 +99,13 @@ impl Guest for SelBadgePlugin {
     kasane_plugin_sdk::default_update!();
     kasane_plugin_sdk::default_cursor_style!();
     kasane_plugin_sdk::default_named_slot!();
+    // contribute_to already implemented above with route_slots! fallback
+    kasane_plugin_sdk::default_transform!();
+    kasane_plugin_sdk::default_transform_priority!();
+    kasane_plugin_sdk::default_annotate!();
+    kasane_plugin_sdk::default_overlay_v2!();
+    kasane_plugin_sdk::default_transform_deps!();
+    kasane_plugin_sdk::default_annotate_deps!();
 }
 
 export!(SelBadgePlugin);

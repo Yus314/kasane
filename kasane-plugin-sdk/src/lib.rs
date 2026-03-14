@@ -284,6 +284,90 @@ macro_rules! default_update {
     };
 }
 
+/// Default contribute-to stub (returns None for all regions).
+#[macro_export]
+macro_rules! default_contribute_to {
+    () => {
+        fn contribute_to(_region: u8, _ctx: ContributeContext) -> Option<Contribution> {
+            None
+        }
+    };
+}
+
+/// Default transform-element stub (passes through element unchanged).
+#[macro_export]
+macro_rules! default_transform {
+    () => {
+        fn transform_element(
+            _target: TransformTarget,
+            element: ElementHandle,
+            _ctx: TransformContext,
+        ) -> ElementHandle {
+            element
+        }
+    };
+}
+
+/// Default transform-priority stub (returns 0).
+#[macro_export]
+macro_rules! default_transform_priority {
+    () => {
+        fn transform_priority() -> i16 {
+            0
+        }
+    };
+}
+
+/// Default annotate-line stub (returns None).
+#[macro_export]
+macro_rules! default_annotate {
+    () => {
+        fn annotate_line(_line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
+            None
+        }
+    };
+}
+
+/// Default contribute-overlay-v2 stub (returns None).
+#[macro_export]
+macro_rules! default_overlay_v2 {
+    () => {
+        fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
+            None
+        }
+    };
+}
+
+/// Default contribute-deps stub (returns 0).
+#[macro_export]
+macro_rules! default_contribute_deps {
+    () => {
+        fn contribute_deps(_region: u8) -> u16 {
+            0
+        }
+    };
+}
+
+/// Default transform-deps stub (returns ALL).
+#[macro_export]
+macro_rules! default_transform_deps {
+    () => {
+        fn transform_deps(_target: TransformTarget) -> u16 {
+            $crate::dirty::ALL
+        }
+    };
+}
+
+/// Default annotate-deps stub (returns ALL).
+#[macro_export]
+macro_rules! default_annotate_deps {
+    () => {
+        fn annotate_deps() -> u16 {
+            $crate::dirty::ALL
+        }
+    };
+}
+
 /// Route slot-based dispatch. Returns `None` for unmatched slots.
 ///
 /// # Example

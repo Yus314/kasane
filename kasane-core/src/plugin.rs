@@ -2,6 +2,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
+use std::ops::Range;
 use std::time::Duration;
 
 use bitflags::bitflags;
@@ -9,7 +10,7 @@ use compact_str::CompactString;
 
 use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor};
 use crate::input::{KeyEvent, MouseEvent};
-use crate::layout::HitMap;
+use crate::layout::{HitMap, Rect};
 use crate::pane::{PaneCommand, PaneId, PanePermissions};
 use crate::protocol::{Face, KasaneRequest};
 use crate::state::{AppState, DirtyFlags};
@@ -34,6 +35,9 @@ bitflags! {
         const SURFACE_PROVIDER    = 1 << 11;
         const WORKSPACE_OBSERVER  = 1 << 12;
         const PAINT_HOOK         = 1 << 13;
+        const CONTRIBUTOR        = 1 << 14;
+        const TRANSFORMER        = 1 << 15;
+        const ANNOTATOR          = 1 << 16;
     }
 }
 
@@ -169,6 +173,130 @@ pub struct LineDecoration {
     pub left_gutter: Option<Element>,
     pub right_gutter: Option<Element>,
     pub background: Option<Face>,
+}
+
+// ===========================================================================
+// New plugin API types: Contribute / Transform / Annotate
+// ===========================================================================
+
+/// Layout constraints passed to plugins during contribution.
+#[derive(Debug, Clone)]
+pub struct ContributeContext {
+    pub available_width: u16,
+    pub available_height: u16,
+    pub visible_lines: Range<usize>,
+    pub screen_cols: u16,
+    pub screen_rows: u16,
+}
+
+impl ContributeContext {
+    /// Build from AppState and an optional surface rect.
+    pub fn new(state: &AppState, rect: Option<&Rect>) -> Self {
+        let (w, h) = if let Some(r) = rect {
+            (r.w, r.h)
+        } else {
+            (state.cols, state.available_height())
+        };
+        ContributeContext {
+            available_width: w,
+            available_height: h,
+            visible_lines: state.visible_line_range(),
+            screen_cols: state.cols,
+            screen_rows: state.rows,
+        }
+    }
+}
+
+/// Result of a plugin's `contribute_to()` call.
+#[derive(Debug, Clone)]
+pub struct Contribution {
+    pub element: Element,
+    pub priority: i16,
+    pub size_hint: ContribSizeHint,
+}
+
+/// Size hint for a contribution within a slot.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ContribSizeHint {
+    Auto,
+    Fixed(u16),
+    Flex(f32),
+}
+
+/// Transform target — unifies Decorator + Replacement targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransformTarget {
+    Buffer,
+    BufferLine(usize),
+    StatusBar,
+    Menu,
+    MenuPrompt,
+    MenuInline,
+    MenuSearch,
+    Info,
+    InfoPrompt,
+    InfoModal,
+}
+
+/// Context passed to `transform()`.
+#[derive(Debug, Clone)]
+pub struct TransformContext {
+    pub is_default: bool,
+    pub chain_position: usize,
+}
+
+/// Context for `annotate_line_with_ctx()`.
+#[derive(Debug, Clone)]
+pub struct AnnotateContext {
+    pub line_width: u16,
+    pub gutter_width: u16,
+}
+
+/// A background layer with z-ordering and blend mode.
+#[derive(Debug, Clone)]
+pub struct BackgroundLayer {
+    pub face: Face,
+    pub z_order: i16,
+    pub blend: BlendMode,
+}
+
+/// How a background layer is composited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlendMode {
+    Opaque,
+}
+
+/// New line annotation with `BackgroundLayer` support.
+#[derive(Debug, Clone)]
+pub struct LineAnnotation {
+    pub left_gutter: Option<Element>,
+    pub right_gutter: Option<Element>,
+    pub background: Option<BackgroundLayer>,
+}
+
+/// Context for overlay contributions with collision avoidance.
+#[derive(Debug, Clone)]
+pub struct OverlayContext {
+    pub screen_cols: u16,
+    pub screen_rows: u16,
+    pub menu_rect: Option<Rect>,
+    pub existing_overlays: Vec<Rect>,
+}
+
+/// Overlay contribution with z-index.
+#[derive(Debug, Clone)]
+pub struct OverlayContribution {
+    pub element: Element,
+    pub anchor: OverlayAnchor,
+    pub z_index: i16,
+}
+
+/// Aggregated annotation result from all plugins.
+#[derive(Debug, Clone)]
+pub struct AnnotationResult {
+    pub left_gutter: Option<Element>,
+    pub right_gutter: Option<Element>,
+    pub line_backgrounds: Option<Vec<Option<Face>>>,
 }
 
 /// A post-paint hook that can modify the CellGrid after the standard paint pass.
@@ -401,18 +529,22 @@ pub trait Plugin: Any {
         None
     }
 
+    #[deprecated(since = "0.5.0", note = "Use contribute_overlay_with_ctx() instead")]
     fn contribute_overlay(&self, _state: &AppState) -> Option<Overlay> {
         None
     }
 
+    #[deprecated(since = "0.5.0", note = "Use transform() instead")]
     fn decorate(&self, _target: DecorateTarget, element: Element, _state: &AppState) -> Element {
         element
     }
 
+    #[deprecated(since = "0.5.0", note = "Use transform() instead")]
     fn replace(&self, _target: ReplaceTarget, _state: &AppState) -> Option<Element> {
         None
     }
 
+    #[deprecated(since = "0.5.0", note = "Use transform_priority() instead")]
     fn decorator_priority(&self) -> u32 {
         0
     }
@@ -420,6 +552,7 @@ pub trait Plugin: Any {
     // --- Line decoration ---
 
     /// Contribute decoration for a specific buffer line.
+    #[deprecated(since = "0.5.0", note = "Use annotate_line_with_ctx() instead")]
     fn contribute_line(&self, _line: usize, _state: &AppState) -> Option<LineDecoration> {
         None
     }
@@ -445,6 +578,7 @@ pub trait Plugin: Any {
     ///
     /// Default implementation delegates to `contribute()` for well-known slots
     /// and `contribute_named_slot()` for custom slots.
+    #[deprecated(since = "0.5.0", note = "Use contribute_to() instead")]
     #[allow(deprecated)]
     fn contribute_slot(&self, slot_id: &SlotId, state: &AppState) -> Option<Element> {
         if let Some(legacy) = slot_id.to_legacy() {
@@ -458,6 +592,7 @@ pub trait Plugin: Any {
     ///
     /// Default implementation delegates to `slot_deps()` for well-known slots
     /// and returns `DirtyFlags::ALL` for custom slots.
+    #[deprecated(since = "0.5.0", note = "Use contribute_deps() instead")]
     #[allow(deprecated)]
     fn slot_id_deps(&self, slot_id: &SlotId) -> DirtyFlags {
         slot_id
@@ -481,9 +616,14 @@ pub trait Plugin: Any {
 
     /// Declare which capabilities this plugin supports.
     /// Used by PluginRegistry to skip calls to non-participating plugins.
-    /// Default: ALL (conservative; every method will be called).
+    /// Default: all legacy capabilities. New API flags (CONTRIBUTOR, TRANSFORMER,
+    /// ANNOTATOR) are opt-in and must be explicitly set by plugins that implement
+    /// the new Contribute/Transform/Annotate API.
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::all()
+            .difference(PluginCapabilities::CONTRIBUTOR)
+            .difference(PluginCapabilities::TRANSFORMER)
+            .difference(PluginCapabilities::ANNOTATOR)
     }
 
     /// DirtyFlags dependencies for contribute_overlay() (L3 overlay caching).
@@ -543,6 +683,105 @@ pub trait Plugin: Any {
     fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
         vec![]
     }
+
+    // === NEW: Contribute (replaces contribute_slot) ===
+
+    /// Contribute an element to a region with layout context and priority.
+    ///
+    /// Default: falls back to `contribute_slot()` with priority=0 and Auto sizing.
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        #[allow(deprecated)]
+        self.contribute_slot(region, state).map(|el| Contribution {
+            element: el,
+            priority: 0,
+            size_hint: ContribSizeHint::Auto,
+        })
+    }
+
+    /// DirtyFlags dependencies for `contribute_to()`.
+    ///
+    /// Default: delegates to `slot_id_deps()`.
+    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
+        #[allow(deprecated)]
+        self.slot_id_deps(region)
+    }
+
+    // === NEW: Transform (replaces decorate + replace) ===
+
+    /// Transform an element for the given target. The element may be the default
+    /// or a result from a previous plugin in the chain.
+    ///
+    /// Default: pass through unchanged.
+    fn transform(
+        &self,
+        _target: &TransformTarget,
+        element: Element,
+        _state: &AppState,
+        _ctx: &TransformContext,
+    ) -> Element {
+        element
+    }
+
+    /// Priority for transform chain ordering (higher = applied earlier / inner).
+    fn transform_priority(&self) -> i16 {
+        0
+    }
+
+    /// DirtyFlags dependencies for `transform()` on a given target.
+    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
+
+    // === NEW: Annotate (replaces contribute_line) ===
+
+    /// Annotate a buffer line with gutter elements and/or background layer.
+    ///
+    /// Default: falls back to `contribute_line()`.
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        state: &AppState,
+        _ctx: &AnnotateContext,
+    ) -> Option<LineAnnotation> {
+        #[allow(deprecated)]
+        self.contribute_line(line, state).map(|dec| LineAnnotation {
+            left_gutter: dec.left_gutter,
+            right_gutter: dec.right_gutter,
+            background: dec.background.map(|face| BackgroundLayer {
+                face,
+                z_order: 0,
+                blend: BlendMode::Opaque,
+            }),
+        })
+    }
+
+    /// DirtyFlags dependencies for `annotate_line_with_ctx()`.
+    fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
+
+    // === NEW: Overlay with context ===
+
+    /// Contribute an overlay with collision-avoidance context.
+    ///
+    /// Default: falls back to `contribute_overlay()`.
+    fn contribute_overlay_with_ctx(
+        &self,
+        state: &AppState,
+        _ctx: &OverlayContext,
+    ) -> Option<OverlayContribution> {
+        #[allow(deprecated)]
+        self.contribute_overlay(state).map(|o| OverlayContribution {
+            element: o.element,
+            anchor: o.anchor,
+            z_index: 0,
+        })
+    }
 }
 
 /// Cached result for a single plugin's slot contributions.
@@ -557,6 +796,8 @@ struct PluginCacheEntry {
     /// Cache for custom (non-well-known) SlotId contributions.
     /// Key present = cached; value = the contribute_slot() result.
     custom_slots: HashMap<SlotId, Option<Element>>,
+    /// Cached contribute_to() results (new API).
+    contributions: HashMap<SlotId, Option<Contribution>>,
 }
 
 struct PluginSlotCache {
@@ -648,6 +889,7 @@ impl PluginRegistry {
                 }
                 entry.overlay = None;
                 entry.custom_slots.clear();
+                entry.contributions.clear();
                 self.any_plugin_state_changed = true;
                 continue; // all slots already invalidated
             }
@@ -671,6 +913,12 @@ impl PluginRegistry {
             if dirty.intersects(overlay_deps) {
                 entry.overlay = None;
             }
+
+            // L3: contribution cache (new API) dirty flag intersection
+            entry.contributions.retain(|region, _| {
+                let deps = plugin.contribute_deps(region);
+                !dirty.intersects(deps)
+            });
         }
     }
 
@@ -751,6 +999,7 @@ impl PluginRegistry {
     /// For well-known slots, delegates to the existing `collect_slot()` with its
     /// high-performance array-based cache. For custom slots, uses a HashMap-based
     /// cache with the same L1+L3 invalidation strategy.
+    #[deprecated(since = "0.5.0", note = "Use collect_contributions() instead")]
     #[allow(deprecated)]
     pub fn collect_slot_by_id(&self, slot_id: &SlotId, state: &AppState) -> Vec<Element> {
         // Fast path: well-known slots use the existing array cache
@@ -853,6 +1102,8 @@ impl PluginRegistry {
     }
 
     /// Apply decorators in priority order (high priority = inner = applied first).
+    #[deprecated(since = "0.5.0", note = "Use apply_transform_chain() instead")]
+    #[allow(deprecated)]
     pub fn apply_decorator(
         &self,
         target: DecorateTarget,
@@ -873,6 +1124,8 @@ impl PluginRegistry {
     }
 
     /// Get a replacement element. Last registered plugin wins.
+    #[deprecated(since = "0.5.0", note = "Use apply_transform_chain() instead")]
+    #[allow(deprecated)]
     pub fn get_replacement(&self, target: ReplaceTarget, state: &AppState) -> Option<Element> {
         self.plugins
             .iter()
@@ -888,6 +1141,8 @@ impl PluginRegistry {
     /// Returns None when no plugin provides gutter content (zero overhead).
     /// When multiple plugins contribute to the same line, elements are composed
     /// horizontally via `Element::row()`.
+    #[deprecated(since = "0.5.0", note = "Use collect_annotations() instead")]
+    #[allow(deprecated)]
     pub fn build_left_gutter(&self, state: &AppState) -> Option<Element> {
         if !self.has_capability(PluginCapabilities::LINE_DECORATION) {
             return None;
@@ -926,6 +1181,8 @@ impl PluginRegistry {
     /// Returns None when no plugin provides gutter content (zero overhead).
     /// When multiple plugins contribute to the same line, elements are composed
     /// horizontally via `Element::row()`.
+    #[deprecated(since = "0.5.0", note = "Use collect_annotations() instead")]
+    #[allow(deprecated)]
     pub fn build_right_gutter(&self, state: &AppState) -> Option<Element> {
         if !self.has_capability(PluginCapabilities::LINE_DECORATION) {
             return None;
@@ -962,6 +1219,8 @@ impl PluginRegistry {
 
     /// Collect background overrides from all plugins for visible lines.
     /// Returns None when no plugin provides any background (zero overhead).
+    #[deprecated(since = "0.5.0", note = "Use collect_annotations() instead")]
+    #[allow(deprecated)]
     pub fn collect_line_backgrounds(&self, state: &AppState) -> Option<Vec<Option<Face>>> {
         if !self.has_capability(PluginCapabilities::LINE_DECORATION) {
             return None;
@@ -1037,6 +1296,280 @@ impl PluginRegistry {
             }
         }
         elements
+    }
+
+    // ===========================================================================
+    // New dispatch API: Contribute / Transform / Annotate
+    // ===========================================================================
+
+    /// Collect contributions from all plugins for a given region, sorted by priority.
+    #[allow(deprecated)]
+    pub fn collect_contributions(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        ctx: &ContributeContext,
+    ) -> Vec<Contribution> {
+        let mut cache = self.slot_cache.borrow_mut();
+        let mut contributions: Vec<Contribution> = self
+            .plugins
+            .iter()
+            .enumerate()
+            .filter_map(|(i, plugin)| {
+                let caps = self.capabilities[i];
+                // New API: CONTRIBUTOR capability → contribute_to()
+                if caps.contains(PluginCapabilities::CONTRIBUTOR) {
+                    // Check contribution cache
+                    if let Some(entry) = cache.entries.get(i)
+                        && let Some(cached) = entry.contributions.get(region)
+                    {
+                        return cached.clone();
+                    }
+                    let result = plugin.contribute_to(region, state, ctx);
+                    while cache.entries.len() <= i {
+                        cache.entries.push(PluginCacheEntry::default());
+                    }
+                    cache.entries[i]
+                        .contributions
+                        .insert(region.clone(), result.clone());
+                    return result;
+                }
+                // Fallback: old SLOT_CONTRIBUTOR / NAMED_SLOT → contribute_slot()
+                if caps.intersects(
+                    PluginCapabilities::SLOT_CONTRIBUTOR | PluginCapabilities::NAMED_SLOT,
+                ) {
+                    return plugin
+                        .contribute_slot(region, state)
+                        .map(|el| Contribution {
+                            element: el,
+                            priority: 0,
+                            size_hint: ContribSizeHint::Auto,
+                        });
+                }
+                None
+            })
+            .collect();
+        contributions.sort_by_key(|c| c.priority);
+        contributions
+    }
+
+    /// Apply the transform chain for a given target.
+    ///
+    /// Plugins with TRANSFORMER capability use `transform()` (new API).
+    /// Plugins without TRANSFORMER fall back to `replace()` / `decorate()` (old API).
+    /// No plugin is called via both old and new API (C3 — no double dispatch).
+    ///
+    /// `default_element_fn` is called lazily — only if no replacement fully takes over (C7).
+    #[allow(deprecated)]
+    pub fn apply_transform_chain(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        state: &AppState,
+    ) -> Element {
+        // Map TransformTarget to legacy targets
+        let legacy_replace = match target {
+            TransformTarget::StatusBar => Some(ReplaceTarget::StatusBar),
+            TransformTarget::MenuPrompt => Some(ReplaceTarget::MenuPrompt),
+            TransformTarget::MenuInline => Some(ReplaceTarget::MenuInline),
+            TransformTarget::MenuSearch => Some(ReplaceTarget::MenuSearch),
+            TransformTarget::InfoPrompt => Some(ReplaceTarget::InfoPrompt),
+            TransformTarget::InfoModal => Some(ReplaceTarget::InfoModal),
+            _ => None,
+        };
+        let legacy_decorate = match target {
+            TransformTarget::Buffer => Some(DecorateTarget::Buffer),
+            TransformTarget::BufferLine(n) => Some(DecorateTarget::BufferLine(n)),
+            TransformTarget::StatusBar => Some(DecorateTarget::StatusBar),
+            TransformTarget::Menu
+            | TransformTarget::MenuPrompt
+            | TransformTarget::MenuInline
+            | TransformTarget::MenuSearch => Some(DecorateTarget::Menu),
+            TransformTarget::Info | TransformTarget::InfoPrompt | TransformTarget::InfoModal => {
+                Some(DecorateTarget::Info)
+            }
+        };
+
+        // Phase 1: Check for full replacement (new TRANSFORMER or old REPLACEMENT)
+        let mut replaced = None;
+        for (i, plugin) in self.plugins.iter().enumerate().rev() {
+            let caps = self.capabilities[i];
+            if caps.contains(PluginCapabilities::TRANSFORMER) {
+                // New API: call transform with a sentinel to detect full replacement.
+                // We do this by checking if the plugin replaces the default.
+                // For simplicity, we handle this in Phase 3 below (chain application).
+                continue;
+            }
+            if caps.contains(PluginCapabilities::REPLACEMENT)
+                && let Some(rt) = legacy_replace
+                && let Some(el) = plugin.replace(rt, state)
+            {
+                replaced = Some(el);
+                break;
+            }
+        }
+
+        // Phase 2: Build default if needed
+        let is_default = replaced.is_none();
+        let mut element = replaced.unwrap_or_else(default_element_fn);
+
+        // Phase 3: Apply transforms/decorators in priority order
+        // Collect (index, priority, is_new_api) tuples
+        let mut chain: Vec<(usize, i16, bool)> = Vec::new();
+        for (i, _plugin) in self.plugins.iter().enumerate() {
+            let caps = self.capabilities[i];
+            if caps.contains(PluginCapabilities::TRANSFORMER) {
+                let prio = self.plugins[i].transform_priority();
+                chain.push((i, prio, true));
+            } else if caps.contains(PluginCapabilities::DECORATOR) {
+                let prio = self.plugins[i].decorator_priority() as i16;
+                chain.push((i, prio, false));
+            }
+        }
+        // Sort by priority descending (high = inner = applied first)
+        chain.sort_by_key(|&(_, prio, _)| std::cmp::Reverse(prio));
+
+        for (pos, &(i, _, is_new)) in chain.iter().enumerate() {
+            if is_new {
+                let ctx = TransformContext {
+                    is_default,
+                    chain_position: pos,
+                };
+                element = self.plugins[i].transform(&target, element, state, &ctx);
+            } else if let Some(dt) = legacy_decorate {
+                element = self.plugins[i].decorate(dt, element, state);
+            }
+        }
+
+        element
+    }
+
+    /// Collect annotations from all annotating plugins for visible lines.
+    #[allow(deprecated)]
+    pub fn collect_annotations(&self, state: &AppState, ctx: &AnnotateContext) -> AnnotationResult {
+        let has_annotators = self.capabilities.iter().any(|c| {
+            c.intersects(PluginCapabilities::ANNOTATOR | PluginCapabilities::LINE_DECORATION)
+        });
+        if !has_annotators {
+            return AnnotationResult {
+                left_gutter: None,
+                right_gutter: None,
+                line_backgrounds: None,
+            };
+        }
+
+        let line_count = state.visible_line_range().len();
+        let mut has_left = false;
+        let mut has_right = false;
+        let mut has_bg = false;
+
+        let mut left_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
+        let mut right_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
+        let mut backgrounds: Vec<Option<Face>> = vec![None; line_count];
+
+        for (line, bg_slot) in backgrounds.iter_mut().enumerate().take(line_count) {
+            let mut left_parts: Vec<Element> = Vec::new();
+            let mut right_parts: Vec<Element> = Vec::new();
+            let mut bg_layers: Vec<BackgroundLayer> = Vec::new();
+
+            for (i, plugin) in self.plugins.iter().enumerate() {
+                let caps = self.capabilities[i];
+                if caps.contains(PluginCapabilities::ANNOTATOR) {
+                    if let Some(ann) = plugin.annotate_line_with_ctx(line, state, ctx) {
+                        if let Some(el) = ann.left_gutter {
+                            left_parts.push(el);
+                            has_left = true;
+                        }
+                        if let Some(el) = ann.right_gutter {
+                            right_parts.push(el);
+                            has_right = true;
+                        }
+                        if let Some(bg) = ann.background {
+                            bg_layers.push(bg);
+                        }
+                    }
+                } else if caps.contains(PluginCapabilities::LINE_DECORATION)
+                    && let Some(dec) = plugin.contribute_line(line, state)
+                {
+                    if let Some(el) = dec.left_gutter {
+                        left_parts.push(el);
+                        has_left = true;
+                    }
+                    if let Some(el) = dec.right_gutter {
+                        right_parts.push(el);
+                        has_right = true;
+                    }
+                    if let Some(bg) = dec.background {
+                        bg_layers.push(BackgroundLayer {
+                            face: bg,
+                            z_order: 0,
+                            blend: BlendMode::Opaque,
+                        });
+                    }
+                }
+            }
+
+            let left_cell = match left_parts.len() {
+                0 => Element::text(" ", Face::default()),
+                1 => left_parts.pop().unwrap(),
+                _ => Element::row(left_parts.into_iter().map(FlexChild::fixed).collect()),
+            };
+            left_rows.push(FlexChild::fixed(left_cell));
+
+            let right_cell = match right_parts.len() {
+                0 => Element::text(" ", Face::default()),
+                1 => right_parts.pop().unwrap(),
+                _ => Element::row(right_parts.into_iter().map(FlexChild::fixed).collect()),
+            };
+            right_rows.push(FlexChild::fixed(right_cell));
+
+            if !bg_layers.is_empty() {
+                bg_layers.sort_by_key(|l| l.z_order);
+                *bg_slot = Some(bg_layers.last().unwrap().face);
+                has_bg = true;
+            }
+        }
+
+        AnnotationResult {
+            left_gutter: if has_left {
+                Some(Element::column(left_rows))
+            } else {
+                None
+            },
+            right_gutter: if has_right {
+                Some(Element::column(right_rows))
+            } else {
+                None
+            },
+            line_backgrounds: if has_bg { Some(backgrounds) } else { None },
+        }
+    }
+
+    /// Collect overlay contributions with collision-avoidance context.
+    pub fn collect_overlays_with_ctx(
+        &self,
+        state: &AppState,
+        ctx: &OverlayContext,
+    ) -> Vec<OverlayContribution> {
+        let mut contributions = Vec::new();
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            let caps = self.capabilities[i];
+            if (caps.contains(PluginCapabilities::CONTRIBUTOR)
+                || caps.contains(PluginCapabilities::OVERLAY))
+                && let Some(oc) = plugin.contribute_overlay_with_ctx(state, ctx)
+            {
+                contributions.push(oc);
+            }
+        }
+        contributions.sort_by_key(|c| c.z_index);
+        contributions
+    }
+
+    /// Check if any plugin has TRANSFORMER capability for a given target.
+    pub fn has_transform_for(&self, _target: TransformTarget) -> bool {
+        self.capabilities
+            .iter()
+            .any(|c| c.contains(PluginCapabilities::TRANSFORMER))
     }
 
     // --- Plugin message delivery ---
