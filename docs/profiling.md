@@ -118,7 +118,7 @@ cargo bench --bench replay
 
 | Scenario | Messages | Description |
 |----------|----------|-------------|
-| `normal_editing` | ~50 | draw_status + set_cursor + draw loop (typing) |
+| `normal_editing` | ~50 | draw_status + draw loop (typing) |
 | `fast_scroll` | 100 | Continuous full-screen redraws (page scroll) |
 | `menu_completion` | 20 | menu_show → status updates → menu_show (completion) |
 | `mixed_session` | 200 | Combination of all above |
@@ -126,7 +126,7 @@ cargo bench --bench replay
 ### Adding new scenarios
 
 1. Add a `generate_*()` function in `kasane-core/benches/replay.rs` that returns `Vec<Vec<u8>>` (JSON-RPC message bytes)
-2. Use existing fixture helpers from `fixtures.rs`: `draw_json()`, `draw_status_json()`, `set_cursor_json()`, `menu_show_json()`
+2. Use existing fixture helpers from `fixtures.rs`: `draw_json()`, `draw_status_json()`, `menu_show_json()`
 3. Add a `group.bench_function()` call in `bench_replay()`
 
 ## Allocation Budget Tracking

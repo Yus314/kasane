@@ -77,10 +77,10 @@ Observed State は、Kakoune のプロトコルが明示的に伝えた情報で
 例:
 
 - `draw` で受け取るバッファ行
+- `draw.cursor_pos`
 - `menu_show` / `menu_hide`
 - `info_show` / `info_hide`
-- `draw_status`
-- `set_cursor`
+- `draw_status` と `draw_status.cursor_pos`
 
 ### 3.3 Derived State
 

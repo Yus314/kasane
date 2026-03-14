@@ -182,11 +182,11 @@ Well below the initial estimate (~500 ns for 5 plugins). Real plugin decorators 
 | `menu_show/items/100` | Menu 100 items + full frame | < 5 ms | 59.9 us | OK |
 | `incremental_edit/lines/1` | 1 line edit -> view + paint + diff | -- | 44.0 us | |
 | `incremental_edit/lines/5` | 5 line edit -> view + paint + diff | -- | 46.0 us | |
-| `message_sequence` | draw_status + set_cursor + draw -> full frame | -- | 50.1 us | |
+| `message_sequence` | draw_status + draw -> full frame | -- | 50.1 us | |
 
 `menu_show` is independent of item count because `menu_max_height=10` caps the visible rows.
 
-## Extended Benchmarks (20)
+## Extended Benchmarks (18)
 
 ### JSON-RPC Parsing
 
@@ -196,7 +196,6 @@ Well below the initial estimate (~500 ns for 5 plugins). Real plugin decorators 
 | `parse_request/draw_lines/100` | JSON-RPC parse (100-line draw) | 540 us | |
 | `parse_request/draw_lines/500` | JSON-RPC parse (500-line draw) | 2.68 ms | |
 | `parse_request/draw_status` | JSON-RPC parse (draw_status) | 2.85 us | Small message, high frequency |
-| `parse_request/set_cursor` | JSON-RPC parse (set_cursor) | 849 ns | Minimal message |
 | `parse_request/menu_show_50` | JSON-RPC parse (menu_show 50 items) | 55.9 us | |
 
 ### State Application
@@ -207,7 +206,6 @@ Well below the initial estimate (~500 ns for 5 plugins). Real plugin decorators 
 | `state_apply/draw_lines/100` | state.apply(Draw) standalone | 5.34 us | |
 | `state_apply/draw_lines/500` | state.apply(Draw) standalone | 17.7 us | |
 | `state_apply/draw_status` | state.apply(DrawStatus) | 947 ns | |
-| `state_apply/set_cursor` | state.apply(SetCursor) | 724 ns | |
 | `state_apply/menu_show_50` | state.apply(MenuShow) | 4.37 us | |
 
 ### Scaling Characteristics

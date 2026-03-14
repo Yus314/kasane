@@ -15,14 +15,14 @@ Its client-server architecture also exposes a `kak -ui json` protocol that enabl
 Kasane builds on this foundation to fill the gap. It is an **operating system for editor UI**: a platform that provides primitives — elements, layout, state access, commands, and input hooks — so that plugins can build anything from small decorations to entire window management systems.
 
 - **Plugin-first** — Kasane itself is minimal. Features belong in plugins, not the core.
-- **Graduated freedom** — Three extension mechanisms (Slot, Decorator, Replacement) offer increasing levels of control, from injecting elements at named points to replacing entire components.
+- **Graduated freedom** — Contributions, line decorations, overlays, transforms, and custom surfaces let plugins participate at multiple levels, from injecting UI at named points to providing their own regions.
 - **Declarative** — TEA (The Elm Architecture) with a pure `view()` function. Plugins declare what to render, not how to render it.
 - **Performance as prerequisite** — A plugin platform that slows down the editor is not viable. ~49 µs/frame at 80×24, leaving plugins ample headroom.
 
 ## Features
 
 - **Dual backend** — TUI (crossterm) and GPU (wgpu + glyphon)
-- **Plugin system** — Slot / Decorator / Replacement extension points; WASM (Component Model) and native (`#[kasane::plugin]`) plugins
+- **Plugin system** — Contributions, decorations, overlays, transforms, and surface/workspace APIs; WASM (Component Model) and native (`#[kasane::plugin]`) plugins
 - **Compiled rendering** — PaintPatch, section caching, DirtyFlags-based memoization
 - **System clipboard** — direct integration via arboard (no xclip/xsel)
 - **Smooth scrolling** — with inertia support
@@ -72,7 +72,7 @@ See [docs/performance.md](docs/performance.md).
 
 ## Plugins
 
-Kasane supports external plugins as standalone Rust binaries and WASM modules. See [docs/plugin-development.md](docs/plugin-development.md) and [examples/line-numbers/](examples/line-numbers/).
+Kasane supports external plugins as standalone Rust binaries and WASM modules. See [docs/plugin-development.md](docs/plugin-development.md), [docs/plugin-api.md](docs/plugin-api.md), and [examples/line-numbers/](examples/line-numbers/).
 
 ## Contributing
 

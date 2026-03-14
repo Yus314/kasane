@@ -4,7 +4,7 @@
 
 Kakoune (mawww/kakoune) の GitHub Issue/PR を調査し、Kasane (カスタム JSON UI フロントエンド) で解決・改善可能な課題を特定した。約100件以上の Issue/PR を分析し、以下にカテゴリ別に整理する。
 
-> **注:** 本ドキュメントで特定された課題の多くは、ADR-009 の宣言的 UI アーキテクチャ (Slot / Decorator / Replacement) を通じて、プラグインまたはコア実装で解決される。[プラグイン開発ガイド](./plugin-development.md) を参照。
+> **注:** 本ドキュメントで特定された課題の多くは、Kasane の現行 UI 基盤と拡張モデルを通じて、プラグインまたはコア実装で解決される。[plugin-development.md](./plugin-development.md)、[plugin-api.md](./plugin-api.md)、[semantics.md](./semantics.md) を参照。
 
 ---
 

@@ -22,7 +22,7 @@
 - `PR #5455` は 2026-03-11 に merge 済み
 - `PR #4707`, `PR #5304` は open
 - `#5428`, `#4686`, `#4687`, `#5294` は open
-- `#4138` は closed。必要な JSON UI プロトコル拡張は未提供
+- `#4138` は closed。E-040 は upstream blocker ではなく、Kasane 側の描画実装とエコシステム側の課題として扱う
 - `PR #4737` は `PR #5455` に吸収され、追跡対象から外す
 
 ## 3. 完全ブロック
@@ -34,7 +34,6 @@
 | E-020 | スクロールバー | スクロール位置、総行数、ハンドル比率に必要な情報 | カーソル位置からの推定ではビューポート非追従時に破綻 | [PR #5304](https://github.com/mawww/kakoune/pull/5304), [#165](https://github.com/mawww/kakoune/issues/165) | Phase 5 系プラグイン |
 | E-021 | スクロールバーアノテーション | E-020 に加え、検索結果やエラーの全体位置 | スクロールバー本体がないため成立しない | [PR #5304](https://github.com/mawww/kakoune/pull/5304), [#2727](https://github.com/mawww/kakoune/issues/2727) | E-020 と同時 |
 | R-052 | 画面外カーソルインジケータ | ビューポート外カーソル数と位置 | view 内で見えているカーソルしか検出できない | [#2727](https://github.com/mawww/kakoune/issues/2727), [#5425](https://github.com/mawww/kakoune/issues/5425) | Phase 4 系プラグイン |
-| E-040 | アンダーラインバリエーション | underline style の種別 | on/off しか来ないため描き分け不能 | [#4138](https://github.com/mawww/kakoune/issues/4138) | GUI / renderer 拡張 |
 
 ## 4. 品質制限つきでしか回避できない項目
 
@@ -60,7 +59,6 @@
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | incremental `draw` | NF-004 の上流版 | Open |
 | [#4687](https://github.com/mawww/kakoune/issues/4687) | atom type ambiguity | E-001, E-002, C-008 系 | Open |
 | [#5294](https://github.com/mawww/kakoune/issues/5294) | 起動時 `info` 表示 | R-027 | Open |
-| [#4138](https://github.com/mawww/kakoune/issues/4138) | fancy underline variations | E-040 | Closed |
 
 ## 6. 再統合ルール
 
