@@ -3,7 +3,7 @@ use std::io::Write;
 use crate::protocol::{KakouneRequest, KasaneRequest};
 
 /// Send a KasaneRequest as JSON to the Kakoune process.
-pub fn send_request(writer: &mut impl Write, req: &KasaneRequest) {
+pub fn send_request(writer: &mut (impl Write + ?Sized), req: &KasaneRequest) {
     let json = req.to_json();
     tracing::debug!(%json, "send_request");
     let _ = writeln!(writer, "{}", json);

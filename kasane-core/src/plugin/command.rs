@@ -133,7 +133,7 @@ pub enum CommandResult {
 /// `clipboard_get` はクリップボード読み取りのクロージャ。
 pub fn execute_commands(
     commands: Vec<Command>,
-    kak_writer: &mut impl Write,
+    kak_writer: &mut (impl Write + ?Sized),
     clipboard_get: &mut dyn FnMut() -> Option<String>,
 ) -> CommandResult {
     use crate::input::paste_text_to_keys;

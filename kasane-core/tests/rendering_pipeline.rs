@@ -14,7 +14,7 @@ use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
-use kasane_core::test_support::make_line;
+use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,34 +30,9 @@ fn setup_state(lines: Vec<Line>) -> AppState {
     state
 }
 
-/// Run the full pipeline: view → place → paint, returning the grid.
-fn render(state: &AppState) -> CellGrid {
-    let registry = PluginRegistry::new();
-    let element = view::view(state, &registry);
-    let root = Rect {
-        x: 0,
-        y: 0,
-        w: state.cols,
-        h: state.rows,
-    };
-    let layout = place(&element, root, state);
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
-    paint::paint(&element, &layout, &mut grid, state);
-    grid
-}
-
-/// Extract a row from the grid as a string (trimming trailing spaces).
-fn row_text(grid: &CellGrid, y: u16) -> String {
-    let mut s = String::new();
-    for x in 0..grid.width() {
-        if let Some(cell) = grid.get(x, y)
-            && cell.width > 0
-        {
-            s.push_str(&cell.grapheme);
-        }
-    }
-    s.trim_end().to_string()
+/// Run the full pipeline with an empty registry.
+fn render(state: &AppState) -> kasane_core::render::CellGrid {
+    render_with_registry(state, &PluginRegistry::new())
 }
 
 // ===========================================================================

@@ -8,11 +8,11 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
+use kasane_core::event_loop::{TimerScheduler, handle_deferred_commands};
 use kasane_core::input::InputEvent;
 use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{
-    Command, CommandResult, DeferredCommand, PluginRegistry, execute_commands,
-    extract_deferred_commands,
+    Command, CommandResult, PluginRegistry, execute_commands, extract_deferred_commands,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::view::surface_view_sections_cached;
@@ -31,6 +31,24 @@ use crate::gpu::GpuState;
 use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
 use crate::{GuiEvent, TimerPayload};
+
+/// TimerScheduler that injects timer events into the winit event loop.
+struct GuiTimerScheduler(winit::event_loop::EventLoopProxy<GuiEvent>);
+
+impl TimerScheduler for GuiTimerScheduler {
+    fn schedule_timer(
+        &self,
+        delay: std::time::Duration,
+        target: kasane_core::plugin::PluginId,
+        payload: Box<dyn std::any::Any + Send>,
+    ) {
+        let proxy = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            let _ = proxy.send_event(GuiEvent::PluginTimer(target, TimerPayload(payload)));
+        });
+    }
+}
 
 pub struct App<W: Write + Send + 'static> {
     // winit
@@ -74,8 +92,8 @@ pub struct App<W: Write + Send + 'static> {
     cursor_dirty: bool,
     last_render_result: Option<RenderResult>,
 
-    // Event loop proxy for plugin timers
-    event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
+    // Timer scheduler for plugin timer events
+    timer_scheduler: GuiTimerScheduler,
 }
 
 impl<W: Write + Send + 'static> App<W> {
@@ -127,7 +145,7 @@ impl<W: Write + Send + 'static> App<W> {
             cursor_animation: CursorAnimation::new(),
             cursor_dirty: false,
             last_render_result: None,
-            event_proxy,
+            timer_scheduler: GuiTimerScheduler(event_proxy),
         }
     }
 
@@ -272,67 +290,16 @@ impl<W: Write + Send + 'static> App<W> {
         ) {
             return true;
         }
-        self.handle_deferred(deferred)
-    }
-
-    /// Handle deferred commands (timers, inter-plugin messages, config overrides).
-    fn handle_deferred(&mut self, deferred: Vec<DeferredCommand>) -> bool {
-        for cmd in deferred {
-            match cmd {
-                DeferredCommand::PluginMessage { target, payload } => {
-                    let (flags, commands) =
-                        self.registry.deliver_message(&target, payload, &self.state);
-                    self.dirty |= flags;
-                    let (normal, nested) = extract_deferred_commands(commands);
-                    if matches!(
-                        execute_commands(normal, &mut self.kak_writer, &mut || {
-                            self.backend.as_mut().and_then(|b| b.clipboard_get())
-                        }),
-                        CommandResult::Quit
-                    ) {
-                        return true;
-                    }
-                    if self.handle_deferred(nested) {
-                        return true;
-                    }
-                }
-                DeferredCommand::ScheduleTimer {
-                    delay,
-                    target,
-                    payload,
-                } => {
-                    let proxy = self.event_proxy.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(delay);
-                        let _ =
-                            proxy.send_event(GuiEvent::PluginTimer(target, TimerPayload(payload)));
-                    });
-                }
-                DeferredCommand::SetConfig { key, value } => {
-                    kasane_core::state::apply_set_config(
-                        &mut self.state,
-                        &mut self.dirty,
-                        &key,
-                        &value,
-                    );
-                }
-                DeferredCommand::Pane(_) => {
-                    // Pane commands will be handled in Phase 5a-1
-                }
-                DeferredCommand::Workspace(ws_cmd) => {
-                    kasane_core::workspace::dispatch_workspace_command(
-                        &mut self.surface_registry,
-                        ws_cmd,
-                        &mut self.dirty,
-                    );
-                }
-                DeferredCommand::RegisterThemeTokens(_tokens) => {
-                    // Theme token registration will be handled when Theme is
-                    // accessible from the event loop (Phase 1 completion).
-                }
-            }
-        }
-        false
+        handle_deferred_commands(
+            deferred,
+            &mut self.state,
+            &mut self.registry,
+            &mut self.surface_registry,
+            &mut self.kak_writer,
+            &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
+            &mut self.dirty,
+            &self.timer_scheduler,
+        )
     }
 
     fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {

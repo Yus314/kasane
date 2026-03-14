@@ -1,5 +1,6 @@
 pub mod config;
 pub mod element;
+pub mod event_loop;
 pub mod input;
 pub mod io;
 pub mod layout;

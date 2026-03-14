@@ -27,6 +27,13 @@ pub struct FloatingWindow {
     pub height: u16,
 }
 
+/// Direction of a split (shared by pane and workspace layout trees).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitDirection {
+    Horizontal,
+    Vertical,
+}
+
 /// A rectangle on screen (used for obstacle avoidance).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -34,6 +41,52 @@ pub struct Rect {
     pub y: u16,
     pub w: u16,
     pub h: u16,
+}
+
+impl Rect {
+    /// Split this rectangle into two sub-rectangles with a 1-cell divider.
+    pub fn split(self, direction: SplitDirection, ratio: f32) -> (Rect, Rect) {
+        match direction {
+            SplitDirection::Vertical => {
+                // Side by side, divider is a vertical line (1 column)
+                let total = self.w.saturating_sub(1);
+                let first_w = ((total as f32) * ratio).round() as u16;
+                let second_w = total.saturating_sub(first_w);
+                let first = Rect {
+                    x: self.x,
+                    y: self.y,
+                    w: first_w,
+                    h: self.h,
+                };
+                let second = Rect {
+                    x: self.x + first_w + 1,
+                    y: self.y,
+                    w: second_w,
+                    h: self.h,
+                };
+                (first, second)
+            }
+            SplitDirection::Horizontal => {
+                // Stacked top/bottom, divider is a horizontal line (1 row)
+                let total = self.h.saturating_sub(1);
+                let first_h = ((total as f32) * ratio).round() as u16;
+                let second_h = total.saturating_sub(first_h);
+                let first = Rect {
+                    x: self.x,
+                    y: self.y,
+                    w: self.w,
+                    h: first_h,
+                };
+                let second = Rect {
+                    x: self.x,
+                    y: self.y + first_h + 1,
+                    w: self.w,
+                    h: second_h,
+                };
+                (first, second)
+            }
+        }
+    }
 }
 
 /// Inline menu placement preference.

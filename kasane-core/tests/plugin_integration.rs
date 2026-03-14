@@ -6,15 +6,10 @@
 
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
-use kasane_core::layout::Rect;
-use kasane_core::layout::flex::place;
 use kasane_core::plugin::{Command, PluginRegistry};
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
-use kasane_core::render::CellGrid;
-use kasane_core::render::paint;
-use kasane_core::render::view;
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
-use kasane_core::test_support::make_line;
+use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -27,33 +22,6 @@ fn setup_state(lines: Vec<Line>) -> AppState {
     state.status_line = make_line(" main.rs ");
     state.status_mode_line = make_line("normal");
     state
-}
-
-fn render_with_registry(state: &AppState, registry: &PluginRegistry) -> CellGrid {
-    let element = view::view(state, registry);
-    let root = Rect {
-        x: 0,
-        y: 0,
-        w: state.cols,
-        h: state.rows,
-    };
-    let layout = place(&element, root, state);
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
-    paint::paint(&element, &layout, &mut grid, state);
-    grid
-}
-
-fn row_text(grid: &CellGrid, y: u16) -> String {
-    let mut s = String::new();
-    for x in 0..grid.width() {
-        if let Some(cell) = grid.get(x, y)
-            && cell.width > 0
-        {
-            s.push_str(&cell.grapheme);
-        }
-    }
-    s.trim_end().to_string()
 }
 
 // ===========================================================================
@@ -89,7 +57,6 @@ mod key_consumer_plugin {
 #[test]
 fn handle_key_first_wins() {
     let mut state = setup_state(vec![make_line("text")]);
-    let mut grid = CellGrid::new(state.cols, state.rows);
     let mut registry = PluginRegistry::new();
     registry.register(Box::new(KeyConsumerPluginPlugin::new()));
     registry.init_all(&state);

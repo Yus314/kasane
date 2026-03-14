@@ -7,11 +7,11 @@ use anyhow::Result;
 use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
+use kasane_core::event_loop::{TimerScheduler, handle_deferred_commands};
 use kasane_core::input::InputEvent;
 use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{
-    CommandResult, DeferredCommand, PluginId, PluginRegistry, execute_commands,
-    extract_deferred_commands,
+    CommandResult, PluginId, PluginRegistry, execute_commands, extract_deferred_commands,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::view::surface_view_sections_cached;
@@ -33,73 +33,25 @@ enum Event {
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
 }
 
-/// Handle deferred commands (timers, inter-plugin messages, config overrides).
-#[allow(clippy::too_many_arguments)]
-fn handle_deferred(
-    deferred: Vec<DeferredCommand>,
-    state: &mut AppState,
-    registry: &mut PluginRegistry,
-    surface_registry: &mut SurfaceRegistry,
-    kak_writer: &mut impl Write,
-    backend: &mut TuiBackend,
-    dirty: &mut DirtyFlags,
-    tx: &crossbeam_channel::Sender<Event>,
-) -> bool {
-    for cmd in deferred {
-        match cmd {
-            DeferredCommand::PluginMessage { target, payload } => {
-                let (flags, commands) = registry.deliver_message(&target, payload, state);
-                *dirty |= flags;
-                let (normal, nested_deferred) = extract_deferred_commands(commands);
-                if matches!(
-                    execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
-                    CommandResult::Quit
-                ) {
-                    return true;
-                }
-                if handle_deferred(
-                    nested_deferred,
-                    state,
-                    registry,
-                    surface_registry,
-                    kak_writer,
-                    backend,
-                    dirty,
-                    tx,
-                ) {
-                    return true;
-                }
-            }
-            DeferredCommand::ScheduleTimer {
-                delay,
-                target,
-                payload,
-            } => {
-                let timer_tx = tx.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(delay);
-                    let _ = timer_tx.send(Event::PluginTimer(target, payload));
-                });
-            }
-            DeferredCommand::SetConfig { key, value } => {
-                kasane_core::state::apply_set_config(state, dirty, &key, &value);
-            }
-            DeferredCommand::Pane(_) => {
-                // Pane commands will be handled in Phase 5a-1
-            }
-            DeferredCommand::Workspace(ws_cmd) => {
-                kasane_core::workspace::dispatch_workspace_command(surface_registry, ws_cmd, dirty);
-            }
-            DeferredCommand::RegisterThemeTokens(_tokens) => {
-                // Theme token registration will be handled when Theme is
-                // accessible from the event loop (Phase 1 completion).
-            }
-        }
+/// TimerScheduler that injects timer events into the TUI event channel.
+struct TuiTimerScheduler(crossbeam_channel::Sender<Event>);
+
+impl TimerScheduler for TuiTimerScheduler {
+    fn schedule_timer(
+        &self,
+        delay: std::time::Duration,
+        target: PluginId,
+        payload: Box<dyn std::any::Any + Send>,
+    ) {
+        let tx = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            let _ = tx.send(Event::PluginTimer(target, payload));
+        });
     }
-    false
 }
 
-/// 単一イベントを処理する。終了が必要な場合 true を返す。
+/// Process a single event, returning `true` if the application should quit.
 #[allow(clippy::too_many_arguments)]
 fn process_event(
     event: Event,
@@ -112,9 +64,12 @@ fn process_event(
     backend: &mut TuiBackend,
     initial_resize_sent: &mut bool,
     dirty: &mut DirtyFlags,
-    tx: &crossbeam_channel::Sender<Event>,
+    timer: &TuiTimerScheduler,
 ) -> bool {
-    match event {
+    let is_kakoune = matches!(&event, Event::Kakoune(_));
+    let is_input = matches!(&event, Event::Input(_));
+
+    let (flags, commands) = match event {
         Event::Kakoune(req) => {
             kasane_core::io::send_initial_resize(
                 kak_writer,
@@ -122,82 +77,45 @@ fn process_event(
                 state.rows,
                 state.cols,
             );
-            let (flags, commands) = update(state, Msg::Kakoune(req), registry, scroll_amount);
-            // Resize: update grid dimensions (update() only modifies state)
-            if flags.contains(DirtyFlags::ALL) {
-                grid.resize(state.cols, state.rows);
-                grid.invalidate_all();
-            }
-            *dirty |= flags;
-            let (normal, deferred) = extract_deferred_commands(commands);
-            if matches!(
-                execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
-                CommandResult::Quit
-            ) {
-                return true;
-            }
-            handle_deferred(
-                deferred,
-                state,
-                registry,
-                surface_registry,
-                kak_writer,
-                backend,
-                dirty,
-                tx,
-            )
+            update(state, Msg::Kakoune(req), registry, scroll_amount)
         }
-        Event::Input(input_event) => {
-            let (flags, commands) = update(state, Msg::from(input_event), registry, scroll_amount);
-            if flags.contains(DirtyFlags::ALL) {
-                grid.resize(state.cols, state.rows);
-                grid.invalidate_all();
-            }
-            *dirty |= flags;
-            if !*initial_resize_sent {
-                return false;
-            }
-            let (normal, deferred) = extract_deferred_commands(commands);
-            if matches!(
-                execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
-                CommandResult::Quit
-            ) {
-                return true;
-            }
-            handle_deferred(
-                deferred,
-                state,
-                registry,
-                surface_registry,
-                kak_writer,
-                backend,
-                dirty,
-                tx,
-            )
-        }
-        Event::PluginTimer(target, payload) => {
-            let (flags, commands) = registry.deliver_message(&target, payload, state);
-            *dirty |= flags;
-            let (normal, deferred) = extract_deferred_commands(commands);
-            if matches!(
-                execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
-                CommandResult::Quit
-            ) {
-                return true;
-            }
-            handle_deferred(
-                deferred,
-                state,
-                registry,
-                surface_registry,
-                kak_writer,
-                backend,
-                dirty,
-                tx,
-            )
-        }
-        Event::KakouneDied => true,
+        Event::Input(input_event) => update(state, Msg::from(input_event), registry, scroll_amount),
+        Event::PluginTimer(target, payload) => registry.deliver_message(&target, payload, state),
+        Event::KakouneDied => return true,
+    };
+
+    if flags.contains(DirtyFlags::ALL) {
+        grid.resize(state.cols, state.rows);
+        grid.invalidate_all();
     }
+    *dirty |= flags;
+
+    // Suppress commands to Kakoune until initialization is complete.
+    if is_input && !*initial_resize_sent {
+        return false;
+    }
+    // Kakoune events before initial resize: execute commands (they come from
+    // init_all) but don't send anything to Kakoune yet (handled by the
+    // send_initial_resize guard above).
+    let _ = is_kakoune; // used only for the send_initial_resize call above
+
+    let (normal, deferred) = extract_deferred_commands(commands);
+    if matches!(
+        execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
+        CommandResult::Quit
+    ) {
+        return true;
+    }
+    handle_deferred_commands(
+        deferred,
+        state,
+        registry,
+        surface_registry,
+        kak_writer,
+        &mut || backend.clipboard_get(),
+        dirty,
+        timer,
+    )
 }
 
 /// Install a panic hook that restores the terminal before printing the panic.
@@ -341,8 +259,8 @@ where
     // crossterm input reader thread
     spawn_input_thread(tx.clone());
 
-    // Keep a sender for plugin timer events; drop will happen when loop breaks
-    let timer_tx = tx.clone();
+    // Timer scheduler for plugin timer events
+    let timer = TuiTimerScheduler(tx.clone());
 
     // Drop the original sender so rx will close when reader threads exit
     drop(tx);
@@ -388,7 +306,7 @@ where
             &mut backend,
             &mut initial_resize_sent,
             &mut dirty,
-            &timer_tx,
+            &timer,
         ) {
             break;
         }
@@ -417,7 +335,7 @@ where
                 &mut backend,
                 &mut initial_resize_sent,
                 &mut dirty,
-                &timer_tx,
+                &timer,
             ) {
                 quit = true;
                 break;

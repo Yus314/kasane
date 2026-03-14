@@ -8,8 +8,7 @@
 
 use std::collections::HashMap;
 
-use crate::layout::Rect;
-use crate::pane::SplitDirection;
+use crate::layout::{Rect, SplitDirection};
 use crate::state::DirtyFlags;
 use crate::surface::{SurfaceId, SurfaceRegistry};
 
@@ -265,7 +264,7 @@ impl WorkspaceNode {
                 first,
                 second,
             } => {
-                let (first_area, second_area) = split_rect(area, *direction, *ratio);
+                let (first_area, second_area) = area.split(*direction, *ratio);
                 first.compute_rects_inner(first_area, rects);
                 second.compute_rects_inner(second_area, rects);
             }
@@ -291,48 +290,6 @@ impl WorkspaceNode {
                     entry.node.compute_rects_inner(entry.rect, rects);
                 }
             }
-        }
-    }
-}
-
-/// Split a rectangle into two sub-rectangles with a 1-cell divider.
-fn split_rect(area: Rect, direction: SplitDirection, ratio: f32) -> (Rect, Rect) {
-    match direction {
-        SplitDirection::Vertical => {
-            let total = area.w.saturating_sub(1);
-            let first_w = ((total as f32) * ratio).round() as u16;
-            let second_w = total.saturating_sub(first_w);
-            let first = Rect {
-                x: area.x,
-                y: area.y,
-                w: first_w,
-                h: area.h,
-            };
-            let second = Rect {
-                x: area.x + first_w + 1,
-                y: area.y,
-                w: second_w,
-                h: area.h,
-            };
-            (first, second)
-        }
-        SplitDirection::Horizontal => {
-            let total = area.h.saturating_sub(1);
-            let first_h = ((total as f32) * ratio).round() as u16;
-            let second_h = total.saturating_sub(first_h);
-            let first = Rect {
-                x: area.x,
-                y: area.y,
-                w: area.w,
-                h: first_h,
-            };
-            let second = Rect {
-                x: area.x,
-                y: area.y + first_h + 1,
-                w: area.w,
-                h: second_h,
-            };
-            (first, second)
         }
     }
 }
@@ -969,7 +926,7 @@ mod tests {
             w: 81,
             h: 24,
         };
-        let (a, b) = split_rect(area, SplitDirection::Vertical, 0.5);
+        let (a, b) = area.split(SplitDirection::Vertical, 0.5);
         assert_eq!(a.w, 40);
         assert_eq!(b.w, 40);
         assert_eq!(a.x, 0);
@@ -984,7 +941,7 @@ mod tests {
             w: 80,
             h: 25,
         };
-        let (a, b) = split_rect(area, SplitDirection::Horizontal, 0.5);
+        let (a, b) = area.split(SplitDirection::Horizontal, 0.5);
         assert_eq!(a.h, 12);
         assert_eq!(b.h, 12);
         assert_eq!(a.y, 0);

@@ -8,10 +8,9 @@
 
 use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::{Color, Coord, Face, InfoStyle, KakouneRequest, MenuStyle, NamedColor};
-use kasane_core::render::pipeline::render_pipeline_cached;
-use kasane_core::render::{CellGrid, ViewCache};
+use kasane_core::render::ViewCache;
 use kasane_core::state::{AppState, DirtyFlags};
-use kasane_core::test_support::{make_line, test_state_80x24};
+use kasane_core::test_support::{assert_grids_equal, make_line, render_to_grid, test_state_80x24};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,44 +67,6 @@ fn rich_state() -> AppState {
     });
 
     state
-}
-
-/// Render to a fresh CellGrid with given dirty flags and cache.
-fn render_to_grid(
-    state: &AppState,
-    registry: &PluginRegistry,
-    dirty: DirtyFlags,
-    cache: &mut ViewCache,
-) -> CellGrid {
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
-    render_pipeline_cached(state, registry, &mut grid, dirty, cache);
-    grid
-}
-
-/// Compare two grids cell-by-cell, panicking with a descriptive message on mismatch.
-fn assert_grids_equal(actual: &CellGrid, expected: &CellGrid, context: &str) {
-    assert_eq!(
-        actual.width(),
-        expected.width(),
-        "{context}: width mismatch"
-    );
-    assert_eq!(
-        actual.height(),
-        expected.height(),
-        "{context}: height mismatch"
-    );
-    for y in 0..actual.height() {
-        for x in 0..actual.width() {
-            let a = actual.get(x, y).unwrap();
-            let e = expected.get(x, y).unwrap();
-            assert_eq!(
-                a, e,
-                "{context}: cell mismatch at ({x}, {y})\n  actual:   {:?}\n  expected: {:?}",
-                a, e
-            );
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
