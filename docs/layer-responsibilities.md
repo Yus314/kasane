@@ -97,25 +97,37 @@
 
 ---
 
-## Plugin API の実証状況
+## Shared Plugin API Validation
 
-バンドル WASM プラグインおよびサンプルで実証済みの extension point:
+Phase 4 は **WASM から到達可能な共有 Plugin API** の妥当性検証を扱う。
+proof artifact は配布用 sample に限定せず、WASM fixture、`examples/`、統合テスト内 plugin を等価に扱う。
 
-| Extension Point | 実証プラグイン | 状態 |
-|-----------------|---------------|------|
+| Shared Extension Point | Proof Artifact | 状態 |
+|------------------------|----------------|------|
 | `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (ガタースウォッチ), line-numbers (行番号) | 実証済み |
 | `contribute_to(SlotId::STATUS_RIGHT)` | sel-badge (選択数バッジ) | 実証済み |
 | `annotate_line_with_ctx()` | cursor_line (行背景ハイライト), color_preview (ガタースウォッチ) | 実証済み |
 | `contribute_overlay_with_ctx()` | color_preview (カラーピッカー) | 実証済み |
 | `handle_mouse()` | color_preview (色値編集) | 実証済み |
-| `contribute_to(SlotId::OVERLAY)` | 内部使用 (info/menu) | 実証済み (プラグインとしては未実証) |
-| `contribute_to(SlotId::BUFFER_RIGHT)` | — | 未実証 (上流ブロッカーで先送り) |
+| `handle_key()` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
+| `transform_menu_item()` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
+| `contribute_to(SlotId::OVERLAY)` | 内部使用 (info/menu) | 実装済み (外部 plugin proof は未) |
+| `contribute_to(SlotId::BUFFER_RIGHT)` | — | 未実証 (上流ブロッカーで完全版は先送り) |
 | `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | — | 未実証 |
-| `transform(TransformTarget::Buffer)` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
-| `transform_menu_item()` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
-| `cursor_style_override()` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
-| `contribute_to(SlotId::Named(...))` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
-| `OverlayAnchor::Absolute` | 内部使用 (メニュー/検索バー) | ✓ インフラ実装済み (プラグインとしては未実証) |
+| `transform(TransformTarget::Buffer)` | — | メカニズム存在、proof artifact なし |
+| `cursor_style_override()` | — | メカニズム存在、proof artifact なし |
+| `contribute_to(SlotId::Named(...))` | — | メカニズム存在、proof artifact なし |
+| `OverlayAnchor::Absolute` | 内部使用 (メニュー/検索バー) | インフラ実装済み (共有 API proof は未) |
+
+## Native Escape Hatches
+
+native-only API は shared validation とは別に扱う。長期方針は WASM parity だが、同じ trait をそのまま WIT へ公開することは目標にしない。
+
+| Native-only API | 現在位置づけ | parity 方針 |
+|-----------------|--------------|-------------|
+| `PaintHook` | 暫定 escape hatch | `CellGrid` 直操作ではなく高レベル render hook へ再設計が必要 |
+| `Surface` / `SURFACE_PROVIDER` | native-only だが parity target | hosted surface model として WASM から扱える抽象へ再設計する |
+| `Pane` / `Workspace` 高度 API | native-only だが parity target | object access ではなく command / observer モデルで parity を目指す |
 
 ---
 
@@ -128,8 +140,8 @@
 | R-051 | コア (✓ 実装済み) | ウィンドウフォーカス検知はフロントエンドネイティブ能力。唯一の正しい実装 |
 | D-002 | 上流依存 | `draw` メッセージにカーソル総数が含まれないため、ビューポート外カーソルの正確な検出が不可能 |
 | R-053 | コア | プロトコルが送るテキスト装飾の忠実描画はフロントエンド描画系の責務であり、唯一の正しい実装 |
-| P-002 の実証 | プラグイン | `OverlayAnchor::Absolute` の実証。WASM ゲストとして実装可能 |
-| 行 / 範囲 decoration の実証 | プラグイン | `annotate_line_with_ctx()` や `transform()` による選択範囲ハイライト。WASM ゲストとして実装可能 |
+| P-002 の実証 | プラグイン | `OverlayAnchor::Absolute` の proof artifact。WASM ゲストや統合テスト内 plugin で実装可能 |
+| 行 / 範囲 decoration の実証 | プラグイン | `annotate_line_with_ctx()` や `transform()` による proof artifact。WASM ゲストや統合テスト内 plugin で実装可能 |
 | P-023 の実装 | コア | D&D は GUI バックエンド (winit) のネイティブ能力。唯一の正しい実装 |
 
 ---

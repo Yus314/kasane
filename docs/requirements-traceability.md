@@ -115,7 +115,7 @@ P 系は本体が保証する拡張基盤能力を追跡する。具体ユース
 | P-020 | 基盤 | `Interactive Element` でヒットテスト | ○ 部分実証 (`color_preview`) | 4b |
 | P-021 | 基盤 | event routing と target 解決 | ○ 部分実装 | 4b |
 | P-022 | 基盤 | semantic recognizer / binding | - 候補 | 5c |
-| P-023 | レンダラ + 基盤 | GUI の file drop -> `:edit` は実装済み。UI 要素 / plugin への汎用 drop routing は未 | ○ 部分対応 | 4b |
+| P-023 | レンダラ + 基盤 | GUI の file drop -> `:edit` は実装済み。UI 要素 / plugin への汎用 drop routing は未 | ○ 部分対応 | 別トラック |
 | P-030 | 基盤 | display transformation hook | - 候補 | 5c |
 | P-031 | 基盤 | 省略・代理表示・追加表示の合成規則 | - 候補 | 5c |
 | P-032 | 基盤 + 意味論 | Observed / policy 分離。正本は [semantics.md](./semantics.md) | ○ 理論整理済み | 5c |

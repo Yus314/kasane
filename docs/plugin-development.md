@@ -16,7 +16,7 @@ Kasane プラグインには 2 つの開発パスがある。
 | API | WIT 経由 (`host-state` + `element-builder`) | `&AppState` 直接参照 |
 | 依存 | `kasane-plugin-sdk` + `wit-bindgen` | `kasane` + `kasane-core` |
 
-初めてのプラグインには WASM パスを推奨する。ネイティブパスは `&AppState` への完全アクセスが必要な場合や、`Surface`、`PaintHook`、`Pane` API を使いたい場合に向いている。
+初めてのプラグインには WASM パスを推奨する。ネイティブパスは `&AppState` への完全アクセスが必要な場合や、まだ WASM parity がない escape hatch を使う場合に向いている。
 
 ### 1.2 このガイドの読み方
 
@@ -24,7 +24,7 @@ Kasane プラグインには 2 つの開発パスがある。
 2. 次に [plugin-api.md](./plugin-api.md) で使いたい extension point を引く
 3. `transform()` / `stable()` / cache の意味を変える場合だけ [semantics.md](./semantics.md) を読む
 
-> 補足: Kasane は将来的に `display transformation` と `display unit` を第一級に扱う方向を取るが、現時点では専用 API は未完成である。現在のプラグインは `contribute_to()`、`annotate_line_with_ctx()`、`contribute_overlay_with_ctx()`、`transform()`、`Surface` の組み合わせで段階的に実証する。
+> 補足: Kasane は将来的に `display transformation` と `display unit` を第一級に扱う方向を取るが、現時点では専用 API は未完成である。現在の shared API は `contribute_to()`、`annotate_line_with_ctx()`、`contribute_overlay_with_ctx()`、`transform()` の組み合わせで段階的に検証する。`Surface` や `PaintHook` は native escape hatch であり、長期的には WASM parity を目指して再設計する。
 
 ### 1.3 設計思想
 
@@ -44,7 +44,7 @@ Kasane プラグインには 2 つの開発パスがある。
 | `contribute_overlay_with_ctx()` | カラーピッカー、ツールチップ、診断ポップアップ |
 | `transform()` | ステータスバーカスタマイズ、メニューレイアウト変更 |
 | `handle_key()` + `handle_mouse()` | インタラクティブ UI（ピッカー、ダイアログ） |
-| `Surface` (ネイティブ) | サイドバー、ファイルツリー、専用パネル |
+| `Surface` (現状ネイティブ) | サイドバー、ファイルツリー、専用パネル |
 
 外部プロセス実行やファイルシステムアクセスを必要とするプラグイン（ファジーファインダー、ファイルブラウザなど）は現在の API スコープ外である。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
 
