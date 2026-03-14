@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5c42a57d75570e884bafe59f5b7f8886dbee0d5ab818368c444bf682f8fc61c7 # shrinks to mutation = MoveCursor(1, 20), extra_dirty = DirtyFlags(0x0)

@@ -1,4 +1,6 @@
-/target/
+target/
 result
 .direnv/
 .pre-commit-config.yaml
+.claude/
+check_links.sh
