@@ -28,6 +28,7 @@ Plugin API の実証状況は [plugin-api.md](./plugin-api.md)、性能の数値
 | Phase W | WASM プラグインランタイム基盤 | ✓ 基盤完了 | 残課題は別表で継続追跡 |
 | Phase 4 | 拡張基盤実証 | Open | 4a は大半完了、4b に未完了項目あり |
 | Phase 5 | Surface / Workspace / 表示再構成基盤 | Open | 5a 完了、5b/5c が未完了 |
+| Phase P | プラグイン I/O 基盤 | Open | Phase 4 に依存。Phase 5 とは独立に進行可能 |
 
 ## 3. 現在の未完了項目
 
@@ -37,6 +38,8 @@ Plugin API の実証状況は [plugin-api.md](./plugin-api.md)、性能の数値
 - 4a のプラグイン実証: `cursor_line`, `color_preview`
 - 先送り項目のうち R-050, R-051 は完了
 - ADR-010 の Stage 1-4 は完了
+- P-023 の代表ユースケース: GUI `DroppedFile` を `:edit` へ接続
+- P-010 / P-011 の部分実証: `line_numbers` (`BUFFER_LEFT`), `color_preview` (左ガター + overlay), `cursor_line` (行背景 annotation)
 
 **未完了:**
 
@@ -44,8 +47,8 @@ Plugin API の実証状況は [plugin-api.md](./plugin-api.md)、性能の数値
 |------|------|------|----------|
 | D-001 | 縮退動作 | Open | 上流挙動を確認したうえで `update()` ベースの最小キューイングを入れる |
 | P-002 | Plugin API 実証 | Open | `OverlayAnchor::Absolute` を外部または WASM ゲストで実証する |
-| P-023 | GUI 機能 | Open | `DroppedFile` 系イベントを `:edit` へ接続する |
-| 補助領域寄与の実証 | Plugin API 実証 | Open | 行 / 範囲 decoration や補助領域寄与を行う実証プラグインを追加する |
+| P-023 汎用 drop routing | Plugin API / event routing | Open | `DropEvent` を `InputEvent` / plugin API / WIT に導入し、UI 要素または plugin へ配送できるようにする |
+| 右側領域 / 範囲 decoration の追加実証 | Plugin API 実証 | Open | `BUFFER_RIGHT` または `transform()` で未実証の補助領域 / range decoration を実証する |
 
 ### 3.2 Phase G - GUI 描画追随項目
 
@@ -81,6 +84,18 @@ Phase W の基盤自体は完了しているが、運用面の残課題は残っ
 | プラグインマニフェスト | Open | 名前、バージョン、依存、使用 extension point を定義する |
 | プラグイン設定 API | Open | `config.toml` との接続方針を固める |
 | コンパイル済み component キャッシュ | Open | `Engine::precompile_component` ベースで起動コストを削減する |
+
+### 3.5 Phase P - プラグイン I/O 基盤
+
+Phase 4 のプラグイン API 実証が前提。Phase 5 (Surface / Workspace) とは独立に進行可能。
+
+| サブフェーズ | 項目 | 種別 | 状態 | 次の作業 |
+|---|---|---|---|---|
+| P-a | 非同期タスク基盤 | コア基盤 | Open | イベントループにプラグイン→ホストのチャネルを導入し、バックグラウンド処理の結果を `plugin.update()` に配信する仕組みを設計・実装する |
+| P-b | `Command` への外部プロセス実行バリアント追加 | プラグイン API | Open | P-a の上に `Command::SpawnProcess` を設計し、非同期にプロセスを実行して stdout / exit を `plugin.update()` へ配信する |
+| P-c | WASI ケイパビリティの段階的解放 | WASM ランタイム | Open | P-b の設計を踏まえ、`WasiCtxBuilder` にファイルシステム / プロセス起動権限を制御付きで付与する |
+
+**解放されるユースケース:** ファジーファインダー、ファイルブラウザ、外部リンター連携、ストリーミング検索結果、長時間タスクの進捗表示
 
 ## 4. 上流依存に分離した項目
 

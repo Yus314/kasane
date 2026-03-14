@@ -269,6 +269,7 @@ fn parse_kakoune_key(s: &str) -> Option<KeyEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_pixel_to_grid_basic() {
@@ -377,5 +378,37 @@ mod tests {
         if let InputEvent::Key(ke) = event {
             assert!(!ke.modifiers.contains(Modifiers::SHIFT));
         }
+    }
+
+    #[test]
+    fn test_dropped_file_converts_to_edit_command_keys() {
+        let metrics = CellMetrics {
+            cell_width: 10.0,
+            cell_height: 20.0,
+            baseline: 15.0,
+            cols: 80,
+            rows: 24,
+        };
+        let path = PathBuf::from("/tmp/drop file.txt");
+        let event = WindowEvent::DroppedFile(path.clone());
+        let mut cursor_pos = None;
+        let mut mouse_button_held = None;
+
+        let events =
+            convert_window_event(&event, &metrics, &mut cursor_pos, &mut mouse_button_held);
+        let rendered: String = events
+            .into_iter()
+            .map(|event| match event {
+                InputEvent::Key(KeyEvent {
+                    key: Key::Char(ch), ..
+                }) => ch,
+                InputEvent::Key(KeyEvent {
+                    key: Key::Enter, ..
+                }) => '\n',
+                other => panic!("unexpected event from drop conversion: {other:?}"),
+            })
+            .collect();
+
+        assert_eq!(rendered, format!(":edit {}\n", path.display()));
     }
 }

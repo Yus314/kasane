@@ -109,13 +109,13 @@ P 系は本体が保証する拡張基盤能力を追跡する。具体ユース
 | P-001 | 基盤 | `Slot::Overlay` + `Decorator(Buffer)` | ○ 部分実証 (`color_preview`) | 4b |
 | P-002 | 基盤 | `OverlayAnchor::Absolute` | ○ インフラ実装済み (プラグイン実証は未) | 4b |
 | P-003 | 基盤 | `Stack` の描画順序と clip | ✓ Phase 1 | 1 |
-| P-010 | 基盤 + プロトコル制約 | `Slot::BufferLeft/Right`。一部は semantic type や scroll 情報に依存 | ○ 部分実証 | 4b |
-| P-011 | 基盤 | 補助領域への寄与 API | ○ 部分実証 (`color_preview`) | 4b |
+| P-010 | 基盤 + プロトコル制約 | `Slot::BufferLeft/Right`。`BUFFER_LEFT` は `line_numbers` / `color_preview` で部分実証。`BUFFER_RIGHT` は未実証 | ○ 部分実証 | 4b |
+| P-011 | 基盤 | 補助領域への寄与 API。左ガター / 行背景は `color_preview`, `cursor_line` で実証 | ○ 部分実証 | 4b |
 | P-012 | 基盤 + プロトコル制約 | 文書全体位置との完全対応は一部上流依存 | - 進行中 | [上流依存](./upstream-dependencies.md) |
 | P-020 | 基盤 | `Interactive Element` でヒットテスト | ○ 部分実証 (`color_preview`) | 4b |
 | P-021 | 基盤 | event routing と target 解決 | ○ 部分実装 | 4b |
 | P-022 | 基盤 | semantic recognizer / binding | - 候補 | 5c |
-| P-023 | レンダラ | GUI バックエンド (`winit`) での native event | - 候補 | 4b |
+| P-023 | レンダラ + 基盤 | GUI の file drop -> `:edit` は実装済み。UI 要素 / plugin への汎用 drop routing は未 | ○ 部分対応 | 4b |
 | P-030 | 基盤 | display transformation hook | - 候補 | 5c |
 | P-031 | 基盤 | 省略・代理表示・追加表示の合成規則 | - 候補 | 5c |
 | P-032 | 基盤 + 意味論 | Observed / policy 分離。正本は [semantics.md](./semantics.md) | ○ 理論整理済み | 5c |
