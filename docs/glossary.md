@@ -1,5 +1,8 @@
 # 用語集
 
+本ドキュメントは、Kasane で使う用語の参照一覧である。
+意味論や責務の正本は [semantics.md](./semantics.md) と [layer-responsibilities.md](./layer-responsibilities.md) を参照。
+
 ## プロトコル・描画
 
 | 用語 | 説明 |
@@ -111,3 +114,10 @@
 | SceneCache | DrawCommand レベルのセクション別キャッシュ (GUI 用)。ViewCache と同じ無効化ルール |
 | LayoutCache | base_layout, status_row, root_area をキャッシュ。セクション別再描画の基盤 |
 | PaintPatch | 最小限のセル更新で CellGrid を修正する trait。StatusBarPatch (~80 cells), MenuSelectionPatch (~10 cells), CursorPatch (2 cells) の 3 種が組み込み |
+
+## 関連文書
+
+- [semantics.md](./semantics.md) — 用語が使われる意味論
+- [plugin-api.md](./plugin-api.md) — plugin 文脈での API 用語
+- [architecture.md](./architecture.md) — システム構成上の位置づけ
+- [layer-responsibilities.md](./layer-responsibilities.md) — 責務境界の用語

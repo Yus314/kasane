@@ -1,121 +1,79 @@
 # 上流依存項目 (Kakoune プロトコル)
 
-Kakoune 上流の変更・PR に依存しており、ロードマップから分離した項目。
-上流で解決され次第、該当フェーズに再統合する。
+本ドキュメントは、Kakoune 上流の変更なしには完全実装できない項目を追跡する tracker である。
+制約の分析自体は [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) を正本とする。
 
-詳細な制約分析は [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) を参照。
+## 1. 文書の責務
 
----
+本ドキュメントは、Kasane が Kakoune 上流の変更なしには完全実装できない項目を追跡するための tracker である。
 
-## 完全ブロック
+この文書では次だけを扱う。
+- 何がブロックされているか
+- どの upstream PR / Issue を見るべきか
+- いつロードマップへ戻せるか
 
-上流の変更なしには実装不可能な項目。ヒューリスティック回避も信頼性が不十分。
+詳細な制約分析は [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md)、
+要件との対応は [requirements-traceability.md](./requirements-traceability.md)、
+実装順序は [roadmap.md](./roadmap.md) を参照。
 
-### E-020: スクロールバー
+## 2. 現在のスナップショット
 
-| | |
-|---|---|
-| **要件** | プロポーショナルハンドル付きスクロールバー。クリック/ドラッグ対応 |
-| **使用する API** | `Slot::BufferRight` (未実証) |
-| **ブロッカー** | Kakoune の `draw` メッセージにスクロール位置 (現在行 / 総行数) が含まれない |
-| **回避策の限界** | カーソル位置からの推定は、ビューポートがカーソルと離れている場合に不正確 |
-| **上流追跡** | [PR #5304](https://github.com/mawww/kakoune/pull/5304) |
-| **関連 Issue** | [#165](https://github.com/mawww/kakoune/issues/165) |
+2026-03-14 時点の upstream 状態:
+- `PR #5455` は 2026-03-11 に merge 済み
+- `PR #4707`, `PR #5304` は open
+- `#5428`, `#4686`, `#4687`, `#5294` は open
+- `#4138` は closed。必要な JSON UI プロトコル拡張は未提供
+- `PR #4737` は `PR #5455` に吸収され、追跡対象から外す
 
-### E-021: スクロールバーアノテーション
+## 3. 完全ブロック
 
-| | |
-|---|---|
-| **要件** | 検索結果、エラー、選択範囲の位置をスクロールバー上にマーカー表示 |
-| **ブロッカー** | E-020 (スクロールバー本体) に依存。加えて、検索結果やエラーの全バッファ位置情報がプロトコルにない |
-| **関連 Issue** | [#2727](https://github.com/mawww/kakoune/issues/2727) |
+上流の変更なしには完全実装できない項目。
 
-### R-052: 画面外カーソルインジケータ
+| ID | 項目 | 欠けている情報 / 機能 | ローカル回避の限界 | upstream | 再統合先 |
+|----|------|------------------------|--------------------|----------|----------|
+| E-020 | スクロールバー | スクロール位置、総行数、ハンドル比率に必要な情報 | カーソル位置からの推定ではビューポート非追従時に破綻 | [PR #5304](https://github.com/mawww/kakoune/pull/5304), [#165](https://github.com/mawww/kakoune/issues/165) | Phase 5 系プラグイン |
+| E-021 | スクロールバーアノテーション | E-020 に加え、検索結果やエラーの全体位置 | スクロールバー本体がないため成立しない | [PR #5304](https://github.com/mawww/kakoune/pull/5304), [#2727](https://github.com/mawww/kakoune/issues/2727) | E-020 と同時 |
+| R-052 | 画面外カーソルインジケータ | ビューポート外カーソル数と位置 | view 内で見えているカーソルしか検出できない | [#2727](https://github.com/mawww/kakoune/issues/2727), [#5425](https://github.com/mawww/kakoune/issues/5425) | Phase 4 系プラグイン |
+| E-040 | アンダーラインバリエーション | underline style の種別 | on/off しか来ないため描き分け不能 | [#4138](https://github.com/mawww/kakoune/issues/4138) | GUI / renderer 拡張 |
 
-| | |
-|---|---|
-| **要件** | ビューポート外に存在するカーソル/選択範囲の方向と数をビューポート端に表示 |
-| **使用する API** | `Slot::BufferTop` / `BufferBottom` (未実証) |
-| **ブロッカー** | `draw` メッセージにカーソルの総数が含まれない。ビューポート内のカーソルのみ検出可能 |
-| **回避策の限界** | ビューポート外のカーソル数・位置を正確に把握する方法がない |
-| **元の分類** | Phase 4b プラグイン |
+## 4. 品質制限つきでしか回避できない項目
 
-### E-040: アンダーラインバリエーション
+ローカル実装は可能だが、ヒューリスティック依存または upstream 挙動の確認不足により現時点では正本にしない項目。
 
-| | |
-|---|---|
-| **要件** | 波線 (curly)・点線 (dotted)・二重線 (double) 等のアンダーラインスタイル描画 |
-| **ブロッカー** | Face の `underline` 属性が on/off のみ。バリエーション情報をプロトコルが送信しない |
-| **回避策の限界** | バリエーション情報がプロトコルに含まれない限り、どのスタイルを適用すべきか判断不可能 |
-| **関連 Issue** | [#4138](https://github.com/mawww/kakoune/issues/4138) |
+| ID | 項目 | 現在の状況 | なぜ未採用か | upstream | 次の一手 |
+|----|------|------------|---------------|----------|----------|
+| R-062 | ステータスラインコンテキスト推定 | face 名や文字列で推定は可能 | カスタム face やメッセージ構成で壊れる | [#5428](https://github.com/mawww/kakoune/issues/5428) | context 種別が入るまで deferred |
+| R-027 | 起動時 info キューイング | ローカルキューで回避できる可能性あり | 上流側の起動時挙動をまだ切り分け中 | [#5294](https://github.com/mawww/kakoune/issues/5294) | upstream 挙動確認後に Phase 4 へ戻す |
+| E-002 | ガターアイコン (完全版) | `widget_columns` は利用可能。部分実証も済み | atom の意味種別がなく、行番号 / 仮想テキスト / コードの厳密区別ができない | [PR #4707](https://github.com/mawww/kakoune/pull/4707), [#4687](https://github.com/mawww/kakoune/issues/4687) | semantic type 追加後に再統合 |
+| E-001 | オーバーレイレイヤー (完全版) | overlay 自体は部分実証済み。`widget_columns` も利用可能 | バッファ内の意味位置が atom ambiguity に依存する | [PR #4707](https://github.com/mawww/kakoune/pull/4707), [#4687](https://github.com/mawww/kakoune/issues/4687) | semantic type 追加後に再統合 |
 
----
+## 5. Upstream watchlist
 
-## ヒューリスティック回避可能だが品質に制限
+2026-03-14 時点で追跡している upstream 項目:
 
-上流の変更なしでもヒューリスティックで部分的に実装可能だが、完全な実装には上流サポートが必要。
-現時点ではヒューリスティック版の実装も見送り、上流での解決を待つ方針。
-
-### R-062: ステータスラインコンテキスト推定
-
-| | |
-|---|---|
-| **要件** | `draw_status` の内容からコマンド/検索/情報メッセージをヒューリスティックに区別 |
-| **ブロッカー** | `draw_status` にコンテキスト種別が含まれない |
-| **回避策** | face 名やテキストパターンによる推定。ユーザーカスタマイズ (カスタム face) で破綻する |
-| **上流追跡** | [#5428](https://github.com/mawww/kakoune/issues/5428) |
-
-### R-027: 起動時 info キューイング
-
-| | |
-|---|---|
-| **要件** | 起動時に受信した info メッセージをキューイングし、UI 準備完了後に表示 |
-| **状態** | 保留 — 上流挙動を検証中 |
-| **関連 Issue** | [#5294](https://github.com/mawww/kakoune/issues/5294) |
-| **備考** | 上流で起動時の info 表示タイミングが改善される可能性あり。確認後、最小限のコア実装を検討 |
-
-### E-002: ガターアイコン (完全版)
-
-| | |
-|---|---|
-| **要件** | 行番号ガターにコードアクション、エラー/警告、git diff 等のアイコンをネイティブ描画 |
-| **使用する API** | `Slot::BufferLeft` (実証済み — color_preview) |
-| **ブロッカー** | `draw` メッセージの atom に種別 (行番号 / 仮想テキスト / コード) が含まれない。行番号の区別には [PR #4707](https://github.com/mawww/kakoune/pull/4707) が必要。`widget_columns` は利用可能 (PR #5455 マージ済み) |
-| **回避策** | `LineNumbers` / `LineNumberCursor` 等の face 名パターンマッチで推定可能だが、カスタム face に非対応 |
-| **部分実証** | color_preview でガタースウォッチ (色コードのある行のみ) は動作済み |
-
-### E-001: オーバーレイレイヤー (完全版)
-
-| | |
-|---|---|
-| **要件** | メインバッファ上に独立した描画レイヤーを重畳。仮想テキストをバッファ変更なしに表示 |
-| **使用する API** | `Slot::Overlay` + `Decorator(Buffer)` |
-| **ブロッカー (部分)** | バッファ内の正確な位置にオーバーレイを配置するには、atom の意味 (行番号 vs コード) を区別する必要がある (C-008) |
-| **回避策** | `widget_columns` (PR #5455 マージ済み) でガター幅を取得可能。face ヒューリスティック不要に |
-| **部分実証** | color_preview のカラーピッカーオーバーレイは動作済み (ただしバッファ左端固定) |
-
----
-
-## 上流 PR/Issue の追跡状況
-
-| 上流 ID | 内容 | 影響する項目 | 状態 |
-|---------|------|-------------|------|
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | atom に type フィールド追加 | E-001, E-002, C-008 | Open |
-| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup コンテキスト追加 | E-002 | Closed (superseded by PR #5455) |
-| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | draw に widget_columns 追加 | E-001, E-002 | **Merged** — 対応済み |
+| 上流 ID | 内容 | 影響項目 | 状態 |
+|---------|------|----------|------|
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に face / semantic type 相当の追加 | E-001, E-002, C-008 系 | Open |
+| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | `draw` に `widget_columns` 追加 | E-001, E-002 | Merged (2026-03-11) |
 | [PR #5304](https://github.com/mawww/kakoune/pull/5304) | scroll position protocol | E-020, E-021 | Open |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | draw_status context | R-062 | Open |
-| [#4686](https://github.com/mawww/kakoune/issues/4686) | incremental draw | NF-004 (回避済み) | Open |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | atom type ambiguity | C-008 | Open |
-| [#5294](https://github.com/mawww/kakoune/issues/5294) | 起動時 info 表示 | R-027 | Open |
-| [#4138](https://github.com/mawww/kakoune/issues/4138) | underline variations | E-040 | Open |
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | `draw_status` context | R-062 | Open |
+| [#4686](https://github.com/mawww/kakoune/issues/4686) | incremental `draw` | NF-004 の上流版 | Open |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | atom type ambiguity | E-001, E-002, C-008 系 | Open |
+| [#5294](https://github.com/mawww/kakoune/issues/5294) | 起動時 `info` 表示 | R-027 | Open |
+| [#4138](https://github.com/mawww/kakoune/issues/4138) | fancy underline variations | E-040 | Closed |
 
----
+## 6. 再統合ルール
 
-## 再統合の条件
+次の条件を満たしたら、項目を [roadmap.md](./roadmap.md) へ戻す。
 
-各項目は以下の条件で該当フェーズに再統合する:
+1. 必要な upstream PR / protocol change が merge 済み、または upstream 挙動が十分に確認できた
+2. Kasane 側の parser / state / render が新情報を取り込める
+3. ローカルのヒューリスティック回避を削除または縮退できる
+4. [requirements-traceability.md](./requirements-traceability.md) と [roadmap.md](./roadmap.md) の状態を更新する
 
-1. 上流 PR がマージされ、安定版リリースに含まれる
-2. プロトコル変更に対応するパーサー実装を追加
-3. ロードマップの該当フェーズに項目を移動し、本ドキュメントから「解決済み」に更新
+## 7. 関連文書
+
+- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — 制約の分析
+- [roadmap.md](./roadmap.md) — Kasane 側の未完了項目
+- [requirements-traceability.md](./requirements-traceability.md) — 要件との対応
+- [json-ui-protocol.md](./json-ui-protocol.md) — プロトコル参照仕様

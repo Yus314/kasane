@@ -1,10 +1,13 @@
 # レイヤー責務モデル
 
+本ドキュメントは、新機能が上流 / コア / プラグインのどこに属するかを判断する基準を定義する。
+実装メカニズムの分類は [requirements-traceability.md](./requirements-traceability.md) の解決層を参照。
+
 ## 概要
 
 本ドキュメントは、Kasane に新機能を追加する際に「その機能がどの層に属するか」を判断するための基準を定める。
 
-[requirements.md](./requirements.md) の「解決層」(§2) は**実装メカニズム** (HOW: レンダラ/設定/基盤/プロトコル制約) の分類であり、「どの仕組みで解決するか」を定義する。本モデルは**責務境界** (WHERE: 上流/コア/プラグイン) の分類であり、「どのレイヤーが責任を持つか」を定義する。両方の軸が機能分類に必要である。
+[requirements-traceability.md](./requirements-traceability.md) の「解決層」は**実装メカニズム** (HOW: レンダラ/設定/基盤/プロトコル制約) の分類であり、「どの仕組みで解決するか」を定義する。本モデルは**責務境界** (WHERE: 上流/コア/プラグイン) の分類であり、「どのレイヤーが責任を持つか」を定義する。両方の軸が機能分類に必要である。
 
 **関連ドキュメント:**
 - [architecture.md](./architecture.md) — 抽象化の境界
@@ -134,7 +137,7 @@
 
 ## 既存「解決層」との対応
 
-[requirements.md](./requirements.md) の解決層との関係:
+[requirements-traceability.md](./requirements-traceability.md) の解決層との関係:
 
 | | 解決層 (HOW) | 三層モデル (WHERE) |
 |---|---|---|
@@ -146,3 +149,10 @@
 両方の軸が機能分類に必要:
 - **解決層**は実装の技術的メカニズムを決定する
 - **三層モデル**はコードの配置場所と責務境界を決定する
+
+## 関連文書
+
+- [requirements-traceability.md](./requirements-traceability.md) — 解決層 (HOW) の追跡
+- [semantics.md](./semantics.md) — 現行意味論
+- [architecture.md](./architecture.md) — システム境界
+- [upstream-dependencies.md](./upstream-dependencies.md) — 上流依存の追跡

@@ -1,5 +1,8 @@
 # Profiling Guide
 
+This document is the procedural guide for measuring and profiling Kasane.
+For performance principles see [performance.md](./performance.md), and for benchmark results see [performance-benchmarks.md](./performance-benchmarks.md).
+
 ## Criterion Benchmarks
 
 ### Running all benchmarks
@@ -319,3 +322,10 @@ The `.github/workflows/bench.yml` workflow runs on every push to master and on P
 4. **Latency budget failure**: Run `cargo test -p kasane-core --test latency_budget -- --ignored` locally. If it passes locally, the CI runner may be overloaded — re-run the CI job.
 
 Historical benchmark results are stored on the `gh-pages` branch at `dev/bench/`.
+
+## See also
+
+- [performance.md](./performance.md) — performance principles
+- [performance-benchmarks.md](./performance-benchmarks.md) — current benchmark results
+- [semantics.md](./semantics.md) — correctness constraints for measured optimizations
+- [index.md](./index.md) — docs entry point

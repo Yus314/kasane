@@ -1,5 +1,8 @@
 # Configuration Reference
 
+This document is the reference for user-facing configuration keys and defaults.
+For architecture and semantics behind these settings, see [architecture.md](./architecture.md) and [semantics.md](./semantics.md).
+
 Kasane reads its configuration from a TOML file at:
 
 ```
@@ -278,3 +281,10 @@ bright_magenta = "#d3869b"
 bright_cyan = "#8ec07c"
 bright_white = "#ebdbb2"
 ```
+
+## See also
+
+- [README.md](../README.md) — installation and basic usage
+- [architecture.md](./architecture.md) — where configuration is applied
+- [semantics.md](./semantics.md) — runtime semantics affected by config and ui_options
+- [index.md](./index.md) — docs entry point

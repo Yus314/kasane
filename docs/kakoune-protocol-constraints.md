@@ -1,14 +1,19 @@
 # Kakoune プロトコル制約分析 — Kasane への影響と実装の歪み
 
+本ドキュメントは、Kakoune JSON UI プロトコルが Kasane の実装をどう歪めるかを分析する文書である。
+現在の upstream 状態や再統合条件の追跡は [upstream-dependencies.md](./upstream-dependencies.md) を参照。
+
 ## 1. 概要
 
-本ドキュメントでは、Kakoune の JSON UI プロトコル (`kak -ui json`) が Kasane の設計・実装に及ぼす制約を体系的に分析する。単なる制約の列挙（[requirements.md §6](./requirements.md) を参照）ではなく、**制約がどのように実装を歪めているか**、**上流での解決見込み**、および **Kasane 側の戦略的対応** を明らかにすることを目的とする。
+本ドキュメントでは、Kakoune の JSON UI プロトコル (`kak -ui json`) が Kasane の設計・実装に及ぼす制約を体系的に分析する。単なる制約の列挙（[requirements.md §5](./requirements.md#5-既知の制約事項) を参照）ではなく、**制約がどのように実装を歪めているか** と **どの性質がプロトコル上の限界なのか** を明らかにすることを目的とする。
 
 **関連ドキュメント:**
-- [要件定義書 §6 既知の制約事項](./requirements.md) — 制約の簡潔な一覧
+- [要件定義書 §5 既知の制約事項](./requirements.md#5-既知の制約事項) — 制約の簡潔な一覧
 - [Kakoune Issue 調査報告書](./kakoune-issues-investigation.md) — 解決可能な課題の全体像
 - [JSON UI プロトコル仕様](./json-ui-protocol.md) — プロトコルの技術仕様
 - [技術的意思決定記録](./decisions.md) — 制約に起因する設計判断
+- [上流依存項目](./upstream-dependencies.md) — 現在の upstream 状態と再統合条件
+- [実装ロードマップ](./roadmap.md) — Kasane 側の追跡と実装順序
 
 ---
 
@@ -248,52 +253,7 @@ MousePress { button: String, line: u32, column: u32 }
 
 ---
 
-## 8. 上流 Issue/PR の現状と解決見込み
-
-### 8.1 追跡中の上流 PR
-
-| PR | タイトル | 状態 | 最終更新 | 見込み |
-|----|---------|------|---------|-------|
-| [#4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に Face 名を追加 | OPEN | 2026-01 | **停滞**。mawww は DisplayAtom フラグを推奨。6コメント |
-| [#4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup コンテキスト追加 | CLOSED | 2026-01 | PR #5455 に統合 |
-| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | `set_cursor` 削除 + `widget_columns` 追加 | MERGED | 2026-03 | **対応済み** |
-
-**分析:** PR #5455 がマージされ、`set_cursor` メッセージは削除された。`cursor_pos` は `draw` と `draw_status` に統合され、`widget_columns` が `draw` に追加された。PR #4707 は mawww が別アプローチを推奨しているため、そのままではマージされない見込み。
-
-### 8.2 追跡中の上流 Issue
-
-| Issue | タイトル | 状態 | コメント数 | 見込み |
-|-------|---------|------|-----------|-------|
-| [#2019](https://github.com/mawww/kakoune/issues/2019) | JSON UI の制限事項まとめ | OPEN | 7 | 総合スレッド。個別 PR で段階的に改善 |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | OPEN | 0 | 議論未開始。提案は合理的 |
-| [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw | OPEN | 0 | 議論未開始。大規模変更のため見込み低 |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | OPEN | 0 | 議論未開始。#4737 で部分的に解決される可能性 |
-
----
-
-## 9. Kasane の戦略的対応
-
-### 9.1 短期 (Phase 4a)
-
-- **現行のヒューリスティックを維持**しつつ、壊れやすいポイントを明確にドキュメント化する（本ドキュメント）
-- `kasane_cursor_style` のような **ui_option によるフォールバック機構**を活用し、ヒューリスティック失敗時のユーザー制御を担保する
-- 先送り項目 (R-027, R-050, R-052, R-062) は上流 PR の進展を待つ
-
-### 9.2 中期 (Phase 4b 以降)
-
-- **`widget_columns` 利用** (PR #5455 マージ済み): ガター/コンテンツの分離を実装可能。E-001 (オーバーレイ), E-002 (ガターアイコン) の精度向上に活用
-- **PR #5428 が進展した場合**: `status_style` を利用して R-062 のヒューリスティック推定を廃止
-- **上流が進まない場合**: Kakoune パッチのフォークを検討するか、Kasane 側のヒューリスティックをより堅牢にする
-
-### 9.3 上流への貢献
-
-- PR #4737 のレビュー・フィードバックへの参加を優先
-- #5428 に対する実装パッチの提案（`draw_status` に `status_style` を追加する最小限の変更）
-- Kasane の実装経験に基づく、プロトコル改善の具体的ユースケース提供
-
----
-
-## 10. 影響度マトリクス
+## 8. 影響度マトリクス
 
 各制約が Kasane のどの機能をブロックしているかを整理する。
 
@@ -309,7 +269,7 @@ MousePress { button: String, line: u32, column: u32 }
 | クリップボード通知なし | クリップボード同期 | 迂回 | 中 — 片方向は機能 |
 | マウス修飾キーなし | Ctrl+Click 等 | 迂回 | 低 — フロントエンド側で対処可能 |
 | コマンド実行 RPC なし | バッファ操作の抽象化 | 原理的不可能 | **高** — 代替手段なし |
-| ビューポート位置なし | R-052 画面外カーソル, E-023 表示行ナビゲーション | 原理的不可能 | **高** — PR #4737 待ち |
+| ビューポート位置なし | R-052 画面外カーソル, E-023 表示行ナビゲーション | 原理的不可能 | **高** — 現行プロトコルでは取得不可 |
 
 ---
 
@@ -330,12 +290,19 @@ MousePress { button: String, line: u32, column: u32 }
 | 番号 | タイトル | 本文での言及箇所 |
 |------|---------|----------------|
 | [#2019](https://github.com/mawww/kakoune/issues/2019) | JSON UI の制限事項まとめ | §2, §4.3, §5.1, §6.1 |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | §4.3, §8.2 |
-| [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw 通知 | §5.3, §8.2 |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | §8.2 |
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | §4.3 |
+| [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw 通知 | §5.3 |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | [upstream-dependencies.md](./upstream-dependencies.md), [json-ui-protocol.md](./json-ui-protocol.md) |
 | [#1516](https://github.com/mawww/kakoune/issues/1516) | 複数 info ボックスの同時表示 | §4.4 |
 | [#3935](https://github.com/mawww/kakoune/issues/3935) | ビルトインクリップボード統合 | §6.1 |
 | [#3598](https://github.com/mawww/kakoune/issues/3598) | CJK 文字の補完候補表示崩れ | §5.1 |
 | [#4257](https://github.com/mawww/kakoune/issues/4257) | macOS 絵文字問題 | §5.1 |
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に Face 名追加 | §4.1, §8.1 |
-| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup 追加 | §4.1, §8.1, §9.2 |
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に Face 名追加 | §4.1, [upstream-dependencies.md](./upstream-dependencies.md) |
+| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup 追加 | §4.1, [json-ui-protocol.md](./json-ui-protocol.md) |
+
+## 関連文書
+
+- [upstream-dependencies.md](./upstream-dependencies.md) — 現在の upstream 状態と再統合条件
+- [json-ui-protocol.md](./json-ui-protocol.md) — プロトコル参照仕様
+- [requirements.md](./requirements.md) — 制約の一覧
+- [roadmap.md](./roadmap.md) — Kasane 側の追跡

@@ -1,5 +1,8 @@
 # Kakoune JSON UI プロトコル仕様
 
+本ドキュメントは、Kasane が前提とする Kakoune JSON UI プロトコルの参照仕様である。
+制約の分析は [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md)、Kasane 側の意味論は [semantics.md](./semantics.md) を参照。
+
 Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコルの仕様書。
 
 ## データ構造
@@ -77,3 +80,10 @@ Kasane の機能を強化する未マージの上流 PR/Issue。
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw | 差分描画の効率化 | Open |
 | [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | 行番号/仮想テキスト/コードの分離描画 | Open |
 | [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | コマンド/検索/情報の区別 | Open |
+
+## 関連文書
+
+- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — 制約の分析
+- [upstream-dependencies.md](./upstream-dependencies.md) — upstream watchlist
+- [semantics.md](./semantics.md) — Kasane 側の意味論
+- [architecture.md](./architecture.md) — プロトコルが入る位置

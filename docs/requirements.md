@@ -1,5 +1,8 @@
 # Kasane - 要件定義書
 
+本ドキュメントは、Kasane が満たすべき要件本文の正本である。
+実装状態、Phase、上流依存の追跡は [requirements-traceability.md](./requirements-traceability.md) を参照。
+
 ## 1. プロジェクト概要
 
 **プロジェクト名:** Kasane (重ね)
@@ -15,146 +18,22 @@
 - JSON UI (JSON-RPC 2.0) プロトコルによる Kakoune との通信
 - 純粋な JSON UI フロントエンド (特定プラグインに依存しない)
 
-**関連ドキュメント:**
-- [技術的意思決定記録](./decisions.md)
-- [アーキテクチャ設計書](./architecture.md)
-- [プラグイン開発ガイド](./plugin-development.md)
-- [パフォーマンス分析](./performance.md)
-- [実装ロードマップ](./roadmap.md)
-- [JSON UI プロトコル仕様](./json-ui-protocol.md)
-- [Kakoune Issue 調査報告書](./kakoune-issues-investigation.md)
-- [Kakoune プロトコル制約分析](./kakoune-protocol-constraints.md)
-- [用語集](./glossary.md)
+**補助ドキュメント:**
+- [要件トレーサビリティ](./requirements-traceability.md) — 解決層、状態、Phase、上流依存
+- [現行意味論](./semantics.md) — 状態、レンダリング、invalidation、拡張性の規範
+- [実装ロードマップ](./roadmap.md) — 実装順序と今後の段階
+- [上流依存項目](./upstream-dependencies.md) — 上流ブロッカーと再統合条件
 
 ---
 
-## 2. 解決層の分類
-
-各要件は、Kasane のどの層で解決されるかに応じて分類される。この分類により、基盤として設計すべきものとそうでないものの境界を明確にする。
-
-| 解決層 | 説明 | 基盤設計への影響 |
-|--------|------|-----------------|
-| **レンダラ** | 描画エンジン・入力処理の基本実装で自動的に解決される | 基盤メカニズム不要。正しく実装するだけで解決 |
-| **設定** | config.toml / ui_options による設定で解決される | 基盤メカニズムの上に設定インターフェースを構築 |
-| **基盤** | Slot / Decorator / Replacement / Element で解決される | プラグイン作者も同じメカニズムを利用可能 |
-| **プロトコル制約** | Kakoune プロトコルの制限により完全解決不可 | ヒューリスティック回避。上流への貢献を追跡 |
-
-> **補完モデル:** 解決層は「どの仕組みで解決するか」(HOW) の分類。これを補完する「どのレイヤーが責任を持つか」(WHERE) の分類は[三層レイヤー責務モデル](./layer-responsibilities.md)を参照。
-
-### 要件と解決層のマッピング
-
-#### 基本レンダリング (R-001〜R-009)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-001 | 基盤 | Element ツリー (BufferRef) で構築 | ✓ Phase 1 |
-| R-002 | 基盤 | Element ツリーで構築 | ✓ Phase 1 |
-| R-003 | レンダラ | ソフトウェアカーソル描画 | ✓ Phase 1 |
-| R-004 | レンダラ | padding_face による描画 | ✓ Phase 1 |
-| R-005 | レンダラ | リサイズ検知と resize メッセージ送信 | ✓ Phase 1 |
-| R-006 | レンダラ | 24bit RGB 直接描画 | ✓ Phase 1 |
-| R-007 | レンダラ | ダブルバッファリング (CellGrid) | ✓ Phase 1 |
-| R-008 | レンダラ | unicode-width ベースの幅計算 | ✓ Phase 1 |
-| R-009 | レンダラ | プレースホルダグリフの描画 | ✓ Phase 1 |
-
-#### フローティングウィンドウ — 補完メニュー (R-010〜R-016)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-010 | 基盤 | Stack + Overlay で構築 | ✓ Phase 1 |
-| R-011 | 基盤 | OverlayAnchor によるスタイル別配置 | ✓ Phase 1 |
-| R-012 | 基盤 | MenuState の selected 反映 | ✓ Phase 1 |
-| R-013 | 基盤 | MenuState クリアで即時非表示 | ✓ Phase 1 |
-| R-014 | 設定 + 基盤 | MenuPlacement (Auto/Above/Below) | ✓ Phase 2 |
-| R-015 | 基盤 | build_menu_search_dropdown で垂直ドロップダウン化 | ✓ Phase 2 |
-| R-016 | レンダラ | イベントバッチング (recv + try_recv, 安全弁付き) | ✓ Phase 2 |
-
-#### フローティングウィンドウ — 情報ポップアップ (R-020〜R-028)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-020 | 基盤 | Stack + Overlay で構築 | ✓ Phase 1 |
-| R-021 | 基盤 | OverlayAnchor + InfoStyle 切り替え | ✓ Phase 1 |
-| R-022 | 基盤 | InfoState クリアで即時非表示 | ✓ Phase 1 |
-| R-023 | 基盤 | infos: Vec\<InfoState\> + InfoIdentity で同時管理 | ✓ Phase 2 |
-| R-024 | 基盤 | scroll_offset + InteractiveId + マウスホイール | ✓ Phase 2 |
-| R-025 | 基盤 | compute_pos の &[Rect] 汎化 + カーソル avoid | ✓ Phase 2 |
-| R-026 | 設定 + 基盤 | BorderConfig (5 スタイル) + StyleToken::Border | ✓ Phase 2 |
-| R-027 | レンダラ | TEA update() でキューイング | — 先送り |
-| R-028 | 設定 + 基盤 | StyleToken + Theme + ThemeConfig | ✓ Phase 2 |
-
-#### フローティングウィンドウ — 共通 (R-030〜R-033)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-030 | 基盤 | OverlayAnchor::AnchorPoint | ✓ Phase 1 |
-| R-031 | 基盤 | compute_pos のクランプロジック | ✓ Phase 1 |
-| R-032 | 基盤 | Stack の描画順序 | ✓ Phase 1 |
-| R-033 | 設定 + 基盤 | Container の shadow プロパティ | ✓ Phase 1 |
-
-#### 入力処理 (R-040〜R-047)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-040〜R-045 | レンダラ | crossterm イベント変換 | ✓ Phase 1 |
-| R-046 | レンダラ | 選択中スクロールの座標計算 | ✓ Phase 3 |
-| R-047 | レンダラ | 右クリックドラッグイベント処理 | ✓ Phase 3 |
-
-#### カーソルレンダリング (R-050〜R-052)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-050 | レンダラ | ソフトウェアレンダリング | ✓ Phase 4a |
-| R-051 | レンダラ | フォーカス追跡 | ✓ Phase 4a |
-| R-052 | 基盤 | Slot または Decorator でインジケータ表示 | [上流依存](./upstream-dependencies.md) |
-
-#### ステータスバー (R-060〜R-064)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-060 | 基盤 | Element ツリーで構築 | ✓ Phase 1 |
-| R-061 | 設定 | status_at_top による Column 配置順序変更 | ✓ Phase 2 |
-| R-062 | レンダラ | ヒューリスティック推定 | — 先送り |
-| R-063 | 基盤 | markup.rs で {face_spec}text{default} パース | ✓ Phase 2 |
-| R-064 | 基盤 | cursor_count バッジ (FINAL_FG+REVERSE 検出) | ✓ Phase 2 |
-
-#### UIオプション・リフレッシュ (R-070〜R-071), クリップボード (R-080〜R-082), スクロール (R-090〜R-093)
-
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-070, R-071 | レンダラ | 状態反映と再描画 | ✓ Phase 1 |
-| R-080〜R-082 | レンダラ | システムクリップボード API 直接アクセス (arboard) | ✓ Phase 3 |
-| R-090〜R-093 | レンダラ | スクロール計算の独自実装 (スムーズスクロール + PageUp/PageDown) | ✓ Phase 3 |
-
-#### 拡張機能 (E-001〜E-041)
-
-> 上流にブロックされている項目の詳細は [upstream-dependencies.md](./upstream-dependencies.md) を参照。
-
-| ID | 解決層 | 備考 | 状態 | Phase |
-|----|--------|------|------|-------|
-| E-001 | 基盤 | Slot::Overlay + Decorator(Buffer) | ○ 部分実証 (color_preview) | [上流依存](./upstream-dependencies.md) (完全版) |
-| E-002 | 基盤 + プロトコル制約 | Slot::BufferLeft。行番号は PR #4737 依存 | ○ 部分実証 (color_preview) | [上流依存](./upstream-dependencies.md) |
-| E-003 | 基盤 | Decorator(Buffer)。GUI バックエンドでサブピクセル描画 | | 5c (外部プラグイン) |
-| E-004 | 基盤 | Interactive Element でヒットテスト | ○ 部分実証 (color_preview) | 5c (外部プラグイン) |
-| E-005 | 基盤 | OverlayAnchor::Absolute | ○ インフラ実装済み (プラグイン実証は未) | 4b (プラグイン実証) |
-| E-006 | 基盤 | Decorator(BufferLine) | ○ 部分実証 (cursor_line) | 4b |
-| E-010 | 基盤 | Flex による分割レイアウト | | 5a |
-| E-011 | 基盤 | Slot::Overlay | | 5a |
-| E-012 | 設定 + 基盤 | セマンティックスタイルトークン | | 5a |
-| E-020 | 基盤 + プロトコル制約 | Slot::BufferRight。スクロール位置はプロトコル外 | | [上流依存](./upstream-dependencies.md) |
-| E-021 | 基盤 + プロトコル制約 | E-020 に依存 | | [上流依存](./upstream-dependencies.md) |
-| E-022 | 基盤 | Decorator(Buffer) + Interactive | | 5c (外部プラグイン) |
-| E-023 | レンダラ + プロトコル制約 | ビジュアルレイアウト計算。画面外情報は上流依存 | | 5c (外部プラグイン) |
-| E-030 | レンダラ | GUI バックエンド (winit) | | 4b |
-| E-031 | レンダラ | 独自 URL 検出 | | 5c (外部プラグイン) |
-| E-040 | レンダラ | アンダーラインスタイル描画 | | [上流依存](./upstream-dependencies.md) (保留) |
-| E-041 | レンダラ | GUI バックエンド (glyphon) | | 5c (外部プラグイン) |
+本ドキュメントは要件本文を正本とし、解決層、実装状態、Phase、上流依存の追跡は
+[requirements-traceability.md](./requirements-traceability.md) を参照する。
 
 ---
 
-## 3. 機能要件
+## 2. 機能要件
 
-### 3.1 基本レンダリング
+### 2.1 基本レンダリング
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -168,7 +47,7 @@
 | R-008 | Unicode 文字幅計算 | 独自の Unicode テキストレイアウトで CJK/絵文字/ゼロ幅文字の正確な幅計算。libc の `wcwidth()` に依存しない | [#3598](https://github.com/mawww/kakoune/issues/3598), [#4257](https://github.com/mawww/kakoune/issues/4257), [#3059](https://github.com/mawww/kakoune/issues/3059), [#1941](https://github.com/mawww/kakoune/issues/1941) |
 | R-009 | 特殊文字の可視化 | ゼロ幅文字 (U+200B 等) と制御文字 (^A, ^M) をプレースホルダグリフで可視表示 | [#3570](https://github.com/mawww/kakoune/issues/3570), [#2936](https://github.com/mawww/kakoune/issues/2936) |
 
-### 3.2 フローティングウィンドウ — 補完メニュー
+### 2.2 フローティングウィンドウ — 補完メニュー
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -180,7 +59,7 @@
 | R-015 | 検索補完ドロップダウン | 検索候補をプロンプト行の横並びではなく、垂直ドロップダウンとして表示 | [#2170](https://github.com/mawww/kakoune/issues/2170), [#1531](https://github.com/mawww/kakoune/issues/1531) |
 | R-016 | マクロ再生時のフラッシュ抑制 | 高速な UI 更新をバッチ処理し、マクロ再生時の一時的なメニューフラッシュを抑制 | [#1491](https://github.com/mawww/kakoune/issues/1491) |
 
-### 3.3 フローティングウィンドウ — 情報ポップアップ
+### 2.3 フローティングウィンドウ — 情報ポップアップ
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -194,7 +73,7 @@
 | R-027 | 起動時 info キューイング | 起動時に受信した info メッセージをキューイングし、UI 準備完了後に表示 | [#5294](https://github.com/mawww/kakoune/issues/5294) |
 | R-028 | 統一デザインシステム | メニュー・info・キーヒント等の全ポップアップ要素で一貫した視覚デザイン | [#2676](https://github.com/mawww/kakoune/issues/2676) |
 
-### 3.4 フローティングウィンドウ — 共通
+### 2.4 フローティングウィンドウ — 共通
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -203,7 +82,7 @@
 | R-032 | Z軸レイヤー管理 | メニュー、情報ポップアップ、メインバッファの描画順序 (Z-order) を適切に管理 | — |
 | R-033 | シャドウ効果 | フローティングウィンドウの下に影を表現し、浮遊感を演出 (オプション) | — |
 
-### 3.5 入力処理
+### 2.5 入力処理
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -216,7 +95,7 @@
 | R-046 | 選択中スクロール | テキスト選択中のマウスホイールスクロールで選択範囲を正しく拡張 | [#2051](https://github.com/mawww/kakoune/issues/2051) |
 | R-047 | 右クリックドラッグ | 右クリックドラッグによる選択範囲の拡張 | [#5339](https://github.com/mawww/kakoune/issues/5339) |
 
-### 3.6 カーソルレンダリング
+### 2.6 カーソルレンダリング
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -224,7 +103,7 @@
 | R-051 | フォーカス連動カーソル | ウィンドウフォーカス喪失時にカーソルをアウトラインスタイルに切り替え | [#3652](https://github.com/mawww/kakoune/issues/3652) |
 | R-052 | 画面外カーソルインジケータ | ビューポート外に存在するカーソル/選択範囲の方向と数をビューポート端に表示 | [#2727](https://github.com/mawww/kakoune/issues/2727), [#5425](https://github.com/mawww/kakoune/issues/5425) |
 
-### 3.7 ステータスバー
+### 2.7 ステータスバー
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -234,14 +113,14 @@
 | R-063 | マークアップレンダリング | ステータスライン内の `{Face}` マークアップ構文をパースしてレンダリング | [#4507](https://github.com/mawww/kakoune/issues/4507) |
 | R-064 | カーソル数バッジ | 複数カーソル/選択時にカーソル数をステータスバーに表示 | [#5425](https://github.com/mawww/kakoune/issues/5425) |
 
-### 3.8 UIオプション・リフレッシュ
+### 2.8 UIオプション・リフレッシュ
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
 | R-070 | UIオプション受信 | `set_ui_options` メッセージを受信し、レンダリングに反映 | — |
 | R-071 | リフレッシュ | `refresh` メッセージに基づく画面再描画 (通常/強制) | — |
 
-### 3.9 クリップボード統合
+### 2.9 クリップボード統合
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -249,7 +128,7 @@
 | R-081 | 高速ペースト | 外部プロセス起動なしの即時ペースト。大量テキストでも遅延なし | [#1743](https://github.com/mawww/kakoune/issues/1743) |
 | R-082 | 特殊文字の正確な処理 | クリップボード内の改行・特殊文字をシェルエスケープの問題なく処理 | [#4497](https://github.com/mawww/kakoune/issues/4497) |
 
-### 3.10 スクロール
+### 2.10 スクロール
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -260,11 +139,11 @@
 
 ---
 
-## 4. 拡張機能要件
+## 3. 拡張機能要件
 
 Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacement) 上で実現する拡張機能。多くはプラグインとして実装され、コアフレームワークの拡張性を実証する。設計の詳細は [plugin-development.md](./plugin-development.md) を参照。
 
-### 4.1 仮想テキスト・オーバーレイ
+### 3.1 仮想テキスト・オーバーレイ
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -275,7 +154,7 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 | E-005 | ビューポート相対オーバーレイ | ビューポート座標に対するオーバーレイ描画 (easymotion ジャンプラベル等) | [#1820](https://github.com/mawww/kakoune/issues/1820) |
 | E-006 | 選択範囲の拡張表示 | 改行を含む選択範囲をウィンドウ幅いっぱいまでハイライト | [#1909](https://github.com/mawww/kakoune/issues/1909) |
 
-### 4.2 ウィンドウ管理
+### 3.2 ウィンドウ管理
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -283,7 +162,7 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 | E-011 | フローティングパネル | fzf/ファイルピッカー等のためのフローティングターミナルパネル | [#3878](https://github.com/mawww/kakoune/issues/3878) |
 | E-012 | フォーカス視覚フィードバック | フォーカス/非フォーカスペインの視覚的区別 (減色、ボーダー色変更) | [#3942](https://github.com/mawww/kakoune/issues/3942), [#3652](https://github.com/mawww/kakoune/issues/3652) |
 
-### 4.3 スクロールバー・ミニマップ・ナビゲーション
+### 3.3 スクロールバー・ミニマップ・ナビゲーション
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -292,14 +171,14 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 | E-022 | コード折りたたみ | 表示レベルでの行折りたたみ。ガターの折りたたみアイコン、クリック展開 | [#453](https://github.com/mawww/kakoune/issues/453) |
 | E-023 | 表示行ナビゲーション | ソフトラップされた表示行単位でのカーソル移動 (gj/gk 相当) | [#5163](https://github.com/mawww/kakoune/issues/5163), [#1425](https://github.com/mawww/kakoune/issues/1425), [#3649](https://github.com/mawww/kakoune/issues/3649) |
 
-### 4.4 ドラッグ＆ドロップ・URL
+### 3.4 ドラッグ＆ドロップ・URL
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
 | E-030 | ファイルドラッグ＆ドロップ | GUI ファイルマネージャからのファイルドロップでバッファを開く | [#3928](https://github.com/mawww/kakoune/issues/3928) |
 | E-031 | URL 検出 | バッファ内の URL を独自に検出。空白文字表示に影響されない | [#4135](https://github.com/mawww/kakoune/issues/4135) |
 
-### 4.5 フォント・テキストスタイル
+### 3.5 フォント・テキストスタイル
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -308,9 +187,9 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 
 ---
 
-## 5. 非機能要件
+## 4. 非機能要件
 
-### 5.1 パフォーマンス
+### 4.1 パフォーマンス
 
 | ID | 要件 | 目標値 | 関連 Issue |
 |----|------|--------|-----------|
@@ -321,7 +200,7 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 | NF-005 | 非同期I/O | Kakoune との通信をノンブロッキングで処理 | — |
 | NF-006 | UI 更新バッチ処理 | 高頻度の連続更新 (マクロ再生等) をバッチ処理し、最終フレームのみ描画 | [#1491](https://github.com/mawww/kakoune/issues/1491) |
 
-### 5.2 UI/UX
+### 4.2 UI/UX
 
 | ID | 要件 | 説明 | 関連 Issue |
 |----|------|------|-----------|
@@ -336,9 +215,9 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 
 ---
 
-## 6. 既知の制約事項
+## 5. 既知の制約事項
 
-> 各制約の詳細な分析（実装の歪み、上流での解決見込み、戦略的対応）は [Kakoune プロトコル制約分析](./kakoune-protocol-constraints.md) を参照。
+> 各制約の詳細な分析（実装の歪みとプロトコル上の限界）は [Kakoune プロトコル制約分析](./kakoune-protocol-constraints.md) を参照。
 
 | ID | 制約 | 影響 | 回避策 |
 |----|------|------|--------|
@@ -350,3 +229,10 @@ Kasane の宣言的 UI 基盤 (Element ツリー + Slot / Decorator / Replacemen
 | C-006 | ステータスラインコンテキスト不明 | コマンド/検索/メッセージの区別不可 | ヒューリスティック推定 (R-062)。上流 [#5428](https://github.com/mawww/kakoune/issues/5428) の解決を追跡 |
 | C-007 | インクリメンタル draw なし | 毎回全表示行が送信される | フロントエンド側で差分検出 (NF-004)。上流 [#4686](https://github.com/mawww/kakoune/issues/4686) の解決を追跡 |
 | C-008 | Atom の種別不明 | 行番号/仮想テキスト/コードを区別できない | Face 名ベースのヒューリスティック。上流 [#4687](https://github.com/mawww/kakoune/issues/4687), [PR #4707](https://github.com/mawww/kakoune/pull/4707) を追跡 |
+
+## 6. 関連文書
+
+- [requirements-traceability.md](./requirements-traceability.md) — 状態、Phase、上流依存の追跡
+- [semantics.md](./semantics.md) — 現行意味論
+- [roadmap.md](./roadmap.md) — 実装順序と未完了項目
+- [upstream-dependencies.md](./upstream-dependencies.md) — 上流ブロッカー

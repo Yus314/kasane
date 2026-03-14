@@ -60,6 +60,8 @@ Non-UI kak flags (`-l`, `-f`, `-p`, etc.) are delegated directly to `kak`.
 
 Configuration: `~/.config/kasane/config.toml` — see [docs/config.md](docs/config.md).
 
+Documentation index: [docs/index.md](docs/index.md).
+
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md).
