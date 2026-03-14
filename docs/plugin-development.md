@@ -24,10 +24,13 @@ Kasane プラグインには 2 つの開発パスがある。
 2. 次に [plugin-api.md](./plugin-api.md) で使いたい extension point を引く
 3. `Decorator` / `Replacement` / `stable()` / cache の意味を変える場合だけ [semantics.md](./semantics.md) を読む
 
+> 補足: Kasane は将来的に `display transformation` と `display unit` を第一級に扱う方向を取るが、現時点では専用 API は未完成である。現在のプラグインは `Slot`、`Overlay`、`Decorator`、`Replacement`、`Surface` の組み合わせで段階的に実証する。
+
 ### 1.3 設計思想
 
 - プラグインは「何を表示したいか」を記述し、「どう描画するか」はフレームワークが決める
 - 拡張は `Slot`、`Decorator`、`Replacement` など段階的な自由度を持つ
+- 表示の大胆な再構成は将来方向として許容されるが、protocol truth の捏造は許されない
 - Kasane は Kakoune 専用の UI 基盤であり、汎用 UI フレームワーク化は目標外である
 
 ## 2. クイックスタート
@@ -194,6 +197,7 @@ kasane-core = { path = "../kasane-core" }
 | 目的 | 読む文書 |
 |---|---|
 | `Slot`、`Overlay`、`Decorator`、`Replacement` の違いを知りたい | [plugin-api.md](./plugin-api.md) |
+| `display transformation` / `display unit` の将来方向を知りたい | [plugin-api.md](./plugin-api.md), [semantics.md](./semantics.md) |
 | `Element` の作り方を調べたい | [plugin-api.md](./plugin-api.md) |
 | `host-state`、入力、`Command` を確認したい | [plugin-api.md](./plugin-api.md) |
 | `state_hash()`、`slot_deps()`、`PaintHook` を使いたい | [plugin-api.md](./plugin-api.md) |

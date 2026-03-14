@@ -30,7 +30,7 @@
 
 現行の仕様、責務、使い方を定義する文書。
 
-- [requirements.md](./requirements.md) — 要件本文の正本
+- [requirements.md](./requirements.md) — コア要件・拡張基盤要件・実証ユースケースを含む要件本文の正本
 - [semantics.md](./semantics.md) — 現行意味論の正本
 - [architecture.md](./architecture.md) — システム境界と責務
 - [layer-responsibilities.md](./layer-responsibilities.md) — 上流 / コア / プラグインの責務判断
@@ -45,7 +45,7 @@
 
 状態、進捗、ブロッカーを追跡する文書。
 
-- [requirements-traceability.md](./requirements-traceability.md) — 要件ごとの状態と Phase
+- [requirements-traceability.md](./requirements-traceability.md) — コア要件 / 拡張基盤 / 縮退動作ごとの状態と Phase
 - [roadmap.md](./roadmap.md) — 実装フェーズと未完了項目
 - [upstream-dependencies.md](./upstream-dependencies.md) — 上流依存と再統合条件
 - [performance-benchmarks.md](./performance-benchmarks.md) — 性能実測と最適化状況

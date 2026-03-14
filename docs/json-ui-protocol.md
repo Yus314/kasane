@@ -75,11 +75,11 @@ Kasane の機能を強化する未マージの上流 PR/Issue。
 | PR/Issue | 内容 | Kasane への影響 | 状態 |
 |----------|------|----------------|------|
 | [Commit 3dd6f30d](https://github.com/mawww/kakoune/commit/3dd6f30d) | `set_cursor` 削除、`cursor_pos` を `draw`/`draw_status` に統合 | **対応済み** | Merged |
-| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | `draw` に `widget_columns` パラメータ追加 | **対応済み** — ガター/コンテンツ分離に利用可能 | Merged |
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Face 名の追加 | Face の意味的区別 (PrimaryCursor 等) が可能に | Open |
+| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | `draw` に `widget_columns` パラメータ追加 | **対応済み** — `P-010` / `P-011` の補助領域寄与に利用可能 | Merged |
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Face 名の追加 | `P-001`, `P-010`, `P-011` の semantic 区別が改善 | Open |
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw | 差分描画の効率化 | Open |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | 行番号/仮想テキスト/コードの分離描画 | Open |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | コマンド/検索/情報の区別 | Open |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | `P-001`, `P-010`, `P-011` の分離描画と overlay 合成の精度改善 | Open |
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | `D-003` の縮退解消 | Open |
 
 ## 関連文書
 

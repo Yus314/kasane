@@ -42,6 +42,21 @@
 
 原則として、自由度が低いメカニズムを優先する。`Slot` で済むなら `Decorator` は使わず、`Decorator` で済むなら `Replacement` は使わない。
 
+### 1.2.1 表示変形と表示単位の位置づけ
+
+[requirements.md](./requirements.md) の `P-030..P-043` と [semantics.md](./semantics.md) の `表示変形と表示単位` が示す通り、Kasane は将来的に plugin が display transformation と display unit を第一級に扱える方向を取る。
+
+現時点では専用 API はまだ完成していない。そのため plugin は当面、次の既存メカニズムの組み合わせで近いことを行う。
+
+- 軽い表示変更: `Decorator`
+- 既存 UI の差し替え: `Replacement`
+- 項目単位の局所変換: `transform_menu_item()`
+- 重畳表示: `Overlay`
+- 行 / ガター寄与: `LineDecoration`
+- 独立した UI 文脈: `Surface`
+
+ただし、これらは将来の display transformation API と完全に同義ではない。特に source mapping、display-oriented navigation、制限付き interaction policy はまだ専用抽象として確立していない。
+
 ### 1.3 合成ルール
 
 拡張の合成順序は次の通りである。
@@ -191,6 +206,19 @@ pub fn replace(_state: &State, _core: &AppState) -> Option<Element> {
 ### 1.9 Transform
 
 `transform_menu_item()` はメニュー項目単位の変換であり、`MENU_TRANSFORM` capability に対応する。項目ごとのラベルや style を局所的に変換したい場合に使う。全メニュー構造の差し替えが必要なら `Replacement` を使う。
+
+### 1.10 将来の Display Transformation API
+
+display transformation は、Observed State を省略、代理表示、追加表示、再構成するための将来 API である。これは単なる decorator や replacement より強く、semantics 上も source truth と display policy の区別を前提とする。
+
+現時点での方針:
+
+- transformation は protocol truth を改竄しない
+- transformation は display policy として扱う
+- transformation の結果は将来の display unit model に接続される
+- source への逆写像が弱い場合は、読み取り専用または制限付き interaction を許容する
+
+この API は未完成であり、現状は `Decorator`、`Replacement`、`Overlay`、`Surface` を使った段階的実証が先行する。
 
 ## 2. Element API
 
@@ -376,6 +404,17 @@ Dirty flags は主に次の観測面を通知する。
 5. それでも処理されなければ Kakoune に転送する
 
 マウス入力は `observe_mouse()` の後、`InteractiveId` ヒットテストを経て `handle_mouse(event, id, state)` に渡される。
+
+### 3.4.1 Display Unit と interaction policy
+
+将来的には、plugin が導入する再構成 UI は display unit 単位で hit test、focus、navigation、source mapping を持つことが期待される。
+
+現時点ではこのモデルは専用 API としては未公開であり、plugin は次の制約を前提に既存 API を使う。
+
+- `InteractiveId` はヒットテスト対象の識別子であり、display unit 全体の意味論をまだ表さない
+- `handle_mouse()` は source mapping を自前で解釈する必要がある場合がある
+- source への完全な逆写像を持たない UI は、読み取り専用または限定操作として設計する
+- plugin は、Kakoune が与えていない事実を interaction の結果として捏造してはならない
 
 ### 3.5 Commands
 
