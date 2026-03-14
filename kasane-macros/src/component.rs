@@ -7,9 +7,17 @@ use syn::{Error, FnArg, Ident, ItemFn, Pat, ReturnType, Token, Type, parenthesiz
 
 use crate::analysis::*;
 
-/// Parsed `deps(FLAG1, FLAG2, ...), allow(field1, field2, ...)` attribute content.
+/// Parsed `deps(FLAG1, FLAG2, ...), stable(field1, ...), allow(field1, ...)` attribute content.
+///
+/// - `stable(field)`: performance policy — the function reads `field` but intentionally
+///   does not redraw when it changes (stable staleness). Documents a deliberate decision.
+/// - `allow(field)`: escape hatch — the macro's field-access analysis cannot see through
+///   to the actual access (e.g., called via a helper function). Suppresses the false positive.
+///
+/// Both suppress the "missing dep" error for the listed fields, but convey different intent.
 struct ComponentAttr {
     flags: Vec<Ident>,
+    stable_fields: Vec<Ident>,
     allowed_fields: Vec<Ident>,
     has_deps: bool,
 }
@@ -19,6 +27,7 @@ impl Parse for ComponentAttr {
         if input.is_empty() {
             return Ok(ComponentAttr {
                 flags: vec![],
+                stable_fields: vec![],
                 allowed_fields: vec![],
                 has_deps: false,
             });
@@ -38,29 +47,39 @@ impl Parse for ComponentAttr {
         let flags: Punctuated<Ident, Token![,]> =
             content.parse_terminated(Ident::parse, Token![,])?;
 
+        let mut stable_fields = Vec::new();
         let mut allowed_fields = Vec::new();
 
-        // Parse optional allow(...)
-        if input.peek(Token![,]) {
+        // Parse optional stable(...) and allow(...) clauses in any order
+        while input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
-            if !input.is_empty() {
-                let allow_keyword: Ident = input.parse()?;
-                if allow_keyword != "allow" {
-                    return Err(Error::new_spanned(
-                        &allow_keyword,
-                        format!("expected `allow(...)`, found `{allow_keyword}`"),
-                    ));
-                }
-                let allow_content;
-                parenthesized!(allow_content in input);
+            if input.is_empty() {
+                break;
+            }
+            let clause_keyword: Ident = input.parse()?;
+            if clause_keyword == "stable" {
+                let clause_content;
+                parenthesized!(clause_content in input);
                 let fields: Punctuated<Ident, Token![,]> =
-                    allow_content.parse_terminated(Ident::parse, Token![,])?;
-                allowed_fields = fields.into_iter().collect();
+                    clause_content.parse_terminated(Ident::parse, Token![,])?;
+                stable_fields.extend(fields);
+            } else if clause_keyword == "allow" {
+                let clause_content;
+                parenthesized!(clause_content in input);
+                let fields: Punctuated<Ident, Token![,]> =
+                    clause_content.parse_terminated(Ident::parse, Token![,])?;
+                allowed_fields.extend(fields);
+            } else {
+                return Err(Error::new_spanned(
+                    &clause_keyword,
+                    format!("expected `stable(...)` or `allow(...)`, found `{clause_keyword}`"),
+                ));
             }
         }
 
         Ok(ComponentAttr {
             flags: flags.into_iter().collect(),
+            stable_fields,
             allowed_fields,
             has_deps: true,
         })
@@ -70,7 +89,7 @@ impl Parse for ComponentAttr {
 pub fn expand_kasane_component(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let func: ItemFn = syn::parse2(input.clone())?;
 
-    // Parse deps() and allow()
+    // Parse deps(), stable(), and allow()
     let comp_attr: ComponentAttr = syn::parse2(attr)?;
 
     // Validate flag names
@@ -114,31 +133,44 @@ pub fn expand_kasane_component(attr: TokenStream, input: TokenStream) -> syn::Re
 
     // Field-access analysis: only when deps() is present
     if comp_attr.has_deps {
-        // Validate allow() field names
         let known = all_known_fields();
+        let free_reads = [
+            "cols",
+            "rows",
+            "focused",
+            "drag",
+            "smooth_scroll",
+            "scroll_animation",
+        ];
+
+        // Validate stable() field names
+        for field in &comp_attr.stable_fields {
+            let field_name = field.to_string();
+            if !known.contains(field_name.as_str()) && !free_reads.contains(&field_name.as_str()) {
+                return Err(Error::new_spanned(
+                    field,
+                    format!(
+                        "unknown AppState field `{field_name}` in stable(). \
+                         Known fields: {}",
+                        known.iter().copied().collect::<Vec<_>>().join(", ")
+                    ),
+                ));
+            }
+        }
+
+        // Validate allow() field names
         // Also accept free-read fields in allow() (cols, rows, etc. — though pointless, not wrong)
         for field in &comp_attr.allowed_fields {
             let field_name = field.to_string();
-            if !known.contains(field_name.as_str()) {
-                // Check if it's a known free-read field
-                let free_reads = [
-                    "cols",
-                    "rows",
-                    "focused",
-                    "drag",
-                    "smooth_scroll",
-                    "scroll_animation",
-                ];
-                if !free_reads.contains(&field_name.as_str()) {
-                    return Err(Error::new_spanned(
-                        field,
-                        format!(
-                            "unknown AppState field `{field_name}` in allow(). \
-                             Known fields: {}",
-                            known.iter().copied().collect::<Vec<_>>().join(", ")
-                        ),
-                    ));
-                }
+            if !known.contains(field_name.as_str()) && !free_reads.contains(&field_name.as_str()) {
+                return Err(Error::new_spanned(
+                    field,
+                    format!(
+                        "unknown AppState field `{field_name}` in allow(). \
+                         Known fields: {}",
+                        known.iter().copied().collect::<Vec<_>>().join(", ")
+                    ),
+                ));
             }
         }
 
@@ -150,15 +182,18 @@ pub fn expand_kasane_component(attr: TokenStream, input: TokenStream) -> syn::Re
             syn::visit::Visit::visit_item_fn(&mut visitor, &func);
 
             let covered_flags = expand_flags(&comp_attr.flags);
-            let allowed: HashSet<String> = comp_attr
-                .allowed_fields
+
+            // Both stable() and allow() fields suppress the "missing dep" error
+            let suppressed: HashSet<String> = comp_attr
+                .stable_fields
                 .iter()
+                .chain(comp_attr.allowed_fields.iter())
                 .map(|i| i.to_string())
                 .collect();
 
             // Check each accessed field
             for field in &visitor.accessed_fields {
-                if allowed.contains(field) {
+                if suppressed.contains(field) {
                     continue;
                 }
                 if let Some(required_flags) = flags_for_field(field) {
@@ -169,7 +204,7 @@ pub fn expand_kasane_component(attr: TokenStream, input: TokenStream) -> syn::Re
                                 format!(
                                     "component reads `state.{field}` which requires DirtyFlags::{req_flag}, \
                                      but deps() only declares [{}]. \
-                                     Add `{req_flag}` to deps() or `{field}` to allow()",
+                                     Add `{req_flag}` to deps(), `{field}` to stable(), or `{field}` to allow()",
                                     comp_attr
                                         .flags
                                         .iter()

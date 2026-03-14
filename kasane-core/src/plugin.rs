@@ -157,6 +157,18 @@ pub enum DecorateTarget {
     BufferLine(usize),
 }
 
+/// Target identifier for legacy seed-substitution in the transform chain.
+///
+/// Despite the name "Replace", this does **not** perform an exclusive override.
+/// A plugin returning `Some(element)` from [`Plugin::replace()`] for a given
+/// target provides an alternative *seed element* that enters the transform
+/// chain in place of the default element.  All subsequent transforms
+/// (decorators and transformers) are still applied to the replacement seed
+/// in exactly the same way as they would be applied to the default element.
+///
+/// In other words, `ReplaceTarget` controls Phase 1 (Seed Selection) of
+/// [`PluginRegistry::apply_transform_chain()`] — it never bypasses Phase 3
+/// (Chain Application).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReplaceTarget {
     MenuPrompt,
@@ -267,11 +279,19 @@ pub enum BlendMode {
 }
 
 /// New line annotation with `BackgroundLayer` support.
+///
+/// Annotations are collected from all annotating plugins per visible line.
+/// When multiple plugins contribute gutter elements, they are sorted by
+/// `priority` (ascending: lower values appear first / leftmost).
 #[derive(Debug, Clone)]
 pub struct LineAnnotation {
     pub left_gutter: Option<Element>,
     pub right_gutter: Option<Element>,
     pub background: Option<BackgroundLayer>,
+    /// Sort priority for gutter element ordering (default: 0).
+    /// Lower values sort first (leftmost in left gutter, leftmost in right gutter).
+    /// Mirrors `Contribution::priority` and `BackgroundLayer::z_order` conventions.
+    pub priority: i16,
 }
 
 /// Context for overlay contributions with collision avoidance.
@@ -539,6 +559,18 @@ pub trait Plugin: Any {
         element
     }
 
+    /// Provide an alternative seed element for the given [`ReplaceTarget`].
+    ///
+    /// Returning `Some(element)` substitutes the default element as the seed
+    /// that enters the transform chain.  Crucially, the returned element is
+    /// **not** used as-is — it still passes through every decorator and
+    /// transformer in the chain (Phase 3 of
+    /// [`PluginRegistry::apply_transform_chain()`]).  This means decorators
+    /// and transformers are never bypassed by a replacement.
+    ///
+    /// When multiple plugins provide a replacement for the same target, the
+    /// last one encountered in reverse registration order wins (last-wins
+    /// semantics in Phase 1).
     #[deprecated(since = "0.5.0", note = "Use transform() instead")]
     fn replace(&self, _target: ReplaceTarget, _state: &AppState) -> Option<Element> {
         None
@@ -757,6 +789,7 @@ pub trait Plugin: Any {
                 z_order: 0,
                 blend: BlendMode::Opaque,
             }),
+            priority: 0,
         })
     }
 
@@ -1442,13 +1475,54 @@ impl PluginRegistry {
         contributions
     }
 
-    /// Apply the transform chain for a given target.
+    /// Apply the 3-phase transform chain for a given target.
     ///
-    /// Plugins with TRANSFORMER capability use `transform()` (new API).
-    /// Plugins without TRANSFORMER fall back to `replace()` / `decorate()` (old API).
-    /// No plugin is called via both old and new API (C3 — no double dispatch).
+    /// This is the central element-transformation entry point.  Every UI
+    /// component that supports plugin customisation (status bar, menus, info
+    /// panels, buffer, etc.) is processed through this chain.
     ///
-    /// `default_element_fn` is called lazily — only if no replacement fully takes over (C7).
+    /// # Three-phase model
+    ///
+    /// **Phase 1 — Seed Selection (replacement scan)**
+    ///
+    /// Plugins with the `REPLACEMENT` capability (legacy API) are scanned in
+    /// **reverse registration order**.  The first plugin (i.e. the
+    /// last-registered one) that returns `Some(element)` from
+    /// [`Plugin::replace()`] wins, and its element becomes the *seed*.
+    /// Plugins with the `TRANSFORMER` capability (new API) are skipped in
+    /// this phase — their replacements are handled inline during Phase 3.
+    ///
+    /// **Phase 2 — Default Fallback**
+    ///
+    /// If no replacement was found in Phase 1, `default_element_fn()` is
+    /// evaluated **lazily** (only at this point) to produce the seed element.
+    /// This avoids unnecessary computation when a plugin fully replaces the
+    /// component (C7 — lazy default).
+    ///
+    /// **Phase 3 — Chain Application (transforms + decorators)**
+    ///
+    /// All plugins with `TRANSFORMER` or `DECORATOR` capability are collected
+    /// into a single chain, sorted by priority in **descending** order (high
+    /// priority = inner = applied first, so the highest-priority transform
+    /// sees the raw seed, and the lowest-priority transform wraps the
+    /// outermost layer).  Each plugin in the chain is called exactly once:
+    ///
+    /// - `TRANSFORMER` plugins: called via [`Plugin::transform()`] (new API).
+    /// - `DECORATOR` plugins: called via [`Plugin::decorate()`] (legacy API).
+    ///
+    /// No plugin is ever called through both APIs (C3 — no double dispatch).
+    ///
+    /// # Key invariant
+    ///
+    /// The seed element (whether from a replacement or the default) **always**
+    /// passes through the full transform chain.  A replacement never bypasses
+    /// decorators or transformers — it only substitutes what enters the chain.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` — Identifies which UI component is being transformed.
+    /// * `default_element_fn` — Lazily produces the default seed element.
+    /// * `state` — Current application state, forwarded to every plugin call.
     #[allow(deprecated)]
     pub fn apply_transform_chain(
         &self,
@@ -1557,20 +1631,21 @@ impl PluginRegistry {
         let mut backgrounds: Vec<Option<Face>> = vec![None; line_count];
 
         for (line, bg_slot) in backgrounds.iter_mut().enumerate().take(line_count) {
-            let mut left_parts: Vec<Element> = Vec::new();
-            let mut right_parts: Vec<Element> = Vec::new();
+            let mut left_parts: Vec<(i16, Element)> = Vec::new();
+            let mut right_parts: Vec<(i16, Element)> = Vec::new();
             let mut bg_layers: Vec<BackgroundLayer> = Vec::new();
 
             for (i, plugin) in self.plugins.iter().enumerate() {
                 let caps = self.capabilities[i];
                 if caps.contains(PluginCapabilities::ANNOTATOR) {
                     if let Some(ann) = plugin.annotate_line_with_ctx(line, state, ctx) {
+                        let prio = ann.priority;
                         if let Some(el) = ann.left_gutter {
-                            left_parts.push(el);
+                            left_parts.push((prio, el));
                             has_left = true;
                         }
                         if let Some(el) = ann.right_gutter {
-                            right_parts.push(el);
+                            right_parts.push((prio, el));
                             has_right = true;
                         }
                         if let Some(bg) = ann.background {
@@ -1581,11 +1656,11 @@ impl PluginRegistry {
                     && let Some(dec) = plugin.contribute_line(line, state)
                 {
                     if let Some(el) = dec.left_gutter {
-                        left_parts.push(el);
+                        left_parts.push((0, el));
                         has_left = true;
                     }
                     if let Some(el) = dec.right_gutter {
-                        right_parts.push(el);
+                        right_parts.push((0, el));
                         has_right = true;
                     }
                     if let Some(bg) = dec.background {
@@ -1598,17 +1673,31 @@ impl PluginRegistry {
                 }
             }
 
+            // Sort gutter elements by priority (ascending: lower values first)
+            left_parts.sort_by_key(|(prio, _)| *prio);
+            right_parts.sort_by_key(|(prio, _)| *prio);
+
             let left_cell = match left_parts.len() {
                 0 => Element::text(" ", Face::default()),
-                1 => left_parts.pop().unwrap(),
-                _ => Element::row(left_parts.into_iter().map(FlexChild::fixed).collect()),
+                1 => left_parts.pop().unwrap().1,
+                _ => Element::row(
+                    left_parts
+                        .into_iter()
+                        .map(|(_, el)| FlexChild::fixed(el))
+                        .collect(),
+                ),
             };
             left_rows.push(FlexChild::fixed(left_cell));
 
             let right_cell = match right_parts.len() {
                 0 => Element::text(" ", Face::default()),
-                1 => right_parts.pop().unwrap(),
-                _ => Element::row(right_parts.into_iter().map(FlexChild::fixed).collect()),
+                1 => right_parts.pop().unwrap().1,
+                _ => Element::row(
+                    right_parts
+                        .into_iter()
+                        .map(|(_, el)| FlexChild::fixed(el))
+                        .collect(),
+                ),
             };
             right_rows.push(FlexChild::fixed(right_cell));
 

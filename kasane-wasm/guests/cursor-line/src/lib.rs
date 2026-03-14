@@ -76,6 +76,7 @@ impl Guest for CursorLinePlugin {
                     z_order: 0,
                     blend_opaque: true,
                 }),
+                priority: 0,
             })
         } else {
             None

@@ -536,7 +536,7 @@ mod tests {
         let wc = wit::Command::RequestRedraw(0x03);
         match wit_command_to_command(&wc) {
             Command::RequestRedraw(flags) => {
-                assert!(flags.contains(DirtyFlags::BUFFER));
+                assert!(flags.contains(DirtyFlags::BUFFER_CONTENT));
                 assert!(flags.contains(DirtyFlags::STATUS));
             }
             _ => panic!("unexpected command variant"),

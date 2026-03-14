@@ -60,12 +60,15 @@ pub mod slot {
 
 /// DirtyFlags bit values matching `kasane_core::state::DirtyFlags`.
 pub mod dirty {
-    pub const BUFFER: u16 = 1 << 0;
+    pub const BUFFER_CONTENT: u16 = 1 << 0;
     pub const STATUS: u16 = 1 << 1;
     pub const MENU_STRUCTURE: u16 = 1 << 2;
     pub const MENU_SELECTION: u16 = 1 << 3;
     pub const INFO: u16 = 1 << 4;
     pub const OPTIONS: u16 = 1 << 5;
+    pub const BUFFER_CURSOR: u16 = 1 << 6;
+    /// Composite: any buffer-related change (content or cursor).
+    pub const BUFFER: u16 = BUFFER_CONTENT | BUFFER_CURSOR;
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
     pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS;
 }
@@ -435,8 +438,8 @@ mod tests {
 
     #[test]
     fn dirty_all_matches_bitflags() {
-        // Ensure our constants match kasane-core's DirtyFlags::ALL = 0x3F
-        assert_eq!(dirty::ALL, 0x3F);
+        // Ensure our constants match kasane-core's DirtyFlags::ALL = 0x7F
+        assert_eq!(dirty::ALL, 0x7F);
     }
 
     #[test]

@@ -84,12 +84,12 @@ impl ViewCache {
     /// deps that account for plugin contributions, use `invalidate_with_deps()`.
     pub fn invalidate(&mut self, dirty: DirtyFlags) {
         // These masks match the DEPS constants in view/mod.rs:
-        //   BUILD_BASE_DEPS = BUFFER | STATUS | OPTIONS
+        //   BUILD_BASE_DEPS = BUFFER_CONTENT | STATUS | OPTIONS
         //   BUILD_MENU_SECTION_DEPS = MENU_STRUCTURE | MENU_SELECTION | OPTIONS
         //   BUILD_INFO_SECTION_DEPS = INFO | OPTIONS
         self.base.invalidate(
             dirty,
-            DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS,
+            DirtyFlags::BUFFER_CONTENT | DirtyFlags::STATUS | DirtyFlags::OPTIONS,
         );
         self.menu_overlay
             .invalidate(dirty, DirtyFlags::MENU | DirtyFlags::OPTIONS);
@@ -137,7 +137,7 @@ impl LayoutCache {
             self.root_area = None;
             return;
         }
-        if dirty.intersects(DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
+        if dirty.intersects(DirtyFlags::BUFFER_CONTENT | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
             self.base_layout = None;
             self.status_row = None;
         }

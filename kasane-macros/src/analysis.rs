@@ -7,6 +7,8 @@ use syn::{Expr, ExprField, ExprMethodCall, FnArg, Ident, ItemFn, Macro, Member, 
 /// Known DirtyFlags flag names.
 pub const KNOWN_FLAGS: &[&str] = &[
     "BUFFER",
+    "BUFFER_CONTENT",
+    "BUFFER_CURSOR",
     "STATUS",
     "MENU_STRUCTURE",
     "MENU_SELECTION",
@@ -19,16 +21,17 @@ pub const KNOWN_FLAGS: &[&str] = &[
 /// Maps AppState field names to the DirtyFlags they belong to.
 /// Fields not listed here are "free reads" (geometry, non-rendered state).
 pub const FIELD_FLAG_MAP: &[(&str, &[&str])] = &[
-    // BUFFER
-    ("lines", &["BUFFER"]),
-    ("lines_dirty", &["BUFFER"]),
-    ("default_face", &["BUFFER"]),
-    ("padding_face", &["BUFFER"]),
-    ("cursor_mode", &["BUFFER"]),
-    ("cursor_pos", &["BUFFER"]),
-    ("cursor_count", &["BUFFER"]),
-    ("secondary_cursors", &["BUFFER"]),
-    ("widget_columns", &["BUFFER"]),
+    // BUFFER_CONTENT
+    ("lines", &["BUFFER_CONTENT"]),
+    ("lines_dirty", &["BUFFER_CONTENT"]),
+    ("default_face", &["BUFFER_CONTENT"]),
+    ("padding_face", &["BUFFER_CONTENT"]),
+    ("widget_columns", &["BUFFER_CONTENT"]),
+    // BUFFER_CURSOR
+    ("cursor_mode", &["BUFFER_CURSOR"]),
+    ("cursor_pos", &["BUFFER_CURSOR"]),
+    ("cursor_count", &["BUFFER_CURSOR"]),
+    ("secondary_cursors", &["BUFFER_CURSOR"]),
     // STATUS
     ("status_prompt", &["STATUS"]),
     ("status_content", &["STATUS"]),
@@ -52,7 +55,7 @@ pub const FIELD_FLAG_MAP: &[(&str, &[&str])] = &[
     ("scrollbar_track", &["MENU_STRUCTURE"]),
     ("assistant_art", &["OPTIONS"]),
     ("plugin_config", &["OPTIONS"]),
-    ("secondary_blend_ratio", &["BUFFER"]),
+    ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
     // Free reads (no DirtyFlag — resize triggers ALL externally):
     // cols, rows, focused, drag, smooth_scroll, scroll_animation
 ];
@@ -180,34 +183,15 @@ pub fn type_is_app_state(ty: &Type) -> bool {
     }
 }
 
-/// Expand the flags covered by composite flags (MENU → MENU_STRUCTURE + MENU_SELECTION, ALL → everything).
+/// Expand the flags covered by composite flags.
+///
+/// - `ALL` → all atomic flags
+/// - `BUFFER` → `BUFFER_CONTENT` + `BUFFER_CURSOR`
+/// - `MENU` → `MENU_STRUCTURE` + `MENU_SELECTION`
 pub fn expand_flags(flags: &[Ident]) -> HashSet<String> {
     let mut expanded = HashSet::new();
     for flag in flags {
-        let name = flag.to_string();
-        match name.as_str() {
-            "ALL" => {
-                expanded.extend(
-                    [
-                        "BUFFER",
-                        "STATUS",
-                        "MENU_STRUCTURE",
-                        "MENU_SELECTION",
-                        "INFO",
-                        "OPTIONS",
-                    ]
-                    .iter()
-                    .map(|s| s.to_string()),
-                );
-            }
-            "MENU" => {
-                expanded.insert("MENU_STRUCTURE".to_string());
-                expanded.insert("MENU_SELECTION".to_string());
-            }
-            other => {
-                expanded.insert(other.to_string());
-            }
-        }
+        expand_single_flag(&flag.to_string(), &mut expanded);
     }
     expanded
 }
@@ -216,31 +200,40 @@ pub fn expand_flags(flags: &[Ident]) -> HashSet<String> {
 pub fn expand_flag_strs(flags: &[&str]) -> HashSet<String> {
     let mut expanded = HashSet::new();
     for flag in flags {
-        match *flag {
-            "ALL" => {
-                expanded.extend(
-                    [
-                        "BUFFER",
-                        "STATUS",
-                        "MENU_STRUCTURE",
-                        "MENU_SELECTION",
-                        "INFO",
-                        "OPTIONS",
-                    ]
-                    .iter()
-                    .map(|s| s.to_string()),
-                );
-            }
-            "MENU" => {
-                expanded.insert("MENU_STRUCTURE".to_string());
-                expanded.insert("MENU_SELECTION".to_string());
-            }
-            other => {
-                expanded.insert(other.to_string());
-            }
-        }
+        expand_single_flag(flag, &mut expanded);
     }
     expanded
+}
+
+fn expand_single_flag(flag: &str, expanded: &mut HashSet<String>) {
+    match flag {
+        "ALL" => {
+            expanded.extend(
+                [
+                    "BUFFER_CONTENT",
+                    "BUFFER_CURSOR",
+                    "STATUS",
+                    "MENU_STRUCTURE",
+                    "MENU_SELECTION",
+                    "INFO",
+                    "OPTIONS",
+                ]
+                .iter()
+                .map(|s| s.to_string()),
+            );
+        }
+        "BUFFER" => {
+            expanded.insert("BUFFER_CONTENT".to_string());
+            expanded.insert("BUFFER_CURSOR".to_string());
+        }
+        "MENU" => {
+            expanded.insert("MENU_STRUCTURE".to_string());
+            expanded.insert("MENU_SELECTION".to_string());
+        }
+        other => {
+            expanded.insert(other.to_string());
+        }
+    }
 }
 
 /// Look up the required flags for a field name.
@@ -289,13 +282,16 @@ mod tests {
         );
         assert_eq!(
             flags_for_field("secondary_blend_ratio"),
-            Some(["BUFFER"].as_slice())
+            Some(["BUFFER_CONTENT"].as_slice())
         );
     }
 
     #[test]
     fn test_flags_for_existing_fields() {
-        assert_eq!(flags_for_field("lines"), Some(["BUFFER"].as_slice()));
+        assert_eq!(
+            flags_for_field("lines"),
+            Some(["BUFFER_CONTENT"].as_slice())
+        );
         assert_eq!(
             flags_for_field("status_prompt"),
             Some(["STATUS"].as_slice())
@@ -348,10 +344,15 @@ mod tests {
         let flags = expand_flag_strs(&["MENU"]);
         assert!(flags.contains("MENU_STRUCTURE"));
         assert!(flags.contains("MENU_SELECTION"));
-        assert!(!flags.contains("BUFFER"));
+        assert!(!flags.contains("BUFFER_CONTENT"));
+
+        let flags = expand_flag_strs(&["BUFFER"]);
+        assert!(flags.contains("BUFFER_CONTENT"));
+        assert!(flags.contains("BUFFER_CURSOR"));
 
         let flags = expand_flag_strs(&["ALL"]);
-        assert!(flags.contains("BUFFER"));
+        assert!(flags.contains("BUFFER_CONTENT"));
+        assert!(flags.contains("BUFFER_CURSOR"));
         assert!(flags.contains("STATUS"));
         assert!(flags.contains("INFO"));
         assert!(flags.contains("OPTIONS"));

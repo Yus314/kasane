@@ -49,9 +49,9 @@ fn main() {
     let result = plugin.contribute_slot(&SlotId::new("my.plugin.sidebar"), &state);
     assert!(result.is_some());
 
-    // slot_id_deps for named slot: reads state.lines → BUFFER
+    // slot_id_deps for named slot: reads state.lines → BUFFER_CONTENT
     let deps = plugin.slot_id_deps(&SlotId::new("my.plugin.sidebar"));
-    assert!(deps.contains(DirtyFlags::BUFFER));
+    assert!(deps.contains(DirtyFlags::BUFFER_CONTENT));
 
     // slot_deps for legacy slot
     let deps = plugin.slot_deps(Slot::StatusRight);

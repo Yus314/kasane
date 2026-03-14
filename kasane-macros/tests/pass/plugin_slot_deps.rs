@@ -34,15 +34,15 @@ fn main() {
 
     let plugin = DepsPluginPlugin::new();
 
-    // BufferLeft reads state.lines → should include BUFFER
+    // BufferLeft reads state.lines → should include BUFFER_CONTENT
     let deps = plugin.slot_deps(Slot::BufferLeft);
-    assert!(deps.contains(DirtyFlags::BUFFER));
+    assert!(deps.contains(DirtyFlags::BUFFER_CONTENT));
     assert!(!deps.contains(DirtyFlags::STATUS));
 
     // StatusRight reads state.status_line → should include STATUS
     let deps = plugin.slot_deps(Slot::StatusRight);
     assert!(deps.contains(DirtyFlags::STATUS));
-    assert!(!deps.contains(DirtyFlags::BUFFER));
+    assert!(!deps.contains(DirtyFlags::BUFFER_CONTENT));
 
     // Unused slot → empty
     let deps = plugin.slot_deps(Slot::Overlay);

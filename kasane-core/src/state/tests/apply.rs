@@ -64,7 +64,7 @@ fn test_draw_status_derives_cursor_mode_prompt() {
         default_face: Face::default(),
     });
     assert!(flags.contains(DirtyFlags::STATUS));
-    assert!(flags.contains(DirtyFlags::BUFFER)); // mode changed
+    assert!(flags.contains(DirtyFlags::BUFFER_CURSOR)); // mode changed
     assert_eq!(state.cursor_mode, CursorMode::Prompt);
     assert_eq!(state.status_content_cursor_pos, 4);
 }

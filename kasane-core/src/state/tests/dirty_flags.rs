@@ -46,7 +46,7 @@ fn test_menu_hide_returns_both_menu_flags() {
     let flags = state.apply(KakouneRequest::MenuHide);
     assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
     assert!(flags.contains(DirtyFlags::MENU_SELECTION));
-    assert!(flags.contains(DirtyFlags::BUFFER));
+    assert!(flags.contains(DirtyFlags::BUFFER_CONTENT));
 }
 
 #[test]

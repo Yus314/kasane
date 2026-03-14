@@ -482,6 +482,7 @@ impl Guest for ColorPreviewPlugin {
                 left_gutter: Some(swatch),
                 right_gutter: None,
                 background: None,
+                priority: 0,
             })
         })
     }

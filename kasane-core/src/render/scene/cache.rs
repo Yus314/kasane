@@ -32,7 +32,7 @@ impl SceneCache {
             return;
         }
 
-        if dirty.intersects(DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
+        if dirty.intersects(DirtyFlags::BUFFER_CONTENT | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
             self.base_commands = None;
         }
         if dirty.intersects(DirtyFlags::MENU | DirtyFlags::OPTIONS) {

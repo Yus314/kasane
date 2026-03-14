@@ -648,9 +648,9 @@ fn test_line_dirty_full_repaint_on_overlay() {
     grid.swap();
 
     let flags = state.apply(KakouneRequest::MenuHide);
-    // MenuHide returns MENU|BUFFER — not just BUFFER
+    // MenuHide returns MENU|BUFFER_CONTENT — buffer content needs redraw (overlay removed)
     assert!(flags.contains(DirtyFlags::MENU));
-    assert!(flags.contains(DirtyFlags::BUFFER));
+    assert!(flags.contains(DirtyFlags::BUFFER_CONTENT));
 
     // Full repaint should happen (dirty != BUFFER alone)
     render_with_dirty(&state, flags, &mut grid);

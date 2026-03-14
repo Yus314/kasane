@@ -17,7 +17,10 @@ impl AppState {
             } => {
                 self.cursor_pos = cursor_pos;
 
-                // Extract all cursor positions: atoms with FINAL_FG + REVERSE indicate cursor faces.
+                // Heuristic: Atoms with FINAL_FG + REVERSE attributes are assumed to be cursor
+                // faces. This relies on Kakoune's internal rendering of multi-cursor
+                // selections, which is not part of the protocol specification and may change
+                // in future versions.
                 // Track coordinates using grapheme display widths for accurate column positions.
                 let mut all_cursors: Vec<Coord> = Vec::new();
                 for (line_idx, line) in lines.iter().enumerate() {
@@ -97,7 +100,7 @@ impl AppState {
                 self.status_default_face = default_face;
 
                 if mode_changed {
-                    DirtyFlags::STATUS | DirtyFlags::BUFFER
+                    DirtyFlags::STATUS | DirtyFlags::BUFFER_CURSOR
                 } else {
                     DirtyFlags::STATUS
                 }
@@ -140,7 +143,7 @@ impl AppState {
             }
             KakouneRequest::MenuHide => {
                 self.menu = None;
-                DirtyFlags::MENU | DirtyFlags::BUFFER
+                DirtyFlags::MENU | DirtyFlags::BUFFER_CONTENT
             }
             KakouneRequest::InfoShow {
                 title,
@@ -173,7 +176,7 @@ impl AppState {
             KakouneRequest::InfoHide => {
                 // Remove the most recently added/updated info
                 self.infos.pop();
-                DirtyFlags::INFO | DirtyFlags::BUFFER
+                DirtyFlags::INFO | DirtyFlags::BUFFER_CONTENT
             }
             KakouneRequest::SetUiOptions { options } => {
                 self.ui_options = options;

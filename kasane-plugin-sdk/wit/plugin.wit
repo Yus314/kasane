@@ -261,6 +261,8 @@ interface types {
         left-gutter: option<element-handle>,
         right-gutter: option<element-handle>,
         background: option<background-layer>,
+        /// Sort priority for gutter ordering (lower = first). Default: 0.
+        priority: s16,
     }
 
     record overlay-context {

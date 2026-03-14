@@ -19,7 +19,7 @@ use crate::state::DirtyFlags;
 // DirtyFlags dependency masks for each component function.
 // These match the deps() annotations on the #[kasane_component] attributes.
 pub(crate) const BUILD_BASE_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
-    DirtyFlags::BUFFER.bits() | DirtyFlags::STATUS.bits() | DirtyFlags::OPTIONS.bits(),
+    DirtyFlags::BUFFER_CONTENT.bits() | DirtyFlags::STATUS.bits() | DirtyFlags::OPTIONS.bits(),
 );
 pub(crate) const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
     DirtyFlags::MENU_STRUCTURE.bits()
@@ -167,7 +167,7 @@ pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut View
 }
 
 /// Build the base layout: buffer + status bar + plugin slots.
-#[crate::kasane_component(deps(BUFFER, STATUS, OPTIONS))]
+#[crate::kasane_component(deps(BUFFER_CONTENT, STATUS, OPTIONS))]
 fn build_base(state: &AppState, registry: &PluginRegistry) -> Element {
     let buffer_rows = state.available_height() as usize;
     let ctx = ContributeContext::new(state, None);
@@ -312,7 +312,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 }
 
 /// Build info overlay section with collision avoidance.
-#[crate::kasane_component(deps(INFO), allow(cursor_pos))]
+#[crate::kasane_component(deps(INFO), stable(cursor_pos))]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
@@ -366,7 +366,7 @@ fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overla
     overlays
 }
 
-#[crate::kasane_component(deps(STATUS, BUFFER))]
+#[crate::kasane_component(deps(STATUS))]
 fn build_status_bar(
     state: &AppState,
     status_left: Vec<Element>,

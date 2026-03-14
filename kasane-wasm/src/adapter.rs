@@ -506,6 +506,7 @@ impl Plugin for WasmPlugin {
                     left_gutter,
                     right_gutter,
                     background,
+                    priority: wit_ann.priority,
                 })
             }
             Ok(None) => None,

@@ -27,6 +27,7 @@ insta = { workspace = true }
 criterion = { workspace = true }
 iai-callgrind = { workspace = true }
 hdrhistogram = { workspace = true }
+proptest = "1"
 
 [[bench]]
 name = "rendering_pipeline"

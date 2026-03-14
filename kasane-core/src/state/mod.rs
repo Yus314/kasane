@@ -21,13 +21,18 @@ pub use update::{Msg, update};
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirtyFlags: u16 {
-        const BUFFER          = 1 << 0;
+        /// Buffer content changed (lines, faces, widget_columns, etc.).
+        const BUFFER_CONTENT  = 1 << 0;
         const STATUS          = 1 << 1;
         const MENU_STRUCTURE  = 1 << 2;
         const MENU_SELECTION  = 1 << 3;
         const INFO            = 1 << 4;
         const OPTIONS         = 1 << 5;
+        /// Cursor position/mode changed (cursor_pos, cursor_mode, secondary_cursors).
+        const BUFFER_CURSOR   = 1 << 6;
 
+        /// Composite: any buffer-related change.
+        const BUFFER = Self::BUFFER_CONTENT.bits() | Self::BUFFER_CURSOR.bits();
         const MENU = Self::MENU_STRUCTURE.bits() | Self::MENU_SELECTION.bits();
         const ALL  = Self::BUFFER.bits() | Self::STATUS.bits()
                    | Self::MENU.bits() | Self::INFO.bits() | Self::OPTIONS.bits();
@@ -58,28 +63,63 @@ pub struct ScrollAnimation {
     pub column: u32,
 }
 
+/// The central application state, updated by Kakoune JSON-RPC messages via [`apply`](AppState::apply).
+///
+/// Fields are classified into three epistemological categories:
+///
+/// - **Observed**: Direct 1:1 mapping from Kakoune JSON-RPC protocol messages. No transformation
+///   is applied; the value is stored exactly as received from the upstream `draw`, `draw_status`,
+///   `menu_show`, `info_show`, or `set_ui_options` request.
+///
+/// - **Derived**: Deterministically computed from Observed fields. The derivation logic is
+///   straightforward and has stable semantics (e.g., concatenation, comparison).
+///
+/// - **Heuristic**: Inferred from upstream internal implementation details that are not part of
+///   the protocol specification. These fields rely on assumptions about how Kakoune renders
+///   certain UI elements (e.g., cursor face attributes) and may break if Kakoune changes its
+///   rendering behavior in future versions.
 #[derive(Debug, Clone)]
 pub struct AppState {
     // -- Protocol State (from Kakoune JSON-RPC) --
+    /// Observed: buffer lines from `draw`.
     pub lines: Vec<Line>,
+    /// Observed: default face from `draw`.
     pub default_face: Face,
+    /// Observed: padding face from `draw`.
     pub padding_face: Face,
+    /// Derived: per-line dirty flags computed by diffing old vs new `lines`.
     pub lines_dirty: Vec<bool>,
+    /// Derived: inferred from `status_content_cursor_pos >= 0` (Buffer vs Prompt).
     pub cursor_mode: CursorMode,
+    /// Observed: cursor position from `draw` (`cursor_pos` field).
     pub cursor_pos: Coord,
+    /// Observed: status prompt atoms from `draw_status`.
     pub status_prompt: Line,
+    /// Observed: status content atoms from `draw_status`.
     pub status_content: Line,
+    /// Observed: cursor position within status content from `draw_status`.
     pub status_content_cursor_pos: i32,
+    /// Derived: concatenation of `status_prompt` + `status_content` for rendering.
     pub status_line: Line,
+    /// Observed: mode line atoms from `draw_status`.
     pub status_mode_line: Line,
+    /// Observed: default face for the status bar from `draw_status`.
     pub status_default_face: Face,
+    /// Observed: number of widget columns from `draw`.
     pub widget_columns: u16,
+    /// Observed: completion menu state from `menu_show` / `menu_select` / `menu_hide`.
     pub menu: Option<MenuState>,
+    /// Observed: info popup state from `info_show` / `info_hide`.
     pub infos: Vec<InfoState>,
+    /// Observed: UI options from `set_ui_options`.
     pub ui_options: HashMap<String, String>,
+    /// Heuristic: total cursor count (primary + secondary), detected via FINAL_FG + REVERSE
+    /// attribute pattern in `draw` atoms. Not part of the protocol specification.
     pub cursor_count: usize,
-    /// Positions of secondary cursors (all cursors except primary).
-    /// Extracted from Draw message by comparing cursor atom coordinates against cursor_pos.
+    /// Heuristic: positions of secondary cursors (all cursors except primary).
+    /// Extracted from `draw` atoms whose face has FINAL_FG + REVERSE attributes, then
+    /// filtered to exclude the primary `cursor_pos`. This relies on Kakoune's internal
+    /// rendering of multi-cursor selections and may change in future versions.
     pub secondary_cursors: Vec<Coord>,
 
     // -- Frontend Config (from user config / SetConfig commands) --
@@ -159,7 +199,7 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
         }
         "padding_char" => {
             state.padding_char = value.to_string();
-            *dirty |= DirtyFlags::BUFFER;
+            *dirty |= DirtyFlags::BUFFER_CONTENT;
         }
         "search_dropdown" => {
             state.search_dropdown = value == "true";
@@ -175,7 +215,7 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
         "cursor.secondary_blend" => {
             if let Ok(ratio) = value.parse::<f32>() {
                 state.secondary_blend_ratio = ratio.clamp(0.0, 1.0);
-                *dirty |= DirtyFlags::BUFFER;
+                *dirty |= DirtyFlags::BUFFER_CONTENT;
             }
         }
         "scrollbar.thumb" => {

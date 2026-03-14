@@ -36,7 +36,7 @@ pub fn apply_paint_hooks(
 /// clear non-buffer sections that are dirty. This extends line-dirty optimization
 /// to BUFFER|STATUS and other BUFFER-containing combinations.
 fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
-    let line_dirty_active = dirty.contains(DirtyFlags::BUFFER)
+    let line_dirty_active = dirty.contains(DirtyFlags::BUFFER_CONTENT)
         && !state.lines_dirty.is_empty()
         && state.lines_dirty.iter().any(|d| !d);
 
