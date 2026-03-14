@@ -1,6 +1,11 @@
 use crate::protocol::{Coord, Face, InfoStyle, Line};
 
-/// Identity key for deduplicating simultaneous info popups.
+/// Heuristic identity key for deduplicating simultaneous info popups.
+///
+/// Uses `style` + `anchor_line` as an approximation of identity -- two infos with the same
+/// style and anchor line are treated as the same popup being updated. This is not guaranteed
+/// by the protocol; Kakoune may in theory send distinct infos with identical style and anchor.
+///
 /// Infos with the same identity replace each other; different identities coexist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InfoIdentity {
