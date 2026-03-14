@@ -49,13 +49,13 @@ Phase 4 の完了条件:
 - ADR-010 の Stage 1-4 は完了
 - P-010 / P-011 の部分実証: `line_numbers` (`BUFFER_LEFT`), `color_preview` (左ガター + overlay), `cursor_line` (行背景 annotation)
 - `transform_menu_item()` は統合テスト内 plugin で proof artifact あり
+- `transform(TransformTarget::Buffer)` と `cursor_style_override()` は統合テスト内 plugin で proof artifact あり
 
 **未完了:**
 
 | 項目 | 種別 | 状態 | 次の作業 |
 |------|------|------|----------|
 | `OverlayAnchor::Absolute` | Shared Plugin API validation | Open | WASM fixture または統合テスト内 plugin で公開経路の proof artifact を追加する |
-| `transform(TransformTarget::Buffer)` / `cursor_style_override()` | Shared Plugin API validation | Open | 統合テスト内 plugin か最小 guest で proof artifact を追加する |
 | `SlotId::ABOVE_BUFFER / BELOW_BUFFER / Named(...)` | Shared Plugin API validation | Open | sample ではなく最小 proof artifact でよいので 1 件ずつ通す |
 
 ### 3.2 Phase G - GUI 描画追随項目
@@ -96,12 +96,18 @@ Phase W の基盤自体は完了しているが、運用面の残課題は残っ
 ### 3.5 Phase P - プラグイン I/O 基盤
 
 Phase 4 のプラグイン API 実証が前提。Phase 5 (Surface / Workspace) とは独立に進行可能。
+設計根拠は [ADR-019](./decisions.md#adr-019-プラグイン-io-基盤--ハイブリッドモデル) を参照。
 
 | サブフェーズ | 項目 | 種別 | 状態 | 次の作業 |
 |---|---|---|---|---|
-| P-a | 非同期タスク基盤 | コア基盤 | Open | イベントループにプラグイン→ホストのチャネルを導入し、バックグラウンド処理の結果を `plugin.update()` に配信する仕組みを設計・実装する |
-| P-b | `Command` への外部プロセス実行バリアント追加 | プラグイン API | Open | P-a の上に `Command::SpawnProcess` を設計し、非同期にプロセスを実行して stdout / exit を `plugin.update()` へ配信する |
-| P-c | WASI ケイパビリティの段階的解放 | WASM ランタイム | Open | P-b の設計を踏まえ、`WasiCtxBuilder` にファイルシステム / プロセス起動権限を制御付きで付与する |
+| P-1 | WASI ケイパビリティ基盤 | WASM ランタイム | Open | プラグインマニフェストにケイパビリティ宣言を追加し、`WasiCtxBuilder` にプラグイン別の `preopened_dir` / `env` / `inherit_monotonic_clock` を設定する仕組みを実装する |
+| P-2 | プロセス実行基盤 | コア基盤 + プラグイン API | Open | `IoEvent` / `ProcessEvent` 型、`Plugin::on_io_event()`、`Command::SpawnProcess`、`ProcessManager`、イベントループへの `Event::ProcessOutput` 追加、16ms バッチ配送、ジョブ ID / キャンセルを実装する。WIT に `io-event` 型と `on-io-event` 関数を追加する |
+| P-3 | 実証・安定化 | 実証 | Open | ファジーファインダー参照実装 (WASM ゲスト) を作成し、ランタイムフレームタイム計測、バックプレッシャー調整を行う |
+
+**設計方針 (ADR-019):**
+- **ハイブリッドモデル**: 同期 I/O (ファイルシステム、環境変数、時計) は WASI 直接、非同期 I/O (プロセス実行、将来のネットワーク) はホスト媒介 (`Command` + `IoEvent`)
+- **IoEvent 統一型**: `Plugin::on_io_event(IoEvent)` 1 メソッドで全 I/O イベントを配送。将来の I/O 種別追加は `IoEvent` variant 追加のみ
+- **wasmtime async 化は行わない**: `add_to_linker_sync` を維持
 
 **解放されるユースケース:** ファジーファインダー、ファイルブラウザ、外部リンター連携、ストリーミング検索結果、長時間タスクの進捗表示
 
