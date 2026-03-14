@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773478628446,
+  "lastUpdate": 1773493718374,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -7847,6 +7847,450 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7361,
             "range": "± 20",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "c58146008760fc8d0aa72deb2a427cbd2f148847",
+          "message": "docs: align plugin API docs with current unified API\n\nPlugin trait underwent a major API migration (contribute_to/transform/\nannotate_line_with_ctx/contribute_overlay_with_ctx) but documentation\nstill referenced the old APIs (contribute/decorate/replace/\ncontribute_line/contribute_overlay). Update all docs to reflect the\ncurrent canonical API:\n\n- semantics.md: rewrite §8 extension points and composition order,\n  mark §12.6 (transform/replacement unification) as resolved\n- layer-responsibilities.md: update API verification table and examples\n- plugin-api.md: rewrite mechanism guide, code examples, and\n  PluginCapabilities table with actual flag names\n- plugin-development.md: update quick start examples (WASM + native),\n  fix test example to use collect_contributions, update reference table\n- decisions.md: correct ADR-012 §12-3 WIT parity statement\n- kasane-plugin-sdk/src/lib.rs: update doc comment quick start\n- CLAUDE.md: update plugin system description\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-14T21:45:18+09:00",
+          "tree_id": "6e75f4cbff3ab8046b4b142b75e1a6ebe15547a8",
+          "url": "https://github.com/Yus314/kasane/commit/c58146008760fc8d0aa72deb2a427cbd2f148847"
+        },
+        "date": 1773493717911,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 566,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 4578,
+            "range": "± 22",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 335,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 28120,
+            "range": "± 327",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 97115,
+            "range": "± 396",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 32969,
+            "range": "± 382",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 25180,
+            "range": "± 379",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 13550,
+            "range": "± 578",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 31542,
+            "range": "± 1342",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 12741,
+            "range": "± 76",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3309,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 20692,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 46064,
+            "range": "± 499",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 35638,
+            "range": "± 13916",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 60246,
+            "range": "± 470",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 60850,
+            "range": "± 554",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 61109,
+            "range": "± 454",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 43178,
+            "range": "± 209",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 45050,
+            "range": "± 262",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 35666,
+            "range": "± 1170",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 64737,
+            "range": "± 907",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 564737,
+            "range": "± 14586",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2749334,
+            "range": "± 34585",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3065,
+            "range": "± 60",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 55309,
+            "range": "± 1349",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 12692,
+            "range": "± 1865",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 49677,
+            "range": "± 193",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 262169,
+            "range": "± 810",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 869,
+            "range": "± 482",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5526,
+            "range": "± 197",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 46131,
+            "range": "± 83",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 203317,
+            "range": "± 827",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 364716,
+            "range": "± 966",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3036206,
+            "range": "± 21568",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 6090459,
+            "range": "± 48242",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 13524,
+            "range": "± 442",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 80904,
+            "range": "± 259",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 161704,
+            "range": "± 2631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 7042,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 6183,
+            "range": "± 157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 17869,
+            "range": "± 370",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 5114,
+            "range": "± 55",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 17521,
+            "range": "± 95",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 26156,
+            "range": "± 67",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 44240,
+            "range": "± 115",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_status_update",
+            "value": 1274,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_menu_select",
+            "value": 6518,
+            "range": "± 37",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_cursor_move",
+            "value": 220,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 6213,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 3748,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 12944,
+            "range": "± 137",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 7657,
+            "range": "± 1702",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 153844,
+            "range": "± 2984",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 859175,
+            "range": "± 23905",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2121,
+            "range": "± 43",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 142272,
+            "range": "± 3113",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 52561,
+            "range": "± 448",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 287455,
+            "range": "± 2642",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 20198,
+            "range": "± 387",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 51639,
+            "range": "± 248",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 138839,
+            "range": "± 8375",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 51391,
+            "range": "± 438",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4011018,
+            "range": "± 9720",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15275187,
+            "range": "± 78650",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1651083,
+            "range": "± 5505",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 18053380,
+            "range": "± 82390",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7408,
+            "range": "± 217",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 54938,
+            "range": "± 118",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 595,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7481,
+            "range": "± 36",
             "unit": "ns/iter"
           }
         ]
