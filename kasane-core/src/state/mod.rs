@@ -60,38 +60,29 @@ pub struct ScrollAnimation {
 
 #[derive(Debug, Clone)]
 pub struct AppState {
-    // Buffer
+    // -- Protocol State (from Kakoune JSON-RPC) --
     pub lines: Vec<Line>,
     pub default_face: Face,
     pub padding_face: Face,
     pub lines_dirty: Vec<bool>,
-
-    // Cursor (from draw message)
     pub cursor_mode: CursorMode,
     pub cursor_pos: Coord,
-
-    // Status
     pub status_prompt: Line,
     pub status_content: Line,
     pub status_content_cursor_pos: i32,
     pub status_line: Line,
     pub status_mode_line: Line,
     pub status_default_face: Face,
-
-    // Widget columns (flag-lines highlighter column count from draw)
     pub widget_columns: u16,
-
-    // Floating windows
     pub menu: Option<MenuState>,
     pub infos: Vec<InfoState>,
-
-    // Options
     pub ui_options: HashMap<String, String>,
+    pub cursor_count: usize,
+    /// Positions of secondary cursors (all cursors except primary).
+    /// Extracted from Draw message by comparing cursor atom coordinates against cursor_pos.
+    pub secondary_cursors: Vec<Coord>,
 
-    // Focus
-    pub focused: bool,
-
-    // Config-driven UI settings
+    // -- Frontend Config (from user config / SetConfig commands) --
     pub shadow_enabled: bool,
     pub padding_char: String,
     pub menu_max_height: u16,
@@ -101,29 +92,14 @@ pub struct AppState {
     pub scrollbar_thumb: String,
     pub scrollbar_track: String,
     pub assistant_art: Option<Vec<String>>,
-
-    // Plugin-defined config store
     pub plugin_config: HashMap<String, String>,
-
-    // Derived state
-    pub cursor_count: usize,
-    /// Positions of secondary cursors (all cursors except primary).
-    /// Extracted from Draw message by comparing cursor atom coordinates against cursor_pos.
-    pub secondary_cursors: Vec<Coord>,
-
-    // Mouse drag state
-    pub drag: DragState,
-
-    // Cursor settings
     pub secondary_blend_ratio: f32,
-
-    // Scroll settings
     pub smooth_scroll: bool,
 
-    // Scroll animation state
+    // -- Runtime / Ephemeral (not part of protocol or config) --
+    pub focused: bool,
+    pub drag: DragState,
     pub scroll_animation: Option<ScrollAnimation>,
-
-    // Screen size
     pub cols: u16,
     pub rows: u16,
 }
@@ -225,24 +201,21 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
     }
 }
 
-/// スクロールアニメーションを1フレーム進める。
-/// アニメーションが存在した場合 true を返す。
-pub fn tick_scroll_animation(state: &mut AppState, kak_writer: &mut impl std::io::Write) -> bool {
-    let Some(ref mut anim) = state.scroll_animation else {
-        return false;
-    };
+/// Advance the scroll animation by one frame.
+/// Returns `Some(Command)` with the scroll request if animation is active, `None` otherwise.
+pub fn tick_scroll_animation(state: &mut AppState) -> Option<crate::plugin::Command> {
+    let anim = state.scroll_animation.as_mut()?;
     let step = anim.step.min(anim.remaining.abs()) * anim.remaining.signum();
     let req = KasaneRequest::Scroll {
         amount: step,
         line: anim.line,
         column: anim.column,
     };
-    crate::io::send_request(kak_writer, &req);
     anim.remaining -= step;
     if anim.remaining == 0 {
         state.scroll_animation = None;
     }
-    true
+    Some(crate::plugin::Command::SendToKakoune(req))
 }
 
 impl Default for AppState {

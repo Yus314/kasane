@@ -22,10 +22,15 @@ impl HitMap {
     }
 
     pub fn test(&self, x: u16, y: u16) -> Option<InteractiveId> {
+        self.test_with_rect(x, y).map(|(id, _)| id)
+    }
+
+    /// Hit test returning both the InteractiveId and its bounding Rect.
+    pub fn test_with_rect(&self, x: u16, y: u16) -> Option<(InteractiveId, Rect)> {
         // Reverse iterate: last entry is topmost overlay
         self.entries.iter().rev().find_map(|(rect, id)| {
             if x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h {
-                Some(*id)
+                Some((*id, *rect))
             } else {
                 None
             }

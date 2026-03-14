@@ -96,7 +96,7 @@ pub struct App<W: Write + Send + 'static> {
     state: AppState,
     registry: PluginRegistry,
     surface_registry: SurfaceRegistry,
-    grid: CellGrid, // kept for update() API compatibility
+    grid: CellGrid, // used for resize tracking
     backend: Option<GuiBackend>,
 
     // Kakoune communication
@@ -267,9 +267,12 @@ impl<W: Write + Send + 'static> App<W> {
                         &mut self.state,
                         Msg::Kakoune(req),
                         &mut self.registry,
-                        &mut self.grid,
                         self.scroll_amount,
                     );
+                    if flags.contains(DirtyFlags::ALL) {
+                        self.grid.resize(self.state.cols, self.state.rows);
+                        self.grid.invalidate_all();
+                    }
                     self.dirty |= flags;
                     if self.exec_commands(commands) {
                         event_loop.exit();
@@ -296,13 +299,12 @@ impl<W: Write + Send + 'static> App<W> {
 
     fn handle_input_event(&mut self, input: InputEvent, event_loop: &ActiveEventLoop) {
         let msg = Msg::from(input);
-        let (flags, commands) = update(
-            &mut self.state,
-            msg,
-            &mut self.registry,
-            &mut self.grid,
-            self.scroll_amount,
-        );
+        let (flags, commands) =
+            update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
+        if flags.contains(DirtyFlags::ALL) {
+            self.grid.resize(self.state.cols, self.state.rows);
+            self.grid.invalidate_all();
+        }
         self.dirty |= flags;
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
@@ -602,10 +604,15 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
         self.process_pending_events(event_loop);
 
         // Smooth scroll animation tick
-        if tick_scroll_animation(&mut self.state, &mut self.kak_writer)
-            && let Some(ref window) = self.window
-        {
-            window.request_redraw();
+        if let Some(cmd) = tick_scroll_animation(&mut self.state) {
+            kasane_core::plugin::execute_commands(
+                vec![cmd],
+                &mut self.kak_writer,
+                &mut || None, // GUI doesn't have clipboard_get in this context
+            );
+            if let Some(ref window) = self.window {
+                window.request_redraw();
+            }
         }
 
         // Cursor animation drives continuous redraw when active

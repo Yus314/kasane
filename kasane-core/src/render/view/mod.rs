@@ -7,8 +7,8 @@ mod tests;
 use crate::element::{Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
 use crate::plugin::{
-    AnnotateContext, ContribSizeHint, ContributeContext, Contribution, PluginRegistry,
-    ReplaceTarget, SlotId, TransformTarget,
+    AnnotateContext, ContribSizeHint, ContributeContext, Contribution, PluginRegistry, SlotId,
+    TransformTarget,
 };
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::render::cache::{ViewCache, cache_dirty_snapshot};
@@ -18,13 +18,16 @@ use crate::state::DirtyFlags;
 
 // DirtyFlags dependency masks for each component function.
 // These match the deps() annotations on the #[kasane_component] attributes.
-const BUILD_BASE_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
+pub(crate) const BUILD_BASE_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
     DirtyFlags::BUFFER.bits() | DirtyFlags::STATUS.bits() | DirtyFlags::OPTIONS.bits(),
 );
-const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
-    DirtyFlags::MENU_STRUCTURE.bits() | DirtyFlags::MENU_SELECTION.bits(),
+pub(crate) const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
+    DirtyFlags::MENU_STRUCTURE.bits()
+        | DirtyFlags::MENU_SELECTION.bits()
+        | DirtyFlags::OPTIONS.bits(),
 );
-const BUILD_INFO_SECTION_DEPS: DirtyFlags = DirtyFlags::INFO;
+pub(crate) const BUILD_INFO_SECTION_DEPS: DirtyFlags =
+    DirtyFlags::from_bits_truncate(DirtyFlags::INFO.bits() | DirtyFlags::OPTIONS.bits());
 
 /// Build the full Element tree from application state (backward-compatible).
 pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
@@ -284,7 +287,6 @@ fn contribution_to_flex_child(c: Contribution) -> FlexChild {
 
 /// Build the menu overlay section.
 #[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION))]
-#[allow(deprecated)]
 fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Overlay> {
     let menu_state = state.menu.as_ref()?;
     let transform_target = match menu_state.style {
@@ -293,16 +295,9 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
         MenuStyle::Search => TransformTarget::MenuSearch,
     };
 
-    // Check for style-specific replacement via old API (backward compat)
-    let replace_target = match menu_state.style {
-        MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
-        MenuStyle::Inline => ReplaceTarget::MenuInline,
-        MenuStyle::Search => ReplaceTarget::MenuSearch,
-    };
-    let menu_overlay = match registry.get_replacement(replace_target, state) {
-        Some(replacement) => menu::build_replacement_menu_overlay(replacement, menu_state, state),
-        None => menu::build_menu_overlay(menu_state, state, registry),
-    };
+    // Build the default menu overlay; apply_transform_chain handles
+    // replacement internally (Phase 1) so no explicit get_replacement() needed.
+    let menu_overlay = menu::build_menu_overlay(menu_state, state, registry);
     menu_overlay.map(|mut overlay| {
         // Apply transform chain (Menu generic + style-specific)
         overlay.element = registry.apply_transform_chain(
@@ -318,7 +313,6 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 
 /// Build info overlay section with collision avoidance.
 #[crate::kasane_component(deps(INFO), allow(cursor_pos))]
-#[allow(deprecated)]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
@@ -335,17 +329,10 @@ fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overla
 
     let mut overlays = Vec::new();
     for (info_idx, info_state) in state.infos.iter().enumerate() {
-        let replace_target = match info_state.style {
-            InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
-            InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
-            _ => None,
-        };
-        let info_overlay = match replace_target.and_then(|t| registry.get_replacement(t, state)) {
-            Some(replacement) => {
-                info::build_replacement_info_overlay(replacement, info_state, state, &avoid_rects)
-            }
-            None => info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx),
-        };
+        // Build the default info overlay; apply_transform_chain handles
+        // replacement internally (Phase 1) so no explicit get_replacement() needed.
+        let info_overlay =
+            info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx);
         if let Some(mut overlay) = info_overlay {
             // Track this overlay's rect for subsequent infos to avoid
             if let OverlayAnchor::Absolute { x, y, w, h } = &overlay.anchor {

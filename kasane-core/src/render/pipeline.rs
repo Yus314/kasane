@@ -143,7 +143,7 @@ pub fn scene_render_pipeline_scene_cached<'a>(
     crate::perf::perf_span!("scene_render_pipeline_scene_cached");
 
     // Invalidate both caches
-    view_cache.invalidate(dirty);
+    view_cache.invalidate_with_deps(dirty, registry.section_deps());
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
     // Get view sections (uses ViewCache) — needed for buffer_x_offset even on fast path
@@ -264,7 +264,7 @@ pub fn render_pipeline_cached_with_hooks(
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
-    cache.invalidate(dirty);
+    cache.invalidate_with_deps(dirty, registry.section_deps());
     let element = view::view_cached(state, registry, cache);
     let root_area = Rect {
         x: 0,
@@ -339,7 +339,7 @@ pub fn render_pipeline_sectioned(
         });
 
         // Rebuild only the view sections that changed
-        view_cache.invalidate(dirty);
+        view_cache.invalidate_with_deps(dirty, registry.section_deps());
         let sections = view::view_sections_cached(state, registry, view_cache);
         let element = sections.into_element();
         let layout_result = flex::place(&element, root_area, state);
@@ -372,7 +372,7 @@ pub fn render_pipeline_sectioned(
 
     // Only MENU_SELECTION dirty: repaint just the menu overlay area
     if dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some() {
-        view_cache.invalidate(dirty);
+        view_cache.invalidate_with_deps(dirty, registry.section_deps());
         let sections = view::view_sections_cached(state, registry, view_cache);
 
         // Compute the overlay rect before consuming sections
@@ -476,7 +476,7 @@ pub fn render_pipeline_patched(
         }
 
         // Still invalidate view cache for future renders
-        view_cache.invalidate(dirty);
+        view_cache.invalidate_with_deps(dirty, registry.section_deps());
         return result;
     }
 
@@ -536,7 +536,7 @@ pub fn render_pipeline_surfaces_cached(
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline_surfaces_cached");
 
-    cache.invalidate(dirty);
+    cache.invalidate_with_deps(dirty, plugin_registry.section_deps());
     let sections =
         view::surface_view_sections_cached(state, plugin_registry, surface_registry, cache);
     let element = sections.into_element();
@@ -604,7 +604,7 @@ pub fn render_pipeline_surfaces_sectioned(
             }
         });
 
-        view_cache.invalidate(dirty);
+        view_cache.invalidate_with_deps(dirty, plugin_registry.section_deps());
         let sections = view::surface_view_sections_cached(
             state,
             plugin_registry,
@@ -640,7 +640,7 @@ pub fn render_pipeline_surfaces_sectioned(
 
     // Only MENU_SELECTION dirty: repaint just the menu overlay area
     if dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some() {
-        view_cache.invalidate(dirty);
+        view_cache.invalidate_with_deps(dirty, plugin_registry.section_deps());
         let sections = view::surface_view_sections_cached(
             state,
             plugin_registry,
@@ -760,7 +760,7 @@ pub fn render_pipeline_surfaces_patched(
             debug_assert_grid_equivalent(grid, &ref_grid, state);
         }
 
-        view_cache.invalidate(dirty);
+        view_cache.invalidate_with_deps(dirty, plugin_registry.section_deps());
         return result;
     }
 
@@ -791,7 +791,7 @@ pub fn scene_render_pipeline_surfaces_cached<'a>(
 ) -> (&'a [DrawCommand], RenderResult) {
     crate::perf::perf_span!("scene_render_pipeline_surfaces_cached");
 
-    view_cache.invalidate(dirty);
+    view_cache.invalidate_with_deps(dirty, plugin_registry.section_deps());
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
     let sections =

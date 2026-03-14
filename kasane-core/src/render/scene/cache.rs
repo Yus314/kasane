@@ -35,10 +35,10 @@ impl SceneCache {
         if dirty.intersects(DirtyFlags::BUFFER | DirtyFlags::STATUS | DirtyFlags::OPTIONS) {
             self.base_commands = None;
         }
-        if dirty.intersects(DirtyFlags::MENU) {
+        if dirty.intersects(DirtyFlags::MENU | DirtyFlags::OPTIONS) {
             self.menu_commands = None;
         }
-        if dirty.intersects(DirtyFlags::INFO) {
+        if dirty.intersects(DirtyFlags::INFO | DirtyFlags::OPTIONS) {
             self.info_commands = None;
         }
     }

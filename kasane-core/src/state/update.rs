@@ -2,7 +2,6 @@ use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{Command, PluginRegistry, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
-use crate::render::CellGrid;
 
 use super::{AppState, DirtyFlags, DragState, MouseButton, ScrollAnimation};
 
@@ -35,7 +34,6 @@ pub fn update(
     state: &mut AppState,
     msg: Msg,
     registry: &mut PluginRegistry,
-    grid: &mut CellGrid,
     scroll_amount: i32,
 ) -> (DirtyFlags, Vec<Command>) {
     match msg {
@@ -126,7 +124,7 @@ pub fn update(
                 )
             {
                 // Check info scroll first
-                if handle_info_scroll(state, &mouse) {
+                if handle_info_scroll(state, &mouse, registry) {
                     return (DirtyFlags::INFO, vec![]);
                 }
                 if let Some(scroll_req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
@@ -152,7 +150,7 @@ pub fn update(
             if matches!(
                 mouse.kind,
                 input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
-            ) && handle_info_scroll(state, &mouse)
+            ) && handle_info_scroll(state, &mouse, registry)
             {
                 return (DirtyFlags::INFO, vec![]);
             }
@@ -195,8 +193,6 @@ pub fn update(
         Msg::Resize { cols, rows } => {
             state.cols = cols;
             state.rows = rows;
-            grid.resize(cols, rows);
-            grid.invalidate_all();
             let cmd = Command::SendToKakoune(KasaneRequest::Resize {
                 rows: state.available_height(),
                 cols,
@@ -215,53 +211,48 @@ pub fn update(
 }
 
 /// Check if a scroll event hits an info popup and adjust its scroll_offset.
+/// Uses the HitMap from the previous frame to identify which info popup
+/// the mouse is over, avoiding duplicated layout computation.
 /// Returns true if the scroll was consumed by an info popup.
-fn handle_info_scroll(state: &mut AppState, mouse: &input::MouseEvent) -> bool {
-    let screen_h = state.available_height();
-    let mut avoid: Vec<crate::layout::Rect> = Vec::new();
-    if let Some(mr) = crate::layout::get_menu_rect(state) {
-        avoid.push(mr);
+fn handle_info_scroll(
+    state: &mut AppState,
+    mouse: &input::MouseEvent,
+    registry: &PluginRegistry,
+) -> bool {
+    use crate::element::InteractiveId;
+
+    let (id, rect) = match registry.hit_test_with_rect(mouse.column as u16, mouse.line as u16) {
+        Some(hit) => hit,
+        None => return false,
+    };
+
+    // Check if the hit is on an info popup (InteractiveId in INFO_BASE range)
+    if id.0 < InteractiveId::INFO_BASE {
+        return false;
     }
+    let index = (id.0 - InteractiveId::INFO_BASE) as usize;
+    let info = match state.infos.get_mut(index) {
+        Some(info) => info,
+        None => return false,
+    };
 
-    for info in state.infos.iter_mut().rev() {
-        let win = crate::layout::layout_info(
-            &info.title,
-            &info.content,
-            &info.anchor,
-            info.style,
-            state.cols,
-            screen_h,
-            &avoid,
-        );
-        if win.width == 0 || win.height == 0 {
-            continue;
+    // Compute content height for scroll bounds using the rect from HitMap
+    let content_h = info
+        .content
+        .iter()
+        .map(|line| crate::layout::word_wrap_line_height(line, rect.w.saturating_sub(4).max(1)))
+        .sum::<u16>();
+    let visible_h = rect.h.saturating_sub(2).max(1); // subtract borders
+
+    match mouse.kind {
+        input::MouseEventKind::ScrollUp => {
+            info.scroll_offset = info.scroll_offset.saturating_sub(3);
         }
-
-        let mx = mouse.column as u16;
-        let my = mouse.line as u16;
-        if mx >= win.x && mx < win.x + win.width && my >= win.y && my < win.y + win.height {
-            // Compute content height for scroll bounds
-            let content_h = info
-                .content
-                .iter()
-                .map(|line| {
-                    crate::layout::word_wrap_line_height(line, win.width.saturating_sub(4).max(1))
-                })
-                .sum::<u16>();
-            let visible_h = win.height.saturating_sub(2).max(1); // subtract borders
-
-            match mouse.kind {
-                input::MouseEventKind::ScrollUp => {
-                    info.scroll_offset = info.scroll_offset.saturating_sub(3);
-                }
-                input::MouseEventKind::ScrollDown => {
-                    let max_offset = content_h.saturating_sub(visible_h);
-                    info.scroll_offset = (info.scroll_offset + 3).min(max_offset);
-                }
-                _ => {}
-            }
-            return true;
+        input::MouseEventKind::ScrollDown => {
+            let max_offset = content_h.saturating_sub(visible_h);
+            info.scroll_offset = (info.scroll_offset + 3).min(max_offset);
         }
+        _ => {}
     }
-    false
+    true
 }

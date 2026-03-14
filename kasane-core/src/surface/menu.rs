@@ -26,32 +26,22 @@ impl Surface for MenuSurface {
         SizeHint::fill()
     }
 
-    #[allow(deprecated)]
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
         // Delegate to the existing menu rendering pipeline.
         // The actual overlay positioning is handled by the Overlay/OverlayAnchor
         // system in the view layer, not by Surface layout.
         if let Some(menu_state) = ctx.state.menu.as_ref() {
-            use crate::plugin::{ReplaceTarget, TransformTarget};
+            use crate::plugin::TransformTarget;
             use crate::protocol::MenuStyle;
             use crate::render::view::menu;
 
-            let replace_target = match menu_state.style {
-                MenuStyle::Prompt => ReplaceTarget::MenuPrompt,
-                MenuStyle::Inline => ReplaceTarget::MenuInline,
-                MenuStyle::Search => ReplaceTarget::MenuSearch,
-            };
             let transform_target = match menu_state.style {
                 MenuStyle::Prompt => TransformTarget::MenuPrompt,
                 MenuStyle::Inline => TransformTarget::MenuInline,
                 MenuStyle::Search => TransformTarget::MenuSearch,
             };
-            let menu_overlay = match ctx.registry.get_replacement(replace_target, ctx.state) {
-                Some(replacement) => {
-                    menu::build_replacement_menu_overlay(replacement, menu_state, ctx.state)
-                }
-                None => menu::build_menu_overlay(menu_state, ctx.state, ctx.registry),
-            };
+            // Build default; apply_transform_chain handles replacement internally.
+            let menu_overlay = menu::build_menu_overlay(menu_state, ctx.state, ctx.registry);
             match menu_overlay {
                 Some(mut overlay) => {
                     overlay.element = ctx.registry.apply_transform_chain(

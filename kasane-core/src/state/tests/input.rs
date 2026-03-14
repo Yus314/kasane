@@ -1,6 +1,5 @@
 use crate::plugin::{Command, PluginRegistry};
 use crate::protocol::{Coord, KasaneRequest};
-use crate::render::CellGrid;
 use crate::state::update::{Msg, update};
 use crate::state::{AppState, DragState};
 
@@ -10,14 +9,14 @@ use crate::state::{AppState, DragState};
 fn test_drag_state_press_activates() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(80, 24);
+
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Press(crate::input::MouseButton::Left),
         line: 5,
         column: 10,
         modifiers: crate::input::Modifiers::empty(),
     };
-    update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+    update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert_eq!(
         state.drag,
         DragState::Active {
@@ -37,14 +36,14 @@ fn test_drag_state_release_clears() {
         start_column: 0,
     };
     let mut registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(80, 24);
+
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Release(crate::input::MouseButton::Left),
         line: 5,
         column: 10,
         modifiers: crate::input::Modifiers::empty(),
     };
-    update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+    update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert_eq!(state.drag, DragState::None);
 }
 
@@ -57,14 +56,14 @@ fn test_drag_state_drag_keeps_active() {
         start_column: 0,
     };
     let mut registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(80, 24);
+
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::Drag(crate::input::MouseButton::Left),
         line: 3,
         column: 7,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+    let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     // Drag sends MouseMove
     assert_eq!(commands.len(), 1);
     match &commands[0] {
@@ -87,14 +86,14 @@ fn test_selection_scroll_generates_two_commands() {
         start_column: 10,
     };
     let mut registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(80, 24);
+
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::ScrollDown,
         line: 10,
         column: 5,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+    let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert_eq!(commands.len(), 2, "scroll + mouse_move expected");
     // First: Scroll
     match &commands[0] {
@@ -123,14 +122,14 @@ fn test_selection_scroll_up_edge() {
         start_column: 10,
     };
     let mut registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(80, 24);
+
     let mouse = crate::input::MouseEvent {
         kind: crate::input::MouseEventKind::ScrollUp,
         line: 10,
         column: 5,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, &mut grid, 3);
+    let (_, commands) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert_eq!(commands.len(), 2);
     match &commands[1] {
         Command::SendToKakoune(KasaneRequest::MouseMove { line, .. }) => {
@@ -144,8 +143,8 @@ fn test_selection_scroll_up_edge() {
 fn test_paste_produces_paste_command() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(80, 24);
-    let (flags, commands) = update(&mut state, Msg::Paste, &mut registry, &mut grid, 3);
+
+    let (flags, commands) = update(&mut state, Msg::Paste, &mut registry, 3);
     assert!(flags.is_empty());
     assert_eq!(commands.len(), 1);
     assert!(matches!(commands[0], Command::Paste));
@@ -161,12 +160,12 @@ fn test_pageup_intercept() {
     };
     let mut registry = PluginRegistry::new();
     registry.register(Box::new(crate::input::BuiltinInputPlugin));
-    let mut grid = CellGrid::new(80, 24);
+
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageUp,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(KasaneRequest::Scroll {
@@ -192,12 +191,12 @@ fn test_pagedown_intercept() {
     };
     let mut registry = PluginRegistry::new();
     registry.register(Box::new(crate::input::BuiltinInputPlugin));
-    let mut grid = CellGrid::new(80, 24);
+
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageDown,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(KasaneRequest::Scroll { amount, .. }) => {
@@ -212,12 +211,12 @@ fn test_pageup_with_modifier_not_intercepted() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
     registry.register(Box::new(crate::input::BuiltinInputPlugin));
-    let mut grid = CellGrid::new(80, 24);
+
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageUp,
         modifiers: crate::input::Modifiers::CTRL,
     };
-    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+    let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
     // With modifier, PageUp should be forwarded as key, not intercepted
     assert_eq!(commands.len(), 1);
     match &commands[0] {

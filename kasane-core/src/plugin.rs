@@ -812,12 +812,35 @@ impl PluginSlotCache {
     }
 }
 
+/// Effective DirtyFlags dependencies for each ViewCache section,
+/// computed by unioning core deps with plugin contribution/transform/annotation deps.
+#[derive(Debug, Clone, Copy)]
+pub struct EffectiveSectionDeps {
+    pub base: DirtyFlags,
+    pub menu: DirtyFlags,
+    pub info: DirtyFlags,
+}
+
+impl Default for EffectiveSectionDeps {
+    fn default() -> Self {
+        use crate::render::view::{
+            BUILD_BASE_DEPS, BUILD_INFO_SECTION_DEPS, BUILD_MENU_SECTION_DEPS,
+        };
+        EffectiveSectionDeps {
+            base: BUILD_BASE_DEPS,
+            menu: BUILD_MENU_SECTION_DEPS,
+            info: BUILD_INFO_SECTION_DEPS,
+        }
+    }
+}
+
 pub struct PluginRegistry {
     plugins: Vec<Box<dyn Plugin>>,
     capabilities: Vec<PluginCapabilities>,
     hit_map: HitMap,
     slot_cache: RefCell<PluginSlotCache>,
     any_plugin_state_changed: bool,
+    section_deps: EffectiveSectionDeps,
 }
 
 impl PluginRegistry {
@@ -828,6 +851,7 @@ impl PluginRegistry {
             hit_map: HitMap::new(),
             slot_cache: RefCell::new(PluginSlotCache::new()),
             any_plugin_state_changed: false,
+            section_deps: EffectiveSectionDeps::default(),
         }
     }
 
@@ -863,6 +887,62 @@ impl PluginRegistry {
                 .entries
                 .push(PluginCacheEntry::default());
         }
+        self.recompute_section_deps();
+    }
+
+    /// Recompute effective section deps by unioning core deps with all
+    /// plugin contribution/transform/annotation deps.
+    fn recompute_section_deps(&mut self) {
+        use crate::render::view::{
+            BUILD_BASE_DEPS, BUILD_INFO_SECTION_DEPS, BUILD_MENU_SECTION_DEPS,
+        };
+
+        let mut base = BUILD_BASE_DEPS;
+        let mut menu = BUILD_MENU_SECTION_DEPS;
+        let mut info = BUILD_INFO_SECTION_DEPS;
+
+        // Base slots
+        let base_slots = [
+            &SlotId::BUFFER_LEFT,
+            &SlotId::BUFFER_RIGHT,
+            &SlotId::ABOVE_BUFFER,
+            &SlotId::BELOW_BUFFER,
+            &SlotId::ABOVE_STATUS,
+            &SlotId::STATUS_LEFT,
+            &SlotId::STATUS_RIGHT,
+        ];
+
+        for plugin in &self.plugins {
+            // Contribution deps for base slots
+            for slot in &base_slots {
+                base |= plugin.contribute_deps(slot);
+            }
+
+            // Annotation deps
+            base |= plugin.annotate_deps();
+
+            // Transform deps for base targets
+            base |= plugin.transform_deps(&TransformTarget::Buffer);
+            base |= plugin.transform_deps(&TransformTarget::StatusBar);
+
+            // Transform deps for menu targets
+            menu |= plugin.transform_deps(&TransformTarget::Menu);
+            menu |= plugin.transform_deps(&TransformTarget::MenuPrompt);
+            menu |= plugin.transform_deps(&TransformTarget::MenuInline);
+            menu |= plugin.transform_deps(&TransformTarget::MenuSearch);
+
+            // Transform deps for info targets
+            info |= plugin.transform_deps(&TransformTarget::Info);
+            info |= plugin.transform_deps(&TransformTarget::InfoPrompt);
+            info |= plugin.transform_deps(&TransformTarget::InfoModal);
+        }
+
+        self.section_deps = EffectiveSectionDeps { base, menu, info };
+    }
+
+    /// Get the effective section deps (includes plugin contributions).
+    pub fn section_deps(&self) -> &EffectiveSectionDeps {
+        &self.section_deps
     }
 
     /// Invalidate slot cache entries based on dirty flags and state hash changes.
@@ -1099,6 +1179,15 @@ impl PluginRegistry {
 
     pub fn hit_test(&self, x: u16, y: u16) -> Option<InteractiveId> {
         self.hit_map.test(x, y)
+    }
+
+    /// Hit test returning both the InteractiveId and its bounding Rect.
+    pub fn hit_test_with_rect(
+        &self,
+        x: u16,
+        y: u16,
+    ) -> Option<(InteractiveId, crate::layout::Rect)> {
+        self.hit_map.test_with_rect(x, y)
     }
 
     /// Apply decorators in priority order (high priority = inner = applied first).

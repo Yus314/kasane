@@ -48,13 +48,23 @@ pub const FIELD_FLAG_MAP: &[(&str, &[&str])] = &[
     ("menu_position", &["OPTIONS"]),
     ("search_dropdown", &["OPTIONS"]),
     ("status_at_top", &["OPTIONS"]),
+    ("scrollbar_thumb", &["MENU_STRUCTURE"]),
+    ("scrollbar_track", &["MENU_STRUCTURE"]),
+    ("assistant_art", &["OPTIONS"]),
+    ("plugin_config", &["OPTIONS"]),
+    ("secondary_blend_ratio", &["BUFFER"]),
     // Free reads (no DirtyFlag — resize triggers ALL externally):
     // cols, rows, focused, drag, smooth_scroll, scroll_animation
 ];
 
 /// Maps known AppState method names to the fields they read.
 pub const METHOD_FIELD_MAP: &[(&str, &[&str])] = &[
-    ("available_height", &["rows"]), // rows → free read
+    ("available_height", &["rows"]),      // rows → free read
+    ("has_menu", &["menu"]),              // menu → MENU_STRUCTURE | MENU_SELECTION
+    ("has_info", &["infos"]),             // infos → INFO
+    ("is_prompt_mode", &["cursor_mode"]), // cursor_mode → BUFFER
+    ("buffer_line_count", &["lines"]),    // lines → BUFFER
+    ("visible_line_range", &["lines"]),   // lines → BUFFER
 ];
 
 /// Visitor that collects field accesses on a named identifier (the state parameter).
@@ -87,7 +97,11 @@ impl<'ast> Visit<'ast> for StateFieldVisitor {
                     self.accessed_fields.insert((*field).to_string());
                 }
             }
-            // Unknown methods are silently ignored
+            // Unknown methods and helper function calls that receive `state`
+            // are not tracked. These represent a soundness gap that must be
+            // covered by manual `allow()` annotations or by adding methods to
+            // METHOD_FIELD_MAP. True fix (inter-procedural analysis) is
+            // impossible in proc_macros.
         }
         // Continue visiting child nodes
         syn::visit::visit_expr_method_call(self, node);
@@ -240,4 +254,108 @@ pub fn flags_for_field(field: &str) -> Option<&'static [&'static str]> {
 /// All known field names in FIELD_FLAG_MAP.
 pub fn all_known_fields() -> HashSet<&'static str> {
     FIELD_FLAG_MAP.iter().map(|(f, _)| *f).collect()
+}
+
+/// Look up the field names that a method reads.
+#[cfg(test)]
+pub fn fields_for_method(method: &str) -> Option<&'static [&'static str]> {
+    METHOD_FIELD_MAP
+        .iter()
+        .find(|(m, _)| *m == method)
+        .map(|(_, fields)| *fields)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_flags_for_new_fields() {
+        assert_eq!(
+            flags_for_field("scrollbar_thumb"),
+            Some(["MENU_STRUCTURE"].as_slice())
+        );
+        assert_eq!(
+            flags_for_field("scrollbar_track"),
+            Some(["MENU_STRUCTURE"].as_slice())
+        );
+        assert_eq!(
+            flags_for_field("assistant_art"),
+            Some(["OPTIONS"].as_slice())
+        );
+        assert_eq!(
+            flags_for_field("plugin_config"),
+            Some(["OPTIONS"].as_slice())
+        );
+        assert_eq!(
+            flags_for_field("secondary_blend_ratio"),
+            Some(["BUFFER"].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_flags_for_existing_fields() {
+        assert_eq!(flags_for_field("lines"), Some(["BUFFER"].as_slice()));
+        assert_eq!(
+            flags_for_field("status_prompt"),
+            Some(["STATUS"].as_slice())
+        );
+        assert_eq!(
+            flags_for_field("menu"),
+            Some(["MENU_STRUCTURE", "MENU_SELECTION"].as_slice())
+        );
+        assert_eq!(flags_for_field("infos"), Some(["INFO"].as_slice()));
+        assert_eq!(
+            flags_for_field("shadow_enabled"),
+            Some(["OPTIONS"].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_flags_for_free_reads() {
+        assert_eq!(flags_for_field("cols"), None);
+        assert_eq!(flags_for_field("rows"), None);
+        assert_eq!(flags_for_field("focused"), None);
+        assert_eq!(flags_for_field("drag"), None);
+        assert_eq!(flags_for_field("smooth_scroll"), None);
+    }
+
+    #[test]
+    fn test_method_field_map() {
+        assert_eq!(
+            fields_for_method("available_height"),
+            Some(["rows"].as_slice())
+        );
+        assert_eq!(fields_for_method("has_menu"), Some(["menu"].as_slice()));
+        assert_eq!(fields_for_method("has_info"), Some(["infos"].as_slice()));
+        assert_eq!(
+            fields_for_method("is_prompt_mode"),
+            Some(["cursor_mode"].as_slice())
+        );
+        assert_eq!(
+            fields_for_method("buffer_line_count"),
+            Some(["lines"].as_slice())
+        );
+        assert_eq!(
+            fields_for_method("visible_line_range"),
+            Some(["lines"].as_slice())
+        );
+        assert_eq!(fields_for_method("unknown_method"), None);
+    }
+
+    #[test]
+    fn test_expand_flags() {
+        let flags = expand_flag_strs(&["MENU"]);
+        assert!(flags.contains("MENU_STRUCTURE"));
+        assert!(flags.contains("MENU_SELECTION"));
+        assert!(!flags.contains("BUFFER"));
+
+        let flags = expand_flag_strs(&["ALL"]);
+        assert!(flags.contains("BUFFER"));
+        assert!(flags.contains("STATUS"));
+        assert!(flags.contains("INFO"));
+        assert!(flags.contains("OPTIONS"));
+        assert!(flags.contains("MENU_STRUCTURE"));
+        assert!(flags.contains("MENU_SELECTION"));
+    }
 }

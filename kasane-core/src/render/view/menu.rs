@@ -9,61 +9,7 @@ use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;
 
-/// Build a menu overlay using a replacement element with the same anchor as the default.
-pub(crate) fn build_replacement_menu_overlay(
-    element: Element,
-    menu: &MenuState,
-    state: &AppState,
-) -> Option<Overlay> {
-    if menu.items.is_empty() || menu.win_height == 0 {
-        return None;
-    }
-
-    let placement = menu_placement(state);
-
-    let anchor = match menu.style {
-        MenuStyle::Inline => {
-            let win_w = (menu.effective_content_width(state.cols) + 1).min(state.cols);
-            let screen_h = state.available_height();
-            let win = layout_menu_inline(
-                &menu.anchor,
-                win_w,
-                menu.win_height,
-                state.cols,
-                screen_h,
-                placement,
-            );
-            if win.width == 0 || win.height == 0 {
-                return None;
-            }
-            win.into()
-        }
-        MenuStyle::Prompt => {
-            let status_row = state.available_height();
-            let start_y = status_row.saturating_sub(menu.win_height);
-            OverlayAnchor::Absolute {
-                x: 0,
-                y: start_y,
-                w: state.cols,
-                h: menu.win_height,
-            }
-        }
-        MenuStyle::Search => {
-            let status_row = state.available_height();
-            let y = status_row.saturating_sub(1);
-            OverlayAnchor::Absolute {
-                x: 0,
-                y,
-                w: state.cols,
-                h: 1,
-            }
-        }
-    };
-
-    Some(Overlay { element, anchor })
-}
-
-#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION), allow(search_dropdown))]
+#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION, OPTIONS))]
 pub(crate) fn build_menu_overlay(
     menu: &MenuState,
     state: &AppState,

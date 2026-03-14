@@ -174,7 +174,12 @@ fn process_event(
                 state.rows,
                 state.cols,
             );
-            let (flags, commands) = update(state, Msg::Kakoune(req), registry, grid, scroll_amount);
+            let (flags, commands) = update(state, Msg::Kakoune(req), registry, scroll_amount);
+            // Resize: update grid dimensions (update() only modifies state)
+            if flags.contains(DirtyFlags::ALL) {
+                grid.resize(state.cols, state.rows);
+                grid.invalidate_all();
+            }
             *dirty |= flags;
             let (normal, deferred) = extract_deferred_commands(commands);
             if matches!(
@@ -195,8 +200,11 @@ fn process_event(
             )
         }
         Event::Input(input_event) => {
-            let (flags, commands) =
-                update(state, Msg::from(input_event), registry, grid, scroll_amount);
+            let (flags, commands) = update(state, Msg::from(input_event), registry, scroll_amount);
+            if flags.contains(DirtyFlags::ALL) {
+                grid.resize(state.cols, state.rows);
+                grid.invalidate_all();
+            }
             *dirty |= flags;
             if !*initial_resize_sent {
                 return false;
@@ -404,7 +412,15 @@ where
         let first = match rx.recv_timeout(timeout) {
             Ok(e) => e,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                tick_scroll_animation(&mut state, &mut kak_writer);
+                if let Some(cmd) = tick_scroll_animation(&mut state)
+                    && matches!(
+                        execute_commands(vec![cmd], &mut kak_writer, &mut || backend
+                            .clipboard_get()),
+                        CommandResult::Quit
+                    )
+                {
+                    break;
+                }
                 continue;
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
@@ -492,7 +508,11 @@ where
             cursor_patch.prev_cursor_y = result.cursor_y;
             menu_patch.prev_selected = state.menu.as_ref().and_then(|m| m.selected);
 
-            // Rebuild HitMap from cached view tree for plugin mouse routing
+            // Rebuild HitMap from cached view tree for plugin mouse routing.
+            // NOTE: Events within the same batch share the previous frame's HitMap.
+            // This is an accepted tradeoff — the performance cost of mid-batch
+            // HitMap rebuild outweighs the marginal correctness improvement
+            // (at most 16ms of stale routing).
             let element =
                 surface_view_sections_cached(&state, &registry, &surface_registry, &mut view_cache)
                     .into_element();

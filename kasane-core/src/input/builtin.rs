@@ -138,12 +138,11 @@ mod tests {
         // Custom plugin registered BEFORE builtin → gets priority
         registry.register(Box::new(CustomPageUpPlugin));
         registry.register(Box::new(BuiltinInputPlugin));
-        let mut grid = CellGrid::new(80, 24);
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
         assert_eq!(commands.len(), 1);
         match &commands[0] {
             Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -157,7 +156,6 @@ mod tests {
     fn test_builtin_fallback_when_no_override() {
         use crate::input::Modifiers;
         use crate::plugin::PluginRegistry;
-        use crate::render::CellGrid;
         use crate::state::{Msg, update};
 
         // Plugin that doesn't handle PageUp
@@ -172,12 +170,11 @@ mod tests {
         let mut registry = PluginRegistry::new();
         registry.register(Box::new(NoOpPlugin));
         registry.register(Box::new(BuiltinInputPlugin));
-        let mut grid = CellGrid::new(80, 24);
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, &mut grid, 3);
+        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
         assert_eq!(commands.len(), 1);
         // BuiltinInputPlugin should handle it as a Scroll command
         assert!(matches!(

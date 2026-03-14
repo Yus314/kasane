@@ -32,11 +32,9 @@ impl Surface for InfoSurface {
         SizeHint::fill()
     }
 
-    #[allow(deprecated)]
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
         if let Some(info_state) = ctx.state.infos.get(self.index) {
             use crate::element::OverlayAnchor;
-            use crate::plugin::ReplaceTarget;
             use crate::protocol::InfoStyle;
             use crate::render::view::info;
 
@@ -70,26 +68,9 @@ impl Surface for InfoSurface {
                 }
             }
 
-            let replace_target = match info_state.style {
-                InfoStyle::Prompt => Some(ReplaceTarget::InfoPrompt),
-                InfoStyle::Modal => Some(ReplaceTarget::InfoModal),
-                _ => None,
-            };
+            // Build default; apply_transform_chain handles replacement internally.
             let info_overlay =
-                match replace_target.and_then(|t| ctx.registry.get_replacement(t, ctx.state)) {
-                    Some(replacement) => info::build_replacement_info_overlay(
-                        replacement,
-                        info_state,
-                        ctx.state,
-                        &avoid_rects,
-                    ),
-                    None => info::build_info_overlay_indexed(
-                        info_state,
-                        ctx.state,
-                        &avoid_rects,
-                        self.index,
-                    ),
-                };
+                info::build_info_overlay_indexed(info_state, ctx.state, &avoid_rects, self.index);
             match info_overlay {
                 Some(mut overlay) => {
                     use crate::plugin::TransformTarget;
