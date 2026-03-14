@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773463991574,
+  "lastUpdate": 1773473060886,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -6467,6 +6467,498 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 8173,
             "range": "± 37",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "ef4864dce41cbc81b5b1d34b0c9207c3cac92294",
+          "message": "feat(render): split DirtyFlags::BUFFER, add stable() macro, LineAnnotation priority, and trace-equivalence tests\n\nTheoretical foundation strengthening across 4 phases:\n\nPhase A — Zero-Cost Foundations:\n- Document 3-phase transform chain semantics (Seed/Default/Chain) on\n  apply_transform_chain(), ReplaceTarget, Plugin::replace()\n- Categorize AppState fields as Observed/Derived/Heuristic with doc annotations\n- Add stable() attribute to #[kasane_component] for intentional staleness\n  policy (vs allow() as escape hatch); migrate build_info_section\n\nPhase B — Test Infrastructure:\n- Add proptest-based trace-equivalence tests verifying all pipeline variants\n  (cached, sectioned, patched) produce identical CellGrid output\n- Covers warm/cold cache transitions, random state mutations, 5 state\n  configurations × 8 flag combinations\n\nPhase C — Optimization:\n- Split DirtyFlags::BUFFER into BUFFER_CONTENT (1<<0) + BUFFER_CURSOR (1<<6)\n  enabling cursor-only mode changes to skip base ViewCache rebuild\n- Remove spurious BUFFER dep from build_status_bar (only reads STATUS fields)\n- Refine flag granularity: DrawStatus mode_change → STATUS|BUFFER_CURSOR,\n  MenuHide → MENU|BUFFER_CONTENT, InfoHide → INFO|BUFFER_CONTENT\n- Add priority: i16 to LineAnnotation with gutter sort ordering\n- Update WASM SDK (dirty::BUFFER_CONTENT, dirty::BUFFER_CURSOR, ALL=0x7F),\n  WIT interface (line-annotation priority field), and recompile all guests\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-14T15:59:21+09:00",
+          "tree_id": "b3e3063b5950df2f061013fb0f406f9d3359d64e",
+          "url": "https://github.com/Yus314/kasane/commit/ef4864dce41cbc81b5b1d34b0c9207c3cac92294"
+        },
+        "date": 1773473060451,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 575,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 7829,
+            "range": "± 78",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 341,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 28340,
+            "range": "± 96",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 97483,
+            "range": "± 578",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 33077,
+            "range": "± 129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 25172,
+            "range": "± 101",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12741,
+            "range": "± 74",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 32740,
+            "range": "± 85",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 12618,
+            "range": "± 44",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3311,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 20765,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/1",
+            "value": 40,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/5",
+            "value": 139,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decorator_chain/plugins/10",
+            "value": 242,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/1",
+            "value": 238,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/5",
+            "value": 742,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "plugin_dispatch/plugins/10",
+            "value": 1188,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 46511,
+            "range": "± 883",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 35256,
+            "range": "± 12592",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 59700,
+            "range": "± 1621",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 60153,
+            "range": "± 410",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 60819,
+            "range": "± 454",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 43797,
+            "range": "± 280",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 46136,
+            "range": "± 414",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 35925,
+            "range": "± 991",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 64646,
+            "range": "± 773",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 565828,
+            "range": "± 15091",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2730921,
+            "range": "± 15915",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3070,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 57501,
+            "range": "± 371",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 12944,
+            "range": "± 1724",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 51347,
+            "range": "± 156",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 271286,
+            "range": "± 828",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 814,
+            "range": "± 1717",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5936,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 46578,
+            "range": "± 325",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 200626,
+            "range": "± 334",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 359694,
+            "range": "± 667",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3021149,
+            "range": "± 11719",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 5992241,
+            "range": "± 17007",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 12749,
+            "range": "± 44",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 81797,
+            "range": "± 141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 153988,
+            "range": "± 446",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 7014,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 6152,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 17454,
+            "range": "± 123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 5011,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 17438,
+            "range": "± 115",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 26388,
+            "range": "± 171",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 44656,
+            "range": "± 234",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_status_update",
+            "value": 1285,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_menu_select",
+            "value": 6412,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_cursor_move",
+            "value": 204,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 6240,
+            "range": "± 35",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 3794,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 13136,
+            "range": "± 68",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 6604,
+            "range": "± 177",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collect_slot_cached_hit",
+            "value": 511,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "collect_slot_cached_miss",
+            "value": 3482,
+            "range": "± 59",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 144677,
+            "range": "± 412",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 832794,
+            "range": "± 4827",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2064,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 143009,
+            "range": "± 2966",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 50906,
+            "range": "± 103",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 279034,
+            "range": "± 848",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 18032,
+            "range": "± 256",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 49941,
+            "range": "± 174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 136980,
+            "range": "± 1917",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 49869,
+            "range": "± 184",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4054632,
+            "range": "± 21545",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15471001,
+            "range": "± 63395",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1666207,
+            "range": "± 8827",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 18263028,
+            "range": "± 47828",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6887,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 54780,
+            "range": "± 164",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 653,
+            "range": "± 13",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7449,
+            "range": "± 19",
             "unit": "ns/iter"
           }
         ]
