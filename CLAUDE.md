@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Kasane
 
-Kasane is an alternative frontend for the [Kakoune](https://kakoune.org/) text editor, written in Rust. It communicates with Kakoune via the JSON-RPC protocol (`kak -ui json`) and provides both a TUI (crossterm) and GPU (wgpu+glyphon) backend. The UI is built using a declarative architecture: Element tree + TEA (The Elm Architecture) + a plugin system with Slot/Decorator/Replacement extension points.
+Kasane is an alternative frontend for the [Kakoune](https://kakoune.org/) text editor, written in Rust. It communicates with Kakoune via the JSON-RPC protocol (`kak -ui json`) and provides both a TUI (crossterm) and GPU (wgpu+glyphon) backend. The UI is built using a declarative architecture: Element tree + TEA (The Elm Architecture) + a plugin system with Contribution/Transform/Annotation/Overlay extension points.
 
 ## Build & Test Commands
 
@@ -71,12 +71,13 @@ Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Grid`, `
 
 ### Plugin System
 
-`#[kasane::plugin]` proc macro generates `Plugin` trait impls. Three extension mechanisms:
-- **Slot**: Inject elements at named insertion points (e.g., `BufferLeft`, `StatusRight`, `Overlay`)
-- **Decorator**: Wrap elements with modifications (borders, styles) in priority order
-- **Replacement**: Replace entire components (menus, status bar)
+`Plugin` trait in `kasane-core/src/plugin/traits.rs` defines the plugin interface. Four main extension mechanisms:
+- **Contribution** (`contribute_to`): Inject elements at named `SlotId` insertion points (e.g., `BUFFER_LEFT`, `STATUS_RIGHT`)
+- **Transform** (`transform`): Modify or replace existing elements by `TransformTarget`, with priority ordering
+- **Line Annotation** (`annotate_line_with_ctx`): Add per-line gutter/background decorations
+- **Overlay** (`contribute_overlay_with_ctx`): Add floating overlay elements
 
-`PluginRegistry` in `kasane-core/src/plugin.rs` collects and applies contributions during `view()`.
+`PluginRegistry` in `kasane-core/src/plugin/registry.rs` collects and applies contributions during `view()`.
 
 External crates can create plugins using `kasane_core::plugin_prelude` and register them via `kasane::run(|registry| { ... })`. See `docs/plugin-development.md` and `examples/line-numbers/`.
 

@@ -22,14 +22,14 @@ Kasane プラグインには 2 つの開発パスがある。
 
 1. まず `## 2. クイックスタート` の WASM 例をそのまま動かす
 2. 次に [plugin-api.md](./plugin-api.md) で使いたい extension point を引く
-3. `Decorator` / `Replacement` / `stable()` / cache の意味を変える場合だけ [semantics.md](./semantics.md) を読む
+3. `transform()` / `stable()` / cache の意味を変える場合だけ [semantics.md](./semantics.md) を読む
 
-> 補足: Kasane は将来的に `display transformation` と `display unit` を第一級に扱う方向を取るが、現時点では専用 API は未完成である。現在のプラグインは `Slot`、`Overlay`、`Decorator`、`Replacement`、`Surface` の組み合わせで段階的に実証する。
+> 補足: Kasane は将来的に `display transformation` と `display unit` を第一級に扱う方向を取るが、現時点では専用 API は未完成である。現在のプラグインは `contribute_to()`、`annotate_line_with_ctx()`、`contribute_overlay_with_ctx()`、`transform()`、`Surface` の組み合わせで段階的に実証する。
 
 ### 1.3 設計思想
 
 - プラグインは「何を表示したいか」を記述し、「どう描画するか」はフレームワークが決める
-- 拡張は `Slot`、`Decorator`、`Replacement` など段階的な自由度を持つ
+- 拡張は `contribute_to()`、`annotate_line_with_ctx()`、`transform()` など段階的な自由度を持つ
 - 表示の大胆な再構成は将来方向として許容されるが、protocol truth の捏造は許されない
 - Kasane は Kakoune 専用の UI 基盤であり、汎用 UI フレームワーク化は目標外である
 
@@ -69,8 +69,8 @@ impl Guest for SelBadgePlugin {
         vec![]
     }
 
-    fn contribute(s: u8) -> Option<ElementHandle> {
-        kasane_plugin_sdk::route_slots!(s, {
+    fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
+        kasane_plugin_sdk::route_slots!(region, {
             slot::STATUS_RIGHT => {
                 let count = CURSOR_COUNT.get();
                 if count > 1 {
@@ -81,7 +81,12 @@ impl Guest for SelBadgePlugin {
                         underline: Color::DefaultColor,
                         attributes: 0,
                     };
-                    Some(element_builder::create_text(&text, face))
+                    let el = element_builder::create_text(&text, face);
+                    Some(Contribution {
+                        element: el,
+                        priority: 0,
+                        size_hint: ContribSizeHint::Auto,
+                    })
                 } else {
                     None
                 }
@@ -89,28 +94,38 @@ impl Guest for SelBadgePlugin {
         })
     }
 
-    fn state_hash() -> u64 {
-        CURSOR_COUNT.get() as u64
-    }
-
-    fn slot_deps(s: u8) -> u16 {
-        kasane_plugin_sdk::route_slot_deps!(s, {
+    fn contribute_deps(region: u8) -> u16 {
+        kasane_plugin_sdk::route_slot_deps!(region, {
             slot::STATUS_RIGHT => dirty::BUFFER,
         })
     }
 
+    fn state_hash() -> u64 {
+        CURSOR_COUNT.get() as u64
+    }
+
+    // Old WIT API stubs (required by WIT interface, not called by host)
+    kasane_plugin_sdk::default_contribute!();
+    kasane_plugin_sdk::default_line!();
+    kasane_plugin_sdk::default_overlay!();
+    kasane_plugin_sdk::default_decorate!();
+    kasane_plugin_sdk::default_replace!();
+    kasane_plugin_sdk::default_decorator_priority!();
+    kasane_plugin_sdk::default_named_slot!();
+
+    // New API defaults
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
-    kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
-    kasane_plugin_sdk::default_overlay!();
     kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_decorator_priority!();
     kasane_plugin_sdk::default_update!();
     kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_named_slot!();
+    kasane_plugin_sdk::default_transform!();
+    kasane_plugin_sdk::default_transform_priority!();
+    kasane_plugin_sdk::default_annotate!();
+    kasane_plugin_sdk::default_overlay_v2!();
+    kasane_plugin_sdk::default_transform_deps!();
+    kasane_plugin_sdk::default_annotate_deps!();
 }
 
 export!(SelBadgePlugin);
@@ -146,17 +161,28 @@ cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 // examples/line-numbers/src/main.rs
 use kasane::kasane_core::plugin_prelude::*;
 
-#[kasane_plugin]
-mod line_numbers {
-    use kasane::kasane_core::plugin_prelude::*;
+struct LineNumbersPlugin;
 
-    #[state]
-    #[derive(Default)]
-    pub struct State;
+impl Plugin for LineNumbersPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("line_numbers".into())
+    }
 
-    #[slot(Slot::BufferLeft)]
-    pub fn gutter(_state: &State, core: &AppState) -> Option<Element> {
-        let total = core.lines.len();
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region != &SlotId::BUFFER_LEFT {
+            return None;
+        }
+
+        let total = state.lines.len();
         let width = total.to_string().len().max(2);
 
         let children: Vec<_> = (0..total)
@@ -172,13 +198,21 @@ mod line_numbers {
             })
             .collect();
 
-        Some(Element::column(children))
+        Some(Contribution {
+            element: Element::column(children),
+            priority: 0,
+            size_hint: ContribSizeHint::Auto,
+        })
+    }
+
+    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+        DirtyFlags::BUFFER_CONTENT
     }
 }
 
 fn main() {
     kasane::run(|registry| {
-        registry.register(Box::new(LineNumbersPlugin::new()));
+        registry.register(Box::new(LineNumbersPlugin));
     });
 }
 ```
@@ -190,17 +224,17 @@ kasane = { path = "../kasane" }
 kasane-core = { path = "../kasane-core" }
 ```
 
-`#[kasane_plugin]` マクロは module 名を `PascalCase + Plugin` に変換する。`kasane::run()` でプラグインを登録し、カスタムバイナリとして配布する。
+`Plugin` trait を直接実装し、`kasane::run()` でプラグインを登録してカスタムバイナリとして配布する。`PluginCapabilities` で使用する機能を明示する。
 
 ## 3. 次に読む文書
 
 | 目的 | 読む文書 |
 |---|---|
-| `Slot`、`Overlay`、`Decorator`、`Replacement` の違いを知りたい | [plugin-api.md](./plugin-api.md) |
+| `contribute_to`、`transform`、`annotate_line_with_ctx`、`contribute_overlay_with_ctx` の違いを知りたい | [plugin-api.md](./plugin-api.md) |
 | `display transformation` / `display unit` の将来方向を知りたい | [plugin-api.md](./plugin-api.md), [semantics.md](./semantics.md) |
 | `Element` の作り方を調べたい | [plugin-api.md](./plugin-api.md) |
 | `host-state`、入力、`Command` を確認したい | [plugin-api.md](./plugin-api.md) |
-| `state_hash()`、`slot_deps()`、`PaintHook` を使いたい | [plugin-api.md](./plugin-api.md) |
+| `state_hash()`、`contribute_deps()`、`PaintHook` を使いたい | [plugin-api.md](./plugin-api.md) |
 | `Surface`、`Workspace`、カスタム slot を使いたい | [plugin-api.md](./plugin-api.md) |
 | 合成順序、`stable()`、観測等価性を確認したい | [semantics.md](./semantics.md) |
 | 性能の支配コストや計測結果を知りたい | [performance.md](./performance.md) |
@@ -237,13 +271,13 @@ disabled = ["color_preview"]
 #[test]
 fn my_plugin_contributes_gutter() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(MyPluginPlugin::new()));
+    registry.register(Box::new(MyPlugin));
 
     let state = AppState::default();
     let _ = registry.init_all(&state);
 
-    let elements = registry.collect_slot(Slot::BufferLeft, &state);
-    assert_eq!(elements.len(), 1);
+    let contributions = registry.collect_contributions(&SlotId::BUFFER_LEFT, &state);
+    assert_eq!(contributions.len(), 1);
 }
 ```
 
@@ -251,11 +285,11 @@ fn my_plugin_contributes_gutter() {
 
 | プラグイン | パス | 行数 | 主な機能 |
 |---|---|---|---|
-| cursor-line (WASM) | `kasane-wasm/guests/cursor-line/` | 73行 | `contribute_line()`, `state_hash()` |
-| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 73行 | `contribute()` (`STATUS_RIGHT`) |
-| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92行 | `contribute()` (`BUFFER_LEFT`) |
-| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 567行 | `contribute_line()`, `contribute_overlay()`, `handle_mouse()` |
-| line-numbers (ネイティブ) | `examples/line-numbers/` | 37行 | `#[kasane_plugin]`, `#[slot]`, `kasane::run()` |
+| cursor-line (WASM) | `kasane-wasm/guests/cursor-line/` | 73行 | `annotate_line_with_ctx()`, `state_hash()` |
+| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 111行 | `contribute_to()` (`STATUS_RIGHT`) |
+| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92行 | `contribute_to()` (`BUFFER_LEFT`) |
+| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 641行 | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
+| line-numbers (ネイティブ) | `examples/line-numbers/` | 57行 | `Plugin` trait 直接実装, `contribute_to()`, `kasane::run()` |
 
 ## 6. 付録: WASM vs ネイティブ比較表
 

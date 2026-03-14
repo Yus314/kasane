@@ -23,23 +23,42 @@
 //! impl Guest for MyPlugin {
 //!     fn get_id() -> String { "my_plugin".into() }
 //!
-//!     fn contribute(s: u8) -> Option<ElementHandle> {
-//!         if s != slot::BUFFER_LEFT { return None; }
-//!         // ... build elements via element_builder ...
-//!         None
+//!     fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
+//!         kasane_plugin_sdk::route_slots!(region, {
+//!             slot::BUFFER_LEFT => {
+//!                 // ... build elements via element_builder ...
+//!                 None
+//!             },
+//!         })
 //!     }
 //!
-//!     fn slot_deps(s: u8) -> u16 {
-//!         kasane_plugin_sdk::route_slot_deps!(s, {
+//!     fn contribute_deps(region: u8) -> u16 {
+//!         kasane_plugin_sdk::route_slot_deps!(region, {
 //!             slot::BUFFER_LEFT => dirty::BUFFER,
 //!         })
 //!     }
 //!
 //!     kasane_plugin_sdk::default_lifecycle!();
-//!     kasane_plugin_sdk::default_line!();
 //!     kasane_plugin_sdk::default_cache!();
 //!     kasane_plugin_sdk::default_input!();
+//!     // Old WIT stubs (required by interface, not called by host)
+//!     kasane_plugin_sdk::default_contribute!();
+//!     kasane_plugin_sdk::default_line!();
 //!     kasane_plugin_sdk::default_overlay!();
+//!     kasane_plugin_sdk::default_decorate!();
+//!     kasane_plugin_sdk::default_replace!();
+//!     kasane_plugin_sdk::default_decorator_priority!();
+//!     kasane_plugin_sdk::default_named_slot!();
+//!     // New API defaults
+//!     kasane_plugin_sdk::default_menu_transform!();
+//!     kasane_plugin_sdk::default_transform!();
+//!     kasane_plugin_sdk::default_transform_priority!();
+//!     kasane_plugin_sdk::default_annotate!();
+//!     kasane_plugin_sdk::default_overlay_v2!();
+//!     kasane_plugin_sdk::default_transform_deps!();
+//!     kasane_plugin_sdk::default_annotate_deps!();
+//!     kasane_plugin_sdk::default_cursor_style!();
+//!     kasane_plugin_sdk::default_update!();
 //! }
 //!
 //! export!(MyPlugin);

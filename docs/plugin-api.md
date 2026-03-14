@@ -32,15 +32,14 @@
 
 | やりたいこと | 使うメカニズム |
 |---|---|
-| 定義済みの場所に UI を追加したい | `Slot` |
-| バッファの各行を装飾したい | `LineDecoration` |
-| フローティング UI を表示したい | `Overlay` |
-| 既存 UI の見た目を変更したい | `Decorator` |
-| 既存 UI を別の UI に差し替えたい | `Replacement` |
+| 定義済みの場所に UI を追加したい | `contribute_to()` |
+| バッファの各行を装飾したい | `annotate_line_with_ctx()` |
+| フローティング UI を表示したい | `contribute_overlay_with_ctx()` |
+| 既存 UI の見た目を変更・差し替えたい | `transform()` |
 | メニュー項目単位で変換したい | `transform_menu_item()` |
 | Element ツリーを経由せず直接描画したい | `PaintHook` |
 
-原則として、自由度が低いメカニズムを優先する。`Slot` で済むなら `Decorator` は使わず、`Decorator` で済むなら `Replacement` は使わない。
+原則として、自由度が低いメカニズムを優先する。`contribute_to()` で済むなら `transform()` は使わない。
 
 ### 1.2.1 表示変形と表示単位の位置づけ
 
@@ -48,11 +47,11 @@
 
 現時点では専用 API はまだ完成していない。そのため plugin は当面、次の既存メカニズムの組み合わせで近いことを行う。
 
-- 軽い表示変更: `Decorator`
-- 既存 UI の差し替え: `Replacement`
+- UI 寄与: `contribute_to()`
+- 既存 UI の変更・差し替え: `transform()`
 - 項目単位の局所変換: `transform_menu_item()`
-- 重畳表示: `Overlay`
-- 行 / ガター寄与: `LineDecoration`
+- 重畳表示: `contribute_overlay_with_ctx()`
+- 行 / ガター寄与: `annotate_line_with_ctx()`
 - 独立した UI 文脈: `Surface`
 
 ただし、これらは将来の display transformation API と完全に同義ではない。特に source mapping、display-oriented navigation、制限付き interaction policy はまだ専用抽象として確立していない。
@@ -61,151 +60,164 @@
 
 拡張の合成順序は次の通りである。
 
-1. seed となるデフォルト view または replacement を選ぶ
-2. decorator を priority 順に適用する
-3. slot contribution と overlay を合成する
+1. seed となるデフォルト要素を構築する
+2. transform chain を priority 順に適用する (装飾・差し替えを統合的に処理)
+3. contribution と overlay を合成する
 
 詳細な意味論は [semantics.md](./semantics.md) の `Plugin 合成意味論` を参照。
 
-### 1.4 Slot
+### 1.4 Contribution (`contribute_to`)
 
-`Slot` はフレームワークが用意した挿入点に `Element` を寄与する最も制約の強い拡張である。
-
-**WASM:**
-
-```rust
-fn contribute(s: u8) -> Option<ElementHandle> {
-    kasane_plugin_sdk::route_slots!(s, {
-        slot::BUFFER_LEFT => {
-            Some(element_builder::create_text("★", face))
-        },
-        slot::STATUS_RIGHT => {
-            Some(element_builder::create_text("info", face))
-        },
-    })
-}
-```
+`contribute_to()` はフレームワークが用意した拡張点 (`SlotId`) に `Element` を寄与する最も制約の強い拡張である。
 
 **Native:**
 
 ```rust
-#[slot(Slot::BufferLeft)]
-pub fn gutter(_state: &State, core: &AppState) -> Option<Element> {
-    Some(Element::text("★", Face::default()))
+fn contribute_to(&self, region: &SlotId, state: &AppState, _ctx: &ContributeContext) -> Option<Contribution> {
+    if region != &SlotId::BUFFER_LEFT { return None; }
+    Some(Contribution {
+        element: Element::text("★", Face::default()),
+        priority: 0,
+        size_hint: ContribSizeHint::Auto,
+    })
+}
+
+fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+    DirtyFlags::BUFFER_CONTENT
 }
 ```
 
-`slot::BUFFER_LEFT` (=0) から `slot::OVERLAY` (=7) までの定数は `kasane_plugin_sdk::slot` モジュールで定義されている。
-
-### 1.5 LineDecoration
-
-`LineDecoration` はバッファ各行にガターや背景を寄与する。
+**WASM:**
 
 ```rust
-fn contribute_line(line: u32) -> Option<LineDecoration> {
-    let active = ACTIVE_LINE.get();
-    if line as i32 == active {
-        Some(LineDecoration {
+fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
+    kasane_plugin_sdk::route_slots!(region, {
+        slot::BUFFER_LEFT => {
+            Some(Contribution {
+                element: element_builder::create_text("★", face),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        },
+    })
+}
+
+fn contribute_deps(region: u8) -> u16 {
+    kasane_plugin_sdk::route_slot_deps!(region, {
+        slot::BUFFER_LEFT => dirty::BUFFER,
+    })
+}
+```
+
+`ContributeContext` は寄与先の情報を提供する。`Contribution` は `element`、`priority` (合成順序)、`size_hint` (`Auto` / `Fixed(u16)`) で構成される。
+
+`slot::BUFFER_LEFT` (=0) から `slot::OVERLAY` (=7) までの定数は `kasane_plugin_sdk::slot` モジュールで定義されている。カスタム slot は `SlotId::Named(...)` (Native) / slot 名文字列 (WASM) で指定する。
+
+### 1.5 Line Annotation (`annotate_line_with_ctx`)
+
+`annotate_line_with_ctx()` はバッファ各行にガターや背景を寄与する。
+
+**Native:**
+
+```rust
+fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateContext) -> Option<LineAnnotation> {
+    if line == state.cursor_pos.line as usize {
+        Some(LineAnnotation {
             left_gutter: None,
             right_gutter: None,
-            background: Some(Face {
-                fg: Color::DefaultColor,
-                bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 50 }),
-                underline: Color::DefaultColor,
-                attributes: 0,
+            background: Some(BackgroundLayer {
+                face: Face { bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 50 }), ..Face::default() },
+                z_order: 0,
             }),
         })
     } else {
         None
     }
 }
-```
 
-`LineDecoration` は `left_gutter`、`right_gutter`、`background` の 3 要素で構成される。複数プラグインのガター寄与は水平に合成される。
-
-### 1.6 Overlay
-
-`Overlay` は通常のレイアウトフローとは別に重畳される浮動要素である。
-
-```rust
-// WASM
-fn contribute_overlay() -> Option<Overlay> {
-    Some(Overlay {
-        element: element_builder::create_container_styled(child, ...),
-        anchor: OverlayAnchor::Absolute(AbsoluteAnchor { x: 10, y: 5, w: 30, h: 10 }),
-    })
-}
-
-// Native
-fn contribute_overlay(&self, _state: &AppState) -> Option<Overlay> {
-    Some(Overlay {
-        element: Element::container(child, style),
-        anchor: OverlayAnchor::AnchorPoint { coord, prefer_above: true, avoid: vec![] },
-    })
+fn annotate_deps(&self) -> DirtyFlags {
+    DirtyFlags::BUFFER_CONTENT
 }
 ```
 
-`OverlayAnchor` には次の 2 種類がある。
+`LineAnnotation` は `left_gutter`、`right_gutter`、`background` の 3 要素で構成される。`BackgroundLayer` は `face` と `z_order` を持ち、複数プラグインの背景寄与は `z_order` 順に合成される。ガター寄与は水平に合成される。
 
-- `Absolute { x, y, w, h }`: 画面座標に対する絶対位置
-- `AnchorPoint { coord, prefer_above, avoid }`: Kakoune 互換のアンカーベース配置
+### 1.6 Overlay (`contribute_overlay_with_ctx`)
 
-### 1.7 Decorator
-
-`Decorator` は既存 `Element` を受け取り、ラップまたは変換して返す。
-
-**WASM:**
-
-```rust
-fn decorate(target: DecorateTarget, element: ElementHandle) -> ElementHandle {
-    element_builder::create_container(element, Some(BorderLineStyle::Single), false, edges)
-}
-
-fn decorator_priority() -> u32 { 100 }
-```
+`contribute_overlay_with_ctx()` は通常のレイアウトフローとは別に重畳される浮動要素である。
 
 **Native:**
 
 ```rust
-#[decorate(DecorateTarget::Buffer, priority = 100)]
-pub fn decorate(_state: &State, element: Element, _core: &AppState) -> Element {
-    Element::container(element, Style::from(Face::default()))
+fn contribute_overlay_with_ctx(&self, state: &AppState, _ctx: &OverlayContext) -> Option<OverlayContribution> {
+    Some(OverlayContribution {
+        element: Element::container(child, style),
+        anchor: OverlayAnchor::AnchorPoint { coord, prefer_above: true, avoid: vec![] },
+        z_index: 0,
+    })
 }
 ```
 
-対象は `Buffer`、`StatusBar`、`Menu`、`Info`、`BufferLine(n)` など。
+**WASM:**
+
+```rust
+fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
+    Some(OverlayContribution {
+        element: element_builder::create_container_styled(child, ...),
+        anchor: OverlayAnchor::Absolute(AbsoluteAnchor { x: 10, y: 5, w: 30, h: 10 }),
+        z_index: 0,
+    })
+}
+```
+
+`OverlayContribution` は `element`、`anchor`、`z_index` で構成される。`OverlayAnchor` には次の 2 種類がある。
+
+- `Absolute { x, y, w, h }`: 画面座標に対する絶対位置
+- `AnchorPoint { coord, prefer_above, avoid }`: Kakoune 互換のアンカーベース配置
+
+### 1.7 Transform (`transform`)
+
+`transform()` は既存 `Element` を受け取り、変換して返す統合メカニズムである。装飾 (旧 Decorator) と差し替え (旧 Replacement) の両方を担う。
+
+**Native:**
+
+```rust
+fn transform(&self, target: &TransformTarget, element: Element, state: &AppState, _ctx: &TransformContext) -> Element {
+    match target {
+        TransformTarget::Buffer => Element::container(element, Style::from(Face::default())),
+        _ => element,
+    }
+}
+
+fn transform_priority(&self) -> i16 { 100 }
+
+fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
+    DirtyFlags::BUFFER_CONTENT
+}
+```
+
+**WASM:**
+
+```rust
+fn transform_element(target: TransformTarget, element: ElementHandle, _ctx: TransformContext) -> ElementHandle {
+    element_builder::create_container(element, Some(BorderLineStyle::Single), false, edges)
+}
+
+fn transform_priority() -> s16 { 100 }
+```
+
+`TransformTarget` には `Buffer`、`StatusBar`、`Menu`、`Info` などがある。
 
 ガイドライン:
 
 - 受け取った `Element` の内部構造を仮定しない
-- `Element` をそのままラップする形を優先する
-- 完全差し替えが目的なら `Replacement` を使う
+- 軽い装飾なら `Element` をそのままラップする形を優先する
+- 完全差し替えも `transform()` で行う (受け取った element を無視して新しい element を返す)
+- `transform_priority()` で適用順序を制御する
 
-### 1.8 Replacement
+### 1.8 Menu Transform (`transform_menu_item`)
 
-`Replacement` は既存コンポーネントの view 構築を完全に差し替える。
-
-```rust
-#[replace(ReplaceTarget::MenuPrompt)]
-pub fn replace(_state: &State, _core: &AppState) -> Option<Element> {
-    Some(Element::text("custom menu", Face::default()))
-}
-```
-
-| ReplaceTarget | 説明 |
-|---|---|
-| `MenuPrompt` | プロンプトメニュー |
-| `MenuInline` | インラインメニュー |
-| `MenuSearch` | 検索メニュー |
-| `InfoPrompt` | プロンプト Info |
-| `InfoModal` | モーダル Info |
-| `StatusBar` | ステータスバー全体 |
-
-`Replacement` が差し替えるのは view のみであり、プロトコル処理や core state machine は差し替えない。
-
-### 1.9 Transform
-
-`transform_menu_item()` はメニュー項目単位の変換であり、`MENU_TRANSFORM` capability に対応する。項目ごとのラベルや style を局所的に変換したい場合に使う。全メニュー構造の差し替えが必要なら `Replacement` を使う。
+`transform_menu_item()` はメニュー項目単位の変換であり、`MENU_TRANSFORM` capability に対応する。項目ごとのラベルや style を局所的に変換したい場合に使う。全メニュー構造の差し替えが必要なら `transform()` で `TransformTarget::Menu` を使う。
 
 ### 1.10 将来の Display Transformation API
 
@@ -443,15 +455,13 @@ WASM では `command` variant で表現される。`Pane`、`Workspace`、`Regis
 
 | フラグ | 説明 |
 |---|---|
-| `SLOT_CONTRIBUTOR` | `contribute()` / `contribute_slot()` |
-| `LINE_DECORATION` | `contribute_line()` |
-| `OVERLAY` | `contribute_overlay()` |
-| `DECORATOR` | `decorate()` |
-| `REPLACEMENT` | `replace()` |
+| `CONTRIBUTOR` | `contribute_to()` |
+| `TRANSFORMER` | `transform()` |
+| `ANNOTATOR` | `annotate_line_with_ctx()` |
+| `OVERLAY` | `contribute_overlay_with_ctx()` |
 | `MENU_TRANSFORM` | `transform_menu_item()` |
 | `CURSOR_STYLE` | `cursor_style_override()` |
 | `INPUT_HANDLER` | `handle_key()` / `handle_mouse()` |
-| `NAMED_SLOT` | `contribute_named_slot()` |
 | `PANE_LIFECYCLE` | pane lifecycle hooks |
 | `PANE_RENDERER` | `render_pane()` |
 | `SURFACE_PROVIDER` | `surfaces()` |
@@ -460,27 +470,30 @@ WASM では `command` variant で表現される。`Pane`、`Workspace`、`Regis
 
 Native plugin のデフォルトは `all()`、WASM adapter は WIT 呼び出し結果から設定される。
 
-### 4.2 State hash and slot deps
+### 4.2 State hash and dependency tracking
 
-plugin の寄与結果は主に次の 2 層でキャッシュされる。
+plugin の寄与結果は主に次の仕組みでキャッシュされる。
 
 - `state_hash()`: プラグイン内部状態のハッシュ
-- `slot_deps()` / `slot_id_deps()`: 指定 slot が依存する `DirtyFlags`
+- `contribute_deps(region)`: 指定 region が依存する `DirtyFlags`
+- `transform_deps(target)`: transform が依存する `DirtyFlags`
+- `annotate_deps()`: line annotation が依存する `DirtyFlags`
 
 ```rust
+// WASM
 fn state_hash() -> u64 {
     MY_STATE.get() as u64
 }
 
-fn slot_deps(s: u8) -> u16 {
-    kasane_plugin_sdk::route_slot_deps!(s, {
+fn contribute_deps(region: u8) -> u16 {
+    kasane_plugin_sdk::route_slot_deps!(region, {
         slot::BUFFER_LEFT => dirty::BUFFER,
         slot::STATUS_RIGHT => dirty::STATUS,
     })
 }
 ```
 
-Native plugin では `#[kasane::plugin]` macro が `#[derive(Hash)]` と AST 解析から `state_hash()` と `slot_deps()` の一部を自動生成する。
+Native plugin では `state_hash()` と依存追跡メソッドを直接実装する。
 
 ### 4.3 PaintHook
 
@@ -614,7 +627,7 @@ impl Surface for MySurface {
 }
 ```
 
-他 plugin は `contribute_named_slot("myplugin.sidebar.top", state)` を使う。WASM では `contribute_named(slot_name)` を実装する。
+他 plugin は `contribute_to(&SlotId::Named("myplugin.sidebar.top".into()), state, ctx)` を使う。WASM では `contribute_to(region, ctx)` で slot 名にルーティングする。
 
 ### 6.4 Plugin messages and timers
 

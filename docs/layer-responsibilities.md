@@ -67,7 +67,7 @@
 |------|--------|------|
 | **バンドル WASM** | `include_bytes!` でバイナリに埋め込み | デフォルト UX (cursor_line, color_preview) |
 | **FS 発見 WASM** | `~/.local/share/kasane/plugins/*.wasm` | ユーザーが配置する WASM プラグイン |
-| **ネイティブ** | `kasane::run(\|registry\| { ... })` でコンパイル時結合 | パフォーマンスクリティカル or Decorator/Replacement 使用 |
+| **ネイティブ** | `kasane::run(\|registry\| { ... })` でコンパイル時結合 | パフォーマンスクリティカル or Surface/PaintHook/Pane 使用 |
 
 **登録順序:** バンドル WASM → FS 発見 WASM (同 ID で上書き可能) → ユーザーコールバック
 
@@ -103,19 +103,18 @@
 
 | Extension Point | 実証プラグイン | 状態 |
 |-----------------|---------------|------|
-| `Slot::BufferLeft` | color_preview (ガタースウォッチ), line-numbers (行番号) | 実証済み |
-| `Slot::StatusRight` | sel-badge (選択数バッジ) | 実証済み |
-| `contribute_line()` | cursor_line (行背景ハイライト), color_preview (ガタースウォッチ) | 実証済み |
-| `contribute_overlay()` | color_preview (カラーピッカー) | 実証済み |
+| `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (ガタースウォッチ), line-numbers (行番号) | 実証済み |
+| `contribute_to(SlotId::STATUS_RIGHT)` | sel-badge (選択数バッジ) | 実証済み |
+| `annotate_line_with_ctx()` | cursor_line (行背景ハイライト), color_preview (ガタースウォッチ) | 実証済み |
+| `contribute_overlay_with_ctx()` | color_preview (カラーピッカー) | 実証済み |
 | `handle_mouse()` | color_preview (色値編集) | 実証済み |
-| `Slot::Overlay` | 内部使用 (info/menu) | 実証済み (プラグインとしては未実証) |
-| `Slot::BufferRight` | — | 未実証 (上流ブロッカーで先送り) |
-| `Slot::BufferTop` / `BufferBottom` | — | 未実証 |
-| `Decorator(Buffer)` | — | WASM v0.3.0 で公開済み、実プラグインなし |
-| `Replacement` | — | WASM v0.3.0 で公開済み、実プラグインなし |
-| `transform_menu_item()` | — | WASM v0.3.0 で公開済み、実プラグインなし |
-| `cursor_style_override()` | — | メカニズム存在 (ネイティブ + WASM v0.4.0)、実プラグインなし |
-| `contribute_named_slot()` | — | メカニズム存在 (ネイティブ + WASM v0.4.0)、実プラグインなし |
+| `contribute_to(SlotId::OVERLAY)` | 内部使用 (info/menu) | 実証済み (プラグインとしては未実証) |
+| `contribute_to(SlotId::BUFFER_RIGHT)` | — | 未実証 (上流ブロッカーで先送り) |
+| `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | — | 未実証 |
+| `transform(TransformTarget::Buffer)` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
+| `transform_menu_item()` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
+| `cursor_style_override()` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
+| `contribute_to(SlotId::Named(...))` | — | メカニズム存在 (ネイティブ + WASM)、実プラグインなし |
 | `OverlayAnchor::Absolute` | 内部使用 (メニュー/検索バー) | ✓ インフラ実装済み (プラグインとしては未実証) |
 
 ---
@@ -130,7 +129,7 @@
 | D-002 | 上流依存 | `draw` メッセージにカーソル総数が含まれないため、ビューポート外カーソルの正確な検出が不可能 |
 | R-053 | コア | プロトコルが送るテキスト装飾の忠実描画はフロントエンド描画系の責務であり、唯一の正しい実装 |
 | P-002 の実証 | プラグイン | `OverlayAnchor::Absolute` の実証。WASM ゲストとして実装可能 |
-| 行 / 範囲 decoration の実証 | プラグイン | `contribute_line()` や Decorator による選択範囲ハイライト。WASM ゲストとして実装可能 |
+| 行 / 範囲 decoration の実証 | プラグイン | `annotate_line_with_ctx()` や `transform()` による選択範囲ハイライト。WASM ゲストとして実装可能 |
 | P-023 の実装 | コア | D&D は GUI バックエンド (winit) のネイティブ能力。唯一の正しい実装 |
 
 ---
@@ -144,7 +143,7 @@
 | **問い** | どの仕組みで解決するか？ | どのレイヤーが責任を持つか？ |
 | **分類** | レンダラ / 設定 / 基盤 / プロトコル制約 | 上流 / コア / プラグイン |
 | **例** | R-050 → レンダラ (ソフトウェアレンダリング) | R-050 → コア (唯一の正しい実装) |
-| **例** | 行 / 範囲 decoration → 基盤 (Decorator) | 行 / 範囲 decoration の実証 → プラグイン |
+| **例** | 行 / 範囲 decoration → 基盤 (Transform) | 行 / 範囲 decoration の実証 → プラグイン |
 
 両方の軸が機能分類に必要:
 - **解決層**は実装の技術的メカニズムを決定する
