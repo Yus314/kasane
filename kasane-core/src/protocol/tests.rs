@@ -449,3 +449,15 @@ fn test_color_roundtrip() {
         assert_eq!(c, parsed);
     }
 }
+
+#[test]
+fn test_parse_old_protocol_set_cursor() {
+    let json =
+        r#"{"jsonrpc":"2.0","method":"set_cursor","params":["buffer",{"line":0,"column":0}]}"#;
+    let mut buf = json.as_bytes().to_vec();
+    let err = parse_request(&mut buf).unwrap_err();
+    assert!(matches!(err, ProtocolError::OldProtocol(_)));
+    let msg = err.to_string();
+    assert!(msg.contains("Kakoune 2024.12.09"));
+    assert!(msg.contains("older protocol"));
+}

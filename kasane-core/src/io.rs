@@ -56,6 +56,12 @@ where
                     let mut bytes = trimmed.as_bytes().to_vec();
                     match crate::protocol::parse_request(&mut bytes) {
                         Ok(req) => on_request(req),
+                        Err(crate::protocol::ProtocolError::OldProtocol(msg)) => {
+                            tracing::error!("{msg}");
+                            eprintln!("\n{msg}");
+                            on_died();
+                            return;
+                        }
                         Err(e) => tracing::warn!("failed to parse kak message: {e}"),
                     }
                 }

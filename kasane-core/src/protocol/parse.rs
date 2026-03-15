@@ -15,6 +15,8 @@ pub enum ProtocolError {
     UnknownMethod(String),
     #[error("invalid params for {method}: {reason}")]
     InvalidParams { method: String, reason: String },
+    #[error("{0}")]
+    OldProtocol(String),
 }
 
 pub fn parse_request(input: &mut [u8]) -> Result<KakouneRequest, ProtocolError> {
@@ -102,6 +104,14 @@ fn parse_method(
             let (force,) = de_params(method, params)?;
             Ok(KakouneRequest::Refresh { force })
         }
+        // Old Kakoune protocol used "set_cursor" instead of including cursor_pos
+        // in "draw" params. Detect this and give a helpful error.
+        "set_cursor" => Err(ProtocolError::OldProtocol(
+            "Kasane requires Kakoune 2024.12.09 or later (commit 3dd6f30d).\n\
+             Your Kakoune appears to use an older protocol (set_cursor method detected).\n\
+             Please update Kakoune: https://github.com/mawww/kakoune"
+                .into(),
+        )),
         _ => Err(ProtocolError::UnknownMethod(method.into())),
     }
 }

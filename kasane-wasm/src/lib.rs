@@ -105,14 +105,29 @@ const BUNDLED_FUZZY_FINDER: &[u8] = include_bytes!("../bundled/fuzzy-finder.wasm
 
 /// Register bundled WASM plugins that are embedded in the binary.
 ///
-/// These provide default functionality (cursor line highlight, color preview)
-/// without requiring the user to install .wasm files. Plugins whose ID appears
-/// in `plugins_config.disabled` are skipped. Later registrations with the same
-/// ID (e.g. from filesystem discovery) will replace bundled versions.
+/// Bundled plugins are only loaded when explicitly listed in `plugins.enabled`.
+/// This is opt-in: by default no bundled plugins are registered.
+/// Later registrations with the same ID (e.g. from filesystem discovery)
+/// will replace bundled versions.
 pub fn register_bundled_plugins(
     plugins_config: &kasane_core::config::PluginsConfig,
     registry: &mut kasane_core::plugin::PluginRegistry,
 ) {
+    let bundled = [
+        ("cursor_line", BUNDLED_CURSOR_LINE),
+        ("color_preview", BUNDLED_COLOR_PREVIEW),
+        ("sel_badge", BUNDLED_SEL_BADGE),
+        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
+    ];
+
+    // Early return if no bundled plugins are enabled
+    if !bundled
+        .iter()
+        .any(|(name, _)| plugins_config.is_bundled_enabled(name))
+    {
+        return;
+    }
+
     let loader = match WasmPluginLoader::new() {
         Ok(l) => l,
         Err(e) => {
@@ -123,14 +138,8 @@ pub fn register_bundled_plugins(
 
     let wasi_config = WasiCapabilityConfig::from_plugins_config(plugins_config);
 
-    for (name, bytes) in [
-        ("cursor_line", BUNDLED_CURSOR_LINE),
-        ("color_preview", BUNDLED_COLOR_PREVIEW),
-        ("sel_badge", BUNDLED_SEL_BADGE),
-        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
-    ] {
-        if plugins_config.disabled.contains(&name.to_string()) {
-            tracing::info!("bundled WASM plugin {name} disabled by config");
+    for (name, bytes) in bundled {
+        if !plugins_config.is_bundled_enabled(name) {
             continue;
         }
         match loader.load(bytes, &wasi_config) {

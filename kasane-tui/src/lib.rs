@@ -5,9 +5,13 @@ pub mod sgr;
 
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use anyhow::{Result, anyhow};
 use crossbeam_channel::unbounded;
+
+/// Global session name for panic hook reconnect message.
+static SESSION_NAME: OnceLock<String> = OnceLock::new();
 
 use kasane_core::config::Config;
 use kasane_core::plugin::{
@@ -29,7 +33,7 @@ use event_handler::{
 };
 use input::convert_event;
 
-/// Install a panic hook that restores the terminal before printing the panic.
+/// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -42,6 +46,14 @@ fn install_panic_hook() {
             crossterm::terminal::LeaveAlternateScreen
         );
         default_hook(info);
+        eprintln!();
+        eprintln!("Your Kakoune session is still running.");
+        if let Some(name) = SESSION_NAME.get() {
+            eprintln!("Reconnect with: kasane -c {name}");
+        } else {
+            eprintln!("List sessions with: kak -l");
+            eprintln!("Reconnect with:     kasane -c <session_name>");
+        }
     }));
 }
 
@@ -84,6 +96,13 @@ where
     C: Send + 'static,
 {
     install_panic_hook();
+
+    // Store session name for panic hook reconnect message
+    if let Some(spec) = session_manager.active_spec()
+        && let Some(ref name) = spec.session
+    {
+        let _ = SESSION_NAME.set(name.clone());
+    }
 
     let active_session = session_manager
         .active_session_id()

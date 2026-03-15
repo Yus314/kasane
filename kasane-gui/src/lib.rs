@@ -6,8 +6,28 @@ pub mod gpu;
 pub(crate) mod input;
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use anyhow::Result;
+
+/// Global session name for panic hook reconnect message.
+static SESSION_NAME: OnceLock<String> = OnceLock::new();
+
+/// Install a panic hook that shows session reconnect info.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        eprintln!();
+        eprintln!("Your Kakoune session is still running.");
+        if let Some(name) = SESSION_NAME.get() {
+            eprintln!("Reconnect with: kasane -c {name}");
+        } else {
+            eprintln!("List sessions with: kak -l");
+            eprintln!("Reconnect with:     kasane -c <session_name>");
+        }
+    }));
+}
 use kasane_core::config::Config;
 use kasane_core::plugin::{IoEvent, PluginId, ProcessEventSink};
 use kasane_core::protocol::KakouneRequest;
@@ -84,8 +104,17 @@ where
     W: std::io::Write + Send + 'static,
     C: Send + 'static,
 {
+    install_panic_hook();
+
     let event_loop = EventLoop::<GuiEvent>::with_user_event().build()?;
     let proxy = event_loop.create_proxy();
+
+    // Store session name for panic hook reconnect message
+    if let Some(spec) = session_manager.active_spec()
+        && let Some(ref name) = spec.session
+    {
+        let _ = SESSION_NAME.set(name.clone());
+    }
 
     let active_session = session_manager
         .active_session_id()

@@ -1,37 +1,39 @@
 # Kasane
 
-An operating system for [Kakoune](https://kakoune.org/)'s UI — a plugin-extensible frontend with dual TUI/GPU backends.
+Extensible Kakoune frontend. Drop in, then grow.
 
-> **Status: Alpha** — Core features work but the API is unstable. Expect breaking changes.
+Your kakrc works unchanged. Kasane adds a plugin system, GPU backend,
+and independent rendering — all optional, always compatible.
 
-<!-- TODO: add screenshot or GIF demo here -->
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Kasane demo" width="800"><br>
+  <sub>GPU backend · Cursor line highlight and fuzzy finder are bundled WASM plugins</sub>
+</p>
 
-## Philosophy
+## Status
 
-Kakoune follows the Unix philosophy: it does one thing well — code editing — and composes with external tools for everything else. Window management is left to tmux or system window managers. Extensions are shell scripts interacting via `%sh{}` and `kak -p`, not plugins — by deliberate design.
+Kasane is stable as a Kakoune frontend — `alias kak=kasane` and use it
+daily. The plugin API is still evolving; expect breaking changes if
+you write plugins.
 
-Its client-server architecture also exposes a `kak -ui json` protocol that enables alternative frontends. This means Kakoune users who want richer UI — git gutter signs, LSP diagnostics, fuzzy finders, or custom pane layouts — must assemble solutions across tmux, shell scripts, and window managers, each with its own interface and no way to share or combine them.
+## Quick Start
 
-Kasane builds on this foundation to fill the gap. It is an **operating system for editor UI**: a platform that provides primitives — elements, layout, state access, commands, and input hooks — so that plugins can build anything from small decorations to entire window management systems.
+```bash
+# Install (requires Rust toolchain and Kakoune)
+cargo install --path kasane
 
-- **Plugin-first** — Kasane itself is minimal. Features belong in plugins, not the core.
-- **Graduated freedom** — Contributions, line decorations, overlays, transforms, and custom surfaces let plugins participate at multiple levels, from injecting UI at named points to providing their own regions.
-- **Declarative** — TEA (The Elm Architecture) with a pure `view()` function. Plugins declare what to render, not how to render it.
-- **Performance as prerequisite** — A plugin platform that slows down the editor is not viable. ~49 µs/frame at 80×24, leaving plugins ample headroom.
+# Use it
+kasane file.txt
 
-## Features
-
-- **Dual backend** — TUI (crossterm) and GPU (wgpu + glyphon)
-- **Plugin system** — Contributions, decorations, overlays, transforms, and surface/workspace APIs; WASM (Component Model) and native (`#[kasane::plugin]`) plugins
-- **Compiled rendering** — PaintPatch, section caching, DirtyFlags-based memoization
-- **System clipboard** — direct integration via arboard (no xclip/xsel)
-- **Smooth scrolling** — with inertia support
-- **True 24-bit color** — no palette approximation
-- **CJK & emoji** — independent width calculation
+# Make it your default
+alias kak=kasane  # add to .bashrc / .zshrc
+```
 
 ## Installation
 
-Requires [Rust](https://rustup.rs/) (stable) and [Kakoune](https://kakoune.org/).
+### From Source
+
+Requires [Rust](https://rustup.rs/) (stable) and [Kakoune](https://kakoune.org/) (2024.12.09 or later).
 
 ```bash
 git clone https://github.com/Yus314/kasane.git
@@ -44,35 +46,58 @@ cargo install --path kasane
 cargo install --path kasane --features gui
 ```
 
+### Nix
+
+```bash
+nix run github:Yus314/kasane
+```
+
+## What's Different
+
+Out of the box, Kasane provides:
+
+- **Flicker-free rendering** — double-buffered with synchronized updates
+- **CJK & emoji** — independent Unicode width calculation
+- **System clipboard** — direct integration (no xclip/xsel needed)
+- **True 24-bit color** — no palette approximation
+- **Mouse drag scrolling** — works immediately
+
+See [What's Different](docs/whats-different.md) for the full list including opt-in features.
+
 ## Usage
 
 ```
 kasane [options] [kak-options] [file]... [+<line>[:<col>]|+:]
 ```
 
-```bash
-kasane file.txt              # Edit with default backend
-kasane --ui gui file.txt     # Edit with GPU backend
-kasane -c project            # Connect to existing session
-```
+All Kakoune arguments work — `kasane` passes them through to `kak`.
 
-Non-UI kak flags (`-l`, `-f`, `-p`, etc.) are delegated directly to `kak`.
+```bash
+kasane file.txt              # Edit a file
+kasane -c project            # Connect to existing session
+kasane -s myses file.txt     # Named session
+kasane --ui gui file.txt     # GPU backend
+kasane -l                    # List sessions (delegates to kak)
+```
 
 Configuration: `~/.config/kasane/config.toml` — see [docs/config.md](docs/config.md).
 
-Documentation index: [docs/index.md](docs/index.md).
+## Going Further
 
-## Architecture
+- [Getting Started](docs/getting-started.md) — installation and first run
+- [What's Different](docs/whats-different.md) — discover improvements
+- [Configuration](docs/config.md) — customize behavior
+- [Using Plugins](docs/using-plugins.md) — extend with plugins
+- [GPU Backend](docs/gpu-backend.md) — try GPU rendering
+- [Compatibility](docs/compatibility.md) — version requirements and known differences
 
-See [docs/architecture.md](docs/architecture.md).
+## For Plugin Authors
 
-## Performance
+Kasane supports WASM and native plugins. See [Plugin Development](docs/plugin-development.md) and [Plugin API](docs/plugin-api.md). The plugin API is unstable — expect breaking changes.
 
-See [docs/performance.md](docs/performance.md).
+## Documentation
 
-## Plugins
-
-Kasane supports external plugins as standalone Rust binaries and WASM modules. See [docs/plugin-development.md](docs/plugin-development.md), [docs/plugin-api.md](docs/plugin-api.md), and [examples/line-numbers/](examples/line-numbers/).
+See [docs/index.md](docs/index.md) for the full documentation index.
 
 ## Contributing
 

@@ -297,7 +297,11 @@ pub struct PluginsConfig {
     pub auto_discover: bool,
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
     pub path: Option<String>,
+    /// Bundled plugin IDs to enable (opt-in). Bundled plugins are NOT loaded unless
+    /// listed here. Available: "cursor_line", "color_preview", "sel_badge", "fuzzy_finder".
+    pub enabled: Vec<String>,
     /// Plugin IDs to disable (by plugin ID, e.g. "cursor_line").
+    /// Applies to filesystem-discovered and user-registered plugins.
     pub disabled: Vec<String>,
     /// Per-plugin capability denials. Key: plugin ID, Value: list of denied capability names.
     /// Valid capability names: "filesystem", "environment", "monotonic-clock".
@@ -309,6 +313,7 @@ impl Default for PluginsConfig {
         PluginsConfig {
             auto_discover: true,
             path: None,
+            enabled: Vec::new(),
             disabled: Vec::new(),
             deny_capabilities: HashMap::new(),
         }
@@ -316,6 +321,11 @@ impl Default for PluginsConfig {
 }
 
 impl PluginsConfig {
+    /// Check if a bundled plugin should be loaded (opt-in via `enabled` list).
+    pub fn is_bundled_enabled(&self, id: &str) -> bool {
+        self.enabled.iter().any(|s| s == id)
+    }
+
     /// Resolve the plugins directory path.
     pub fn plugins_dir(&self) -> std::path::PathBuf {
         if let Some(ref p) = self.path {
@@ -462,6 +472,7 @@ maximized = true
         let config = Config::default();
         assert!(config.plugins.auto_discover);
         assert!(config.plugins.path.is_none());
+        assert!(config.plugins.enabled.is_empty());
         assert!(config.plugins.disabled.is_empty());
     }
 
@@ -471,12 +482,26 @@ maximized = true
 [plugins]
 auto_discover = false
 path = "/custom/plugins"
-disabled = ["cursor_line", "line_numbers"]
+enabled = ["cursor_line"]
+disabled = ["line_numbers"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(!config.plugins.auto_discover);
         assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
-        assert_eq!(config.plugins.disabled.len(), 2);
+        assert_eq!(config.plugins.enabled, vec!["cursor_line"]);
+        assert_eq!(config.plugins.disabled, vec!["line_numbers"]);
+    }
+
+    #[test]
+    fn test_plugins_bundled_enabled_check() {
+        let pc = PluginsConfig {
+            enabled: vec!["cursor_line".to_string(), "sel_badge".to_string()],
+            ..Default::default()
+        };
+        assert!(pc.is_bundled_enabled("cursor_line"));
+        assert!(pc.is_bundled_enabled("sel_badge"));
+        assert!(!pc.is_bundled_enabled("color_preview"));
+        assert!(!pc.is_bundled_enabled("fuzzy_finder"));
     }
 
     #[test]
