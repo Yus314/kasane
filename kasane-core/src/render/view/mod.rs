@@ -6,9 +6,9 @@ mod tests;
 
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
-use crate::plugin::{
-    AnnotateContext, EffectiveSectionDeps, PluginRegistry, SlotId, TransformTarget,
-};
+use crate::plugin::{AnnotateContext, PluginRegistry, TransformTarget};
+#[cfg(test)]
+use crate::plugin::{EffectiveSectionDeps, SlotId};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::render::cache::{ViewCache, cache_dirty_snapshot};
 use crate::state::AppState;
@@ -29,6 +29,7 @@ pub(crate) const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_tru
 pub(crate) const BUILD_INFO_SECTION_DEPS: DirtyFlags =
     DirtyFlags::from_bits_truncate(DirtyFlags::INFO.bits() | DirtyFlags::OPTIONS.bits());
 
+#[cfg(test)]
 pub(crate) fn effective_surface_section_deps(
     cached_base: Option<&SurfaceComposeResult>,
     registry: &PluginRegistry,
@@ -39,6 +40,7 @@ pub(crate) fn effective_surface_section_deps(
     deps
 }
 
+#[cfg(test)]
 fn surface_base_deps(
     cached_base: Option<&SurfaceComposeResult>,
     registry: &PluginRegistry,

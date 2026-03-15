@@ -8,7 +8,6 @@ license.workspace = true
 default = ["wasm-plugins"]
 gui = ["dep:kasane-gui"]
 wasm-plugins = ["dep:kasane-wasm"]
-salsa-view = ["kasane-core/salsa-view", "kasane-tui/salsa-view"]
 
 [dependencies]
 kasane-core = { workspace = true }

@@ -4,7 +4,6 @@
 //! 1. Salsa tracked functions produce correct results
 //! 2. sync_inputs_from_state correctly projects AppState
 //! 3. Early Cutoff works (unchanged inputs don't trigger recomputation)
-#![cfg(feature = "salsa-view")]
 
 use kasane_core::protocol::{Atom, Coord, CursorMode, Face};
 use kasane_core::render::CursorStyle;

@@ -639,16 +639,15 @@ fn test_line_dirty_full_repaint_on_overlay() {
 // Surface model equivalence tests
 // ---------------------------------------------------------------------------
 
-/// Verify that the Surface-based pipeline produces identical CellGrid output
+/// Verify that the Salsa pipeline produces identical CellGrid output
 /// as the legacy view_cached()-based pipeline.
 #[test]
-fn test_surface_pipeline_equivalence_empty_state() {
+fn test_salsa_pipeline_equivalence_empty_state() {
     use kasane_core::render::ViewCache;
-    use kasane_core::render::{render_pipeline, render_pipeline_surfaces_cached};
+    use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};
+    use kasane_core::salsa_db::KasaneDatabase;
+    use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
     use kasane_core::state::DirtyFlags;
-    use kasane_core::surface::SurfaceRegistry;
-    use kasane_core::surface::buffer::KakouneBufferSurface;
-    use kasane_core::surface::status::StatusBarSurface;
 
     let state = setup_state(vec![make_line("hello world"), make_line("second line")]);
     let registry = PluginRegistry::new();
@@ -657,18 +656,19 @@ fn test_surface_pipeline_equivalence_empty_state() {
     let mut legacy_grid = CellGrid::new(state.cols, state.rows);
     let legacy_result = render_pipeline(&state, &registry, &mut legacy_grid);
 
-    // Surface pipeline
-    let mut surface_registry = SurfaceRegistry::new();
-    surface_registry.register(Box::new(KakouneBufferSurface::new()));
-    surface_registry.register(Box::new(StatusBarSurface::new()));
+    // Salsa pipeline
+    let mut db = KasaneDatabase::default();
+    let handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
 
-    let mut surface_grid = CellGrid::new(state.cols, state.rows);
+    let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let mut cache = ViewCache::new();
-    let surface_result = render_pipeline_surfaces_cached(
+    let salsa_result = render_pipeline_salsa_cached(
+        &db,
+        &handles,
         &state,
         &registry,
-        &surface_registry,
-        &mut surface_grid,
+        &mut salsa_grid,
         DirtyFlags::ALL,
         &mut cache,
         &[],
@@ -676,11 +676,11 @@ fn test_surface_pipeline_equivalence_empty_state() {
 
     // Compare cursor positions
     assert_eq!(
-        legacy_result.cursor_x, surface_result.cursor_x,
+        legacy_result.cursor_x, salsa_result.cursor_x,
         "cursor_x mismatch"
     );
     assert_eq!(
-        legacy_result.cursor_y, surface_result.cursor_y,
+        legacy_result.cursor_y, salsa_result.cursor_y,
         "cursor_y mismatch"
     );
 
@@ -688,11 +688,11 @@ fn test_surface_pipeline_equivalence_empty_state() {
     for y in 0..state.rows {
         for x in 0..state.cols {
             let l = legacy_grid.get(x, y);
-            let s = surface_grid.get(x, y);
+            let s = salsa_grid.get(x, y);
             if let (Some(l), Some(s)) = (l, s) {
                 assert_eq!(
                     l.grapheme, s.grapheme,
-                    "grapheme mismatch at ({x}, {y}): legacy={:?} surface={:?}",
+                    "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
                     l.grapheme, s.grapheme
                 );
                 assert_eq!(l.face, s.face, "face mismatch at ({x}, {y})");
@@ -701,15 +701,14 @@ fn test_surface_pipeline_equivalence_empty_state() {
     }
 }
 
-/// Verify Surface pipeline equivalence with menu overlay.
+/// Verify Salsa pipeline equivalence with menu overlay.
 #[test]
-fn test_surface_pipeline_equivalence_with_menu() {
+fn test_salsa_pipeline_equivalence_with_menu() {
     use kasane_core::render::ViewCache;
-    use kasane_core::render::{render_pipeline, render_pipeline_surfaces_cached};
+    use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};
+    use kasane_core::salsa_db::KasaneDatabase;
+    use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
     use kasane_core::state::DirtyFlags;
-    use kasane_core::surface::SurfaceRegistry;
-    use kasane_core::surface::buffer::KakouneBufferSurface;
-    use kasane_core::surface::status::StatusBarSurface;
 
     let mut state = setup_state(vec![make_line("hello"), make_line("world")]);
     state.apply(KakouneRequest::MenuShow {
@@ -726,19 +725,19 @@ fn test_surface_pipeline_equivalence_with_menu() {
     let mut legacy_grid = CellGrid::new(state.cols, state.rows);
     let _legacy_result = render_pipeline(&state, &registry, &mut legacy_grid);
 
-    // Surface pipeline
-    let mut surface_registry = SurfaceRegistry::new();
-    surface_registry.register(Box::new(KakouneBufferSurface::new()));
-    surface_registry.register(Box::new(StatusBarSurface::new()));
-    surface_registry.sync_ephemeral_surfaces(&state);
+    // Salsa pipeline
+    let mut db = KasaneDatabase::default();
+    let handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
 
-    let mut surface_grid = CellGrid::new(state.cols, state.rows);
+    let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let mut cache = ViewCache::new();
-    let _surface_result = render_pipeline_surfaces_cached(
+    let _salsa_result = render_pipeline_salsa_cached(
+        &db,
+        &handles,
         &state,
         &registry,
-        &surface_registry,
-        &mut surface_grid,
+        &mut salsa_grid,
         DirtyFlags::ALL,
         &mut cache,
         &[],
@@ -748,11 +747,11 @@ fn test_surface_pipeline_equivalence_with_menu() {
     for y in 0..state.rows {
         for x in 0..state.cols {
             let l = legacy_grid.get(x, y);
-            let s = surface_grid.get(x, y);
+            let s = salsa_grid.get(x, y);
             if let (Some(l), Some(s)) = (l, s) {
                 assert_eq!(
                     l.grapheme, s.grapheme,
-                    "grapheme mismatch at ({x}, {y}): legacy={:?} surface={:?}",
+                    "grapheme mismatch at ({x}, {y}): legacy={:?} salsa={:?}",
                     l.grapheme, s.grapheme
                 );
                 assert_eq!(l.face, s.face, "face mismatch at ({x}, {y})");

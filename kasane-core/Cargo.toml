@@ -21,11 +21,9 @@ tracing = { workspace = true }
 [features]
 perf-tracing = []
 bench-alloc = []
-salsa-view = ["salsa"]
 
 [dependencies.salsa]
 workspace = true
-optional = true
 
 [dev-dependencies]
 insta = { workspace = true }

@@ -3,7 +3,6 @@
 //! These tests verify that the Salsa-backed pipeline produces identical
 //! CellGrid output to the legacy PluginViewSource pipeline across a variety
 //! of AppState configurations, including with active plugins.
-#![cfg(feature = "salsa-view")]
 
 use kasane_core::element::Element;
 use kasane_core::plugin::{
