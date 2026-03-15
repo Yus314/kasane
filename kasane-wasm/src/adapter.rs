@@ -45,6 +45,49 @@ impl WasmPluginShared {
         f(&mut runtime)
     }
 
+    /// Lock runtime, sync state, call function, log error on failure.
+    fn call_synced<R: Default>(
+        &self,
+        state: &AppState,
+        method: &str,
+        f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
+    ) -> R {
+        self.with_runtime(|runtime| {
+            host::sync_from_app_state(runtime.store.data_mut(), state);
+            match f(runtime) {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
+                    R::default()
+                }
+            }
+        })
+    }
+
+    /// Like call_synced but also updates the cached state hash afterwards.
+    fn call_synced_with_hash<R: Default>(
+        &self,
+        state: &AppState,
+        method: &str,
+        f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
+    ) -> R {
+        self.with_runtime(|runtime| {
+            host::sync_from_app_state(runtime.store.data_mut(), state);
+            let result = match f(runtime) {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
+                    return R::default();
+                }
+            };
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            if let Ok(h) = plugin_api.call_state_hash(&mut runtime.store) {
+                self.set_state_hash(h);
+            }
+            result
+        })
+    }
+
     fn state_hash(&self) -> u64 {
         self.cached_state_hash.load(Ordering::Relaxed)
     }
@@ -198,19 +241,11 @@ impl Plugin for WasmPlugin {
     }
 
     fn on_init(&mut self, state: &AppState) -> Vec<Command> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            match plugin_api.call_on_init(&mut runtime.store) {
-                Ok(cmds) => convert::wit_commands_to_commands(&cmds),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.on_init failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    vec![]
-                }
-            }
+        self.shared.call_synced(state, "on_init", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
+            Ok(api
+                .call_on_init(&mut rt.store)
+                .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
         })
     }
 
@@ -227,57 +262,24 @@ impl Plugin for WasmPlugin {
     }
 
     fn on_state_changed(&mut self, state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-
-            let cmds = match plugin_api.call_on_state_changed(&mut runtime.store, dirty.bits()) {
-                Ok(cmds) => convert::wit_commands_to_commands(&cmds),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.on_state_changed failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    return vec![];
-                }
-            };
-
-            match plugin_api.call_state_hash(&mut runtime.store) {
-                Ok(h) => self.shared.set_state_hash(h),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.state_hash failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                }
-            }
-
-            cmds
-        })
+        self.shared
+            .call_synced_with_hash(state, "on_state_changed", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(api
+                    .call_on_state_changed(&mut rt.store, dirty.bits())
+                    .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
+            })
     }
 
     fn on_io_event(&mut self, event: &IoEvent, state: &AppState) -> Vec<Command> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            let wit_event = convert::io_event_to_wit(event);
-            let cmds = match plugin_api.call_on_io_event(&mut runtime.store, &wit_event) {
-                Ok(cmds) => convert::wit_commands_to_commands(&cmds),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.on_io_event failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    return vec![];
-                }
-            };
-
-            if let Ok(h) = plugin_api.call_state_hash(&mut runtime.store) {
-                self.shared.set_state_hash(h);
-            }
-
-            cmds
-        })
+        self.shared
+            .call_synced_with_hash(state, "on_io_event", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_event = convert::io_event_to_wit(event);
+                Ok(api
+                    .call_on_io_event(&mut rt.store, &wit_event)
+                    .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
+            })
     }
 
     fn state_hash(&self) -> u64 {
@@ -285,30 +287,20 @@ impl Plugin for WasmPlugin {
     }
 
     fn observe_key(&mut self, key: &KeyEvent, state: &AppState) {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+        self.shared.call_synced(state, "observe_key", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
-            if let Err(e) = plugin_api.call_observe_key(&mut runtime.store, &wit_key) {
-                tracing::error!(
-                    "WASM plugin {}.observe_key failed: {e}",
-                    self.shared.plugin_id.0
-                );
-            }
+            Ok(api.call_observe_key(&mut rt.store, &wit_key).map(|_| ())?)
         });
     }
 
     fn observe_mouse(&mut self, event: &MouseEvent, state: &AppState) {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+        self.shared.call_synced(state, "observe_mouse", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
             let wit_event = convert::mouse_event_to_wit(event);
-            if let Err(e) = plugin_api.call_observe_mouse(&mut runtime.store, wit_event) {
-                tracing::error!(
-                    "WASM plugin {}.observe_mouse failed: {e}",
-                    self.shared.plugin_id.0
-                );
-            }
+            Ok(api
+                .call_observe_mouse(&mut rt.store, wit_event)
+                .map(|_| ())?)
         });
     }
 
@@ -345,21 +337,12 @@ impl Plugin for WasmPlugin {
         id: InteractiveId,
         state: &AppState,
     ) -> Option<Vec<Command>> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+        self.shared.call_synced(state, "handle_mouse", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
             let wit_event = convert::mouse_event_to_wit(event);
-            match plugin_api.call_handle_mouse(&mut runtime.store, wit_event, id.0) {
-                Ok(Some(cmds)) => Some(convert::wit_commands_to_commands(&cmds)),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.handle_mouse failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    None
-                }
-            }
+            Ok(api
+                .call_handle_mouse(&mut rt.store, wit_event, id.0)
+                .map(|opt| opt.map(|cmds| convert::wit_commands_to_commands(&cmds)))?)
         })
     }
 
@@ -370,51 +353,29 @@ impl Plugin for WasmPlugin {
         selected: bool,
         state: &AppState,
     ) -> Option<Vec<Atom>> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+        self.shared.call_synced(state, "transform_menu_item", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
             let wit_item = convert::atoms_to_wit(item);
-            match plugin_api.call_transform_menu_item(
-                &mut runtime.store,
-                &wit_item,
-                index as u32,
-                selected,
-            ) {
-                Ok(Some(transformed)) => Some(convert::wit_atoms_to_atoms(&transformed)),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.transform_menu_item failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    None
-                }
-            }
+            Ok(api
+                .call_transform_menu_item(&mut rt.store, &wit_item, index as u32, selected)
+                .map(|opt| opt.map(|t| convert::wit_atoms_to_atoms(&t)))?)
         })
     }
 
     fn cursor_style_override(&self, state: &AppState) -> Option<kasane_core::render::CursorStyle> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            match plugin_api.call_cursor_style_override(&mut runtime.store) {
-                Ok(Some(code)) => match code {
-                    0 => Some(kasane_core::render::CursorStyle::Block),
-                    1 => Some(kasane_core::render::CursorStyle::Bar),
-                    2 => Some(kasane_core::render::CursorStyle::Underline),
-                    3 => Some(kasane_core::render::CursorStyle::Outline),
-                    _ => None,
-                },
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.cursor_style_override failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    None
-                }
-            }
-        })
+        self.shared
+            .call_synced(state, "cursor_style_override", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(api
+                    .call_cursor_style_override(&mut rt.store)?
+                    .and_then(|code| match code {
+                        0 => Some(kasane_core::render::CursorStyle::Block),
+                        1 => Some(kasane_core::render::CursorStyle::Bar),
+                        2 => Some(kasane_core::render::CursorStyle::Underline),
+                        3 => Some(kasane_core::render::CursorStyle::Outline),
+                        _ => None,
+                    }))
+            })
     }
 
     fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
@@ -469,32 +430,20 @@ impl Plugin for WasmPlugin {
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         let wit_region = convert::slot_id_to_wit(region);
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            runtime.store.data_mut().elements.clear();
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+        self.shared.call_synced(state, "contribute_to", |rt| {
+            rt.store.data_mut().elements.clear();
+            let api = rt.instance.kasane_plugin_plugin_api();
             let wit_ctx = convert::contribute_context_to_wit(ctx);
-            match plugin_api.call_contribute_to(&mut runtime.store, &wit_region, wit_ctx) {
-                Ok(Some(wit_contrib)) => {
-                    let element = runtime
-                        .store
-                        .data_mut()
-                        .take_root_element(wit_contrib.element);
-                    Some(Contribution {
+            Ok(api
+                .call_contribute_to(&mut rt.store, &wit_region, wit_ctx)?
+                .map(|wit_contrib| {
+                    let element = rt.store.data_mut().take_root_element(wit_contrib.element);
+                    Contribution {
                         element,
                         priority: wit_contrib.priority,
                         size_hint: convert::wit_size_hint_to_size_hint(&wit_contrib.size_hint),
-                    })
-                }
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.contribute_to failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    None
-                }
-            }
+                    }
+                }))
         })
     }
 
@@ -586,40 +535,31 @@ impl Plugin for WasmPlugin {
         state: &AppState,
         ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            runtime.store.data_mut().elements.clear();
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+        self.shared.call_synced(state, "annotate_line", |rt| {
+            rt.store.data_mut().elements.clear();
+            let api = rt.instance.kasane_plugin_plugin_api();
             let wit_ctx = convert::annotate_context_to_wit(ctx);
-            match plugin_api.call_annotate_line(&mut runtime.store, line as u32, wit_ctx) {
-                Ok(Some(wit_ann)) => {
+            Ok(api
+                .call_annotate_line(&mut rt.store, line as u32, wit_ctx)?
+                .map(|wit_ann| {
                     let left_gutter = wit_ann
                         .left_gutter
-                        .map(|h| runtime.store.data_mut().take_root_element(h));
+                        .map(|h| rt.store.data_mut().take_root_element(h));
                     let right_gutter = wit_ann
                         .right_gutter
-                        .map(|h| runtime.store.data_mut().take_root_element(h));
+                        .map(|h| rt.store.data_mut().take_root_element(h));
                     let background = wit_ann.background.as_ref().map(|bg| BackgroundLayer {
                         face: convert::wit_face_to_face(&bg.face),
                         z_order: bg.z_order,
                         blend: BlendMode::Opaque,
                     });
-                    Some(LineAnnotation {
+                    LineAnnotation {
                         left_gutter,
                         right_gutter,
                         background,
                         priority: wit_ann.priority,
-                    })
-                }
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.annotate_line failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    None
-                }
-            }
+                    }
+                }))
         })
     }
 
@@ -644,31 +584,23 @@ impl Plugin for WasmPlugin {
         state: &AppState,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
-        self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
-            runtime.store.data_mut().elements.clear();
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            let wit_ctx = convert::overlay_context_to_wit(ctx);
-            match plugin_api.call_contribute_overlay_v2(&mut runtime.store, &wit_ctx) {
-                Ok(Some(wit_oc)) => {
-                    let element = runtime.store.data_mut().take_root_element(wit_oc.element);
-                    let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&wit_oc.anchor);
-                    Some(OverlayContribution {
-                        element,
-                        anchor,
-                        z_index: wit_oc.z_index,
-                    })
-                }
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.contribute_overlay_v2 failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    None
-                }
-            }
-        })
+        self.shared
+            .call_synced(state, "contribute_overlay_v2", |rt| {
+                rt.store.data_mut().elements.clear();
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_ctx = convert::overlay_context_to_wit(ctx);
+                Ok(api
+                    .call_contribute_overlay_v2(&mut rt.store, &wit_ctx)?
+                    .map(|wit_oc| {
+                        let element = rt.store.data_mut().take_root_element(wit_oc.element);
+                        let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&wit_oc.anchor);
+                        OverlayContribution {
+                            element,
+                            anchor,
+                            z_index: wit_oc.z_index,
+                        }
+                    }))
+            })
     }
 
     fn capabilities(&self) -> PluginCapabilities {
@@ -681,19 +613,11 @@ impl Plugin for WasmPlugin {
 
     fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
         if let Ok(bytes) = msg.downcast::<Vec<u8>>() {
-            self.shared.with_runtime(|runtime| {
-                host::sync_from_app_state(runtime.store.data_mut(), state);
-                let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-                match plugin_api.call_update(&mut runtime.store, &bytes) {
-                    Ok(cmds) => convert::wit_commands_to_commands(&cmds),
-                    Err(e) => {
-                        tracing::error!(
-                            "WASM plugin {}.update failed: {e}",
-                            self.shared.plugin_id.0
-                        );
-                        vec![]
-                    }
-                }
+            self.shared.call_synced(state, "update", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(api
+                    .call_update(&mut rt.store, &bytes)
+                    .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
             })
         } else {
             tracing::warn!(
