@@ -17,6 +17,61 @@ use crate::session::SessionSpec;
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
 
+/// Register plugin-owned surfaces in the surface registry.
+///
+/// Iterates over all plugin surface sets, registers each surface, and applies
+/// initial placements. If registration fails for any surface in a set, all
+/// previously-registered surfaces from that set are rolled back and the plugin
+/// is removed from the registry.
+pub fn setup_plugin_surfaces(
+    registry: &mut PluginRegistry,
+    surface_registry: &mut SurfaceRegistry,
+    state: &AppState,
+) {
+    for surface_set in registry.collect_plugin_surfaces() {
+        let mut registered_ids = Vec::new();
+        let mut registration_error = None;
+        for surface in surface_set.surfaces {
+            let surface_id = surface.id();
+            match surface_registry.try_register_for_owner(surface, Some(surface_set.owner.clone()))
+            {
+                Ok(()) => registered_ids.push(surface_id),
+                Err(err) => {
+                    registration_error = Some(err);
+                    break;
+                }
+            }
+        }
+        if let Some(err) = registration_error {
+            for surface_id in registered_ids {
+                surface_registry.remove(surface_id);
+            }
+            registry.remove_plugin(&surface_set.owner);
+            eprintln!(
+                "disabling plugin {} after surface registration failure: {err:?}",
+                surface_set.owner.0
+            );
+        } else {
+            let mut bootstrap_dirty = DirtyFlags::empty();
+            for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+                &registered_ids,
+                surface_set.legacy_workspace_request.as_ref(),
+                &mut bootstrap_dirty,
+                Some(Rect {
+                    x: 0,
+                    y: 0,
+                    w: state.cols,
+                    h: state.rows,
+                }),
+            ) {
+                eprintln!(
+                    "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
+                );
+            }
+        }
+    }
+}
+
 /// Convert an input event into a surface event.
 ///
 /// Shared between TUI and GUI backends for routing input through the surface system.

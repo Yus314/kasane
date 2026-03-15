@@ -245,49 +245,11 @@ where
 
         // Collect plugin-owned surfaces before plugin init so invalid surface
         // contracts do not get a chance to produce side effects.
-        for surface_set in registry.collect_plugin_surfaces() {
-            let mut registered_ids = Vec::new();
-            let mut registration_error = None;
-            for surface in surface_set.surfaces {
-                let surface_id = surface.id();
-                match surface_registry
-                    .try_register_for_owner(surface, Some(surface_set.owner.clone()))
-                {
-                    Ok(()) => registered_ids.push(surface_id),
-                    Err(err) => {
-                        registration_error = Some(err);
-                        break;
-                    }
-                }
-            }
-            if let Some(err) = registration_error {
-                for surface_id in registered_ids {
-                    surface_registry.remove(surface_id);
-                }
-                registry.remove_plugin(&surface_set.owner);
-                eprintln!(
-                    "disabling plugin {} after surface registration failure: {err:?}",
-                    surface_set.owner.0
-                );
-            } else {
-                let mut bootstrap_dirty = DirtyFlags::empty();
-                for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
-                    &registered_ids,
-                    surface_set.legacy_workspace_request.as_ref(),
-                    &mut bootstrap_dirty,
-                    Some(kasane_core::layout::Rect {
-                        x: 0,
-                        y: 0,
-                        w: state.cols,
-                        h: state.rows,
-                    }),
-                ) {
-                    eprintln!(
-                        "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
-                    );
-                }
-            }
-        }
+        kasane_core::event_loop::setup_plugin_surfaces(
+            &mut registry,
+            &mut surface_registry,
+            &state,
+        );
 
         let _init_commands = registry.init_all(&state);
         // init_commands will be executed once initial_resize_sent is true
