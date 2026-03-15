@@ -10,6 +10,16 @@ pub mod plugin;
 pub mod plugin_prelude;
 pub mod protocol;
 pub mod render;
+#[cfg(feature = "salsa-view")]
+pub mod salsa_db;
+#[cfg(feature = "salsa-view")]
+pub mod salsa_inputs;
+#[cfg(feature = "salsa-view")]
+pub mod salsa_queries;
+#[cfg(feature = "salsa-view")]
+pub mod salsa_sync;
+#[cfg(feature = "salsa-view")]
+pub mod salsa_views;
 pub mod session;
 pub mod state;
 pub mod surface;

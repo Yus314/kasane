@@ -5,6 +5,8 @@ pub mod markup;
 pub mod paint;
 pub mod patch;
 pub mod pipeline;
+#[cfg(feature = "salsa-view")]
+mod pipeline_salsa;
 mod pipeline_surface;
 pub mod scene;
 #[cfg(test)]
@@ -23,6 +25,11 @@ pub use patch::{CursorPatch, MenuSelectionPatch, PaintPatch, StatusBarPatch};
 pub use pipeline::{
     render_pipeline, render_pipeline_cached, render_pipeline_patched, render_pipeline_sectioned,
     scene_render_pipeline, scene_render_pipeline_scene_cached,
+};
+#[cfg(feature = "salsa-view")]
+pub use pipeline_salsa::{
+    render_pipeline_salsa_cached, render_pipeline_salsa_patched, render_pipeline_salsa_sectioned,
+    scene_render_pipeline_salsa_cached,
 };
 pub use pipeline_surface::{
     render_pipeline_surfaces_cached, render_pipeline_surfaces_patched,
