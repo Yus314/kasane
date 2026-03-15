@@ -282,6 +282,44 @@ bright_cyan = "#8ec07c"
 bright_white = "#ebdbb2"
 ```
 
+## `[plugins]`
+
+Plugin discovery and loading settings.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | array of strings | `[]` | Bundled plugin IDs to enable (opt-in). Available: `"cursor_line"`, `"color_preview"`, `"sel_badge"`, `"fuzzy_finder"` |
+| `auto_discover` | bool | `true` | Automatically discover `.wasm` plugins from the plugins directory |
+| `path` | string or omit | *(auto)* | Custom plugins directory. Default: `$XDG_DATA_HOME/kasane/plugins/` or `~/.local/share/kasane/plugins/` |
+| `disabled` | array of strings | `[]` | Plugin IDs to disable (applies to discovered and user-registered plugins) |
+
+Bundled plugins are embedded in the Kasane binary but are **not loaded by default**. Add their IDs to `enabled` to activate them:
+
+```toml
+[plugins]
+enabled = ["cursor_line", "color_preview"]
+```
+
+Discovered plugins (from the plugins directory) can be disabled individually:
+
+```toml
+[plugins]
+disabled = ["some_plugin"]
+```
+
+### `[plugins.deny_capabilities]`
+
+Restrict WASI capabilities for specific WASM plugins. Key: plugin ID. Value: list of denied capability names.
+
+Valid capability names: `"filesystem"`, `"environment"`, `"monotonic-clock"`.
+
+```toml
+[plugins.deny_capabilities]
+untrusted_plugin = ["filesystem", "environment"]
+```
+
+See [Using Plugins](using-plugins.md) for more details.
+
 ## See also
 
 - [README.md](../README.md) — installation and basic usage

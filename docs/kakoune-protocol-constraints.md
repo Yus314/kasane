@@ -1,64 +1,64 @@
-# Kakoune プロトコル制約分析 — Kasane への影響と実装の歪み
+# Kakoune Protocol Constraint Analysis — Impact on Kasane and Implementation Distortions
 
-本ドキュメントは、Kakoune JSON UI プロトコルが Kasane の実装をどう歪めるかを分析する文書である。
-現在の upstream 状態や再統合条件の追跡は [upstream-dependencies.md](./upstream-dependencies.md) を参照。
+This document analyzes how the Kakoune JSON UI protocol distorts Kasane's implementation.
+For tracking current upstream status and reintegration conditions, see [upstream-dependencies.md](./upstream-dependencies.md).
 
-## 1. 概要
+## 1. Overview
 
-本ドキュメントでは、Kakoune の JSON UI プロトコル (`kak -ui json`) が Kasane の設計・実装に及ぼす制約を体系的に分析する。単なる制約の列挙（[requirements.md §7](./requirements.md#7-既知の制約事項) を参照）ではなく、**制約がどのように実装を歪めているか** と **どの性質がプロトコル上の限界なのか** を明らかにすることを目的とする。
+This document systematically analyzes the constraints that the Kakoune JSON UI protocol (`kak -ui json`) imposes on Kasane's design and implementation. Rather than merely enumerating constraints (see [requirements.md §7](./requirements.md#7-known-constraints)), its purpose is to clarify **how the constraints distort the implementation** and **which properties represent fundamental protocol limitations**.
 
-**関連ドキュメント:**
-- [要件定義書 §7 既知の制約事項](./requirements.md#7-既知の制約事項) — 制約の簡潔な一覧
-- [Kakoune Issue 調査報告書](./kakoune-issues-investigation.md) — 解決可能な課題の全体像
-- [JSON UI プロトコル仕様](./json-ui-protocol.md) — プロトコルの技術仕様
-- [技術的意思決定記録](./decisions.md) — 制約に起因する設計判断
-- [上流依存項目](./upstream-dependencies.md) — 現在の upstream 状態と再統合条件
-- [実装ロードマップ](./roadmap.md) — Kasane 側の追跡と実装順序
-
----
-
-## 2. プロトコルの根本的な設計思想とその帰結
-
-Kakoune の JSON UI プロトコルは、本質的に **「ターミナルエスケープシーケンスの JSON 表現」** である。Kakoune の内蔵ターミナル UI (`terminal_ui.cc`) が行っている描画命令を、ほぼそのまま JSON-RPC メッセージとして送信する設計になっている。
-
-この設計思想は以下の帰結をもたらす:
-
-1. **表示命令のみ、意味情報なし**: プロトコルは「何を描け」とだけ伝え、「これが何か」は伝えない
-2. **フロントエンドは受動的**: Kakoune に対して能動的に情報を問い合わせる手段がない
-3. **座標系が暗黙的**: ターミナルのセル座標を前提とし、バッファ座標との対応が不明
-
-上流 Issue [#2019](https://github.com/mawww/kakoune/issues/2019) (2018年〜、7コメント) がこの問題を包括的に記録しており、kakoune-gtk の Screwtapello、Kakoune Qt の casimir を含む複数のフロントエンド開発者が議論に参加している。
+**Related documents:**
+- [Requirements §7 Known Constraints](./requirements.md#7-known-constraints) — Concise list of constraints
+- [Kakoune Issue Investigation Report](./kakoune-issues-investigation.md) — Overview of solvable issues
+- [JSON UI Protocol Specification](./json-ui-protocol.md) — Technical specification of the protocol
+- [Technical Decision Records](./decisions.md) — Design decisions driven by constraints
+- [Upstream Dependencies](./upstream-dependencies.md) — Current upstream status and reintegration conditions
+- [Implementation Roadmap](./roadmap.md) — Kasane-side tracking and implementation order
 
 ---
 
-## 3. 実装の歪みの分類
+## 2. Fundamental Design Philosophy of the Protocol and Its Consequences
 
-Kasane が受ける歪みは3つの層に分類できる。
+The Kakoune JSON UI protocol is essentially **"a JSON representation of terminal escape sequences."** It is designed to send the drawing commands that Kakoune's built-in terminal UI (`terminal_ui.cc`) performs, almost verbatim, as JSON-RPC messages.
 
-### 3.1 推定層 — Kakoune が明示しない情報のヒューリスティック推定
+This design philosophy leads to the following consequences:
 
-プロトコルが伝えない意味情報を、表示データのパターンマッチで推定する層。**Kakoune の内部実装に暗黙的に依存**するため、バージョンアップで予告なく壊れるリスクがある。
+1. **Display commands only, no semantic information**: The protocol only says "draw this" and never says "this is what it is"
+2. **The frontend is passive**: There is no means to actively query Kakoune for information
+3. **The coordinate system is implicit**: It assumes terminal cell coordinates, with no known correspondence to buffer coordinates
 
-### 3.2 二重計算層 — Kakoune と独立した再計算
-
-Kakoune が内部で持つ計算結果（文字幅、メニュースクロール位置など）がプロトコルに含まれないため、Kasane 側で独立に再計算する層。**精度の乖離**がレイアウトのずれとして顕在化するリスクがある。
-
-### 3.3 迂回層 — プロトコルを迂回した直接アクセス
-
-プロトコルが対応しない機能を、OS API 等に直接アクセスして実現する層。Kakoune 側の状態と**同期できない**。
+Upstream Issue [#2019](https://github.com/mawww/kakoune/issues/2019) (since 2018, 7 comments) comprehensively documents this problem, with multiple frontend developers participating in the discussion, including Screwtapello of kakoune-gtk and casimir of Kakoune Qt.
 
 ---
 
-## 4. 推定層の詳細分析
+## 3. Classification of Implementation Distortions
 
-### 4.1 カーソル検出 — `FINAL_FG + REVERSE` ヒューリスティック
+The distortions Kasane experiences can be classified into three layers.
 
-**制約:** Kakoune は `draw` メッセージの `cursor_pos` でカーソル座標を伝えるが、以下の情報を提供しない:
-- マルチカーソルの総数
-- カーソルの種別 (Primary / Secondary)
-- カーソルの面名 (PrimaryCursor / SecondaryCursor 等)
+### 3.1 Inference Layer — Heuristic Estimation of Information Not Provided by Kakoune
 
-**実装の歪み** (`kasane-core/src/state/apply.rs:13-21`):
+This layer estimates semantic information not conveyed by the protocol through pattern matching on display data. Since it **implicitly depends on Kakoune's internal implementation**, there is a risk of breakage without notice on version upgrades.
+
+### 3.2 Redundant Computation Layer — Independent Recalculation Separate from Kakoune
+
+This layer independently recalculates results that Kakoune holds internally (character widths, menu scroll positions, etc.) because they are not included in the protocol. There is a risk that **precision divergences** manifest as layout misalignment.
+
+### 3.3 Bypass Layer — Direct Access Circumventing the Protocol
+
+This layer implements features unsupported by the protocol through direct access to OS APIs and similar mechanisms. It **cannot synchronize** with Kakoune's internal state.
+
+---
+
+## 4. Detailed Analysis of the Inference Layer
+
+### 4.1 Cursor Detection — `FINAL_FG + REVERSE` Heuristic
+
+**Constraint:** Kakoune conveys the cursor coordinates via `cursor_pos` in the `draw` message, but does not provide the following information:
+- Total number of multi-cursors
+- Cursor type (Primary / Secondary)
+- Cursor face name (PrimaryCursor / SecondaryCursor, etc.)
+
+**Implementation distortion** (`kasane-core/src/state/apply.rs:13-21`):
 
 ```rust
 self.cursor_count = lines
@@ -71,31 +71,31 @@ self.cursor_count = lines
     .count();
 ```
 
-`FINAL_FG` + `REVERSE` 属性の同時存在をカーソルのシグネチャとして利用している。これは Kakoune の `terminal_ui.cc` がカーソル位置の Atom に `FINAL_FG | REVERSE` を設定するという内部実装の知識に依存している。
+The simultaneous presence of `FINAL_FG` + `REVERSE` attributes is used as the cursor signature. This depends on the internal implementation knowledge that Kakoune's `terminal_ui.cc` sets `FINAL_FG | REVERSE` on the Atom at the cursor position.
 
-**影響範囲:**
-- R-050 (マルチカーソル描画) — Primary/Secondary の区別不可
-- R-064 (カーソル数バッジ) — 表示上は機能するが保証なし
+**Impact scope:**
+- R-050 (multi-cursor rendering) — Cannot distinguish Primary/Secondary
+- R-064 (cursor count badge) — Functions visually but without guarantees
 
-**上流での解決:** [PR #4707](https://github.com/mawww/kakoune/pull/4707) (Atom にセマンティックな Face 名を追加)。ただし mawww は [PR #4737](https://github.com/mawww/kakoune/pull/4737) の DisplayAtom フラグによるアプローチを推奨しており、#4707 自体のマージ見込みは不透明。
+**Upstream resolution:** [PR #4707](https://github.com/mawww/kakoune/pull/4707) (adding semantic Face names to Atoms). However, mawww recommends the DisplayAtom flag approach in [PR #4737](https://github.com/mawww/kakoune/pull/4737), and the prospect of #4707 itself being merged is unclear.
 
 ---
 
-### 4.2 編集モード推定 — ステータスモードラインの文字列マッチ
+### 4.2 Edit Mode Inference — String Matching on the Status Mode Line
 
-**制約:** Kakoune は現在の編集モード (normal / insert / replace) を明示的に通知するメッセージを持たない。
+**Constraint:** Kakoune has no message that explicitly notifies the current edit mode (normal / insert / replace).
 
-**実装の歪み** (`kasane-core/src/render/mod.rs:74-100`):
+**Implementation distortion** (`kasane-core/src/render/mod.rs:74-100`):
 
 ```rust
 pub fn cursor_style(state: &AppState) -> CursorStyle {
-    // 1. ui_option による明示的オーバーライド
+    // 1. Explicit override via ui_option
     if let Some(style) = state.ui_options.get("kasane_cursor_style") { ... }
-    // 2. フォーカス喪失時
+    // 2. On focus loss
     if !state.focused { return CursorStyle::Outline; }
-    // 3. プロンプトモード
+    // 3. Prompt mode
     if state.cursor_mode == CursorMode::Prompt { return CursorStyle::Bar; }
-    // 4. モードラインの文字列マッチによる推定
+    // 4. Inference via string matching on the mode line
     let mode = state.status_mode_line.iter()
         .find_map(|atom| match atom.contents.as_str() {
             "insert" => Some(CursorStyle::Bar),
@@ -106,33 +106,33 @@ pub fn cursor_style(state: &AppState) -> CursorStyle {
 }
 ```
 
-ステップ4でモードラインの Atom 内容が文字列 `"insert"` / `"replace"` に一致するかを検査している。ユーザーが `modelinefmt` を変更して日本語のモード名を表示した場合や、プラグインがモードラインを改変した場合に壊れる。
+Step 4 checks whether the Atom content in the mode line matches the strings `"insert"` / `"replace"`. This breaks if the user changes `modelinefmt` to display mode names in Japanese, or if a plugin modifies the mode line.
 
-**緩和策:** `kasane_cursor_style` ui_option による明示的オーバーライドを最優先にすることで、ヒューリスティックが失敗した場合のフォールバックを提供。
-
----
-
-### 4.3 ステータスラインのコンテキスト推定 (先送り中)
-
-**制約:** `draw_status` メッセージは `status_line` と `mode_line` の2つの `Line` を送るのみで、それが以下のいずれであるかを示さない:
-- コマンドプロンプト (`:`)
-- 検索プロンプト (`/`, `?`)
-- `echo` によるメッセージ
-- ファイル情報表示
-
-**影響:** D-003 (ステータスライン文脈推定) は縮退動作として扱われている。プロンプトの種類に応じた UI 分岐（コマンドパレット風の表示、検索ハイライトなど）は exact なコア要件としては実装不能。
-
-**上流:** [#5428](https://github.com/mawww/kakoune/issues/5428) — `draw_status` に `status_style` パラメータを追加する提案。コメント0件で議論が進んでいない。
-
-**他フロントエンドの状況:** [#2019](https://github.com/mawww/kakoune/issues/2019) で casimir が `:` プレフィックスの検出を試みたが、信頼性が低いと報告。
+**Mitigation:** The `kasane_cursor_style` ui_option takes highest priority as an explicit override, providing a fallback when the heuristic fails.
 
 ---
 
-### 4.4 Info ポップアップの同一性判定
+### 4.3 Status Line Context Inference (Deferred)
 
-**制約:** Kakoune は info ウィンドウに一意な ID を付与しない。`info_show` / `info_hide` は単一のスタック的操作を想定している。
+**Constraint:** The `draw_status` message only sends two `Line` values, `status_line` and `mode_line`, without indicating whether they represent:
+- A command prompt (`:`)
+- A search prompt (`/`, `?`)
+- A message from `echo`
+- File information display
 
-**実装の歪み** (`kasane-core/src/state/mod.rs:181-197`):
+**Impact:** D-003 (status line context inference) is treated as degraded behavior. UI branching based on prompt type (command palette-style display, search highlighting, etc.) cannot be implemented as an exact core requirement.
+
+**Upstream:** [#5428](https://github.com/mawww/kakoune/issues/5428) — Proposal to add a `status_style` parameter to `draw_status`. Zero comments; discussion has not progressed.
+
+**Status of other frontends:** In [#2019](https://github.com/mawww/kakoune/issues/2019), casimir attempted detection of the `:` prefix but reported low reliability.
+
+---
+
+### 4.4 Info Popup Identity Determination
+
+**Constraint:** Kakoune does not assign a unique ID to info windows. `info_show` / `info_hide` assume a single stack-like operation.
+
+**Implementation distortion** (`kasane-core/src/state/mod.rs:181-197`):
 
 ```rust
 pub struct InfoIdentity {
@@ -141,168 +141,168 @@ pub struct InfoIdentity {
 }
 ```
 
-`(InfoStyle, anchor_line)` のタプルを近似的な ID として使用し、同一 identity の info は上書き、異なる identity は共存させている。
+The tuple `(InfoStyle, anchor_line)` is used as an approximate ID; info with the same identity is overwritten, while info with different identities coexists.
 
-**既知の衝突パターン:**
-- 同一行上の lint エラーと LSP ホバー情報（両方 `Inline` スタイル）
-- 複数の `Modal` スタイル info（anchor_line が同じ場合）
+**Known collision patterns:**
+- Lint errors and LSP hover information on the same line (both `Inline` style)
+- Multiple `Modal` style infos (when anchor_line is the same)
 
-**上流:** [#1516](https://github.com/mawww/kakoune/issues/1516) — 複数 info ボックスの同時表示。根本解決には Kakoune 側での info ID 導入が必要。
+**Upstream:** [#1516](https://github.com/mawww/kakoune/issues/1516) — Simultaneous display of multiple info boxes. A fundamental fix requires the introduction of info IDs on the Kakoune side.
 
 ---
 
-## 5. 二重計算層の詳細分析
+## 5. Detailed Analysis of the Redundant Computation Layer
 
-### 5.1 文字幅の独立計算
+### 5.1 Independent Character Width Calculation
 
-**制約 (C-002):** Atom は文字列のみを含み、表示幅情報を持たない。
+**Constraint (C-002):** Atoms contain only strings and carry no display width information.
 
-**二重計算の構造:**
+**Structure of redundant computation:**
 
-| 計算主体 | 幅計算ソース | 用途 |
+| Computing entity | Width calculation source | Usage |
 |---------|------------|------|
-| Kakoune | libc の `wcwidth()` / `wcswidth()` | バッファ内カーソル移動、行折り返し判定、Atom 分割 |
-| Kasane | `unicode-width` クレート + 互換パッチ | レイアウト計算、セルグリッド配置 |
+| Kakoune | libc `wcwidth()` / `wcswidth()` | In-buffer cursor movement, line wrapping decisions, Atom splitting |
+| Kasane | `unicode-width` crate + compatibility patches | Layout calculation, cell grid placement |
 
-**乖離リスク:**
-- libc 版の Unicode データベースと `unicode-width` クレートの Unicode バージョンが異なる
-- 特に CJK 曖昧幅文字 (Ambiguous Width) の解釈差異
-- 絵文字シーケンス (ZWJ, Variation Selector) の幅計算差異
-- macOS の `iswprint()` が古い Unicode データベースに依存 ([#4257](https://github.com/mawww/kakoune/issues/4257))
+**Divergence risks:**
+- The Unicode database of the libc version may differ from the Unicode version of the `unicode-width` crate
+- Particularly the interpretation of CJK Ambiguous Width characters
+- Width calculation differences for emoji sequences (ZWJ, Variation Selector)
+- macOS `iswprint()` depends on an outdated Unicode database ([#4257](https://github.com/mawww/kakoune/issues/4257))
 
-**顕在化の例:**
-- Kasane が2セル幅と判定した文字を Kakoune が1セル幅と扱うと、カーソル位置がずれる
-- メニュー内の CJK テキストでアイテム境界がずれる ([#3598](https://github.com/mawww/kakoune/issues/3598))
+**Examples of manifestation:**
+- If Kasane judges a character as 2-cell width but Kakoune treats it as 1-cell width, the cursor position shifts
+- Item boundaries shift in CJK text within menus ([#3598](https://github.com/mawww/kakoune/issues/3598))
 
-**上流:** [#2019](https://github.com/mawww/kakoune/issues/2019) で Screwtapello が「Atom に期待幅を含めるべき」と提案。mawww は未回答。
+**Upstream:** In [#2019](https://github.com/mawww/kakoune/issues/2019), Screwtapello proposed that "Atoms should include expected width." mawww has not responded.
 
 ---
 
-### 5.2 メニュースクロール位置の再計算
+### 5.2 Recalculation of Menu Scroll Position
 
-**制約:** Kakoune は `menu_select(index)` で選択インデックスのみを伝え、スクロール位置は伝えない。
+**Constraint:** Kakoune only sends the selection index via `menu_select(index)` and does not convey the scroll position.
 
-**実装の歪み:** Kasane は `MenuState::scroll_column_based()` および `MenuState::scroll_search()` で Kakoune の `terminal_ui.cc` のスクロールロジックを Rust に移植している。
+**Implementation distortion:** Kasane ports Kakoune's `terminal_ui.cc` scroll logic to Rust in `MenuState::scroll_column_based()` and `MenuState::scroll_search()`.
 
 ```
-// Kakoune の terminal_ui.cc を逆算:
+// Reverse-engineering Kakoune's terminal_ui.cc:
 // stride = win_height
 // first_item = (selected / stride) * stride
 ```
 
-Kakoune 側のロジックが変更された場合、メニューのスクロール位置がずれる。
+If the logic on Kakoune's side changes, the menu scroll position will drift.
 
 ---
 
-### 5.3 インクリメンタルな差分検出
+### 5.3 Incremental Diff Detection
 
-**制約 (C-007):** `draw` メッセージは毎回すべての表示行を送信する。変更行のみの差分送信は行われない。
+**Constraint (C-007):** The `draw` message sends all display lines every time. No differential transmission of changed lines only is performed.
 
-**二重計算:** Kasane は NF-004 (差分描画) として、前フレームの `CellGrid` と現フレームを比較し、変更セルのみをバックエンドに送信する。Kakoune の内部でも同様の差分検出を行っている（ターミナル UI 用）が、その結果はプロトコルに含まれない。
+**Redundant computation:** As NF-004 (differential rendering), Kasane compares the previous frame's `CellGrid` with the current frame and sends only changed cells to the backend. Kakoune internally performs similar diff detection (for its terminal UI), but the results are not included in the protocol.
 
-**上流:** [#4686](https://github.com/mawww/kakoune/issues/4686) — インクリメンタル draw 通知の提案。コメント0件。
-
----
-
-## 6. 迂回層の詳細分析
-
-### 6.1 クリップボード
-
-**制約 (C-001):** プロトコルにクリップボード関連のメッセージが存在しない。
-
-**迂回:** `arboard` クレートでシステムクリップボード API に直接アクセス (R-080)。
-
-**同期問題:**
-- Kakoune の yank レジスタ (`"`) と Kasane のクリップボードは独立
-- Kakoune 内で `y` した内容は Kasane のクリップボードに反映されない
-- Kasane 経由でペーストした内容は Kakoune の `"` レジスタに入らない
-
-[#2019](https://github.com/mawww/kakoune/issues/2019) で Screwtapello がクリップボード連携の5つのシナリオを列挙し、すべてが JSON UI プロトコルでは不可能であると指摘。
-
-**上流:** [#3935](https://github.com/mawww/kakoune/issues/3935) — ビルトインクリップボード統合の要望。
+**Upstream:** [#4686](https://github.com/mawww/kakoune/issues/4686) — Proposal for incremental draw notifications. Zero comments.
 
 ---
 
-### 6.2 マウス修飾キー
+## 6. Detailed Analysis of the Bypass Layer
 
-**制約 (C-004):** マウスイベントのプロトコルメッセージに修飾キーフィールドがない。
+### 6.1 Clipboard
+
+**Constraint (C-001):** No clipboard-related messages exist in the protocol.
+
+**Bypass:** Direct access to the system clipboard API via the `arboard` crate (R-080).
+
+**Synchronization problems:**
+- Kakoune's yank register (`"`) and Kasane's clipboard are independent
+- Content yanked with `y` within Kakoune is not reflected in Kasane's clipboard
+- Content pasted via Kasane does not enter Kakoune's `"` register
+
+In [#2019](https://github.com/mawww/kakoune/issues/2019), Screwtapello enumerated five clipboard integration scenarios and pointed out that all of them are impossible with the JSON UI protocol.
+
+**Upstream:** [#3935](https://github.com/mawww/kakoune/issues/3935) — Request for built-in clipboard integration.
+
+---
+
+### 6.2 Mouse Modifier Keys
+
+**Constraint (C-004):** The protocol message for mouse events has no modifier key field.
 
 ```rust
-// プロトコル上のマウスイベント:
+// Mouse event in the protocol:
 MousePress { button: String, line: u32, column: u32 }
-// ← Ctrl/Alt/Shift の情報なし
+// ← No Ctrl/Alt/Shift information
 ```
 
-**迂回:** Kasane はマウスイベント受信時に OS のキー状態を検査し、`Ctrl+Click` 等をフロントエンド側で独自処理する。Kakoune にはこの修飾キー情報を伝える手段がない。
+**Bypass:** Kasane inspects the OS key state when receiving mouse events and handles `Ctrl+Click` etc. independently on the frontend side. There is no means to convey this modifier key information to Kakoune.
 
 ---
 
-## 7. プロトコルで原理的に不可能な操作
+## 7. Operations Fundamentally Impossible via the Protocol
 
-以下は、プロトコルの設計上、Kasane から行うことが**不可能**な操作である。
+The following are operations that are **impossible** for Kasane to perform due to the protocol's design.
 
-| 操作 | 現在の代替手段 | 限界 |
+| Operation | Current alternative | Limitation |
 |------|-------------|------|
-| コマンド実行 (`evaluate-commands`) | `keys` メッセージでキー入力をシミュレート | 複雑なコマンドの発行が困難。実行結果を取得できない |
-| バッファメタデータ取得 | なし | ファイルパス、変更状態、開いているバッファ一覧を知る手段がない |
-| レジスタ監視 | なし | yank/delete の内容変化を検知できない |
-| バッファ内容の任意範囲取得 | なし | 画面に表示されている部分しかアクセスできない |
-| ビューポート位置の取得 | `resize` メッセージの送信のみ | バッファの何行目から表示しているかが不明 |
-| コマンド実行の応答確認 | なし | `keys` 送信に対する ACK がない (fire-and-forget) |
-| オプション値の能動的取得 | `set_ui_options` の受信待ち | 特定オプションの値を問い合わせることができない |
+| Command execution (`evaluate-commands`) | Simulating key input via `keys` messages | Difficult to issue complex commands. Cannot obtain execution results |
+| Buffer metadata retrieval | None | No means to know file path, modification state, or list of open buffers |
+| Register monitoring | None | Cannot detect content changes from yank/delete |
+| Arbitrary range retrieval of buffer contents | None | Can only access the portion displayed on screen |
+| Viewport position retrieval | Only sending `resize` messages | Unknown which line of the buffer display starts from |
+| Command execution response confirmation | None | No ACK for `keys` transmission (fire-and-forget) |
+| Active retrieval of option values | Waiting for `set_ui_options` reception | Cannot query the value of a specific option |
 
 ---
 
-## 8. 影響度マトリクス
+## 8. Impact Matrix
 
-各制約が Kasane のどの機能をブロックしているかを整理する。
+This section organizes which Kasane features each constraint blocks.
 
-| 制約 | ブロックされている機能 | 歪みの層 | 深刻度 |
+| Constraint | Blocked feature | Distortion layer | Severity |
 |------|---------------------|---------|-------|
-| カーソル種別なし | R-050 マルチカーソル描画 | 推定 | **高** — 壊れると全カーソル描画が崩壊 |
-| 編集モード通知なし | カーソルスタイル自動切替 | 推定 | 中 — ui_option フォールバックあり |
-| ステータスコンテキストなし | D-003 ステータスライン文脈推定 | 推定 | 中 — 縮退動作 |
-| Info ID なし | 複数 info の正確な管理 | 推定 | 低 — 衝突は稀なケース |
-| 文字幅情報なし | 全テキストレイアウト | 二重計算 | **高** — 乖離はカーソル位置ずれとして顕在化 |
-| スクロール位置なし | メニュー表示 | 二重計算 | 中 — 実装済みだが Kakoune 変更で壊れうる |
-| インクリメンタル draw なし | パフォーマンス | 二重計算 | 低 — 現状で 60fps を維持 |
-| クリップボード通知なし | クリップボード同期 | 迂回 | 中 — 片方向は機能 |
-| マウス修飾キーなし | Ctrl+Click 等 | 迂回 | 低 — フロントエンド側で対処可能 |
-| コマンド実行 RPC なし | バッファ操作の抽象化 | 原理的不可能 | **高** — 代替手段なし |
-| ビューポート位置なし | D-002 画面外カーソル / 選択範囲の補助表示, P-040〜P-043 系 | 原理的不可能 | **高** — 現行プロトコルでは取得不可 |
+| No cursor type distinction | R-050 multi-cursor rendering | Inference | **High** — If broken, all cursor rendering collapses |
+| No edit mode notification | Automatic cursor style switching | Inference | Medium — ui_option fallback available |
+| No status context | D-003 status line context inference | Inference | Medium — Degraded behavior |
+| No info ID | Accurate management of multiple infos | Inference | Low — Collisions are rare cases |
+| No character width information | All text layout | Redundant computation | **High** — Divergence manifests as cursor position shifts |
+| No scroll position | Menu display | Redundant computation | Medium — Implemented but can break on Kakoune changes |
+| No incremental draw | Performance | Redundant computation | Low — Maintains 60fps in current state |
+| No clipboard notification | Clipboard synchronization | Bypass | Medium — One direction functions |
+| No mouse modifier keys | Ctrl+Click etc. | Bypass | Low — Can be handled on the frontend side |
+| No command execution RPC | Buffer operation abstraction | Fundamentally impossible | **High** — No alternative means |
+| No viewport position | D-002 off-screen cursor / selection range auxiliary display, P-040–P-043 series | Fundamentally impossible | **High** — Cannot be obtained with current protocol |
 
 ---
 
-## 付録 A: 他フロントエンドプロジェクトの対処法
+## Appendix A: Approaches Taken by Other Frontend Projects
 
-| プロジェクト | 技術 | 制約への対処 |
+| Project | Technology | Approach to constraints |
 |------------|------|------------|
-| [kakoune-gtk](https://gitlab.com/Screwtapello/kakoune-gtk) | GTK | #2019 の議論をリード。プロトコル改善を上流に要求 |
-| [Kakoune Qt](https://discuss.kakoune.com/t/announcing-kakoune-qt/2522) | Qt | 分割、ボーダー、マルチフォントサイズを独自実装 |
-| [kak-ui](https://docs.rs/kak-ui/latest/kak_ui/) | Rust crate | プロトコルラッパーのみ。制約は利用者に委ねる |
+| [kakoune-gtk](https://gitlab.com/Screwtapello/kakoune-gtk) | GTK | Led discussion on #2019. Requested protocol improvements upstream |
+| [Kakoune Qt](https://discuss.kakoune.com/t/announcing-kakoune-qt/2522) | Qt | Independently implemented splitting, borders, and multi-font sizes |
+| [kak-ui](https://docs.rs/kak-ui/latest/kak_ui/) | Rust crate | Protocol wrapper only. Constraints are left to consumers |
 
 ---
 
-## 付録 B: 上流 Issue 相互参照
+## Appendix B: Upstream Issue Cross-Reference
 
-本ドキュメントで言及した上流 Issue/PR の完全なリスト。
+Complete list of upstream Issues/PRs referenced in this document.
 
-| 番号 | タイトル | 本文での言及箇所 |
+| Number | Title | Section referenced |
 |------|---------|----------------|
-| [#2019](https://github.com/mawww/kakoune/issues/2019) | JSON UI の制限事項まとめ | §2, §4.3, §5.1, §6.1 |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | §4.3 |
-| [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw 通知 | §5.3 |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | [upstream-dependencies.md](./upstream-dependencies.md), [json-ui-protocol.md](./json-ui-protocol.md) |
-| [#1516](https://github.com/mawww/kakoune/issues/1516) | 複数 info ボックスの同時表示 | §4.4 |
-| [#3935](https://github.com/mawww/kakoune/issues/3935) | ビルトインクリップボード統合 | §6.1 |
-| [#3598](https://github.com/mawww/kakoune/issues/3598) | CJK 文字の補完候補表示崩れ | §5.1 |
-| [#4257](https://github.com/mawww/kakoune/issues/4257) | macOS 絵文字問題 | §5.1 |
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に Face 名追加 | §4.1, [upstream-dependencies.md](./upstream-dependencies.md) |
-| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | draw に DisplaySetup 追加 | §4.1, [json-ui-protocol.md](./json-ui-protocol.md) |
+| [#2019](https://github.com/mawww/kakoune/issues/2019) | JSON UI limitations summary | §2, §4.3, §5.1, §6.1 |
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | Status line context | §4.3 |
+| [#4686](https://github.com/mawww/kakoune/issues/4686) | Incremental draw notifications | §5.3 |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom type distinction | [upstream-dependencies.md](./upstream-dependencies.md), [json-ui-protocol.md](./json-ui-protocol.md) |
+| [#1516](https://github.com/mawww/kakoune/issues/1516) | Simultaneous display of multiple info boxes | §4.4 |
+| [#3935](https://github.com/mawww/kakoune/issues/3935) | Built-in clipboard integration | §6.1 |
+| [#3598](https://github.com/mawww/kakoune/issues/3598) | CJK character completion candidate display corruption | §5.1 |
+| [#4257](https://github.com/mawww/kakoune/issues/4257) | macOS emoji issue | §5.1 |
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Add Face names to JSON UI | §4.1, [upstream-dependencies.md](./upstream-dependencies.md) |
+| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | Add DisplaySetup to draw | §4.1, [json-ui-protocol.md](./json-ui-protocol.md) |
 
-## 関連文書
+## Related Documents
 
-- [upstream-dependencies.md](./upstream-dependencies.md) — 現在の upstream 状態と再統合条件
-- [json-ui-protocol.md](./json-ui-protocol.md) — プロトコル参照仕様
-- [requirements.md](./requirements.md) — コア要件 / 拡張基盤 / 制約の正本
-- [roadmap.md](./roadmap.md) — Kasane 側の追跡
+- [upstream-dependencies.md](./upstream-dependencies.md) — Current upstream status and reintegration conditions
+- [json-ui-protocol.md](./json-ui-protocol.md) — Protocol reference specification
+- [requirements.md](./requirements.md) — Authoritative source for core requirements / extension infrastructure / constraints
+- [roadmap.md](./roadmap.md) — Kasane-side tracking

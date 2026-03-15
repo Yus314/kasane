@@ -478,7 +478,7 @@ Extended line-dirty optimization from `dirty == DirtyFlags::BUFFER` (exact match
 ## WASM Plugin Benchmarks
 
 Measured with `cargo bench -p kasane-wasm-bench` (wasmtime 42, Component Model, criterion).
-See [ADR-013](./decisions.md#adr-013-wasm-プラグインランタイム-component-model-採用) for the full decision record.
+See [ADR-013](./decisions.md#adr-013-wasm-plugin-runtime--component-model-adoption) for the full decision record.
 
 ### Raw WASM Overhead
 
@@ -572,7 +572,7 @@ Animation frame:  ──────────── skip ──────�
 
 ## `#[kasane::component]` Compiler-Driven Optimization
 
-The `#[kasane::component]` macro follows Svelte's "let the compiler do the work" philosophy, progressively generating optimized code from declarative `view()` functions ([ADR-010](./decisions.md#adr-010-コンパイラ駆動最適化-svelte-的二層レンダリング)):
+The `#[kasane::component]` macro follows Svelte's "let the compiler do the work" philosophy, progressively generating optimized code from declarative `view()` functions ([ADR-010](./decisions.md#adr-010-compiler-driven-optimization--svelte-like-two-layer-rendering)):
 
 **Stage 1: Input Memoization**
 

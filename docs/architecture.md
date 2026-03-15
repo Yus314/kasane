@@ -1,43 +1,44 @@
-# アーキテクチャ設計書
+# Architecture Design Document
 
-本ドキュメントは Kasane のシステム境界、ランタイム構成、責務分離を説明する。
-workspace の詳細なツリーは [repo-layout.md](./repo-layout.md)、状態と描画の意味論は [semantics.md](./semantics.md) を参照。
+This document describes Kasane's system boundaries, runtime composition, and separation of responsibilities.
+For a detailed workspace tree, see [repo-layout.md](./repo-layout.md). For state and rendering semantics, see [semantics.md](./semantics.md).
 
-## システム構成
+## System Overview
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│                   Kasane (フロントエンド)                │
+│                   Kasane (Frontend)                      │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
 │  │                 kasane-core                        │  │
-│  │  JSON-RPC パーサー / 状態管理 / レイアウトエンジン │  │
-│  │  入力マッピング / 設定管理 / RenderBackend trait   │  │
+│  │  JSON-RPC parser / State management / Layout      │  │
+│  │  engine / Input mapping / Config / RenderBackend  │  │
+│  │  trait                                            │  │
 │  └──────────┬───────────────────────┬─────────────────┘  │
 │             │                       │                    │
 │  ┌──────────▼──────────┐ ┌─────────▼────────────────┐   │
 │  │    kasane-tui        │ │     kasane-gui           │   │
-│  │  (crossterm 直接)    │ │ (winit + wgpu + glyphon) │   │
-│  │  セルグリッド管理     │ │ GPU テキストレンダリング  │   │
-│  │  差分描画            │ │ シーンベース描画          │   │
+│  │  (direct crossterm)  │ │ (winit + wgpu + glyphon) │   │
+│  │  Cell grid mgmt      │ │ GPU text rendering       │   │
+│  │  Diff-based drawing  │ │ Scene-based drawing      │   │
 │  └──────────────────────┘ └──────────────────────────┘   │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │        宣言的 UI + Display Policy + Plugin 合成    │  │
+│  │  Declarative UI + Display Policy + Plugin compose  │  │
 │  │ Buffer / Status / Menu / Info / Overlay / Surface  │  │
 │  │ Display Transformation / Display Unit / Interaction│  │
 │  └────────────────────────────────────────────────────┘  │
-│           ▲ 描画                │ キー/マウス入力        │
-│           │ TUI: stdout         ▼ TUI: stdin            │
-│           │ GUI: winit + GPU      GUI: winit            │
+│           ▲ Drawing               │ Key/mouse input      │
+│           │ TUI: stdout           ▼ TUI: stdin           │
+│           │ GUI: winit + GPU        GUI: winit           │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │             Kakoune (エディタエンジン)             │  │
+│  │             Kakoune (Editor engine)               │  │
 │  │             kak -ui json                          │  │
 │  └────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
 
-## 実行時データフロー
+## Runtime Data Flow
 
 ```text
 Kakoune message / frontend input
@@ -52,103 +53,103 @@ Kakoune message / frontend input
   -> backend draw
 ```
 
-このフローの意味論的詳細は [semantics.md](./semantics.md) を参照。
+For the semantic details of this flow, see [semantics.md](./semantics.md).
 
-## 通信プロトコル
+## Communication Protocol
 
-- プロトコル: JSON-RPC 2.0
-- Kakoune -> Kasane: `draw`, `draw_status`, `menu_show`, `info_show` などの描画・状態メッセージ
-- Kasane -> Kakoune: `keys`, `resize`, `mouse_press` などの入力メッセージ
-- 起動形態: `kak -ui json` を子プロセスとして起動し、stdin/stdout を接続する
+- Protocol: JSON-RPC 2.0
+- Kakoune -> Kasane: Drawing and state messages such as `draw`, `draw_status`, `menu_show`, `info_show`
+- Kasane -> Kakoune: Input messages such as `keys`, `resize`, `mouse_press`
+- Startup: Kakoune is launched as a child process via `kak -ui json`, with stdin/stdout connected
 
-プロトコルの詳細は [json-ui-protocol.md](./json-ui-protocol.md) を参照。
+For protocol details, see [json-ui-protocol.md](./json-ui-protocol.md).
 
-## 抽象化の境界
+## Abstraction Boundaries
 
-コアが管理するのは「何を、どこに、どの表示 policy で表示するか」であり、backend が管理するのは「どう描画するか」である。
+The core is responsible for "what to display, where, and under which display policy," while the backend is responsible for "how to draw it."
 
-### 三層レイヤー責務モデル
+### Three-Layer Responsibility Model
 
-| 層 | 定義 | 判断基準 |
+| Layer | Definition | Decision Criteria |
 |---|---|---|
-| 上流 (Kakoune) | プロトコルレベルの関心事 | プロトコル変更が必要か？ |
-| コア (`kasane-core`) | プロトコルの忠実なレンダリング + frontend ネイティブ能力 | 唯一の正しい実装が存在するか？ |
-| プラグイン | ポリシーが分かれうる機能 | 上記以外 |
+| Upstream (Kakoune) | Protocol-level concerns | Does it require a protocol change? |
+| Core (`kasane-core`) | Faithful rendering of the protocol + frontend-native capabilities | Does a single correct implementation exist? |
+| Plugin | Features where policy may vary | Everything else |
 
-詳細な判断基準は [layer-responsibilities.md](./layer-responsibilities.md) を参照。
+For detailed decision criteria, see [layer-responsibilities.md](./layer-responsibilities.md).
 
-### 宣言的 UI レイヤーの責務
+### Declarative UI Layer Responsibilities
 
-| コンポーネント | 担当 | 説明 |
+| Component | Owner | Description |
 |---|---|---|
-| `view` 構築 | `kasane-core` | 状態から `Element` ツリーを構築し、plugin 寄与を合成する |
-| display policy 適用 | `kasane-core` | overlay、変形、代理表示、display unit 生成を view policy として適用する |
-| レイアウト計算 | `kasane-core` | `Element` から矩形配置を計算する |
+| `view` construction | `kasane-core` | Builds the `Element` tree from state and composes plugin contributions |
+| Display policy application | `kasane-core` | Applies overlays, transformations, proxy display, and display unit generation as view policy |
+| Layout calculation | `kasane-core` | Computes rectangular placement from `Element` |
 | TUI paint | `kasane-core` | `Element + LayoutResult -> CellGrid` |
 | GUI scene build | `kasane-core` | `Element + LayoutResult -> DrawCommand` |
-| plugin dispatch | `kasane-core` | state change と input を plugin hook に配る |
-| hit test / interaction routing | `kasane-core` | `InteractiveId` と将来の display unit model に基づいて操作対象を特定する |
+| Plugin dispatch | `kasane-core` | Delivers state changes and input to plugin hooks |
+| Hit test / interaction routing | `kasane-core` | Identifies interaction targets based on `InteractiveId` and the future display unit model |
 
-### Backend の責務
+### Backend Responsibilities
 
-| コンポーネント | `kasane-core` | `kasane-tui` | `kasane-gui` |
+| Component | `kasane-core` | `kasane-tui` | `kasane-gui` |
 |---|---|---|---|
-| JSON-RPC パース | 担当 | - | - |
-| 状態管理 (TEA) | 担当 | - | - |
-| `Element` 構築 | 担当 | - | - |
-| レイアウト計算 | 担当 | - | - |
-| `CellGrid` への paint | 担当 | - | - |
-| terminal 出力 | - | crossterm | - |
-| GPU 描画 | - | - | wgpu + glyphon |
-| キー/マウス入力取得 | - | crossterm | winit |
-| クリップボード | - | arboard | arboard |
-| IME / D&D など GUI ネイティブ能力 | - | 不可または terminal 依存 | winit ベース |
+| JSON-RPC parsing | Responsible | - | - |
+| State management (TEA) | Responsible | - | - |
+| `Element` construction | Responsible | - | - |
+| Layout calculation | Responsible | - | - |
+| Paint to `CellGrid` | Responsible | - | - |
+| Terminal output | - | crossterm | - |
+| GPU drawing | - | - | wgpu + glyphon |
+| Key/mouse input capture | - | crossterm | winit |
+| Clipboard | - | arboard | arboard |
+| IME / D&D and other GUI-native capabilities | - | Not possible or terminal-dependent | winit-based |
 
-## レンダリングパス
+## Rendering Paths
 
-### TUI パス
+### TUI Path
 
 ```text
 view_cached -> display_policy -> place -> paint -> CellGrid -> diff -> backend.draw
 ```
 
-TUI はセルグリッドベースの差分描画を行い、crossterm でエスケープシーケンスへ変換する。
+The TUI performs diff-based drawing on a cell grid, converting to escape sequences via crossterm.
 
-### GUI パス
+### GUI Path
 
 ```text
 view_sections_cached -> display_policy -> scene_paint_section -> SceneCache -> SceneRenderer
 ```
 
-GUI は `DrawCommand` ベースのシーン記述を生成し、GPU へ直接描画する。
+The GUI generates a scene description based on `DrawCommand` and draws directly to the GPU.
 
-### キャッシュレイヤー
+### Cache Layers
 
-| レイヤー | 対象 | 役割 |
+| Layer | Target | Role |
 |---|---|---|
-| `ViewCache` | `Element` ツリー | セクション別 view 再利用 |
-| `LayoutCache` | レイアウト結果 | セクション別再描画支援 |
-| `SceneCache` | `DrawCommand` 列 | GUI シーン再利用 |
-| `PaintPatch` | `CellGrid` 部分更新 | TUI 高速パス |
+| `ViewCache` | `Element` tree | Per-section view reuse |
+| `LayoutCache` | Layout results | Per-section redraw support |
+| `SceneCache` | `DrawCommand` sequence | GUI scene reuse |
+| `PaintPatch` | `CellGrid` partial updates | TUI fast path |
 
-各キャッシュの意味論と invalidation policy は [semantics.md](./semantics.md) を参照。
+For the semantics and invalidation policy of each cache, see [semantics.md](./semantics.md).
 
-## Display Policy 層
+## Display Policy Layer
 
-Display Policy 層は、Observed State をそのまま描く前に、どのような表示構造へ射影するかを決める層である。ここには overlay 合成、補助領域への寄与、表示変形、代理表示、display unit の grouping、interaction policy が含まれる。
+The Display Policy layer determines what display structure to project onto before drawing the Observed State directly. This includes overlay composition, contributions to auxiliary regions, display transformations, proxy display, display unit grouping, and interaction policy.
 
-この層の役割は次の通りである。
+The roles of this layer are as follows:
 
-- protocol truth と display policy を分離する
-- plugin による再構成を core の合成規則へ参加させる
-- paint 前に hit test / focus / navigation の対象を組み立てる
-- 将来の display transformation / display unit API を受け止める中間層になる
+- Separate protocol truth from display policy
+- Allow plugin-driven restructuring to participate in the core's composition rules
+- Assemble hit test / focus / navigation targets before paint
+- Serve as an intermediate layer to accommodate the future display transformation / display unit API
 
-意味論上の詳細は [semantics.md](./semantics.md) の `Display Policy State` および `表示変形と表示単位` を参照。
+For semantic details, see the `Display Policy State` and `Display Transformation and Display Units` sections in [semantics.md](./semantics.md).
 
-## 関連文書
+## Related Documents
 
-- [repo-layout.md](./repo-layout.md): workspace と source tree の詳細
-- [semantics.md](./semantics.md): 状態、描画、invalidation、等価性
-- [plugin-api.md](./plugin-api.md): plugin author 向け API リファレンス
-- [plugin-development.md](./plugin-development.md): 最短ガイド
+- [repo-layout.md](./repo-layout.md): Detailed workspace and source tree
+- [semantics.md](./semantics.md): State, rendering, invalidation, and equivalence
+- [plugin-api.md](./plugin-api.md): API reference for plugin authors
+- [plugin-development.md](./plugin-development.md): Quick start guide

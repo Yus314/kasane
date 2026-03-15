@@ -1,169 +1,169 @@
-# レイヤー責務モデル
+# Layer Responsibility Model
 
-本ドキュメントは、新機能が上流 / コア / プラグインのどこに属するかを判断する基準を定義する。
-実装メカニズムの分類は [requirements-traceability.md](./requirements-traceability.md) の解決層を参照。
+This document defines the criteria for determining whether a new feature belongs to upstream, core, or plugins.
+For the classification of implementation mechanisms, refer to the resolution layer in [requirements-traceability.md](./requirements-traceability.md).
 
-## 概要
+## Overview
 
-本ドキュメントは、Kasane に新機能を追加する際に「その機能がどの層に属するか」を判断するための基準を定める。
+This document establishes the criteria for determining "which layer a feature belongs to" when adding new features to Kasane.
 
-[requirements-traceability.md](./requirements-traceability.md) の「解決層」は**実装メカニズム** (HOW: レンダラ/設定/基盤/プロトコル制約) の分類であり、「どの仕組みで解決するか」を定義する。本モデルは**責務境界** (WHERE: 上流/コア/プラグイン) の分類であり、「どのレイヤーが責任を持つか」を定義する。両方の軸が機能分類に必要である。
+The "resolution layer" in [requirements-traceability.md](./requirements-traceability.md) is a classification of **implementation mechanisms** (HOW: renderer/configuration/infrastructure/protocol constraints), defining "by what mechanism to resolve it." This model is a classification of **responsibility boundaries** (WHERE: upstream/core/plugin), defining "which layer is responsible." Both axes are necessary for feature classification.
 
-**関連ドキュメント:**
-- [architecture.md](./architecture.md) — 抽象化の境界
-- [decisions.md](./decisions.md) — ADR-012: レイヤー責務モデル
-- [upstream-dependencies.md](./upstream-dependencies.md) — 上流依存項目の追跡
-
----
-
-## 三層モデル
-
-> **経緯:** 当初は「上流 / コア / 組み込みプラグイン / 外部プラグイン」の四層だったが、組み込みプラグイン (`kasane-core/src/plugins/`) を WASM バンドルプラグインに移行し、`kasane-core/src/plugins/` を削除した。組み込みプラグインが担っていた役割（API 実証・参照実装・デフォルト UX）はそれぞれ `examples/`・WASM ゲスト (`kasane-wasm/guests/`)・バンドル WASM で吸収されるため、プラグイン層を統合し三層モデルに改定。
-
-### 上流 (Kakoune)
-
-**定義:** プロトコルレベルの関心事。プロトコル変更が必要な機能。
-
-**原則:** コアはプロトコルに存在しない情報のヒューリスティック回避策を原則構築しない。
-
-**追跡:** [upstream-dependencies.md](./upstream-dependencies.md) に記録し、上流 PR/Issue を監視する。
-
-**例:**
-- 右側ナビゲーション UI の完全性 (D-004) — `draw` メッセージにスクロール位置が含まれない
-- Atom 種別 (PR #4707) — 補助領域 / オーバーレイ / 本文の区別がない
-- 画面外カーソル / 選択範囲の補助表示 (D-002) — `draw` メッセージにカーソルの総数が含まれない
-
-### コア (kasane-core)
-
-**定義:** プロトコルの忠実なレンダリング + フロントエンドネイティブ能力。
-
-**判断基準:** 「唯一の正しい実装が存在するか？」 — Yes ならコア。
-
-**プロトコル描画:**
-- `draw` / `menu_show` / `info_show` / `draw_status` の忠実なレンダリング
-- レイアウト計算 (Flex + Overlay + Grid)
-- 差分描画 (CellGrid → diff → backend)
-
-**フロントエンドネイティブ:**
-- フォーカス検知 (R-051) — ウィンドウフォーカスの得失はフロントエンド固有
-- D&D (P-023 の実証ユースケース) — GUI ウィンドウイベントはフロントエンド固有
-- クリップボード (R-080〜R-082) — システム API 直接アクセス
-- 複数カーソル描画 (R-050) — プロトコル由来の face 解析
-- テキスト装飾の忠実描画 (R-053) — プロトコルが送る下線種別、下線色、取り消し線の忠実描画
-
-**コアが行わないこと:**
-- ポリシーが分かれうる表示の決定 (カーソル行ハイライトの色、ガターの表示項目等) — プラグインの領域
-- プロトコルに情報がない機能のヒューリスティック推測 — 上流の領域
-
-### プラグイン
-
-**定義:** ポリシーが分かれうる機能。ユーザーの好みや用途に応じてカスタマイズ可能な領域。
-
-**判断基準:** 「唯一の正しい実装が存在するか？」 — No ならプラグイン。
-
-**配布形態:**
-
-| 形態 | 仕組み | 用途 |
-|------|--------|------|
-| **バンドル WASM** | `include_bytes!` でバイナリに埋め込み | デフォルト UX (cursor_line, color_preview) |
-| **FS 発見 WASM** | `~/.local/share/kasane/plugins/*.wasm` | ユーザーが配置する WASM プラグイン |
-| **ネイティブ** | `kasane::run(\|registry\| { ... })` でコンパイル時結合 | パフォーマンスクリティカル or Surface/PaintHook/Pane 使用 |
-
-**登録順序:** バンドル WASM → FS 発見 WASM (同 ID で上書き可能) → ユーザーコールバック
-
-**参照実装:** `examples/` (ネイティブ) と `kasane-wasm/guests/` (WASM) がプラグイン作者向けの実装例として機能する。
+**Related documents:**
+- [architecture.md](./architecture.md) — Abstraction boundaries
+- [decisions.md](./decisions.md) — ADR-012: Layer Responsibility Model
+- [upstream-dependencies.md](./upstream-dependencies.md) — Tracking upstream dependencies
 
 ---
 
-## 判断フローチャート
+## Three-Layer Model
+
+> **Background:** Originally this was a four-layer model of "upstream / core / built-in plugins / external plugins," but built-in plugins (`kasane-core/src/plugins/`) were migrated to bundled WASM plugins, and `kasane-core/src/plugins/` was removed. The roles that built-in plugins served (API validation, reference implementations, default UX) are now absorbed by `examples/`, WASM guests (`kasane-wasm/guests/`), and bundled WASM respectively, so the plugin layers were unified and the model was revised to three layers.
+
+### Upstream (Kakoune)
+
+**Definition:** Protocol-level concerns. Features that require protocol changes.
+
+**Principle:** Core should not, as a rule, build heuristic workarounds for information that does not exist in the protocol.
+
+**Tracking:** Record in [upstream-dependencies.md](./upstream-dependencies.md) and monitor upstream PRs/Issues.
+
+**Examples:**
+- Completeness of right-side navigation UI (D-004) — `draw` message does not include scroll position
+- Atom types (PR #4707) — No distinction between auxiliary regions / overlays / body text
+- Off-screen cursor / selection auxiliary display (D-002) — `draw` message does not include total cursor count
+
+### Core (kasane-core)
+
+**Definition:** Faithful rendering of the protocol + frontend-native capabilities.
+
+**Decision criterion:** "Does a single correct implementation exist?" — If Yes, it belongs in core.
+
+**Protocol rendering:**
+- Faithful rendering of `draw` / `menu_show` / `info_show` / `draw_status`
+- Layout calculation (Flex + Overlay + Grid)
+- Differential rendering (CellGrid → diff → backend)
+
+**Frontend-native:**
+- Focus detection (R-051) — Window focus gain/loss is frontend-specific
+- D&D (P-023 proof use case) — GUI window events are frontend-specific
+- Clipboard (R-080–R-082) — Direct system API access
+- Multi-cursor rendering (R-050) — Face analysis derived from protocol
+- Faithful rendering of text decorations (R-053) — Faithful rendering of underline types, underline colors, and strikethrough sent by the protocol
+
+**What core does NOT do:**
+- Display decisions where policy may vary (cursor line highlight color, gutter display items, etc.) — Plugin territory
+- Heuristic guessing for features where the protocol lacks information — Upstream territory
+
+### Plugin
+
+**Definition:** Features where policy may vary. Areas that can be customized according to user preferences and use cases.
+
+**Decision criterion:** "Does a single correct implementation exist?" — If No, it belongs in plugins.
+
+**Distribution forms:**
+
+| Form | Mechanism | Use case |
+|------|-----------|----------|
+| **Bundled WASM** | Embedded in binary via `include_bytes!` | Default UX (cursor_line, color_preview) |
+| **FS-discovered WASM** | `~/.local/share/kasane/plugins/*.wasm` | WASM plugins placed by users |
+| **Native** | Compile-time binding via `kasane::run(\|registry\| { ... })` | Performance-critical or uses Surface/PaintHook/Pane |
+
+**Registration order:** Bundled WASM → FS-discovered WASM (can override with same ID) → User callback
+
+**Reference implementations:** `examples/` (native) and `kasane-wasm/guests/` (WASM) serve as implementation examples for plugin authors.
+
+---
+
+## Decision Flowchart
 
 ```
-機能 F を追加したい
+Want to add feature F
   │
   ▼
-1. プロトコル変更が必要か？
-  │  Yes → 上流 (upstream-dependencies.md に記録)
+1. Does it require a protocol change?
+  │  Yes → Upstream (record in upstream-dependencies.md)
   │  No ↓
   ▼
-2. 唯一の正しい実装が存在するか？
-  │  Yes → コア (kasane-core)
+2. Does a single correct implementation exist?
+  │  Yes → Core (kasane-core)
   │  No ↓
   ▼
-3. プラグイン
-  │  デフォルトで必要？ → バンドル WASM (kasane-wasm/guests/ + bundled/)
-  │  そうでなければ → 外部プラグイン (WASM or ネイティブ)
-  │  API が不足？ → Plugin trait / WIT の拡張が先
+3. Plugin
+  │  Required by default? → Bundled WASM (kasane-wasm/guests/ + bundled/)
+  │  Otherwise → External plugin (WASM or native)
+  │  Insufficient API? → Plugin trait / WIT extension comes first
 ```
 
 ---
 
 ## Shared Plugin API Validation
 
-Phase 4 は **WASM から到達可能な共有 Plugin API** の妥当性検証を扱う。
-proof artifact は配布用 sample に限定せず、WASM fixture、`examples/`、統合テスト内 plugin を等価に扱う。
+Phase 4 addresses validation of the **shared Plugin API reachable from WASM**.
+Proof artifacts are not limited to distributable samples; WASM fixtures, `examples/`, and plugins within integration tests are treated equivalently.
 
-| Shared Extension Point | Proof Artifact | 状態 |
-|------------------------|----------------|------|
-| `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (ガタースウォッチ), line-numbers (行番号) | 実証済み |
-| `contribute_to(SlotId::STATUS_RIGHT)` | sel-badge (選択数バッジ) | 実証済み |
-| `annotate_line_with_ctx()` | cursor_line (行背景ハイライト), color_preview (ガタースウォッチ) | 実証済み |
-| `contribute_overlay_with_ctx()` | color_preview (カラーピッカー) | 実証済み |
-| `handle_mouse()` | color_preview (色値編集) | 実証済み |
-| `handle_key()` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
-| `transform_menu_item()` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
-| `contribute_to(SlotId::OVERLAY)` | 内部使用 (info/menu) | 実装済み (外部 plugin proof は未) |
-| `contribute_to(SlotId::BUFFER_RIGHT)` | — | 未実証 (上流ブロッカーで完全版は先送り) |
-| `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
-| `transform(TransformTarget::Buffer)` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
-| `cursor_style_override()` | `kasane-core/tests/plugin_integration.rs` の test plugin | 実証済み |
-| `contribute_to(SlotId::Named(...))` | `kasane-wasm/src/tests.rs` の `surface_probe` hosted surface E2E | 実証済み |
-| `OverlayAnchor::Absolute` | `kasane-wasm/src/tests.rs` の `fuzzy_finder` overlay test | 実証済み |
+| Shared Extension Point | Proof Artifact | Status |
+|------------------------|----------------|--------|
+| `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (gutter swatch), line-numbers (line numbers) | Proven |
+| `contribute_to(SlotId::STATUS_RIGHT)` | sel-badge (selection count badge) | Proven |
+| `annotate_line_with_ctx()` | cursor_line (line background highlight), color_preview (gutter swatch) | Proven |
+| `contribute_overlay_with_ctx()` | color_preview (color picker) | Proven |
+| `handle_mouse()` | color_preview (color value editing) | Proven |
+| `handle_key()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform_menu_item()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `contribute_to(SlotId::OVERLAY)` | Internal use (info/menu) | Implemented (external plugin proof pending) |
+| `contribute_to(SlotId::BUFFER_RIGHT)` | — | Unproven (full version deferred due to upstream blocker) |
+| `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform(TransformTarget::Buffer)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `cursor_style_override()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `contribute_to(SlotId::Named(...))` | `surface_probe` hosted surface E2E in `kasane-wasm/src/tests.rs` | Proven |
+| `OverlayAnchor::Absolute` | `fuzzy_finder` overlay test in `kasane-wasm/src/tests.rs` | Proven |
 
 ## Native Escape Hatches
 
-native-only API は shared validation とは別に扱う。長期方針は WASM parity だが、同じ trait をそのまま WIT へ公開することは目標にしない。
+Native-only APIs are handled separately from shared validation. The long-term policy is WASM parity, but exposing the same trait directly to WIT is not a goal.
 
-| Native-only API | 現在位置づけ | parity 方針 |
-|-----------------|--------------|-------------|
-| `PaintHook` | 暫定 escape hatch | `CellGrid` 直操作ではなく高レベル render hook へ再設計が必要 |
-| `Surface` / `SURFACE_PROVIDER` | hosted surface model 導入済み | `surface-descriptor` / `render-surface` / `handle-surface-event` / `handle-surface-state-changed` は導入済み。`SessionManager` と `spawn-session` / `close-session` の runtime 配線、inactive session snapshot の保持までは導入済み。残る session/surface parity の優先順は [roadmap.md](./roadmap.md) を参照 |
-| `Pane` / `Workspace` 高度 API | native-only だが parity target | object access ではなく command / observer モデルで parity を目指す |
-
----
-
-## 具体例: 項目の分類
-
-| 項目 | 分類 | 判断理由 |
-|------|------|----------|
-| D-001 | 上流確認中 → コア候補 | 上流挙動の検証後、最小限のコア実装 (TEA update() キューイング)。唯一の正しい実装になりうる |
-| R-050 | コア | 複数カーソル描画はプロトコル由来の face 解析であり、唯一の正しい実装。ただし Primary/Secondary 区別は PR #4707 待ち |
-| R-051 | コア (✓ 実装済み) | ウィンドウフォーカス検知はフロントエンドネイティブ能力。唯一の正しい実装 |
-| D-002 | 上流依存 | `draw` メッセージにカーソル総数が含まれないため、ビューポート外カーソルの正確な検出が不可能 |
-| R-053 | コア | プロトコルが送るテキスト装飾の忠実描画はフロントエンド描画系の責務であり、唯一の正しい実装 |
-| P-002 の実証 | プラグイン | `OverlayAnchor::Absolute` の proof artifact。WASM ゲストや統合テスト内 plugin で実装可能 |
-| 行 / 範囲 decoration の実証 | プラグイン | `annotate_line_with_ctx()` や `transform()` による proof artifact。WASM ゲストや統合テスト内 plugin で実装可能 |
-| P-023 の実装 | コア | D&D は GUI バックエンド (winit) のネイティブ能力。唯一の正しい実装 |
+| Native-only API | Current positioning | Parity policy |
+|-----------------|---------------------|---------------|
+| `PaintHook` | Provisional escape hatch | Needs redesign from direct `CellGrid` manipulation to high-level render hooks |
+| `Surface` / `SURFACE_PROVIDER` | Hosted surface model introduced | `surface-descriptor` / `render-surface` / `handle-surface-event` / `handle-surface-state-changed` are introduced. Runtime wiring of `SessionManager` with `spawn-session` / `close-session`, and retention of inactive session snapshots are introduced. See [roadmap.md](./roadmap.md) for prioritization of remaining session/surface parity |
+| `Pane` / `Workspace` advanced API | Native-only but parity target | Aiming for parity via command / observer model rather than object access |
 
 ---
 
-## 既存「解決層」との対応
+## Concrete Examples: Item Classification
 
-[requirements-traceability.md](./requirements-traceability.md) の解決層との関係:
+| Item | Classification | Rationale |
+|------|----------------|-----------|
+| D-001 | Under upstream verification → Core candidate | After verifying upstream behavior, minimal core implementation (TEA update() queuing). Could be the single correct implementation |
+| R-050 | Core | Multi-cursor rendering is face analysis derived from protocol; the single correct implementation. However, Primary/Secondary distinction awaits PR #4707 |
+| R-051 | Core (implemented) | Window focus detection is a frontend-native capability. The single correct implementation |
+| D-002 | Upstream-dependent | `draw` message does not include total cursor count, making accurate detection of off-viewport cursors impossible |
+| R-053 | Core | Faithful rendering of text decorations sent by the protocol is the rendering system's responsibility; the single correct implementation |
+| P-002 proof | Plugin | Proof artifact for `OverlayAnchor::Absolute`. Can be implemented as a WASM guest or plugin within integration tests |
+| Line/range decoration proof | Plugin | Proof artifact via `annotate_line_with_ctx()` or `transform()`. Can be implemented as a WASM guest or plugin within integration tests |
+| P-023 implementation | Core | D&D is a native capability of the GUI backend (winit). The single correct implementation |
 
-| | 解決層 (HOW) | 三層モデル (WHERE) |
+---
+
+## Correspondence with Existing "Resolution Layer"
+
+Relationship with the resolution layer in [requirements-traceability.md](./requirements-traceability.md):
+
+| | Resolution Layer (HOW) | Three-Layer Model (WHERE) |
 |---|---|---|
-| **問い** | どの仕組みで解決するか？ | どのレイヤーが責任を持つか？ |
-| **分類** | レンダラ / 設定 / 基盤 / プロトコル制約 | 上流 / コア / プラグイン |
-| **例** | R-050 → レンダラ (ソフトウェアレンダリング) | R-050 → コア (唯一の正しい実装) |
-| **例** | 行 / 範囲 decoration → 基盤 (Transform) | 行 / 範囲 decoration の実証 → プラグイン |
+| **Question** | By what mechanism to resolve? | Which layer is responsible? |
+| **Classification** | Renderer / Configuration / Infrastructure / Protocol constraint | Upstream / Core / Plugin |
+| **Example** | R-050 → Renderer (software rendering) | R-050 → Core (the single correct implementation) |
+| **Example** | Line/range decoration → Infrastructure (Transform) | Line/range decoration proof → Plugin |
 
-両方の軸が機能分類に必要:
-- **解決層**は実装の技術的メカニズムを決定する
-- **三層モデル**はコードの配置場所と責務境界を決定する
+Both axes are necessary for feature classification:
+- **Resolution layer** determines the technical mechanism of implementation
+- **Three-layer model** determines code placement and responsibility boundaries
 
-## 関連文書
+## Related Documents
 
-- [requirements-traceability.md](./requirements-traceability.md) — 解決層 (HOW) の追跡
-- [semantics.md](./semantics.md) — 現行意味論
-- [architecture.md](./architecture.md) — システム境界
-- [upstream-dependencies.md](./upstream-dependencies.md) — 上流依存の追跡
+- [requirements-traceability.md](./requirements-traceability.md) — Resolution layer (HOW) tracking
+- [semantics.md](./semantics.md) — Current semantics
+- [architecture.md](./architecture.md) — System boundaries
+- [upstream-dependencies.md](./upstream-dependencies.md) — Upstream dependency tracking

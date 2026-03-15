@@ -1,100 +1,100 @@
-# Kasane プラグイン API リファレンス
+# Kasane Plugin API Reference
 
-本ドキュメントは Kasane のプラグイン API を引くためのリファレンスである。
-最短で動くプラグインを書きたい場合は [plugin-development.md](./plugin-development.md) を、合成順序や正しさ条件を確認したい場合は [semantics.md](./semantics.md) を参照。
+This document is a reference for looking up the Kasane plugin API.
+For a quickstart guide to writing a working plugin, see [plugin-development.md](./plugin-development.md). For composition ordering and correctness conditions, see [semantics.md](./semantics.md).
 
-## 0. プラグイン API のスコープ
+## 0. Scope of the Plugin API
 
-Kasane のプラグイン API は **UI の装飾・変形・拡張** を主目的として設計されている。
+The Kasane plugin API is primarily designed for **UI decoration, transformation, and extension**.
 
-プラグインは Kakoune から受信した状態を元に Element ツリーを構成し、ユーザーに付加的な視覚情報を提供する。
-副作用は `Command` 経由で間接的に発行し、Kakoune へのキー送信、再描画要求、プラグイン間メッセージ、タイマーなど UI 側の協調動作に限られる。
+Plugins construct Element trees based on state received from Kakoune and provide supplementary visual information to users.
+Side effects are issued indirectly via `Command`, and are limited to UI-side coordination such as sending keys to Kakoune, requesting redraws, inter-plugin messages, and timers.
 
-以下の操作は現在のプラグイン API のスコープ外である。
+The following operations are currently outside the scope of the plugin API.
 
-| スコープ外の操作 | 理由 |
+| Out-of-scope operation | Reason |
 |---|---|
-| 外部プロセス実行 | `Command` に該当バリアントがない |
-| ファイルシステムアクセス | WASM はサンドボックスにより不可。ネイティブは技術的に可能だが非同期基盤がない |
-| ネットワーク通信 | 同上 |
-| テキスト入力ウィジェット | `Element` に入力要素がない。テキスト編集は Kakoune に委譲する設計 |
+| External process execution | No corresponding `Command` variant |
+| File system access | WASM is prohibited by the sandbox. Native is technically possible but lacks an async infrastructure |
+| Network communication | Same as above |
+| Text input widgets | No input elements in `Element`. Text editing is delegated to Kakoune by design |
 
-ネイティブプラグインはホストプロセス内で動作するため、`std::process` や `std::fs` 等を技術的には利用できる。ただし Plugin trait のフック関数は同期的に呼ばれるため、メインスレッドのブロッキングを避ける設計責任はプラグイン開発者が負う。
+Native plugins run within the host process and can therefore technically use `std::process`, `std::fs`, etc. However, Plugin trait hook functions are called synchronously, so the plugin developer bears the design responsibility for avoiding main thread blocking.
 
-Kasane の長期方針は **WASM を第一級の配布・実行経路にし、可能な限り native と同等の能力を持たせる** ことである。したがって、native-only API は原則として「恒久的な優位性」ではなく、次のいずれかとして扱う。
+Kasane's long-term strategy is to **make WASM the first-class distribution and execution path, with capabilities as close to native as possible**. Accordingly, native-only APIs are treated not as "permanent advantages" but as one of the following:
 
-- まだ WIT に安定公開されていない暫定 escape hatch
-- WASM parity を目指すために再設計が必要な host-integration API
-- セキュリティ境界上、意図的に native に残すと判断した API
+- A provisional escape hatch not yet stably exposed via WIT
+- A host-integration API requiring redesign to achieve WASM parity
+- An API intentionally kept native-only based on security boundary decisions
 
-ファイルシステムアクセスは WASI ケイパビリティ宣言 (Phase P-1)、外部プロセス実行はホスト媒介 `Command` + `IoEvent` (Phase P-2) で提供済み。設計根拠は [ADR-019](./decisions.md#adr-019-プラグイン-io-基盤--ハイブリッドモデル) を参照。
+File system access is provided via WASI capability declarations (Phase P-1), and external process execution is provided via host-mediated `Command` + `IoEvent` (Phase P-2). See [ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model) for design rationale.
 
-## 1. 拡張ポイント
+## 1. Extension Points
 
-### 1.1 コア surface と組み込み slot
+### 1.1 Core Surfaces and Built-in Slots
 
-コア UI は surface を中心に構成される。プラグインが利用する拡張点は各 surface が宣言する。
+The core UI is structured around surfaces. The extension points available to plugins are declared by each surface.
 
-| SurfaceId | Surface | 説明 |
+| SurfaceId | Surface | Description |
 |---|---|---|
-| `BUFFER` (0) | `KakouneBufferSurface` | メインのバッファ表示 |
-| `STATUS` (1) | `StatusBarSurface` | ステータスバー |
-| `MENU` (2) | `MenuSurface` | メニュー |
-| `INFO_BASE`+ (10+) | `InfoSurface` | Info ポップアップ |
-| `PLUGIN_BASE`+ (100+) | Plugin-defined | プラグイン提供 surface |
+| `BUFFER` (0) | `KakouneBufferSurface` | Main buffer display |
+| `STATUS` (1) | `StatusBarSurface` | Status bar |
+| `MENU` (2) | `MenuSurface` | Menu |
+| `INFO_BASE`+ (10+) | `InfoSurface` | Info popups |
+| `PLUGIN_BASE`+ (100+) | Plugin-defined | Plugin-provided surfaces |
 
-| SlotId | 位置 | 宣言元 Surface |
+| SlotId | Position | Declaring Surface |
 |---|---|---|
-| `kasane.buffer.left` | バッファ左側 | `KakouneBufferSurface` |
-| `kasane.buffer.right` | バッファ右側 | `KakouneBufferSurface` |
-| `kasane.buffer.above` | バッファ上部 | `KakouneBufferSurface` |
-| `kasane.buffer.below` | バッファ下部 | `KakouneBufferSurface` |
-| `kasane.buffer.overlay` | バッファ上のオーバーレイ | `KakouneBufferSurface` |
-| `kasane.status.above` | ステータスバー上部 | `StatusBarSurface` |
-| `kasane.status.left` | ステータスバー左側 | `StatusBarSurface` |
-| `kasane.status.right` | ステータスバー右側 | `StatusBarSurface` |
+| `kasane.buffer.left` | Left of buffer | `KakouneBufferSurface` |
+| `kasane.buffer.right` | Right of buffer | `KakouneBufferSurface` |
+| `kasane.buffer.above` | Above buffer | `KakouneBufferSurface` |
+| `kasane.buffer.below` | Below buffer | `KakouneBufferSurface` |
+| `kasane.buffer.overlay` | Overlay on buffer | `KakouneBufferSurface` |
+| `kasane.status.above` | Above status bar | `StatusBarSurface` |
+| `kasane.status.left` | Left of status bar | `StatusBarSurface` |
+| `kasane.status.right` | Right of status bar | `StatusBarSurface` |
 
-### 1.2 メカニズムの選び方
+### 1.2 Choosing a Mechanism
 
-| やりたいこと | 使うメカニズム |
+| Goal | Mechanism to use |
 |---|---|
-| 定義済みの場所に UI を追加したい | `contribute_to()` |
-| バッファの各行を装飾したい | `annotate_line_with_ctx()` |
-| フローティング UI を表示したい | `contribute_overlay_with_ctx()` |
-| 既存 UI の見た目を変更・差し替えたい | `transform()` |
-| メニュー項目単位で変換したい | `transform_menu_item()` |
-| Element ツリーを経由せず直接描画したい | `PaintHook` |
+| Add UI at a predefined location | `contribute_to()` |
+| Decorate individual buffer lines | `annotate_line_with_ctx()` |
+| Display floating UI | `contribute_overlay_with_ctx()` |
+| Modify or replace existing UI appearance | `transform()` |
+| Transform individual menu items | `transform_menu_item()` |
+| Draw directly without going through the Element tree | `PaintHook` |
 
-原則として、自由度が低いメカニズムを優先する。`contribute_to()` で済むなら `transform()` は使わない。
+As a principle, prefer the least flexible mechanism that suffices. Do not use `transform()` if `contribute_to()` can achieve the goal.
 
-### 1.2.1 表示変形と表示単位の位置づけ
+### 1.2.1 Display Transformations and Display Units
 
-[requirements.md](./requirements.md) の `P-030..P-043` と [semantics.md](./semantics.md) の `表示変形と表示単位` が示す通り、Kasane は将来的に plugin が display transformation と display unit を第一級に扱える方向を取る。
+As described in `P-030..P-043` of [requirements.md](./requirements.md) and `Display Transformations and Display Units` in [semantics.md](./semantics.md), Kasane's long-term direction is to allow plugins to treat display transformations and display units as first-class concepts.
 
-現時点では専用 API はまだ完成していない。そのため plugin は当面、次の既存メカニズムの組み合わせで近いことを行う。
+Dedicated APIs for this are not yet complete. Therefore, plugins should currently use the following combination of existing mechanisms to approximate the desired behavior:
 
-- UI 寄与: `contribute_to()`
-- 既存 UI の変更・差し替え: `transform()`
-- 項目単位の局所変換: `transform_menu_item()`
-- 重畳表示: `contribute_overlay_with_ctx()`
-- 行 / ガター寄与: `annotate_line_with_ctx()`
-- 独立した UI 文脈: `Surface`
+- UI contribution: `contribute_to()`
+- Modifying or replacing existing UI: `transform()`
+- Local per-item transformation: `transform_menu_item()`
+- Overlay display: `contribute_overlay_with_ctx()`
+- Line / gutter contribution: `annotate_line_with_ctx()`
+- Independent UI context: `Surface`
 
-ただし、これらは将来の display transformation API と完全に同義ではない。特に source mapping、display-oriented navigation、制限付き interaction policy はまだ専用抽象として確立していない。
+However, these are not fully synonymous with the future display transformation API. In particular, source mapping, display-oriented navigation, and restricted interaction policies have not yet been established as dedicated abstractions.
 
-### 1.3 合成ルール
+### 1.3 Composition Rules
 
-拡張の合成順序は次の通りである。
+The composition order for extensions is as follows:
 
-1. seed となるデフォルト要素を構築する
-2. transform chain を priority 順に適用する (装飾・差し替えを統合的に処理)
-3. contribution と overlay を合成する
+1. Build the seed default elements
+2. Apply the transform chain in priority order (processing decoration and replacement in a unified manner)
+3. Compose contributions and overlays
 
-詳細な意味論は [semantics.md](./semantics.md) の `Plugin 合成意味論` を参照。
+For detailed semantics, see `Plugin Composition Semantics` in [semantics.md](./semantics.md).
 
 ### 1.4 Contribution (`contribute_to`)
 
-`contribute_to()` はフレームワークが用意した拡張点 (`SlotId`) に `Element` を寄与する最も制約の強い拡張である。
+`contribute_to()` is the most constrained extension, contributing `Element`s to framework-provided extension points (`SlotId`).
 
 **Native:**
 
@@ -135,13 +135,13 @@ fn contribute_deps(region: SlotId) -> u16 {
 }
 ```
 
-`ContributeContext` は layout-aware な制約を提供する。主なフィールドは `min_width` / `max_width` / `min_height` / `max_height` で、`None` は unbounded を表す。`Contribution` は `element`、`priority` (合成順序)、`size_hint` (`Auto` / `Fixed(u16)` / `Flex(f32)`) で構成される。
+`ContributeContext` provides layout-aware constraints. The main fields are `min_width` / `max_width` / `min_height` / `max_height`, where `None` represents unbounded. `Contribution` consists of `element`, `priority` (composition order), and `size_hint` (`Auto` / `Fixed(u16)` / `Flex(f32)`).
 
-`slot::BUFFER_LEFT` から `slot::OVERLAY` までの legacy `u8` 定数は `kasane_plugin_sdk::slot` モジュールに残っているが、正規 API は first-class `SlotId` である。カスタム slot は Native/WASM ともに `SlotId::new("...")` / `SlotId::Named("...".into())` で指定する。
+The legacy `u8` constants from `slot::BUFFER_LEFT` through `slot::OVERLAY` remain in the `kasane_plugin_sdk::slot` module, but the canonical API uses first-class `SlotId`. Custom slots can be specified in both Native and WASM via `SlotId::new("...")` / `SlotId::Named("...".into())`.
 
 ### 1.5 Line Annotation (`annotate_line_with_ctx`)
 
-`annotate_line_with_ctx()` はバッファ各行にガターや背景を寄与する。
+`annotate_line_with_ctx()` contributes gutter elements and backgrounds to individual buffer lines.
 
 **Native:**
 
@@ -166,11 +166,11 @@ fn annotate_deps(&self) -> DirtyFlags {
 }
 ```
 
-`LineAnnotation` は `left_gutter`、`right_gutter`、`background` の 3 要素で構成される。`BackgroundLayer` は `face` と `z_order` を持ち、複数プラグインの背景寄与は `z_order` 順に合成される。ガター寄与は水平に合成される。
+`LineAnnotation` consists of three elements: `left_gutter`, `right_gutter`, and `background`. `BackgroundLayer` has `face` and `z_order`; background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
 
 ### 1.6 Overlay (`contribute_overlay_with_ctx`)
 
-`contribute_overlay_with_ctx()` は通常のレイアウトフローとは別に重畳される浮動要素である。
+`contribute_overlay_with_ctx()` provides floating elements that are overlaid outside the normal layout flow.
 
 **Native:**
 
@@ -196,14 +196,14 @@ fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
 }
 ```
 
-`OverlayContribution` は `element`、`anchor`、`z_index` で構成される。`OverlayAnchor` には次の 2 種類がある。
+`OverlayContribution` consists of `element`, `anchor`, and `z_index`. There are two types of `OverlayAnchor`:
 
-- `Absolute { x, y, w, h }`: 画面座標に対する絶対位置
-- `AnchorPoint { coord, prefer_above, avoid }`: Kakoune 互換のアンカーベース配置
+- `Absolute { x, y, w, h }`: Absolute position in screen coordinates
+- `AnchorPoint { coord, prefer_above, avoid }`: Kakoune-compatible anchor-based positioning
 
 ### 1.7 Transform (`transform`)
 
-`transform()` は既存 `Element` を受け取り、変換して返す統合メカニズムである。装飾 (旧 Decorator) と差し替え (旧 Replacement) の両方を担う。
+`transform()` is a unified mechanism that receives an existing `Element`, transforms it, and returns the result. It serves as both decoration (formerly Decorator) and replacement (formerly Replacement).
 
 **Native:**
 
@@ -232,53 +232,53 @@ fn transform_element(target: TransformTarget, element: ElementHandle, _ctx: Tran
 fn transform_priority() -> s16 { 100 }
 ```
 
-`TransformTarget` には `Buffer`、`StatusBar`、`Menu`、`Info` などがある。
+`TransformTarget` includes `Buffer`, `StatusBar`, `Menu`, `Info`, and others.
 
-ガイドライン:
+Guidelines:
 
-- 受け取った `Element` の内部構造を仮定しない
-- 軽い装飾なら `Element` をそのままラップする形を優先する
-- 完全差し替えも `transform()` で行う (受け取った element を無視して新しい element を返す)
-- `transform_priority()` で適用順序を制御する
+- Do not assume the internal structure of the received `Element`
+- For lightweight decoration, prefer wrapping the `Element` as-is
+- Full replacement is also performed via `transform()` (ignore the received element and return a new one)
+- Use `transform_priority()` to control the application order
 
 ### 1.8 Menu Transform (`transform_menu_item`)
 
-`transform_menu_item()` はメニュー項目単位の変換であり、`MENU_TRANSFORM` capability に対応する。項目ごとのラベルや style を局所的に変換したい場合に使う。全メニュー構造の差し替えが必要なら `transform()` で `TransformTarget::Menu` を使う。
+`transform_menu_item()` is a per-menu-item transformation corresponding to the `MENU_TRANSFORM` capability. Use it when you want to locally transform the label or style of individual items. If you need to replace the entire menu structure, use `transform()` with `TransformTarget::Menu`.
 
-### 1.10 将来の Display Transformation API
+### 1.10 Future Display Transformation API
 
-display transformation は、Observed State を省略、代理表示、追加表示、再構成するための将来 API である。これは単なる decorator や replacement より強く、semantics 上も source truth と display policy の区別を前提とする。
+Display transformation is a future API for omitting, substituting, supplementing, and restructuring the Observed State. It is more powerful than simple decorators or replacements, and presupposes the semantic distinction between source truth and display policy.
 
-現時点での方針:
+Current direction:
 
-- transformation は protocol truth を改竄しない
-- transformation は display policy として扱う
-- transformation の結果は将来の display unit model に接続される
-- source への逆写像が弱い場合は、読み取り専用または制限付き interaction を許容する
+- Transformations do not falsify protocol truth
+- Transformations are treated as display policy
+- Transformation results will connect to the future display unit model
+- When the inverse mapping to source is weak, read-only or restricted interaction is permitted
 
-この API は未完成であり、現状は `Decorator`、`Replacement`、`Overlay`、`Surface` を使った段階的実証が先行する。
+This API is incomplete, and the current approach is to proceed with incremental validation using `Decorator`, `Replacement`, `Overlay`, and `Surface`.
 
 ## 2. Element API
 
 ### 2.1 Element variants
 
-| 型 | 用途 | WASM builder | Native |
+| Type | Purpose | WASM builder | Native |
 |---|---|---|---|
-| `Text` | テキスト + スタイル | `create_text(content, face)` | `Element::text(s, face)` |
-| `StyledLine` | Atom 列 | `create_styled_line(atoms)` | `Element::styled_line(line)` |
-| `Flex` (Column) | 垂直配置 | `create_column(children)` / `create_column_flex(entries, gap)` | `Element::column(children)` |
-| `Flex` (Row) | 水平配置 | `create_row(children)` / `create_row_flex(entries, gap)` | `Element::row(children)` |
-| `Grid` | 2D テーブル | `create_grid(cols, children, col_gap, row_gap)` | `Element::grid(columns, children)` |
+| `Text` | Text + style | `create_text(content, face)` | `Element::text(s, face)` |
+| `StyledLine` | Atom sequence | `create_styled_line(atoms)` | `Element::styled_line(line)` |
+| `Flex` (Column) | Vertical layout | `create_column(children)` / `create_column_flex(entries, gap)` | `Element::column(children)` |
+| `Flex` (Row) | Horizontal layout | `create_row(children)` / `create_row_flex(entries, gap)` | `Element::row(children)` |
+| `Grid` | 2D table | `create_grid(cols, children, col_gap, row_gap)` | `Element::grid(columns, children)` |
 | `Container` | border/shadow/padding | `create_container(...)` / `create_container_styled(...)` | `Element::container(child, style)` |
-| `Stack` | Z 軸重ね | `create_stack(base, overlays)` | `Element::stack(base, overlays)` |
-| `Scrollable` | スクロール可能領域 | `create_scrollable(child, offset, vertical)` | `Element::Scrollable { ... }` |
-| `Interactive` | マウスヒットテスト | `create_interactive(child, id)` | `Element::Interactive { child, id }` |
-| `Empty` | 空要素 | `create_empty()` | `Element::Empty` |
-| `BufferRef` | バッファ行参照 | ホスト内部のみ | `Element::buffer_ref(range)` |
+| `Stack` | Z-axis stacking | `create_stack(base, overlays)` | `Element::stack(base, overlays)` |
+| `Scrollable` | Scrollable region | `create_scrollable(child, offset, vertical)` | `Element::Scrollable { ... }` |
+| `Interactive` | Mouse hit test | `create_interactive(child, id)` | `Element::Interactive { child, id }` |
+| `Empty` | Empty element | `create_empty()` | `Element::Empty` |
+| `BufferRef` | Buffer line reference | Host-internal only | `Element::buffer_ref(range)` |
 
 ### 2.2 WASM element-builder API
 
-すべての関数は `element_builder` モジュールからインポートする。返り値の `ElementHandle` は現在のプラグイン呼び出しスコープ内でのみ有効。
+All functions are imported from the `element_builder` module. The returned `ElementHandle` is valid only within the current plugin invocation scope.
 
 ```rust
 use kasane::plugin::element_builder;
@@ -293,7 +293,7 @@ let container = element_builder::create_container(
 );
 ```
 
-比例配分を使う場合は `create_column_flex` / `create_row_flex` と `FlexEntry { child, flex }` を使う。
+For proportional distribution, use `create_column_flex` / `create_row_flex` with `FlexEntry { child, flex }`.
 
 ### 2.3 Native element construction
 
@@ -307,44 +307,44 @@ let col = Element::column(vec![
 ]);
 ```
 
-`FlexChild::fixed(element)` は fixed、`FlexChild::flexible(element, factor)` は比例配分である。
+`FlexChild::fixed(element)` is fixed, and `FlexChild::flexible(element, factor)` is proportionally distributed.
 
-## 3. 状態アクセスとイベント
+## 3. State Access and Events
 
 ### 3.1 AppState overview
 
-Native plugin は `&AppState` を直接参照できる。
+Native plugins can directly reference `&AppState`.
 
-| フィールド | 型 | 説明 |
+| Field | Type | Description |
 |---|---|---|
-| `lines` | `Vec<Line>` | バッファ行 |
-| `cursor_pos` | `Coord` | カーソル位置 |
-| `status_line` | `Line` | ステータスバー |
-| `menu` | `Option<MenuState>` | メニュー状態 |
-| `infos` | `Vec<InfoState>` | Info ポップアップ |
-| `cols`, `rows` | `u16` | 端末サイズ |
-| `focused` | `bool` | フォーカス状態 |
+| `lines` | `Vec<Line>` | Buffer lines |
+| `cursor_pos` | `Coord` | Cursor position |
+| `status_line` | `Line` | Status bar |
+| `menu` | `Option<MenuState>` | Menu state |
+| `infos` | `Vec<InfoState>` | Info popups |
+| `cols`, `rows` | `u16` | Terminal size |
+| `focused` | `bool` | Focus state |
 
-Dirty flags は主に次の観測面を通知する。
+Dirty flags primarily notify the following observable aspects:
 
-| フラグ | 説明 |
+| Flag | Description |
 |---|---|
-| `BUFFER` | バッファ行・カーソル |
-| `STATUS` | ステータスバー |
-| `MENU_STRUCTURE` | メニュー構造 |
-| `MENU_SELECTION` | メニュー選択 |
-| `INFO` | Info ポップアップ |
-| `OPTIONS` | UI オプション |
+| `BUFFER` | Buffer lines and cursor |
+| `STATUS` | Status bar |
+| `MENU_STRUCTURE` | Menu structure |
+| `MENU_SELECTION` | Menu selection |
+| `INFO` | Info popups |
+| `OPTIONS` | UI options |
 
-意味論上の分類は [semantics.md](./semantics.md) を参照。
+For semantic classification, see [semantics.md](./semantics.md).
 
 ### 3.2 WASM host-state API
 
-`kasane::plugin::host_state` は段階的な読み取り API を提供する。
+`kasane::plugin::host_state` provides a tiered read API.
 
-**基本状態 (Tier 0):**
+**Basic state (Tier 0):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_cursor_line()` | `s32` |
 | `get_cursor_col()` | `s32` |
@@ -353,16 +353,16 @@ Dirty flags は主に次の観測面を通知する。
 | `get_rows()` | `u16` |
 | `is_focused()` | `bool` |
 
-**バッファ行 (Tier 0.5):**
+**Buffer lines (Tier 0.5):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_line_text(line)` | `Option<String>` |
 | `is_line_dirty(line)` | `bool` |
 
-**ステータスバー (Tier 1):**
+**Status bar (Tier 1):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_status_prompt()` | `Vec<Atom>` |
 | `get_status_content()` | `Vec<Atom>` |
@@ -370,9 +370,9 @@ Dirty flags は主に次の観測面を通知する。
 | `get_status_mode_line()` | `Vec<Atom>` |
 | `get_status_default_face()` | `Face` |
 
-**メニュー/Info 状態 (Tier 2):**
+**Menu/Info state (Tier 2):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `has_menu()` | `bool` |
 | `get_menu_item_count()` | `u32` |
@@ -381,9 +381,9 @@ Dirty flags は主に次の観測面を通知する。
 | `has_info()` | `bool` |
 | `get_info_count()` | `u32` |
 
-**一般状態 (Tier 3):**
+**General state (Tier 3):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_ui_option(key)` | `Option<String>` |
 | `get_cursor_mode()` | `u8` |
@@ -391,32 +391,32 @@ Dirty flags は主に次の観測面を通知する。
 | `get_default_face()` | `Face` |
 | `get_padding_face()` | `Face` |
 
-**マルチカーソル (Tier 4):**
+**Multi-cursor (Tier 4):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_cursor_count()` | `u32` |
 | `get_secondary_cursor_count()` | `u32` |
 | `get_secondary_cursor(index)` | `Option<Coord>` |
 
-**設定 (Tier 5):**
+**Configuration (Tier 5):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_config_string(key)` | `Option<String>` |
 
-**Info 詳細 (Tier 6):**
+**Info details (Tier 6):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_info_title(index)` | `Option<Vec<Atom>>` |
 | `get_info_content(index)` | `Option<Vec<Vec<Atom>>>` |
 | `get_info_style(index)` | `Option<String>` |
 | `get_info_anchor(index)` | `Option<Coord>` |
 
-**メニュー詳細 (Tier 7):**
+**Menu details (Tier 7):**
 
-| 関数 | 戻り値 |
+| Function | Return type |
 |---|---|
 | `get_menu_anchor()` | `Option<Coord>` |
 | `get_menu_style()` | `Option<String>` |
@@ -425,75 +425,75 @@ Dirty flags は主に次の観測面を通知する。
 
 ### 3.3 Lifecycle hooks
 
-| フック | タイミング | 用途 |
+| Hook | Timing | Purpose |
 |---|---|---|
-| `on_init` | `PluginRegistry` 登録直後 | 初期化、テーマトークン登録 |
-| `on_shutdown` | アプリケーション終了時 | クリーンアップ |
-| `on_state_changed(dirty)` | `AppState` 更新後 | プラグイン内部状態の同期 |
+| `on_init` | Immediately after `PluginRegistry` registration | Initialization, theme token registration |
+| `on_shutdown` | At application exit | Cleanup |
+| `on_state_changed(dirty)` | After `AppState` update | Synchronize plugin internal state |
 
 ### 3.4 Input handling
 
-キー入力の処理順は次の通りである。
+The processing order for key input is as follows:
 
-1. `observe_key()` を全プラグインへ通知する
-2. `handle_key()` を順に呼ぶ
-3. 最初に `Some(commands)` を返したプラグインが勝つ
-4. すべて `None` の場合は組み込みキーバインドへ進む
-5. それでも処理されなければ Kakoune に転送する
+1. Notify all plugins via `observe_key()`
+2. Call `handle_key()` in order
+3. The first plugin to return `Some(commands)` wins
+4. If all return `None`, proceed to built-in key bindings
+5. If still unhandled, forward to Kakoune
 
-マウス入力は `observe_mouse()` の後、`InteractiveId` ヒットテストを経て `handle_mouse(event, id, state)` に渡される。
+Mouse input is passed to `handle_mouse(event, id, state)` after `observe_mouse()`, followed by `InteractiveId` hit testing.
 
-### 3.4.1 Display Unit と interaction policy
+### 3.4.1 Display Units and Interaction Policy
 
-将来的には、plugin が導入する再構成 UI は display unit 単位で hit test、focus、navigation、source mapping を持つことが期待される。
+In the future, restructured UI introduced by plugins is expected to have hit test, focus, navigation, and source mapping on a per-display-unit basis.
 
-現時点ではこのモデルは専用 API としては未公開であり、plugin は次の制約を前提に既存 API を使う。
+This model is not yet exposed as a dedicated API, and plugins should use existing APIs under the following constraints:
 
-- `InteractiveId` はヒットテスト対象の識別子であり、display unit 全体の意味論をまだ表さない
-- `handle_mouse()` は source mapping を自前で解釈する必要がある場合がある
-- source への完全な逆写像を持たない UI は、読み取り専用または限定操作として設計する
-- plugin は、Kakoune が与えていない事実を interaction の結果として捏造してはならない
+- `InteractiveId` is a hit test target identifier and does not yet represent the full semantics of a display unit
+- `handle_mouse()` may need to interpret source mapping on its own
+- UI without a complete inverse mapping to source should be designed as read-only or with limited operations
+- Plugins must not fabricate facts that Kakoune has not provided as the result of interactions
 
 ### 3.5 Commands
 
-フック関数は `Vec<Command>` を返して副作用要求を発行する。
+Hook functions issue side-effect requests by returning `Vec<Command>`.
 
-| Command | 説明 |
+| Command | Description |
 |---|---|
-| `SendToKakoune(req)` | Kakoune にリクエストを送信 |
-| `Paste` | クリップボード貼り付け |
-| `Quit` | アプリケーション終了 |
-| `RequestRedraw(flags)` | 再描画を要求 |
-| `ScheduleTimer { delay, target, payload }` | タイマー後に target へメッセージ送信 |
-| `PluginMessage { target, payload }` | 他プラグインへメッセージ送信 |
-| `SetConfig { key, value }` | ランタイム設定変更 |
-| `SpawnProcess { job_id, program, args, stdin_mode }` | 外部プロセスを起動 (Phase P-2) |
-| `Session(SessionCommand)` | host runtime が管理する Kakoune session を生成・終了 |
-| `WriteToProcess { job_id, data }` | 起動済みプロセスの stdin に書き込み |
-| `CloseProcessStdin { job_id }` | プロセスの stdin を閉じる (EOF) |
-| `KillProcess { job_id }` | プロセスを強制終了 |
-| `Pane(PaneCommand)` | Pane 操作 |
-| `Workspace(WorkspaceCommand)` | Workspace 操作 |
-| `RegisterThemeTokens(tokens)` | カスタムテーマトークン登録 |
+| `SendToKakoune(req)` | Send a request to Kakoune |
+| `Paste` | Paste from clipboard |
+| `Quit` | Quit the application |
+| `RequestRedraw(flags)` | Request a redraw |
+| `ScheduleTimer { delay, target, payload }` | Send a message to target after a delay |
+| `PluginMessage { target, payload }` | Send a message to another plugin |
+| `SetConfig { key, value }` | Change a runtime configuration |
+| `SpawnProcess { job_id, program, args, stdin_mode }` | Spawn an external process (Phase P-2) |
+| `Session(SessionCommand)` | Create or close a Kakoune session managed by the host runtime |
+| `WriteToProcess { job_id, data }` | Write to the stdin of a spawned process |
+| `CloseProcessStdin { job_id }` | Close a process's stdin (EOF) |
+| `KillProcess { job_id }` | Force-kill a process |
+| `Pane(PaneCommand)` | Pane operations |
+| `Workspace(WorkspaceCommand)` | Workspace operations |
+| `RegisterThemeTokens(tokens)` | Register custom theme tokens |
 
-`SessionCommand` には次がある。
+`SessionCommand` has the following variants:
 
-- `Spawn { key, session, args, activate }`: 新しい管理対象 session を開く。`key` は host 内の stable key、`session` は `kak -c <name>` に対応する接続先 session 名で、`activate = true` ならその session を即座に active session に切り替える。
-- `Close { key }`: 指定 key の session を閉じる。`key = None` は現在の active session を閉じる。最後の session を閉じた場合、host runtime は終了する。active session を閉じて他の session が残る場合、host runtime は creation order に沿って次の session を active に昇格する。
+- `Spawn { key, session, args, activate }`: Open a new managed session. `key` is a stable key within the host, `session` is the session name corresponding to `kak -c <name>`, and `activate = true` immediately switches to that session as the active session.
+- `Close { key }`: Close the session with the specified key. `key = None` closes the current active session. If the last session is closed, the host runtime terminates. If the active session is closed and other sessions remain, the host runtime promotes the next session in creation order to active.
 
-V1 の session runtime は複数 session を保持できるが、描画対象は常に 1 つの active session だけである。inactive session の Kakoune reader は生きており、そのイベントは off-screen の session snapshot へ継続反映される。active 化された時点ではその snapshot が復元されるが、session-bound surface の自動生成と multi-session 専用 UI はまだ未実装である。
+The V1 session runtime can hold multiple sessions, but only one active session is rendered at a time. The Kakoune reader for inactive sessions remains alive, and its events continue to be reflected in the off-screen session snapshot. When activated, that snapshot is restored, but automatic generation of session-bound surfaces and multi-session dedicated UI are not yet implemented.
 
-WASM では `command` variant で表現される。`Pane`、`Workspace`、`RegisterThemeTokens` は現時点では WASM 未対応。プロセス実行コマンド (`SpawnProcess` 等) と session 管理コマンド (`spawn-session`, `close-session`) は WIT 側へ導入済みである。
+In WASM, these are represented as `command` variants. `Pane`, `Workspace`, and `RegisterThemeTokens` are currently not supported in WASM. Process execution commands (`SpawnProcess`, etc.) and session management commands (`spawn-session`, `close-session`) have been introduced on the WIT side.
 
-WASM プラグインはデフォルトでサンドボックス化されている。ホストは `WasiCtxBuilder` にケイパビリティを付与せずに WASM インスタンスを構築するため、ファイルシステム、ネットワークなどのホスト資源へのアクセスは利用できない。WASM プラグインが利用可能なホスト機能は `host-state`（状態読み取り）と `element-builder`（要素構築）の 2 つの WIT interface に限定される。Phase P ([ADR-019](./decisions.md#adr-019-プラグイン-io-基盤--ハイブリッドモデル)) により、ケイパビリティ宣言に応じて `preopened_dir` / `env` を解放 (P-1)、プロセス実行はホスト媒介 (`Command::SpawnProcess` + `IoEvent`) で提供済み (P-2)。プロセス実行には `Capability::Process` の宣言が必要であり、`config.toml` の `deny_capabilities` で拒否可能。
+WASM plugins are sandboxed by default. The host constructs WASM instances without granting capabilities via `WasiCtxBuilder`, so access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `Capability::Process`, which can be denied via `deny_capabilities` in `config.toml`.
 
-## 4. Capability とキャッシュ
+## 4. Capabilities and Caching
 
 ### 4.1 PluginCapabilities
 
-`PluginCapabilities` は plugin が実装する機能を宣言するビットフラグであり、不要なメソッド呼び出しをスキップするために使われる。
+`PluginCapabilities` is a bitflag declaring the features a plugin implements, used to skip unnecessary method calls.
 
-| フラグ | 説明 |
+| Flag | Description |
 |---|---|
 | `CONTRIBUTOR` | `contribute_to()` |
 | `TRANSFORMER` | `transform()` |
@@ -502,25 +502,25 @@ WASM プラグインはデフォルトでサンドボックス化されている
 | `MENU_TRANSFORM` | `transform_menu_item()` |
 | `CURSOR_STYLE` | `cursor_style_override()` |
 | `INPUT_HANDLER` | `handle_key()` / `handle_mouse()` |
-| `PANE_LIFECYCLE` | pane lifecycle hooks |
+| `PANE_LIFECYCLE` | Pane lifecycle hooks |
 | `PANE_RENDERER` | `render_pane()` |
 | `SURFACE_PROVIDER` | `surfaces()` |
 | `WORKSPACE_OBSERVER` | `on_workspace_changed()` |
 | `PAINT_HOOK` | `paint_hooks()` |
 | `IO_HANDLER` | `on_io_event()` |
 
-Native plugin のデフォルトは `all()`、WASM adapter は WIT 呼び出し結果から設定される。
+The default for native plugins is `all()`, and the WASM adapter is configured from WIT call results.
 
-`PANE_LIFECYCLE`、`PANE_RENDERER`、`WORKSPACE_OBSERVER`、`PAINT_HOOK` は現状 native-only だが、`SURFACE_PROVIDER` は hosted surface descriptor / `render-surface` として WIT 側にも導入済みである。同じ trait シグネチャをそのまま WIT に載せることは前提にしない。
+`PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, and `PAINT_HOOK` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
 
 ### 4.2 State hash and dependency tracking
 
-plugin の寄与結果は主に次の仕組みでキャッシュされる。
+Plugin contribution results are primarily cached through the following mechanisms:
 
-- `state_hash()`: プラグイン内部状態のハッシュ
-- `contribute_deps(region)`: 指定 region が依存する `DirtyFlags`
-- `transform_deps(target)`: transform が依存する `DirtyFlags`
-- `annotate_deps()`: line annotation が依存する `DirtyFlags`
+- `state_hash()`: Hash of the plugin's internal state
+- `contribute_deps(region)`: `DirtyFlags` that the specified region depends on
+- `transform_deps(target)`: `DirtyFlags` that the transform depends on
+- `annotate_deps()`: `DirtyFlags` that line annotation depends on
 
 ```rust
 // WASM
@@ -536,11 +536,11 @@ fn contribute_deps(region: SlotId) -> u16 {
 }
 ```
 
-Native plugin では `state_hash()` と依存追跡メソッドを直接実装する。
+Native plugins implement `state_hash()` and dependency tracking methods directly.
 
 ### 4.3 PaintHook
 
-`PaintHook` は `Element` ツリーを経由せず、paint 後の `CellGrid` を直接操作する native-only hook である。これは **暫定的な escape hatch** であり、長期的な公開方向ではない。将来的には `CellGrid` 直操作ではなく、WASM からも利用できる高レベル render hook へ再設計する前提で扱う。
+`PaintHook` is a native-only hook that directly manipulates the `CellGrid` after paint, bypassing the `Element` tree. This is a **provisional escape hatch** and not intended as a long-term public API. It should be treated with the assumption that it will be redesigned into a higher-level render hook accessible from WASM, rather than direct `CellGrid` manipulation.
 
 ```rust
 fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
@@ -561,21 +561,21 @@ impl PaintHook for MyHighlightHook {
 
 ### 5.1 StyleToken
 
-`StyleToken` はテーマ設定から `Face` にマッピングされるセマンティックなスタイルトークンである。
+`StyleToken` is a semantic style token that maps to a `Face` from the theme configuration.
 
-| トークン名 | 用途 |
+| Token name | Purpose |
 |---|---|
-| `buffer.text` | バッファテキスト |
-| `buffer.padding` | バッファパディング |
-| `status.line` | ステータスバー |
-| `status.mode` | モード表示 |
-| `menu.item.normal` | メニュー通常項目 |
-| `menu.item.selected` | メニュー選択項目 |
-| `menu.scrollbar` / `menu.scrollbar.thumb` | スクロールバー |
-| `info.text` / `info.border` | Info ポップアップ |
-| `border` / `shadow` | ボーダー / シャドウ |
+| `buffer.text` | Buffer text |
+| `buffer.padding` | Buffer padding |
+| `status.line` | Status bar |
+| `status.mode` | Mode display |
+| `menu.item.normal` | Normal menu item |
+| `menu.item.selected` | Selected menu item |
+| `menu.scrollbar` / `menu.scrollbar.thumb` | Scrollbar |
+| `info.text` / `info.border` | Info popup |
+| `border` / `shadow` | Border / shadow |
 
-カスタムトークンは plugin 側で作成して登録できる。
+Custom tokens can be created and registered by plugins.
 
 ```rust
 StyleToken::new("myplugin.highlight")
@@ -598,11 +598,11 @@ fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
 "myplugin.highlight" = { fg = "yellow" }
 ```
 
-## 6. 高度な API
+## 6. Advanced API
 
 ### 6.1 Surface provider
 
-`SURFACE_PROVIDER` capability を持つ plugin は独自の surface を提供できる。Native では `Box<dyn Surface>` を返し、WASM では static `surface-descriptor` 群、`render-surface(surface-key, ctx)`、`handle-surface-event(surface-key, event, ctx)`、`handle-surface-state-changed(surface-key, dirty-flags)` を返す hosted surface model に写像される。
+Plugins with the `SURFACE_PROVIDER` capability can provide their own surfaces. In Native, they return `Box<dyn Surface>`, while in WASM, they map to a hosted surface model returning static `surface-descriptor` groups, `render-surface(surface-key, ctx)`, `handle-surface-event(surface-key, event, ctx)`, and `handle-surface-state-changed(surface-key, dirty-flags)`.
 
 ```rust
 impl Plugin for MyPlugin {
@@ -616,46 +616,46 @@ impl Plugin for MyPlugin {
 }
 ```
 
-| メソッド | 説明 |
+| Method | Description |
 |---|---|
-| `id() -> SurfaceId` | 一意な ID |
-| `surface_key() -> CompactString` | stable な semantic key |
-| `size_hint() -> SizeHint` | サイズ希望 |
-| `initial_placement() -> Option<SurfacePlacementRequest>` | static 初期配置 |
-| `view(ctx: &ViewContext) -> Element` | `Element` ツリー構築 |
-| `handle_event(event, ctx) -> Vec<Command>` | イベント処理 |
-| `on_state_changed(state, dirty) -> Vec<Command>` | shared state 変更通知 |
-| `state_hash() -> u64` | view cache 用ハッシュ |
-| `declared_slots() -> &[SlotDeclaration]` | 拡張点宣言 |
+| `id() -> SurfaceId` | Unique ID |
+| `surface_key() -> CompactString` | Stable semantic key |
+| `size_hint() -> SizeHint` | Preferred size |
+| `initial_placement() -> Option<SurfacePlacementRequest>` | Static initial placement |
+| `view(ctx: &ViewContext) -> Element` | Build `Element` tree |
+| `handle_event(event, ctx) -> Vec<Command>` | Event handling |
+| `on_state_changed(state, dirty) -> Vec<Command>` | Shared state change notification |
+| `state_hash() -> u64` | Hash for view cache |
+| `declared_slots() -> &[SlotDeclaration]` | Extension point declarations |
 
-`ViewContext` は `state`、`rect`、`focused`、`registry`、`surface_id` を提供する。plugin-owned surface の collect/register と `initial_placement()` は bootstrap preflight で評価され、`workspace_request()` は移行期の legacy fallback としてのみ使われる。descriptor の `initial_placement()` は `SplitFocused` / `SplitFrom` / `Tab` / `TabIn` / `Dock` / `Float` を surface path から直接 workspace へ反映する。`Dock` は root rect が分かっている経路では `SizeHint` の preferred/min size を使って ratio を決め、そうでない経路では既定 ratio にフォールバックする。`handle_event()` / `handle-surface-event(...)` / `handle-surface-state-changed(...)` が返す command は surface owner plugin の文脈で実行されるため、`SpawnProcess` など capability-gated な deferred command も owner plugin の権限で評価される。`on_state_changed(...)` は少なくとも Kakoune プロトコル由来の shared state 更新時に呼ばれ、surface owner が dirty に応じて追加 command を返せる。
+`ViewContext` provides `state`, `rect`, `focused`, `registry`, and `surface_id`. Collection/registration of plugin-owned surfaces and `initial_placement()` are evaluated during bootstrap preflight, and `workspace_request()` is used only as a legacy fallback during the transition period. The descriptor's `initial_placement()` reflects `SplitFocused` / `SplitFrom` / `Tab` / `TabIn` / `Dock` / `Float` directly from the surface path into the workspace. `Dock` uses `SizeHint`'s preferred/min size to determine the ratio when the root rect is known, and falls back to a default ratio otherwise. Commands returned by `handle_event()` / `handle-surface-event(...)` / `handle-surface-state-changed(...)` are executed in the context of the surface owner plugin, so capability-gated deferred commands such as `SpawnProcess` are evaluated under the owner plugin's permissions. `on_state_changed(...)` is called at least on shared state updates originating from the Kakoune protocol, allowing the surface owner to return additional commands based on dirty flags.
 
 ### 6.2 Workspace commands
 
-`WorkspaceCommand` は surface の配置とレイアウトを操作する。
+`WorkspaceCommand` manipulates surface placement and layout.
 
-| WorkspaceCommand | 説明 |
+| WorkspaceCommand | Description |
 |---|---|
-| `AddSurface { surface_id, placement }` | surface を追加 |
-| `RemoveSurface(id)` | surface を削除 |
-| `Focus(id)` | フォーカス移動 |
-| `FocusDirection(dir)` | 方向フォーカス |
-| `Resize { delta }` | 分割比率調整。split divider drag も内部的にはこの command へ落ちる |
-| `Swap(id1, id2)` | surface 入れ替え |
-| `Float { surface_id, rect }` | フローティング化 |
-| `Unfloat(id)` | タイルに戻す。直前に浮かせた split metadata が残っていればそれを優先して復元する |
+| `AddSurface { surface_id, placement }` | Add a surface |
+| `RemoveSurface(id)` | Remove a surface |
+| `Focus(id)` | Move focus |
+| `FocusDirection(dir)` | Directional focus |
+| `Resize { delta }` | Adjust split ratio. Split divider drag also internally falls through to this command |
+| `Swap(id1, id2)` | Swap surfaces |
+| `Float { surface_id, rect }` | Make a surface floating |
+| `Unfloat(id)` | Return to tiled mode. If split metadata from the previous float remains, it is preferentially used for restoration |
 
-| Placement | 説明 |
+| Placement | Description |
 |---|---|
-| `SplitFocused { direction, ratio }` | フォーカス中 surface を分割 |
-| `SplitFrom { target, direction, ratio }` | 特定 surface から分割 |
-| `Tab` / `TabIn { target }` | タブ追加 |
-| `Dock(position)` | Left/Right/Bottom/Panel にドック |
-| `Float { rect }` | フローティングとして追加 |
+| `SplitFocused { direction, ratio }` | Split the focused surface |
+| `SplitFrom { target, direction, ratio }` | Split from a specific surface |
+| `Tab` / `TabIn { target }` | Add a tab |
+| `Dock(position)` | Dock to Left/Right/Bottom/Panel |
+| `Float { rect }` | Add as floating |
 
 ### 6.3 Custom slots
 
-surface が `declared_slots()` を返すことで、他 plugin が寄与できるカスタム slot を定義できる。
+Surfaces can define custom slots that other plugins can contribute to by returning `declared_slots()`.
 
 ```rust
 impl Surface for MySurface {
@@ -668,32 +668,32 @@ impl Surface for MySurface {
 }
 ```
 
-`SlotDeclaration.kind` は advisory metadata であり、実際の配置は `Element::SlotPlaceholder` が決める。他 plugin は `contribute_to(&SlotId::new("myplugin.sidebar.top"), state, ctx)` を使う。WASM でも同じ slot 名を `SlotId::Named("myplugin.sidebar.top".into())` で指定する。
+`SlotDeclaration.kind` is advisory metadata; the actual placement is determined by `Element::SlotPlaceholder`. Other plugins use `contribute_to(&SlotId::new("myplugin.sidebar.top"), state, ctx)`. In WASM, the same slot name is specified via `SlotId::Named("myplugin.sidebar.top".into())`.
 
 ### 6.4 Plugin messages and timers
 
-`Command::PluginMessage { target, payload }` で plugin 間メッセージ送信ができる。
+`Command::PluginMessage { target, payload }` enables inter-plugin message passing.
 
-- Native: `update(msg: Box<dyn Any>, state)` でダウンキャスト
-- WASM: `update(payload: Vec<u8>)` でバイト列受信
+- Native: Downcast in `update(msg: Box<dyn Any>, state)`
+- WASM: Receive byte array in `update(payload: Vec<u8>)`
 
-`Command::ScheduleTimer { delay, target, payload }` は遅延メッセージ送信を行う。
+`Command::ScheduleTimer { delay, target, payload }` performs delayed message sending.
 
 ### 6.5 Pane lifecycle
 
-`PANE_LIFECYCLE` capability を持つ plugin は pane の作成、削除、フォーカス変更を観測できる。
+Plugins with the `PANE_LIFECYCLE` capability can observe pane creation, deletion, and focus changes.
 
-| フック | 説明 |
+| Hook | Description |
 |---|---|
-| `on_pane_created(pane_id, state)` | pane 作成通知 |
-| `on_pane_closed(pane_id)` | pane 削除通知 |
-| `on_focus_changed(from, to, state)` | フォーカス変更通知 |
+| `on_pane_created(pane_id, state)` | Pane creation notification |
+| `on_pane_closed(pane_id)` | Pane deletion notification |
+| `on_focus_changed(from, to, state)` | Focus change notification |
 
-`PANE_RENDERER` capability では `render_pane(pane_id, cols, rows)` で plugin 所有 pane を描画できる。
+With the `PANE_RENDERER` capability, `render_pane(pane_id, cols, rows)` can render plugin-owned panes.
 
-## 7. 関連文書
+## 7. Related Documents
 
-- [plugin-development.md](./plugin-development.md) — 最短ガイド
-- [semantics.md](./semantics.md) — 合成順序と意味論
-- [architecture.md](./architecture.md) — surface と backend の位置づけ
-- [index.md](./index.md) — docs 全体の入口
+- [plugin-development.md](./plugin-development.md) — Quickstart guide
+- [semantics.md](./semantics.md) — Composition ordering and semantics
+- [architecture.md](./architecture.md) — Positioning of surfaces and backends
+- [index.md](./index.md) — Entry point for all docs

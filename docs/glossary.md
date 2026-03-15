@@ -1,123 +1,123 @@
-# 用語集
+# Glossary
 
-本ドキュメントは、Kasane で使う用語の参照一覧である。
-意味論や責務の正本は [semantics.md](./semantics.md) と [layer-responsibilities.md](./layer-responsibilities.md) を参照。
+This document is a reference list of terminology used in Kasane.
+For authoritative definitions of semantics and responsibilities, see [semantics.md](./semantics.md) and [layer-responsibilities.md](./layer-responsibilities.md).
 
-## プロトコル・描画
+## Protocol & Rendering
 
-| 用語 | 説明 |
-|------|------|
-| JSON UI | Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコル |
-| Face | テキストの装飾情報 (前景色, 背景色, 下線色, 属性) |
-| Atom | Face と文字列のペア。描画の最小単位 |
-| Line | Atom の配列。表示行の1行に対応 |
-| Coord | 行番号と列番号のペア。画面上の位置を表す |
-| Anchor | フローティングウィンドウの表示基準座標。Kakoune プロトコル由来。Element ツリーでは OverlayAnchor の基盤 |
-| Inline スタイル | バッファ内のアンカー位置に追従するフローティング表示 |
-| Prompt スタイル | ステータスバー領域に固定表示 |
-| ガター | エディタ左端の行番号・アイコン表示領域。Slot::BufferLeft で拡張可能 |
-| ダブルバッファリング | オフスクリーンバッファに描画してから一括転送する手法。ちらつきを防止 |
-| CellGrid | セルの二次元配列。ダブルバッファリングで差分描画を実現 |
+| Term | Description |
+|------|-------------|
+| JSON UI | Kakoune's JSON-RPC 2.0 based external UI protocol |
+| Face | Text decoration information (foreground color, background color, underline color, attributes) |
+| Atom | A pair of Face and string. The smallest unit of rendering |
+| Line | An array of Atoms. Corresponds to one display line |
+| Coord | A pair of line number and column number. Represents a position on the screen |
+| Anchor | The reference coordinate for floating window positioning. Derived from the Kakoune protocol. Serves as the basis for OverlayAnchor in the Element tree |
+| Inline style | Floating display that follows an anchor position within the buffer |
+| Prompt style | Fixed display in the status bar area |
+| Gutter | The area on the left edge of the editor for line numbers and icons. Extensible via Slot::BufferLeft |
+| Double buffering | A technique of rendering to an off-screen buffer before transferring all at once. Prevents flickering |
+| CellGrid | A two-dimensional array of cells. Implements differential rendering via double buffering |
 
-## 宣言的 UI
+## Declarative UI
 
-| 用語 | 説明 |
-|------|------|
-| Element | UI の宣言的記述の最小単位。Text, StyledLine, Flex, Grid, Stack, Scrollable, Container, Interactive, Empty, BufferRef のバリアントを持つ enum。view() が返すツリーの構成要素 |
-| Element ツリー | Element のネスト構造。view(&State) の戻り値。フレームワークがレイアウト計算と CellGrid 描画に使用 |
-| view() | State を受け取り Element ツリーを返す純粋関数。TEA の中核 |
-| paint() | Element ツリーとレイアウト結果を受け取り、CellGrid に描画する処理 |
-| Overlay | Element ツリーの Stack コンテナ内で他の要素の上に重ねて配置される子要素。メニュー・情報ポップアップ等に使用 |
-| OverlayAnchor | Overlay の位置指定。Absolute (絶対座標)、Relative (相対位置)、AnchorPoint (Kakoune 互換の anchor ベース配置) |
-| InteractiveId | Element に付与するマウスヒットテスト用の識別子。レイアウト結果と照合してクリック対象を特定 |
-| 所有型 Element | Element がライフタイムパラメータを持たず全データを所有するメモリモデル (ADR-009-3)。プラグイン作者の認知負荷を最小化。clone コストは BufferRef パターンで軽減 |
-| BufferRef | パフォーマンス最適化パターン。バッファ行を clone せず、paint 時に State から直接描画 |
+| Term | Description |
+|------|-------------|
+| Element | The smallest unit of declarative UI description. An enum with variants: Text, StyledLine, Flex, Grid, Stack, Scrollable, Container, Interactive, Empty, BufferRef. Building blocks of the tree returned by view() |
+| Element tree | A nested structure of Elements. The return value of view(&State). Used by the framework for layout calculation and CellGrid rendering |
+| view() | A pure function that takes State and returns an Element tree. The core of TEA |
+| paint() | The process that takes an Element tree and layout results to render onto a CellGrid |
+| Overlay | A child element positioned on top of other elements within a Stack container in the Element tree. Used for menus, info popups, etc. |
+| OverlayAnchor | Position specification for Overlays. Absolute (absolute coordinates), Relative (relative position), AnchorPoint (Kakoune-compatible anchor-based positioning) |
+| InteractiveId | An identifier attached to an Element for mouse hit-testing. Matched against layout results to determine click targets |
+| Owned Element | A memory model where Element has no lifetime parameter and owns all its data (ADR-009-3). Minimizes cognitive load for plugin authors. Clone cost is mitigated by the BufferRef pattern |
+| BufferRef | A performance optimization pattern. Instead of cloning buffer lines, renders directly from State during paint |
 
 ## TEA (The Elm Architecture)
 
-| 用語 | 説明 |
-|------|------|
-| TEA | The Elm Architecture。State → view() → Element、Event → Msg → update() → State の単方向データフロー |
-| State | アプリケーション全体の状態。CoreState (Kakoune 由来) + プラグイン状態を保持 |
-| Msg | 状態変更を引き起こすメッセージ。Kakoune メッセージ、入力イベント、プラグインメッセージ等 |
-| update() | State と Msg を受け取り、State を更新して Command を返す関数。副作用は Command として明示化 |
-| Command | update() が返す副作用の記述。SendToKakoune, Paste, Quit, RequestRedraw, ScheduleTimer, PluginMessage, SetConfig |
-| DirtyFlags | AppState の変更箇所を示すビットフラグ (u16)。BUFFER, STATUS, MENU_STRUCTURE, MENU_SELECTION, INFO, OPTIONS の 6 種。on_state_changed() や PluginSlotCache の無効化判定に使用 |
-| CoreState | Kakoune プロトコル由来の状態 (バッファ行、カーソル、メニュー、ステータス等)。プラグインからは読み取り専用 |
+| Term | Description |
+|------|-------------|
+| TEA | The Elm Architecture. A unidirectional data flow: State -> view() -> Element, Event -> Msg -> update() -> State |
+| State | The entire application state. Holds CoreState (from Kakoune) + plugin state |
+| Msg | A message that triggers state changes. Includes Kakoune messages, input events, plugin messages, etc. |
+| update() | A function that takes State and Msg, updates State, and returns a Command. Side effects are made explicit as Commands |
+| Command | A description of side effects returned by update(). SendToKakoune, Paste, Quit, RequestRedraw, ScheduleTimer, PluginMessage, SetConfig |
+| DirtyFlags | Bit flags (u16) indicating which parts of AppState have changed. 6 types: BUFFER, STATUS, MENU_STRUCTURE, MENU_SELECTION, INFO, OPTIONS. Used for invalidation decisions in on_state_changed() and PluginSlotCache |
+| CoreState | State derived from the Kakoune protocol (buffer lines, cursor, menus, status, etc.). Read-only from plugins |
 
-## プラグインシステム
+## Plugin System
 
-| 用語 | 説明 |
-|------|------|
-| Plugin | kasane の拡張単位。独自の State, Msg, update(), view() を持つ Rust クレート |
-| PluginId | プラグインの一意な識別子 |
-| PluginRegistry | 登録された全プラグインを管理し、Slot 収集・Decorator 適用・Replacement 解決を行う |
-| Slot | フレームワークが定義する拡張ポイント。プラグインは Slot に Element を挿入して UI を拡張 |
-| Decorator | 既存の Element を受け取りラップして返す拡張パターン。行番号追加、ボーダー変更等 |
-| Replacement | 既存コンポーネントを完全に差し替える拡張パターン。メニューの fzf 風差替等 |
-| DecorateTarget | Decorator の適用対象 (Buffer, StatusBar, Menu, Info, BufferLine) |
-| ReplaceTarget | Replacement の適用対象 (MenuPrompt, MenuInline, InfoPrompt, StatusBar 等) |
-| proc macro | `#[kasane::plugin]`, `#[kasane::component]` 等の手続きマクロ。ボイラープレート自動生成・コンパイル時検証 |
-| LineDecoration | プラグインがバッファの各行に提供する装飾。left_gutter (左ガター Element)、right_gutter (右ガター Element)、background (行背景 Face) の 3 つのオプショナル要素で構成 |
-| contribute_overlay | Plugin トレイトのメソッド。プラグインが Overlay (位置指定付き浮動 Element) を一つ提供する拡張ポイント。Slot::Overlay とは独立 |
-| contribute_line | Plugin トレイトのメソッド。指定行の LineDecoration を返す。ガターアイコンや行背景の実装に使用 |
-| on_state_changed | Plugin トレイトのライフサイクルメソッド。AppState 更新時に DirtyFlags 付きで呼ばれる。プラグイン内部状態の同期に使用 |
-| observe_key / observe_mouse | Plugin トレイトの入力観測メソッド。全プラグインに通知されるが消費不可。内部状態の追跡に使用 |
-| state_hash | Plugin トレイトのメソッド。内部状態の u64 ハッシュを返す。PluginSlotCache の L1 キャッシュ層で差分判定に使用 |
-| slot_deps | Plugin トレイトのメソッド。指定 Slot の contribute() が依存する DirtyFlags を返す。PluginSlotCache の L3 キャッシュ層で使用 |
-| PluginSlotCache | PluginRegistry のメモリ内キャッシュ。L1 (state_hash) と L3 (slot_deps) の 2 階層で contribute() 結果をキャッシュし、不要な再計算を回避 |
-| transform_menu_item | Plugin トレイトのメソッド。メニューアイテム (Atom 配列) の描画前変換。アイコン追加等に使用 |
-| cursor_line | バンドル WASM プラグイン。カーソル行の背景色をハイライト。contribute_line() の実用例。ソース: `kasane-wasm/guests/cursor-line/` |
-| color_preview | バンドル WASM プラグイン。バッファ内の色コード (#RRGGBB, #RGB, rgb:RRGGBB) を検出し、ガタースウォッチとインタラクティブカラーピッカーを提供。contribute_line() + contribute_overlay() + handle_mouse() の実用例。ソース: `kasane-wasm/guests/color-preview/` |
+| Term | Description |
+|------|-------------|
+| Plugin | The unit of extension in Kasane. A Rust crate with its own State, Msg, update(), and view() |
+| PluginId | A unique identifier for a plugin |
+| PluginRegistry | Manages all registered plugins, performing Slot collection, Decorator application, and Replacement resolution |
+| Slot | An extension point defined by the framework. Plugins insert Elements into Slots to extend the UI |
+| Decorator | An extension pattern that receives and wraps an existing Element. Used for adding line numbers, changing borders, etc. |
+| Replacement | An extension pattern that completely replaces an existing component. Used for fzf-style menu replacement, etc. |
+| DecorateTarget | The target of Decorator application (Buffer, StatusBar, Menu, Info, BufferLine) |
+| ReplaceTarget | The target of Replacement application (MenuPrompt, MenuInline, InfoPrompt, StatusBar, etc.) |
+| proc macro | Procedural macros such as `#[kasane::plugin]` and `#[kasane::component]`. Automate boilerplate generation and compile-time validation |
+| LineDecoration | Decoration provided by a plugin for each buffer line. Composed of 3 optional elements: left_gutter (left gutter Element), right_gutter (right gutter Element), and background (line background Face) |
+| contribute_overlay | A method on the Plugin trait. An extension point where a plugin provides a single Overlay (a floating Element with position specification). Independent of Slot::Overlay |
+| contribute_line | A method on the Plugin trait. Returns LineDecoration for a specified line. Used for implementing gutter icons and line backgrounds |
+| on_state_changed | A lifecycle method on the Plugin trait. Called with DirtyFlags when AppState is updated. Used for synchronizing plugin internal state |
+| observe_key / observe_mouse | Input observation methods on the Plugin trait. Notified to all plugins but cannot consume events. Used for tracking internal state |
+| state_hash | A method on the Plugin trait. Returns a u64 hash of internal state. Used for differential evaluation in the L1 cache layer of PluginSlotCache |
+| slot_deps | A method on the Plugin trait. Returns the DirtyFlags that a contribute() for a given Slot depends on. Used in the L3 cache layer of PluginSlotCache |
+| PluginSlotCache | An in-memory cache in PluginRegistry. Caches contribute() results across two tiers, L1 (state_hash) and L3 (slot_deps), to avoid unnecessary recalculation |
+| transform_menu_item | A method on the Plugin trait. Pre-rendering transformation of menu items (Atom arrays). Used for adding icons, etc. |
+| cursor_line | A bundled WASM plugin. Highlights the cursor line background. A practical example of contribute_line(). Source: `kasane-wasm/guests/cursor-line/` |
+| color_preview | A bundled WASM plugin. Detects color codes (#RRGGBB, #RGB, rgb:RRGGBB) in the buffer and provides gutter swatches and an interactive color picker. A practical example of contribute_line() + contribute_overlay() + handle_mouse(). Source: `kasane-wasm/guests/color-preview/` |
 
-## レイヤー責務
+## Layer Responsibilities
 
-| 用語 | 説明 |
-|------|------|
-| 三層レイヤー責務モデル | 機能の責務境界を上流 (Kakoune) / コア (kasane-core) / プラグインの三層で分類するモデル。判断フローチャートで機能の所属レイヤーを決定する。詳細は [layer-responsibilities.md](./layer-responsibilities.md) |
-| バンドル WASM プラグイン | `include_bytes!` でバイナリに埋め込まれたデフォルトプラグイン (cursor_line, color_preview)。FS 発見プラグインで上書き可能 |
-| API 実証 | 未実証の Plugin trait extension point を実プラグインで検証すること。`examples/` と `kasane-wasm/guests/` が参照実装として機能する |
-| フロントエンドネイティブ | OS やウィンドウシステムに固有の能力 (フォーカス検知、D&D、クリップボード等)。コアレイヤーに属する機能の一カテゴリ |
+| Term | Description |
+|------|-------------|
+| Three-layer responsibility model | A model that classifies feature responsibilities across three layers: upstream (Kakoune) / core (kasane-core) / plugin. A decision flowchart determines which layer a feature belongs to. See [layer-responsibilities.md](./layer-responsibilities.md) for details |
+| Bundled WASM plugin | Default plugins embedded in the binary via `include_bytes!` (cursor_line, color_preview). Can be overridden by FS-discovered plugins |
+| API proof | Verifying unproven Plugin trait extension points with real plugins. `examples/` and `kasane-wasm/guests/` serve as reference implementations |
+| Frontend-native | Capabilities specific to the OS or window system (focus detection, D&D, clipboard, etc.). A category of features belonging to the core layer |
 
-## レイアウト
+## Layout
 
-| 用語 | 説明 |
-|------|------|
-| Flex | Flexbox 簡略版のレイアウトモデル。Direction (Row/Column) + flex-grow + min/max で子要素を配置 |
-| Constraints | レイアウト計算時の制約。min/max の幅と高さ |
-| measure() | レイアウト計算の第1段階 (下→上)。各要素が制約内でのサイズを報告 |
-| place() | レイアウト計算の第2段階 (上→下)。親が子の具体的な位置を決定 |
-| LayoutResult | レイアウト計算の結果。各要素の画面上の矩形 (Rect) |
+| Term | Description |
+|------|-------------|
+| Flex | A simplified flexbox layout model. Positions child elements using Direction (Row/Column) + flex-grow + min/max |
+| Constraints | Constraints during layout calculation. Min/max width and height |
+| measure() | The first phase of layout calculation (bottom-up). Each element reports its size within constraints |
+| place() | The second phase of layout calculation (top-down). The parent determines the concrete position of children |
+| LayoutResult | The result of layout calculation. The on-screen rectangle (Rect) for each element |
 
 ## Surface & Workspace
 
-| 用語 | 説明 |
-|------|------|
-| Surface | 画面領域を所有する描画単位。`id()`, `size_hint()`, `view()`, `handle_event()` 等のメソッドを持つ trait。コア UI コンポーネントとプラグインが対等に画面を所有する設計の基盤 |
-| SurfaceId | Surface の一意な識別子 (u32)。定数定義: BUFFER=0, STATUS=1, MENU=2, INFO_BASE=10, PLUGIN_BASE=100 |
-| SurfaceRegistry | Surface インスタンスと Workspace レイアウトツリーを管理。`compose_view()` / `compose_full_view()` で全 Surface を統合した Element ツリーを構築 |
-| ViewContext / EventContext | Surface に渡されるコンテキスト (AppState, Rect, フォーカス状態, PluginRegistry) |
-| WorkspaceNode | Workspace レイアウトツリーのノード。Leaf / Split / Tabs / Float の 4 種 |
-| Workspace | ルートノード管理、フォーカストラッキング (履歴スタック)、`compute_rects()` / `surface_at()` |
-| WorkspaceCommand | ワークスペース操作コマンド: AddSurface / RemoveSurface / Focus / FocusDirection / Resize / Swap / Float / Unfloat |
-| Placement | 新 Surface の配置指定: SplitFocused / SplitFrom / Tab / TabIn / Dock / Float |
-| SlotId | オープンスロットシステム。legacy `Slot` enum (deprecated) を置き換え、`SlotId::new("myplugin.sidebar")` でカスタムスロットを定義可能 |
-| PaintHook | paint 後の CellGrid 直接変更を行う trait。DirtyFlags ベース + Surface フィルタで対象を制御 |
-| PluginCapabilities | プラグインが参加する拡張ポイントを示す bitflags (14 種)。非参加プラグインの WASM 境界呼び出しをスキップする最適化に使用 |
+| Term | Description |
+|------|-------------|
+| Surface | A rendering unit that owns a screen region. A trait with methods such as `id()`, `size_hint()`, `view()`, `handle_event()`. The foundation for a design where core UI components and plugins own screen regions equally |
+| SurfaceId | A unique identifier for a Surface (u32). Constant definitions: BUFFER=0, STATUS=1, MENU=2, INFO_BASE=10, PLUGIN_BASE=100 |
+| SurfaceRegistry | Manages Surface instances and the Workspace layout tree. Builds a unified Element tree from all Surfaces via `compose_view()` / `compose_full_view()` |
+| ViewContext / EventContext | Context passed to a Surface (AppState, Rect, focus state, PluginRegistry) |
+| WorkspaceNode | A node in the Workspace layout tree. 4 types: Leaf / Split / Tabs / Float |
+| Workspace | Root node management, focus tracking (history stack), `compute_rects()` / `surface_at()` |
+| WorkspaceCommand | Workspace operation commands: AddSurface / RemoveSurface / Focus / FocusDirection / Resize / Swap / Float / Unfloat |
+| Placement | Placement specification for a new Surface: SplitFocused / SplitFrom / Tab / TabIn / Dock / Float |
+| SlotId | Open slot system. Replaces the legacy `Slot` enum (deprecated). Custom slots can be defined with `SlotId::new("myplugin.sidebar")` |
+| PaintHook | A trait for directly modifying the CellGrid after paint. Controls targets via DirtyFlags-based + Surface filter |
+| PluginCapabilities | Bitflags (14 types) indicating which extension points a plugin participates in. Used as an optimization to skip WASM boundary calls for non-participating plugins |
 
-## レンダリング最適化
+## Rendering Optimization
 
-| 用語 | 説明 |
-|------|------|
-| ViewCache | Element ツリーのセクション別キャッシュ (base, menu, info)。DirtyFlags に基づき無効化 |
-| ComponentCache\<T\> | 汎用メモ化ラッパー。`get_or_insert()` / `invalidate()` で値をキャッシュ |
-| SceneCache | DrawCommand レベルのセクション別キャッシュ (GUI 用)。ViewCache と同じ無効化ルール |
-| LayoutCache | base_layout, status_row, root_area をキャッシュ。セクション別再描画の基盤 |
-| PaintPatch | 最小限のセル更新で CellGrid を修正する trait。StatusBarPatch (~80 cells), MenuSelectionPatch (~10 cells), CursorPatch (2 cells) の 3 種が組み込み |
+| Term | Description |
+|------|-------------|
+| ViewCache | Section-level cache for the Element tree (base, menu, info). Invalidated based on DirtyFlags |
+| ComponentCache\<T\> | A generic memoization wrapper. Caches values via `get_or_insert()` / `invalidate()` |
+| SceneCache | Section-level cache at the DrawCommand level (for GPU). Same invalidation rules as ViewCache |
+| LayoutCache | Caches base_layout, status_row, root_area. The foundation for section-level redraws |
+| PaintPatch | A trait for modifying CellGrid with minimal cell updates. 3 built-in types: StatusBarPatch (~80 cells), MenuSelectionPatch (~10 cells), CursorPatch (2 cells) |
 
-## 関連文書
+## Related Documents
 
-- [semantics.md](./semantics.md) — 用語が使われる意味論
-- [plugin-api.md](./plugin-api.md) — plugin 文脈での API 用語
-- [architecture.md](./architecture.md) — システム構成上の位置づけ
-- [layer-responsibilities.md](./layer-responsibilities.md) — 責務境界の用語
+- [semantics.md](./semantics.md) — Semantics in which terms are used
+- [plugin-api.md](./plugin-api.md) — API terminology in the plugin context
+- [architecture.md](./architecture.md) — Positioning within the system architecture
+- [layer-responsibilities.md](./layer-responsibilities.md) — Terminology for responsibility boundaries

@@ -1,11 +1,11 @@
-# Kakoune JSON UI プロトコル仕様
+# Kakoune JSON UI Protocol Specification
 
-本ドキュメントは、Kasane が前提とする Kakoune JSON UI プロトコルの参照仕様である。
-制約の分析は [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md)、Kasane 側の意味論は [semantics.md](./semantics.md) を参照。
+This document serves as the reference specification for the Kakoune JSON UI protocol that Kasane relies on.
+For constraint analysis, see [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md). For Kasane-side semantics, see [semantics.md](./semantics.md).
 
-Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコルの仕様書。
+Specification for Kakoune's JSON-RPC 2.0 based external UI protocol.
 
-## データ構造
+## Data Structures
 
 ### Face
 ```json
@@ -17,7 +17,7 @@ Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコルの仕様書。
 }
 ```
 
-**Color:** `"default"` | 名前付き色 (`"red"`, `"blue"`, ...) | HEX (`"#rrggbb"`)
+**Color:** `"default"` | Named colors (`"red"`, `"blue"`, ...) | HEX (`"#rrggbb"`)
 
 **Attribute:** `"underline"` | `"curly_underline"` | `"double_underline"` | `"reverse"` | `"blink"` | `"bold"` | `"dim"` | `"italic"` | `"strikethrough"` | `"final_fg"` | `"final_bg"` | `"final_attr"`
 
@@ -42,9 +42,9 @@ Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコルの仕様書。
 }
 ```
 
-## Kakoune → Kasane メッセージ
+## Kakoune → Kasane Messages
 
-| メソッド | パラメータ |
+| Method | Parameters |
 |---------|-----------|
 | `draw` | `[lines: Line[], cursor_pos: Coord, default_face: Face, padding_face: Face, widget_columns: int]` |
 | `draw_status` | `[prompt: Line, content: Line, cursor_pos: int, mode_line: Line, default_face: Face]` |
@@ -56,9 +56,9 @@ Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコルの仕様書。
 | `set_ui_options` | `[options: Map<string, string>]` |
 | `refresh` | `[force: bool]` |
 
-## Kasane → Kakoune メッセージ
+## Kasane → Kakoune Messages
 
-| メソッド | パラメータ |
+| Method | Parameters |
 |---------|-----------|
 | `keys` | `[key: string, ...]` |
 | `resize` | `[rows: int, columns: int]` |
@@ -68,22 +68,22 @@ Kakoune の JSON-RPC 2.0 ベースの外部 UI プロトコルの仕様書。
 | `mouse_move` | `[line: int, column: int]` |
 | `menu_select` | `[index: int]` |
 
-## 上流プロトコル拡張の追跡
+## Upstream Protocol Extension Tracking
 
-Kasane の機能を強化する未マージの上流 PR/Issue。
+Unmerged upstream PRs/Issues that could enhance Kasane's capabilities.
 
-| PR/Issue | 内容 | Kasane への影響 | 状態 |
-|----------|------|----------------|------|
-| [Commit 3dd6f30d](https://github.com/mawww/kakoune/commit/3dd6f30d) | `set_cursor` 削除、`cursor_pos` を `draw`/`draw_status` に統合 | **対応済み** | Merged |
-| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | `draw` に `widget_columns` パラメータ追加 | **対応済み** — `P-010` / `P-011` の補助領域寄与に利用可能 | Merged |
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Face 名の追加 | `P-001`, `P-010`, `P-011` の semantic 区別が改善 | Open |
-| [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw | 差分描画の効率化 | Open |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom 種別の区別 | `P-001`, `P-010`, `P-011` の分離描画と overlay 合成の精度改善 | Open |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキスト | `D-003` の縮退解消 | Open |
+| PR/Issue | Description | Impact on Kasane | Status |
+|----------|-------------|------------------|--------|
+| [Commit 3dd6f30d](https://github.com/mawww/kakoune/commit/3dd6f30d) | Removed `set_cursor`, integrated `cursor_pos` into `draw`/`draw_status` | **Supported** | Merged |
+| [PR #5455](https://github.com/mawww/kakoune/pull/5455) | Added `widget_columns` parameter to `draw` | **Supported** — Can be used for auxiliary region contributions in `P-010` / `P-011` | Merged |
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Additional face names | Improves semantic differentiation for `P-001`, `P-010`, `P-011` | Open |
+| [#4686](https://github.com/mawww/kakoune/issues/4686) | Incremental draw | Enables more efficient differential rendering | Open |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom type differentiation | Improves accuracy of separated rendering and overlay compositing for `P-001`, `P-010`, `P-011` | Open |
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | Status line context | Resolves the `D-003` degeneration | Open |
 
-## 関連文書
+## Related Documents
 
-- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — 制約の分析
-- [upstream-dependencies.md](./upstream-dependencies.md) — upstream watchlist
-- [semantics.md](./semantics.md) — Kasane 側の意味論
-- [architecture.md](./architecture.md) — プロトコルが入る位置
+- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — Constraint analysis
+- [upstream-dependencies.md](./upstream-dependencies.md) — Upstream watchlist
+- [semantics.md](./semantics.md) — Kasane-side semantics
+- [architecture.md](./architecture.md) — Where the protocol fits in the architecture

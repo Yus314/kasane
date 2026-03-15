@@ -1,160 +1,159 @@
-# Kasane - 要件トレーサビリティ
+# Kasane - Requirements Traceability
 
-本ドキュメントは、要件ごとの解決層、状態、Phase、上流依存を追跡する tracker である。
-要件本文そのものは [requirements.md](./requirements.md) を正本とする。
+This document is a tracker for each requirement's resolution layer, status, Phase, and upstream dependencies.
+The authoritative requirement text is in [requirements.md](./requirements.md).
 
-## 1. 文書の責務
+## 1. Document Scope
 
-本ドキュメントは、[requirements.md](./requirements.md) に定義された要件が
-どの仕組みで解決されるか、どの段階まで実装・実証されているか、どの項目が上流制約に
-よってブロックされているかを追跡する。
+This document tracks how the requirements defined in [requirements.md](./requirements.md) are resolved,
+to what extent they have been implemented or proven, and which items are blocked by upstream constraints.
 
-要件本文そのものは [requirements.md](./requirements.md) を正本とする。
-現行意味論は [semantics.md](./semantics.md)、実装順序は [roadmap.md](./roadmap.md)、
-上流ブロッカーは [upstream-dependencies.md](./upstream-dependencies.md) を参照。
+The authoritative requirement text is in [requirements.md](./requirements.md).
+For current semantics, see [semantics.md](./semantics.md). For implementation order, see [roadmap.md](./roadmap.md).
+For upstream blockers, see [upstream-dependencies.md](./upstream-dependencies.md).
 
-## 2. 解決層の分類
+## 2. Resolution Layer Classification
 
-各要件は、Kasane のどの仕組みで解決されるかに応じて分類される。
-この分類は「どのレイヤーが責任を持つか」を定義するものではない。
-責務境界は [layer-responsibilities.md](./layer-responsibilities.md) を参照。
+Each requirement is classified according to which Kasane mechanism resolves it.
+This classification does not define "which layer is responsible."
+For responsibility boundaries, see [layer-responsibilities.md](./layer-responsibilities.md).
 
-| 解決層 | 説明 | 基盤設計への影響 |
-|--------|------|-----------------|
-| **レンダラ** | 描画エンジン・入力処理の基本実装で自動的に解決される | 基盤メカニズム不要。正しく実装するだけで解決 |
-| **設定** | `config.toml` / `ui_options` による設定で解決される | 基盤メカニズムの上に設定インターフェースを構築 |
-| **基盤** | Kasane の UI 基盤や拡張機構で解決される | プラグイン作者も同じメカニズムを利用可能 |
-| **プロトコル制約** | Kakoune プロトコルの制限により完全解決不可 | ヒューリスティック回避。上流への貢献を追跡 |
+| Resolution Layer | Description | Impact on Foundation Design |
+|------------------|-------------|----------------------------|
+| **Renderer** | Automatically resolved by the base implementation of the rendering engine and input handling | No foundation mechanism needed. Resolved simply by correct implementation |
+| **Config** | Resolved through configuration via `config.toml` / `ui_options` | Builds a configuration interface on top of foundation mechanisms |
+| **Foundation** | Resolved by Kasane's UI foundation and extension mechanisms | Plugin authors can also use the same mechanisms |
+| **Protocol constraint** | Cannot be fully resolved due to Kakoune protocol limitations | Heuristic workarounds. Tracks contributions to upstream |
 
-> **補完モデル:** 解決層は「どの仕組みで解決するか」(HOW) の分類。これを補完する
-> 「どのレイヤーが責任を持つか」(WHERE) の分類は
-> [三層レイヤー責務モデル](./layer-responsibilities.md) を参照。
+> **Complementary model:** Resolution layers classify "by what mechanism is it resolved" (HOW). The complementary
+> classification of "which layer is responsible" (WHERE) is in the
+> [three-layer responsibility model](./layer-responsibilities.md).
 
-## 3. コア機能要件トレーサビリティ
+## 3. Core Functional Requirements Traceability
 
-### 3.1 基本レンダリング (R-001, R-003〜R-009)
+### 3.1 Basic Rendering (R-001, R-003 through R-009)
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-001 | 基盤 | Element ツリー (BufferRef) で構築 | ✓ Phase 1 |
-| R-003 | レンダラ | ソフトウェアカーソル描画 | ✓ Phase 1 |
-| R-004 | レンダラ | padding_face による描画 | ✓ Phase 1 |
-| R-005 | レンダラ | リサイズ検知と `resize` メッセージ送信 | ✓ Phase 1 |
-| R-006 | レンダラ | 24bit RGB 直接描画 | ✓ Phase 1 |
-| R-007 | レンダラ | ダブルバッファリング (`CellGrid`) | ✓ Phase 1 |
-| R-008 | レンダラ | `unicode-width` ベースの幅計算 | ✓ Phase 1 |
-| R-009 | レンダラ | プレースホルダグリフの描画 | ✓ Phase 1 |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| R-001 | Foundation | Built with Element tree (BufferRef) | ✓ Phase 1 |
+| R-003 | Renderer | Software cursor rendering | ✓ Phase 1 |
+| R-004 | Renderer | Rendering with padding_face | ✓ Phase 1 |
+| R-005 | Renderer | Resize detection and `resize` message sending | ✓ Phase 1 |
+| R-006 | Renderer | 24-bit RGB direct rendering | ✓ Phase 1 |
+| R-007 | Renderer | Double buffering (`CellGrid`) | ✓ Phase 1 |
+| R-008 | Renderer | Width calculation based on `unicode-width` | ✓ Phase 1 |
+| R-009 | Renderer | Placeholder glyph rendering | ✓ Phase 1 |
 
-### 3.2 標準フローティング UI (R-010〜R-032)
+### 3.2 Standard Floating UI (R-010 through R-032)
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-010 | 基盤 | `Stack` + `Overlay` で構築 | ✓ Phase 1 |
-| R-011 | 基盤 | `OverlayAnchor` によるスタイル別配置 | ✓ Phase 1 |
-| R-012 | 基盤 | `MenuState` の `selected` 反映 | ✓ Phase 1 |
-| R-013 | 基盤 | `MenuState` クリアで即時非表示 | ✓ Phase 1 |
-| R-014 | 設定 + 基盤 | `MenuPlacement` / `InfoPlacement` による配置 policy | ✓ Phase 2 |
-| R-016 | レンダラ | イベントバッチング (`recv + try_recv`, 安全弁付き) | ✓ Phase 2 |
-| R-020 | 基盤 | `Stack` + `Overlay` で構築 | ✓ Phase 1 |
-| R-021 | 基盤 | `OverlayAnchor` + `InfoStyle` 切り替え | ✓ Phase 1 |
-| R-022 | 基盤 | `InfoState` クリアで即時非表示 | ✓ Phase 1 |
-| R-023 | 基盤 | `infos: Vec<InfoState>` + `InfoIdentity` で同時管理 | ✓ Phase 2 |
-| R-024 | 基盤 | `scroll_offset` + `InteractiveId` + マウスホイール | ✓ Phase 2 |
-| R-025 | 基盤 | `compute_pos` の `&[Rect]` 汎化 + avoid rect | ✓ Phase 2 |
-| R-030 | 基盤 | `OverlayAnchor::AnchorPoint` | ✓ Phase 1 |
-| R-031 | 基盤 | `compute_pos` のクランプロジック | ✓ Phase 1 |
-| R-032 | 基盤 | `Stack` の描画順序 | ✓ Phase 1 |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| R-010 | Foundation | Built with `Stack` + `Overlay` | ✓ Phase 1 |
+| R-011 | Foundation | Style-specific positioning via `OverlayAnchor` | ✓ Phase 1 |
+| R-012 | Foundation | Reflects `selected` from `MenuState` | ✓ Phase 1 |
+| R-013 | Foundation | Immediately hidden on `MenuState` clear | ✓ Phase 1 |
+| R-014 | Config + Foundation | Placement policy via `MenuPlacement` / `InfoPlacement` | ✓ Phase 2 |
+| R-016 | Renderer | Event batching (`recv + try_recv`, with safety valve) | ✓ Phase 2 |
+| R-020 | Foundation | Built with `Stack` + `Overlay` | ✓ Phase 1 |
+| R-021 | Foundation | `OverlayAnchor` + `InfoStyle` switching | ✓ Phase 1 |
+| R-022 | Foundation | Immediately hidden on `InfoState` clear | ✓ Phase 1 |
+| R-023 | Foundation | Concurrent management via `infos: Vec<InfoState>` + `InfoIdentity` | ✓ Phase 2 |
+| R-024 | Foundation | `scroll_offset` + `InteractiveId` + mouse wheel | ✓ Phase 2 |
+| R-025 | Foundation | Generalization of `compute_pos` to `&[Rect]` + avoid rect | ✓ Phase 2 |
+| R-030 | Foundation | `OverlayAnchor::AnchorPoint` | ✓ Phase 1 |
+| R-031 | Foundation | Clamping logic in `compute_pos` | ✓ Phase 1 |
+| R-032 | Foundation | Drawing order of `Stack` | ✓ Phase 1 |
 
-### 3.3 標準ステータス / プロンプト UI (R-060, R-061, R-063, R-064)
+### 3.3 Standard Status / Prompt UI (R-060, R-061, R-063, R-064)
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-060 | 基盤 | Element ツリーで構築 | ✓ Phase 1 |
-| R-061 | 設定 | `status_at_top` による `Column` 配置順序変更 | ✓ Phase 2 |
-| R-063 | 基盤 | `markup.rs` で `{face_spec}text{default}` パース | ✓ Phase 2 |
-| R-064 | 基盤 | `cursor_count` バッジ (`FINAL_FG+REVERSE` 検出) | ✓ Phase 2 |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| R-060 | Foundation | Built with Element tree | ✓ Phase 1 |
+| R-061 | Config | `Column` ordering changed by `status_at_top` | ✓ Phase 2 |
+| R-063 | Foundation | Parsing `{face_spec}text{default}` in `markup.rs` | ✓ Phase 2 |
+| R-064 | Foundation | `cursor_count` badge (`FINAL_FG+REVERSE` detection) | ✓ Phase 2 |
 
-### 3.4 入力処理 (R-040〜R-047)
+### 3.4 Input Handling (R-040 through R-047)
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-040〜R-045 | レンダラ | `crossterm` イベント変換 | ✓ Phase 1 |
-| R-046 | レンダラ | 選択中スクロールの座標計算 | ✓ Phase 3 |
-| R-047 | レンダラ | 右クリックドラッグイベント処理 | ✓ Phase 3 |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| R-040 through R-045 | Renderer | `crossterm` event conversion | ✓ Phase 1 |
+| R-046 | Renderer | Coordinate calculation for scrolling during selection | ✓ Phase 3 |
+| R-047 | Renderer | Right-click drag event handling | ✓ Phase 3 |
 
-### 3.5 カーソルとテキスト装飾 (R-050, R-051, R-053)
+### 3.5 Cursor and Text Decoration (R-050, R-051, R-053)
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-050 | レンダラ | ソフトウェアレンダリング | ✓ Phase 4a |
-| R-051 | レンダラ | フォーカス追跡 | ✓ Phase 4a |
-| R-053 | レンダラ | プロトコルパーサーと TUI バックエンドは一部対応済み。GUI バックエンドは要追随 | ○ 部分対応 |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| R-050 | Renderer | Software rendering | ✓ Phase 4a |
+| R-051 | Renderer | Focus tracking | ✓ Phase 4a |
+| R-053 | Renderer | Protocol parser and TUI backend partially supported. GUI backend needs to follow | ○ Partial |
 
-### 3.6 UI オプション / クリップボード / スクロール / 標準 UI スタイル
+### 3.6 UI Options / Clipboard / Scroll / Standard UI Style
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| R-070, R-071 | レンダラ | 状態反映と再描画 | ✓ Phase 1 |
-| R-080〜R-082 | レンダラ | システムクリップボード API 直接アクセス (`arboard`) | ✓ Phase 3 |
-| R-090〜R-093 | レンダラ | スクロール計算の独自実装 (スムーズスクロール + `PageUp` / `PageDown`) | ✓ Phase 3 |
-| R-028 | 設定 + 基盤 | `StyleToken` + `Theme` + `ThemeConfig` | ✓ Phase 2 |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| R-070, R-071 | Renderer | State reflection and redraw | ✓ Phase 1 |
+| R-080 through R-082 | Renderer | Direct system clipboard API access (`arboard`) | ✓ Phase 3 |
+| R-090 through R-093 | Renderer | Custom scroll implementation (smooth scroll + `PageUp` / `PageDown`) | ✓ Phase 3 |
+| R-028 | Config + Foundation | `StyleToken` + `Theme` + `ThemeConfig` | ✓ Phase 2 |
 
-## 4. 拡張基盤要件トレーサビリティ
+## 4. Extension Foundation Requirements Traceability
 
-P 系は本体が保証する拡張基盤能力を追跡する。具体ユースケースは
-[requirements.md](./requirements.md#4-実証対象代表ユースケース) を参照。
+P-series items track extension foundation capabilities guaranteed by the core.
+For specific use cases, see [requirements.md](./requirements.md#4-validation-targets-and-representative-use-cases).
 
-| ID | 解決層 | 備考 | 状態 | Phase |
-|----|--------|------|------|-------|
-| P-001 | 基盤 | `Slot::Overlay` + `Decorator(Buffer)` | ○ 部分実証 (`color_preview`) | 4b |
-| P-002 | 基盤 | `OverlayAnchor::Absolute` | ○ インフラ実装済み (プラグイン実証は未) | 4b |
-| P-003 | 基盤 | `Stack` の描画順序と clip | ✓ Phase 1 | 1 |
-| P-010 | 基盤 + プロトコル制約 | `Slot::BufferLeft/Right`。`BUFFER_LEFT` は `line_numbers` / `color_preview` で部分実証。`BUFFER_RIGHT` は未実証 | ○ 部分実証 | 4b |
-| P-011 | 基盤 | 補助領域への寄与 API。左ガター / 行背景は `color_preview`, `cursor_line` で実証 | ○ 部分実証 | 4b |
-| P-012 | 基盤 + プロトコル制約 | 文書全体位置との完全対応は一部上流依存 | - 進行中 | [上流依存](./upstream-dependencies.md) |
-| P-020 | 基盤 | `Interactive Element` でヒットテスト | ○ 部分実証 (`color_preview`) | 4b |
-| P-021 | 基盤 | event routing と target 解決 | ○ 部分実装 | 4b |
-| P-022 | 基盤 | semantic recognizer / binding | - 候補 | 5c |
-| P-023 | レンダラ + 基盤 | GUI の file drop -> `:edit` は実装済み。UI 要素 / plugin への汎用 drop routing は未 | ○ 部分対応 | 別トラック |
-| P-030 | 基盤 | display transformation hook | - 候補 | 5c |
-| P-031 | 基盤 | 省略・代理表示・追加表示の合成規則 | - 候補 | 5c |
-| P-032 | 基盤 + 意味論 | Observed / policy 分離。正本は [semantics.md](./semantics.md) | ○ 理論整理済み | 5c |
-| P-033 | 基盤 | plugin 定義変形 API | - 候補 | 5c |
-| P-034 | 基盤 + 意味論 | 読み取り専用 / 制限付き interaction policy | - 候補 | 5c |
-| P-040 | 基盤 | display unit model | - 候補 | 5c |
-| P-041 | 基盤 | geometry / source mapping / role | - 候補 | 5c |
-| P-042 | 基盤 + レンダラ | visual navigation / hit test | - 候補 | 5c |
-| P-043 | 基盤 | plugin 定義 navigation policy | - 候補 | 5c |
-| P-050 | 基盤 | `Flex` による分割レイアウト | - 候補 | 5a |
-| P-051 | 基盤 | focus / input routing across surfaces | - 候補 | 5a |
-| P-052 | 基盤 | workspace / tab / pane manager 抽象 | - 候補 | 5a |
-| P-060 | レンダラ + 基盤 | Kasane 独自 decoration 能力 | - 候補 | 5c |
-| P-061 | 設定 + 基盤 | セマンティックスタイルトークン | ○ 基礎実装あり | 5a |
-| P-062 | レンダラ | GUI バックエンド (`glyphon`) 前提の text policy | - 候補 | 5c |
+| ID | Resolution Layer | Notes | Status | Phase |
+|----|------------------|-------|--------|-------|
+| P-001 | Foundation | `Slot::Overlay` + `Decorator(Buffer)` | ○ Partially proven (`color_preview`) | 4b |
+| P-002 | Foundation | `OverlayAnchor::Absolute` | ○ Infrastructure implemented (plugin proof pending) | 4b |
+| P-003 | Foundation | Drawing order and clip in `Stack` | ✓ Phase 1 | 1 |
+| P-010 | Foundation + Protocol constraint | `Slot::BufferLeft/Right`. `BUFFER_LEFT` partially proven with `line_numbers` / `color_preview`. `BUFFER_RIGHT` unproven | ○ Partially proven | 4b |
+| P-011 | Foundation | Contribution API for auxiliary regions. Left gutter / line background proven with `color_preview`, `cursor_line` | ○ Partially proven | 4b |
+| P-012 | Foundation + Protocol constraint | Full mapping to document-wide position partially depends on upstream | - In progress | [Upstream dep.](./upstream-dependencies.md) |
+| P-020 | Foundation | Hit-testing with `Interactive Element` | ○ Partially proven (`color_preview`) | 4b |
+| P-021 | Foundation | Event routing and target resolution | ○ Partially implemented | 4b |
+| P-022 | Foundation | Semantic recognizer / binding | - Candidate | 5c |
+| P-023 | Renderer + Foundation | GUI file drop -> `:edit` implemented. Generic drop routing to UI elements / plugins not yet done | ○ Partial | Separate track |
+| P-030 | Foundation | Display transformation hook | - Candidate | 5c |
+| P-031 | Foundation | Composition rules for elision, proxy display, and additional display | - Candidate | 5c |
+| P-032 | Foundation + Semantics | Observed / policy separation. Authoritative source is [semantics.md](./semantics.md) | ○ Theory organized | 5c |
+| P-033 | Foundation | Plugin-defined transformation API | - Candidate | 5c |
+| P-034 | Foundation + Semantics | Read-only / restricted interaction policy | - Candidate | 5c |
+| P-040 | Foundation | Display unit model | - Candidate | 5c |
+| P-041 | Foundation | Geometry / source mapping / role | - Candidate | 5c |
+| P-042 | Foundation + Renderer | Visual navigation / hit test | - Candidate | 5c |
+| P-043 | Foundation | Plugin-defined navigation policy | - Candidate | 5c |
+| P-050 | Foundation | Split layout with `Flex` | - Candidate | 5a |
+| P-051 | Foundation | Focus / input routing across surfaces | - Candidate | 5a |
+| P-052 | Foundation | Workspace / tab / pane manager abstraction | - Candidate | 5a |
+| P-060 | Renderer + Foundation | Kasane-specific decoration capabilities | - Candidate | 5c |
+| P-061 | Config + Foundation | Semantic style tokens | ○ Basic implementation exists | 5a |
+| P-062 | Renderer | Text policy assuming GPU backend (`glyphon`) | - Candidate | 5c |
 
-## 5. 上流依存・縮退動作トレーサビリティ
+## 5. Upstream Dependency / Degraded Behavior Traceability
 
-| ID | 解決層 | 備考 | 状態 |
-|----|--------|------|------|
-| D-001 | プロトコル制約 | 起動時 `info` は Kakoune 側挙動の切り分け待ち | [上流依存](./upstream-dependencies.md) |
-| D-002 | プロトコル制約 | 視野外情報の完全性が不足 | [上流依存](./upstream-dependencies.md) |
-| D-003 | プロトコル制約 | `draw_status` context 不足。heuristic fallback のみ | [上流依存](./upstream-dependencies.md) |
-| D-004 | プロトコル制約 | scroll 情報不足により完全な右側ナビゲーション UI は不可 | [上流依存](./upstream-dependencies.md) |
+| ID | Resolution Layer | Notes | Status |
+|----|------------------|-------|--------|
+| D-001 | Protocol constraint | Startup `info` awaiting isolation of Kakoune-side behavior | [Upstream dep.](./upstream-dependencies.md) |
+| D-002 | Protocol constraint | Insufficient completeness of out-of-viewport information | [Upstream dep.](./upstream-dependencies.md) |
+| D-003 | Protocol constraint | `draw_status` context insufficient. Heuristic fallback only | [Upstream dep.](./upstream-dependencies.md) |
+| D-004 | Protocol constraint | Scroll information insufficient; full right-side navigation UI not possible | [Upstream dep.](./upstream-dependencies.md) |
 
-## 6. 追跡上の注記
+## 6. Tracking Notes
 
-- 解決層は「どの仕組みで解決するか」を示す。責務境界は
-  [layer-responsibilities.md](./layer-responsibilities.md) が正本。
-- Phase の意味と実装順序は [roadmap.md](./roadmap.md) を参照。
-- 上流に依存する項目の再統合条件は
-  [upstream-dependencies.md](./upstream-dependencies.md) を参照。
-- 非機能要件、とくに性能要件の実測と実装状況は
-  [performance.md](./performance.md) と
-  [performance-benchmarks.md](./performance-benchmarks.md) を参照。
+- Resolution layers indicate "by what mechanism is it resolved." The authoritative source for
+  responsibility boundaries is [layer-responsibilities.md](./layer-responsibilities.md).
+- For the meaning and implementation order of Phases, see [roadmap.md](./roadmap.md).
+- For reintegration conditions of upstream-dependent items, see
+  [upstream-dependencies.md](./upstream-dependencies.md).
+- For non-functional requirements, particularly measurement results and implementation status of
+  performance requirements, see [performance.md](./performance.md) and
+  [performance-benchmarks.md](./performance-benchmarks.md).
 
-## 7. 関連文書
+## 7. Related Documents
 
-- [requirements.md](./requirements.md) — 要件本文の正本
-- [roadmap.md](./roadmap.md) — Phase と未完了項目
-- [upstream-dependencies.md](./upstream-dependencies.md) — 上流依存の追跡
-- [layer-responsibilities.md](./layer-responsibilities.md) — 責務境界の判断基準
+- [requirements.md](./requirements.md) — Authoritative source for requirement text
+- [roadmap.md](./roadmap.md) — Phases and incomplete items
+- [upstream-dependencies.md](./upstream-dependencies.md) — Upstream dependency tracking
+- [layer-responsibilities.md](./layer-responsibilities.md) — Criteria for responsibility boundaries

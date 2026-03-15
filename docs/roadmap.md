@@ -1,202 +1,202 @@
-# 実装ロードマップ
+# Implementation Roadmap
 
-本ドキュメントは、Kasane の **現在 open な実装 workstream** を追跡する tracker である。
-詳細な設計理由や現行意味論ではなく、「今どこが未完了で、次に何を出すか」だけを記録する。
+This document is a tracker that follows the **currently open implementation workstreams** of Kasane.
+It records only "what is currently incomplete and what ships next," not detailed design rationale or current semantics.
 
-## 1. 文書の責務
+## 1. Scope of This Document
 
-この文書で扱うのは次の 3 点だけに限定する。
+This document is limited to the following three concerns.
 
-- 現在 open / active な workstream
-- 次に出す deliverable
-- backlog / 上流依存への委譲先
+- Currently open / active workstreams
+- Next deliverable
+- Delegation targets for backlog / upstream dependencies
 
-次はこの文書の責務ではない。
+The following are NOT the responsibility of this document.
 
-- 現行意味論の説明
-- 共有 Plugin API の詳細仕様
-- native escape hatch の長い設計説明
-- 完了済みフェーズの詳細な履歴
+- Explanation of current semantics
+- Detailed specification of the shared Plugin API
+- Lengthy design explanations of native escape hatches
+- Detailed history of completed phases
 
-詳細な設計理由は [decisions.md](./decisions.md)、現行意味論は [semantics.md](./semantics.md)、
-shared API と native escape hatch の責務分担は
-[layer-responsibilities.md](./layer-responsibilities.md)、plugin から見た現行仕様は
-[plugin-api.md](./plugin-api.md)、性能の数値と実装状況は
-[performance-benchmarks.md](./performance-benchmarks.md) を参照。
+For detailed design rationale, see [decisions.md](./decisions.md); for current semantics, see [semantics.md](./semantics.md);
+for the division of responsibilities between the shared API and native escape hatches, see
+[layer-responsibilities.md](./layer-responsibilities.md); for the current specification from a plugin's perspective, see
+[plugin-api.md](./plugin-api.md); for performance numbers and implementation status, see
+[performance-benchmarks.md](./performance-benchmarks.md).
 
-## 2. 現在の優先順
+## 2. Current Priorities
 
 ### 2.1 Now
 
-| Workstream | 状態 | 次の deliverable | 完了条件 |
+| Workstream | Status | Next deliverable | Completion criteria |
 |---|---|---|---|
-| Session / Surface parity | Active | session-bound surface 自動生成 | active / inactive session ごとの surface 群が自動生成され、session 切替で surface 側も一貫して追従する |
-| Multi-session UI parity | Active | session switcher か session list の最小 UI | 複数 session を user-visible に切り替えられ、active session 以外の存在が UI から分かる |
-| GUI fidelity | Active | R-053 の忠実描画 | 下線種別、下線色、取り消し線が GUI で protocol 相当の見た目になる |
-| Display transformation / display unit model | Active | P-030〜P-043 の最初の slice | display transformation / navigation policy の最小実装と proof が入る |
+| Session / Surface parity | Active | Automatic generation of session-bound surfaces | Surface groups are automatically generated per active / inactive session, and surfaces consistently follow session switching |
+| Multi-session UI parity | Active | Minimal UI for session switcher or session list | Multiple sessions can be switched in a user-visible manner, and the existence of non-active sessions is apparent from the UI |
+| GUI fidelity | Active | Faithful rendering for R-053 | Underline variants, underline color, and strikethrough are rendered in the GUI with appearance equivalent to the protocol |
+| Display transformation / display unit model | Active | First slice of P-030 through P-043 | Minimal implementation and proof of display transformation / navigation policy are in place |
 
 ### 2.2 Next
 
-| Workstream | 状態 | 次の deliverable |
+| Workstream | Status | Next deliverable |
 |---|---|---|
-| WASM runtime operations | Open | plugin manifest, plugin settings API, precompiled component cache の順で運用機能を追加 |
-| Native escape hatch redesign | Open | `PaintHook` の高レベル化、`Pane` / `Workspace` parity model の定義 |
-| Core event / degraded behavior | Open | D-001 の最小キューイング、P-023 `DropEvent` 導入 |
+| WASM runtime operations | Open | Add operational features in order: plugin manifest, plugin settings API, precompiled component cache |
+| Native escape hatch redesign | Open | Higher-level `PaintHook`, definition of `Pane` / `Workspace` parity model |
+| Core event / degraded behavior | Open | Minimal queuing for D-001, introduction of P-023 `DropEvent` |
 
 ### 2.3 Backlog
 
-| Workstream | 状態 | 注記 |
+| Workstream | Status | Notes |
 |---|---|---|
-| External plugin candidates | Open | インデントガイド、クリッカブルリンク、ビルトインスプリット、フローティングパネル、コード折りたたみ、表示行ナビゲーション、URL 検出、領域別 text policy などを候補として維持 |
+| External plugin candidates | Open | Maintained as candidates: indent guides, clickable links, built-in splits, floating panels, code folding, display-line navigation, URL detection, region-specific text policy, etc. |
 
 ## 3. Open Workstreams
 
 ### 3.1 Session / Surface parity
 
-現在地:
+Current status:
 
-- `SessionManager` 基盤、primary session 連携、runtime の `spawn-session` / `close-session` 配線は導入済み
-- inactive session の Kakoune event は off-screen snapshot へ継続反映される
-- hosted surface の `render-surface` / `handle-surface-event` / `handle-surface-state-changed` は導入済み
+- `SessionManager` foundation, primary session linkage, and runtime `spawn-session` / `close-session` wiring are in place
+- Kakoune events from inactive sessions continue to be reflected in off-screen snapshots
+- Hosted surface `render-surface` / `handle-surface-event` / `handle-surface-state-changed` are in place
 
-残件:
+Remaining work:
 
-- session-bound surface の自動生成
-- session 切替時に session ごとの surface 群を一貫して attach / detach する仕組み
-- surface registry / workspace 側で session identity を first-class に扱う整理
+- Automatic generation of session-bound surfaces
+- Mechanism to consistently attach / detach surface groups per session on session switch
+- Organize surface registry / workspace side to treat session identity as first-class
 
-次の deliverable:
+Next deliverable:
 
-- active session ごとに buffer/status/supplemental surface を自動生成する最小実装
-- session 切替で surface 構成が deterministic に入れ替わる proof
+- Minimal implementation that automatically generates buffer/status/supplemental surfaces per active session
+- Proof that surface composition switches deterministically on session switch
 
-proof / 完了条件:
+Proof / completion criteria:
 
-- session を 2 つ以上持つ状態で surface 構成が壊れない
-- session 切替で stale surface が残らない
-- active / inactive session の snapshot と surface の対応が自動テストで固定される
+- Surface composition does not break when there are two or more sessions
+- No stale surfaces remain after session switch
+- Correspondence between active / inactive session snapshots and surfaces is locked down by automated tests
 
 ### 3.2 Multi-session UI parity
 
-現在地:
+Current status:
 
-- runtime は複数 session を保持できる
-- inactive session の state snapshot は保持される
-- 描画対象はまだ active session 1 つだけ
+- Runtime can hold multiple sessions
+- State snapshots of inactive sessions are retained
+- Rendering target is still only the single active session
 
-残件:
+Remaining work:
 
-- session list / session switcher の最小 UI
-- user-visible な active session 表示
-- session close / promote の UI feedback
+- Minimal UI for session list / session switcher
+- User-visible active session display
+- UI feedback for session close / promote
 
-次の deliverable:
+Next deliverable:
 
-- session の一覧と active 状態を見せる最小 UI
-- UI から session を切り替える command path
+- Minimal UI showing session list and active state
+- Command path to switch sessions from the UI
 
-proof / 完了条件:
+Proof / completion criteria:
 
-- 複数 session が UI 上で識別できる
-- UI から active session を切り替えられる
-- close 時の creation-order promotion が UI でも観測できる
+- Multiple sessions are identifiable in the UI
+- Active session can be switched from the UI
+- Creation-order promotion on close is observable in the UI
 
 ### 3.3 GUI fidelity
 
-残件:
+Remaining work:
 
-- R-053: 下線種別、下線色、取り消し線の忠実描画
+- R-053: Faithful rendering of underline variants, underline color, and strikethrough
 
-次の deliverable:
+Next deliverable:
 
-- 現行 glyph / scene path に必要な style 情報を通す
-- GUI 側の proof / screenshot test またはレンダリングテストを追加する
+- Pass the necessary style information through the current glyph / scene path
+- Add proof / screenshot tests or rendering tests on the GUI side
 
 ### 3.4 Display transformation / display unit model
 
-残件:
+Remaining work:
 
-- P-030〜P-043
-- display transformation
-- display unit model
-- navigation policy
+- P-030 through P-043
+- Display transformation
+- Display unit model
+- Navigation policy
 
-次の deliverable:
+Next deliverable:
 
-- 上記のうち最小の 1 slice を選び、proof artifact 付きで導入する
+- Select the smallest single slice from the above and introduce it with a proof artifact
 
 ### 3.5 WASM runtime operations
 
-残件:
+Remaining work:
 
-- plugin manifest
-- plugin settings API
-- コンパイル済み component cache
+- Plugin manifest
+- Plugin settings API
+- Precompiled component cache
 
-次の deliverable:
+Next deliverable:
 
-- manifest か settings API のどちらかを first implementation として確定する
+- Decide on either manifest or settings API as the first implementation
 
 ### 3.6 Native escape hatch redesign
 
-残件:
+Remaining work:
 
-- `PaintHook` を `CellGrid` 直操作に依存しない高レベル render hook へ再設計
-- `Pane` / `Workspace` parity model の定義
+- Redesign `PaintHook` into a high-level render hook that does not depend on direct `CellGrid` manipulation
+- Definition of `Pane` / `Workspace` parity model
 
-次の deliverable:
+Next deliverable:
 
-- `PaintHook` の再設計方針を固め、移行先 API の最小骨格を置く
+- Finalize the redesign direction for `PaintHook` and put in place the minimal skeleton of the migration target API
 
 ### 3.7 Core event / degraded behavior
 
-残件:
+Remaining work:
 
-- D-001: `update()` ベースの最小キューイング
-- P-023: `DropEvent` を `InputEvent` / plugin API / WIT に導入
+- D-001: Minimal queuing based on `update()`
+- P-023: Introduce `DropEvent` into `InputEvent` / plugin API / WIT
 
-次の deliverable:
+Next deliverable:
 
-- D-001 か P-023 のどちらかを first slice として選び、コア path に載せる
+- Select either D-001 or P-023 as the first slice and land it on the core path
 
-## 4. フェーズ状態サマリ
+## 4. Phase Status Summary
 
-| Phase | 主目的 | 状態 | 注記 |
+| Phase | Primary objective | Status | Notes |
 |---|---|---|---|
-| Phase 0 | 開発環境・CI 基盤 | ✓ 完了 | project bootstrap |
-| Phase 1 | MVP (TUI コア機能 + 宣言的 UI 基盤) | ✓ 完了 | Element + TEA + 基本スロット |
-| Phase 2 | 強化フローティングウィンドウ + プラグイン基盤 | ✓ 完了 | 一部項目は後続 workstream に移動済み |
-| Phase 3 | 入力・クリップボード・スクロール強化 | ✓ 完了 | TUI 側の基礎入力機能は完了 |
-| Phase G | GUI バックエンド | ✓ 完了 | 基盤は完了。忠実描画の追随は workstream 化 |
-| Phase W | WASM プラグインランタイム基盤 | ✓ 基盤完了 | 運用面の残課題は `WASM runtime operations` へ集約 |
-| Phase 4 | 共有 Plugin API 妥当性検証 | ✓ 完了 | 公開 extension point の proof artifact は充足済み |
-| Phase 5 | Surface / Workspace / 表示再構成基盤 | Open | session/surface parity と display transformation が継続中 |
-| Phase P | プラグイン I/O 基盤 | ✓ 完了 | P-1 / P-2 / P-3 完了 |
+| Phase 0 | Development environment and CI foundation | ✓ Complete | project bootstrap |
+| Phase 1 | MVP (TUI core features + declarative UI foundation) | ✓ Complete | Element + TEA + basic slots |
+| Phase 2 | Enhanced floating windows + plugin foundation | ✓ Complete | Some items moved to subsequent workstreams |
+| Phase 3 | Input, clipboard, and scroll enhancements | ✓ Complete | Basic input features on the TUI side are complete |
+| Phase G | GUI backend | ✓ Complete | Foundation is complete. Faithful rendering follow-up tracked as a workstream |
+| Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Remaining operational issues consolidated into `WASM runtime operations` |
+| Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
+| Phase 5 | Surface / Workspace / display restructuring foundation | Open | Session/surface parity and display transformation are ongoing |
+| Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
 
-## 5. 上流依存に分離した項目
+## 5. Items Separated to Upstream Dependencies
 
-次の項目は本ロードマップでは追跡せず、[upstream-dependencies.md](./upstream-dependencies.md) を正本とする。
+The following items are not tracked in this roadmap; [upstream-dependencies.md](./upstream-dependencies.md) is the source of truth.
 
-- D-002: 画面外カーソル / 選択範囲の補助表示
-- D-003: ステータスラインコンテキスト推定
-- P-001: オーバーレイ合成 (完全版)
-- P-010 / P-011: 補助領域寄与 (完全版)
-- D-004: 右側ナビゲーション UI の完全性
+- D-002: Auxiliary display for off-screen cursors / selections
+- D-003: Status line context inference
+- P-001: Overlay composition (full version)
+- P-010 / P-011: Supplemental area contributions (full version)
+- D-004: Completeness of right-side navigation UI
 
-## 6. 更新ルール
+## 6. Update Rules
 
-次の場合にこの文書を更新する。
+This document is updated when:
 
-- `Now` / `Next` / `Backlog` の優先順位が変わったとき
-- open workstream の deliverable または完了条件が変わったとき
-- phase 状態が変わったとき
-- tracker の正本を別文書へ移したとき
+- Priorities among `Now` / `Next` / `Backlog` change
+- Deliverables or completion criteria for an open workstream change
+- A phase status changes
+- The source of truth for the tracker is moved to another document
 
-## 7. 関連文書
+## 7. Related Documents
 
-- [requirements-traceability.md](./requirements-traceability.md) — 要件ごとの状態
-- [upstream-dependencies.md](./upstream-dependencies.md) — 上流ブロッカー
-- [layer-responsibilities.md](./layer-responsibilities.md) — shared API validation と native escape hatch の整理
-- [plugin-api.md](./plugin-api.md) — plugin から見た現行 API
-- [plugin-development.md](./plugin-development.md) — plugin authoring の実務ガイド
-- [performance-benchmarks.md](./performance-benchmarks.md) — 性能実装の進捗
+- [requirements-traceability.md](./requirements-traceability.md) — Status per requirement
+- [upstream-dependencies.md](./upstream-dependencies.md) — Upstream blockers
+- [layer-responsibilities.md](./layer-responsibilities.md) — Organization of shared API validation and native escape hatches
+- [plugin-api.md](./plugin-api.md) — Current API from a plugin's perspective
+- [plugin-development.md](./plugin-development.md) — Practical guide for plugin authoring
+- [performance-benchmarks.md](./performance-benchmarks.md) — Performance implementation progress

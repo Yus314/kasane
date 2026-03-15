@@ -1,100 +1,83 @@
-# Kasane Documentation Index
+# Documentation
 
-## 1. 読者別入口
+Start here: [Getting Started](getting-started.md) · [What's Different](whats-different.md) · [Configuration](config.md)
 
-- 利用者として使い始めたい
-  - [README.md](../README.md)
-  - [config.md](./config.md)
-- プラグインを書きたい
-  - [plugin-development.md](./plugin-development.md)
-  - [plugin-api.md](./plugin-api.md)
-  - [semantics.md](./semantics.md)
-- コア実装を追いたい
-  - [architecture.md](./architecture.md)
-  - [repo-layout.md](./repo-layout.md)
-  - [semantics.md](./semantics.md)
-  - [performance.md](./performance.md)
-- 設計判断を確認したい
-  - [semantics.md](./semantics.md)
-  - [decisions.md](./decisions.md)
-  - [layer-responsibilities.md](./layer-responsibilities.md)
-  - [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md)
-- 進捗やブロッカーを確認したい
-  - [requirements-traceability.md](./requirements-traceability.md)
-  - [roadmap.md](./roadmap.md)
-  - [upstream-dependencies.md](./upstream-dependencies.md)
+## By Reader
 
-## 2. 文書カテゴリ
+**Use Kasane:**
+[Getting Started](getting-started.md) → [Compatibility](compatibility.md) → [Configuration](config.md)
 
-### Current
+**What's different from Kakoune?**
+[What's Different](whats-different.md)
 
-現行の仕様、責務、使い方を定義する文書。
+**Use plugins:**
+[Using Plugins](using-plugins.md)
 
-- [requirements.md](./requirements.md) — コア要件・拡張基盤要件・実証ユースケースを含む要件本文の正本
-- [semantics.md](./semantics.md) — 現行意味論の正本
-- [architecture.md](./architecture.md) — システム境界と責務
-- [layer-responsibilities.md](./layer-responsibilities.md) — 上流 / コア / プラグインの責務判断
-- [plugin-development.md](./plugin-development.md) — プラグイン開発ガイド
-- [plugin-api.md](./plugin-api.md) — プラグイン API リファレンス
-- [config.md](./config.md) — 設定リファレンス
-- [json-ui-protocol.md](./json-ui-protocol.md) — JSON UI プロトコル仕様
-- [repo-layout.md](./repo-layout.md) — ソースツリーと crate 責務
-- [performance.md](./performance.md) — 性能方針と読み方
+**Build plugins:**
+[Plugin Development](plugin-development.md) → [Plugin API](plugin-api.md)
+
+**Use GPU backend:**
+[GPU Backend](gpu-backend.md)
+
+**Troubleshooting:**
+[Troubleshooting](troubleshooting.md)
+
+**Understand internals:**
+[Architecture](architecture.md) → [Repo Layout](repo-layout.md) → [Semantics](semantics.md)
+
+**Design decisions:**
+[Vision](vision.md) → [Decisions](decisions.md) → [Layer Responsibilities](layer-responsibilities.md)
+
+**Project status:**
+[Roadmap](roadmap.md) → [Requirements Traceability](requirements-traceability.md)
+
+## Document Classification
+
+### Canonical
+
+Authoritative specifications, responsibilities, and usage guides.
+
+- [requirements.md](requirements.md) — core and extension requirements
+- [semantics.md](semantics.md) — current semantics authority
+- [architecture.md](architecture.md) — system boundaries and responsibilities
+- [layer-responsibilities.md](layer-responsibilities.md) — upstream / core / plugin responsibilities
+- [plugin-development.md](plugin-development.md) — plugin development guide
+- [plugin-api.md](plugin-api.md) — plugin API reference
+- [config.md](config.md) — configuration reference
+- [json-ui-protocol.md](json-ui-protocol.md) — JSON UI protocol specification
+- [repo-layout.md](repo-layout.md) — source tree and crate responsibilities
+- [performance.md](performance.md) — performance policy and interpretation
+
+### User-facing
+
+Guides for users and plugin authors.
+
+- [getting-started.md](getting-started.md) — installation and first run
+- [whats-different.md](whats-different.md) — features and improvements
+- [using-plugins.md](using-plugins.md) — enabling and managing plugins
+- [gpu-backend.md](gpu-backend.md) — GPU rendering setup
+- [compatibility.md](compatibility.md) — version requirements and known differences
+- [troubleshooting.md](troubleshooting.md) — common issues and solutions
+- [vision.md](vision.md) — project goals and direction
 
 ### Tracking
 
-状態、進捗、ブロッカーを追跡する文書。
+State, progress, and blockers.
 
-- [requirements-traceability.md](./requirements-traceability.md) — コア要件 / 拡張基盤 / 縮退動作ごとの状態と Phase
-- [roadmap.md](./roadmap.md) — 実装フェーズと未完了項目
-- [upstream-dependencies.md](./upstream-dependencies.md) — 上流依存と再統合条件
-- [performance-benchmarks.md](./performance-benchmarks.md) — 性能実測と最適化状況
+- [requirements-traceability.md](requirements-traceability.md) — requirements state and phase
+- [roadmap.md](roadmap.md) — implementation phases and incomplete items
+- [upstream-dependencies.md](upstream-dependencies.md) — upstream dependencies and reintegration conditions
+- [performance-benchmarks.md](performance-benchmarks.md) — performance measurements and optimization status
 
 ### Historical / Research
 
-履歴、調査、背景分析を保持する文書。
+History, analysis, and background.
 
-- [decisions.md](./decisions.md) — ADR と設計判断の履歴
-- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — プロトコル制約の分析
-- [kakoune-issues-investigation.md](./kakoune-issues-investigation.md) — Kakoune 側課題の調査
+- [decisions.md](decisions.md) — ADR and design decision history
+- [kakoune-protocol-constraints.md](kakoune-protocol-constraints.md) — protocol constraint analysis
+- [kakoune-issues-investigation.md](kakoune-issues-investigation.md) — Kakoune-side issue investigation
 
 ### Supporting Reference
 
-補助的な参照資料。
-
-- [profiling.md](./profiling.md) — 計測手順
-- [glossary.md](./glossary.md) — 用語集
-
-## 3. 読み順
-
-### 新規利用者
-
-1. [README.md](../README.md)
-2. [config.md](./config.md)
-
-### 新規実装者
-
-1. [semantics.md](./semantics.md)
-2. [architecture.md](./architecture.md)
-3. [repo-layout.md](./repo-layout.md)
-4. [requirements.md](./requirements.md)
-
-### プラグイン作者
-
-1. [plugin-development.md](./plugin-development.md)
-2. [plugin-api.md](./plugin-api.md)
-3. [semantics.md](./semantics.md)
-
-### 設計議論
-
-1. [semantics.md](./semantics.md)
-2. [decisions.md](./decisions.md)
-3. [layer-responsibilities.md](./layer-responsibilities.md)
-4. [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md)
-
-## 4. 更新ルール
-
-- 現行仕様が変わったら `Current` の文書を更新する
-- 状態や進捗が変わったら `Tracking` の文書を更新する
-- 決定理由や履歴を残す場合は `Historical / Research` に追記する
-- 同じ内容の正本を複数作らない
+- [profiling.md](profiling.md) — measurement procedures
+- [glossary.md](glossary.md) — terminology reference

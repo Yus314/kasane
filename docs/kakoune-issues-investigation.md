@@ -1,384 +1,384 @@
-# Kakoune Issue/PR 調査報告書 — 実証ユースケースの根拠集
+# Kakoune Issue/PR Investigation Report — Evidence Base for Validation Use Cases
 
-## 調査概要
+## Investigation Overview
 
-Kakoune (mawww/kakoune) の GitHub Issue/PR を調査し、Kasane の実証対象・代表ユースケースの需要根拠となる課題群を整理した。約100件以上の Issue/PR を分析し、以下にカテゴリ別に整理する。
+We investigated GitHub Issues and PRs from Kakoune (mawww/kakoune), and organized the problem areas that serve as demand evidence for Kasane's validation targets and representative use cases. Over 100 Issues/PRs were analyzed and categorized below.
 
-> **注:** 本ドキュメントは「Kasane 本体が直接実装すべき機能一覧」ではない。ここに並ぶ Issue は、Kasane が直接提供するコア機能、Kasane が拡張基盤として可能にする機能、上流依存のため縮退扱いに留まる機能の需要根拠を混在して含む。要件としての正本は [requirements.md](./requirements.md)、状態追跡は [requirements-traceability.md](./requirements-traceability.md)、意味論は [semantics.md](./semantics.md) を参照。
+> **Note:** This document is not a "list of features that Kasane itself should implement directly." The Issues listed here contain a mix of demand evidence for: features Kasane directly provides as core functionality, features Kasane enables as an extension platform, and features that remain in degraded state due to upstream dependencies. For the authoritative requirements, see [requirements.md](./requirements.md); for status tracking, see [requirements-traceability.md](./requirements-traceability.md); for semantics, see [semantics.md](./semantics.md).
 
-### この文書の読み方
+### How to Read This Document
 
-- Issue は要件そのものではなく、需要の証拠として読む
-- 各カテゴリは主に [requirements.md](./requirements.md#4-実証対象代表ユースケース) の代表ユースケース群に対応する
-- 具体機能が Kasane 本体の標準提供か、外部プラグイン想定かは [requirements.md](./requirements.md) の分類を優先する
-- 上流依存の強い項目は [upstream-dependencies.md](./upstream-dependencies.md) を正本とする
-
----
-
-## 1. フローティングウィンドウ・ポップアップ
-
-主に `2.2 標準フローティング UI` の需要根拠であり、一部は `3.1 UI 合成とレイヤー` や `3.7 拡張スタイリング` の代表ユースケースにも接続する。
-
-### 1.1 情報ポップアップの制限
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#1516](https://github.com/mawww/kakoune/issues/1516) | 複数 info ボックスの同時表示 | OPEN | info ボックスは同時に1つしか表示できない。lint エラーと LSP hover が互いに上書きし合う |
-| [#4043](https://github.com/mawww/kakoune/issues/4043) | スクロール可能な info ボックス | OPEN | LSP hover ドキュメントが長い場合に切り捨てられる。スクロール手段がない |
-| [#5398](https://github.com/mawww/kakoune/issues/5398) | ポップアップが選択範囲を遮る | OPEN | info ポップアップが選択範囲を覆い隠し、何が選択されているか見えない |
-| [#5294](https://github.com/mawww/kakoune/issues/5294) | 起動時に info を表示できない | OPEN | kakrc / KakBegin フックで `info -style modal` が無視される |
-| [#3944](https://github.com/mawww/kakoune/issues/3944) | info ウィンドウのボーダーが配色と衝突 | OPEN | ボーダー色の変更や無効化ができない |
-| [#2676](https://github.com/mawww/kakoune/issues/2676) | メニューと info の視覚的不統一 | OPEN | ユーザーモードのキーヒントとコマンドモードメニューの見た目が異なる |
-
-**Kasane での位置づけ:**
-- Element の `Stack` + `Overlay` で複数フローティングウィンドウを同時描画し、Z軸レイヤー管理
-- `Scrollable` Element でスクロール可能なポップアップを実現
-- `OverlayAnchor::AnchorPoint` の衝突回避ロジック (avoid) で選択範囲との重なりを防止
-- 起動時 info は有用だが、現時点では [upstream-dependencies.md](./upstream-dependencies.md) で縮退項目として追跡する
-- `Container` Element の border/shadow プロパティ + セマンティックスタイルトークンで統一デザイン
-- プラグインは `Replacement(InfoPrompt)` で情報ポップアップの表示を完全カスタマイズ可能
-
-### 1.2 補完メニューの制限
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#3938](https://github.com/mawww/kakoune/issues/3938) | 補完メニューの表示位置変更 | OPEN | カーソル下のコードを覆い隠す。別の場所に表示したい |
-| [#4396](https://github.com/mawww/kakoune/issues/4396) | `:menu` 候補のフィルタリング | OPEN | コードアクション等の多数の候補をファジー検索で絞り込めない |
-| [#5068](https://github.com/mawww/kakoune/issues/5068) | 補完プレビュー (バッファ未書き込み) | OPEN | 補完候補を選択するとバッファに書き込まれてしまう。プレビューのみしたい |
-| [#5277](https://github.com/mawww/kakoune/issues/5277) | 補完リスト最初の項目の自動選択 | OPEN | 最初の候補を自動選択するオプションがない |
-| [#5410](https://github.com/mawww/kakoune/issues/5410) | プロンプト補完を無視する方法 | OPEN | プロンプト入力時に補完を無視できない |
-| [#1491](https://github.com/mawww/kakoune/issues/1491) | マクロ実行時の補完メニューフラッシュ | OPEN | マクロ再生時にメニューが一瞬表示される |
-| [#2170](https://github.com/mawww/kakoune/issues/2170) | 検索補完をドロップダウン表示 | OPEN | 検索候補がプロンプト行に横並びで分かりにくい |
-| [#1531](https://github.com/mawww/kakoune/issues/1531) | 補完を画面下部に水平表示 | OPEN | コマンドライン補完のように水平表示したい |
-
-**Kasane での位置づけ:**
-- `OverlayAnchor` の設定で補完メニューの表示位置を自由に変更可能
-- プラグインが `Replacement(MenuPrompt/MenuInline/MenuSearch)` でメニューを fzf 風等に完全差替可能
-- `Slot::Overlay` にゴーストテキスト Element を挿入して補完プレビュー表示
-- TEA の `update()` 内で設定を参照し、自動選択・補完無視モードを制御
-- イベントバッチング (try_recv) でマクロ再生中のポップアップフラッシュを抑制
-- `Grid` Element でドロップダウン/水平切り替え可能な補完表示
+- Read Issues as evidence of demand, not as requirements themselves
+- Each category primarily corresponds to the representative use case groups in [requirements.md](./requirements.md#4-validation-targets-and-representative-use-cases)
+- Whether a specific feature is standard Kasane core or expected as an external plugin follows the classification in [requirements.md](./requirements.md)
+- Items with strong upstream dependencies use [upstream-dependencies.md](./upstream-dependencies.md) as the authoritative source
 
 ---
 
-## 2. レンダリング・表示品質
+## 1. Floating Windows and Popups
 
-ターミナル依存に起因する描画問題で、独自レンダリングにより根本解決できるもの。
+Primarily demand evidence for `2.2 Standard Floating UI`, with some items also connecting to the representative use cases of `3.1 UI Composition and Layers` and `3.7 Extended Styling`.
 
-### 2.1 ちらつき・再描画問題
+### 1.1 Info Popup Limitations
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#3429](https://github.com/mawww/kakoune/issues/3429) | 画面のちらつき | CLOSED | 相対行番号使用時、差分スクロール最適化で中間状態が見える |
-| [#4320](https://github.com/mawww/kakoune/issues/4320) | ちらつき (行の位置ずれ) | CLOSED | 同期出力の検出バグによる誤作動 |
-| [#4317](https://github.com/mawww/kakoune/issues/4317) | Linux コンソールでの視覚的不具合 | CLOSED | Linux コンソールは中間レンダリング状態をすべて表示する |
-| [#3185](https://github.com/mawww/kakoune/issues/3185) | st ターミナルでの不整合な再描画 | OPEN | terminfo データベースの不一致による描画問題 |
-| [#4689](https://github.com/mawww/kakoune/issues/4689) | aerc 内での再描画問題 | OPEN | 別アプリ内埋め込み時のターミナル互換性問題 |
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#1516](https://github.com/mawww/kakoune/issues/1516) | Simultaneous display of multiple info boxes | OPEN | Only one info box can be displayed at a time. Lint errors and LSP hover overwrite each other |
+| [#4043](https://github.com/mawww/kakoune/issues/4043) | Scrollable info box | OPEN | Long LSP hover documentation is truncated. No means to scroll |
+| [#5398](https://github.com/mawww/kakoune/issues/5398) | Popup obscures selection | OPEN | Info popup covers the selection, making it impossible to see what is selected |
+| [#5294](https://github.com/mawww/kakoune/issues/5294) | Cannot display info at startup | OPEN | `info -style modal` is ignored in kakrc / KakBegin hooks |
+| [#3944](https://github.com/mawww/kakoune/issues/3944) | Info window border clashes with color scheme | OPEN | Cannot change or disable border color |
+| [#2676](https://github.com/mawww/kakoune/issues/2676) | Visual inconsistency between menu and info | OPEN | User mode key hints and command mode menu have different appearances |
 
-**Kasane での解決策:**
-- ダブルバッファリングによるアトミックなフレーム描画。中間状態は一切表示されない
-- ターミナルエスケープシーケンスへの依存を完全に排除
-- terminfo / 同期出力プロトコルが不要
+**Positioning in Kasane:**
+- Simultaneous rendering of multiple floating windows using Element `Stack` + `Overlay` with Z-axis layer management
+- Scrollable popups realized through the `Scrollable` Element
+- `OverlayAnchor::AnchorPoint`'s collision avoidance logic (avoid) prevents overlap with selections
+- Startup info is useful, but currently tracked as a degraded item in [upstream-dependencies.md](./upstream-dependencies.md)
+- Unified design via `Container` Element border/shadow properties + semantic style tokens
+- Plugins can fully customize info popup display via `Replacement(InfoPrompt)`
 
-### 2.2 色・カラースキーム問題
+### 1.2 Completion Menu Limitations
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#3554](https://github.com/mawww/kakoune/issues/3554) | デフォルトテーマのコントラストが悪い | OPEN | ターミナルパレットによって見た目が大きく変わる |
-| [#2842](https://github.com/mawww/kakoune/issues/2842) | Solarized でテキストマークアップが壊れる | OPEN | bold-as-bright の動作により色の不一致が発生 |
-| [#4193](https://github.com/mawww/kakoune/issues/4193) | tmux + solarized で空白画面 | OPEN | tmux のカラー設定に依存 |
-| [#3763](https://github.com/mawww/kakoune/issues/3763) | 色の誤算出 | CLOSED | True Color 非対応時の 256 色近似 |
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#3938](https://github.com/mawww/kakoune/issues/3938) | Completion menu display position change | OPEN | Covers the code below the cursor. Want to display elsewhere |
+| [#4396](https://github.com/mawww/kakoune/issues/4396) | Filtering of `:menu` candidates | OPEN | Cannot narrow down numerous candidates such as code actions via fuzzy search |
+| [#5068](https://github.com/mawww/kakoune/issues/5068) | Completion preview (without buffer write) | OPEN | Selecting a completion candidate writes to the buffer. Want preview only |
+| [#5277](https://github.com/mawww/kakoune/issues/5277) | Auto-selection of first completion list item | OPEN | No option to auto-select the first candidate |
+| [#5410](https://github.com/mawww/kakoune/issues/5410) | Way to dismiss prompt completion | OPEN | Cannot dismiss completion during prompt input |
+| [#1491](https://github.com/mawww/kakoune/issues/1491) | Completion menu flash during macro execution | OPEN | Menu briefly appears during macro playback |
+| [#2170](https://github.com/mawww/kakoune/issues/2170) | Search completion as dropdown display | OPEN | Search candidates displayed side by side on the prompt line are hard to read |
+| [#1531](https://github.com/mawww/kakoune/issues/1531) | Horizontal completion display at screen bottom | OPEN | Want horizontal display like command-line completion |
 
-**Kasane での解決策:**
-- ネイティブ 24bit RGB カラーレンダリング。パレット近似不要
-- bold と色を完全に独立して処理 (bold-as-bright 問題は発生しない)
-- tmux 等のマルチプレクサに依存しない直接描画
-- 一貫したカラーレンダリングを保証するデフォルトテーマを同梱
-
-### 2.3 Unicode / CJK / 絵文字の表示問題
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#3598](https://github.com/mawww/kakoune/issues/3598) | CJK 文字の補完候補表示崩れ | OPEN | ダブル幅文字とポップアップの重なりで描画崩壊 |
-| [#4257](https://github.com/mawww/kakoune/issues/4257) | macOS で絵文字がほぼ動作しない | OPEN | `iswprint()` の Unicode データベースが古い |
-| [#3059](https://github.com/mawww/kakoune/issues/3059) | 絵文字サポート | CLOSED | 同上。Kakoune はシステムの libc に依存 |
-| [#1941](https://github.com/mawww/kakoune/issues/1941) | CJK 幅でスクロールバーと info 領域が崩れる | OPEN | 文字幅計算のずれによるレイアウト崩壊 |
-| [#3570](https://github.com/mawww/kakoune/issues/3570) | ゼロ幅文字が不可視 | OPEN | U+200B 等が見えないがカーソル移動に影響 |
-| [#2936](https://github.com/mawww/kakoune/issues/2936) | 制御文字を ^A, ^M として表示 | OPEN | 制御文字が不可視で識別困難 |
-| [#3364](https://github.com/mawww/kakoune/issues/3364) | UTF-8 レンダリング破損 | OPEN | ターミナルエンコーディング問題による文字化け |
-
-**Kasane での解決策:**
-- 独自の Unicode テキストレイアウトライブラリで正確な文字幅計算
-- システムフォントフォールバックチェーンによる絵文字の正常表示
-- libc の `iswprint()` / `wcwidth()` に依存しない
-- ゼロ幅文字・制御文字の可視化表示 (プレースホルダグリフ)
-- JSON (UTF-8) 通信によるエンドツーエンドの文字データ完全性
-
-### 2.4 カーソルレンダリング
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#3652](https://github.com/mawww/kakoune/issues/3652) | 非アクティブ時のカーソル変化なし | OPEN | フォーカス喪失時のカーソルスタイル変更がない |
-| [#5377](https://github.com/mawww/kakoune/issues/5377) | Kitty マルチカーソルプロトコル | OPEN | ネイティブカーソルが UI ウィジェットに重なる問題 |
-| [#1524](https://github.com/mawww/kakoune/issues/1524) | カーソルのちらつき | CLOSED | 描画更新中にハードウェアカーソルがランダム位置に表示 |
-| [#2727](https://github.com/mawww/kakoune/issues/2727) | 画面外カーソルの表示 | CLOSED | 画面外の選択範囲を忘れてファイルを破壊 |
-
-**Kasane での解決策:**
-- ソフトウェアカーソル描画 (ブロック/バー/アンダーライン/アウトライン)
-- フォーカス追跡によるアクティブ/非アクティブカーソルの自動切り替え
-- 複数カーソルのネイティブレンダリング (ターミナルプロトコル不要)
-- ビューポート端に画面外選択のインジケータを表示
+**Positioning in Kasane:**
+- Freely adjustable completion menu display position via `OverlayAnchor` settings
+- Plugins can fully replace menus with fzf-style etc. via `Replacement(MenuPrompt/MenuInline/MenuSearch)`
+- Completion preview display by inserting ghost text Elements into `Slot::Overlay`
+- Auto-selection and completion dismiss modes controlled by referencing configuration in TEA's `update()`
+- Popup flash suppression during macro playback via event batching (try_recv)
+- Switchable dropdown/horizontal completion display using `Grid` Element
 
 ---
 
-## 3. ターミナル互換性問題
+## 2. Rendering and Display Quality
 
-Kasane が独自レンダリングを行うことで、カテゴリ丸ごと解消される問題群。
+Rendering issues caused by terminal dependency that can be fundamentally resolved through custom rendering.
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#4079](https://github.com/mawww/kakoune/issues/4079) | Terminal.app が同期出力を無視 | CLOSED | DCS シーケンスがテキストとして表示される |
-| [#3705](https://github.com/mawww/kakoune/issues/3705) | PuTTY での画面破損 | CLOSED | DCS 非対応 |
-| [#4260](https://github.com/mawww/kakoune/issues/4260) | tmux がイタリックを異なる解釈 | CLOSED | エスケープシーケンスの解釈差 |
-| [#4616](https://github.com/mawww/kakoune/issues/4616) | Xterm で Backspace が認識されない | OPEN | キーコード差異 |
-| [#4834](https://github.com/mawww/kakoune/issues/4834) | WezTerm で Shift-Tab が動作しない | OPEN | キーコード差異 |
-| [#1307](https://github.com/mawww/kakoune/issues/1307) | iTerm2 で Kakoune が遅い | OPEN | ターミナルエミュレータのオーバーヘッド |
-| [#5333](https://github.com/mawww/kakoune/issues/5333) | GNU Screen でのレンダリング | CLOSED | Screen 5.0 未満は True Color 非対応 |
+### 2.1 Flickering and Redraw Issues
 
-**Kasane での解決策:**
-- ターミナルエスケープシーケンスを一切使用しないため、全問題が自動的に解消
-- キーボード入力をウィンドウシステムから直接取得 (ターミナルキーコード変換不要)
-- ターミナルエミュレータのレンダリングオーバーヘッドを排除
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#3429](https://github.com/mawww/kakoune/issues/3429) | Screen flickering | CLOSED | Intermediate states visible during differential scroll optimization with relative line numbers |
+| [#4320](https://github.com/mawww/kakoune/issues/4320) | Flickering (line position shift) | CLOSED | Malfunction due to synchronized output detection bug |
+| [#4317](https://github.com/mawww/kakoune/issues/4317) | Visual glitches on Linux console | CLOSED | Linux console displays all intermediate rendering states |
+| [#3185](https://github.com/mawww/kakoune/issues/3185) | Inconsistent redraw on st terminal | OPEN | Rendering issues due to terminfo database mismatch |
+| [#4689](https://github.com/mawww/kakoune/issues/4689) | Redraw issues inside aerc | OPEN | Terminal compatibility issues when embedded in another application |
 
----
+**Kasane's solution:**
+- Atomic frame rendering via double buffering. No intermediate states are ever displayed
+- Complete elimination of dependency on terminal escape sequences
+- No need for terminfo or synchronized output protocol
 
-## 4. ウィンドウ管理・レイアウト
+### 2.2 Color and Color Scheme Issues
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#1363](https://github.com/mawww/kakoune/issues/1363) | ポータブルな水平/垂直分割 | OPEN | tmux/WM に依存しない分割コマンド。29コメントの高需要 |
-| [#3878](https://github.com/mawww/kakoune/issues/3878) | tmux ポップアップのサポート | OPEN | fzf 等のためのフローティングターミナル |
-| [#3942](https://github.com/mawww/kakoune/issues/3942) | tmux でのフォーカス/非フォーカスの区別なし | CLOSED | 複数クライアント時にどれがアクティブか分からない |
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#3554](https://github.com/mawww/kakoune/issues/3554) | Poor contrast in default theme | OPEN | Appearance varies greatly depending on terminal palette |
+| [#2842](https://github.com/mawww/kakoune/issues/2842) | Text markup broken in Solarized | OPEN | Color mismatch caused by bold-as-bright behavior |
+| [#4193](https://github.com/mawww/kakoune/issues/4193) | Blank screen with tmux + solarized | OPEN | Depends on tmux color settings |
+| [#3763](https://github.com/mawww/kakoune/issues/3763) | Incorrect color calculation | CLOSED | 256-color approximation when True Color is unavailable |
 
-**Kasane での位置づけ:**
-- `Flex` Element でビルトインのスプリット/ペインシステムを構築 (ドラッグ可能な `Interactive` 境界)
-- `Slot::Overlay` にフローティングパネルプラグイン (ファイルピッカー, ターミナル) を配置
-- セマンティックスタイルトークンでフォーカス/非フォーカスの視覚的区別
+**Kasane's solution:**
+- Native 24-bit RGB color rendering. No palette approximation needed
+- Bold and color handled completely independently (bold-as-bright issue does not occur)
+- Direct rendering independent of multiplexers such as tmux
+- Ships with a default theme that guarantees consistent color rendering
 
-> このカテゴリは、現行要件体系では主に `3.6 複数 surface / workspace / pane 抽象` の代表ユースケースとして読む。
+### 2.3 Unicode / CJK / Emoji Display Issues
 
----
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#3598](https://github.com/mawww/kakoune/issues/3598) | CJK character completion candidate display corruption | OPEN | Rendering collapse from double-width characters overlapping with popups |
+| [#4257](https://github.com/mawww/kakoune/issues/4257) | Emoji barely works on macOS | OPEN | `iswprint()` has an outdated Unicode database |
+| [#3059](https://github.com/mawww/kakoune/issues/3059) | Emoji support | CLOSED | Same as above. Kakoune depends on the system libc |
+| [#1941](https://github.com/mawww/kakoune/issues/1941) | Scrollbar and info area broken with CJK widths | OPEN | Layout collapse due to character width calculation mismatch |
+| [#3570](https://github.com/mawww/kakoune/issues/3570) | Zero-width characters are invisible | OPEN | U+200B etc. are invisible but affect cursor movement |
+| [#2936](https://github.com/mawww/kakoune/issues/2936) | Display control characters as ^A, ^M | OPEN | Control characters are invisible and hard to identify |
+| [#3364](https://github.com/mawww/kakoune/issues/3364) | UTF-8 rendering corruption | OPEN | Character corruption due to terminal encoding issues |
 
-## 5. 仮想テキスト・オーバーレイ
+**Kasane's solution:**
+- Accurate character width calculation using a custom Unicode text layout library
+- Proper emoji display through system font fallback chains
+- No dependency on libc's `iswprint()` / `wcwidth()`
+- Visible display of zero-width and control characters (placeholder glyphs)
+- End-to-end character data integrity through JSON (UTF-8) communication
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#1813](https://github.com/mawww/kakoune/issues/1813) | ウィンドウ内の仮想テキスト | OPEN | LSP コードレンズ, インレイヒント, インライン診断。11コメント |
-| [#5382](https://github.com/mawww/kakoune/issues/5382) | replace-ranges で仮想改行を挿入 | OPEN | 行の下にインライン診断を表示できない |
-| [#4387](https://github.com/mawww/kakoune/issues/4387) | コードアクションインジケータ (電球) | OPEN | matklad (rust-analyzer 開発者) による提案。10コメント |
-| [#2323](https://github.com/mawww/kakoune/issues/2323) | インデントガイド | CLOSED | ターミナルでは薄い縦線が描画不可能。21コメント |
-| [#3937](https://github.com/mawww/kakoune/issues/3937) | インデントガイドライン | OPEN | コミュニティ調査からの要望 |
-| [#4316](https://github.com/mawww/kakoune/issues/4316) | クリッカブルリンク (OSC 8) | OPEN | info ボックスやドキュメント内の URL をクリック可能にしたい |
-| [#1820](https://github.com/mawww/kakoune/issues/1820) | ウィンドウ相対のハイライト | OPEN | easymotion 等のオーバーレイ機能の実装に必要 |
-| [#1909](https://github.com/mawww/kakoune/issues/1909) | 選択範囲を行末まで拡張表示 | OPEN | 改行文字を含む選択が見づらい |
+### 2.4 Cursor Rendering
 
-**Kasane での位置づけ:**
-- `Slot::Overlay` + `Stack` Element で仮想テキストをバッファ上に重畳描画
-- プラグインが `Decorator(Buffer)` でコードレンズ・インレイ型注釈レイヤーを追加
-- `Slot::BufferLeft` にガターアイコンプラグイン (電球, エラー/警告, git diff) を挿入
-- GUI バックエンドでサブピクセルのインデントガイドライン描画
-- `Interactive` Element でクリッカブルハイパーリンク (InteractiveId によるヒットテスト)
-- `OverlayAnchor::Absolute` でビューポート相対のオーバーレイ (easymotion 等)
-- `Decorator(BufferLine)` で選択範囲のウィンドウ幅拡張表示
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#3652](https://github.com/mawww/kakoune/issues/3652) | No cursor change when inactive | OPEN | No cursor style change on focus loss |
+| [#5377](https://github.com/mawww/kakoune/issues/5377) | Kitty multi-cursor protocol | OPEN | Native cursor overlaps with UI widgets |
+| [#1524](https://github.com/mawww/kakoune/issues/1524) | Cursor flickering | CLOSED | Hardware cursor appearing at random positions during draw updates |
+| [#2727](https://github.com/mawww/kakoune/issues/2727) | Off-screen cursor display | CLOSED | Forgetting off-screen selections and corrupting files |
 
-> このカテゴリは、現行要件体系では `3.1 UI 合成とレイヤー`、`3.2 補助領域と拡張スロット`、`3.3 対話性とイベント配送`、`4.1 バッファ上の補助表示` に対応する。
-
----
-
-## 6. スクロール動作
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#4028](https://github.com/mawww/kakoune/issues/4028) | 高 scrolloff でマウススクロールが不均一 | OPEN | スクロール量が不整合 |
-| [#4027](https://github.com/mawww/kakoune/issues/4027) | 高 scrolloff でカーソルが先頭行に到達不可 | OPEN | 境界条件バグ |
-| [#4030](https://github.com/mawww/kakoune/issues/4030) | 高 scrolloff + マウスクリックで行ずれ | OPEN | クリック座標がずれる |
-| [#4155](https://github.com/mawww/kakoune/issues/4155) | マウス無効時にスクロールが Up/Down キーに | OPEN | イベントの誤変換 |
-| [#3951](https://github.com/mawww/kakoune/issues/3951) | 対象行が表示中なのにスクロール | OPEN | 不要なスクロールが発生 |
-| [#1517](https://github.com/mawww/kakoune/issues/1517) | 折り返し行で PageUp が機能しない | OPEN | 表示行を考慮しないスクロール量計算 |
-
-**Kasane での解決策:**
-- ビューポートスクロールとカーソル移動を独立制御
-- ピクセル単位のスムーズスクロール / 慣性スクロール
-- 正確なマウス座標→バッファ位置マッピング
-- 表示行を正確に考慮したページスクロール計算
+**Kasane's solution:**
+- Software cursor rendering (block/bar/underline/outline)
+- Automatic active/inactive cursor switching via focus tracking
+- Native rendering of multiple cursors (no terminal protocol required)
+- Off-screen selection indicators displayed at viewport edges
 
 ---
 
-## 7. マウス操作
+## 3. Terminal Compatibility Issues
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#2051](https://github.com/mawww/kakoune/issues/2051) | テキスト選択中にスクロール不可 | OPEN | スクロールすると選択が壊れる |
-| [#5339](https://github.com/mawww/kakoune/issues/5339) | 右クリックドラッグで選択拡張 | OPEN | 右クリックダウンは機能するがドラッグは無反応 |
-| [#4135](https://github.com/mawww/kakoune/issues/4135) | 空白表示が URL クリック検出を妨害 | OPEN | `·` 文字がターミナルの URL 検出を破壊 |
-| [#3928](https://github.com/mawww/kakoune/issues/3928) | ドラッグ＆ドロップサポート | OPEN | ファイルマネージャからのファイルドロップ |
+A category of problems entirely eliminated by Kasane's custom rendering approach.
 
-**Kasane での解決策:**
-- ドラッグ中のスクロールで選択範囲を正しく拡張
-- 右クリックドラッグによる選択拡張の完全実装
-- 独自の URL 検出 (空白表示に影響されない)
-- ネイティブのドラッグ＆ドロップ対応
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#4079](https://github.com/mawww/kakoune/issues/4079) | Terminal.app ignores synchronized output | CLOSED | DCS sequences displayed as text |
+| [#3705](https://github.com/mawww/kakoune/issues/3705) | Screen corruption in PuTTY | CLOSED | DCS not supported |
+| [#4260](https://github.com/mawww/kakoune/issues/4260) | tmux interprets italic differently | CLOSED | Escape sequence interpretation differences |
+| [#4616](https://github.com/mawww/kakoune/issues/4616) | Backspace not recognized in Xterm | OPEN | Keycode differences |
+| [#4834](https://github.com/mawww/kakoune/issues/4834) | Shift-Tab not working in WezTerm | OPEN | Keycode differences |
+| [#1307](https://github.com/mawww/kakoune/issues/1307) | Kakoune is slow in iTerm2 | OPEN | Terminal emulator overhead |
+| [#5333](https://github.com/mawww/kakoune/issues/5333) | Rendering in GNU Screen | CLOSED | GNU Screen below 5.0 does not support True Color |
 
----
-
-## 8. クリップボード統合
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#3935](https://github.com/mawww/kakoune/issues/3935) | ビルトインクリップボード統合 | OPEN | xclip/xsel への依存を排除したい |
-| [#4620](https://github.com/mawww/kakoune/issues/4620) | OSC 52 ネイティブサポート | OPEN | 貼り付けが機能しない |
-| [#4497](https://github.com/mawww/kakoune/issues/4497) | クリップボードの改行・特殊文字 | OPEN | シェルコマンド経由のエスケープ問題 |
-| [#1743](https://github.com/mawww/kakoune/issues/1743) | X11 クリップボードからの貼り付けが遅い | OPEN | 外部プロセス起動のオーバーヘッド |
-
-**Kasane での解決策:**
-- システムクリップボード API への直接アクセス
-- 外部プロセス起動なしの即時コピー/ペースト
-- Unicode/バイナリデータの正確なクリップボード処理
+**Kasane's solution:**
+- All issues are automatically resolved because no terminal escape sequences are used
+- Keyboard input obtained directly from the window system (no terminal keycode conversion needed)
+- Elimination of terminal emulator rendering overhead
 
 ---
 
-## 9. ステータスライン・モードライン
+## 4. Window Management and Layout
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | JSON UI でステータスラインのコンテキスト区別不可 | OPEN | コマンド/検索/情報メッセージの区別ができない |
-| [#4445](https://github.com/mawww/kakoune/issues/4445) | ステータスラインのカスタマイズ | OPEN | 個別コンポーネント (モード, 選択数等) へのアクセスが限定的 |
-| [#4507](https://github.com/mawww/kakoune/issues/4507) | モードラインでマークアップが解析されない | OPEN | `{green}text` がリテラル表示される |
-| [#5425](https://github.com/mawww/kakoune/issues/5425) | カーソル数インジケータ | CLOSED | 複数カーソル状態の可視化 |
-| [#235](https://github.com/mawww/kakoune/issues/235) | ステータスラインを上部に配置 | CLOSED | 位置がハードコード |
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#1363](https://github.com/mawww/kakoune/issues/1363) | Portable horizontal/vertical splits | OPEN | Split commands independent of tmux/WM. High demand with 29 comments |
+| [#3878](https://github.com/mawww/kakoune/issues/3878) | tmux popup support | OPEN | Floating terminal for fzf etc. |
+| [#3942](https://github.com/mawww/kakoune/issues/3942) | No focus/unfocus distinction in tmux | CLOSED | Cannot tell which client is active with multiple clients |
 
-**Kasane での解決策 (宣言的 UI):**
-- `Replacement(StatusBar)` でステータスバーを完全カスタマイズ可能 (位置、レイアウト、ウィジェット)
-- `Slot::StatusLeft` / `Slot::StatusRight` にプラグインがウィジェットを挿入
-- `Decorator(StatusBar)` でマークアップのパース・レンダリングを追加
-- `Slot::AboveStatus` にコマンドパレット / 通知エリアを分離配置
+**Positioning in Kasane:**
+- Built-in split/pane system constructed with `Flex` Element (draggable `Interactive` borders)
+- Floating panel plugins (file picker, terminal) placed in `Slot::Overlay`
+- Visual distinction between focused/unfocused via semantic style tokens
 
----
-
-## 10. ソフトラップ・表示行ナビゲーション
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#5163](https://github.com/mawww/kakoune/issues/5163) | ソフトラップテキストの上下ナビゲーション | OPEN | vim の `gj`/`gk` 相当がない。21コメント |
-| [#1425](https://github.com/mawww/kakoune/issues/1425) | 表示行単位の移動 | OPEN | mawww が設計課題を指摘 (画面外の複数選択) |
-| [#3649](https://github.com/mawww/kakoune/issues/3649) | ソフトラップテキストのカーソルナビゲーション | OPEN | 散文編集で必要 |
-| [#5328](https://github.com/mawww/kakoune/issues/5328) | buffer_display_width / split_line の公開 | OPEN | 表示行ナビゲーションをスクリプトで実装するため |
-
-**Kasane での位置づけ:**
-- Kasane は正確なビジュアルレイアウトを把握しているため、表示行座標をバッファ座標に変換して `gj`/`gk` を実装可能
-- ただし画面外の複数選択に対するラッピング情報は Kakoune 側との連携が必要
-
-> このカテゴリは、現行要件体系では `3.5 表示単位モデルとナビゲーション` と `4.2 ナビゲーション補助 UI` の代表ユースケースに対応する。
+> In the current requirements framework, this category is primarily read as representative use cases for `3.6 Multi-surface / Workspace / Pane Abstraction`.
 
 ---
 
-## 11. コード折りたたみ・スクロールバー・ミニマップ
+## 5. Virtual Text and Overlays
 
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#453](https://github.com/mawww/kakoune/issues/453) | コード折りたたみ | OPEN | 2016年からの要望。27コメント |
-| [#165](https://github.com/mawww/kakoune/issues/165) | スクロールバーの追加 | CLOSED | テキストモードスクロールバーの要望 |
-| [#4014](https://github.com/mawww/kakoune/issues/4014) | ディレクトリ探索機能 | OPEN | netrw のようなファイルブラウザ |
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#1813](https://github.com/mawww/kakoune/issues/1813) | Virtual text within windows | OPEN | LSP code lens, inlay hints, inline diagnostics. 11 comments |
+| [#5382](https://github.com/mawww/kakoune/issues/5382) | Inserting virtual newlines with replace-ranges | OPEN | Cannot display inline diagnostics below lines |
+| [#4387](https://github.com/mawww/kakoune/issues/4387) | Code action indicator (lightbulb) | OPEN | Proposal by matklad (rust-analyzer developer). 10 comments |
+| [#2323](https://github.com/mawww/kakoune/issues/2323) | Indent guides | CLOSED | Thin vertical lines cannot be drawn in terminal. 21 comments |
+| [#3937](https://github.com/mawww/kakoune/issues/3937) | Indent guide lines | OPEN | Request from community survey |
+| [#4316](https://github.com/mawww/kakoune/issues/4316) | Clickable links (OSC 8) | OPEN | Want to make URLs in info boxes and documentation clickable |
+| [#1820](https://github.com/mawww/kakoune/issues/1820) | Window-relative highlights | OPEN | Needed for overlay features such as easymotion |
+| [#1909](https://github.com/mawww/kakoune/issues/1909) | Extend selection display to end of line | OPEN | Selections including newline characters are hard to see |
 
-**Kasane での位置づけ:**
-- `Decorator(Buffer)` で表示レベルの行折りたたみプラグインを実装 (ガターの `Interactive` アイコン)
-- `Slot::BufferRight` にスクロールバープラグイン (`Scrollable` + アノテーションマーカー)
-- `Slot::BufferRight` にミニマッププラグインを配置
-- `Slot::BufferLeft` または `Slot::Overlay` にファイルツリー / ファジーファインダープラグイン
+**Positioning in Kasane:**
+- Virtual text overlaid on buffer using `Slot::Overlay` + `Stack` Element
+- Plugins add code lens and inlay-type annotation layers via `Decorator(Buffer)`
+- Gutter icon plugins (lightbulb, error/warning, git diff) inserted into `Slot::BufferLeft`
+- Sub-pixel indent guide line rendering in the GUI backend
+- Clickable hyperlinks via `Interactive` Element (hit test using InteractiveId)
+- Viewport-relative overlays (easymotion etc.) via `OverlayAnchor::Absolute`
+- Window-width extended selection display via `Decorator(BufferLine)`
 
-> このカテゴリは、現行要件体系では `3.4 表示変形と再構成`、`3.5 表示単位モデルとナビゲーション`、`3.2 補助領域と拡張スロット` にまたがる代表ユースケースであり、一部は [upstream-dependencies.md](./upstream-dependencies.md) の上流依存を伴う。
-
----
-
-## 12. フォントレンダリング・テキストサイズ
-
-| Issue | タイトル | 状態 | 概要 |
-|-------|---------|------|------|
-| [#5295](https://github.com/mawww/kakoune/issues/5295) | Kitty text-sizing プロトコル | OPEN | 領域ごとにフォントサイズを変更したい |
-| [#4138](https://github.com/mawww/kakoune/issues/4138) | アンダーラインバリエーション | CLOSED | 波線/点線/二重線。ターミナルの対応が不安定 |
-| [#3946](https://github.com/mawww/kakoune/issues/3946) | Right-to-Left テキストサポート | OPEN | RTL テキスト表示 |
-
-**Kasane での解決策:**
-- 領域別フォントサイズ (見出し大きく、インレイヒント小さく)
-- 全アンダーラインスタイルの一貫した描画 (ターミナル対応不要)
-- BiDi テキストレンダリング (将来的な拡張)
+> In the current requirements framework, this category corresponds to `3.1 UI Composition and Layers`, `3.2 Auxiliary Regions and Extension Slots`, `3.3 Interactivity and Event Dispatch`, and `4.1 Auxiliary Display on Buffer`.
 
 ---
 
-## 13. JSON UI プロトコルの拡張提案 (上流への貢献)
+## 6. Scroll Behavior
 
-Kasane の実装と並行して、上流の Kakoune に提案すべきプロトコル改善。各制約の詳細な影響分析は [Kakoune プロトコル制約分析](./kakoune-protocol-constraints.md) を参照。
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#4028](https://github.com/mawww/kakoune/issues/4028) | Uneven mouse scroll with high scrolloff | OPEN | Scroll amount inconsistency |
+| [#4027](https://github.com/mawww/kakoune/issues/4027) | Cursor cannot reach first line with high scrolloff | OPEN | Boundary condition bug |
+| [#4030](https://github.com/mawww/kakoune/issues/4030) | Line shift with high scrolloff + mouse click | OPEN | Click coordinates are offset |
+| [#4155](https://github.com/mawww/kakoune/issues/4155) | Scroll becomes Up/Down keys when mouse is disabled | OPEN | Incorrect event conversion |
+| [#3951](https://github.com/mawww/kakoune/issues/3951) | Scroll even when target line is already visible | OPEN | Unnecessary scrolling occurs |
+| [#1517](https://github.com/mawww/kakoune/issues/1517) | PageUp not working with wrapped lines | OPEN | Scroll amount calculation does not account for display lines |
 
-| PR/Issue | タイトル | 状態 | 概要 |
-|----------|---------|------|------|
-| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | JSON UI に Face 名を追加 | OPEN | 意味的な Face 名 (PrimaryCursor 等) をフロントエンドに送信 |
-| [#4686](https://github.com/mawww/kakoune/issues/4686) | インクリメンタル draw 通知 | OPEN | 変更行のみの差分送信 |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | コードと仮想テキスト/行番号の区別 | OPEN | Atom の種類を区別可能にする |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | ステータスラインコンテキストの追加 | OPEN | `status_style` パラメータの追加 |
-| [#2019](https://github.com/mawww/kakoune/issues/2019) | JSON UI の制限事項まとめ | OPEN | クリップボード, 文字幅, コマンド実行等 |
-
-**Kasane の戦略:**
-- まずは現行プロトコルで動作する実装を完成させる
-- ヒューリスティックな回避策で制限に対応
-- 上流 PR のレビュー・フィードバックに参加
-- 必要に応じて新しい PR を提出
-
----
-
-## 優先度ランキング
-
-ユーザー需要 (コメント数、再要望頻度) と Kasane での実現容易性を総合評価。
-
-### Tier 1 — Kasane のコア価値 (直接的な差別化要因)
-
-| 順位 | カテゴリ | 代表 Issue | コメント数 |
-|------|---------|-----------|-----------|
-| 1 | フローティングウィンドウ (メニュー/info) | #1516, #4043, #3938, #5398 | 多数 |
-| 2 | ちらつき/再描画の根絶 | #3429, #4320, #3185 | — |
-| 3 | Unicode/CJK/絵文字の正常表示 | #3598, #4257, #3059 | 多数 |
-| 4 | True Color の一貫した表示 | #3554, #2842 | 16+ |
-| 5 | ターミナル互換性問題の全面解消 | #4079, #3705, #4616 等 | — |
-
-### Tier 2 — 高需要の機能拡張
-
-| 順位 | カテゴリ | 代表 Issue | コメント数 |
-|------|---------|-----------|-----------|
-| 6 | ビルトイン分割管理 | #1363 | 29 |
-| 7 | コード折りたたみ | #453 | 27 |
-| 8 | 表示行ナビゲーション | #5163, #1425 | 21 |
-| 9 | インデントガイド | #2323 | 21 |
-| 10 | クリップボード統合 | #3935, #4620, #1743 | 多数 |
-
-### Tier 3 — UX 向上
-
-| 順位 | カテゴリ | 代表 Issue | コメント数 |
-|------|---------|-----------|-----------|
-| 11 | 仮想テキスト/コードレンズ | #1813, #4387 | 11, 10 |
-| 12 | ステータスラインカスタマイズ | #4445, #5428 | 7 |
-| 13 | スクロール動作改善 | #4028, #4027, #1517 | — |
-| 14 | マウス操作改善 | #2051, #5339, #3928 | — |
-| 15 | スクロールバー/ミニマップ | #165, PR #5304 | — |
-| 16 | カーソルレンダリング強化 | #3652, #5377, #2727 | — |
-| 17 | フォントサイズ/アンダーライン | #5295, #4138 | — |
+**Kasane's solution:**
+- Independent control of viewport scroll and cursor movement
+- Pixel-level smooth scrolling / inertia scrolling
+- Accurate mouse coordinate to buffer position mapping
+- Page scroll calculation that accurately accounts for display lines
 
 ---
 
-## 既存の代替フロントエンドプロジェクト
+## 7. Mouse Operations
 
-| プロジェクト | 技術 | 状態 | 特徴 |
-|-------------|------|------|------|
-| [kakoune-gtk](https://gitlab.com/Screwtapello/kakoune-gtk) | GTK | PoC | #2019 の Issue を生み出した先駆者 |
-| [kakoune-electron](https://github.com/Delapouite/kakoune-electron) | Electron/Canvas | 実験的 | Canvas レンダリング |
-| [Kakoune Qt](https://discuss.kakoune.com/t/announcing-kakoune-qt/2522) | Qt | アクティブ (2024) | 分割、ボーダー、マルチフォントサイズ |
-| [kakoune-arcan](https://github.com/cipharius/kakoune-arcan) | Arcan/Zig | 実験的 | Arcan ディスプレイサーバーフロントエンド |
-| [kak-ui](https://docs.rs/kak-ui/latest/kak_ui/) | Rust crate | 公開済 | JSON-RPC プロトコルの Rust ラッパー |
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#2051](https://github.com/mawww/kakoune/issues/2051) | Cannot scroll during text selection | OPEN | Selection breaks when scrolling |
+| [#5339](https://github.com/mawww/kakoune/issues/5339) | Selection extension via right-click drag | OPEN | Right-click down works but drag is unresponsive |
+| [#4135](https://github.com/mawww/kakoune/issues/4135) | Whitespace display interferes with URL click detection | OPEN | `·` character breaks terminal URL detection |
+| [#3928](https://github.com/mawww/kakoune/issues/3928) | Drag & drop support | OPEN | File drop from file manager |
+
+**Kasane's solution:**
+- Properly extends selection range when scrolling during drag
+- Full implementation of selection extension via right-click drag
+- Custom URL detection (unaffected by whitespace display)
+- Native drag & drop support
+
+---
+
+## 8. Clipboard Integration
+
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#3935](https://github.com/mawww/kakoune/issues/3935) | Built-in clipboard integration | OPEN | Want to eliminate dependency on xclip/xsel |
+| [#4620](https://github.com/mawww/kakoune/issues/4620) | Native OSC 52 support | OPEN | Paste does not work |
+| [#4497](https://github.com/mawww/kakoune/issues/4497) | Clipboard newlines and special characters | OPEN | Escaping issues via shell commands |
+| [#1743](https://github.com/mawww/kakoune/issues/1743) | Slow paste from X11 clipboard | OPEN | Overhead from spawning external processes |
+
+**Kasane's solution:**
+- Direct access to the system clipboard API
+- Instant copy/paste without spawning external processes
+- Accurate clipboard handling of Unicode/binary data
+
+---
+
+## 9. Status Line and Mode Line
+
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | Cannot distinguish status line context in JSON UI | OPEN | Cannot distinguish between command/search/info messages |
+| [#4445](https://github.com/mawww/kakoune/issues/4445) | Status line customization | OPEN | Limited access to individual components (mode, selection count, etc.) |
+| [#4507](https://github.com/mawww/kakoune/issues/4507) | Markup not parsed in mode line | OPEN | `{green}text` displayed as literal |
+| [#5425](https://github.com/mawww/kakoune/issues/5425) | Cursor count indicator | CLOSED | Visualization of multi-cursor state |
+| [#235](https://github.com/mawww/kakoune/issues/235) | Place status line at top | CLOSED | Position is hardcoded |
+
+**Kasane's solution (declarative UI):**
+- Fully customizable status bar via `Replacement(StatusBar)` (position, layout, widgets)
+- Plugins insert widgets into `Slot::StatusLeft` / `Slot::StatusRight`
+- Markup parsing and rendering added via `Decorator(StatusBar)`
+- Command palette / notification area separated into `Slot::AboveStatus`
+
+---
+
+## 10. Soft Wrap and Display Line Navigation
+
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#5163](https://github.com/mawww/kakoune/issues/5163) | Up/down navigation in soft-wrapped text | OPEN | No equivalent to vim's `gj`/`gk`. 21 comments |
+| [#1425](https://github.com/mawww/kakoune/issues/1425) | Movement by display lines | OPEN | mawww notes design challenges (off-screen multiple selections) |
+| [#3649](https://github.com/mawww/kakoune/issues/3649) | Cursor navigation in soft-wrapped text | OPEN | Needed for prose editing |
+| [#5328](https://github.com/mawww/kakoune/issues/5328) | Exposing buffer_display_width / split_line | OPEN | To implement display line navigation via script |
+
+**Positioning in Kasane:**
+- Since Kasane knows the exact visual layout, it can convert display line coordinates to buffer coordinates to implement `gj`/`gk`
+- However, wrapping information for off-screen multiple selections requires coordination with the Kakoune side
+
+> In the current requirements framework, this category corresponds to the representative use cases of `3.5 Display Unit Model and Navigation` and `4.2 Navigation Auxiliary UI`.
+
+---
+
+## 11. Code Folding, Scrollbar, and Minimap
+
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#453](https://github.com/mawww/kakoune/issues/453) | Code folding | OPEN | Request since 2016. 27 comments |
+| [#165](https://github.com/mawww/kakoune/issues/165) | Add scrollbar | CLOSED | Request for text-mode scrollbar |
+| [#4014](https://github.com/mawww/kakoune/issues/4014) | Directory exploration feature | OPEN | File browser like netrw |
+
+**Positioning in Kasane:**
+- Display-level line folding plugin implemented via `Decorator(Buffer)` (gutter `Interactive` icons)
+- Scrollbar plugin in `Slot::BufferRight` (`Scrollable` + annotation markers)
+- Minimap plugin placed in `Slot::BufferRight`
+- File tree / fuzzy finder plugin in `Slot::BufferLeft` or `Slot::Overlay`
+
+> In the current requirements framework, this category spans the representative use cases of `3.4 Display Transformation and Restructuring`, `3.5 Display Unit Model and Navigation`, and `3.2 Auxiliary Regions and Extension Slots`, with some items involving upstream dependencies tracked in [upstream-dependencies.md](./upstream-dependencies.md).
+
+---
+
+## 12. Font Rendering and Text Size
+
+| Issue | Title | Status | Summary |
+|-------|-------|--------|---------|
+| [#5295](https://github.com/mawww/kakoune/issues/5295) | Kitty text-sizing protocol | OPEN | Want to change font size per region |
+| [#4138](https://github.com/mawww/kakoune/issues/4138) | Underline variations | CLOSED | Wavy/dotted/double line. Unstable terminal support |
+| [#3946](https://github.com/mawww/kakoune/issues/3946) | Right-to-Left text support | OPEN | RTL text display |
+
+**Kasane's solution:**
+- Per-region font size (larger for headings, smaller for inlay hints)
+- Consistent rendering of all underline styles (no terminal support needed)
+- BiDi text rendering (future extension)
+
+---
+
+## 13. JSON UI Protocol Extension Proposals (Upstream Contributions)
+
+Protocol improvements to propose to upstream Kakoune in parallel with Kasane's implementation. For detailed constraint impact analysis, see [Kakoune Protocol Constraint Analysis](./kakoune-protocol-constraints.md).
+
+| PR/Issue | Title | Status | Summary |
+|----------|-------|--------|---------|
+| [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Add Face names to JSON UI | OPEN | Send semantic Face names (PrimaryCursor, etc.) to the frontend |
+| [#4686](https://github.com/mawww/kakoune/issues/4686) | Incremental draw notifications | OPEN | Differential sending of only changed lines |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | Distinguish code from virtual text/line numbers | OPEN | Enable distinguishing Atom types |
+| [#5428](https://github.com/mawww/kakoune/issues/5428) | Add status line context | OPEN | Addition of `status_style` parameter |
+| [#2019](https://github.com/mawww/kakoune/issues/2019) | Summary of JSON UI limitations | OPEN | Clipboard, character width, command execution, etc. |
+
+**Kasane's strategy:**
+- First complete an implementation that works with the current protocol
+- Address limitations with heuristic workarounds
+- Participate in upstream PR review and feedback
+- Submit new PRs as needed
+
+---
+
+## Priority Ranking
+
+Comprehensive evaluation of user demand (comment count, re-request frequency) and feasibility within Kasane.
+
+### Tier 1 — Kasane's Core Value (Direct Differentiators)
+
+| Rank | Category | Representative Issues | Comments |
+|------|----------|----------------------|----------|
+| 1 | Floating windows (menu/info) | #1516, #4043, #3938, #5398 | Many |
+| 2 | Elimination of flickering/redraw issues | #3429, #4320, #3185 | — |
+| 3 | Proper Unicode/CJK/emoji display | #3598, #4257, #3059 | Many |
+| 4 | Consistent True Color display | #3554, #2842 | 16+ |
+| 5 | Complete elimination of terminal compatibility issues | #4079, #3705, #4616, etc. | — |
+
+### Tier 2 — High-demand Feature Extensions
+
+| Rank | Category | Representative Issues | Comments |
+|------|----------|----------------------|----------|
+| 6 | Built-in split management | #1363 | 29 |
+| 7 | Code folding | #453 | 27 |
+| 8 | Display line navigation | #5163, #1425 | 21 |
+| 9 | Indent guides | #2323 | 21 |
+| 10 | Clipboard integration | #3935, #4620, #1743 | Many |
+
+### Tier 3 — UX Improvements
+
+| Rank | Category | Representative Issues | Comments |
+|------|----------|----------------------|----------|
+| 11 | Virtual text/code lens | #1813, #4387 | 11, 10 |
+| 12 | Status line customization | #4445, #5428 | 7 |
+| 13 | Scroll behavior improvements | #4028, #4027, #1517 | — |
+| 14 | Mouse operation improvements | #2051, #5339, #3928 | — |
+| 15 | Scrollbar/minimap | #165, PR #5304 | — |
+| 16 | Enhanced cursor rendering | #3652, #5377, #2727 | — |
+| 17 | Font size/underline | #5295, #4138 | — |
+
+---
+
+## Existing Alternative Frontend Projects
+
+| Project | Technology | Status | Features |
+|---------|-----------|--------|----------|
+| [kakoune-gtk](https://gitlab.com/Screwtapello/kakoune-gtk) | GTK | PoC | Pioneer that spawned the #2019 Issue |
+| [kakoune-electron](https://github.com/Delapouite/kakoune-electron) | Electron/Canvas | Experimental | Canvas rendering |
+| [Kakoune Qt](https://discuss.kakoune.com/t/announcing-kakoune-qt/2522) | Qt | Active (2024) | Splits, borders, multi-font-size |
+| [kakoune-arcan](https://github.com/cipharius/kakoune-arcan) | Arcan/Zig | Experimental | Arcan display server frontend |
+| [kak-ui](https://docs.rs/kak-ui/latest/kak_ui/) | Rust crate | Published | Rust wrapper for the JSON-RPC protocol |

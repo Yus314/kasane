@@ -1,9 +1,9 @@
-# リポジトリ構成ガイド
+# Repository Layout Guide
 
-本ドキュメントは、Kasane の workspace 構成と主要ディレクトリの責務を示す参照文書である。
-システム境界や意味論を確認したい場合は [architecture.md](./architecture.md) と [semantics.md](./semantics.md) を参照。
+This document serves as a reference for the Kasane workspace structure and the responsibilities of each major directory.
+For system boundaries and semantics, see [architecture.md](./architecture.md) and [semantics.md](./semantics.md).
 
-## 1. ワークスペース概要
+## 1. Workspace Overview
 
 ```text
 kasane/
@@ -22,20 +22,20 @@ kasane/
 └── kasane-wasm-bench/
 ```
 
-## 2. crate ごとの責務
+## 2. Crate Responsibilities
 
-| crate | 役割 |
+| crate | Role |
 |---|---|
-| `kasane-core` | プロトコル、状態管理、レイアウト、抽象描画、プラグイン基盤 |
-| `kasane-tui` | crossterm ベース TUI backend |
-| `kasane-gui` | winit + wgpu + glyphon ベース GUI backend |
-| `kasane-macros` | `#[kasane::plugin]`, `#[kasane::component]` などの proc macro |
-| `kasane` | メインバイナリ、CLI、プロセス管理、backend 選択 |
-| `kasane-wasm` | WASM プラグインランタイム、WIT ホストアダプタ |
-| `kasane-plugin-sdk` | WASM guest 向け SDK |
-| `kasane-wasm-bench` | WASM ベンチマークハーネス |
+| `kasane-core` | Protocol, state management, layout, abstract rendering, plugin infrastructure |
+| `kasane-tui` | crossterm-based TUI backend |
+| `kasane-gui` | winit + wgpu + glyphon-based GUI backend |
+| `kasane-macros` | Proc macros such as `#[kasane::plugin]` and `#[kasane::component]` |
+| `kasane` | Main binary, CLI, process management, backend selection |
+| `kasane-wasm` | WASM plugin runtime, WIT host adapter |
+| `kasane-plugin-sdk` | SDK for WASM guests |
+| `kasane-wasm-bench` | WASM benchmark harness |
 
-## 3. ソースツリーガイド
+## 3. Source Tree Guide
 
 ### 3.1 `kasane-core/src/`
 
@@ -115,19 +115,19 @@ kasane-core/src/
         └── tests.rs
 ```
 
-主要責務:
+Key responsibilities:
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
-| `element.rs` | 宣言的 UI の中核 `Element` 型 |
-| `plugin.rs` | `Plugin` trait、registry、slot/decorator/replacement 合成 |
-| `state/` | `AppState`、`apply()`、`update()`、dirty 生成 |
-| `layout/` | measure/place、overlay 配置、hit test |
-| `render/` | view 構築、paint、cache、pipeline、scene |
-| `surface/` | surface 抽象と core surface 実装 |
-| `workspace.rs` | surface 配置と分割構造 |
-| `protocol/` | JSON-RPC パーサーと message 型 |
-| `input/` | frontend 入力から Kakoune 入力への変換 |
+| `element.rs` | The core `Element` type for declarative UI |
+| `plugin.rs` | `Plugin` trait, registry, slot/decorator/replacement composition |
+| `state/` | `AppState`, `apply()`, `update()`, dirty generation |
+| `layout/` | measure/place, overlay positioning, hit test |
+| `render/` | View construction, paint, cache, pipeline, scene |
+| `surface/` | Surface abstraction and core surface implementations |
+| `workspace.rs` | Surface placement and split structure |
+| `protocol/` | JSON-RPC parser and message types |
+| `input/` | Conversion from frontend input to Kakoune input |
 
 ### 3.2 `kasane-tui/src/`
 
@@ -138,10 +138,10 @@ kasane-tui/src/
 └── input.rs
 ```
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
-| `backend.rs` | `RenderBackend` の TUI 実装 |
-| `input.rs` | crossterm event 変換 |
+| `backend.rs` | TUI implementation of `RenderBackend` |
+| `input.rs` | crossterm event conversion |
 
 ### 3.3 `kasane-gui/src/`
 
@@ -166,12 +166,12 @@ kasane-gui/src/
     └── mod.rs
 ```
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
-| `app.rs` | winit の application loop |
-| `backend.rs` | GUI backend 実装 |
-| `animation.rs` | smooth scroll などのアニメーション |
-| `gpu/` | GPU レンダラ本体 |
+| `app.rs` | winit application loop |
+| `backend.rs` | GUI backend implementation |
+| `animation.rs` | Animations such as smooth scroll |
+| `gpu/` | GPU renderer core |
 
 ### 3.4 `kasane-macros/src/`
 
@@ -183,11 +183,11 @@ kasane-macros/src/
 └── analysis.rs
 ```
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
-| `plugin.rs` | `#[kasane_plugin]` の生成コード |
-| `component.rs` | `#[kasane_component]`、deps、allow、検証 |
-| `analysis.rs` | AST 解析共通コード |
+| `plugin.rs` | Code generation for `#[kasane_plugin]` |
+| `component.rs` | `#[kasane_component]`, deps, allow, validation |
+| `analysis.rs` | Shared AST analysis code |
 
 ### 3.5 `kasane/src/`
 
@@ -199,12 +199,12 @@ kasane/src/
 └── process.rs
 ```
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
 | `lib.rs` | `kasane::run()` |
-| `main.rs` | デフォルトバイナリ |
-| `cli.rs` | CLI 引数 |
-| `process.rs` | Kakoune 子プロセス管理 |
+| `main.rs` | Default binary |
+| `cli.rs` | CLI arguments |
+| `process.rs` | Kakoune child process management |
 
 ### 3.6 `kasane-wasm/`
 
@@ -229,39 +229,39 @@ kasane-wasm/
     └── line-numbers/
 ```
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
-| `src/adapter.rs` | `Plugin` trait の WASM adapter |
-| `src/host.rs` | guest -> host 呼び出し |
-| `wit/plugin.wit` | WIT API 定義 |
-| `guests/` | 参照実装プラグイン |
-| `bundled/` | 同梱 WASM バイナリ |
+| `src/adapter.rs` | WASM adapter for the `Plugin` trait |
+| `src/host.rs` | Guest-to-host calls |
+| `wit/plugin.wit` | WIT API definition |
+| `guests/` | Reference implementation plugins |
+| `bundled/` | Bundled WASM binaries |
 
-### 3.7 補助 crate
+### 3.7 Auxiliary Crates
 
-| パス | 内容 |
+| Path | Contents |
 |---|---|
-| `kasane-plugin-sdk/src/lib.rs` | WIT bindings、定数、guest helper macro |
+| `kasane-plugin-sdk/src/lib.rs` | WIT bindings, constants, guest helper macros |
 | `kasane-wasm-bench/src/lib.rs` | WASM bench harness |
-| `kasane-wasm-bench/guests/` | benchmark guest plugins |
+| `kasane-wasm-bench/guests/` | Benchmark guest plugins |
 
-## 4. 変更箇所の目安
+## 4. Where to Make Changes
 
-| やりたい変更 | 主に触る場所 |
+| Desired change | Primary locations |
 |---|---|
-| `AppState` や dirty の変更 | `kasane-core/src/state/` |
-| plugin 合成や registry の変更 | `kasane-core/src/plugin.rs` |
-| `Element` の追加や変更 | `kasane-core/src/element.rs` |
-| layout アルゴリズムの変更 | `kasane-core/src/layout/` |
-| TUI 描画パイプラインの変更 | `kasane-core/src/render/` と `kasane-tui/src/backend.rs` |
-| GUI scene/pipeline の変更 | `kasane-core/src/render/scene/` と `kasane-gui/src/gpu/` |
-| proc macro の deps 検証 | `kasane-macros/src/component.rs` と `analysis.rs` |
-| plugin WIT / host API の変更 | `kasane-wasm/wit/plugin.wit`, `kasane-wasm/src/host.rs`, `kasane-plugin-sdk/src/lib.rs` |
-| CLI や起動経路の変更 | `kasane/src/cli.rs`, `kasane/src/process.rs`, `kasane/src/lib.rs` |
-| bundle plugin の変更 | `kasane-wasm/guests/` |
+| Changes to `AppState` or dirty flags | `kasane-core/src/state/` |
+| Changes to plugin composition or registry | `kasane-core/src/plugin.rs` |
+| Adding or modifying `Element` types | `kasane-core/src/element.rs` |
+| Changes to layout algorithms | `kasane-core/src/layout/` |
+| Changes to the TUI rendering pipeline | `kasane-core/src/render/` and `kasane-tui/src/backend.rs` |
+| Changes to GUI scene/pipeline | `kasane-core/src/render/scene/` and `kasane-gui/src/gpu/` |
+| Proc macro deps validation | `kasane-macros/src/component.rs` and `analysis.rs` |
+| Changes to plugin WIT / host API | `kasane-wasm/wit/plugin.wit`, `kasane-wasm/src/host.rs`, `kasane-plugin-sdk/src/lib.rs` |
+| Changes to CLI or startup paths | `kasane/src/cli.rs`, `kasane/src/process.rs`, `kasane/src/lib.rs` |
+| Changes to bundled plugins | `kasane-wasm/guests/` |
 
-## 5. 関連文書
+## 5. Related Documents
 
-- [architecture.md](./architecture.md): システム境界とランタイム構成
-- [semantics.md](./semantics.md): 状態、描画、invalidation、正しさ条件
-- [plugin-api.md](./plugin-api.md): plugin author 向け API リファレンス
+- [architecture.md](./architecture.md): System boundaries and runtime architecture
+- [semantics.md](./semantics.md): State, rendering, invalidation, and correctness conditions
+- [plugin-api.md](./plugin-api.md): Plugin API reference for plugin authors

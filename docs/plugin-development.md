@@ -1,60 +1,60 @@
-# Kasane プラグイン開発者のための宣言的 UI ガイド
+# Kasane Plugin Development Guide: Declarative UI
 
-本ドキュメントは、Kasane プラグインを書き始めるための最短ガイドである。
-API の詳細は [plugin-api.md](./plugin-api.md)、合成順序や正しさ条件は [semantics.md](./semantics.md) を参照。
+This document is the quickstart guide for writing Kasane plugins.
+For API details, see [plugin-api.md](./plugin-api.md). For composition order and correctness conditions, see [semantics.md](./semantics.md).
 
-## 1. はじめに
+## 1. Introduction
 
-### 1.1 対象読者と開発パス
+### 1.1 Target Audience and Development Paths
 
-Kasane プラグインには 2 つの開発パスがある。
+There are two development paths for Kasane plugins.
 
-| | WASM (推奨) | ネイティブ |
+| | WASM (recommended) | Native |
 |---|---|---|
-| 安全性 | サンドボックス内で実行 | ホストプロセスと同一空間 |
-| 配布 | `.wasm` ファイルを `plugins/` に配置 | カスタムバイナリとして配布 |
-| API | WIT 経由 (`host-state` + `element-builder`) | `&AppState` 直接参照 |
-| 依存 | `kasane-plugin-sdk` + `wit-bindgen` | `kasane` + `kasane-core` |
+| Safety | Runs inside a sandbox | Same address space as the host process |
+| Distribution | Place `.wasm` files in `plugins/` | Distribute as a custom binary |
+| API | Via WIT (`host-state` + `element-builder`) | Direct `&AppState` reference |
+| Dependencies | `kasane-plugin-sdk` + `wit-bindgen` | `kasane` + `kasane-core` |
 
-初めてのプラグインには WASM パスを推奨する。ネイティブパスは `&AppState` への完全アクセスが必要な場合や、まだ WASM parity がない escape hatch を使う場合に向いている。ネイティブでは `Plugin` trait の直接実装と proc macro 補助の両方を使える。
+The WASM path is recommended for first-time plugin development. The native path is suited for cases that require full access to `&AppState` or need to use escape hatches that do not yet have WASM parity. With native, you can both directly implement the `Plugin` trait and use proc macro assistance.
 
-### 1.2 このガイドの読み方
+### 1.2 How to Read This Guide
 
-1. まず `## 2. クイックスタート` の WASM 例をそのまま動かす
-2. 次に [plugin-api.md](./plugin-api.md) で使いたい extension point を引く
-3. `transform()` / `stable()` / cache の意味を変える場合だけ [semantics.md](./semantics.md) を読む
+1. First, run the WASM example in `## 2. Quick Start` as-is
+2. Then look up the extension point you want to use in [plugin-api.md](./plugin-api.md)
+3. Only read [semantics.md](./semantics.md) when changing the semantics of `transform()` / `stable()` / cache
 
-> 補足: Kasane は将来的に `display transformation` と `display unit` を第一級に扱う方向を取るが、現時点では専用 API は未完成である。現在の shared API は `contribute_to()`、`annotate_line_with_ctx()`、`contribute_overlay_with_ctx()`、`transform()` の組み合わせで段階的に検証する。`Surface` や `PaintHook` は native escape hatch であり、長期的には WASM parity を目指して再設計する。
+> Note: Kasane is moving toward treating `display transformation` and `display unit` as first-class concepts, but the dedicated APIs are not yet complete. The current shared APIs are being incrementally validated through combinations of `contribute_to()`, `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, and `transform()`. `Surface` and `PaintHook` are native escape hatches, and will be redesigned toward WASM parity in the long term.
 
-### 1.3 設計思想
+### 1.3 Design Philosophy
 
-- プラグインは「何を表示したいか」を記述し、「どう描画するか」はフレームワークが決める
-- 拡張は `contribute_to()`、`annotate_line_with_ctx()`、`transform()` など段階的な自由度を持つ
-- 表示の大胆な再構成は将来方向として許容されるが、protocol truth の捏造は許されない
-- Kasane は Kakoune 専用の UI 基盤であり、汎用 UI フレームワーク化は目標外である
+- Plugins describe "what to display"; the framework decides "how to render it"
+- Extensions offer progressive levels of freedom through `contribute_to()`, `annotate_line_with_ctx()`, `transform()`, etc.
+- Bold restructuring of the display is permitted as a future direction, but fabricating protocol truth is not allowed
+- Kasane is a UI foundation specifically for Kakoune; becoming a general-purpose UI framework is a non-goal
 
-### 1.4 プラグインで実現できること
+### 1.4 What Plugins Can Achieve
 
-各メカニズムで実現可能なプラグインの例を以下に示す。
+The following shows examples of what each mechanism can achieve.
 
-| メカニズム | 実現可能な例 |
+| Mechanism | Achievable Examples |
 |---|---|
-| `contribute_to()` | 行番号、選択カーソル数バッジ、Git diff マーカー、ブレッドクラム |
-| `annotate_line_with_ctx()` | カーソル行ハイライト、インデントガイド、変更行マーカー |
-| `contribute_overlay_with_ctx()` | カラーピッカー、ツールチップ、診断ポップアップ |
-| `transform()` | ステータスバーカスタマイズ、メニューレイアウト変更 |
-| `handle_key()` + `handle_mouse()` | インタラクティブ UI（ピッカー、ダイアログ） |
-| `Surface` (現状ネイティブ) | サイドバー、ファイルツリー、専用パネル |
+| `contribute_to()` | Line numbers, selection cursor count badge, Git diff markers, breadcrumbs |
+| `annotate_line_with_ctx()` | Cursor line highlight, indent guides, changed line markers |
+| `contribute_overlay_with_ctx()` | Color picker, tooltips, diagnostic popups |
+| `transform()` | Status bar customization, menu layout changes |
+| `handle_key()` + `handle_mouse()` | Interactive UI (pickers, dialogs) |
+| `Surface` (currently native only) | Sidebars, file trees, dedicated panels |
 
-ファイルシステムアクセスは WASI ケイパビリティ宣言 (`Capability::Filesystem`) で利用可能。外部プロセス実行（ファジーファインダー等）は `Capability::Process` を宣言し、`Command::SpawnProcess` でプロセスを起動、`Plugin::on_io_event()` で stdout/stderr/終了を受信する (Phase P-2)。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
+Filesystem access is available through WASI capability declaration (`Capability::Filesystem`). External process execution (e.g., fuzzy finders) requires declaring `Capability::Process`, spawning a process with `Command::SpawnProcess`, and receiving stdout/stderr/exit via `Plugin::on_io_event()` (Phase P-2). For details, see [plugin-api.md §0](./plugin-api.md#0-scope-of-the-plugin-api).
 
-`Command::Session(SessionCommand::Spawn { .. })` / `Close { .. }` で host runtime が管理する Kakoune session を追加・終了できる。`activate: true` を付けると新 session が即座に active になり、以後の Kakoune event・surface event・command 実行はその session に対して行われる。V1 でも inactive session の Kakoune event は off-screen snapshot に反映されるが、描画対象は常に active session のみで、inactive session の surface 自動生成はまだ未実装である。
+`Command::Session(SessionCommand::Spawn { .. })` / `Close { .. }` allows adding or terminating Kakoune sessions managed by the host runtime. Setting `activate: true` makes the new session immediately active, and all subsequent Kakoune events, surface events, and command execution operate on that session. In V1, Kakoune events from inactive sessions are still reflected in an off-screen snapshot, but only the active session is rendered; automatic surface generation for inactive sessions is not yet implemented.
 
-## 2. クイックスタート
+## 2. Quick Start
 
-### 2.1 WASM プラグイン (推奨)
+### 2.1 WASM Plugin (Recommended)
 
-以下は選択カーソル数をステータスバー右側に表示する `sel-badge` プラグインの全文である。
+The following is the complete source of a `sel-badge` plugin that displays the selection cursor count on the right side of the status bar.
 
 ```rust
 // kasane-wasm/guests/sel-badge/src/lib.rs
@@ -153,9 +153,9 @@ impl Guest for SelBadgePlugin {
 export!(SelBadgePlugin);
 ```
 
-`handle_surface_event(...)` と `handle_surface_state_changed(...)` が返す command は surface owner plugin の source として host 側へ渡される。`SpawnProcess` など deferred command の capability check もこの owner plugin に対して行われるので、hosted surface handler でも通常の plugin command と同じ権限モデルが適用される。
+Commands returned by `handle_surface_event(...)` and `handle_surface_state_changed(...)` are passed to the host side with the surface owner plugin as the source. Capability checks for deferred commands such as `SpawnProcess` are also performed against this owner plugin, so the same permission model as regular plugin commands applies in hosted surface handlers.
 
-**プロジェクトセットアップ:**
+**Project Setup:**
 
 ```toml
 # Cargo.toml
@@ -172,14 +172,14 @@ kasane-plugin-sdk = { path = "../../kasane-plugin-sdk" }
 wit-bindgen = "0.41"
 ```
 
-**ビルド・配置:**
+**Build & Deploy:**
 
 ```bash
 cargo build --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 ```
 
-### 2.2 ネイティブプラグイン
+### 2.2 Native Plugin
 
 ```rust
 // examples/line-numbers/src/main.rs
@@ -248,76 +248,76 @@ kasane = { path = "../kasane" }
 kasane-core = { path = "../kasane-core" }
 ```
 
-`Plugin` trait を直接実装し、`kasane::run()` でプラグインを登録してカスタムバイナリとして配布する。`PluginCapabilities` で使用する機能を明示する。`#[kasane_plugin]` macro は使える hook では便利だが、現時点では hook parity が完全ではないため、一部機能では直接実装が必要になる。
+Directly implement the `Plugin` trait and register the plugin with `kasane::run()` to distribute as a custom binary. Use `PluginCapabilities` to declare which features are used. The `#[kasane_plugin]` macro is convenient for supported hooks, but direct implementation is required for some features where hook parity is not yet complete.
 
-## 3. 次に読む文書
+## 3. Further Reading
 
-| 目的 | 読む文書 |
+| Purpose | Document to Read |
 |---|---|
-| `contribute_to`、`transform`、`annotate_line_with_ctx`、`contribute_overlay_with_ctx` の違いを知りたい | [plugin-api.md](./plugin-api.md) |
-| `display transformation` / `display unit` の将来方向を知りたい | [plugin-api.md](./plugin-api.md), [semantics.md](./semantics.md) |
-| `Element` の作り方を調べたい | [plugin-api.md](./plugin-api.md) |
-| `host-state`、入力、`Command` を確認したい | [plugin-api.md](./plugin-api.md) |
-| `state_hash()`、`contribute_deps()`、`PaintHook` を使いたい | [plugin-api.md](./plugin-api.md) |
-| `Surface`、`Workspace`、カスタム slot を使いたい | [plugin-api.md](./plugin-api.md) |
-| 合成順序、`stable()`、観測等価性を確認したい | [semantics.md](./semantics.md) |
-| 性能の支配コストや計測結果を知りたい | [performance.md](./performance.md) |
+| Understand the differences between `contribute_to`, `transform`, `annotate_line_with_ctx`, and `contribute_overlay_with_ctx` | [plugin-api.md](./plugin-api.md) |
+| Learn about the future direction of `display transformation` / `display unit` | [plugin-api.md](./plugin-api.md), [semantics.md](./semantics.md) |
+| Look up how to create an `Element` | [plugin-api.md](./plugin-api.md) |
+| Check `host-state`, input, and `Command` | [plugin-api.md](./plugin-api.md) |
+| Use `state_hash()`, `contribute_deps()`, or `PaintHook` | [plugin-api.md](./plugin-api.md) |
+| Use `Surface`, `Workspace`, or custom slots | [plugin-api.md](./plugin-api.md) |
+| Check composition order, `stable()`, and observational equivalence | [semantics.md](./semantics.md) |
+| Learn about dominant performance costs and measurement results | [performance.md](./performance.md) |
 
-## 4. 登録と配布
+## 4. Registration and Distribution
 
-### 4.1 登録順序
+### 4.1 Registration Order
 
-Kasane は次の順序でプラグインを登録する。
+Kasane registers plugins in the following order:
 
-1. バンドル WASM
-2. FS 発見 WASM (`~/.local/share/kasane/plugins/*.wasm`)
-3. `kasane::run(|registry| { ... })` で登録されるネイティブプラグイン
+1. Bundled WASM
+2. FS-discovered WASM (`~/.local/share/kasane/plugins/*.wasm`)
+3. Native plugins registered via `kasane::run(|registry| { ... })`
 
-同じ ID の FS 発見 WASM はバンドルプラグインを上書きできる。
+An FS-discovered WASM plugin with the same ID can override a bundled plugin.
 
-### 4.2 配布方法
+### 4.2 Distribution Methods
 
-- WASM: `.wasm` ファイルを `~/.local/share/kasane/plugins/` に配置
-- ネイティブ: `kasane::run()` を使うカスタムバイナリとして配布
+- WASM: Place `.wasm` files in `~/.local/share/kasane/plugins/`
+- Native: Distribute as a custom binary using `kasane::run()`
 
-### 4.3 config.toml での制御
+### 4.3 Control via config.toml
 
 ```toml
 [plugins]
 disabled = ["color_preview"]
 
-# プラグインごとの WASI ケイパビリティ拒否
+# Per-plugin WASI capability denial
 [plugins.deny_capabilities]
 untrusted_plugin = ["filesystem", "environment"]
 ```
 
-### 4.4 WASI ケイパビリティ
+### 4.4 WASI Capabilities
 
-WASM プラグインは `requested_capabilities()` で必要な WASI ケイパビリティを宣言できる。
-ホストは宣言に基づき、プラグインごとに WASI コンテキストを構成する。
+WASM plugins can declare required WASI capabilities via `requested_capabilities()`.
+The host configures a WASI context per plugin based on the declarations.
 
-利用可能なケイパビリティ:
+Available capabilities:
 
-| ケイパビリティ | 効果 | デフォルト |
+| Capability | Effect | Default |
 |---|---|---|
-| `Capability::Filesystem` | `data/` (プラグイン専用データディレクトリ, read/write) と `.` (CWD, read-only) を preopen | 無効 |
-| `Capability::Environment` | ホストの環境変数を継承 | 無効 |
-| `Capability::MonotonicClock` | 単調時計へのアクセス (デフォルトで有効だが、宣言により監査可能) | 有効 |
+| `Capability::Filesystem` | Preopens `data/` (plugin-specific data directory, read/write) and `.` (CWD, read-only) | Disabled |
+| `Capability::Environment` | Inherits host environment variables | Disabled |
+| `Capability::MonotonicClock` | Access to a monotonic clock (enabled by default, but declaration enables auditing) | Enabled |
 
 ```rust
-// ファイルシステムアクセスが必要なプラグインの例
+// Example of a plugin that needs filesystem access
 fn requested_capabilities() -> Vec<Capability> {
     vec![Capability::Filesystem]
 }
 ```
 
-ケイパビリティは宣言即承認される。ユーザーは `config.toml` の `deny_capabilities` で拒否できる。
+Capabilities are granted upon declaration. Users can deny them via `deny_capabilities` in `config.toml`.
 
-制約: WASI ケイパビリティは `on_init()` 以降で利用可能。コンポーネント初期化 (`_initialize`) 中は利用できない。
+Constraint: WASI capabilities are available from `on_init()` onward. They are not available during component initialization (`_initialize`).
 
-### 4.5 テスト
+### 4.5 Testing
 
-`PluginRegistry` を直接使ってユニットテストが書ける。
+Unit tests can be written using `PluginRegistry` directly.
 
 ```rust
 #[test]
@@ -333,31 +333,31 @@ fn my_plugin_contributes_gutter() {
 }
 ```
 
-## 5. 参照実装一覧
+## 5. Reference Implementation List
 
-| プラグイン | パス | 行数 | 主な機能 |
+| Plugin | Path | Lines | Main Features |
 |---|---|---|---|
-| cursor-line (WASM) | `kasane-wasm/guests/cursor-line/` | 73行 | `annotate_line_with_ctx()`, `state_hash()` |
-| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 111行 | `contribute_to()` (`STATUS_RIGHT`) |
-| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92行 | `contribute_to()` (`BUFFER_LEFT`) |
-| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 641行 | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
-| line-numbers (ネイティブ) | `examples/line-numbers/` | 57行 | `Plugin` trait 直接実装, `contribute_to()`, `kasane::run()` |
+| cursor-line (WASM) | `kasane-wasm/guests/cursor-line/` | 73 lines | `annotate_line_with_ctx()`, `state_hash()` |
+| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 111 lines | `contribute_to()` (`STATUS_RIGHT`) |
+| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92 lines | `contribute_to()` (`BUFFER_LEFT`) |
+| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 641 lines | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
+| line-numbers (native) | `examples/line-numbers/` | 57 lines | Direct `Plugin` trait implementation, `contribute_to()`, `kasane::run()` |
 
-## 6. 付録: WASM vs ネイティブ比較表
+## 6. Appendix: WASM vs Native Comparison
 
-| 観点 | WASM | ネイティブ |
+| Aspect | WASM | Native |
 |---|---|---|
-| 安全性 | サンドボックス分離、ホストクラッシュ防止 | ホストと同一プロセス |
-| パフォーマンス | WASM 境界越えコストあり | 直接関数呼び出し |
-| API アクセス | `host-state` + `element-builder` | `&AppState` 直接参照 |
-| 配布 | `.wasm` ファイル配置 | カスタムバイナリ |
-| 開発体験 | SDK マクロ + `wit-bindgen` | `#[kasane::plugin]` マクロ |
-| `Surface` / `PaintHook` | 未対応 | 対応 |
-| プラグイン間通信 | `Vec<u8>` | `Box<dyn Any>` |
+| Safety | Sandbox isolation, prevents host crashes | Same process as host |
+| Performance | WASM boundary crossing cost | Direct function calls |
+| API access | `host-state` + `element-builder` | Direct `&AppState` reference |
+| Distribution | `.wasm` file placement | Custom binary |
+| Developer experience | SDK macros + `wit-bindgen` | `#[kasane::plugin]` macro |
+| `Surface` / `PaintHook` | Not supported | Supported |
+| Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` |
 
-## 7. 関連文書
+## 7. Related Documents
 
-- [plugin-api.md](./plugin-api.md) — API の詳細
-- [semantics.md](./semantics.md) — 合成順序と正しさ条件
-- [repo-layout.md](./repo-layout.md) — コードの場所
-- [index.md](./index.md) — docs 全体の入口
+- [plugin-api.md](./plugin-api.md) — API details
+- [semantics.md](./semantics.md) — Composition order and correctness conditions
+- [repo-layout.md](./repo-layout.md) — Code locations
+- [index.md](./index.md) — Entry point for all docs

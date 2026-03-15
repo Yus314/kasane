@@ -1,327 +1,327 @@
 # Kasane Semantics
 
-本ドキュメントは、Kasane の現行意味論と正しさ条件の正本である。
-ここで定義するのは「Kasane が何を意味するか」であり、ベンチマーク値、実装進捗、上流 Issue の追跡、API シグネチャ一覧は対象外とする。
+This document is the authoritative reference for Kasane's current semantics and correctness conditions.
+What is defined here is "what Kasane means." Benchmark values, implementation progress, upstream issue tracking, and API signature listings are out of scope.
 
-## 1. 文書の責務
+## 1. Document Responsibilities
 
-### 1.1 この文書が定義するもの
+### 1.1 What This Document Defines
 
-- Kasane のシステム境界
-- 状態、更新、描画、invalidation の意味
-- プラグイン合成と Surface/Workspace の意味
-- 最適化パスに対して要求される観測等価性
-- 現在わかっている理論的ギャップ
+- Kasane's system boundaries
+- The meaning of state, update, rendering, and invalidation
+- Plugin composition and Surface/Workspace semantics
+- Observational equivalence required for optimization passes
+- Currently known theoretical gaps
 
-### 1.2 この文書が定義しないもの
+### 1.2 What This Document Does Not Define
 
-- ベンチマーク値や性能実測の一覧
-- いつ何が実装されたかという履歴
-- 利用者向け設定の詳細
-- プラグイン API の完全なリファレンス
-- 将来提案の詳細設計
+- Benchmark values or performance measurement listings
+- History of when features were implemented
+- User-facing configuration details
+- Complete plugin API reference
+- Detailed design of future proposals
 
-### 1.3 関連文書
+### 1.3 Related Documents
 
-- [requirements.md](./requirements.md): 要件の正本
-- [architecture.md](./architecture.md): システム構成と責務境界の要約
-- [plugin-development.md](./plugin-development.md): プラグイン作者向けガイド
-- [performance.md](./performance.md): 性能原則と測定結果
-- [decisions.md](./decisions.md): 設計判断の履歴
-- [layer-responsibilities.md](./layer-responsibilities.md): 上流/コア/プラグインの責務境界
-- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md): 上流プロトコル制約の分析
+- [requirements.md](./requirements.md): Authoritative reference for requirements
+- [architecture.md](./architecture.md): Summary of system structure and responsibility boundaries
+- [plugin-development.md](./plugin-development.md): Guide for plugin authors
+- [performance.md](./performance.md): Performance principles and measurement results
+- [decisions.md](./decisions.md): History of design decisions
+- [layer-responsibilities.md](./layer-responsibilities.md): Responsibility boundaries between upstream/core/plugins
+- [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md): Analysis of upstream protocol constraints
 
-## 2. 基本モデル
+## 2. Fundamental Model
 
-### 2.1 システム境界
+### 2.1 System Boundaries
 
-Kasane は Kakoune の JSON UI フロントエンドである。Kakoune は JSON-RPC メッセージとして描画命令と UI 状態を送り、Kasane はそれを `AppState` に反映し、宣言的 UI と backend を通じて描画する。
+Kasane is a JSON UI frontend for Kakoune. Kakoune sends drawing commands and UI state as JSON-RPC messages, and Kasane reflects them into `AppState`, rendering through a declarative UI and backend.
 
-Kasane は汎用 UI フレームワークではない。Kakoune の JSON UI プロトコルに密結合なまま設計される。
+Kasane is not a general-purpose UI framework. It is designed to be tightly coupled to Kakoune's JSON UI protocol.
 
-### 2.2 Kakoune と Kasane の責務分担
+### 2.2 Division of Responsibilities Between Kakoune and Kasane
 
-Kakoune が管理するのは、編集モデル、バッファ内容、選択、メニューや info の発火、プロトコル上の真実である。
-Kasane が管理するのは、それをどのような宣言的 UI と backend 実装で表示するか、どのようにプラグイン合成を行うか、そしてプロトコルが表現しない frontend ネイティブ能力をどう扱うかである。
+Kakoune manages the editing model, buffer contents, selections, triggering of menus and info popups, and the protocol truth.
+Kasane manages how to display those through a declarative UI and backend implementation, how to perform plugin composition, and how to handle frontend-native capabilities not expressed by the protocol.
 
-Kasane のコアは「何を、どこに表示するか」を担当し、backend は「どう描画するか」を担当する。
+Kasane's core is responsible for "what to display and where," while the backend is responsible for "how to draw it."
 
-### 2.3 解決層 (HOW) と責務層 (WHERE)
+### 2.3 Resolution Layer (HOW) and Responsibility Layer (WHERE)
 
-Kasane では 2 つの軸を使って機能を分類する。
+Kasane classifies functionality along two axes.
 
-- 解決層 (HOW)
-  - レンダラ
-  - 設定
-  - 基盤
-  - プロトコル制約
-- 責務層 (WHERE)
-  - 上流 (Kakoune)
-  - コア (`kasane-core`)
-  - プラグイン
+- Resolution Layer (HOW)
+  - Renderer
+  - Configuration
+  - Infrastructure
+  - Protocol constraints
+- Responsibility Layer (WHERE)
+  - Upstream (Kakoune)
+  - Core (`kasane-core`)
+  - Plugins
 
-解決層は「どの仕組みで解決するか」を表し、責務層は「どのレイヤーが責任を持つか」を表す。両者は独立であり、混同しない。
+The resolution layer represents "which mechanism resolves it," and the responsibility layer represents "which layer is responsible." The two are independent and must not be conflated.
 
-### 2.4 Default Frontend Semantics と Extended Frontend Semantics
+### 2.4 Default Frontend Semantics and Extended Frontend Semantics
 
-Kasane は二層の意味論を持つ。
+Kasane has a two-tier semantics.
 
 - Default Frontend Semantics
-  - 一般利用者に対して Kasane が `kak` の代替フロントエンドとして振る舞うときの意味論
-  - Kakoune の protocol truth を保守的に表示し、既存の設定・プラグイン・ワークフローと整合することを優先する
+  - The semantics when Kasane acts as an alternative frontend to `kak` for general users
+  - Prioritizes conservatively displaying Kakoune's protocol truth and maintaining compatibility with existing configurations, plugins, and workflows
 - Extended Frontend Semantics
-  - plugin や明示的な表示 policy により、表示構造、interaction policy、surface 構成を強く再構成するときの意味論
-  - Default Frontend Semantics を素材として追加的に成立する
+  - The semantics when display structure, interaction policy, and surface composition are significantly reconfigured through plugins or explicit display policies
+  - Builds additionally upon Default Frontend Semantics as its foundation
 
-Kasane の product としての第一義は Default Frontend Semantics にある。Extended Frontend Semantics は Kasane の能力であり重要な目標だが、通常利用者に対する標準意味論を上書きする前提条件ではない。
+Kasane's primary purpose as a product lies in Default Frontend Semantics. Extended Frontend Semantics is a capability of Kasane and an important goal, but it is not a precondition for overriding the standard semantics for ordinary users.
 
-## 3. 状態意味論
+## 3. State Semantics
 
-### 3.1 AppState の役割
+### 3.1 Role of AppState
 
-`AppState` は、Kakoune から観測できる事実、そこから導出される値、ヒューリスティックで推定した値、frontend 実行時状態を保持する単一の状態空間である。
+`AppState` is a single state space that holds facts observable from Kakoune, values derived from them, values estimated through heuristics, and frontend runtime state.
 
-`AppState` は「すべてが同じ種類の真実」ではない。各フィールドは認識論的な強さが異なる。
+`AppState` does not treat "everything as the same kind of truth." Each field has a different epistemological strength.
 
 ### 3.2 Observed State
 
-Observed State は、Kakoune のプロトコルが明示的に伝えた情報である。これらは Kasane の第一級の事実であり、Kasane 側のポリシーで変更してはならない。
+Observed State is information explicitly communicated by Kakoune's protocol. These are Kasane's first-class facts and must not be altered by Kasane-side policy.
 
-例:
+Examples:
 
-- `draw` で受け取るバッファ行
+- Buffer lines received via `draw`
 - `draw.cursor_pos`
 - `menu_show` / `menu_hide`
 - `info_show` / `info_hide`
-- `draw_status` と `draw_status.cursor_pos`
+- `draw_status` and `draw_status.cursor_pos`
 
 ### 3.3 Derived State
 
-Derived State は、Observed State から決定的に再計算できる情報である。Derived State はキャッシュや利便性のために保持されてよいが、意味論上は Observed State から一意に決まる。
+Derived State is information that can be deterministically recomputed from Observed State. Derived State may be held for caching or convenience purposes, but semantically it is uniquely determined from Observed State.
 
-例:
+Examples:
 
-- レイアウト結果
-- 各種キャッシュの内容
-- セクション別の描画データ
+- Layout results
+- Contents of various caches
+- Per-section rendering data
 
 ### 3.4 Heuristic State
 
-Heuristic State は、Kakoune が明示しない情報を表示データのパターンから推定したものである。これは利便性のために存在するが、正確性は上流プロトコルでは保証されない。
+Heuristic State is information estimated from patterns in display data that Kakoune does not explicitly provide. It exists for convenience, but its accuracy is not guaranteed by the upstream protocol.
 
-例:
+Examples:
 
-- `FINAL_FG + REVERSE` によるカーソル数推定
-- モードライン文字列によるカーソルスタイル推定
-- info の同一性推定
+- Cursor count estimation via `FINAL_FG + REVERSE`
+- Cursor style estimation from mode line strings
+- Info identity estimation
 
-Heuristic State は Observed State と同じ強さの真実ではない。ヒューリスティック失敗時の fallback や non-goal を明示する必要がある。
+Heuristic State does not carry the same strength of truth as Observed State. Fallback behavior and non-goals for heuristic failures must be explicitly stated.
 
 ### 3.5 Runtime State
 
-Runtime State は frontend 実行時にのみ存在する状態である。backend のキャッシュ、アニメーション、フォーカス、プラグイン内部状態などが含まれる。
+Runtime State is state that exists only during frontend execution. It includes backend caches, animations, focus, plugin internal state, and so on.
 
-Runtime State は Kakoune の真実を上書きしてはならないが、描画や入力処理の戦略を決めるために保持される。
+Runtime State must not override Kakoune's truth, but it is held to inform rendering and input handling strategies.
 
 ### 3.6 Display Policy State
 
-Display Policy State は、Observed State をどのように表示へ射影するかを表す frontend 側の policy である。これには overlay の可視化方針、表示変形、代理表示、表示単位の grouping、plugin が導入する再構成規則が含まれる。
+Display Policy State is the frontend-side policy that determines how Observed State is projected into display. It includes overlay visibility policies, display transformations, proxy displays, display unit grouping, and reconfiguration rules introduced by plugins.
 
-Display Policy State は Observed State そのものではない。Kasane はこれを用いて Observed State を省略、代理表示、追加表示、再構成してよいが、その結果を「Kakoune がそう言った事実」として扱ってはならない。
+Display Policy State is not Observed State itself. Kasane may use it to omit, proxy-display, supplement, or reconfigure Observed State, but must not treat the result as "facts stated by Kakoune."
 
-Default Frontend Semantics における Display Policy State は、原則として Observed-preserving である。すなわち、Kasane の標準動作は protocol truth の可視構造を保持しつつ、配置、装飾、補助表示、重畳の改善を行う。Observed-eliding transformation や大規模な再構成は Extended Frontend Semantics に属し、明示的 policy または plugin により導入される。
+In Default Frontend Semantics, Display Policy State is in principle Observed-preserving. That is, Kasane's standard behavior preserves the visible structure of protocol truth while improving placement, decoration, supplementary display, and overlay. Observed-eliding transformations and large-scale reconfiguration belong to Extended Frontend Semantics and are introduced through explicit policy or plugins.
 
-### 3.7 状態更新の原則
+### 3.7 Principles of State Updates
 
-外部から入る入力は、原則として次の流れで処理される。
+Input from external sources is in principle processed through the following flow.
 
-1. プロトコルまたは frontend 入力を受け取る
-2. `AppState` を更新する
-3. `DirtyFlags` を生成する
-4. プラグインと描画パイプラインへ通知する
+1. Receive protocol or frontend input
+2. Update `AppState`
+3. Generate `DirtyFlags`
+4. Notify plugins and the rendering pipeline
 
-状態は描画より先に更新される。描画は常に状態の関数であり、描画結果が状態の真実を生成してはならない。
+State is updated before rendering. Rendering is always a function of state, and rendering results must not generate state truth.
 
-### 3.8 ヒューリスティックの扱い
+### 3.8 Treatment of Heuristics
 
-ヒューリスティックは以下の原則に従う。
+Heuristics follow these principles.
 
-- プロトコルの事実を上書きしない
-- 失敗時に明示的な degraded mode を許容する
-- 上流で解決されるべき問題は上流依存として分離する
-- ヒューリスティック由来の機能は exactness の対象を弱めうる
+- Do not override protocol facts
+- Accept explicit degraded mode on failure
+- Separate problems that should be resolved upstream as upstream dependencies
+- Features derived from heuristics may weaken their exactness targets
 
-Default Frontend Semantics では、ヒューリスティック失敗は UI 崩壊ではなく graceful degradation として扱われるべきである。ヒューリスティックが成立しない場合でも、Kasane は core frontend としての意味を保ち、拡張機能のみが弱くなる形を優先する。
+In Default Frontend Semantics, heuristic failure should be treated as graceful degradation rather than UI collapse. Even when heuristics do not hold, Kasane prioritizes maintaining its meaning as a core frontend, with only extended features degrading.
 
-## 4. 更新意味論
+## 4. Update Semantics
 
-### 4.1 外部入力から状態更新まで
+### 4.1 From External Input to State Update
 
-Kasane の更新系は、Kakoune からのプロトコル入力と frontend からのキー/マウス/フォーカス等の入力を受け取り、それらを状態更新とコマンド列に変換する。
+Kasane's update system receives protocol input from Kakoune and key/mouse/focus inputs from the frontend, converting them into state updates and command sequences.
 
-基本的な流れは次の通りである。
+The basic flow is as follows.
 
-1. Kakoune からメッセージを受信する
-2. `state.apply()` で `AppState` を更新し、dirty を求める
-3. 必要なら `update()` で追加の状態遷移と `Command` 生成を行う
-4. dirty に基づいてプラグイン通知と描画を行う
+1. Receive a message from Kakoune
+2. Update `AppState` via `state.apply()` and compute dirty flags
+3. If necessary, perform additional state transitions and `Command` generation via `update()`
+4. Perform plugin notification and rendering based on dirty flags
 
-### 4.2 TEA update の位置づけ
+### 4.2 Role of TEA Update
 
-Kasane は TEA をランタイムモデルとして採用する。`update()` は入力を集約し、状態遷移と副作用指示を一元化する。
+Kasane adopts TEA as its runtime model. `update()` aggregates inputs and centralizes state transitions and side-effect instructions.
 
-TEA の意味論的な利点は次の通りである。
+The semantic benefits of TEA are as follows.
 
-- 状態遷移の入口が明確
-- `view` を状態からの純関数として保ちやすい
-- Rust の所有権モデルと整合する
-- テスト可能な状態遷移単位を作れる
+- Clear entry point for state transitions
+- Makes it easier to keep `view` as a pure function of state
+- Aligns well with Rust's ownership model
+- Enables testable state transition units
 
-### 4.3 Command の意味
+### 4.3 Meaning of Command
 
-`Command` は副作用そのものではなく、副作用要求の記述である。これには Kakoune への入力送信、設定変更、再描画要求、workspace 操作、プラグイン間通知などが含まれる。
+`Command` is not a side effect itself but a description of a side-effect request. It includes input transmission to Kakoune, configuration changes, redraw requests, workspace operations, inter-plugin notifications, and so on.
 
-`Command` は view からは生成されず、更新系または plugin hook から生成される。
+`Command` is not generated from view; it is generated from the update system or plugin hooks.
 
-### 4.4 DirtyFlags の生成
+### 4.4 Generation of DirtyFlags
 
-`DirtyFlags` は「どの観測面が変わったか」を表す coarse-grained な変更集合である。`DirtyFlags` はキャッシュ invalidation と選択的再描画の入力であり、状態差分の完全な証明ではない。
+`DirtyFlags` is a coarse-grained change set representing "which observable aspects have changed." `DirtyFlags` serves as input for cache invalidation and selective redraw, not as a complete proof of state differences.
 
-重要なのは、`DirtyFlags` が「変更の詳細な内容」ではなく「どの種類の情報が変わったか」を表すことである。
+The important point is that `DirtyFlags` represents "what kind of information has changed," not "the detailed content of the change."
 
-## 5. レンダリング意味論
+## 5. Rendering Semantics
 
 ### 5.1 Exact Semantics
 
-Exact Semantics では、ある状態 `S` に対する描画結果は、参照パスが生成する完全描画結果で定義される。
+Under Exact Semantics, the rendering result for a given state `S` is defined by the complete rendering result produced by the reference path.
 
-概念的には次の形で表せる。
+Conceptually, this can be expressed as follows.
 
 ```text
 render_exact(S) = view(S) -> layout -> paint
 ```
 
-ここでの正しさは、観測可能な描画結果が `S` の意味と一致することである。
+Correctness here means that the observable rendering result is consistent with the meaning of `S`.
 
 ### 5.2 Policy Semantics
 
-Kasane の実際の高速パスは、常に `render_exact(S)` そのものを再計算するわけではない。`DirtyFlags`、各種 cache、`stable()` に基づく policy-relative な増分描画を行う。
+Kasane's actual fast paths do not always recompute `render_exact(S)` itself. They perform policy-relative incremental rendering based on `DirtyFlags`, various caches, and `stable()`.
 
-そのため実運用上の正しさは次の 2 層に分かれる。
+Therefore, practical correctness is divided into two tiers.
 
-- Exact Semantics: 完全再描画の意味
-- Policy Semantics: 現在の invalidation policy を前提にした増分描画の意味
+- Exact Semantics: The meaning of complete re-rendering
+- Policy Semantics: The meaning of incremental rendering under the current invalidation policy
 
-`stable()` がある箇所では、Policy Semantics は Exact Semantics より弱い。これは不具合ではなく、意図的な仕様である。
+Where `stable()` is involved, Policy Semantics is weaker than Exact Semantics. This is not a defect but an intentional specification.
 
-ただし Default Frontend Semantics では、policy による stale 許容は「既存利用者が `kak` の代替として期待する意味」を壊さない範囲に留める必要がある。stale 許容は plugin-defined 拡張の自由のために存在してよいが、core frontend の意味論的整合性より優先されてはならない。
+However, in Default Frontend Semantics, policy-permitted staleness must remain within the range that does not break "the meaning existing users expect from a `kak` replacement." Staleness tolerance may exist for the freedom of plugin-defined extensions, but it must not take priority over the semantic consistency of the core frontend.
 
-### 5.3 view, layout, paint の責務分離
+### 5.3 Separation of Responsibilities: view, layout, paint
 
-- `view`: 状態から宣言的な `Element` ツリーを構築する
-- `layout`: `Element` と制約から矩形配置を計算する
-- `paint`: `Element` とレイアウト結果を描画バックエンド向け表現に落とす
+- `view`: Constructs a declarative `Element` tree from state
+- `layout`: Computes rectangular placement from `Element` and constraints
+- `paint`: Converts `Element` and layout results into a representation for the drawing backend
 
-TUI では `paint` の出力は `CellGrid` であり、GUI では `DrawCommand` 列である。backend ごとの差は存在するが、どちらも同一の UI 意味論を共有する。
+In TUI, the output of `paint` is `CellGrid`; in GUI, it is a sequence of `DrawCommand`. Differences exist per backend, but both share the same UI semantics.
 
-### 5.4 TUI と GUI の共通意味論
+### 5.4 Common Semantics Between TUI and GUI
 
-TUI と GUI は出力表現が異なる。
+TUI and GUI differ in output representation.
 
-- TUI: `CellGrid` を diff して terminal I/O へ変換
-- GUI: シーン記述を GPU 描画へ変換
+- TUI: Diffs `CellGrid` and converts to terminal I/O
+- GUI: Converts scene descriptions to GPU drawing
 
-しかし両者は、同じ状態に対して同じ UI 構造と同じ意味的内容を表示することを要求される。backend の自由度は「どう描画するか」に限られる。
+However, both are required to display the same UI structure and the same semantic content for the same state. The backend's freedom is limited to "how to draw it."
 
-### 5.5 観測可能な結果とは何か
+### 5.5 What Constitutes an Observable Result
 
-Kasane の観測等価性は、内部 cache の状態ではなく、最終的に観測される描画結果で定義される。
+Kasane's observational equivalence is defined not by the state of internal caches but by the finally observable rendering result.
 
-観測対象の例:
+Examples of observable targets:
 
-- 表示されるテキスト
-- face やスタイル
-- 表示位置
-- overlay/menu/info の存在と配置
-- cursor の表示
+- Displayed text
+- Faces and styles
+- Display positions
+- Presence and placement of overlays/menus/info popups
+- Cursor display
 
-## 6. Invalidation とキャッシュ
+## 6. Invalidation and Caching
 
-### 6.1 DirtyFlags の意味
+### 6.1 Meaning of DirtyFlags
 
-`DirtyFlags` は状態の依存トラッキングと cache invalidation の入力である。これは状態全体の差分を表すものではなく、再計算が必要な観測面の近似表現である。
+`DirtyFlags` is the input for state dependency tracking and cache invalidation. It does not represent the full diff of the entire state but rather an approximation of which observable aspects require recomputation.
 
-### 6.2 Section 単位 invalidation
+### 6.2 Section-Level Invalidation
 
-現在の core view は主に `base`、`menu`、`info` のセクションに分割される。キャッシュ invalidation はこのセクション粒度で行われる。
+The current core view is primarily divided into `base`, `menu`, and `info` sections. Cache invalidation is performed at this section granularity.
 
-この設計により、メニュー変更が常にバッファ本体の再構築を要求するわけではない。
+This design means that a menu change does not always require rebuilding the buffer body.
 
 ### 6.3 ViewCache
 
-`ViewCache` は `Element` ツリーまたはその部分木を保持し、対応する dirty が立っていないときに再構築をスキップする。
+`ViewCache` holds `Element` trees or their subtrees and skips reconstruction when the corresponding dirty flags are not set.
 
-`ViewCache` は exact な依存解析ではなく、`DirtyFlags` と component deps による policy-driven な再利用を行う。
+`ViewCache` performs policy-driven reuse based on `DirtyFlags` and component deps, not exact dependency analysis.
 
 ### 6.4 SceneCache
 
-`SceneCache` は GUI backend 用の `DrawCommand` 列をセクション単位で保持する。`ViewCache` と同様に invalidation mask を持つが、GUI 特有の高速パスに使われる。
+`SceneCache` holds `DrawCommand` sequences per section for the GUI backend. Like `ViewCache`, it has an invalidation mask, but it is used for GUI-specific fast paths.
 
 ### 6.5 PaintPatch
 
-`PaintPatch` は TUI 側で特定の変更パターンに対して直接セル更新を行うコンパイル済み高速パスである。これは full pipeline の代替であり、正しさ条件は参照パスとの観測等価性で定義される。
+`PaintPatch` is a compiled fast path on the TUI side that performs direct cell updates for specific change patterns. It is an alternative to the full pipeline, and its correctness condition is defined by observational equivalence with the reference path.
 
 ### 6.6 LayoutCache
 
-`LayoutCache` はセクション別再描画や patched path を支えるためのレイアウト再利用である。レイアウトが状態のどの部分に依存するかは、invalidation policy によって制御される。
+`LayoutCache` supports section-level redraws and patched paths through layout reuse. Which parts of the state the layout depends on is controlled by the invalidation policy.
 
-### 6.7 `stable()` の意味
+### 6.7 Meaning of `stable()`
 
-`stable()` は「この component が特定の状態変化に対して再構築を要求しない」という policy 宣言である。これは「その状態を一切読まない」という意味ではない。
+`stable()` is a policy declaration that "this component does not request reconstruction in response to specific state changes." It does not mean "this component never reads that state."
 
-したがって、`stable(x)` が付いている component は `x` を読むことがありうる。その場合、その component は Exact Semantics に対しては stale になりうるが、Policy Semantics の下では許容される。
+Therefore, a component with `stable(x)` may read `x`. In that case, the component may become stale relative to Exact Semantics, but this is permitted under Policy Semantics.
 
-### 6.8 `allow()` の意味
+### 6.8 Meaning of `allow()`
 
-`allow()` は `#[kasane::component]` の静的依存解析に対する明示的な escape hatch である。これは soundness を強める機能ではなく、検証器が扱えない依存を意図的に免責するための機能である。
+`allow()` is an explicit escape hatch for the static dependency analysis of `#[kasane::component]`. It is not a function that strengthens soundness; rather, it is a function for intentionally exempting dependencies that the verifier cannot handle.
 
-### 6.9 Exactness を意図的に弱める箇所
+### 6.9 Locations Where Exactness Is Intentionally Weakened
 
-現在の Kasane は、すべての高速パスに対して完全再描画との逐次一致を要求していない。特に `stable()` が関与する箇所では、warm/cold cache の一貫性が主な正しさ条件になる。
+Current Kasane does not require step-by-step equivalence with complete re-rendering for all fast paths. Particularly where `stable()` is involved, warm/cold cache consistency becomes the primary correctness condition.
 
-この弱化は設計上の trade-off であり、文書化された仕様として扱う。
+This weakening is a design trade-off and is treated as a documented specification.
 
-## 7. 依存追跡意味論
+## 7. Dependency Tracking Semantics
 
-### 7.1 `#[kasane::component(deps(...))]` の契約
+### 7.1 Contract of `#[kasane::component(deps(...))]`
 
-`#[kasane::component(deps(...))]` は、component がどの dirty に依存するかを宣言する契約である。宣言された依存は、再構築を行うべき条件の一部として解釈される。
+`#[kasane::component(deps(...))]` is a contract declaring which dirty flags a component depends on. Declared dependencies are interpreted as part of the conditions under which reconstruction should occur.
 
-### 7.2 AST ベース検証の保証
+### 7.2 Guarantees of AST-Based Verification
 
-proc macro は AST を解析し、宣言された deps と状態フィールド参照の整合を一部検証する。この検証により、単純な field access の取りこぼしをコンパイル時に検出できる。
+The proc macro analyzes the AST and partially verifies consistency between declared deps and state field references. This verification enables compile-time detection of simple field access omissions.
 
-### 7.3 手書き依存情報の位置づけ
+### 7.3 Role of Hand-Written Dependency Information
 
-現行実装では、すべての依存情報が macro から単一生成されるわけではない。手書きの依存表や section deps が並存するため、依存理論はまだ single source of truth ではない。
+In the current implementation, not all dependency information is generated from a single macro. Since hand-written dependency tables and section deps coexist, the dependency theory is not yet a single source of truth.
 
-### 7.4 Soundness の限界
+### 7.4 Limits of Soundness
 
-現在の依存追跡は完全には sound ではない。
+The current dependency tracking is not fully sound.
 
-主な理由:
+Main reasons:
 
-- helper 関数越しの依存は自動検出できない場合がある
-- 手書きの deps 定数と macro 解析が二重管理になっている
-- `allow()` は明示的な免責である
+- Dependencies across helper functions may not be automatically detected
+- Hand-written deps constants and macro analysis are dual-managed
+- `allow()` is an explicit exemption
 
-したがって、依存追跡は「強い discipline」としては有効だが、「完全証明」ではない。
+Therefore, dependency tracking is effective as "strong discipline" but is not a "complete proof."
 
-## 8. Plugin 合成意味論
+## 8. Plugin Composition Semantics
 
-### 8.1 Extension Point の全体像
+### 8.1 Overview of Extension Points
 
-Kasane の UI 拡張は主に次のメカニズムで構成される。
+Kasane's UI extensions are primarily composed of the following mechanisms.
 
 - Contribution (`contribute_to`)
 - Line Annotation (`annotate_line_with_ctx`)
@@ -329,257 +329,257 @@ Kasane の UI 拡張は主に次のメカニズムで構成される。
 - Transform (`transform`)
 - PaintHook
 
-これらは同一レベルの抽象ではなく、自由度と責務が異なる。
+These are not at the same level of abstraction; they differ in degrees of freedom and responsibilities.
 
 ### 8.2 Contribution
 
-`contribute_to()` は framework が定義した拡張点 (`SlotId`) に `Element` を寄与する最も制約の強い拡張である。寄与には `priority` と `size_hint` が付随し、構造的整合性を最も保ちやすい。可能なら最優先される。
+`contribute_to()` is the most constrained extension, contributing `Element`s to framework-defined extension points (`SlotId`). Contributions carry `priority` and `size_hint`, making it easiest to maintain structural consistency. It is preferred whenever possible.
 
 ### 8.3 Line Annotation
 
-`annotate_line_with_ctx()` はバッファ各行のガターや背景を拡張する仕組みである。これは buffer content 自体を変更せず、行単位の視覚的寄与 (`LineAnnotation`) を行う。`BackgroundLayer` と `z_order` により複数プラグインの寄与を合成する。
+`annotate_line_with_ctx()` is a mechanism for extending the gutter and background of each buffer line. It does not modify the buffer content itself but provides per-line visual contributions (`LineAnnotation`). Contributions from multiple plugins are composed through `BackgroundLayer` and `z_order`.
 
 ### 8.4 Overlay
 
-`contribute_overlay_with_ctx()` は通常の layout フローとは別に重畳される浮動要素である。Overlay は表示レイヤーを追加するが、基底となる protocol state を変更しない。`z_index` により表示順序を制御する。
+`contribute_overlay_with_ctx()` is a floating element overlaid separately from the normal layout flow. Overlays add display layers but do not modify the underlying protocol state. Display order is controlled via `z_index`.
 
 ### 8.5 Transform
 
-`transform()` は既存 `Element` を受け取り、変換して返す統合メカニズムである。かつての Decorator (ラップ/装飾) と Replacement (差し替え) の両方の役割を担う。`TransformTarget` で対象を、`transform_priority()` で適用順序を指定する。
+`transform()` is a unified mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
 
-Transform は plugin 合成パイプラインにおいて `apply_transform_chain` として一本化されている。
+Transform is unified in the plugin composition pipeline as `apply_transform_chain`.
 
-### 8.6 合成順序と優先順位
+### 8.6 Composition Order and Priority
 
-現行の基本原則は次の通りである。
+The current basic principles are as follows.
 
-1. seed となるデフォルト要素を構築する
-2. transform chain を priority 順に適用する (装飾・差し替えを統合的に処理)
-3. contribution と overlay を合成する
+1. Build the seed default elements
+2. Apply the transform chain in priority order (processing decoration and replacement in a unified manner)
+3. Compose contributions and overlays
 
-Transform chain は、かつて別々だった replacement と decorator を統合したものである。priority により適用順序が決まり、軽い装飾も完全差し替えも同一パイプラインで処理される。
+The transform chain is the result of unifying what were formerly separate replacement and decorator mechanisms. Priority determines application order, and both lightweight decorations and full replacements are processed in the same pipeline.
 
-### 8.9 プラグインが変更してよいもの / よくないもの
+### 8.9 What Plugins May and May Not Change
 
-プラグインが変更してよいのは、policy が分かれうる表示と interaction である。
-プラグインが変更してよくないのは、protocol truth、core state machine、backend の意味論そのもの、上流が提供していない事実の捏造である。
+Plugins may change display and interaction where policy can diverge.
+Plugins may not change protocol truth, the core state machine, the semantics of the backend itself, or fabricate facts not provided by upstream.
 
-plugin-defined UI は core frontend semantics の前提条件ではない。plugin が不在でも Kasane の標準 frontend 意味論は完結していなければならない。plugin が導入する表示変形は additive であることを原則とし、標準利用者に対する唯一の真実を置き換えるかたちで core semantics を capture してはならない。
+Plugin-defined UI is not a precondition for core frontend semantics. Even in the absence of plugins, Kasane's standard frontend semantics must be self-contained. Display transformations introduced by plugins should in principle be additive, and must not capture core semantics by replacing the sole truth for standard users.
 
-## 9. 表示変形と表示単位
+## 9. Display Transformation and Display Units
 
-### 9.1 Display Transformation の意味
+### 9.1 Meaning of Display Transformation
 
-Display Transformation は、Observed State を素材として別の表示構造を構成する policy である。これは省略、代理表示、追加表示、再構成を含みうる。Display Transformation は view policy であり、protocol truth の改竄ではない。
+Display Transformation is a policy that takes Observed State as material and constructs a different display structure. It can include omission, proxy display, supplementary display, and reconfiguration. Display Transformation is a view policy, not a falsification of protocol truth.
 
-### 9.2 Observed-preserving と Observed-eliding
+### 9.2 Observed-preserving and Observed-eliding
 
-Display Transformation には少なくとも 2 種がある。
+There are at least two types of Display Transformation.
 
 - Observed-preserving transformation
-  - Observed State の可視要素を保持したまま、装飾、配置、重畳、補助表示を追加する
+  - Preserves the visible elements of Observed State while adding decoration, placement, overlay, and supplementary display
 - Observed-eliding transformation
-  - 一部の Observed State を省略し、代理表示や summary を用いて再構成する
+  - Omits some Observed State and reconfigures using proxy display or summaries
 
-Kasane は後者を許してよい。ただし、elide された事実は失われたのではなく、display policy によって直接表示されていないだけである。
+Kasane may permit the latter. However, elided facts are not lost; they are simply not directly displayed due to display policy.
 
-Default Frontend Semantics においては、Observed-eliding transformation は標準挙動ではない。Kasane が `kak = kasane` の代替性を維持するため、強い省略、代理表示、再構成は Extended Frontend Semantics の側に位置づけられる。
+In Default Frontend Semantics, Observed-eliding transformation is not the standard behavior. To maintain Kasane's substitutability where `kak = kasane`, strong omission, proxy display, and reconfiguration are positioned on the Extended Frontend Semantics side.
 
-### 9.3 表示変形の境界
+### 9.3 Boundaries of Display Transformation
 
-Display Transformation が変更してよいのは表示構造と interaction policy である。変更してよくないのは、Observed State の内容を「上流が与えた事実」として偽装することである。
+Display Transformation may change display structure and interaction policy. What it may not change is falsifying Observed State content as "facts given by upstream."
 
-たとえば fold summary が複数行を 1 行へ要約してもよいが、その summary を Kakoune が送った実バッファ行そのものとして扱ってはならない。
+For example, a fold summary may summarize multiple lines into one, but that summary must not be treated as the actual buffer lines sent by Kakoune.
 
-### 9.4 Display Unit の意味
+### 9.4 Meaning of Display Unit
 
-Display Unit は、再構成後 UI における操作可能な表示単位である。Display Unit は単なる layout box ではなく、表示上の対象、source との関係、interaction の可否をまとめて表す。
+A Display Unit is an operable display unit within the reconfigured UI. A Display Unit is not merely a layout box; it collectively represents the display target, its relationship to the source, and the availability of interaction.
 
-Display Unit は次の情報を持ちうる。
+A Display Unit can carry the following information.
 
 - geometry
 - semantic role
 - source mapping
 - interaction policy
-- 他の Display Unit との navigation 関係
+- navigation relationships with other Display Units
 
-### 9.5 Source Mapping の意味
+### 9.5 Meaning of Source Mapping
 
-Display Unit は、対応する buffer position、buffer range、selection、derived object、または plugin 定義オブジェクトへの mapping を持ちうる。
+A Display Unit may have a mapping to corresponding buffer positions, buffer ranges, selections, derived objects, or plugin-defined objects.
 
-この mapping は必ずしも一対一である必要はない。1 つの Display Unit が複数行を代表してもよいし、逆に 1 行が複数 Display Unit に分割されてもよい。
+This mapping is not necessarily one-to-one. A single Display Unit may represent multiple lines, and conversely, a single line may be split into multiple Display Units.
 
-### 9.6 制限付き interaction
+### 9.6 Restricted Interaction
 
-Display Unit が source への完全な逆写像を持たない場合、その unit は読み取り専用または制限付き interaction として扱われてよい。
+If a Display Unit does not have a complete inverse mapping to its source, that unit may be treated as read-only or with restricted interaction.
 
-重要なのは、「操作結果が未定義であること」を暗黙にしないことである。Kasane は interaction が不可能または制限される unit を明示的に表現できるべきである。
+The important point is to not leave "undefined operation results" implicit. Kasane should be able to explicitly represent units where interaction is impossible or restricted.
 
-### 9.7 Plugin と表示変形の責務
+### 9.7 Responsibilities of Plugins and Display Transformation
 
-plugin は Display Transformation と Display Unit を導入できるが、次の責務を負う。
+Plugins can introduce Display Transformations and Display Units, but they bear the following responsibilities.
 
-- protocol truth を捏造しない
-- interaction policy を定義可能な範囲に留める
-- source mapping が弱い場合は degraded mode を受け入れる
+- Do not fabricate protocol truth
+- Keep interaction policy within definable bounds
+- Accept degraded mode when source mapping is weak
 
-コアはこれに対して次を保証する。
+The core guarantees the following in return.
 
-- transformation が view policy として扱われること
-- display unit が hit test、focus、navigation の対象として表現できること
-- plugin-defined UI が標準 UI と同じ合成規則へ参加できること
-- plugin-defined UI が標準 frontend semantics を前提として成立し、その不在時に core frontend の意味を破壊しないこと
+- Transformations are treated as view policy
+- Display units can be represented as targets for hit testing, focus, and navigation
+- Plugin-defined UI can participate in the same composition rules as standard UI
+- Plugin-defined UI builds upon standard frontend semantics as its foundation, and must not break the meaning of the core frontend in its absence
 
-## 10. Surface と Workspace
+## 10. Surface and Workspace
 
-### 10.1 Surface の意味
+### 10.1 Meaning of Surface
 
-Surface は画面上の矩形領域を所有し、自身の view 構築、イベント処理、状態変化通知を受け持つ抽象である。コアの主要画面要素は Surface として表現される。
+A Surface is an abstraction that owns a rectangular region on screen and handles its own view construction, event processing, and state change notifications. The core's main screen elements are represented as Surfaces.
 
-### 10.2 SurfaceId の意味
+### 10.2 Meaning of SurfaceId
 
-`SurfaceId` は surface を識別する安定 ID である。buffer、status、menu、info、plugin surface は異なる `SurfaceId` 空間に属する。
+`SurfaceId` is a stable ID that identifies a surface. Buffer, status, menu, info, and plugin surfaces belong to different `SurfaceId` spaces.
 
-### 10.3 Workspace の意味
+### 10.3 Meaning of Workspace
 
-Workspace は surface の配置とフォーカス、分割、フロートを管理するレイアウト構造である。Workspace は「どの surface がどこにあるか」を表す。
+A Workspace is a layout structure that manages surface placement, focus, splitting, and floating. A Workspace represents "which surface is where."
 
-### 10.4 Surface と既存 view 層の関係
+### 10.4 Relationship Between Surfaces and the Existing View Layer
 
-現行実装では、Surface 理論は完全には単一化されていない。surface lifecycle は導入されているが、描画構築の一部は依然として legacy view 層に残る。
+In the current implementation, the Surface theory is not fully unified. Surface lifecycle has been introduced, but parts of the rendering construction still remain in the legacy view layer.
 
-したがって、Surface は第一級抽象へ向かう途中段階であり、現在の UI 全体を完全に支配する唯一の理論ではない。
+Therefore, Surface is a work-in-progress toward becoming a first-class abstraction and is not yet the sole theory governing the entire UI.
 
-### 10.5 現行の制約
+### 10.5 Current Constraints
 
-現行実装には少なくとも次の制約がある。
+The current implementation has at least the following constraints.
 
-- invalidation は依然として global `DirtyFlags` 中心である
-- `Surface` が受け取る `rect` と最終描画の整合が完全ではない箇所がある
-- overlay の位置決めや一部の core view は legacy path と共存している
+- Invalidation is still centered on global `DirtyFlags`
+- There are places where the `rect` received by a `Surface` and the final rendering are not fully consistent
+- Overlay positioning and parts of the core view coexist with legacy paths
 
-### 10.6 将来の per-surface invalidation との関係
+### 10.6 Relationship to Future Per-Surface Invalidation
 
-`SurfaceId` ベース invalidation は有望な将来方向だが、本ドキュメントでは現行意味論の一部としては扱わない。ここで扱うのは、あくまで現行 system が global dirty を前提としているという事実である。
+`SurfaceId`-based invalidation is a promising future direction, but this document does not treat it as part of the current semantics. What is addressed here is solely the fact that the current system assumes global dirty.
 
-## 11. 等価性と証明責務
+## 11. Equivalence and Proof Obligations
 
 ### 11.1 Trace-Equivalence
 
-Kasane は複数のレンダリング最適化パスを持つ。これらは内部手続きが異なっても、観測可能な結果において等価であることを要求される。
+Kasane has multiple rendering optimization paths. These are required to be equivalent in observable results, even though their internal procedures differ.
 
 ### 11.2 Warm/Cold Cache Equivalence
 
-現行テスト戦略では、完全再描画との一致だけでなく、同じ dirty 条件の下で warm cache と cold cache が一貫した結果を返すことが重要な不変条件である。
+In the current test strategy, not only equivalence with complete re-rendering but also warm cache and cold cache returning consistent results under the same dirty conditions is an important invariant.
 
-### 11.3 テストで保証するもの
+### 11.3 What Tests Guarantee
 
-テストで主に保証するのは次の性質である。
+What tests primarily guarantee are the following properties.
 
-- 参照パスと最適化パスの観測等価性
-- cache invalidation の一貫性
-- backend 間で共有される意味論の保存
+- Observational equivalence between the reference path and optimization paths
+- Consistency of cache invalidation
+- Preservation of semantics shared across backends
 
-### 11.4 prose でしか表現できない契約
+### 11.4 Contracts Expressible Only in Prose
 
-次のような契約は、テストだけでは完全には表現しにくい。
+The following contracts are difficult to fully express through tests alone.
 
-- `stable()` により exactness を弱めることが仕様であること
-- heuristic state は protocol truth と同格ではないこと
-- plugin が侵してよい境界と侵してはいけない境界
+- That weakening exactness via `stable()` is by specification
+- That heuristic state is not on par with protocol truth
+- The boundaries that plugins may and may not cross
 
-Kasane の non-goal として、標準 frontend 意味論において既存の Kakoune 利用者へ Kasane 独自 ecosystem への参加を要求することは含まれない。Kasane は plugin platform を持つが、Default Frontend Semantics はそれに従属しない。
+As a non-goal of Kasane, requiring existing Kakoune users to participate in a Kasane-specific ecosystem within the standard frontend semantics is not included. Kasane has a plugin platform, but Default Frontend Semantics is not subordinate to it.
 
-これらは prose とテストの両方で維持する。
+These are maintained through both prose and tests.
 
-### 11.5 backend 間で一致すべきもの
+### 11.5 What Must Be Consistent Across Backends
 
-TUI と GUI は出力手段が異なるが、少なくとも次の意味は一致すべきである。
+TUI and GUI differ in output methods, but at least the following semantics must be consistent.
 
-- 何が表示されるか
-- どこに表示されるか
-- どの状態変化がどの view 変化を生むか
-- どの overlay/menu/info が可視か
+- What is displayed
+- Where it is displayed
+- Which state changes produce which view changes
+- Which overlays/menus/info popups are visible
 
 ## 12. Known Gaps
 
-### 12.1 `stable()` による非厳密性
+### 12.1 Non-Strictness Due to `stable()`
 
-`stable()` は exact semantics に対する厳密一致を意図的に弱める。これは policy 上の仕様だが、どこで stale が許容されるかを慎重に管理する必要がある。
+`stable()` intentionally weakens strict equivalence with exact semantics. This is a specification at the policy level, but which locations permit staleness must be carefully managed.
 
-### 12.2 dependency tracking の限界
+### 12.2 Limits of Dependency Tracking
 
-AST ベース検証と手書き deps は有用だが、完全な soundness を保証しない。依存理論はまだ single source of truth ではない。
+AST-based verification and hand-written deps are useful but do not guarantee complete soundness. The dependency theory is not yet a single source of truth.
 
-### 12.3 global DirtyFlags と Surface 理論の不一致
+### 12.3 Mismatch Between Global DirtyFlags and Surface Theory
 
-Surface は局所的な矩形抽象として導入されているが、invalidation は依然として global dirty に大きく依存している。
+Surfaces have been introduced as localized rectangular abstractions, but invalidation still heavily depends on global dirty.
 
-### 12.4 Workspace ratio と実描画の不一致
+### 12.4 Mismatch Between Workspace Ratio and Actual Rendering
 
-Workspace 側で計算される分割比率と、最終的な view 合成側の flex 配分が完全に一致しない余地がある。
+There is room for the split ratios computed on the Workspace side and the final flex allocation on the view composition side to not fully agree.
 
-### 12.5 plugin overlay invalidation の穴
+### 12.5 Gap in Plugin Overlay Invalidation
 
-GUI 側の scene invalidation と plugin overlay の依存が完全には統合されておらず、overlay が stale になる理論的余地がある。
+The GUI-side scene invalidation and plugin overlay dependencies are not fully integrated, leaving theoretical room for overlays to become stale.
 
-### 12.6 (解決済み) transform と replacement の統合
+### 12.6 (Resolved) Unification of Transform and Replacement
 
-~~新しい transform API は観測上 replacement に近い結果を作れるが、lazy seed selection やコストモデルではなお別物として扱われている。~~
+~~The new transform API can produce results observationally close to replacement, but in terms of lazy seed selection and cost model, they are still treated as separate things.~~
 
-Plugin trait レベルでは `transform()` が decorator と replacement の両方を吸収し、`apply_transform_chain` として統合済み。旧 API (`decorate()`, `replace()`) は Plugin trait から削除されている。
+At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
 
-### 12.7 display transformation と core invalidation の未統合
+### 12.7 Lack of Integration Between Display Transformation and Core Invalidation
 
-display transformation と display unit model は要件上は導入されたが、現行の global dirty / section cache はそれらを第一級の invalidation 単位としてまだ扱っていない。
+The display transformation and display unit model have been introduced at the requirements level, but the current global dirty / section cache does not yet treat them as first-class invalidation units.
 
-### 12.8 display-oriented navigation の未整備
+### 12.8 Incomplete Display-Oriented Navigation
 
-visual unit 単位の navigation は将来基盤として要求されるが、現行実装では buffer-oriented navigation が依然として中心であり、display unit との完全な統合理論は未完成である。
+Visual unit-based navigation is required as a future foundation, but the current implementation still centers on buffer-oriented navigation, and a complete unification theory with display units is unfinished.
 
 ## 13. Non-Goals
 
-### 13.1 この文書で扱わない最適化
+### 13.1 Optimizations Not Covered in This Document
 
-ここでは個別の micro-optimization や benchmark tuning は扱わない。扱うのは、その最適化が保つべき意味論だけである。
+Individual micro-optimizations and benchmark tuning are not covered here. What is covered is only the semantics that such optimizations must preserve.
 
-### 13.2 この文書で扱わない利用者向け設定
+### 13.2 User-Facing Configuration Not Covered in This Document
 
-theme、layout、keybind 等の設定方法は扱わない。設定がどの意味的境界に属するかだけを扱う。
+Configuration methods for themes, layout, keybindings, etc. are not covered. Only which semantic boundary a given configuration belongs to is addressed.
 
-### 13.3 この文書で扱わない将来提案
+### 13.3 Future Proposals Not Covered in This Document
 
-Phase 5 以降の提案や上流変更後の理想設計は、現行意味論と明示的に区別する。
+Proposals for Phase 5 and beyond, or ideal designs after upstream changes, are explicitly distinguished from the current semantics.
 
-## 14. 変更方針
+## 14. Change Policy
 
-### 14.1 いつこの文書を更新するか
+### 14.1 When to Update This Document
 
-次のいずれかが変わるとき、本ドキュメントも更新する。
+This document is updated when any of the following change.
 
-- 状態分類の意味
-- DirtyFlags や invalidation policy
-- plugin 合成順序
-- Surface/Workspace の意味
-- 観測等価性の定義
+- Meaning of state classification
+- DirtyFlags or invalidation policy
+- Plugin composition order
+- Surface/Workspace semantics
+- Definition of observational equivalence
 
-### 14.2 ADR との関係
+### 14.2 Relationship with ADRs
 
-ADR は「なぜその決定をしたか」の履歴を保持する。本ドキュメントは「現在何が仕様か」の正本である。両者が衝突した場合、現行仕様としては本ドキュメントを優先し、必要なら ADR に注記を追加する。
+ADRs preserve the history of "why that decision was made." This document is the authoritative reference for "what is currently the specification." When the two conflict, this document takes priority as the current specification, and notes are added to the ADR as needed.
 
-### 14.3 テスト更新との同時性
+### 14.3 Synchronization with Test Updates
 
-意味論の変更は、可能な限り同じ変更で次も更新する。
+When semantics change, the following should also be updated in the same change whenever possible.
 
-- 関連 prose
-- 関連テスト
-- 必要な invalidation / cache 実装
+- Related prose
+- Related tests
+- Necessary invalidation / cache implementation
 
-意味論だけ、またはテストだけを先行させる変更は原則として避ける。
+Changes that advance only semantics or only tests are avoided in principle.
 
-## 15. 関連文書
+## 15. Related Documents
 
-- [architecture.md](./architecture.md) — システム境界とランタイム構成
-- [plugin-api.md](./plugin-api.md) — プラグイン API の参照
-- [requirements.md](./requirements.md) — 要件本文の正本
-- [decisions.md](./decisions.md) — 設計判断の履歴
+- [architecture.md](./architecture.md) — System boundaries and runtime structure
+- [plugin-api.md](./plugin-api.md) — Plugin API reference
+- [requirements.md](./requirements.md) — Authoritative reference for requirements
+- [decisions.md](./decisions.md) — History of design decisions
