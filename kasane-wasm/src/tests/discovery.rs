@@ -1,0 +1,140 @@
+use std::path::PathBuf;
+
+use super::*;
+
+#[test]
+fn discover_loads_fixtures_directory() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec![],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    crate::discover_and_register(&config, &mut registry);
+
+    // Should have loaded both cursor-line.wasm and line-numbers.wasm
+    assert!(registry.plugin_count() >= 2, "expected at least 2 plugins");
+}
+
+#[test]
+fn discover_skips_disabled_plugins() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec!["cursor_line".to_string()],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    crate::discover_and_register(&config, &mut registry);
+
+    // cursor-line skipped; the remaining fixtures still load.
+    assert_eq!(registry.plugin_count(), 5);
+}
+
+#[test]
+fn discover_does_nothing_when_disabled() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec![],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    crate::discover_and_register(&config, &mut registry);
+    assert_eq!(registry.plugin_count(), 0);
+}
+
+#[test]
+fn discover_handles_missing_directory() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some("/nonexistent/path/to/plugins".to_string()),
+        disabled: vec![],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    // Should not panic, just silently skip
+    crate::discover_and_register(&config, &mut registry);
+    assert_eq!(registry.plugin_count(), 0);
+}
+
+// --- bundled plugin tests ---
+
+#[test]
+fn register_bundled_plugins_loads_four() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        disabled: vec![],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    crate::register_bundled_plugins(&config, &mut registry);
+
+    assert_eq!(registry.plugin_count(), 4);
+}
+
+#[test]
+fn register_bundled_plugins_respects_disabled() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        disabled: vec!["color_preview".to_string()],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    crate::register_bundled_plugins(&config, &mut registry);
+
+    assert_eq!(registry.plugin_count(), 3);
+}
+
+#[test]
+fn filesystem_plugin_overrides_bundled() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        disabled: vec![],
+        ..Default::default()
+    };
+    let mut registry = PluginRegistry::new();
+    crate::register_bundled_plugins(&config, &mut registry);
+    assert_eq!(registry.plugin_count(), 4);
+
+    // Register another plugin with the same ID
+    let loader = WasmPluginLoader::new().unwrap();
+    let bytes = crate::load_wasm_fixture("cursor-line.wasm").unwrap();
+    let plugin = loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .unwrap();
+    assert_eq!(plugin.id().0, "cursor_line");
+    registry.register(Box::new(plugin));
+
+    // Should still be 4, not 5 (replaced, not added)
+    assert_eq!(registry.plugin_count(), 4);
+}
+
+#[test]
+fn sdk_wit_matches_host_wit() {
+    let host_wit = include_str!("../../wit/plugin.wit");
+    let sdk_wit = include_str!("../../../kasane-plugin-sdk/wit/plugin.wit");
+    assert_eq!(
+        host_wit, sdk_wit,
+        "SDK WIT and host WIT are out of sync — update kasane-plugin-sdk/wit/plugin.wit"
+    );
+}
