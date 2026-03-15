@@ -128,7 +128,7 @@ fn run_inner(
         .insert(primary_session, reader, writer, child)
         .expect("primary session key should be unique");
 
-    match resolved_ui {
+    let result = match resolved_ui {
         UiMode::Tui => kasane_tui::run_tui(
             config,
             session_manager,
@@ -151,7 +151,16 @@ fn run_inner(
             eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
             std::process::exit(1);
         }
+    };
+
+    result?;
+
+    // Propagate Kakoune's exit code for EDITOR= use case
+    if let Some(code) = process::last_kak_exit_code() {
+        std::process::exit(code);
     }
+
+    Ok(())
 }
 
 fn wrap_with_wasm_discovery(

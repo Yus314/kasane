@@ -1,8 +1,13 @@
+use std::cell::Cell;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::{Context, Result};
 use kasane_core::session::SessionSpec;
+
+thread_local! {
+    static LAST_KAK_EXIT_CODE: Cell<Option<i32>> = const { Cell::new(None) };
+}
 
 /// Writer half: wraps Kakoune's stdin as a `Write` impl.
 pub struct KakouneWriter {
@@ -46,10 +51,28 @@ pub struct KakouneChild {
     child: Child,
 }
 
+impl KakouneChild {
+    pub fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.child.wait()
+    }
+}
+
 impl Drop for KakouneChild {
     fn drop(&mut self) {
-        let _ = self.child.wait();
+        let code = self.child.wait().ok().and_then(|status| {
+            if status.success() {
+                None
+            } else {
+                Some(status.code().unwrap_or(1))
+            }
+        });
+        LAST_KAK_EXIT_CODE.with(|cell| cell.set(code));
     }
+}
+
+/// Returns the exit code of the last dropped KakouneChild, if it exited with failure.
+pub fn last_kak_exit_code() -> Option<i32> {
+    LAST_KAK_EXIT_CODE.with(|cell| cell.get())
 }
 
 /// Spawn a Kakoune process from a pre-configured Command and return split handles.
@@ -79,10 +102,6 @@ pub fn spawn_kakoune(args: &[String]) -> Result<(KakouneReader, KakouneWriter, K
 
 fn kak_command_argv(spec: &SessionSpec) -> Vec<String> {
     let mut argv = vec!["-ui".to_string(), "json".to_string()];
-    if let Some(session) = &spec.session {
-        argv.push("-c".to_string());
-        argv.push(session.clone());
-    }
     argv.extend(spec.args.iter().cloned());
     argv
 }
@@ -128,12 +147,43 @@ mod tests {
     }
 
     #[test]
-    fn named_session_spec_adds_connect_flag() {
-        let spec = SessionSpec::primary(Some("project".to_string()), vec!["file.txt".to_string()]);
+    fn connect_flag_from_args_is_preserved() {
+        let spec = SessionSpec::primary(
+            Some("project".to_string()),
+            vec![
+                "-c".to_string(),
+                "project".to_string(),
+                "file.txt".to_string(),
+            ],
+        );
 
         assert_eq!(
             kak_command_argv(&spec),
             vec!["-ui", "json", "-c", "project", "file.txt"]
         );
+    }
+
+    #[test]
+    fn named_session_flag_from_args_is_preserved() {
+        let spec = SessionSpec::primary(
+            Some("myses".to_string()),
+            vec![
+                "-s".to_string(),
+                "myses".to_string(),
+                "file.txt".to_string(),
+            ],
+        );
+
+        assert_eq!(
+            kak_command_argv(&spec),
+            vec!["-ui", "json", "-s", "myses", "file.txt"]
+        );
+    }
+
+    #[test]
+    fn plain_file_open_has_no_session_flags() {
+        let spec = SessionSpec::primary(None, vec!["file.txt".to_string()]);
+
+        assert_eq!(kak_command_argv(&spec), vec!["-ui", "json", "file.txt"]);
     }
 }
