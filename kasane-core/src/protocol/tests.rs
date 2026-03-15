@@ -197,6 +197,28 @@ fn test_parse_draw_real_kakoune() {
 }
 
 #[test]
+fn test_parse_draw_without_widget_columns() {
+    // Kakoune versions before PR #5455 send draw with 4 params (no widget_columns).
+    let json = r#"{"jsonrpc":"2.0","method":"draw","params":[[
+        [{"face":{"fg":"default","bg":"default","underline":"default","attributes":[]},"contents":"hello"}]
+    ],{"line":0,"column":0},{"fg":"default","bg":"default","underline":"default","attributes":[]},{"fg":"default","bg":"default","underline":"default","attributes":[]}]}"#;
+    let mut buf = json.as_bytes().to_vec();
+    let req = parse_request(&mut buf).unwrap();
+    match req {
+        KakouneRequest::Draw {
+            lines,
+            widget_columns,
+            ..
+        } => {
+            assert_eq!(lines.len(), 1);
+            assert_eq!(lines[0][0].contents, "hello");
+            assert_eq!(widget_columns, 0);
+        }
+        _ => panic!("expected Draw"),
+    }
+}
+
+#[test]
 fn test_parse_draw_status() {
     let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[
         [{"face":{"fg":"default","bg":"default"},"contents":":"}],

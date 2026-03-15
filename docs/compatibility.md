@@ -2,7 +2,7 @@
 
 ## Kakoune Version
 
-Kasane requires **Kakoune 2024.12.09** or later (commit `3dd6f30d`). This version introduced the `cursor_pos` field in the `draw` method and the `widget_columns` parameter, which Kasane depends on.
+Kasane requires **Kakoune 2024.12.09** or later (commit `3dd6f30d`). This version introduced the `cursor_pos` field in the `draw` method. The `widget_columns` parameter ([PR #5455](https://github.com/mawww/kakoune/pull/5455)) is used when available but is not required.
 
 If your Kakoune is too old, Kasane will show:
 

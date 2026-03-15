@@ -49,15 +49,30 @@ fn parse_method(
 
     match method {
         "draw" => {
-            let (lines, cursor_pos, default_face, padding_face, widget_columns) =
-                de_params(method, params)?;
-            Ok(KakouneRequest::Draw {
-                lines,
-                cursor_pos,
-                default_face,
-                padding_face,
-                widget_columns,
-            })
+            // widget_columns was added in PR #5455 (merged 2026-03-11) and is
+            // not yet in a Kakoune release.  Accept draw with 4 params (pre-
+            // #5455) by defaulting widget_columns to 0.
+            let arr = params.as_array().unwrap(); // validated above
+            if arr.len() >= 5 {
+                let (lines, cursor_pos, default_face, padding_face, widget_columns) =
+                    de_params(method, params)?;
+                Ok(KakouneRequest::Draw {
+                    lines,
+                    cursor_pos,
+                    default_face,
+                    padding_face,
+                    widget_columns,
+                })
+            } else {
+                let (lines, cursor_pos, default_face, padding_face) = de_params(method, params)?;
+                Ok(KakouneRequest::Draw {
+                    lines,
+                    cursor_pos,
+                    default_face,
+                    padding_face,
+                    widget_columns: 0,
+                })
+            }
         }
         "draw_status" => {
             let (prompt, content, content_cursor_pos, mode_line, default_face) =
