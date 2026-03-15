@@ -185,6 +185,42 @@ impl AppState {
         self.status_at_top = config.ui.status_position() == StatusPosition::Top;
         self.smooth_scroll = config.scroll.smooth;
     }
+
+    /// Reset session-owned UI state while preserving frontend configuration and dimensions.
+    pub fn reset_for_session_switch(&mut self) {
+        let cols = self.cols;
+        let rows = self.rows;
+        let focused = self.focused;
+        let shadow_enabled = self.shadow_enabled;
+        let padding_char = self.padding_char.clone();
+        let menu_max_height = self.menu_max_height;
+        let menu_position = self.menu_position;
+        let search_dropdown = self.search_dropdown;
+        let status_at_top = self.status_at_top;
+        let scrollbar_thumb = self.scrollbar_thumb.clone();
+        let scrollbar_track = self.scrollbar_track.clone();
+        let assistant_art = self.assistant_art.clone();
+        let plugin_config = self.plugin_config.clone();
+        let secondary_blend_ratio = self.secondary_blend_ratio;
+        let smooth_scroll = self.smooth_scroll;
+
+        *self = Self::default();
+        self.cols = cols;
+        self.rows = rows;
+        self.focused = focused;
+        self.shadow_enabled = shadow_enabled;
+        self.padding_char = padding_char;
+        self.menu_max_height = menu_max_height;
+        self.menu_position = menu_position;
+        self.search_dropdown = search_dropdown;
+        self.status_at_top = status_at_top;
+        self.scrollbar_thumb = scrollbar_thumb;
+        self.scrollbar_track = scrollbar_track;
+        self.assistant_art = assistant_art;
+        self.plugin_config = plugin_config;
+        self.secondary_blend_ratio = secondary_blend_ratio;
+        self.smooth_scroll = smooth_scroll;
+    }
 }
 
 /// Apply a SetConfig command to AppState.

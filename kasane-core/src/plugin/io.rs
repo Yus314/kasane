@@ -57,6 +57,9 @@ pub trait ProcessDispatcher {
     fn write(&mut self, plugin_id: &PluginId, job_id: u64, data: &[u8]);
     fn close_stdin(&mut self, plugin_id: &PluginId, job_id: u64);
     fn kill(&mut self, plugin_id: &PluginId, job_id: u64);
+    /// Remove a finished job from tracking after its Exited or SpawnFailed event
+    /// has been delivered. This frees the per-plugin process count slot.
+    fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64);
 }
 
 /// No-op ProcessDispatcher for contexts where process execution is not available.
@@ -75,4 +78,5 @@ impl ProcessDispatcher for NullProcessDispatcher {
     fn write(&mut self, _plugin_id: &PluginId, _job_id: u64, _data: &[u8]) {}
     fn close_stdin(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
     fn kill(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
+    fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 }

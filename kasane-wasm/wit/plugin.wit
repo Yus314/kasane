@@ -68,6 +68,8 @@ interface types {
         schedule-timer(timer-config),
         plugin-message(message-config),
         spawn-process(spawn-process-config),
+        spawn-session(session-config),
+        close-session(option<string>),
         write-to-process(write-process-config),
         close-process-stdin(u64),
         kill-process(u64),
@@ -84,6 +86,13 @@ interface types {
     record message-config {
         target-plugin: string,
         payload: list<u8>,
+    }
+
+    record session-config {
+        key: option<string>,
+        session: option<string>,
+        args: list<string>,
+        activate: bool,
     }
 
     /// Interactive element ID for mouse hit testing.
@@ -188,6 +197,8 @@ interface types {
         flex: f32,
     }
 
+    enum layout-direction { row, column }
+
     // --- v0.3.0: Decorator / Replacement / Menu types ---
 
     /// Target for element decoration (wrapping).
@@ -211,9 +222,97 @@ interface types {
 
     // --- v0.5.0: Contribute / Transform / Annotate types ---
 
+    enum well-known-slot {
+        buffer-left,
+        buffer-right,
+        above-buffer,
+        below-buffer,
+        above-status,
+        status-left,
+        status-right,
+        overlay,
+    }
+
+    variant slot-id {
+        well-known(well-known-slot),
+        named(string),
+    }
+
+    enum slot-kind {
+        above-band,
+        below-band,
+        left-rail,
+        right-rail,
+        overlay,
+    }
+
+    record declared-slot {
+        name: string,
+        kind: slot-kind,
+    }
+
+    record surface-size-hint {
+        min-width: u16,
+        min-height: u16,
+        preferred-width: option<u16>,
+        preferred-height: option<u16>,
+        flex: f32,
+    }
+
+    enum split-direction { horizontal, vertical }
+
+    enum dock-position { left, right, bottom, panel }
+
+    record split-focused-placement {
+        direction: split-direction,
+        ratio: f32,
+    }
+
+    record split-from-placement {
+        target-surface-key: string,
+        direction: split-direction,
+        ratio: f32,
+    }
+
+    variant surface-placement {
+        split-focused(split-focused-placement),
+        split-from(split-from-placement),
+        tab,
+        tab-in(string),
+        dock(dock-position),
+        float(rect),
+    }
+
+    record surface-view-context {
+        rect: rect,
+        focused: bool,
+    }
+
+    record surface-event-context {
+        rect: rect,
+        focused: bool,
+    }
+
+    variant surface-event {
+        key(key-event),
+        mouse(mouse-event),
+        focus-gained,
+        focus-lost,
+        resize(rect),
+    }
+
+    record surface-descriptor {
+        surface-key: string,
+        size-hint: surface-size-hint,
+        declared-slots: list<declared-slot>,
+        initial-placement: option<surface-placement>,
+    }
+
     record contribute-context {
-        available-width: u16,
-        available-height: u16,
+        min-width: u16,
+        max-width: option<u16>,
+        min-height: u16,
+        max-height: option<u16>,
         visible-line-start: u32,
         visible-line-end: u32,
         screen-cols: u16,
@@ -388,7 +487,7 @@ interface host-state {
 /// Host-provided functions for building Element trees.
 /// Handles are valid only within the current plugin call scope.
 interface element-builder {
-    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay};
+    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction};
 
     /// Create a text element with a direct face.
     create-text: func(content: string, face: face) -> element-handle;
@@ -420,6 +519,9 @@ interface element-builder {
     /// Create a horizontal flex layout with proportional children.
     create-row-flex: func(children: list<flex-entry>, gap: u16) -> element-handle;
 
+    /// Create a slot placeholder for hosted surface expansion.
+    create-slot-placeholder: func(slot: slot-id, direction: layout-direction, gap: u16) -> element-handle;
+
     // --- v0.3.0: Advanced element builders ---
 
     /// Create a container with full styling (border, shadow, padding, face, title).
@@ -444,9 +546,10 @@ interface element-builder {
 interface plugin-api {
     use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
                atom, decorate-target, replace-target,
-               contribute-context, contribution, transform-target, transform-context,
+               slot-id, contribute-context, contribution, transform-target, transform-context,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
-               capability, io-event};
+               capability, io-event, surface-view-context, surface-event-context, surface-event,
+               surface-descriptor};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -455,6 +558,19 @@ interface plugin-api {
     on-init: func() -> list<command>;
     on-shutdown: func() -> list<command>;
     on-state-changed: func(dirty-flags: u16) -> list<command>;
+
+    /// Static hosted surfaces exposed by this plugin.
+    /// Called during bootstrap preflight before `on-init`.
+    surfaces: func() -> list<surface-descriptor>;
+
+    /// Render a hosted surface's abstract Element tree for the given surface key.
+    render-surface: func(surface-key: string, ctx: surface-view-context) -> option<element-handle>;
+
+    /// Handle an event routed to a hosted surface.
+    handle-surface-event: func(surface-key: string, event: surface-event, ctx: surface-event-context) -> list<command>;
+
+    /// Notify a hosted surface that shared application state changed.
+    handle-surface-state-changed: func(surface-key: string, dirty-flags: u16) -> list<command>;
 
     /// Line decoration (gutter elements + background).
     contribute-line: func(line: u32) -> option<line-decoration>;
@@ -528,7 +644,7 @@ interface plugin-api {
     // --- v0.5.0: Contribute / Transform / Annotate ---
 
     /// Contribute an element to a region with layout context.
-    contribute-to: func(region: u8, ctx: contribute-context) -> option<contribution>;
+    contribute-to: func(region: slot-id, ctx: contribute-context) -> option<contribution>;
 
     /// Transform an element for a given target (replaces decorate + replace).
     transform-element: func(target: transform-target, element: element-handle, ctx: transform-context) -> element-handle;
@@ -543,7 +659,7 @@ interface plugin-api {
     contribute-overlay-v2: func(ctx: overlay-context) -> option<overlay-contribution>;
 
     /// DirtyFlags dependencies for contribute-to.
-    contribute-deps: func(region: u8) -> u16;
+    contribute-deps: func(region: slot-id) -> u16;
 
     /// DirtyFlags dependencies for transform on a given target.
     transform-deps: func(target: transform-target) -> u16;

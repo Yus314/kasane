@@ -101,6 +101,7 @@ impl WasmPluginLoader {
 const BUNDLED_CURSOR_LINE: &[u8] = include_bytes!("../bundled/cursor-line.wasm");
 const BUNDLED_COLOR_PREVIEW: &[u8] = include_bytes!("../bundled/color-preview.wasm");
 const BUNDLED_SEL_BADGE: &[u8] = include_bytes!("../bundled/sel-badge.wasm");
+const BUNDLED_FUZZY_FINDER: &[u8] = include_bytes!("../bundled/fuzzy-finder.wasm");
 
 /// Register bundled WASM plugins that are embedded in the binary.
 ///
@@ -126,6 +127,7 @@ pub fn register_bundled_plugins(
         ("cursor_line", BUNDLED_CURSOR_LINE),
         ("color_preview", BUNDLED_COLOR_PREVIEW),
         ("sel_badge", BUNDLED_SEL_BADGE),
+        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
     ] {
         if plugins_config.disabled.contains(&name.to_string()) {
             tracing::info!("bundled WASM plugin {name} disabled by config");

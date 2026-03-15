@@ -1,8 +1,9 @@
-use crate::element::{Element, Overlay};
+use crate::element::Overlay;
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::plugin::EffectiveSectionDeps;
 use crate::state::DirtyFlags;
+use crate::surface::SurfaceComposeResult;
 
 // ---------------------------------------------------------------------------
 // ComponentCache — generic memoization wrapper for component functions
@@ -66,7 +67,7 @@ impl<T: Clone> ComponentCache<T> {
 #[derive(Debug, Default)]
 pub struct ViewCache {
     /// Base layout: buffer + status bar + plugin slots.
-    pub(crate) base: ComponentCache<Element>,
+    pub(crate) base: ComponentCache<SurfaceComposeResult>,
     /// Menu overlay.
     pub(crate) menu_overlay: ComponentCache<Option<Overlay>>,
     /// Info overlays.

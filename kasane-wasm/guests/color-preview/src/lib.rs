@@ -296,6 +296,11 @@ impl Guest for ColorPreviewPlugin {
         vec![]
     }
 
+    kasane_plugin_sdk::default_surfaces!();
+    kasane_plugin_sdk::default_render_surface!();
+    kasane_plugin_sdk::default_handle_surface_event!();
+    kasane_plugin_sdk::default_handle_surface_state_changed!();
+
     fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
         if dirty_flags & dirty::BUFFER == 0 {
             return vec![];

@@ -40,6 +40,6 @@ pub use crate::workspace::{
 
 // Surface
 pub use crate::surface::{
-    EventContext, SizeHint, SlotDeclaration, SlotPosition, Surface, SurfaceEvent, SurfaceId,
-    SurfaceRegistry, ViewContext,
+    EventContext, SizeHint, SlotDeclaration, SlotKind, Surface, SurfaceEvent, SurfaceId,
+    SurfacePlacementRequest, SurfaceRegistry, ViewContext,
 };

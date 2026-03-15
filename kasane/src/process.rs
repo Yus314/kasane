@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::{Context, Result};
+use kasane_core::session::SessionSpec;
 
 /// Writer half: wraps Kakoune's stdin as a `Write` impl.
 pub struct KakouneWriter {
@@ -73,9 +74,25 @@ fn start_kakoune(mut cmd: Command) -> Result<(KakouneReader, KakouneWriter, Kako
 
 /// Spawn Kakoune and return split reader/writer handles.
 pub fn spawn_kakoune(args: &[String]) -> Result<(KakouneReader, KakouneWriter, KakouneChild)> {
+    spawn_kakoune_for_spec(&SessionSpec::primary(None, args.to_vec()))
+}
+
+fn kak_command_argv(spec: &SessionSpec) -> Vec<String> {
+    let mut argv = vec!["-ui".to_string(), "json".to_string()];
+    if let Some(session) = &spec.session {
+        argv.push("-c".to_string());
+        argv.push(session.clone());
+    }
+    argv.extend(spec.args.iter().cloned());
+    argv
+}
+
+/// Spawn Kakoune for a specific managed session.
+pub fn spawn_kakoune_for_spec(
+    spec: &SessionSpec,
+) -> Result<(KakouneReader, KakouneWriter, KakouneChild)> {
     let mut cmd = Command::new("kak");
-    cmd.arg("-ui").arg("json");
-    cmd.args(args);
+    cmd.args(kak_command_argv(spec));
     start_kakoune(cmd)
 }
 
@@ -96,5 +113,27 @@ pub fn get_kak_version() -> String {
     match Command::new("kak").arg("-version").output() {
         Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
         Err(_) => "kak not found".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primary_session_spec_does_not_add_connect_flag() {
+        let spec = SessionSpec::primary(None, vec!["file.txt".to_string()]);
+
+        assert_eq!(kak_command_argv(&spec), vec!["-ui", "json", "file.txt"]);
+    }
+
+    #[test]
+    fn named_session_spec_adds_connect_flag() {
+        let spec = SessionSpec::primary(Some("project".to_string()), vec!["file.txt".to_string()]);
+
+        assert_eq!(
+            kak_command_argv(&spec),
+            vec!["-ui", "json", "-c", "project", "file.txt"]
+        );
     }
 }

@@ -317,6 +317,10 @@ impl ProcessDispatcher for ProcessManager {
     fn kill(&mut self, plugin_id: &PluginId, job_id: u64) {
         self.kill_process(plugin_id, job_id);
     }
+
+    fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64) {
+        ProcessManager::remove_finished_job(self, plugin_id, job_id);
+    }
 }
 
 #[cfg(test)]

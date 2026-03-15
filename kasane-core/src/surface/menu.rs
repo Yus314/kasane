@@ -7,6 +7,7 @@
 use crate::element::Element;
 use crate::plugin::Command;
 use crate::state::{AppState, DirtyFlags};
+use compact_str::CompactString;
 
 use super::{EventContext, SizeHint, Surface, SurfaceEvent, SurfaceId, ViewContext};
 
@@ -19,6 +20,10 @@ pub struct MenuSurface;
 impl Surface for MenuSurface {
     fn id(&self) -> SurfaceId {
         SurfaceId::MENU
+    }
+
+    fn surface_key(&self) -> CompactString {
+        "kasane.menu".into()
     }
 
     fn size_hint(&self) -> SizeHint {

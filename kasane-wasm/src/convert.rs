@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::config::MenuPosition;
-use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
+use kasane_core::element::{
+    BorderConfig, BorderLineStyle, Direction, Edges, GridColumn, OverlayAnchor,
+};
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-use kasane_core::layout::Rect;
+use kasane_core::layout::{Rect, SplitDirection};
 use kasane_core::plugin::{
     AnnotateContext, Command, ContribSizeHint, ContributeContext, IoEvent, OverlayContext,
     PluginId, ProcessEvent, SlotId, StdinMode, TransformContext, TransformTarget,
@@ -14,7 +16,12 @@ use kasane_core::plugin::{
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, InfoStyle, KasaneRequest, MenuStyle, NamedColor,
 };
+use kasane_core::session::SessionCommand;
 use kasane_core::state::DirtyFlags;
+use kasane_core::surface::{
+    EventContext, SizeHint, SlotKind, SurfaceEvent, SurfacePlacementRequest, ViewContext,
+};
+use kasane_core::workspace::DockPosition;
 
 // ---------------------------------------------------------------------------
 // Bidirectional enum conversion macro
@@ -154,6 +161,15 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
                 wit::StdinMode::Piped => StdinMode::Piped,
             },
         },
+        wit::Command::SpawnSession(cfg) => Command::Session(SessionCommand::Spawn {
+            key: cfg.key.clone(),
+            session: cfg.session.clone(),
+            args: cfg.args.clone(),
+            activate: cfg.activate,
+        }),
+        wit::Command::CloseSession(key) => {
+            Command::Session(SessionCommand::Close { key: key.clone() })
+        }
         wit::Command::WriteToProcess(cfg) => Command::WriteToProcess {
             job_id: cfg.job_id,
             data: cfg.data.clone(),
@@ -287,6 +303,15 @@ pub(crate) fn wit_overlay_anchor_to_overlay_anchor(wa: &wit::OverlayAnchor) -> O
     }
 }
 
+pub(crate) fn wit_rect_to_rect(rect: &wit::Rect) -> Rect {
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: rect.h,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Element builder type conversions (WIT → native)
 // ---------------------------------------------------------------------------
@@ -353,14 +378,151 @@ pub(crate) fn menu_position_to_string(pos: &MenuPosition) -> String {
 // v0.5.0: Contribute / Transform / Annotate conversions
 // ---------------------------------------------------------------------------
 
-pub(crate) fn slot_id_to_index(slot_id: &SlotId) -> u8 {
-    slot_id.well_known_index().map_or(255, |i| i as u8)
+pub(crate) fn slot_id_to_wit(slot_id: &SlotId) -> wit::SlotId {
+    match slot_id.well_known_index() {
+        Some(0) => wit::SlotId::WellKnown(wit::WellKnownSlot::BufferLeft),
+        Some(1) => wit::SlotId::WellKnown(wit::WellKnownSlot::BufferRight),
+        Some(2) => wit::SlotId::WellKnown(wit::WellKnownSlot::AboveBuffer),
+        Some(3) => wit::SlotId::WellKnown(wit::WellKnownSlot::BelowBuffer),
+        Some(4) => wit::SlotId::WellKnown(wit::WellKnownSlot::AboveStatus),
+        Some(5) => wit::SlotId::WellKnown(wit::WellKnownSlot::StatusLeft),
+        Some(6) => wit::SlotId::WellKnown(wit::WellKnownSlot::StatusRight),
+        Some(7) => wit::SlotId::WellKnown(wit::WellKnownSlot::Overlay),
+        Some(_) => unreachable!("unexpected well-known slot index"),
+        None => wit::SlotId::Named(slot_id.as_str().to_string()),
+    }
+}
+
+pub(crate) fn wit_slot_id_to_slot_id(slot_id: &wit::SlotId) -> SlotId {
+    match slot_id {
+        wit::SlotId::WellKnown(slot) => match slot {
+            wit::WellKnownSlot::BufferLeft => SlotId::BUFFER_LEFT,
+            wit::WellKnownSlot::BufferRight => SlotId::BUFFER_RIGHT,
+            wit::WellKnownSlot::AboveBuffer => SlotId::ABOVE_BUFFER,
+            wit::WellKnownSlot::BelowBuffer => SlotId::BELOW_BUFFER,
+            wit::WellKnownSlot::AboveStatus => SlotId::ABOVE_STATUS,
+            wit::WellKnownSlot::StatusLeft => SlotId::STATUS_LEFT,
+            wit::WellKnownSlot::StatusRight => SlotId::STATUS_RIGHT,
+            wit::WellKnownSlot::Overlay => SlotId::OVERLAY,
+        },
+        wit::SlotId::Named(name) => SlotId::new(name.clone()),
+    }
+}
+
+pub(crate) fn wit_layout_direction_to_direction(direction: wit::LayoutDirection) -> Direction {
+    match direction {
+        wit::LayoutDirection::Row => Direction::Row,
+        wit::LayoutDirection::Column => Direction::Column,
+    }
+}
+
+pub(crate) fn wit_slot_kind_to_slot_kind(kind: wit::SlotKind) -> SlotKind {
+    match kind {
+        wit::SlotKind::AboveBand => SlotKind::AboveBand,
+        wit::SlotKind::BelowBand => SlotKind::BelowBand,
+        wit::SlotKind::LeftRail => SlotKind::LeftRail,
+        wit::SlotKind::RightRail => SlotKind::RightRail,
+        wit::SlotKind::Overlay => SlotKind::Overlay,
+    }
+}
+
+pub(crate) fn wit_surface_size_hint_to_size_hint(hint: &wit::SurfaceSizeHint) -> SizeHint {
+    SizeHint {
+        min_width: hint.min_width,
+        min_height: hint.min_height,
+        preferred_width: hint.preferred_width,
+        preferred_height: hint.preferred_height,
+        flex: hint.flex,
+    }
+}
+
+pub(crate) fn wit_surface_placement_to_request(
+    placement: &wit::SurfacePlacement,
+) -> SurfacePlacementRequest {
+    match placement {
+        wit::SurfacePlacement::SplitFocused(split) => SurfacePlacementRequest::SplitFocused {
+            direction: wit_split_direction_to_split_direction(split.direction),
+            ratio: split.ratio,
+        },
+        wit::SurfacePlacement::SplitFrom(split) => SurfacePlacementRequest::SplitFrom {
+            target_surface_key: split.target_surface_key.clone().into(),
+            direction: wit_split_direction_to_split_direction(split.direction),
+            ratio: split.ratio,
+        },
+        wit::SurfacePlacement::Tab => SurfacePlacementRequest::Tab,
+        wit::SurfacePlacement::TabIn(target_surface_key) => SurfacePlacementRequest::TabIn {
+            target_surface_key: target_surface_key.clone().into(),
+        },
+        wit::SurfacePlacement::Dock(position) => {
+            SurfacePlacementRequest::Dock(wit_dock_position_to_dock_position(*position))
+        }
+        wit::SurfacePlacement::Float(rect) => SurfacePlacementRequest::Float {
+            rect: wit_rect_to_rect(rect),
+        },
+    }
+}
+
+pub(crate) fn surface_view_context_to_wit(ctx: &ViewContext<'_>) -> wit::SurfaceViewContext {
+    wit::SurfaceViewContext {
+        rect: wit::Rect {
+            x: ctx.rect.x,
+            y: ctx.rect.y,
+            w: ctx.rect.w,
+            h: ctx.rect.h,
+        },
+        focused: ctx.focused,
+    }
+}
+
+pub(crate) fn surface_event_context_to_wit(ctx: &EventContext<'_>) -> wit::SurfaceEventContext {
+    wit::SurfaceEventContext {
+        rect: wit::Rect {
+            x: ctx.rect.x,
+            y: ctx.rect.y,
+            w: ctx.rect.w,
+            h: ctx.rect.h,
+        },
+        focused: ctx.focused,
+    }
+}
+
+pub(crate) fn surface_event_to_wit(event: &SurfaceEvent) -> wit::SurfaceEvent {
+    match event {
+        SurfaceEvent::Key(event) => wit::SurfaceEvent::Key(key_event_to_wit(event)),
+        SurfaceEvent::Mouse(event) => wit::SurfaceEvent::Mouse(mouse_event_to_wit(event)),
+        SurfaceEvent::FocusGained => wit::SurfaceEvent::FocusGained,
+        SurfaceEvent::FocusLost => wit::SurfaceEvent::FocusLost,
+        SurfaceEvent::Resize(rect) => wit::SurfaceEvent::Resize(wit::Rect {
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+        }),
+    }
+}
+
+fn wit_split_direction_to_split_direction(direction: wit::SplitDirection) -> SplitDirection {
+    match direction {
+        wit::SplitDirection::Horizontal => SplitDirection::Horizontal,
+        wit::SplitDirection::Vertical => SplitDirection::Vertical,
+    }
+}
+
+fn wit_dock_position_to_dock_position(position: wit::DockPosition) -> DockPosition {
+    match position {
+        wit::DockPosition::Left => DockPosition::Left,
+        wit::DockPosition::Right => DockPosition::Right,
+        wit::DockPosition::Bottom => DockPosition::Bottom,
+        wit::DockPosition::Panel => DockPosition::Panel,
+    }
 }
 
 pub(crate) fn contribute_context_to_wit(ctx: &ContributeContext) -> wit::ContributeContext {
     wit::ContributeContext {
-        available_width: ctx.available_width,
-        available_height: ctx.available_height,
+        min_width: ctx.min_width,
+        max_width: ctx.max_width,
+        min_height: ctx.min_height,
+        max_height: ctx.max_height,
         visible_line_start: ctx.visible_lines.start as u32,
         visible_line_end: ctx.visible_lines.end as u32,
         screen_cols: ctx.screen_cols,
@@ -432,6 +594,9 @@ pub(crate) fn overlay_context_to_wit(ctx: &OverlayContext) -> wit::OverlayContex
 mod tests {
     use super::*;
     use kasane_core::input::Modifiers;
+    use kasane_core::layout::flex::Constraints;
+    use kasane_core::state::AppState;
+    use kasane_core::surface::{EventContext, SurfaceEvent};
 
     #[test]
     fn convert_default_color() {
@@ -505,6 +670,26 @@ mod tests {
         let a = wit_atom_to_atom(&wa);
         assert_eq!(a.contents.as_str(), "hello");
         assert_eq!(a.face.fg, Color::Named(NamedColor::Red));
+    }
+
+    #[test]
+    fn convert_contribute_context_preserves_unbounded_max() {
+        let state = AppState::default();
+        let ctx = ContributeContext::from_constraints(
+            &state,
+            Constraints {
+                min_width: 2,
+                max_width: u16::MAX,
+                min_height: 1,
+                max_height: 9,
+            },
+        );
+
+        let wit_ctx = contribute_context_to_wit(&ctx);
+        assert_eq!(wit_ctx.min_width, 2);
+        assert_eq!(wit_ctx.max_width, None);
+        assert_eq!(wit_ctx.min_height, 1);
+        assert_eq!(wit_ctx.max_height, Some(9));
     }
 
     #[test]
@@ -587,6 +772,43 @@ mod tests {
         let wit_ev = key_event_to_wit(&native);
         assert!(matches!(wit_ev.key, wit::KeyCode::Character(ref s) if s == "x"));
         assert_eq!(wit_ev.modifiers, Modifiers::ALT.bits());
+    }
+
+    #[test]
+    fn convert_surface_event_key_roundtrip() {
+        let native = SurfaceEvent::Key(KeyEvent {
+            key: Key::Char('r'),
+            modifiers: Modifiers::CTRL,
+        });
+        let wit_ev = surface_event_to_wit(&native);
+        match wit_ev {
+            wit::SurfaceEvent::Key(key) => {
+                assert!(matches!(key.key, wit::KeyCode::Character(ref s) if s == "r"));
+                assert_eq!(key.modifiers, Modifiers::CTRL.bits());
+            }
+            other => panic!("expected key surface event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn convert_surface_event_context_preserves_focus() {
+        let state = AppState::default();
+        let ctx = EventContext {
+            state: &state,
+            rect: Rect {
+                x: 4,
+                y: 5,
+                w: 12,
+                h: 3,
+            },
+            focused: false,
+        };
+        let wit_ctx = surface_event_context_to_wit(&ctx);
+        assert_eq!(wit_ctx.rect.x, 4);
+        assert_eq!(wit_ctx.rect.y, 5);
+        assert_eq!(wit_ctx.rect.w, 12);
+        assert_eq!(wit_ctx.rect.h, 3);
+        assert!(!wit_ctx.focused);
     }
 
     #[test]
@@ -976,6 +1198,41 @@ mod tests {
                 assert_eq!(job_id, 99);
             }
             _ => panic!("expected KillProcess"),
+        }
+    }
+
+    #[test]
+    fn convert_command_spawn_session() {
+        let wc = wit::Command::SpawnSession(wit::SessionConfig {
+            key: Some("work".to_string()),
+            session: Some("project".to_string()),
+            args: vec!["file.txt".to_string()],
+            activate: true,
+        });
+        match wit_command_to_command(&wc) {
+            Command::Session(SessionCommand::Spawn {
+                key,
+                session,
+                args,
+                activate,
+            }) => {
+                assert_eq!(key.as_deref(), Some("work"));
+                assert_eq!(session.as_deref(), Some("project"));
+                assert_eq!(args, vec!["file.txt".to_string()]);
+                assert!(activate);
+            }
+            _ => panic!("expected Session::Spawn"),
+        }
+    }
+
+    #[test]
+    fn convert_command_close_session() {
+        let wc = wit::Command::CloseSession(Some("work".to_string()));
+        match wit_command_to_command(&wc) {
+            Command::Session(SessionCommand::Close { key }) => {
+                assert_eq!(key.as_deref(), Some("work"));
+            }
+            _ => panic!("expected Session::Close"),
         }
     }
 }

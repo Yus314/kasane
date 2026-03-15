@@ -26,6 +26,20 @@ pub fn find_buffer_x_offset(element: &Element, layout: &LayoutResult) -> u16 {
             }
             0
         }
+        Element::ResolvedSlot { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i) {
+                    let x = find_buffer_x_offset(&child.element, child_layout);
+                    if x > 0 {
+                        return x;
+                    }
+                    if matches!(child.element, Element::BufferRef { .. }) {
+                        return child_layout.area.x;
+                    }
+                }
+            }
+            0
+        }
         Element::Container { child, .. } | Element::Interactive { child, .. } => layout
             .children
             .first()
@@ -36,6 +50,10 @@ pub fn find_buffer_x_offset(element: &Element, layout: &LayoutResult) -> u16 {
             .first()
             .map(|cl| find_buffer_x_offset(base, cl))
             .unwrap_or(0),
+        Element::SlotPlaceholder { .. } => {
+            debug_assert!(false, "unresolved SlotPlaceholder reached cursor lookup");
+            0
+        }
         _ => 0,
     }
 }

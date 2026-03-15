@@ -65,7 +65,17 @@ fn paint_with_ctx(ctx: &mut PaintContext, element: &Element, layout: &LayoutResu
             );
         }
         Element::Empty => {}
+        Element::SlotPlaceholder { .. } => {
+            debug_assert!(false, "unresolved SlotPlaceholder reached paint");
+        }
         Element::Flex { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i) {
+                    paint_with_ctx(ctx, &child.element, child_layout);
+                }
+            }
+        }
+        Element::ResolvedSlot { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i) {
                     paint_with_ctx(ctx, &child.element, child_layout);

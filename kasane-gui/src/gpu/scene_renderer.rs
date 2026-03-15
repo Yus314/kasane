@@ -25,6 +25,7 @@ pub struct SceneRenderer {
     viewport: Viewport,
     text_atlas: TextAtlas,
     text_renderer: TextRenderer,
+    shadow: BorderPipeline,
     bg: BgPipeline,
     border: BorderPipeline,
     metrics: CellMetrics,
@@ -80,6 +81,7 @@ impl SceneRenderer {
             },
         );
 
+        let shadow = BorderPipeline::new(gpu, surface_format);
         let bg = BgPipeline::new(gpu, surface_format);
         let border = BorderPipeline::new(gpu, surface_format);
 
@@ -89,6 +91,7 @@ impl SceneRenderer {
             viewport,
             text_atlas,
             text_renderer,
+            shadow,
             bg,
             border,
             metrics,
@@ -209,6 +212,11 @@ impl SceneRenderer {
         // Update screen size uniforms
         let screen_size_data = [screen_w, screen_h];
         gpu.queue.write_buffer(
+            &self.shadow.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&screen_size_data),
+        );
+        gpu.queue.write_buffer(
             &self.bg.uniform_buffer,
             0,
             bytemuck::cast_slice(&screen_size_data),
@@ -251,6 +259,7 @@ impl SceneRenderer {
         // data is flushed before the next layer overwrites shared GPU buffers.
         for (layer_idx, &(range_start, range_end)) in layer_ranges.iter().enumerate() {
             // Reset per-layer pipeline instances
+            self.shadow.instances.clear();
             self.bg.instances.clear();
             self.border.instances.clear();
             let layer_text_start = self.text_buffer_count;
@@ -258,8 +267,31 @@ impl SceneRenderer {
             // Process this layer's DrawCommands
             for cmd in &commands[range_start..range_end] {
                 match cmd {
-                    DrawCommand::FillRect { rect, face } => {
-                        let bg = color_resolver.resolve(face.bg, false);
+                    DrawCommand::FillRect {
+                        rect,
+                        face,
+                        elevated,
+                    } => {
+                        let mut bg = color_resolver.resolve(face.bg, false);
+                        if *elevated {
+                            // Lighten popup background significantly.
+                            // In the dark sRGB range, small additive steps are
+                            // imperceptible.  Use a large lift (+0.25 ≈ +64 in
+                            // 0-255) to make floating panels clearly distinct.
+                            bg[0] = (bg[0] + 0.25).min(1.0);
+                            bg[1] = (bg[1] + 0.25).min(1.0);
+                            bg[2] = (bg[2] + 0.25).min(1.0);
+                            tracing::debug!(
+                                "elevated FillRect: bg=[{:.3},{:.3},{:.3}] rect=({:.0},{:.0},{:.0},{:.0})",
+                                bg[0],
+                                bg[1],
+                                bg[2],
+                                rect.x,
+                                rect.y,
+                                rect.w,
+                                rect.h,
+                            );
+                        }
                         self.bg.push_rect(rect.x, rect.y, rect.w, rect.h, bg);
                     }
                     DrawCommand::DrawAtoms {
@@ -355,8 +387,51 @@ impl SceneRenderer {
                             );
                         }
                     }
-                    DrawCommand::DrawBorderTitle { .. } => {
-                        // Title rendering handled by DrawAtoms in the view layer
+                    DrawCommand::DrawBorderTitle {
+                        rect,
+                        title,
+                        border_face,
+                        elevated,
+                    } => {
+                        // Compute the title width in pixels
+                        let title_w: f32 = title
+                            .iter()
+                            .map(|a| line_display_width_str(&a.contents) as f32 * cell_w)
+                            .sum();
+                        // Horizontal padding around the title text so it doesn't
+                        // touch the border line.
+                        let pad_x = cell_w * 0.5;
+
+                        // Center the title on the top edge of the border rect,
+                        // vertically aligned so text sits on the border line.
+                        let title_x = rect.x + (rect.w - title_w) / 2.0;
+                        let title_y = rect.y - cell_h * 0.35;
+
+                        // Match the container's background color.
+                        // Elevated containers (shadow=true) add +0.25.
+                        let mut title_bg = color_resolver.resolve(border_face.bg, false);
+                        if *elevated {
+                            title_bg[0] = (title_bg[0] + 0.25).min(1.0);
+                            title_bg[1] = (title_bg[1] + 0.25).min(1.0);
+                            title_bg[2] = (title_bg[2] + 0.25).min(1.0);
+                        }
+
+                        // Push bg into the border pipeline so it renders AFTER the
+                        // border line, covering the line segment behind the title.
+                        // The bg rect is wider than the text by pad_x on each side.
+                        self.border.push_rounded_rect(
+                            title_x - pad_x,
+                            title_y,
+                            title_w + pad_x * 2.0,
+                            cell_h,
+                            0.0,
+                            0.0, // no corner radius, no border
+                            title_bg,
+                            [0.0, 0.0, 0.0, 0.0],
+                        );
+
+                        // Draw the title text
+                        self.process_draw_atoms(title_x, title_y, title, title_w, color_resolver);
                     }
                     DrawCommand::DrawShadow {
                         rect,
@@ -365,7 +440,7 @@ impl SceneRenderer {
                         color,
                     } => {
                         let expand = *blur_radius;
-                        self.border.push_rounded_rect(
+                        self.shadow.push_rounded_rect(
                             rect.x + offset.0 - expand,
                             rect.y + offset.1 - expand,
                             rect.w + expand * 2.0,
@@ -416,6 +491,9 @@ impl SceneRenderer {
             }
 
             // Ensure GPU buffers are large enough for this layer
+            let shadow_count = self.shadow.instances.len() / 14;
+            self.shadow.ensure_buffer(gpu, shadow_count);
+
             let bg_count = self.bg.instances.len() / 8;
             self.bg.ensure_buffer(gpu, bg_count);
 
@@ -496,6 +574,7 @@ impl SceneRenderer {
                     multiview_mask: None,
                 });
 
+                self.shadow.upload_and_draw(gpu, &mut render_pass);
                 self.bg.upload_and_draw(gpu, &mut render_pass);
                 self.border.upload_and_draw(gpu, &mut render_pass);
                 self.text_renderer
@@ -540,10 +619,11 @@ impl SceneRenderer {
                 break;
             }
 
-            // Background rectangle
-            let bg = color_resolver.resolve(atom.face.bg, false);
+            // Background rectangle — skip for Color::Default so the parent
+            // element's background (e.g. an elevated Container) shows through.
             let actual_w = atom_display_w.min(remaining);
-            if actual_w > 0.0 {
+            if actual_w > 0.0 && atom.face.bg != kasane_core::protocol::Color::Default {
+                let bg = color_resolver.resolve(atom.face.bg, false);
                 self.bg.push_rect(x, py, actual_w, cell_h, bg);
             }
 
@@ -611,11 +691,11 @@ impl SceneRenderer {
             return;
         }
 
-        // Background
-        let bg = color_resolver.resolve(face.bg, false);
+        // Background — skip for Color::Default (parent bg shows through)
         let text_w = line_display_width_str(text) as f32 * self.metrics.cell_width;
         let actual_w = text_w.min(max_width);
-        if actual_w > 0.0 {
+        if actual_w > 0.0 && face.bg != kasane_core::protocol::Color::Default {
+            let bg = color_resolver.resolve(face.bg, false);
             self.bg
                 .push_rect(px, py, actual_w, self.metrics.cell_height, bg);
         }

@@ -8,12 +8,15 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
-use kasane_core::event_loop::{TimerScheduler, handle_deferred_commands};
+use kasane_core::event_loop::{
+    TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
+    handle_workspace_divider_input,
+};
 use kasane_core::input::InputEvent;
-use kasane_core::layout::build_hit_map;
+use kasane_core::layout::{Rect, build_hit_map};
 use kasane_core::plugin::{
-    Command, CommandResult, PluginRegistry, ProcessDispatcher, execute_commands,
-    extract_deferred_commands,
+    Command, CommandResult, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent,
+    execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::view::surface_view_sections_cached;
@@ -21,9 +24,10 @@ use kasane_core::render::{
     CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache,
     scene_render_pipeline_surfaces_cached,
 };
+use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
-use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
+use kasane_core::surface::{SurfaceEvent, SurfaceRegistry};
 
 use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
@@ -31,7 +35,7 @@ use crate::colors::ColorResolver;
 use crate::gpu::GpuState;
 use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
-use crate::{GuiEvent, TimerPayload};
+use crate::{GuiEvent, TimerPayload, spawn_session_reader};
 
 /// TimerScheduler that injects timer events into the winit event loop.
 struct GuiTimerScheduler(winit::event_loop::EventLoopProxy<GuiEvent>);
@@ -51,7 +55,111 @@ impl TimerScheduler for GuiTimerScheduler {
     }
 }
 
-pub struct App<W: Write + Send + 'static> {
+struct GuiSessionRuntime<'a, R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    session_manager: &'a mut SessionManager<R, W, C>,
+    session_states: &'a mut SessionStateStore,
+    proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
+    spawn_session: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+}
+
+impl<'a, R, W, C> kasane_core::event_loop::SessionRuntime for GuiSessionRuntime<'a, R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    fn spawn_session(
+        &mut self,
+        spec: SessionSpec,
+        activate: bool,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) {
+        let Ok((reader, writer, child)) = (self.spawn_session)(&spec) else {
+            tracing::error!("failed to spawn session {}", spec.key);
+            return;
+        };
+        let Ok(session_id) = self.session_manager.insert(spec, reader, writer, child) else {
+            tracing::error!("failed to register spawned session");
+            return;
+        };
+        self.session_states.ensure_session(session_id, state);
+        let reader = self
+            .session_manager
+            .take_reader(session_id)
+            .expect("spawned session reader missing");
+        spawn_session_reader(session_id, reader, self.proxy.clone());
+        if activate {
+            self.session_manager
+                .sync_and_activate(self.session_states, session_id, state)
+                .expect("spawned session must be activeable");
+            if !self.session_states.restore_into(session_id, state) {
+                state.reset_for_session_switch();
+            }
+            *dirty |= DirtyFlags::ALL;
+            *initial_resize_sent = false;
+        }
+    }
+
+    fn close_session(
+        &mut self,
+        key: Option<&str>,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) -> bool {
+        let target = key
+            .and_then(|k| self.session_manager.session_id_by_key(k))
+            .or_else(|| self.session_manager.active_session_id());
+        let Some(target) = target else {
+            return false;
+        };
+        let was_active = self.session_manager.active_session_id() == Some(target);
+        let _ = self.session_manager.close(target);
+        self.session_states.remove(target);
+        if self.session_manager.is_empty() {
+            return true;
+        }
+        if was_active {
+            let restored = self
+                .session_manager
+                .active_session_id()
+                .is_some_and(|active| self.session_states.restore_into(active, state));
+            if !restored {
+                state.reset_for_session_switch();
+            }
+            *dirty |= DirtyFlags::ALL;
+            *initial_resize_sent = false;
+        }
+        false
+    }
+}
+
+impl<'a, R, W, C> kasane_core::event_loop::SessionHost for GuiSessionRuntime<'a, R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    fn active_writer(&mut self) -> &mut dyn Write {
+        self.session_manager
+            .active_writer_mut()
+            .expect("missing active session writer")
+    }
+}
+
+pub struct App<R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
     // winit
     window: Option<Arc<Window>>,
 
@@ -67,7 +175,9 @@ pub struct App<W: Write + Send + 'static> {
     backend: Option<GuiBackend>,
 
     // Kakoune communication
-    kak_writer: W,
+    session_manager: SessionManager<R, W, C>,
+    session_states: SessionStateStore,
+    session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
 
     // Event state
     pending_events: Vec<GuiEvent>,
@@ -100,10 +210,16 @@ pub struct App<W: Write + Send + 'static> {
     process_dispatcher: Box<dyn ProcessDispatcher>,
 }
 
-impl<W: Write + Send + 'static> App<W> {
+impl<R, W, C> App<R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
     pub fn new(
         config: Config,
-        kak_writer: W,
+        session_manager: SessionManager<R, W, C>,
+        session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
         registry: PluginRegistry,
         process_dispatcher: Box<dyn ProcessDispatcher>,
@@ -111,20 +227,70 @@ impl<W: Write + Send + 'static> App<W> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
         let state = AppState::default();
+        let mut session_states = SessionStateStore::new();
+        if let Some(active) = session_manager.active_session_id() {
+            session_states.sync_from_active(active, &state);
+        }
         let mut registry = registry;
-        let _init_commands = registry.init_all(&state);
-        // init_commands will be executed once initial_resize_sent is true
 
         let mut surface_registry = SurfaceRegistry::new();
-        surface_registry.register(Box::new(KakouneBufferSurface::new()));
-        surface_registry.register(Box::new(
-            kasane_core::surface::status::StatusBarSurface::new(),
-        ));
+        surface_registry
+            .try_register(Box::new(KakouneBufferSurface::new()))
+            .expect("failed to register built-in surface kasane.buffer");
+        surface_registry
+            .try_register(Box::new(
+                kasane_core::surface::status::StatusBarSurface::new(),
+            ))
+            .expect("failed to register built-in surface kasane.status");
 
-        // Collect plugin-owned surfaces
-        for surface in registry.collect_plugin_surfaces() {
-            surface_registry.register(surface);
+        // Collect plugin-owned surfaces before plugin init so invalid surface
+        // contracts do not get a chance to produce side effects.
+        for surface_set in registry.collect_plugin_surfaces() {
+            let mut registered_ids = Vec::new();
+            let mut registration_error = None;
+            for surface in surface_set.surfaces {
+                let surface_id = surface.id();
+                match surface_registry
+                    .try_register_for_owner(surface, Some(surface_set.owner.clone()))
+                {
+                    Ok(()) => registered_ids.push(surface_id),
+                    Err(err) => {
+                        registration_error = Some(err);
+                        break;
+                    }
+                }
+            }
+            if let Some(err) = registration_error {
+                for surface_id in registered_ids {
+                    surface_registry.remove(surface_id);
+                }
+                registry.remove_plugin(&surface_set.owner);
+                eprintln!(
+                    "disabling plugin {} after surface registration failure: {err:?}",
+                    surface_set.owner.0
+                );
+            } else {
+                let mut bootstrap_dirty = DirtyFlags::empty();
+                for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+                    &registered_ids,
+                    surface_set.legacy_workspace_request.as_ref(),
+                    &mut bootstrap_dirty,
+                    Some(kasane_core::layout::Rect {
+                        x: 0,
+                        y: 0,
+                        w: state.cols,
+                        h: state.rows,
+                    }),
+                ) {
+                    eprintln!(
+                        "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
+                    );
+                }
+            }
         }
+
+        let _init_commands = registry.init_all(&state);
+        // init_commands will be executed once initial_resize_sent is true
 
         App {
             window: None,
@@ -135,7 +301,9 @@ impl<W: Write + Send + 'static> App<W> {
             surface_registry,
             grid: CellGrid::new(1, 1),
             backend: None,
-            kak_writer,
+            session_manager,
+            session_states,
+            session_spawner,
             pending_events: Vec::new(),
             dirty: DirtyFlags::ALL,
             initial_resize_sent: false,
@@ -224,23 +392,59 @@ impl<W: Write + Send + 'static> App<W> {
         }
     }
 
+    fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
+        match input {
+            InputEvent::Key(key) => Some(SurfaceEvent::Key(key.clone())),
+            InputEvent::Mouse(mouse) => Some(SurfaceEvent::Mouse(mouse.clone())),
+            InputEvent::Resize(cols, rows) => Some(SurfaceEvent::Resize(Rect {
+                x: 0,
+                y: 0,
+                w: *cols,
+                h: *rows,
+            })),
+            InputEvent::FocusGained => Some(SurfaceEvent::FocusGained),
+            InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
+            InputEvent::Paste(_) => None,
+        }
+    }
+
     fn process_pending_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<_> = self.pending_events.drain(..).collect();
         for event in events {
             match event {
-                GuiEvent::Kakoune(req) => {
+                GuiEvent::Kakoune(session_id, req) => {
+                    if self.session_manager.active_session_id() != Some(session_id) {
+                        self.session_states
+                            .ensure_session(session_id, &self.state)
+                            .apply(req);
+                        continue;
+                    }
                     kasane_core::io::send_initial_resize(
-                        &mut self.kak_writer,
+                        self.session_manager
+                            .active_writer_mut()
+                            .expect("missing active session writer"),
                         &mut self.initial_resize_sent,
                         self.state.rows,
                         self.state.cols,
                     );
-                    let (flags, commands) = update(
+                    let (flags, commands, _source) = update(
                         &mut self.state,
                         Msg::Kakoune(req),
                         &mut self.registry,
                         self.scroll_amount,
                     );
+                    let mut surface_command_groups = if flags.is_empty() {
+                        vec![]
+                    } else {
+                        self.surface_registry
+                            .on_state_changed_with_sources(&self.state, flags)
+                    };
+                    let extra_flags = surface_command_groups
+                        .iter_mut()
+                        .fold(DirtyFlags::empty(), |acc, entry| {
+                            acc | extract_redraw_flags(&mut entry.commands)
+                        });
+                    let flags = flags | extra_flags;
                     if flags.contains(DirtyFlags::ALL) {
                         self.grid.resize(self.state.cols, self.state.rows);
                         self.grid.invalidate_all();
@@ -250,10 +454,37 @@ impl<W: Write + Send + 'static> App<W> {
                         event_loop.exit();
                         return;
                     }
+                    if self.exec_surface_command_groups(surface_command_groups) {
+                        event_loop.exit();
+                        return;
+                    }
+                    self.session_states
+                        .sync_active_from_manager(&self.session_manager, &self.state);
                 }
-                GuiEvent::KakouneDied => {
-                    event_loop.exit();
-                    return;
+                GuiEvent::KakouneDied(session_id) => {
+                    let was_active = self.session_manager.active_session_id() == Some(session_id);
+                    let _ = self.session_manager.close(session_id);
+                    self.session_states.remove(session_id);
+                    if self.session_manager.is_empty() {
+                        event_loop.exit();
+                        return;
+                    }
+                    if was_active {
+                        let restored =
+                            self.session_manager
+                                .active_session_id()
+                                .is_some_and(|active| {
+                                    self.session_states.restore_into(active, &mut self.state)
+                                });
+                        if !restored {
+                            self.state.reset_for_session_switch();
+                        }
+                        self.dirty |= DirtyFlags::ALL;
+                        self.initial_resize_sent = false;
+                    }
+                    self.session_states
+                        .sync_active_from_manager(&self.session_manager, &self.state);
+                    continue;
                 }
                 GuiEvent::PluginTimer(target, payload) => {
                     let (flags, commands) =
@@ -264,25 +495,63 @@ impl<W: Write + Send + 'static> App<W> {
                         event_loop.exit();
                         return;
                     }
+                    self.session_states
+                        .sync_active_from_manager(&self.session_manager, &self.state);
                 }
                 GuiEvent::ProcessOutput(plugin_id, io_event) => {
                     let (flags, commands) =
                         self.registry
                             .deliver_io_event(&plugin_id, &io_event, &self.state);
                     self.dirty |= flags;
+                    // Free per-plugin process count slot when a job finishes
+                    let IoEvent::Process(ref pe) = io_event;
+                    let finished_job = match pe {
+                        ProcessEvent::Exited { job_id, .. }
+                        | ProcessEvent::SpawnFailed { job_id, .. } => Some(*job_id),
+                        _ => None,
+                    };
+                    if let Some(job_id) = finished_job {
+                        self.process_dispatcher
+                            .remove_finished_job(&plugin_id, job_id);
+                    }
                     if self.exec_commands_from(commands, Some(&plugin_id)) {
                         event_loop.exit();
                         return;
                     }
+                    self.session_states
+                        .sync_active_from_manager(&self.session_manager, &self.state);
                 }
             }
         }
     }
 
     fn handle_input_event(&mut self, input: InputEvent, event_loop: &ActiveEventLoop) {
-        let msg = Msg::from(input);
-        let (flags, commands) =
-            update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
+        let total = Rect {
+            x: 0,
+            y: 0,
+            w: self.state.cols,
+            h: self.state.rows,
+        };
+        let (mut flags, commands, source, mut surface_command_groups) = if let Some(dirty) =
+            handle_workspace_divider_input(&input, &mut self.surface_registry, total)
+        {
+            (dirty, vec![], None, vec![])
+        } else {
+            let surface_event = Self::surface_event_from_input(&input);
+            let msg = Msg::from(input);
+            let (flags, commands, source) =
+                update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
+            let surface_command_groups = surface_event
+                .map(|event| {
+                    self.surface_registry
+                        .route_event_with_sources(event, &self.state, total)
+                })
+                .unwrap_or_default();
+            (flags, commands, source, surface_command_groups)
+        };
+        for entry in &mut surface_command_groups {
+            flags |= extract_redraw_flags(&mut entry.commands);
+        }
         if flags.contains(DirtyFlags::ALL) {
             self.grid.resize(self.state.cols, self.state.rows);
             self.grid.invalidate_all();
@@ -290,9 +559,18 @@ impl<W: Write + Send + 'static> App<W> {
         self.dirty |= flags;
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
-        if self.initial_resize_sent && self.exec_commands(commands) {
-            event_loop.exit();
+        if self.initial_resize_sent {
+            if self.exec_commands_from(commands, source.as_ref()) {
+                event_loop.exit();
+                return;
+            }
+            if self.exec_surface_command_groups(surface_command_groups) {
+                event_loop.exit();
+                return;
+            }
         }
+        self.session_states
+            .sync_active_from_manager(&self.session_manager, &self.state);
     }
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
@@ -308,24 +586,79 @@ impl<W: Write + Send + 'static> App<W> {
     ) -> bool {
         let (normal, deferred) = extract_deferred_commands(commands);
         if matches!(
-            execute_commands(normal, &mut self.kak_writer, &mut || {
-                self.backend.as_mut().and_then(|b| b.clipboard_get())
-            }),
+            execute_commands(
+                normal,
+                self.session_manager
+                    .active_writer_mut()
+                    .expect("missing active session writer"),
+                &mut || { self.backend.as_mut().and_then(|b| b.clipboard_get()) },
+            ),
             CommandResult::Quit
         ) {
             return true;
         }
+        let proxy = self.timer_scheduler.0.clone();
+        let spawn_session = self.session_spawner;
+        let state = &mut self.state;
+        let registry = &mut self.registry;
+        let surface_registry = &mut self.surface_registry;
+        let session_manager = &mut self.session_manager;
+        let session_states = &mut self.session_states;
+        let dirty = &mut self.dirty;
+        let initial_resize_sent = &mut self.initial_resize_sent;
+        let process_dispatcher = &mut *self.process_dispatcher;
+        let mut session_runtime = GuiSessionRuntime {
+            session_manager,
+            session_states,
+            proxy,
+            spawn_session,
+        };
         handle_deferred_commands(
             deferred,
-            &mut self.state,
-            &mut self.registry,
-            &mut self.surface_registry,
-            &mut self.kak_writer,
+            state,
+            registry,
+            surface_registry,
             &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
-            &mut self.dirty,
+            dirty,
             &self.timer_scheduler,
-            &mut *self.process_dispatcher,
+            &mut session_runtime,
+            initial_resize_sent,
+            process_dispatcher,
             source_plugin,
+        )
+    }
+
+    fn exec_surface_command_groups(
+        &mut self,
+        surface_command_groups: Vec<kasane_core::surface::SourcedSurfaceCommands>,
+    ) -> bool {
+        let proxy = self.timer_scheduler.0.clone();
+        let spawn_session = self.session_spawner;
+        let state = &mut self.state;
+        let registry = &mut self.registry;
+        let surface_registry = &mut self.surface_registry;
+        let session_manager = &mut self.session_manager;
+        let session_states = &mut self.session_states;
+        let dirty = &mut self.dirty;
+        let initial_resize_sent = &mut self.initial_resize_sent;
+        let process_dispatcher = &mut *self.process_dispatcher;
+        let mut session_runtime = GuiSessionRuntime {
+            session_manager,
+            session_states,
+            proxy,
+            spawn_session,
+        };
+        handle_sourced_surface_commands(
+            surface_command_groups,
+            state,
+            registry,
+            surface_registry,
+            &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
+            dirty,
+            &self.timer_scheduler,
+            &mut session_runtime,
+            initial_resize_sent,
+            process_dispatcher,
         )
     }
 
@@ -353,9 +686,16 @@ impl<W: Write + Send + 'static> App<W> {
                 rows: self.state.available_height(),
                 cols: self.state.cols,
             };
-            kasane_core::io::send_request(&mut self.kak_writer, &resize);
+            kasane_core::io::send_request(
+                self.session_manager
+                    .active_writer_mut()
+                    .expect("missing active session writer"),
+                &resize,
+            );
         }
         self.dirty = DirtyFlags::ALL;
+        self.session_states
+            .sync_active_from_manager(&self.session_manager, &self.state);
     }
 
     fn render_frame(&mut self) {
@@ -450,13 +790,23 @@ impl<W: Write + Send + 'static> App<W> {
     }
 }
 
-impl<W: Write + Send + 'static> Drop for App<W> {
+impl<R, W, C> Drop for App<R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
     fn drop(&mut self) {
         self.registry.shutdown_all();
     }
 }
 
-impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
+impl<R, W, C> ApplicationHandler<GuiEvent> for App<R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         tracing::info!("[app] resumed, window exists: {}", self.window.is_some());
         if self.window.is_none() {
@@ -542,23 +892,32 @@ impl<W: Write + Send + 'static> ApplicationHandler<GuiEvent> for App<W> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let _frame_span = tracing::debug_span!("frame").entered();
+        let pending_count = self.pending_events.len();
         tracing::trace!(
             "[app] about_to_wait, pending: {}, dirty: {:?}",
-            self.pending_events.len(),
+            pending_count,
             self.dirty
         );
+        if pending_count > 1 {
+            tracing::debug!(batch_count = pending_count, "event batch drained");
+        }
         self.process_pending_events(event_loop);
 
         // Smooth scroll animation tick
         if let Some(cmd) = tick_scroll_animation(&mut self.state) {
             kasane_core::plugin::execute_commands(
                 vec![cmd],
-                &mut self.kak_writer,
+                self.session_manager
+                    .active_writer_mut()
+                    .expect("missing active session writer"),
                 &mut || None, // GUI doesn't have clipboard_get in this context
             );
             if let Some(ref window) = self.window {
                 window.request_redraw();
             }
+            self.session_states
+                .sync_active_from_manager(&self.session_manager, &self.state);
         }
 
         // Cursor animation drives continuous redraw when active

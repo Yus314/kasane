@@ -50,7 +50,14 @@ pub struct ResolvedAtom {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawCommand {
     /// Fill a rectangle (background).
-    FillRect { rect: PixelRect, face: Face },
+    /// When `elevated` is true, the GPU renderer lightens the background color
+    /// slightly to make floating popups visually distinct from the editor
+    /// background (similar to VS Code's Command Palette).
+    FillRect {
+        rect: PixelRect,
+        face: Face,
+        elevated: bool,
+    },
 
     /// Draw a sequence of atoms (buffer lines, status line, menu items).
     DrawAtoms {
@@ -81,6 +88,8 @@ pub enum DrawCommand {
         rect: PixelRect,
         title: Vec<ResolvedAtom>,
         border_face: Face,
+        /// Whether the parent container is elevated (shadow=true).
+        elevated: bool,
     },
 
     /// Draw a drop shadow.
@@ -204,7 +213,17 @@ fn scene_paint_inner(
             );
         }
         Element::Empty => {}
+        Element::SlotPlaceholder { .. } => {
+            debug_assert!(false, "unresolved SlotPlaceholder reached scene paint");
+        }
         Element::Flex { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i) {
+                    scene_paint_inner(ctx, &child.element, child_layout, out);
+                }
+            }
+        }
+        Element::ResolvedSlot { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(child_layout) = layout.children.get(i) {
                     scene_paint_inner(ctx, &child.element, child_layout, out);
@@ -298,6 +317,7 @@ fn scene_paint_buffer_ref(
                     h: cs.height,
                 },
                 face: base_face,
+                elevated: false,
             });
             // Atoms — clear PrimaryCursor face at the cursor cell in
             // non-block cursor modes so the thin bar/underline is visible.
@@ -340,6 +360,7 @@ fn scene_paint_buffer_ref(
                     h: cs.height,
                 },
                 face: ctx.state.padding_face,
+                elevated: false,
             });
             let mut pad_face = ctx.state.padding_face;
             if pad_face.fg == pad_face.bg {
@@ -383,11 +404,18 @@ fn scene_paint_container(
         if let Some(child_layout) = layout.children.first() {
             let cr = to_pixel_rect(&child_layout.area, ctx.cell_size);
             let margin = ctx.cell_size.height * 0.15;
+            // Extra top margin when a title is present so the title text
+            // on the border line doesn't crowd the first content line.
+            let top_margin = if style.title.is_some() {
+                ctx.cell_size.height * 0.5
+            } else {
+                margin
+            };
             PixelRect {
                 x: cr.x - margin,
-                y: cr.y - margin,
+                y: cr.y - top_margin,
                 w: cr.w + margin * 2.0,
-                h: cr.h + margin * 2.0,
+                h: cr.h + top_margin + margin,
             }
         } else {
             pr.clone()
@@ -396,22 +424,25 @@ fn scene_paint_container(
         pr.clone()
     };
 
-    // Shadow (matches the border frame, not the full container area)
+    // Drop shadow: a subtle shadow on the right/bottom edges to make the
+    // popup appear to float above the content.
     if style.shadow {
-        let offset = ctx.cell_size.width;
+        let cw = ctx.cell_size.width;
         out.push(DrawCommand::DrawShadow {
             rect: border_rect.clone(),
-            offset: (offset, offset),
-            blur_radius: offset * 2.0,
-            color: [0.0, 0.0, 0.0, 0.4],
+            offset: (cw * 0.25, cw * 0.3),
+            blur_radius: cw * 0.7,
+            color: [0.0, 0.0, 0.0, 0.35],
         });
     }
 
     // Background fill — always covers the full container area so the popup
-    // hides the content underneath.
+    // hides the content underneath.  Floating containers (shadow=true) use
+    // `elevated` so the GPU renderer can lighten the background color.
     out.push(DrawCommand::FillRect {
         rect: pr.clone(),
         face: *style.face,
+        elevated: style.shadow,
     });
 
     // Border — drawn tight around the content area
@@ -436,6 +467,7 @@ fn scene_paint_container(
                 rect: border_rect,
                 title: resolved_title,
                 border_face,
+                elevated: style.shadow,
             });
         }
     }

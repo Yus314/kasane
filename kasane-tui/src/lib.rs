@@ -4,16 +4,19 @@ mod input;
 use std::io::Write;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
-use kasane_core::event_loop::{TimerScheduler, handle_deferred_commands};
+use kasane_core::event_loop::{
+    TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
+    handle_workspace_divider_input,
+};
 use kasane_core::input::InputEvent;
-use kasane_core::layout::build_hit_map;
+use kasane_core::layout::{Rect, build_hit_map};
 use kasane_core::plugin::{
-    CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEventSink,
-    execute_commands, extract_deferred_commands,
+    CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent,
+    ProcessEventSink, execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::view::surface_view_sections_cached;
@@ -21,17 +24,18 @@ use kasane_core::render::{
     CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
     ViewCache, render_pipeline_surfaces_patched,
 };
+use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
-use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
+use kasane_core::surface::{SurfaceEvent, SurfaceRegistry};
 
 use backend::TuiBackend;
 use input::convert_event;
 
 enum Event {
-    Kakoune(KakouneRequest),
+    Kakoune(SessionId, KakouneRequest),
     Input(InputEvent),
-    KakouneDied,
+    KakouneDied(SessionId),
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
     ProcessOutput(PluginId, IoEvent),
 }
@@ -63,51 +67,254 @@ impl TimerScheduler for TuiTimerScheduler {
     }
 }
 
+fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
+    match input {
+        InputEvent::Key(key) => Some(SurfaceEvent::Key(key.clone())),
+        InputEvent::Mouse(mouse) => Some(SurfaceEvent::Mouse(mouse.clone())),
+        InputEvent::Resize(cols, rows) => Some(SurfaceEvent::Resize(Rect {
+            x: 0,
+            y: 0,
+            w: *cols,
+            h: *rows,
+        })),
+        InputEvent::FocusGained => Some(SurfaceEvent::FocusGained),
+        InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
+        InputEvent::Paste(_) => None,
+    }
+}
+
+fn spawn_session_reader<R>(session_id: SessionId, reader: R, tx: crossbeam_channel::Sender<Event>)
+where
+    R: std::io::BufRead + Send + 'static,
+{
+    let died_tx = tx.clone();
+    kasane_core::io::spawn_kak_reader(
+        reader,
+        move |req| {
+            let _ = tx.send(Event::Kakoune(session_id, req));
+        },
+        move || {
+            let _ = died_tx.send(Event::KakouneDied(session_id));
+        },
+    );
+}
+
+struct TuiSessionRuntime<'a, R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    session_manager: &'a mut SessionManager<R, W, C>,
+    session_states: &'a mut SessionStateStore,
+    tx: crossbeam_channel::Sender<Event>,
+    spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
+}
+
+impl<'a, R, W, C> kasane_core::event_loop::SessionRuntime for TuiSessionRuntime<'a, R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    fn spawn_session(
+        &mut self,
+        spec: SessionSpec,
+        activate: bool,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) {
+        let Ok((reader, writer, child)) = (self.spawn_session)(&spec) else {
+            tracing::error!("failed to spawn session {}", spec.key);
+            return;
+        };
+        let Ok(session_id) = self.session_manager.insert(spec, reader, writer, child) else {
+            tracing::error!("failed to register spawned session");
+            return;
+        };
+        self.session_states.ensure_session(session_id, state);
+        let reader = self
+            .session_manager
+            .take_reader(session_id)
+            .expect("spawned session reader missing");
+        spawn_session_reader(session_id, reader, self.tx.clone());
+        if activate {
+            self.session_manager
+                .sync_and_activate(self.session_states, session_id, state)
+                .expect("spawned session must be activeable");
+            if !self.session_states.restore_into(session_id, state) {
+                state.reset_for_session_switch();
+            }
+            *dirty |= DirtyFlags::ALL;
+            *initial_resize_sent = false;
+        }
+    }
+
+    fn close_session(
+        &mut self,
+        key: Option<&str>,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) -> bool {
+        let target = key
+            .and_then(|k| self.session_manager.session_id_by_key(k))
+            .or_else(|| self.session_manager.active_session_id());
+        let Some(target) = target else {
+            return false;
+        };
+        let was_active = self.session_manager.active_session_id() == Some(target);
+        let _ = self.session_manager.close(target);
+        self.session_states.remove(target);
+        if self.session_manager.is_empty() {
+            return true;
+        }
+        if was_active {
+            let restored = self
+                .session_manager
+                .active_session_id()
+                .is_some_and(|active| self.session_states.restore_into(active, state));
+            if !restored {
+                state.reset_for_session_switch();
+            }
+            *dirty |= DirtyFlags::ALL;
+            *initial_resize_sent = false;
+        }
+        false
+    }
+}
+
+impl<'a, R, W, C> kasane_core::event_loop::SessionHost for TuiSessionRuntime<'a, R, W, C>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    fn active_writer(&mut self) -> &mut dyn Write {
+        self.session_manager
+            .active_writer_mut()
+            .expect("missing active session writer")
+    }
+}
+
 /// Process a single event, returning `true` if the application should quit.
 #[allow(clippy::too_many_arguments)]
-fn process_event(
+fn process_event<R, W, C>(
     event: Event,
     state: &mut AppState,
     registry: &mut PluginRegistry,
     surface_registry: &mut SurfaceRegistry,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    session_tx: &crossbeam_channel::Sender<Event>,
+    spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
     grid: &mut CellGrid,
     scroll_amount: i32,
-    kak_writer: &mut impl Write,
     backend: &mut TuiBackend,
     initial_resize_sent: &mut bool,
     dirty: &mut DirtyFlags,
     timer: &TuiTimerScheduler,
     process_dispatcher: &mut dyn kasane_core::plugin::ProcessDispatcher,
-) -> bool {
-    let is_kakoune = matches!(&event, Event::Kakoune(_));
+) -> bool
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    let is_kakoune = matches!(&event, Event::Kakoune(..));
     let is_input = matches!(&event, Event::Input(_));
 
     let command_source_plugin;
-    let (flags, commands) = match event {
-        Event::Kakoune(req) => {
+    let (mut flags, commands, mut surface_command_groups) = match event {
+        Event::Kakoune(session_id, req) => {
+            if session_manager.active_session_id() != Some(session_id) {
+                session_states.ensure_session(session_id, state).apply(req);
+                return false;
+            }
             kasane_core::io::send_initial_resize(
-                kak_writer,
+                session_manager
+                    .active_writer_mut()
+                    .expect("missing active session writer"),
                 initial_resize_sent,
                 state.rows,
                 state.cols,
             );
+            let (f, c, _source) = update(state, Msg::Kakoune(req), registry, scroll_amount);
+            let surface_command_groups = if f.is_empty() {
+                vec![]
+            } else {
+                surface_registry.on_state_changed_with_sources(state, f)
+            };
             command_source_plugin = None;
-            update(state, Msg::Kakoune(req), registry, scroll_amount)
+            (f, c, surface_command_groups)
         }
         Event::Input(input_event) => {
-            command_source_plugin = None;
-            update(state, Msg::from(input_event), registry, scroll_amount)
+            let total = Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            };
+            if let Some(divider_dirty) =
+                handle_workspace_divider_input(&input_event, surface_registry, total)
+            {
+                command_source_plugin = None;
+                (divider_dirty, vec![], vec![])
+            } else {
+                let surface_event = surface_event_from_input(&input_event);
+                let (f, c, source) = update(state, Msg::from(input_event), registry, scroll_amount);
+                command_source_plugin = source;
+                let surface_command_groups = surface_event
+                    .map(|event| surface_registry.route_event_with_sources(event, state, total))
+                    .unwrap_or_default();
+                (f, c, surface_command_groups)
+            }
         }
         Event::PluginTimer(target, payload) => {
             command_source_plugin = None;
-            registry.deliver_message(&target, payload, state)
+            let (flags, commands) = registry.deliver_message(&target, payload, state);
+            (flags, commands, vec![])
         }
         Event::ProcessOutput(plugin_id, io_event) => {
             command_source_plugin = Some(plugin_id.clone());
-            registry.deliver_io_event(&plugin_id, &io_event, state)
+            let (flags, commands) = registry.deliver_io_event(&plugin_id, &io_event, state);
+            // Free per-plugin process count slot when a job finishes
+            let IoEvent::Process(ref pe) = io_event;
+            let finished_job = match pe {
+                ProcessEvent::Exited { job_id, .. } | ProcessEvent::SpawnFailed { job_id, .. } => {
+                    Some(*job_id)
+                }
+                _ => None,
+            };
+            if let Some(job_id) = finished_job {
+                process_dispatcher.remove_finished_job(&plugin_id, job_id);
+            }
+            (flags, commands, vec![])
         }
-        Event::KakouneDied => return true,
+        Event::KakouneDied(session_id) => {
+            let was_active = session_manager.active_session_id() == Some(session_id);
+            let _ = session_manager.close(session_id);
+            session_states.remove(session_id);
+            if session_manager.is_empty() {
+                return true;
+            }
+            if was_active {
+                let restored = session_manager
+                    .active_session_id()
+                    .is_some_and(|active| session_states.restore_into(active, state));
+                if !restored {
+                    state.reset_for_session_switch();
+                }
+                *dirty |= DirtyFlags::ALL;
+                *initial_resize_sent = false;
+            }
+            return false;
+        }
     };
+    for entry in &mut surface_command_groups {
+        flags |= extract_redraw_flags(&mut entry.commands);
+    }
 
     if flags.contains(DirtyFlags::ALL) {
         grid.resize(state.cols, state.rows);
@@ -117,6 +324,7 @@ fn process_event(
 
     // Suppress commands to Kakoune until initialization is complete.
     if is_input && !*initial_resize_sent {
+        session_states.sync_active_from_manager(session_manager, state);
         return false;
     }
     // Kakoune events before initial resize: execute commands (they come from
@@ -126,23 +334,61 @@ fn process_event(
 
     let (normal, deferred) = extract_deferred_commands(commands);
     if matches!(
-        execute_commands(normal, kak_writer, &mut || backend.clipboard_get()),
+        execute_commands(
+            normal,
+            session_manager
+                .active_writer_mut()
+                .expect("missing active session writer"),
+            &mut || backend.clipboard_get(),
+        ),
         CommandResult::Quit
     ) {
         return true;
     }
-    handle_deferred_commands(
+    let mut session_host = TuiSessionRuntime {
+        session_manager,
+        session_states,
+        tx: session_tx.clone(),
+        spawn_session,
+    };
+    if handle_deferred_commands(
         deferred,
         state,
         registry,
         surface_registry,
-        kak_writer,
         &mut || backend.clipboard_get(),
         dirty,
         timer,
+        &mut session_host,
+        initial_resize_sent,
         process_dispatcher,
         command_source_plugin.as_ref(),
-    )
+    ) {
+        return true;
+    }
+
+    let mut session_host = TuiSessionRuntime {
+        session_manager,
+        session_states,
+        tx: session_tx.clone(),
+        spawn_session,
+    };
+    let should_quit = handle_sourced_surface_commands(
+        surface_command_groups,
+        state,
+        registry,
+        surface_registry,
+        &mut || backend.clipboard_get(),
+        dirty,
+        timer,
+        &mut session_host,
+        initial_resize_sent,
+        process_dispatcher,
+    );
+    if !should_quit {
+        session_states.sync_active_from_manager(session_manager, state);
+    }
+    should_quit
 }
 
 /// Install a panic hook that restores the terminal before printing the panic.
@@ -184,12 +430,13 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
 
 /// Run the TUI event loop.
 ///
-/// `spawn_kakoune`: closure that spawns/connects to Kakoune and returns (reader, writer, child).
+/// `session_manager`: managed Kakoune sessions. V1 consumes the active session only.
 /// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
 ///   a `ProcessDispatcher` for plugin-spawned processes.
 pub fn run_tui<R, W, C>(
     config: Config,
-    spawn_kakoune: impl FnOnce() -> Result<(R, W, C)>,
+    mut session_manager: SessionManager<R, W, C>,
+    spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
     register_plugins: impl FnOnce(&mut PluginRegistry),
     create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
 ) -> Result<()>
@@ -200,7 +447,12 @@ where
 {
     install_panic_hook();
 
-    let (kak_reader, mut kak_writer, _kak_child) = spawn_kakoune()?;
+    let active_session = session_manager
+        .active_session_id()
+        .ok_or_else(|| anyhow!("missing primary session id"))?;
+    let kak_reader = session_manager
+        .take_active_reader()
+        .map_err(|err| anyhow!("failed to acquire primary session: {err:?}"))?;
 
     // Initialize TUI backend
     let mut backend = TuiBackend::new()?;
@@ -213,30 +465,82 @@ where
         ..AppState::default()
     };
     state.apply_config(&config);
+    let mut session_states = SessionStateStore::new();
+    session_states.sync_from_active(active_session, &state);
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
     register_plugins(&mut registry);
+
+    // Surface registry
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry
+        .try_register(Box::new(KakouneBufferSurface::new()))
+        .map_err(|err| anyhow!("failed to register built-in surface kasane.buffer: {err:?}"))?;
+    surface_registry
+        .try_register(Box::new(
+            kasane_core::surface::status::StatusBarSurface::new(),
+        ))
+        .map_err(|err| anyhow!("failed to register built-in surface kasane.status: {err:?}"))?;
+
+    // Collect plugin-owned surfaces before plugin init so invalid surface contracts
+    // do not get a chance to produce side effects.
+    for surface_set in registry.collect_plugin_surfaces() {
+        let mut registered_ids = Vec::new();
+        let mut registration_error = None;
+        for surface in surface_set.surfaces {
+            let surface_id = surface.id();
+            match surface_registry.try_register_for_owner(surface, Some(surface_set.owner.clone()))
+            {
+                Ok(()) => registered_ids.push(surface_id),
+                Err(err) => {
+                    registration_error = Some(err);
+                    break;
+                }
+            }
+        }
+        if let Some(err) = registration_error {
+            for surface_id in registered_ids {
+                surface_registry.remove(surface_id);
+            }
+            registry.remove_plugin(&surface_set.owner);
+            eprintln!(
+                "disabling plugin {} after surface registration failure: {err:?}",
+                surface_set.owner.0
+            );
+        } else {
+            let mut bootstrap_dirty = DirtyFlags::empty();
+            for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+                &registered_ids,
+                surface_set.legacy_workspace_request.as_ref(),
+                &mut bootstrap_dirty,
+                Some(kasane_core::layout::Rect {
+                    x: 0,
+                    y: 0,
+                    w: state.cols,
+                    h: state.rows,
+                }),
+            ) {
+                eprintln!(
+                    "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
+                );
+            }
+        }
+    }
+
     let init_commands = registry.init_all(&state);
     if matches!(
-        execute_commands(init_commands, &mut kak_writer, &mut || backend
-            .clipboard_get()),
+        execute_commands(
+            init_commands,
+            session_manager
+                .active_writer_mut()
+                .map_err(|err| anyhow!("failed to access primary session writer: {err:?}"))?,
+            &mut || backend.clipboard_get(),
+        ),
         CommandResult::Quit
     ) {
         backend.cleanup();
         return Ok(());
-    }
-
-    // Surface registry
-    let mut surface_registry = SurfaceRegistry::new();
-    surface_registry.register(Box::new(KakouneBufferSurface::new()));
-    surface_registry.register(Box::new(
-        kasane_core::surface::status::StatusBarSurface::new(),
-    ));
-
-    // Collect plugin-owned surfaces
-    for surface in registry.collect_plugin_surfaces() {
-        surface_registry.register(surface);
     }
 
     // Collect paint hooks from plugins
@@ -272,19 +576,7 @@ where
     let (tx, rx) = unbounded::<Event>();
 
     // Kakoune stdout reader thread
-    let kak_tx = tx.clone();
-    kasane_core::io::spawn_kak_reader(
-        kak_reader,
-        move |req| {
-            let _ = kak_tx.send(Event::Kakoune(req));
-        },
-        {
-            let died_tx = tx.clone();
-            move || {
-                let _ = died_tx.send(Event::KakouneDied);
-            }
-        },
-    );
+    spawn_session_reader(active_session, kak_reader, tx.clone());
 
     // crossterm input reader thread
     spawn_input_thread(tx.clone());
@@ -295,9 +587,6 @@ where
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
     let mut process_dispatcher = create_process_dispatcher(process_sink);
-
-    // Drop the original sender so rx will close when reader threads exit
-    drop(tx);
 
     let scroll_amount = config.scroll.lines_per_scroll;
 
@@ -314,19 +603,26 @@ where
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 if let Some(cmd) = tick_scroll_animation(&mut state)
                     && matches!(
-                        execute_commands(vec![cmd], &mut kak_writer, &mut || backend
-                            .clipboard_get()),
+                        execute_commands(
+                            vec![cmd],
+                            session_manager
+                                .active_writer_mut()
+                                .expect("missing active session writer"),
+                            &mut || backend.clipboard_get(),
+                        ),
                         CommandResult::Quit
                     )
                 {
                     break;
                 }
+                session_states.sync_active_from_manager(&session_manager, &state);
                 continue;
             }
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         };
 
         let mut dirty = DirtyFlags::empty();
+        let _frame_span = tracing::debug_span!("frame").entered();
 
         // Process first event
         if process_event(
@@ -334,9 +630,12 @@ where
             &mut state,
             &mut registry,
             &mut surface_registry,
+            &mut session_manager,
+            &mut session_states,
+            &tx,
+            spawn_session,
             &mut grid,
             scroll_amount,
-            &mut kak_writer,
             &mut backend,
             &mut initial_resize_sent,
             &mut dirty,
@@ -364,9 +663,12 @@ where
                 &mut state,
                 &mut registry,
                 &mut surface_registry,
+                &mut session_manager,
+                &mut session_states,
+                &tx,
+                spawn_session,
                 &mut grid,
                 scroll_amount,
-                &mut kak_writer,
                 &mut backend,
                 &mut initial_resize_sent,
                 &mut dirty,
@@ -379,6 +681,10 @@ where
         }
         if quit {
             break;
+        }
+
+        if batch_count > 0 {
+            tracing::debug!(batch_count, "event batch drained");
         }
 
         if !dirty.is_empty() {

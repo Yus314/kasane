@@ -4,10 +4,17 @@ use crate::plugin::PluginRegistry;
 use crate::state::DirtyFlags;
 use crate::test_utils::make_line;
 
+fn empty_base_result() -> crate::surface::SurfaceComposeResult {
+    crate::surface::SurfaceComposeResult {
+        base: Some(crate::element::Element::Empty),
+        surface_reports: vec![],
+    }
+}
+
 #[test]
 fn test_view_cache_invalidate_buffer_clears_base() {
     let mut cache = ViewCache::new();
-    cache.base.value = Some(crate::element::Element::Empty);
+    cache.base.value = Some(empty_base_result());
     cache.menu_overlay.value = Some(None);
     cache.info_overlays.value = Some(vec![]);
 
@@ -26,7 +33,7 @@ fn test_view_cache_invalidate_buffer_clears_base() {
 #[test]
 fn test_view_cache_invalidate_menu_selection_clears_menu() {
     let mut cache = ViewCache::new();
-    cache.base.value = Some(crate::element::Element::Empty);
+    cache.base.value = Some(empty_base_result());
     cache.menu_overlay.value = Some(None);
     cache.info_overlays.value = Some(vec![]);
 
@@ -48,7 +55,7 @@ fn test_view_cache_invalidate_menu_selection_clears_menu() {
 #[test]
 fn test_view_cache_invalidate_all_clears_everything() {
     let mut cache = ViewCache::new();
-    cache.base.value = Some(crate::element::Element::Empty);
+    cache.base.value = Some(empty_base_result());
     cache.menu_overlay.value = Some(None);
     cache.info_overlays.value = Some(vec![]);
 
@@ -61,7 +68,7 @@ fn test_view_cache_invalidate_all_clears_everything() {
 #[test]
 fn test_view_cache_invalidate_info_clears_info() {
     let mut cache = ViewCache::new();
-    cache.base.value = Some(crate::element::Element::Empty);
+    cache.base.value = Some(empty_base_result());
     cache.menu_overlay.value = Some(None);
     cache.info_overlays.value = Some(vec![]);
 
@@ -80,7 +87,7 @@ fn test_view_cache_invalidate_info_clears_info() {
 #[test]
 fn test_view_cache_invalidate_status_clears_base() {
     let mut cache = ViewCache::new();
-    cache.base.value = Some(crate::element::Element::Empty);
+    cache.base.value = Some(empty_base_result());
     cache.menu_overlay.value = Some(None);
 
     cache.invalidate(DirtyFlags::STATUS);
@@ -94,7 +101,7 @@ fn test_view_cache_invalidate_status_clears_base() {
 #[test]
 fn test_view_cache_invalidate_options_clears_base() {
     let mut cache = ViewCache::new();
-    cache.base.value = Some(crate::element::Element::Empty);
+    cache.base.value = Some(empty_base_result());
 
     cache.invalidate(DirtyFlags::OPTIONS);
     assert!(cache.base.value.is_none(), "OPTIONS should clear base");

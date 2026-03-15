@@ -137,6 +137,7 @@ impl StyleToken {
     pub const INFO_TEXT: Self = Self(CompactString::const_new("info.text"));
     pub const INFO_BORDER: Self = Self(CompactString::const_new("info.border"));
     pub const BORDER: Self = Self(CompactString::const_new("border"));
+    pub const SPLIT_DIVIDER: Self = Self(CompactString::const_new("split.divider"));
     pub const SHADOW: Self = Self(CompactString::const_new("shadow"));
 
     /// Create a custom style token with an arbitrary name.
@@ -181,6 +182,10 @@ impl InteractiveId {
     /// Base ID for info popup interactive regions.
     pub const INFO_BASE: u32 = 1000;
 }
+
+/// Frame-local identifier assigned to a resolved slot instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ResolvedSlotInstanceId(pub u64);
 
 /// Line style for borders.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,6 +260,7 @@ impl Edges {
 
 #[derive(Debug, Clone)]
 pub enum OverlayAnchor {
+    Fill,
     Absolute {
         x: u16,
         y: u16,
@@ -318,12 +324,25 @@ impl FlexChild {
 pub enum Element {
     Text(String, Style),
     StyledLine(Vec<Atom>),
+    SlotPlaceholder {
+        slot_name: CompactString,
+        direction: Direction,
+        gap: u16,
+    },
     Flex {
         direction: Direction,
         children: Vec<FlexChild>,
         gap: u16,
         align: Align,
         cross_align: Align,
+    },
+    ResolvedSlot {
+        surface_key: CompactString,
+        slot_name: CompactString,
+        instance_id: ResolvedSlotInstanceId,
+        direction: Direction,
+        children: Vec<FlexChild>,
+        gap: u16,
     },
     Stack {
         base: Box<Element>,
@@ -391,6 +410,14 @@ impl Element {
             gap: 0,
             align: Align::Start,
             cross_align: Align::Start,
+        }
+    }
+
+    pub fn slot_placeholder(slot_name: impl Into<CompactString>, direction: Direction) -> Self {
+        Element::SlotPlaceholder {
+            slot_name: slot_name.into(),
+            direction,
+            gap: 0,
         }
     }
 
@@ -481,6 +508,23 @@ mod tests {
         match el {
             Element::BufferRef { line_range, .. } => assert_eq!(line_range, 0..10),
             _ => panic!("expected BufferRef"),
+        }
+    }
+
+    #[test]
+    fn test_element_slot_placeholder() {
+        let el = Element::slot_placeholder("kasane.buffer.left", Direction::Row);
+        match el {
+            Element::SlotPlaceholder {
+                slot_name,
+                direction,
+                gap,
+            } => {
+                assert_eq!(slot_name.as_str(), "kasane.buffer.left");
+                assert_eq!(direction, Direction::Row);
+                assert_eq!(gap, 0);
+            }
+            _ => panic!("expected SlotPlaceholder"),
         }
     }
 

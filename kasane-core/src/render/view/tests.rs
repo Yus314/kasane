@@ -1,9 +1,36 @@
 use super::*;
-use crate::element::Direction;
-use crate::plugin::SlotId;
+use std::collections::HashSet;
+
+use crate::element::{Direction, OverlayAnchor, ResolvedSlotInstanceId};
+use crate::plugin::{
+    ContributeContext, Contribution, LineAnnotation, Plugin, PluginCapabilities, PluginId,
+    PluginRegistry, SlotId, TransformTarget,
+};
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
-use crate::state::AppState;
+use crate::state::{AppState, DirtyFlags};
+use crate::surface::{
+    EventContext, OwnerValidationError, OwnerValidationErrorKind, ResolvedSlotContentKind,
+    ResolvedSlotRecord, SizeHint, SlotDeclaration, SlotKind, Surface, SurfaceEvent, SurfaceId,
+    SurfaceRegistry, ViewContext, buffer::KakouneBufferSurface, status::StatusBarSurface,
+};
 use crate::test_utils::make_line;
+
+fn assert_slot_placeholder(element: &Element, slot_name: &str, direction: Direction) {
+    match element {
+        Element::SlotPlaceholder {
+            slot_name: actual,
+            direction: actual_direction,
+            ..
+        } => {
+            assert_eq!(actual.as_str(), slot_name);
+            assert_eq!(*actual_direction, direction);
+        }
+        other => panic!(
+            "expected slot placeholder {slot_name}, got {:?}",
+            std::mem::discriminant(other)
+        ),
+    }
+}
 
 #[test]
 fn test_view_empty_state() {
@@ -92,17 +119,10 @@ fn test_status_bar_resolves_default_face() {
         contents: "normal".into(),
     }];
 
-    let status_bar = build_status_bar(&state, vec![], vec![]);
+    let status_bar = build_status_core(&state);
 
-    // Extract StyledLine atoms from the Container > Row > children
-    let row = match &status_bar {
-        Element::Container { child, .. } => child.as_ref(),
-        other => panic!(
-            "expected Container, got {:?}",
-            std::mem::discriminant(other)
-        ),
-    };
-    let children = match row {
+    // Extract StyledLine atoms from the status row children
+    let children = match &status_bar {
         Element::Flex { children, .. } => children,
         other => panic!("expected Flex row, got {:?}", std::mem::discriminant(other)),
     };
@@ -288,4 +308,449 @@ fn test_view_status_bar_structure() {
         }
         _ => panic!("expected Column"),
     }
+}
+
+#[test]
+fn test_status_surface_abstract_shape() {
+    let mut state = AppState::default();
+    state.status_line = make_line("status");
+    state.status_mode_line = make_line("normal");
+
+    let registry = PluginRegistry::new();
+    let element = build_status_surface_abstract(&state, &registry);
+
+    match element {
+        Element::Flex {
+            direction: Direction::Column,
+            children,
+            ..
+        } => {
+            assert_eq!(children.len(), 2);
+            assert_slot_placeholder(
+                &children[0].element,
+                "kasane.status.above",
+                Direction::Column,
+            );
+
+            match &children[1].element {
+                Element::Container { child, .. } => match child.as_ref() {
+                    Element::Flex {
+                        direction: Direction::Row,
+                        children,
+                        ..
+                    } => {
+                        assert_eq!(children.len(), 3);
+                        assert_slot_placeholder(
+                            &children[0].element,
+                            "kasane.status.left",
+                            Direction::Row,
+                        );
+                        assert_slot_placeholder(
+                            &children[2].element,
+                            "kasane.status.right",
+                            Direction::Row,
+                        );
+                        assert_eq!(children[1].flex, 1.0);
+                    }
+                    other => panic!(
+                        "expected status row flex, got {:?}",
+                        std::mem::discriminant(other)
+                    ),
+                },
+                other => panic!(
+                    "expected status container, got {:?}",
+                    std::mem::discriminant(other)
+                ),
+            }
+        }
+        other => panic!(
+            "expected status abstract column, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+}
+
+#[test]
+fn test_buffer_surface_abstract_shape() {
+    let mut state = AppState::default();
+    state.lines = vec![make_line("buffer")];
+
+    let registry = PluginRegistry::new();
+    let element = build_buffer_surface_abstract(&state, &registry);
+
+    match element {
+        Element::Stack { base, overlays } => {
+            assert_eq!(overlays.len(), 1);
+            assert!(matches!(overlays[0].anchor, OverlayAnchor::Fill));
+            assert_slot_placeholder(
+                &overlays[0].element,
+                "kasane.buffer.overlay",
+                Direction::Column,
+            );
+
+            match base.as_ref() {
+                Element::Flex {
+                    direction: Direction::Column,
+                    children,
+                    ..
+                } => {
+                    assert_eq!(children.len(), 3);
+                    assert_slot_placeholder(
+                        &children[0].element,
+                        "kasane.buffer.above",
+                        Direction::Column,
+                    );
+                    assert_slot_placeholder(
+                        &children[2].element,
+                        "kasane.buffer.below",
+                        Direction::Column,
+                    );
+
+                    match &children[1].element {
+                        Element::Flex {
+                            direction: Direction::Row,
+                            children,
+                            ..
+                        } => {
+                            assert_eq!(children.len(), 3);
+                            assert_slot_placeholder(
+                                &children[0].element,
+                                "kasane.buffer.left",
+                                Direction::Row,
+                            );
+                            assert_slot_placeholder(
+                                &children[2].element,
+                                "kasane.buffer.right",
+                                Direction::Row,
+                            );
+                            assert_eq!(children[1].flex, 1.0);
+                        }
+                        other => panic!(
+                            "expected buffer row, got {:?}",
+                            std::mem::discriminant(other)
+                        ),
+                    }
+                }
+                other => panic!(
+                    "expected buffer stack base column, got {:?}",
+                    std::mem::discriminant(other)
+                ),
+            }
+        }
+        other => panic!(
+            "expected buffer abstract stack, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+}
+
+#[test]
+fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
+    struct GutterPlugin;
+
+    impl Plugin for GutterPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("gutter_plugin".into())
+        }
+
+        fn annotate_line_with_ctx(
+            &self,
+            line: usize,
+            _state: &AppState,
+            _ctx: &crate::plugin::AnnotateContext,
+        ) -> Option<LineAnnotation> {
+            if line == 0 {
+                Some(LineAnnotation {
+                    left_gutter: Some(Element::text("L", Face::default())),
+                    right_gutter: Some(Element::text("R", Face::default())),
+                    background: None,
+                    priority: 0,
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    let mut state = AppState::default();
+    state.lines = vec![make_line("buffer")];
+
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(GutterPlugin));
+    let element = build_buffer_surface_abstract(&state, &registry);
+
+    match element {
+        Element::Stack { base, .. } => match base.as_ref() {
+            Element::Flex { children, .. } => match &children[1].element {
+                Element::Flex { children, .. } => {
+                    assert_eq!(children.len(), 5);
+                    assert!(!matches!(
+                        children[0].element,
+                        Element::SlotPlaceholder { .. }
+                    ));
+                    assert_slot_placeholder(
+                        &children[1].element,
+                        "kasane.buffer.left",
+                        Direction::Row,
+                    );
+                    assert_slot_placeholder(
+                        &children[3].element,
+                        "kasane.buffer.right",
+                        Direction::Row,
+                    );
+                    assert!(!matches!(
+                        children[4].element,
+                        Element::SlotPlaceholder { .. }
+                    ));
+                }
+                other => panic!(
+                    "expected buffer row, got {:?}",
+                    std::mem::discriminant(other)
+                ),
+            },
+            other => panic!(
+                "expected buffer stack base column, got {:?}",
+                std::mem::discriminant(other)
+            ),
+        },
+        other => panic!(
+            "expected buffer abstract stack, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+}
+
+#[test]
+fn test_surface_view_sections_cached_preserves_surface_reports() {
+    let mut state = AppState::default();
+    state.lines = vec![make_line("buffer")];
+    state.status_line = make_line("status");
+    state.status_mode_line = make_line("normal");
+
+    let registry = PluginRegistry::new();
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry.register(Box::new(KakouneBufferSurface::new()));
+    surface_registry.register(Box::new(StatusBarSurface::new()));
+
+    let mut cache = crate::render::cache::ViewCache::new();
+    let sections = surface_view_sections_cached(&state, &registry, &surface_registry, &mut cache);
+
+    let keys: HashSet<&str> = sections
+        .surface_reports
+        .iter()
+        .map(|report| report.surface_key.as_str())
+        .collect();
+    assert!(keys.contains("kasane.buffer"));
+    assert!(keys.contains("kasane.status"));
+
+    let cached_reports = cache
+        .base
+        .value
+        .as_ref()
+        .map(|cached| {
+            cached
+                .surface_reports
+                .iter()
+                .map(|report| report.surface_key.as_str())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap();
+    assert!(cached_reports.contains("kasane.buffer"));
+    assert!(cached_reports.contains("kasane.status"));
+    assert_eq!(
+        surface_registry.surface_id_by_key("kasane.buffer"),
+        Some(SurfaceId::BUFFER)
+    );
+}
+
+struct SurfaceDepsPlugin;
+
+impl Plugin for SurfaceDepsPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("surface_deps".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+            | PluginCapabilities::TRANSFORMER
+            | PluginCapabilities::ANNOTATOR
+    }
+
+    fn contribute_to(
+        &self,
+        _region: &SlotId,
+        _state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        None
+    }
+
+    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
+        match region.as_str() {
+            "kasane.buffer.left" => DirtyFlags::BUFFER_CURSOR,
+            "test.surface.slot" => DirtyFlags::MENU_SELECTION,
+            "kasane.buffer.overlay" => DirtyFlags::INFO,
+            _ => DirtyFlags::empty(),
+        }
+    }
+
+    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
+        match target {
+            TransformTarget::Buffer => DirtyFlags::MENU_STRUCTURE,
+            TransformTarget::StatusBar => DirtyFlags::INFO,
+            _ => DirtyFlags::empty(),
+        }
+    }
+
+    fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::MENU_SELECTION
+    }
+}
+
+struct TestSurface {
+    id: SurfaceId,
+    key: &'static str,
+    slots: Vec<SlotDeclaration>,
+}
+
+impl TestSurface {
+    fn new(id: SurfaceId, key: &'static str, slots: Vec<SlotDeclaration>) -> Self {
+        Self { id, key, slots }
+    }
+}
+
+impl Surface for TestSurface {
+    fn id(&self) -> SurfaceId {
+        self.id
+    }
+
+    fn surface_key(&self) -> compact_str::CompactString {
+        self.key.into()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::fill()
+    }
+
+    fn view(&self, _ctx: &ViewContext<'_>) -> Element {
+        Element::Empty
+    }
+
+    fn handle_event(
+        &mut self,
+        _event: SurfaceEvent,
+        _ctx: &EventContext<'_>,
+    ) -> Vec<crate::plugin::Command> {
+        vec![]
+    }
+
+    fn declared_slots(&self) -> &[SlotDeclaration] {
+        &self.slots
+    }
+}
+
+#[test]
+fn test_effective_surface_section_deps_uses_present_slots_and_active_surface_transforms() {
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(SurfaceDepsPlugin));
+
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry.register(Box::new(KakouneBufferSurface::new()));
+    surface_registry.register(Box::new(StatusBarSurface::new()));
+
+    let cached = crate::surface::SurfaceComposeResult {
+        base: Some(Element::Empty),
+        surface_reports: vec![
+            crate::surface::SurfaceRenderReport {
+                surface_key: "kasane.buffer".into(),
+                slot_records: vec![ResolvedSlotRecord {
+                    surface_key: "kasane.buffer".into(),
+                    slot_name: "kasane.buffer.left".into(),
+                    instance_id: ResolvedSlotInstanceId(1),
+                    direction: Direction::Row,
+                    gap: 0,
+                    contribution_count: 1,
+                    content_kind: ResolvedSlotContentKind::Single,
+                    area: None,
+                }],
+                absent_declared_slots: vec![],
+                owner_errors: vec![],
+                contributor_issues: vec![],
+            },
+            crate::surface::SurfaceRenderReport {
+                surface_key: "kasane.status".into(),
+                slot_records: vec![],
+                absent_declared_slots: vec![],
+                owner_errors: vec![],
+                contributor_issues: vec![],
+            },
+        ],
+    };
+
+    let deps = effective_surface_section_deps(Some(&cached), &registry, &surface_registry);
+
+    assert!(deps.base.contains(BUILD_BASE_DEPS));
+    assert!(deps.base.contains(DirtyFlags::BUFFER_CURSOR));
+    assert!(deps.base.contains(DirtyFlags::MENU_STRUCTURE));
+    assert!(deps.base.contains(DirtyFlags::MENU_SELECTION));
+    assert!(deps.base.contains(DirtyFlags::INFO));
+    assert_eq!(deps.menu, registry.section_deps().menu);
+    assert_eq!(deps.info, registry.section_deps().info);
+}
+
+#[test]
+fn test_effective_surface_section_deps_falls_back_to_declared_slots_for_owner_failures() {
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(SurfaceDepsPlugin));
+
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry.register(Box::new(TestSurface::new(
+        SurfaceId(SurfaceId::PLUGIN_BASE),
+        "test.surface",
+        vec![SlotDeclaration::new(
+            "test.surface.slot",
+            SlotKind::LeftRail,
+        )],
+    )));
+    surface_registry.register(Box::new(KakouneBufferSurface::new()));
+
+    let cached = crate::surface::SurfaceComposeResult {
+        base: Some(Element::Empty),
+        surface_reports: vec![
+            crate::surface::SurfaceRenderReport {
+                surface_key: "test.surface".into(),
+                slot_records: vec![],
+                absent_declared_slots: vec!["test.surface.slot".into()],
+                owner_errors: vec![OwnerValidationError {
+                    surface_key: "test.surface".into(),
+                    kind: OwnerValidationErrorKind::UnresolvedSlotPlaceholder,
+                    detail: "broken placeholder".into(),
+                }],
+                contributor_issues: vec![],
+            },
+            crate::surface::SurfaceRenderReport {
+                surface_key: "kasane.buffer".into(),
+                slot_records: vec![],
+                absent_declared_slots: vec![
+                    "kasane.buffer.left".into(),
+                    "kasane.buffer.right".into(),
+                    "kasane.buffer.above".into(),
+                    "kasane.buffer.below".into(),
+                    "kasane.buffer.overlay".into(),
+                ],
+                owner_errors: vec![OwnerValidationError {
+                    surface_key: "kasane.buffer".into(),
+                    kind: OwnerValidationErrorKind::UnresolvedSlotPlaceholder,
+                    detail: "broken buffer".into(),
+                }],
+                contributor_issues: vec![],
+            },
+        ],
+    };
+
+    let deps = effective_surface_section_deps(Some(&cached), &registry, &surface_registry);
+
+    assert!(deps.base.contains(DirtyFlags::MENU_SELECTION));
+    assert!(deps.base.contains(DirtyFlags::INFO));
+    assert!(deps.base.contains(DirtyFlags::MENU_STRUCTURE));
 }

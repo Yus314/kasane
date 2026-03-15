@@ -10,6 +10,7 @@ pub mod plugin;
 pub mod plugin_prelude;
 pub mod protocol;
 pub mod render;
+pub mod session;
 pub mod state;
 pub mod surface;
 #[doc(hidden)]

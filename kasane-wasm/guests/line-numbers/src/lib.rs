@@ -50,9 +50,9 @@ impl Guest for LineNumbersPlugin {
         })
     }
 
-    fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
-        kasane_plugin_sdk::route_slots!(region, {
-            slot::BUFFER_LEFT => {
+    fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
+        kasane_plugin_sdk::route_slot_ids!(region, {
+            BUFFER_LEFT => {
                 let total = host_state::get_line_count();
                 if total == 0 {
                     return None;
@@ -82,13 +82,17 @@ impl Guest for LineNumbersPlugin {
         })
     }
 
-    fn contribute_deps(region: u8) -> u16 {
-        kasane_plugin_sdk::route_slot_deps!(region, {
-            slot::BUFFER_LEFT => dirty::BUFFER,
+    fn contribute_deps(region: SlotId) -> u16 {
+        kasane_plugin_sdk::route_slot_id_deps!(region, {
+            BUFFER_LEFT => dirty::BUFFER,
         })
     }
 
     kasane_plugin_sdk::default_lifecycle!();
+    kasane_plugin_sdk::default_surfaces!();
+    kasane_plugin_sdk::default_render_surface!();
+    kasane_plugin_sdk::default_handle_surface_event!();
+    kasane_plugin_sdk::default_handle_surface_state_changed!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
     kasane_plugin_sdk::default_overlay!();

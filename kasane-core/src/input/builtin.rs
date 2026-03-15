@@ -114,7 +114,6 @@ mod tests {
     fn test_user_plugin_overrides_builtin() {
         use crate::input::Modifiers;
         use crate::plugin::PluginRegistry;
-        use crate::render::CellGrid;
         use crate::state::{Msg, update};
 
         struct CustomPageUpPlugin;
@@ -142,7 +141,7 @@ mod tests {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
+        let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
         assert_eq!(commands.len(), 1);
         match &commands[0] {
             Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -174,7 +173,7 @@ mod tests {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let (_, commands) = update(&mut state, Msg::Key(key), &mut registry, 3);
+        let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
         assert_eq!(commands.len(), 1);
         // BuiltinInputPlugin should handle it as a Scroll command
         assert!(matches!(

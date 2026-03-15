@@ -56,9 +56,9 @@ impl Guest for SelBadgePlugin {
         })
     }
 
-    fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
-        kasane_plugin_sdk::route_slots!(region, {
-            slot::STATUS_RIGHT => {
+    fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
+        kasane_plugin_sdk::route_slot_ids!(region, {
+            STATUS_RIGHT => {
                 let count = CURSOR_COUNT.get();
                 if count > 1 {
                     let text = format!(" {} sel ", count);
@@ -81,14 +81,18 @@ impl Guest for SelBadgePlugin {
         })
     }
 
-    fn contribute_deps(region: u8) -> u16 {
-        kasane_plugin_sdk::route_slot_deps!(region, {
-            slot::STATUS_RIGHT => dirty::BUFFER,
+    fn contribute_deps(region: SlotId) -> u16 {
+        kasane_plugin_sdk::route_slot_id_deps!(region, {
+            STATUS_RIGHT => dirty::BUFFER,
         })
     }
 
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
+    kasane_plugin_sdk::default_surfaces!();
+    kasane_plugin_sdk::default_render_surface!();
+    kasane_plugin_sdk::default_handle_surface_event!();
+    kasane_plugin_sdk::default_handle_surface_state_changed!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
     kasane_plugin_sdk::default_overlay!();

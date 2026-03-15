@@ -1,6 +1,6 @@
 use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
-use crate::plugin::{Command, PluginRegistry, extract_redraw_flags};
+use crate::plugin::{Command, PluginId, PluginRegistry, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 
 use super::{AppState, DirtyFlags, DragState, MouseButton, ScrollAnimation};
@@ -30,12 +30,17 @@ impl From<InputEvent> for Msg {
 }
 
 /// Process a message, updating state and returning dirty flags + side-effect commands.
+///
+/// The returned `Option<PluginId>` identifies the plugin that produced the commands
+/// (when a plugin's `handle_key` / `handle_mouse` won the first-wins chain).
+/// This is needed so that process-related deferred commands (`SpawnProcess`, etc.)
+/// can be routed to the correct plugin by `handle_deferred_commands`.
 pub fn update(
     state: &mut AppState,
     msg: Msg,
     registry: &mut PluginRegistry,
     scroll_amount: i32,
-) -> (DirtyFlags, Vec<Command>) {
+) -> (DirtyFlags, Vec<Command>, Option<PluginId>) {
     match msg {
         Msg::Kakoune(req) => {
             let req_kind = match &req {
@@ -54,7 +59,7 @@ pub fn update(
                 }
             }
             let extra_flags = extract_redraw_flags(&mut commands);
-            (flags | extra_flags, commands)
+            (flags | extra_flags, commands, None)
         }
         Msg::Key(key) => {
             // 1. Notify all plugins (observe only, cannot consume)
@@ -66,15 +71,16 @@ pub fn update(
             // PageUp/PageDown are handled by BuiltinInputPlugin (lowest priority).
             for plugin in registry.plugins_mut() {
                 if let Some(mut commands) = plugin.handle_key(&key, state) {
+                    let source = plugin.id();
                     let flags = extract_redraw_flags(&mut commands);
-                    return (flags, commands);
+                    return (flags, commands, Some(source));
                 }
             }
 
             // 3. Forward to Kakoune
             let kak_key = input::key_to_kakoune(&key);
             let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
-            (DirtyFlags::empty(), vec![cmd])
+            (DirtyFlags::empty(), vec![cmd], None)
         }
         Msg::Mouse(mouse) => {
             // Update drag state
@@ -102,9 +108,10 @@ pub fn update(
                 tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
                 for plugin in registry.plugins_mut() {
                     if let Some(mut commands) = plugin.handle_mouse(&mouse, id, state) {
+                        let source = plugin.id();
                         tracing::debug!(count = commands.len(), "handle_mouse returned commands");
                         let flags = extract_redraw_flags(&mut commands);
-                        return (flags, commands);
+                        return (flags, commands, Some(source));
                     }
                 }
                 tracing::debug!(id = ?id, "no plugin handled mouse");
@@ -125,7 +132,7 @@ pub fn update(
             {
                 // Check info scroll first
                 if handle_info_scroll(state, &mouse, registry) {
-                    return (DirtyFlags::INFO, vec![]);
+                    return (DirtyFlags::INFO, vec![], None);
                 }
                 if let Some(scroll_req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
                     let edge_line = match mouse.kind {
@@ -142,6 +149,7 @@ pub fn update(
                             Command::SendToKakoune(scroll_req),
                             Command::SendToKakoune(move_req),
                         ],
+                        None,
                     );
                 }
             }
@@ -152,7 +160,7 @@ pub fn update(
                 input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
             ) && handle_info_scroll(state, &mouse, registry)
             {
-                return (DirtyFlags::INFO, vec![]);
+                return (DirtyFlags::INFO, vec![], None);
             }
 
             // Smooth scrolling: set up animation instead of immediate scroll
@@ -179,7 +187,7 @@ pub fn update(
                         column: mouse.column,
                     });
                 }
-                return (DirtyFlags::empty(), vec![]);
+                return (DirtyFlags::empty(), vec![], None);
             }
 
             let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
@@ -187,9 +195,9 @@ pub fn update(
             } else {
                 vec![]
             };
-            (DirtyFlags::empty(), cmds)
+            (DirtyFlags::empty(), cmds, None)
         }
-        Msg::Paste => (DirtyFlags::empty(), vec![Command::Paste]),
+        Msg::Paste => (DirtyFlags::empty(), vec![Command::Paste], None),
         Msg::Resize { cols, rows } => {
             state.cols = cols;
             state.rows = rows;
@@ -197,15 +205,15 @@ pub fn update(
                 rows: state.available_height(),
                 cols,
             });
-            (DirtyFlags::ALL, vec![cmd])
+            (DirtyFlags::ALL, vec![cmd], None)
         }
         Msg::FocusGained => {
             state.focused = true;
-            (DirtyFlags::ALL, vec![])
+            (DirtyFlags::ALL, vec![], None)
         }
         Msg::FocusLost => {
             state.focused = false;
-            (DirtyFlags::ALL, vec![])
+            (DirtyFlags::ALL, vec![], None)
         }
     }
 }

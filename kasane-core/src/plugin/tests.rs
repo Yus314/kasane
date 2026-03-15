@@ -1,7 +1,36 @@
 use super::*;
 use crate::input::KeyEvent;
+use crate::layout::SplitDirection;
 use crate::protocol::Face;
 use crate::state::{AppState, DirtyFlags};
+use crate::surface::{EventContext, SizeHint, Surface, SurfaceEvent, SurfaceId, ViewContext};
+use crate::workspace::Placement;
+
+struct TestSurface {
+    id: SurfaceId,
+}
+
+impl Surface for TestSurface {
+    fn id(&self) -> SurfaceId {
+        self.id
+    }
+
+    fn surface_key(&self) -> compact_str::CompactString {
+        format!("test.surface.{}", self.id.0).into()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::fill()
+    }
+
+    fn view(&self, _ctx: &ViewContext<'_>) -> crate::element::Element {
+        crate::element::Element::Empty
+    }
+
+    fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
+        vec![]
+    }
+}
 
 struct TestPlugin;
 
@@ -55,6 +84,28 @@ struct LifecyclePlugin {
     state_changes: Vec<DirtyFlags>,
 }
 
+struct SurfacePlugin;
+
+impl Plugin for SurfacePlugin {
+    fn id(&self) -> PluginId {
+        PluginId("surface-plugin".to_string())
+    }
+
+    fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
+        vec![
+            Box::new(TestSurface { id: SurfaceId(200) }),
+            Box::new(TestSurface { id: SurfaceId(201) }),
+        ]
+    }
+
+    fn workspace_request(&self) -> Option<Placement> {
+        Some(Placement::SplitFocused {
+            direction: SplitDirection::Vertical,
+            ratio: 0.5,
+        })
+    }
+}
+
 impl LifecyclePlugin {
     fn new() -> Self {
         LifecyclePlugin {
@@ -102,6 +153,40 @@ fn test_shutdown_all_calls_all_plugins() {
     registry.register(Box::new(LifecyclePlugin::new()));
     registry.shutdown_all();
     // Verify via count — can't inspect internal state, but no panic = success
+}
+
+#[test]
+fn test_collect_plugin_surfaces_returns_owner_group() {
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(SurfacePlugin));
+
+    let surface_sets = registry.collect_plugin_surfaces();
+    assert_eq!(surface_sets.len(), 1);
+    assert_eq!(
+        surface_sets[0].owner,
+        PluginId("surface-plugin".to_string())
+    );
+    assert_eq!(surface_sets[0].surfaces.len(), 2);
+    assert_eq!(surface_sets[0].surfaces[0].id(), SurfaceId(200));
+    assert_eq!(surface_sets[0].surfaces[1].id(), SurfaceId(201));
+    assert!(matches!(
+        surface_sets[0].legacy_workspace_request,
+        Some(Placement::SplitFocused {
+            direction: SplitDirection::Vertical,
+            ratio
+        }) if (ratio - 0.5).abs() < f32::EPSILON
+    ));
+}
+
+#[test]
+fn test_remove_plugin_removes_registered_plugin() {
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(TestPlugin));
+    registry.register(Box::new(SurfacePlugin));
+
+    assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
+    assert_eq!(registry.plugin_count(), 1);
+    assert!(!registry.remove_plugin(&PluginId("surface-plugin".to_string())));
 }
 
 #[test]
@@ -785,6 +870,7 @@ fn test_null_process_dispatcher() {
     dispatcher.write(&plugin_id, 1, b"data");
     dispatcher.close_stdin(&plugin_id, 1);
     dispatcher.kill(&plugin_id, 1);
+    dispatcher.remove_finished_job(&plugin_id, 1);
 }
 
 struct RecordingDispatcher {
@@ -826,6 +912,7 @@ impl ProcessDispatcher for RecordingDispatcher {
     fn kill(&mut self, _plugin_id: &PluginId, job_id: u64) {
         self.kills.push(job_id);
     }
+    fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 }
 
 #[test]

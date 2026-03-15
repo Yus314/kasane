@@ -130,6 +130,7 @@ impl PaintPatch for StatusBarPatch {
                 h: cell_size.height,
             },
             face: state.status_default_face,
+            elevated: false,
         });
 
         // Draw status line atoms

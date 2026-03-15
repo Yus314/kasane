@@ -131,12 +131,13 @@ pub trait Plugin: Any {
     // --- Surface system hooks (Phase S) ---
 
     /// Return surfaces owned by this plugin.
-    /// Called once during initialization; returned surfaces are registered in the SurfaceRegistry.
+    /// Called during bootstrap preflight before `on_init()`.
     fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
         vec![]
     }
 
-    /// Request where plugin-owned surfaces should be placed in the workspace.
+    /// Legacy plugin-wide placement request for plugin-owned surfaces.
+    /// Evaluated during bootstrap preflight before `on_init()`.
     fn workspace_request(&self) -> Option<crate::workspace::Placement> {
         None
     }

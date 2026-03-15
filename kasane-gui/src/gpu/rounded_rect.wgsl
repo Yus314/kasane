@@ -76,7 +76,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let fill_alpha = 1.0 - smoothstep(-0.5, 0.5, d);
 
     if bw <= 0.0 {
-        // Fill only (shadow / background)
+        if r > 1.0 {
+            // Shadow: smooth gradient falloff using SDF distance.
+            // d < 0 inside the shape, d = 0 at the edge.
+            // Fade from full opacity (d <= -r) to transparent (d >= 0).
+            let shadow_alpha = smoothstep(0.0, r, -d);
+            if shadow_alpha < 0.001 {
+                discard;
+            }
+            return vec4<f32>(in.fill_color.rgb, in.fill_color.a * shadow_alpha);
+        }
+        // Solid fill (background rectangle)
         return vec4<f32>(in.fill_color.rgb, in.fill_color.a * fill_alpha);
     }
 

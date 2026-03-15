@@ -10,3 +10,11 @@ wasmtime = "42"
 wasmtime-wasi = "42"
 anyhow = { workspace = true }
 tracing = { workspace = true }
+compact_str = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "io_event"
+harness = false

@@ -89,6 +89,10 @@ impl Guest for CursorLinePlugin {
 
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
+    kasane_plugin_sdk::default_surfaces!();
+    kasane_plugin_sdk::default_render_surface!();
+    kasane_plugin_sdk::default_handle_surface_event!();
+    kasane_plugin_sdk::default_handle_surface_state_changed!();
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_input!();
     kasane_plugin_sdk::default_overlay!();

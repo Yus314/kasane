@@ -77,7 +77,20 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             width: constraints.min_width,
             height: constraints.min_height,
         },
+        Element::SlotPlaceholder { .. } => {
+            debug_assert!(false, "unresolved SlotPlaceholder reached layout::measure");
+            Size {
+                width: constraints.min_width,
+                height: constraints.min_height,
+            }
+        }
         Element::Flex {
+            direction,
+            children,
+            gap,
+            ..
+        } => measure_flex(*direction, children, *gap, constraints, state),
+        Element::ResolvedSlot {
             direction,
             children,
             gap,
@@ -206,6 +219,7 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
         Element::Text(..)
         | Element::StyledLine(..)
         | Element::BufferRef { .. }
+        | Element::SlotPlaceholder { .. }
         | Element::Empty => LayoutResult {
             area,
             children: vec![],
@@ -247,6 +261,20 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
             *gap,
             *align,
             *cross_align,
+            area,
+            state,
+        ),
+        Element::ResolvedSlot {
+            direction,
+            children,
+            gap,
+            ..
+        } => place_flex(
+            *direction,
+            children,
+            *gap,
+            Align::Start,
+            Align::Start,
             area,
             state,
         ),

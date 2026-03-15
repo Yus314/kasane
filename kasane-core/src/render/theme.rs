@@ -92,6 +92,16 @@ impl Theme {
             },
         );
 
+        // Workspace split divider
+        map.insert(
+            StyleToken::SPLIT_DIVIDER,
+            Face {
+                fg: Color::Default,
+                bg: Color::Named(NamedColor::BrightBlack),
+                ..Face::default()
+            },
+        );
+
         // Shadow
         map.insert(
             StyleToken::SHADOW,

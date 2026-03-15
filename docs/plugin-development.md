@@ -48,6 +48,8 @@ Kasane プラグインには 2 つの開発パスがある。
 
 ファイルシステムアクセスは WASI ケイパビリティ宣言 (`Capability::Filesystem`) で利用可能。外部プロセス実行（ファジーファインダー等）は `Capability::Process` を宣言し、`Command::SpawnProcess` でプロセスを起動、`Plugin::on_io_event()` で stdout/stderr/終了を受信する (Phase P-2)。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
 
+`Command::Session(SessionCommand::Spawn { .. })` / `Close { .. }` で host runtime が管理する Kakoune session を追加・終了できる。`activate: true` を付けると新 session が即座に active になり、以後の Kakoune event・surface event・command 実行はその session に対して行われる。V1 でも inactive session の Kakoune event は off-screen snapshot に反映されるが、描画対象は常に active session のみで、inactive session の surface 自動生成はまだ未実装である。
+
 ## 2. クイックスタート
 
 ### 2.1 WASM プラグイン (推奨)
@@ -84,9 +86,9 @@ impl Guest for SelBadgePlugin {
         vec![]
     }
 
-    fn contribute_to(region: u8, _ctx: ContributeContext) -> Option<Contribution> {
-        kasane_plugin_sdk::route_slots!(region, {
-            slot::STATUS_RIGHT => {
+    fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
+        kasane_plugin_sdk::route_slot_ids!(region, {
+            STATUS_RIGHT => {
                 let count = CURSOR_COUNT.get();
                 if count > 1 {
                     let text = format!(" {} sel ", count);
@@ -109,9 +111,9 @@ impl Guest for SelBadgePlugin {
         })
     }
 
-    fn contribute_deps(region: u8) -> u16 {
-        kasane_plugin_sdk::route_slot_deps!(region, {
-            slot::STATUS_RIGHT => dirty::BUFFER,
+    fn contribute_deps(region: SlotId) -> u16 {
+        kasane_plugin_sdk::route_slot_id_deps!(region, {
+            STATUS_RIGHT => dirty::BUFFER,
         })
     }
 
@@ -119,7 +121,7 @@ impl Guest for SelBadgePlugin {
         CURSOR_COUNT.get() as u64
     }
 
-    // Old WIT API stubs (required by WIT interface, not called by host)
+    // Legacy WIT stubs (still required by the interface)
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_overlay!();
@@ -128,10 +130,14 @@ impl Guest for SelBadgePlugin {
     kasane_plugin_sdk::default_decorator_priority!();
     kasane_plugin_sdk::default_named_slot!();
 
-    // New API defaults
+    // Shared API defaults
     kasane_plugin_sdk::default_init!();
     kasane_plugin_sdk::default_shutdown!();
     kasane_plugin_sdk::default_input!();
+    kasane_plugin_sdk::default_surfaces!();
+    kasane_plugin_sdk::default_render_surface!();
+    kasane_plugin_sdk::default_handle_surface_event!();
+    kasane_plugin_sdk::default_handle_surface_state_changed!();
     kasane_plugin_sdk::default_menu_transform!();
     kasane_plugin_sdk::default_update!();
     kasane_plugin_sdk::default_cursor_style!();
@@ -146,6 +152,8 @@ impl Guest for SelBadgePlugin {
 
 export!(SelBadgePlugin);
 ```
+
+`handle_surface_event(...)` と `handle_surface_state_changed(...)` が返す command は surface owner plugin の source として host 側へ渡される。`SpawnProcess` など deferred command の capability check もこの owner plugin に対して行われるので、hosted surface handler でも通常の plugin command と同じ権限モデルが適用される。
 
 **プロジェクトセットアップ:**
 

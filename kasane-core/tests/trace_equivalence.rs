@@ -13,9 +13,7 @@
 
 use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::{Color, Coord, Face, InfoStyle, KakouneRequest, MenuStyle, NamedColor};
-use kasane_core::render::pipeline::{
-    render_pipeline_cached, render_pipeline_patched, render_pipeline_sectioned,
-};
+use kasane_core::render::pipeline::{render_pipeline_patched, render_pipeline_sectioned};
 use kasane_core::render::{CellGrid, LayoutCache, ViewCache};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::test_support::{assert_grids_equal, make_line, render_to_grid, test_state_80x24};

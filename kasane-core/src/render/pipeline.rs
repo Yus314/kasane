@@ -26,6 +26,13 @@ use crate::surface::SurfaceRegistry;
 /// - `PluginViewSource`: builds sections from `PluginRegistry` alone (legacy/test path)
 /// - `SurfaceViewSource`: builds sections from `SurfaceRegistry` (workspace-aware path)
 trait ViewSource {
+    fn invalidate_view_cache(
+        &self,
+        dirty: DirtyFlags,
+        registry: &PluginRegistry,
+        cache: &mut ViewCache,
+    );
+
     fn view_sections(
         &self,
         state: &AppState,
@@ -38,6 +45,15 @@ trait ViewSource {
 struct PluginViewSource;
 
 impl ViewSource for PluginViewSource {
+    fn invalidate_view_cache(
+        &self,
+        dirty: DirtyFlags,
+        registry: &PluginRegistry,
+        cache: &mut ViewCache,
+    ) {
+        cache.invalidate_with_deps(dirty, registry.section_deps());
+    }
+
     fn view_sections(
         &self,
         state: &AppState,
@@ -54,6 +70,20 @@ struct SurfaceViewSource<'a> {
 }
 
 impl ViewSource for SurfaceViewSource<'_> {
+    fn invalidate_view_cache(
+        &self,
+        dirty: DirtyFlags,
+        registry: &PluginRegistry,
+        cache: &mut ViewCache,
+    ) {
+        let deps = view::effective_surface_section_deps(
+            cache.base.value.as_ref(),
+            registry,
+            self.surface_registry,
+        );
+        cache.invalidate_with_deps(dirty, &deps);
+    }
+
     fn view_sections(
         &self,
         state: &AppState,
@@ -177,6 +207,20 @@ fn debug_assert_grid_equivalent(patched: &CellGrid, reference: &CellGrid, _state
     }
 }
 
+fn backfill_surface_report_areas(
+    sections: &mut view::ViewSections,
+    root_area: Rect,
+    state: &AppState,
+) -> flex::LayoutResult {
+    let base_layout = flex::place(&sections.base, root_area, state);
+    crate::surface::resolve::backfill_surface_report_areas(
+        &mut sections.surface_reports,
+        &sections.base,
+        &base_layout,
+    );
+    base_layout
+}
+
 // ---------------------------------------------------------------------------
 // Generic core pipeline functions
 // ---------------------------------------------------------------------------
@@ -193,14 +237,16 @@ fn render_cached_core(
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
-    cache.invalidate_with_deps(dirty, registry.section_deps());
-    let element = source.view_sections(state, registry, cache).into_element();
+    source.invalidate_view_cache(dirty, registry, cache);
+    let mut sections = source.view_sections(state, registry, cache);
     let root_area = Rect {
         x: 0,
         y: 0,
         w: state.cols,
         h: state.rows,
     };
+    let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
+    let element = sections.into_element();
     let layout_result = flex::place(&element, root_area, state);
 
     // Line-level dirty optimization: when BUFFER is dirty and some lines
@@ -268,8 +314,9 @@ fn render_sectioned_core(
             }
         });
 
-        view_cache.invalidate_with_deps(dirty, registry.section_deps());
-        let sections = source.view_sections(state, registry, view_cache);
+        source.invalidate_view_cache(dirty, registry, view_cache);
+        let mut sections = source.view_sections(state, registry, view_cache);
+        let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
         let element = sections.into_element();
         let layout_result = flex::place(&element, root_area, state);
 
@@ -299,8 +346,8 @@ fn render_sectioned_core(
 
     // Only MENU_SELECTION dirty: repaint just the menu overlay area
     if dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some() {
-        view_cache.invalidate_with_deps(dirty, registry.section_deps());
-        let sections = source.view_sections(state, registry, view_cache);
+        source.invalidate_view_cache(dirty, registry, view_cache);
+        let mut sections = source.view_sections(state, registry, view_cache);
 
         let menu_rect = sections
             .menu_overlay
@@ -308,6 +355,7 @@ fn render_sectioned_core(
             .map(|overlay| crate::layout::layout_single_overlay(overlay, root_area, state).area);
 
         if let Some(menu_rect) = menu_rect {
+            let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
             let element = sections.into_element();
             let layout_result = flex::place(&element, root_area, state);
 
@@ -341,9 +389,9 @@ fn render_sectioned_core(
     );
 
     // Update layout cache from the full render
-    let element = source
-        .view_sections(state, registry, view_cache)
-        .into_element();
+    let mut sections = source.view_sections(state, registry, view_cache);
+    let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
+    let element = sections.into_element();
     let layout_result = flex::place(&element, root_area, state);
     let status_y = if state.status_at_top {
         0
@@ -418,7 +466,7 @@ fn render_patched_core(
         }
 
         // Still invalidate view cache for future renders
-        view_cache.invalidate_with_deps(dirty, registry.section_deps());
+        source.invalidate_view_cache(dirty, registry, view_cache);
         return result;
     }
 
@@ -451,11 +499,11 @@ fn scene_render_core<'a>(
     crate::perf::perf_span!("scene_render_pipeline");
 
     // Invalidate both caches
-    view_cache.invalidate_with_deps(dirty, registry.section_deps());
+    source.invalidate_view_cache(dirty, registry, view_cache);
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
     // Get view sections (uses ViewCache) — needed for buffer_x_offset even on fast path
-    let sections = source.view_sections(state, registry, view_cache);
+    let mut sections = source.view_sections(state, registry, view_cache);
 
     let root_area = Rect {
         x: 0,
@@ -465,7 +513,7 @@ fn scene_render_core<'a>(
     };
 
     // Compute buffer_x_offset from the base layout
-    let base_layout = flex::place(&sections.base, root_area, state);
+    let base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
     let buffer_x_offset = find_buffer_x_offset(&sections.base, &base_layout);
     let result = compute_render_result(state, registry, buffer_x_offset);
 

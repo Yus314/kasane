@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::pane::PaneCommand;
 use crate::protocol::{Face, KasaneRequest};
+use crate::session::SessionCommand;
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceCommand;
 
@@ -74,6 +75,8 @@ pub enum Command {
         args: Vec<String>,
         stdin_mode: StdinMode,
     },
+    /// Manage Kakoune sessions owned by the host runtime.
+    Session(SessionCommand),
     /// Write data to a spawned process's stdin.
     WriteToProcess {
         job_id: u64,
@@ -113,6 +116,7 @@ pub enum DeferredCommand {
         args: Vec<String>,
         stdin_mode: StdinMode,
     },
+    Session(SessionCommand),
     WriteToProcess {
         job_id: u64,
         data: Vec<u8>,
@@ -163,6 +167,7 @@ pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<D
                 args,
                 stdin_mode,
             }),
+            Command::Session(cmd) => deferred.push(DeferredCommand::Session(cmd)),
             Command::WriteToProcess { job_id, data } => {
                 deferred.push(DeferredCommand::WriteToProcess { job_id, data })
             }
@@ -218,6 +223,7 @@ pub fn execute_commands(
             | Command::Workspace(_)
             | Command::RegisterThemeTokens(_)
             | Command::SpawnProcess { .. }
+            | Command::Session(_)
             | Command::WriteToProcess { .. }
             | Command::CloseProcessStdin { .. }
             | Command::KillProcess { .. } => {}

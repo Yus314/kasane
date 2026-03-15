@@ -7,6 +7,7 @@ mod traits;
 #[cfg(test)]
 mod tests;
 
+pub use crate::session::SessionCommand;
 use bitflags::bitflags;
 use compact_str::CompactString;
 
@@ -25,11 +26,11 @@ pub use io::{
 pub use context::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, ContribSizeHint,
     ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
-    TransformContext, TransformTarget,
+    SourcedContribution, TransformContext, TransformTarget,
 };
 
 // Re-export registry module
-pub use registry::{EffectiveSectionDeps, PluginRegistry};
+pub use registry::{EffectiveSectionDeps, PluginRegistry, PluginSurfaceSet};
 
 // Re-export traits module
 pub use traits::Plugin;

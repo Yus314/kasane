@@ -7,7 +7,10 @@
 use kasane_core::element::Element;
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
-use kasane_core::plugin::{Command, Plugin, PluginId, PluginRegistry};
+use kasane_core::plugin::{
+    Command, ContribSizeHint, ContributeContext, Contribution, Plugin, PluginCapabilities,
+    PluginId, PluginRegistry, SlotId,
+};
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
 use kasane_core::render::{CursorStyle, cursor_style, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
@@ -68,7 +71,7 @@ fn handle_key_first_wins() {
         key: Key::Char('s'),
         modifiers: Modifiers::CTRL,
     };
-    let (flags, cmds) = update(&mut state, Msg::Key(ctrl_s), &mut registry, 3);
+    let (flags, cmds, _) = update(&mut state, Msg::Key(ctrl_s), &mut registry, 3);
 
     // Plugin returns RequestRedraw(ALL) → extracted into flags
     assert!(
@@ -87,7 +90,7 @@ fn handle_key_first_wins() {
         key: Key::Char('a'),
         modifiers: Modifiers::empty(),
     };
-    let (_flags, cmds) = update(&mut state, Msg::Key(key_a), &mut registry, 3);
+    let (_flags, cmds, _) = update(&mut state, Msg::Key(key_a), &mut registry, 3);
 
     let has_send = cmds.iter().any(|c| matches!(c, Command::SendToKakoune(_)));
     assert!(
@@ -300,7 +303,65 @@ fn buffer_transform_adds_banner() {
 }
 
 // ===========================================================================
-// Test 5: Cursor style override wins over default logic
+// Test 5: ABOVE_BUFFER / BELOW_BUFFER contribute_to proof
+// ===========================================================================
+
+struct VerticalBandsPlugin;
+
+impl Plugin for VerticalBandsPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("vertical_bands".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        _state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        let label = if region == &SlotId::ABOVE_BUFFER {
+            "ABOVE-BUFFER"
+        } else if region == &SlotId::BELOW_BUFFER {
+            "BELOW-BUFFER"
+        } else {
+            return None;
+        };
+
+        Some(Contribution {
+            element: Element::text(label, Face::default()),
+            priority: 0,
+            size_hint: ContribSizeHint::Auto,
+        })
+    }
+}
+
+#[test]
+fn above_and_below_buffer_slots_render() {
+    let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
+
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(VerticalBandsPlugin));
+    registry.init_all(&state);
+
+    let grid = render_with_registry(&state, &registry);
+    let rows: Vec<String> = (0..state.rows).map(|y| row_text(&grid, y)).collect();
+
+    assert!(
+        rows.iter().any(|row| row.contains("ABOVE-BUFFER")),
+        "expected ABOVE_BUFFER contribution in rendered output"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains("BELOW-BUFFER")),
+        "expected BELOW_BUFFER contribution in rendered output"
+    );
+}
+
+// ===========================================================================
+// Test 6: Cursor style override wins over default logic
 // ===========================================================================
 
 struct UnderlineCursorPlugin;

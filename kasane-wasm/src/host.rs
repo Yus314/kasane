@@ -444,6 +444,23 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         handle
     }
 
+    fn create_slot_placeholder(
+        &mut self,
+        slot: bindings::kasane::plugin::types::SlotId,
+        direction: bindings::kasane::plugin::types::LayoutDirection,
+        gap: u16,
+    ) -> u32 {
+        let slot = convert::wit_slot_id_to_slot_id(&slot);
+        let element = Element::SlotPlaceholder {
+            slot_name: slot.0,
+            direction: convert::wit_layout_direction_to_direction(direction),
+            gap,
+        };
+        let handle = self.elements.len() as u32;
+        self.elements.push(element);
+        handle
+    }
+
     // --- v0.3.0: Advanced element builders ---
 
     fn create_container_styled(

@@ -5,11 +5,12 @@ use std::collections::HashMap;
 use crate::element::{Element, FlexChild, InteractiveId};
 use crate::layout::HitMap;
 use crate::state::{AppState, DirtyFlags};
+use crate::workspace::Placement;
 
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     IoEvent, OverlayContext, OverlayContribution, PaintHook, Plugin, PluginCapabilities, PluginId,
-    SlotId, TransformContext, TransformTarget, extract_redraw_flags,
+    SlotId, SourcedContribution, TransformContext, TransformTarget, extract_redraw_flags,
 };
 
 /// Cached result for a single plugin's contributions.
@@ -39,6 +40,12 @@ pub struct EffectiveSectionDeps {
     pub base: DirtyFlags,
     pub menu: DirtyFlags,
     pub info: DirtyFlags,
+}
+
+pub struct PluginSurfaceSet {
+    pub owner: PluginId,
+    pub surfaces: Vec<Box<dyn crate::surface::Surface>>,
+    pub legacy_workspace_request: Option<Placement>,
 }
 
 impl Default for EffectiveSectionDeps {
@@ -110,6 +117,45 @@ impl PluginRegistry {
         self.recompute_section_deps();
     }
 
+    pub fn remove_plugin(&mut self, id: &PluginId) -> bool {
+        if let Some(pos) = self.plugins.iter().position(|plugin| plugin.id() == *id) {
+            self.plugins.remove(pos);
+            self.capabilities.remove(pos);
+            self.slot_cache.get_mut().entries.remove(pos);
+            self.recompute_section_deps();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Aggregate DirtyFlags dependencies for contributions targeting a slot.
+    pub fn contribute_deps(&self, slot: &SlotId) -> DirtyFlags {
+        self.plugins
+            .iter()
+            .fold(DirtyFlags::empty(), |deps, plugin| {
+                deps | plugin.contribute_deps(slot)
+            })
+    }
+
+    /// Aggregate DirtyFlags dependencies for buffer line annotations.
+    pub fn annotate_deps(&self) -> DirtyFlags {
+        self.plugins
+            .iter()
+            .fold(DirtyFlags::empty(), |deps, plugin| {
+                deps | plugin.annotate_deps()
+            })
+    }
+
+    /// Aggregate DirtyFlags dependencies for transforms targeting a render section.
+    pub fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
+        self.plugins
+            .iter()
+            .fold(DirtyFlags::empty(), |deps, plugin| {
+                deps | plugin.transform_deps(target)
+            })
+    }
+
     /// Recompute effective section deps by unioning core deps with all
     /// plugin contribution/transform/annotation deps.
     fn recompute_section_deps(&mut self) {
@@ -132,30 +178,21 @@ impl PluginRegistry {
             &SlotId::STATUS_RIGHT,
         ];
 
-        for plugin in &self.plugins {
-            // Contribution deps for base slots
-            for slot in &base_slots {
-                base |= plugin.contribute_deps(slot);
-            }
-
-            // Annotation deps
-            base |= plugin.annotate_deps();
-
-            // Transform deps for base targets
-            base |= plugin.transform_deps(&TransformTarget::Buffer);
-            base |= plugin.transform_deps(&TransformTarget::StatusBar);
-
-            // Transform deps for menu targets
-            menu |= plugin.transform_deps(&TransformTarget::Menu);
-            menu |= plugin.transform_deps(&TransformTarget::MenuPrompt);
-            menu |= plugin.transform_deps(&TransformTarget::MenuInline);
-            menu |= plugin.transform_deps(&TransformTarget::MenuSearch);
-
-            // Transform deps for info targets
-            info |= plugin.transform_deps(&TransformTarget::Info);
-            info |= plugin.transform_deps(&TransformTarget::InfoPrompt);
-            info |= plugin.transform_deps(&TransformTarget::InfoModal);
+        for slot in &base_slots {
+            base |= self.contribute_deps(slot);
         }
+        base |= self.annotate_deps();
+        base |= self.transform_deps(&TransformTarget::Buffer);
+        base |= self.transform_deps(&TransformTarget::StatusBar);
+
+        menu |= self.transform_deps(&TransformTarget::Menu);
+        menu |= self.transform_deps(&TransformTarget::MenuPrompt);
+        menu |= self.transform_deps(&TransformTarget::MenuInline);
+        menu |= self.transform_deps(&TransformTarget::MenuSearch);
+
+        info |= self.transform_deps(&TransformTarget::Info);
+        info |= self.transform_deps(&TransformTarget::InfoPrompt);
+        info |= self.transform_deps(&TransformTarget::InfoModal);
 
         self.section_deps = EffectiveSectionDeps { base, menu, info };
     }
@@ -216,11 +253,19 @@ impl PluginRegistry {
         self.plugins.iter_mut()
     }
 
-    /// Collect surfaces from all plugins. Call after `init_all()`.
-    pub fn collect_plugin_surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+    /// Collect plugin-owned surfaces during the bootstrap preflight stage.
+    pub fn collect_plugin_surfaces(&mut self) -> Vec<PluginSurfaceSet> {
         let mut surfaces = Vec::new();
         for plugin in &mut self.plugins {
-            surfaces.extend(plugin.surfaces());
+            let owner = plugin.id();
+            let plugin_surfaces = plugin.surfaces();
+            if !plugin_surfaces.is_empty() {
+                surfaces.push(PluginSurfaceSet {
+                    owner,
+                    surfaces: plugin_surfaces,
+                    legacy_workspace_request: plugin.workspace_request(),
+                });
+            }
         }
         surfaces
     }
@@ -302,8 +347,20 @@ impl PluginRegistry {
         state: &AppState,
         ctx: &ContributeContext,
     ) -> Vec<Contribution> {
+        self.collect_contributions_with_sources(region, state, ctx)
+            .into_iter()
+            .map(|sc| sc.contribution)
+            .collect()
+    }
+
+    pub fn collect_contributions_with_sources(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        ctx: &ContributeContext,
+    ) -> Vec<SourcedContribution> {
         let mut cache = self.slot_cache.borrow_mut();
-        let mut contributions: Vec<Contribution> = self
+        let mut contributions: Vec<SourcedContribution> = self
             .plugins
             .iter()
             .enumerate()
@@ -316,7 +373,10 @@ impl PluginRegistry {
                 if let Some(entry) = cache.entries.get(i)
                     && let Some(cached) = entry.contributions.get(region)
                 {
-                    return cached.clone();
+                    return cached.clone().map(|contribution| SourcedContribution {
+                        contributor: plugin.id(),
+                        contribution,
+                    });
                 }
                 let result = plugin.contribute_to(region, state, ctx);
                 while cache.entries.len() <= i {
@@ -325,10 +385,13 @@ impl PluginRegistry {
                 cache.entries[i]
                     .contributions
                     .insert(region.clone(), result.clone());
-                result
+                result.map(|contribution| SourcedContribution {
+                    contributor: plugin.id(),
+                    contribution,
+                })
             })
             .collect();
-        contributions.sort_by_key(|c| c.priority);
+        contributions.sort_by_key(|c| c.contribution.priority);
         contributions
     }
 
@@ -506,6 +569,7 @@ impl PluginRegistry {
         event: &IoEvent,
         state: &AppState,
     ) -> (DirtyFlags, Vec<Command>) {
+        crate::perf::perf_span!("deliver_io_event");
         for (i, plugin) in self.plugins.iter_mut().enumerate() {
             if &plugin.id() == target {
                 if !self.capabilities[i].contains(PluginCapabilities::IO_HANDLER) {

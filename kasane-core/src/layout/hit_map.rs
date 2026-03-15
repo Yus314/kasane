@@ -75,6 +75,13 @@ fn collect_interactive(
                 }
             }
         }
+        Element::ResolvedSlot { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(cl) = layout.children.get(i) {
+                    collect_interactive(&child.element, cl, entries);
+                }
+            }
+        }
         Element::Grid { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 if let Some(cl) = layout.children.get(i) {
@@ -90,6 +97,7 @@ fn collect_interactive(
         Element::Text(..)
         | Element::StyledLine(..)
         | Element::BufferRef { .. }
+        | Element::SlotPlaceholder { .. }
         | Element::Empty => {}
     }
 }

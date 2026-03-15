@@ -12,6 +12,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use kasane_core::config::Config;
 use kasane_core::plugin::{PluginRegistry, ProcessDispatcher, ProcessEventSink};
+use kasane_core::session::{SessionManager, SessionSpec};
 
 use cli::UiMode;
 
@@ -120,17 +121,26 @@ fn run_inner(
         ))
     };
 
+    let mut session_manager = SessionManager::new();
+    let primary_session = SessionSpec::primary(session, kak_args);
+    let (reader, writer, child) = process::spawn_kakoune_for_spec(&primary_session)?;
+    session_manager
+        .insert(primary_session, reader, writer, child)
+        .expect("primary session key should be unique");
+
     match resolved_ui {
         UiMode::Tui => kasane_tui::run_tui(
             config,
-            move || process::spawn_kakoune(&kak_args),
+            session_manager,
+            process::spawn_kakoune_for_spec,
             wrapped_register,
             make_dispatcher,
         ),
         #[cfg(feature = "gui")]
         UiMode::Gui => kasane_gui::run_gui(
             config,
-            move || process::spawn_kakoune(&kak_args),
+            session_manager,
+            process::spawn_kakoune_for_spec,
             wrapped_register,
             make_dispatcher,
         ),

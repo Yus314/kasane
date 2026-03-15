@@ -7,6 +7,7 @@
 use crate::element::Element;
 use crate::plugin::Command;
 use crate::state::{AppState, DirtyFlags};
+use compact_str::CompactString;
 
 use super::{EventContext, SizeHint, Surface, SurfaceEvent, SurfaceId, ViewContext};
 
@@ -26,6 +27,10 @@ impl InfoSurface {
 impl Surface for InfoSurface {
     fn id(&self) -> SurfaceId {
         SurfaceId(SurfaceId::INFO_BASE + self.index as u32)
+    }
+
+    fn surface_key(&self) -> CompactString {
+        format!("kasane.info.{}", self.index).into()
     }
 
     fn size_hint(&self) -> SizeHint {

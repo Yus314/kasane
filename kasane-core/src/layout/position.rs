@@ -93,6 +93,7 @@ pub fn layout_single_overlay(
     state: &AppState,
 ) -> flex::LayoutResult {
     let (ox, oy, ow, oh) = match &overlay.anchor {
+        crate::element::OverlayAnchor::Fill => (root_area.x, root_area.y, root_area.w, root_area.h),
         crate::element::OverlayAnchor::Absolute { x, y, w, h } => {
             (root_area.x + *x, root_area.y + *y, *w, *h)
         }

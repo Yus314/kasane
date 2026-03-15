@@ -2110,6 +2110,8 @@ name = "kasane-wasm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "compact_str",
+ "criterion",
  "kasane-core",
  "tracing",
  "wasmtime",

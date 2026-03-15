@@ -2,14 +2,19 @@ use std::ops::Range;
 
 use crate::element::{Element, OverlayAnchor};
 use crate::layout::Rect;
+use crate::layout::flex::Constraints;
 use crate::protocol::Face;
 use crate::state::AppState;
 
+use super::PluginId;
+
 /// Layout constraints passed to plugins during contribution.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContributeContext {
-    pub available_width: u16,
-    pub available_height: u16,
+    pub min_width: u16,
+    pub max_width: Option<u16>,
+    pub min_height: u16,
+    pub max_height: Option<u16>,
     pub visible_lines: Range<usize>,
     pub screen_cols: u16,
     pub screen_rows: u16,
@@ -18,19 +23,32 @@ pub struct ContributeContext {
 impl ContributeContext {
     /// Build from AppState and an optional surface rect.
     pub fn new(state: &AppState, rect: Option<&Rect>) -> Self {
-        let (w, h) = if let Some(r) = rect {
-            (r.w, r.h)
+        if let Some(rect) = rect {
+            Self::from_constraints(state, Constraints::tight(rect.w, rect.h))
         } else {
-            (state.cols, state.available_height())
-        };
+            Self::from_constraints(
+                state,
+                Constraints::loose(state.cols, state.available_height()),
+            )
+        }
+    }
+
+    /// Build from layout constraints.
+    pub fn from_constraints(state: &AppState, constraints: Constraints) -> Self {
         ContributeContext {
-            available_width: w,
-            available_height: h,
+            min_width: constraints.min_width,
+            max_width: bounded_constraint(constraints.max_width),
+            min_height: constraints.min_height,
+            max_height: bounded_constraint(constraints.max_height),
             visible_lines: state.visible_line_range(),
             screen_cols: state.cols,
             screen_rows: state.rows,
         }
     }
+}
+
+fn bounded_constraint(max: u16) -> Option<u16> {
+    if max == u16::MAX { None } else { Some(max) }
 }
 
 /// Result of a plugin's `contribute_to()` call.
@@ -39,6 +57,12 @@ pub struct Contribution {
     pub element: Element,
     pub priority: i16,
     pub size_hint: ContribSizeHint,
+}
+
+#[derive(Debug, Clone)]
+pub struct SourcedContribution {
+    pub contributor: PluginId,
+    pub contribution: Contribution,
 }
 
 /// Size hint for a contribution within a slot.
