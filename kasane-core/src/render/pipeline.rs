@@ -14,7 +14,6 @@ use crate::plugin::PaintHook;
 use crate::plugin::PluginRegistry;
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
-use crate::surface::SurfaceRegistry;
 
 // ---------------------------------------------------------------------------
 // ViewSource: abstracts where view sections come from
@@ -25,7 +24,7 @@ use crate::surface::SurfaceRegistry;
 /// Two implementations exist:
 /// - `PluginViewSource`: builds sections from `PluginRegistry` alone (legacy/test path)
 /// - `SurfaceViewSource`: builds sections from `SurfaceRegistry` (workspace-aware path)
-trait ViewSource {
+pub(crate) trait ViewSource {
     fn invalidate_view_cache(
         &self,
         dirty: DirtyFlags,
@@ -61,36 +60,6 @@ impl ViewSource for PluginViewSource {
         cache: &mut ViewCache,
     ) -> view::ViewSections {
         view::view_sections_cached(state, registry, cache)
-    }
-}
-
-/// Builds view sections using the SurfaceRegistry for workspace-aware layouts.
-struct SurfaceViewSource<'a> {
-    surface_registry: &'a SurfaceRegistry,
-}
-
-impl ViewSource for SurfaceViewSource<'_> {
-    fn invalidate_view_cache(
-        &self,
-        dirty: DirtyFlags,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) {
-        let deps = view::effective_surface_section_deps(
-            cache.base.value.as_ref(),
-            registry,
-            self.surface_registry,
-        );
-        cache.invalidate_with_deps(dirty, &deps);
-    }
-
-    fn view_sections(
-        &self,
-        state: &AppState,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) -> view::ViewSections {
-        view::surface_view_sections_cached(state, registry, self.surface_registry, cache)
     }
 }
 
@@ -226,7 +195,7 @@ fn backfill_surface_report_areas(
 // ---------------------------------------------------------------------------
 
 /// Core cached rendering pipeline, generic over the view section source.
-fn render_cached_core(
+pub(crate) fn render_cached_core(
     source: &impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
@@ -283,7 +252,7 @@ fn render_cached_core(
 /// Falls back to `render_cached_core` when multiple sections are dirty
 /// or the layout cache is cold.
 #[allow(clippy::too_many_arguments)]
-fn render_sectioned_core(
+pub(crate) fn render_sectioned_core(
     source: &impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
@@ -413,7 +382,7 @@ fn render_sectioned_core(
 /// In debug builds, after applying a patch, runs the full interpreter pipeline
 /// and asserts CellGrid equivalence (correctness invariant).
 #[allow(clippy::too_many_arguments)]
-fn render_patched_core(
+pub(crate) fn render_patched_core(
     source: &impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
@@ -487,7 +456,7 @@ fn render_patched_core(
 ///
 /// Returns a slice into the SceneCache's composed buffer and the RenderResult.
 /// Per-section invalidation: only dirty sections are re-rendered.
-fn scene_render_core<'a>(
+pub(crate) fn scene_render_core<'a>(
     source: &impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
@@ -729,105 +698,5 @@ pub fn render_pipeline_patched(
         layout_cache,
         patches,
         &[],
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Surface-based wrappers
-// ---------------------------------------------------------------------------
-
-/// Surface-based cached rendering pipeline (TUI).
-pub fn render_pipeline_surfaces_cached(
-    state: &AppState,
-    plugin_registry: &PluginRegistry,
-    surface_registry: &SurfaceRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    cache: &mut ViewCache,
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    let source = SurfaceViewSource { surface_registry };
-    render_cached_core(
-        &source,
-        state,
-        plugin_registry,
-        grid,
-        dirty,
-        cache,
-        paint_hooks,
-    )
-}
-
-/// Surface-based section-aware rendering pipeline (TUI).
-#[allow(dead_code, clippy::too_many_arguments)]
-pub(crate) fn render_pipeline_surfaces_sectioned(
-    state: &AppState,
-    plugin_registry: &PluginRegistry,
-    surface_registry: &SurfaceRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-    layout_cache: &mut LayoutCache,
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    let source = SurfaceViewSource { surface_registry };
-    render_sectioned_core(
-        &source,
-        state,
-        plugin_registry,
-        grid,
-        dirty,
-        view_cache,
-        layout_cache,
-        paint_hooks,
-    )
-}
-
-/// Surface-based patched rendering pipeline (TUI).
-#[allow(clippy::too_many_arguments)]
-pub fn render_pipeline_surfaces_patched(
-    state: &AppState,
-    plugin_registry: &PluginRegistry,
-    surface_registry: &SurfaceRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-    layout_cache: &mut LayoutCache,
-    patches: &[&dyn patch::PaintPatch],
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    let source = SurfaceViewSource { surface_registry };
-    render_patched_core(
-        &source,
-        state,
-        plugin_registry,
-        grid,
-        dirty,
-        view_cache,
-        layout_cache,
-        patches,
-        paint_hooks,
-    )
-}
-
-/// Surface-based scene rendering pipeline (GPU).
-pub fn scene_render_pipeline_surfaces_cached<'a>(
-    state: &AppState,
-    plugin_registry: &PluginRegistry,
-    surface_registry: &SurfaceRegistry,
-    cell_size: scene::CellSize,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-    scene_cache: &'a mut SceneCache,
-) -> (&'a [DrawCommand], RenderResult) {
-    let source = SurfaceViewSource { surface_registry };
-    scene_render_core(
-        &source,
-        state,
-        plugin_registry,
-        cell_size,
-        dirty,
-        view_cache,
-        scene_cache,
     )
 }

@@ -644,7 +644,7 @@ fn test_line_dirty_full_repaint_on_overlay() {
 #[test]
 fn test_surface_pipeline_equivalence_empty_state() {
     use kasane_core::render::ViewCache;
-    use kasane_core::render::pipeline::{render_pipeline, render_pipeline_surfaces_cached};
+    use kasane_core::render::{render_pipeline, render_pipeline_surfaces_cached};
     use kasane_core::state::DirtyFlags;
     use kasane_core::surface::SurfaceRegistry;
     use kasane_core::surface::buffer::KakouneBufferSurface;
@@ -705,7 +705,7 @@ fn test_surface_pipeline_equivalence_empty_state() {
 #[test]
 fn test_surface_pipeline_equivalence_with_menu() {
     use kasane_core::render::ViewCache;
-    use kasane_core::render::pipeline::{render_pipeline, render_pipeline_surfaces_cached};
+    use kasane_core::render::{render_pipeline, render_pipeline_surfaces_cached};
     use kasane_core::state::DirtyFlags;
     use kasane_core::surface::SurfaceRegistry;
     use kasane_core::surface::buffer::KakouneBufferSurface;
