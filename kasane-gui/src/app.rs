@@ -505,32 +505,20 @@ where
         ) {
             return true;
         }
-        let proxy = self.timer_scheduler.0.clone();
-        let spawn_session = self.session_spawner;
-        let mut session_runtime = GuiSessionRuntime {
-            session_manager: &mut self.session_manager,
-            session_states: &mut self.session_states,
-            proxy,
-            spawn_session,
-        };
-        let mut ctx = DeferredContext {
-            state: &mut self.state,
-            registry: &mut self.registry,
-            surface_registry: &mut self.surface_registry,
-            clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
-            dirty: &mut self.dirty,
-            timer: &self.timer_scheduler,
-            session_host: &mut session_runtime,
-            initial_resize_sent: &mut self.initial_resize_sent,
-            process_dispatcher: &mut *self.process_dispatcher,
-        };
-        handle_deferred_commands(deferred, &mut ctx, source_plugin)
+        self.with_deferred_context(|ctx| handle_deferred_commands(deferred, ctx, source_plugin))
     }
 
     fn exec_surface_command_groups(
         &mut self,
         surface_command_groups: Vec<kasane_core::surface::SourcedSurfaceCommands>,
     ) -> bool {
+        self.with_deferred_context(|ctx| {
+            handle_sourced_surface_commands(surface_command_groups, ctx)
+        })
+    }
+
+    /// Build a `DeferredContext` from `self` fields and pass it to the closure.
+    fn with_deferred_context<T>(&mut self, f: impl FnOnce(&mut DeferredContext<'_>) -> T) -> T {
         let proxy = self.timer_scheduler.0.clone();
         let spawn_session = self.session_spawner;
         let mut session_runtime = GuiSessionRuntime {
@@ -550,7 +538,7 @@ where
             initial_resize_sent: &mut self.initial_resize_sent,
             process_dispatcher: &mut *self.process_dispatcher,
         };
-        handle_sourced_surface_commands(surface_command_groups, &mut ctx)
+        f(&mut ctx)
     }
 
     fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
