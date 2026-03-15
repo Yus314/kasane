@@ -45,6 +45,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Pipeline equivalence testing | Current | **Trace-Equivalence axiom + proptest** | Current harness generates DirtyFlags at coarse granularity |
 | SurfaceId-based invalidation | Proposed | **Per-surface dirty / cache design** | For multi-pane, not yet implemented |
 | Plugin I/O infrastructure | Current | **Hybrid model (WASI direct + host-mediated)** | Design foundation for Phase P. Details in [ADR-019](#adr-019-plugin-io-infrastructure--hybrid-model) |
+| Salsa incremental computation | Current | **Stage 1 (Salsa tracked) + Stage 2 (imperative plugins)** | Feature-gated `salsa-view`. Details in [ADR-020](#adr-020-salsa-incremental-computation--stage-12-split) |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 
@@ -1326,6 +1327,142 @@ Reflecting the decisions of 19-1 and 19-2, the Phase P sub-phases are restructur
 - P-1: Done — WIT v0.5.0 `capability` enum, `WasiCapabilityConfig` + `build_wasi_ctx()`, `deny_capabilities` configuration
 - P-2: Done — `IoEvent` / `ProcessEvent` types, `Plugin::on_io_event()` + WIT v0.6.0, `Command::SpawnProcess` and 3 other commands, tokio-based `ProcessManager`, TUI/GUI event loop integration, `Capability::Process` capability check
 - P-3: Done — Fuzzy finder reference implementation (`kasane-wasm/guests/fuzzy-finder/`), `on_io_event` criterion benchmark (`kasane-wasm/benches/io_event.rs`), `perf_span!("deliver_io_event")` measurement point, TUI/GUI frame span + batch drain logging, `state_hash` cache inconsistency bug fix (adapter.rs: cache update after `on_io_event` / `handle_key`)
+
+## ADR-020: Salsa Incremental Computation — Stage 1/2 Split
+
+**Status:** Decided
+
+### Background
+
+Kasane's rendering pipeline uses a multi-layer caching system (ViewCache, LayoutCache, SceneCache, PaintPatch) driven by manual `DirtyFlags` bitmask tracking. While effective — achieving ~49μs CPU per frame at 80×24 — the system has accumulated complexity:
+
+1. **Manual invalidation bookkeeping**: Each view function must declare its `DirtyFlags` dependencies (BUILD_BASE_DEPS, BUILD_MENU_SECTION_DEPS, etc.), verified at compile time by the `#[kasane::component(deps(...))]` macro. Adding new state fields requires updating both `DirtyFlags` and all dependency declarations.
+
+2. **Cache coherence by convention**: `ViewCache`, `SceneCache`, and `LayoutCache` each duplicate the invalidation logic (which flags invalidate which cache section), with correctness relying on manual alignment rather than structural guarantees.
+
+3. **Plugin interaction complexity**: `PluginSlotCache` uses its own two-level cache (L1: state_hash, L3: slot_deps) independent of the view caching system, requiring separate `prepare_plugin_cache()` calls before rendering.
+
+The Salsa incremental computation framework (v0.26.0) offers automatic dependency tracking and memoization, potentially replacing the manual invalidation bookkeeping while preserving the pipeline's performance characteristics.
+
+### Decision
+
+Adopt a **Stage 1 / Stage 2 split** architecture where:
+
+- **Stage 1 (Salsa tracked)**: Pure Element generation from protocol state. Salsa automatically tracks dependencies and memoizes results. No plugin interaction.
+- **Stage 2 (imperative)**: Plugin contributions, transforms, and annotations applied outside Salsa. Uses existing `PluginRegistry` with its `RefCell` interior mutability unchanged.
+
+The entire Salsa pipeline is feature-gated behind `salsa-view`, forwarded through all crates (`kasane-core` → `kasane-tui` → `kasane-gui` → `kasane`).
+
+### Architecture
+
+#### Salsa Database and Inputs
+
+`KasaneDatabase` (`salsa_db.rs`) — concrete database with `salsa::Storage`.
+
+Six input structs (`salsa_inputs.rs`), grouped by protocol message boundary:
+
+| Input | Source | Durability |
+|-------|--------|------------|
+| `BufferInput` | `KakouneRequest::Draw` | LOW (default) |
+| `CursorInput` | Heuristic detection in Layer 1 | LOW |
+| `StatusInput` | `KakouneRequest::DrawStatus` | LOW |
+| `MenuInput` | `KakouneRequest::MenuShow/Select/Hide` | LOW |
+| `InfoInput` | `KakouneRequest::InfoShow/Hide` | LOW |
+| `ConfigInput` | Config + dimensions + focus | HIGH (infrequent changes) |
+
+Plus `PluginEpochInput` — a monotonic counter incremented when any plugin's `state_hash()` changes, bridging the plugin system into Salsa's dependency graph without storing plugin data in Salsa.
+
+#### State Synchronization
+
+`sync_inputs_from_state()` (`salsa_sync.rs`) projects `AppState` onto Salsa inputs once per frame, conditioned on `DirtyFlags`. Only dirty inputs are set, so Salsa's revision tracking skips revalidation of unchanged inputs.
+
+`sync_plugin_epoch()` bumps `PluginEpochInput::epoch` when `PluginRegistry::any_plugin_state_changed()` returns true.
+
+#### Tracked View Functions
+
+Four tracked functions in `salsa_views.rs` produce Element trees from Salsa inputs:
+
+| Function | Inputs | Output |
+|----------|--------|--------|
+| `pure_buffer_element` | `ConfigInput` | `Element::BufferRef` |
+| `pure_status_element` | `StatusInput` | `Element::Row` (status + mode) |
+| `pure_menu_overlay` | `MenuInput`, `ConfigInput` | `Option<Overlay>` |
+| `pure_info_overlays` | `InfoInput`, `BufferInput`, `ConfigInput` | `Vec<Overlay>` |
+
+All use `#[salsa::tracked(no_eq)]` because `Element` does not implement `PartialEq`. Memoization still works: if inputs haven't changed, the cached result is returned without re-execution.
+
+Derived queries in `salsa_queries.rs`: `available_height`, `is_prompt_mode`, `cursor_style_query`, `plugin_epoch`.
+
+#### Stage 2 Composition
+
+`compose_base_with_plugins()` in `pipeline_salsa.rs` applies plugin effects to pure elements:
+
+1. Collects slot contributions for all 7 slots (BUFFER_LEFT/RIGHT, ABOVE/BELOW_BUFFER, STATUS_LEFT/RIGHT, ABOVE_STATUS)
+2. Applies transforms (TransformTarget::Buffer, TransformTarget::StatusLine)
+3. Collects line annotations (gutter, backgrounds)
+4. Builds final Element tree with slot children inlined as `FlexChild` nodes
+
+#### Pipeline Variants
+
+Four pipeline entry points mirror the legacy variants:
+
+| Function | Purpose |
+|----------|---------|
+| `render_pipeline_salsa_cached` | Subtree memoization via ViewCache |
+| `render_pipeline_salsa_sectioned` | Selective section-level redraw |
+| `render_pipeline_salsa_patched` | Direct cell writes via PaintPatch (TUI hot path) |
+| `scene_render_pipeline_salsa_cached` | DrawCommand-level caching (GUI hot path) |
+
+#### SalsaViewSource
+
+`SalsaViewSource` implements the `ViewSource` trait, producing view sections by calling the tracked functions and composing with plugins. This allows the rendering pipeline to swap between legacy (`SurfaceViewSource`) and Salsa paths at the trait level.
+
+### What Is Kept
+
+| Component | Reason |
+|-----------|--------|
+| `AppState` + `apply()` | Protocol truth layer (Layer 1). Salsa reads from it, does not replace it |
+| `DirtyFlags` | Still drives PaintPatch fast paths and selective Salsa input sync |
+| `PluginSlotCache` (L1/L3) | Plugin interior mutability incompatible with Salsa's purity requirement |
+| `ViewCache` | Section-level subtree caching, warmed by Salsa output |
+| `LayoutCache` | Layout memoization independent of view generation |
+| `SceneCache` | DrawCommand-level caching (GUI) |
+| `lines_dirty` | Per-line paint skipping, ephemeral per-frame state |
+
+### What Is Added
+
+| Component | Purpose |
+|-----------|--------|
+| `salsa_db.rs` | Database definition |
+| `salsa_inputs.rs` | 6 input structs + PluginEpochInput |
+| `salsa_views.rs` | 4 tracked view functions |
+| `salsa_queries.rs` | Derived tracked queries |
+| `salsa_sync.rs` | AppState → Salsa input projection |
+| `pipeline_salsa.rs` | 4 pipeline variants + Stage 2 composition |
+
+### Trade-offs
+
+1. **Additive, not replacive**: The Salsa layer adds ~11-13μs of cache-hit overhead (5-6 tracked functions × ~2.2μs each), which is negligible relative to the 4167μs frame budget at 240fps. However, it does not delete the existing caching infrastructure — `ViewCache`, `LayoutCache`, and `SceneCache` remain.
+
+2. **Plugin boundary remains imperative**: Plugins with `RefCell` interior mutability cannot participate in Salsa's dependency graph. The epoch-based bridge is a pragmatic compromise: it detects when plugin outputs *might* have changed but cannot provide fine-grained invalidation per-slot or per-plugin.
+
+3. **Dual maintenance during feature flag period**: Both `render_pipeline_surfaces_*` and `render_pipeline_salsa_*` paths must be maintained. The `salsa_pipeline_comparison.rs` test suite (15 tests) verifies byte-identical output between the two paths.
+
+4. **`no_eq` on all view functions**: Since `Element` lacks `PartialEq`, Salsa cannot perform output equality checks to suppress downstream re-evaluation. This means a cache miss on any input *will* propagate to all dependents, even if the output happens to be identical. This is acceptable because the tracked functions are leaf-level (no further tracked functions depend on their Element output).
+
+### Testing
+
+`kasane-core/tests/salsa_pipeline_comparison.rs` — 15 tests verifying cell-by-cell grid equivalence between legacy and Salsa pipelines across scenarios including:
+
+- Base states (empty, buffer content, status bar, menu variants, info popups)
+- Plugin contributions (slot, transform, annotation, gutter)
+- Combined plugin scenarios
+
+### Future Considerations
+
+- If `Element` gains `PartialEq`, remove `no_eq` annotations for better downstream invalidation suppression
+- When Phase 5 (multi-pane) introduces `SurfaceDirtyMap`, the Salsa input sync can be extended to per-surface granularity
+- Plugin purity contracts (future): plugins that opt into pure `fn(&AppState) -> Element` could become tracked functions, eliminating the epoch bridge for those plugins
 
 ## Related Documents
 

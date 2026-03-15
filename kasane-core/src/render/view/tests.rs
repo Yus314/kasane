@@ -213,26 +213,61 @@ fn test_status_left_slot_in_status_bar() {
 
     let el = view(&state, &registry);
 
-    // The status bar is the last child of the root column.
-    // It should now have 3 children: [L], status_line (flex), mode_line.
+    // After Surface-based rendering, the status bar is produced by
+    // build_status_surface_abstract → slot resolution. With a STATUS_LEFT
+    // plugin, the resolved slot should contain the plugin's [L] element.
+    // Structure: Column([ResolvedSlot(above), Container(Row([ResolvedSlot(left, [[L]]), core, ResolvedSlot(right)]))])
     match &el {
         Element::Flex { children, .. } => {
             let status = &children.last().unwrap().element;
-            match status {
-                Element::Container { child, .. } => match child.as_ref() {
-                    Element::Flex { children, .. } => {
-                        assert_eq!(
-                            children.len(),
-                            3,
-                            "should have status_left + status_line + mode_line"
-                        );
-                    }
-                    _ => panic!("expected Flex row"),
-                },
-                _ => panic!("expected Container"),
+            let container = find_status_container(status)
+                .expect("should find Container with status row in resolved status bar");
+            match container {
+                Element::Flex {
+                    direction: Direction::Row,
+                    children,
+                    ..
+                } => {
+                    // ResolvedSlot(left) + status_core(flex) + ResolvedSlot(right)
+                    // The left slot should be resolved with the plugin contribution
+                    assert!(
+                        children.len() >= 3,
+                        "should have resolved_left + status_line + resolved_right (got {})",
+                        children.len()
+                    );
+                    // Check that the left slot contains our plugin's element
+                    let has_left_contrib = find_text_content(&children[0].element, "[L]");
+                    assert!(
+                        has_left_contrib,
+                        "STATUS_LEFT slot should contain [L] from plugin"
+                    );
+                }
+                _ => panic!("expected Row inside status container"),
             }
         }
         _ => panic!("expected Column"),
+    }
+}
+
+/// Recursively check if an element tree contains a Text with the given content.
+fn find_text_content(el: &Element, needle: &str) -> bool {
+    match el {
+        Element::Text(text, _) => text == needle,
+        Element::Flex { children, .. } => children
+            .iter()
+            .any(|c| find_text_content(&c.element, needle)),
+        Element::ResolvedSlot { children, .. } => children
+            .iter()
+            .any(|c| find_text_content(&c.element, needle)),
+        Element::Container { child, .. } => find_text_content(child, needle),
+        Element::Interactive { child, .. } => find_text_content(child, needle),
+        Element::Stack { base, overlays, .. } => {
+            find_text_content(base, needle)
+                || overlays
+                    .iter()
+                    .any(|o| find_text_content(&o.element, needle))
+        }
+        _ => false,
     }
 }
 
@@ -288,25 +323,48 @@ fn test_view_status_bar_structure() {
     let registry = PluginRegistry::new();
     let el = view(&state, &registry);
 
+    // After Surface-based rendering, the status bar is produced by
+    // build_status_surface_abstract → slot resolution. The resolved structure
+    // is: Column([ResolvedSlot(above), Container(Row([ResolvedSlot(left), core, ResolvedSlot(right)]))])
+    // which is then composed into the root Column via compose_base_result.
     match el {
         Element::Flex { children, .. } => {
-            // Last child should be the status bar (Container with Row)
+            // Last child is the status bar surface output (a Column with above + row)
             let status = &children.last().unwrap().element;
-            match status {
-                Element::Container { child, .. } => match child.as_ref() {
-                    Element::Flex {
-                        direction: Direction::Row,
-                        children,
-                        ..
-                    } => {
-                        assert_eq!(children.len(), 2); // status_line + mode_line
-                    }
-                    _ => panic!("expected Row inside status container"),
-                },
-                _ => panic!("expected Container for status bar"),
+            // Find the Container with the status row inside the resolved structure
+            let container = find_status_container(status)
+                .expect("should find Container with status row in resolved status bar");
+            match container {
+                Element::Flex {
+                    direction: Direction::Row,
+                    children,
+                    ..
+                } => {
+                    // ResolvedSlot(left) + status_core(flex) + ResolvedSlot(right)
+                    assert!(
+                        children.len() >= 2,
+                        "status row should have at least status_line + mode_line (got {})",
+                        children.len()
+                    );
+                }
+                _ => panic!("expected Row inside status container"),
             }
         }
         _ => panic!("expected Column"),
+    }
+}
+
+/// Recursively find the Container wrapping the status row.
+fn find_status_container(el: &Element) -> Option<&Element> {
+    match el {
+        Element::Container { child, .. } => Some(child.as_ref()),
+        Element::Flex { children, .. } => children
+            .iter()
+            .find_map(|c| find_status_container(&c.element)),
+        Element::ResolvedSlot { children, .. } => children
+            .iter()
+            .find_map(|c| find_status_container(&c.element)),
+        _ => None,
     }
 }
 

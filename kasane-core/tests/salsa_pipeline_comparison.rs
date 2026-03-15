@@ -1,0 +1,592 @@
+//! Parallel comparison tests for Salsa vs legacy rendering pipelines (Phase 2-4, Phase 3).
+//!
+//! These tests verify that the Salsa-backed pipeline produces identical
+//! CellGrid output to the legacy PluginViewSource pipeline across a variety
+//! of AppState configurations, including with active plugins.
+#![cfg(feature = "salsa-view")]
+
+use kasane_core::element::Element;
+use kasane_core::plugin::{
+    AnnotateContext, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext, Contribution,
+    LineAnnotation, Plugin, PluginCapabilities, PluginId, PluginRegistry, SlotId, TransformContext,
+    TransformTarget,
+};
+use kasane_core::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
+use kasane_core::render::{
+    CellGrid, ViewCache, render_pipeline_cached, render_pipeline_salsa_cached,
+};
+use kasane_core::salsa_db::KasaneDatabase;
+use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
+use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
+use kasane_core::test_support::{assert_grids_equal, test_state_80x24};
+
+fn make_atom(text: &str) -> Atom {
+    Atom {
+        face: Face::default(),
+        contents: text.into(),
+    }
+}
+
+/// Render with legacy pipeline and return the grid.
+fn render_legacy(state: &AppState, registry: &PluginRegistry) -> CellGrid {
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    grid.clear(&state.default_face);
+    let mut cache = ViewCache::new();
+    render_pipeline_cached(state, registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    grid
+}
+
+/// Render with Salsa pipeline and return the grid.
+fn render_salsa(
+    state: &AppState,
+    registry: &PluginRegistry,
+    db: &KasaneDatabase,
+    handles: &SalsaInputHandles,
+) -> CellGrid {
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    grid.clear(&state.default_face);
+    let mut cache = ViewCache::new();
+    render_pipeline_salsa_cached(
+        db,
+        handles,
+        state,
+        registry,
+        &mut grid,
+        DirtyFlags::ALL,
+        &mut cache,
+        &[],
+    );
+    grid
+}
+
+/// Set up Salsa database and sync state.
+fn setup_salsa(state: &AppState) -> (KasaneDatabase, SalsaInputHandles) {
+    let mut db = KasaneDatabase::default();
+    let handles = SalsaInputHandles::new(&mut db);
+    sync_inputs_from_state(&mut db, state, DirtyFlags::ALL, &handles);
+    (db, handles)
+}
+
+// ---------------------------------------------------------------------------
+// Comparison tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compare_empty_state() {
+    let state = test_state_80x24();
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "empty state");
+}
+
+#[test]
+fn compare_with_buffer_content() {
+    let mut state = test_state_80x24();
+    state.lines = vec![
+        vec![make_atom("fn main() {")],
+        vec![make_atom("    println!(\"hello\");")],
+        vec![make_atom("}")],
+    ];
+    state.cursor_pos = Coord { line: 1, column: 4 };
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "buffer content");
+}
+
+#[test]
+fn compare_with_status_line() {
+    let mut state = test_state_80x24();
+    state.status_line = vec![make_atom(" :edit foo.rs ")];
+    state.status_mode_line = vec![make_atom(" normal ")];
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "status line");
+}
+
+#[test]
+fn compare_with_inline_menu() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello")]];
+    state.menu = Some(MenuState::new(
+        vec![
+            vec![make_atom("item_one")],
+            vec![make_atom("item_two")],
+            vec![make_atom("item_three")],
+        ],
+        MenuParams {
+            anchor: Coord { line: 1, column: 5 },
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Inline,
+            screen_w: 80,
+            screen_h: 23,
+            max_height: 10,
+        },
+    ));
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "inline menu");
+}
+
+#[test]
+fn compare_with_search_menu() {
+    let mut state = test_state_80x24();
+    state.menu = Some(MenuState::new(
+        vec![vec![make_atom("match1")], vec![make_atom("match2")]],
+        MenuParams {
+            anchor: Coord { line: 0, column: 0 },
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Search,
+            screen_w: 80,
+            screen_h: 23,
+            max_height: 10,
+        },
+    ));
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "search menu");
+}
+
+#[test]
+fn compare_with_info_modal() {
+    let mut state = test_state_80x24();
+    state.infos.push(InfoState {
+        title: vec![make_atom("Help")],
+        content: vec![
+            vec![make_atom("Line 1: some content")],
+            vec![make_atom("Line 2: more content")],
+        ],
+        anchor: Coord {
+            line: 5,
+            column: 10,
+        },
+        face: Face::default(),
+        style: InfoStyle::Modal,
+        identity: InfoIdentity {
+            style: InfoStyle::Modal,
+            anchor_line: 5,
+        },
+        scroll_offset: 0,
+    });
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "info modal");
+}
+
+#[test]
+fn compare_with_multiple_infos() {
+    let mut state = test_state_80x24();
+    state.infos.push(InfoState {
+        title: vec![make_atom("Info A")],
+        content: vec![vec![make_atom("Content A")]],
+        anchor: Coord { line: 3, column: 0 },
+        face: Face::default(),
+        style: InfoStyle::Inline,
+        identity: InfoIdentity {
+            style: InfoStyle::Inline,
+            anchor_line: 3,
+        },
+        scroll_offset: 0,
+    });
+    state.infos.push(InfoState {
+        title: vec![make_atom("Info B")],
+        content: vec![vec![make_atom("Content B")]],
+        anchor: Coord {
+            line: 8,
+            column: 20,
+        },
+        face: Face::default(),
+        style: InfoStyle::Inline,
+        identity: InfoIdentity {
+            style: InfoStyle::Inline,
+            anchor_line: 8,
+        },
+        scroll_offset: 0,
+    });
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "multiple infos");
+}
+
+#[test]
+fn compare_memoization_consistency() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello")]];
+    state.status_line = vec![make_atom("status")];
+    state.status_mode_line = vec![make_atom("normal")];
+    let registry = PluginRegistry::new();
+    let (mut db, handles) = setup_salsa(&state);
+
+    // First render
+    let salsa1 = render_salsa(&state, &registry, &db, &handles);
+
+    // Change only buffer, re-sync, render again
+    state.lines = vec![vec![make_atom("world")]];
+    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CONTENT, &handles);
+
+    let legacy2 = render_legacy(&state, &registry);
+    let salsa2 = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa2, &legacy2, "after buffer change");
+    // Also verify it actually changed
+    assert_ne!(
+        salsa1.get(0, 0).map(|c| c.grapheme.as_str()),
+        salsa2.get(0, 0).map(|c| c.grapheme.as_str()),
+        "buffer content should have changed"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Mock plugins for Phase 3 comparison tests
+// ---------------------------------------------------------------------------
+
+/// Plugin that contributes a fixed-width element to BUFFER_LEFT (e.g., line numbers).
+struct BufferLeftPlugin;
+
+impl Plugin for BufferLeftPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("test_buffer_left".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        _state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region == &SlotId::BUFFER_LEFT {
+            Some(Contribution {
+                element: Element::text("LN", Face::default()),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+        DirtyFlags::BUFFER_CONTENT
+    }
+}
+
+/// Plugin that contributes to STATUS_RIGHT.
+struct StatusRightPlugin;
+
+impl Plugin for StatusRightPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("test_status_right".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        _state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region == &SlotId::STATUS_RIGHT {
+            Some(Contribution {
+                element: Element::text("[RS]", Face::default()),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+        DirtyFlags::OPTIONS
+    }
+}
+
+/// Plugin that wraps the buffer element with a banner line.
+struct BufferTransformPlugin;
+
+impl Plugin for BufferTransformPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("test_buffer_transform".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::TRANSFORMER
+    }
+
+    fn transform(
+        &self,
+        target: &TransformTarget,
+        element: Element,
+        _state: &AppState,
+        _ctx: &TransformContext,
+    ) -> Element {
+        if *target == TransformTarget::Buffer {
+            Element::column(vec![
+                kasane_core::element::FlexChild::fixed(Element::text("~banner~", Face::default())),
+                kasane_core::element::FlexChild::flexible(element, 1.0),
+            ])
+        } else {
+            element
+        }
+    }
+
+    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
+        DirtyFlags::empty()
+    }
+}
+
+/// Plugin that adds a line background highlight to line 0.
+struct LineHighlightPlugin;
+
+impl Plugin for LineHighlightPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("test_line_highlight".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ANNOTATOR
+    }
+
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        _state: &AppState,
+        _ctx: &AnnotateContext,
+    ) -> Option<LineAnnotation> {
+        if line == 0 {
+            Some(LineAnnotation {
+                left_gutter: None,
+                right_gutter: None,
+                background: Some(BackgroundLayer {
+                    face: Face {
+                        bg: Color::Named(NamedColor::Blue),
+                        ..Face::default()
+                    },
+                    z_order: 0,
+                    blend: BlendMode::Opaque,
+                }),
+                priority: 0,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::BUFFER_CONTENT
+    }
+}
+
+/// Plugin that contributes a left gutter element per line.
+struct GutterPlugin;
+
+impl Plugin for GutterPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("test_gutter".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ANNOTATOR
+    }
+
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        _state: &AppState,
+        _ctx: &AnnotateContext,
+    ) -> Option<LineAnnotation> {
+        let num = format!("{:>3}", line + 1);
+        Some(LineAnnotation {
+            left_gutter: Some(Element::text(&num, Face::default())),
+            right_gutter: None,
+            background: None,
+            priority: 0,
+        })
+    }
+
+    fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::BUFFER_CONTENT
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Plugin comparison tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compare_with_buffer_left_plugin() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello world")]];
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(BufferLeftPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "buffer_left plugin");
+}
+
+#[test]
+fn compare_with_status_right_plugin() {
+    let mut state = test_state_80x24();
+    state.status_line = vec![make_atom("main.rs")];
+    state.status_mode_line = vec![make_atom("normal")];
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(StatusRightPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "status_right plugin");
+}
+
+#[test]
+fn compare_with_buffer_transform_plugin() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("line 0")], vec![make_atom("line 1")]];
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(BufferTransformPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "buffer transform plugin");
+}
+
+#[test]
+fn compare_with_line_highlight_plugin() {
+    let mut state = test_state_80x24();
+    state.lines = vec![
+        vec![make_atom("highlighted line")],
+        vec![make_atom("normal line")],
+    ];
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(LineHighlightPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "line highlight plugin");
+}
+
+#[test]
+fn compare_with_gutter_plugin() {
+    let mut state = test_state_80x24();
+    state.lines = vec![
+        vec![make_atom("fn main() {")],
+        vec![make_atom("    println!(\"hello\");")],
+        vec![make_atom("}")],
+    ];
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(GutterPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "gutter plugin");
+}
+
+#[test]
+fn compare_with_multiple_plugins() {
+    let mut state = test_state_80x24();
+    state.lines = vec![
+        vec![make_atom("fn main() {")],
+        vec![make_atom("    println!(\"hello\");")],
+        vec![make_atom("}")],
+    ];
+    state.status_line = vec![make_atom("main.rs")];
+    state.status_mode_line = vec![make_atom("normal")];
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(GutterPlugin));
+    registry.register(Box::new(BufferLeftPlugin));
+    registry.register(Box::new(StatusRightPlugin));
+    registry.register(Box::new(LineHighlightPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "multiple plugins");
+}
+
+#[test]
+fn compare_with_plugins_and_menu() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello")]];
+    state.menu = Some(MenuState::new(
+        vec![vec![make_atom("item_one")], vec![make_atom("item_two")]],
+        MenuParams {
+            anchor: Coord { line: 1, column: 5 },
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Inline,
+            screen_w: 80,
+            screen_h: 23,
+            max_height: 10,
+        },
+    ));
+    let mut registry = PluginRegistry::new();
+    registry.register(Box::new(GutterPlugin));
+    registry.register(Box::new(StatusRightPlugin));
+    registry.init_all(&state);
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "plugins with menu");
+}
