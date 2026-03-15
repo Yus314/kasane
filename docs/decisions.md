@@ -1297,6 +1297,11 @@ on-io-event: func(event: io-event) -> list<command>;
 - P-c を P-1 に前倒し (プロセス実行とは独立に先行実装可能)
 - P-3 を新設 (実証フェーズ)
 
+**実装状況:**
+
+- P-1: ✓ 完了 — WIT v0.5.0 `capability` enum、`WasiCapabilityConfig` + `build_wasi_ctx()`、`deny_capabilities` 設定
+- P-2: ✓ 完了 — `IoEvent` / `ProcessEvent` 型、`Plugin::on_io_event()` + WIT v0.6.0、`Command::SpawnProcess` 等 4 コマンド、tokio ベース `ProcessManager`、TUI/GUI イベントループ統合、`Capability::Process` ケイパビリティチェック
+
 ## 関連文書
 
 - [semantics.md](./semantics.md) — 現行仕様の正本

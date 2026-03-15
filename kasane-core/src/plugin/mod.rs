@@ -1,5 +1,6 @@
 mod command;
 mod context;
+pub mod io;
 mod registry;
 mod traits;
 
@@ -13,6 +14,11 @@ use compact_str::CompactString;
 pub use command::{
     Command, CommandResult, DeferredCommand, PaintHook, execute_commands,
     extract_deferred_commands, extract_redraw_flags,
+};
+
+// Re-export io module types
+pub use io::{
+    IoEvent, NullProcessDispatcher, ProcessDispatcher, ProcessEvent, ProcessEventSink, StdinMode,
 };
 
 // Re-export context module
@@ -45,6 +51,7 @@ bitflags! {
         const CONTRIBUTOR        = 1 << 14;
         const TRANSFORMER        = 1 << 15;
         const ANNOTATOR          = 1 << 16;
+        const IO_HANDLER         = 1 << 17;
     }
 }
 

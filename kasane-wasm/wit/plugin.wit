@@ -1,4 +1,4 @@
-package kasane:plugin@0.5.0;
+package kasane:plugin@0.6.0;
 
 interface types {
     enum named-color {
@@ -67,6 +67,10 @@ interface types {
         set-config(config-entry),
         schedule-timer(timer-config),
         plugin-message(message-config),
+        spawn-process(spawn-process-config),
+        write-to-process(write-process-config),
+        close-process-stdin(u64),
+        kill-process(u64),
     }
     record config-entry {
         key: string,
@@ -285,6 +289,42 @@ interface types {
         filesystem,
         environment,
         monotonic-clock,
+        process,
+    }
+
+    // --- v0.6.0: Process I/O types ---
+
+    /// Whether stdin should be available for writing to a spawned process.
+    enum stdin-mode { null-stdin, piped }
+
+    /// Events from a spawned child process.
+    variant process-event-kind {
+        stdout(list<u8>),
+        stderr(list<u8>),
+        exited(s32),
+        spawn-failed(string),
+    }
+
+    record process-event {
+        job-id: u64,
+        kind: process-event-kind,
+    }
+
+    /// I/O event delivered to plugins.
+    variant io-event {
+        process(process-event),
+    }
+
+    record spawn-process-config {
+        job-id: u64,
+        program: string,
+        args: list<string>,
+        stdin-mode: stdin-mode,
+    }
+
+    record write-process-config {
+        job-id: u64,
+        data: list<u8>,
     }
 }
 
@@ -406,7 +446,7 @@ interface plugin-api {
                atom, decorate-target, replace-target,
                contribute-context, contribution, transform-target, transform-context,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
-               capability};
+               capability, io-event};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -516,6 +556,11 @@ interface plugin-api {
     /// Declare WASI capabilities this plugin requires.
     /// The host grants these unless denied by user configuration.
     requested-capabilities: func() -> list<capability>;
+
+    // --- v0.6.0: I/O event handling ---
+
+    /// Handle an I/O event (process output, etc.). Return commands to execute.
+    on-io-event: func(event: io-event) -> list<command>;
 }
 
 world kasane-plugin {

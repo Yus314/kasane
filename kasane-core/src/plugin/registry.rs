@@ -8,8 +8,8 @@ use crate::state::{AppState, DirtyFlags};
 
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
-    OverlayContext, OverlayContribution, PaintHook, Plugin, PluginCapabilities, PluginId, SlotId,
-    TransformContext, TransformTarget, extract_redraw_flags,
+    IoEvent, OverlayContext, OverlayContribution, PaintHook, Plugin, PluginCapabilities, PluginId,
+    SlotId, TransformContext, TransformTarget, extract_redraw_flags,
 };
 
 /// Cached result for a single plugin's contributions.
@@ -490,6 +490,34 @@ impl PluginRegistry {
     }
 
     // --- Plugin message delivery ---
+
+    /// Check whether a plugin is allowed to spawn external processes.
+    pub fn plugin_allows_process_spawn(&self, plugin_id: &PluginId) -> bool {
+        self.plugins
+            .iter()
+            .find(|p| &p.id() == plugin_id)
+            .is_some_and(|p| p.allows_process_spawn())
+    }
+
+    /// Deliver an I/O event to a specific plugin by ID.
+    pub fn deliver_io_event(
+        &mut self,
+        target: &PluginId,
+        event: &IoEvent,
+        state: &AppState,
+    ) -> (DirtyFlags, Vec<Command>) {
+        for (i, plugin) in self.plugins.iter_mut().enumerate() {
+            if &plugin.id() == target {
+                if !self.capabilities[i].contains(PluginCapabilities::IO_HANDLER) {
+                    return (DirtyFlags::empty(), vec![]);
+                }
+                let mut commands = plugin.on_io_event(event, state);
+                let flags = extract_redraw_flags(&mut commands);
+                return (flags, commands);
+            }
+        }
+        (DirtyFlags::empty(), vec![])
+    }
 
     /// Deliver a message to a specific plugin by ID.
     pub fn deliver_message(

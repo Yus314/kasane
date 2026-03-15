@@ -5,8 +5,11 @@ pub mod colors;
 pub mod gpu;
 pub(crate) mod input;
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use kasane_core::config::Config;
+use kasane_core::plugin::{IoEvent, PluginId, ProcessEventSink};
 use kasane_core::protocol::KakouneRequest;
 use winit::event_loop::EventLoop;
 
@@ -24,18 +27,31 @@ impl std::fmt::Debug for TimerPayload {
 pub(crate) enum GuiEvent {
     Kakoune(KakouneRequest),
     KakouneDied,
-    PluginTimer(kasane_core::plugin::PluginId, TimerPayload),
+    PluginTimer(PluginId, TimerPayload),
+    ProcessOutput(PluginId, IoEvent),
+}
+
+/// ProcessEventSink that injects process I/O events into the winit event loop.
+struct GuiProcessEventSink(winit::event_loop::EventLoopProxy<GuiEvent>);
+
+impl ProcessEventSink for GuiProcessEventSink {
+    fn send_process_output(&self, plugin_id: PluginId, event: IoEvent) {
+        let _ = self.0.send_event(GuiEvent::ProcessOutput(plugin_id, event));
+    }
 }
 
 /// Launch the GUI backend. Called from `kasane --ui gui`.
 ///
-/// `session`: optional Kakoune session name (`-c <session>`).
-/// `kak_args`: remaining arguments forwarded to `kak`.
 /// `spawn_kakoune`: closure that spawns/connects to Kakoune and returns (reader, writer, child).
+/// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
+///   a `ProcessDispatcher` for plugin-spawned processes.
 pub fn run_gui<R, W, C>(
     config: Config,
     spawn_kakoune: impl FnOnce() -> Result<(R, W, C)>,
     register_plugins: impl FnOnce(&mut kasane_core::plugin::PluginRegistry),
+    create_process_dispatcher: impl FnOnce(
+        Arc<dyn ProcessEventSink>,
+    ) -> Box<dyn kasane_core::plugin::ProcessDispatcher>,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -50,6 +66,10 @@ where
     // Build plugin registry
     let mut registry = kasane_core::plugin::PluginRegistry::new();
     register_plugins(&mut registry);
+
+    // Process dispatcher for plugin-spawned processes
+    let process_sink: Arc<dyn ProcessEventSink> = Arc::new(GuiProcessEventSink(proxy.clone()));
+    let process_dispatcher = create_process_dispatcher(process_sink);
 
     // Kakoune reader thread: forward JSON-RPC messages into the winit event loop
     let kak_proxy = proxy.clone();
@@ -68,7 +88,7 @@ where
         },
     );
 
-    let mut app_handler = app::App::new(config, kak_writer, proxy, registry);
+    let mut app_handler = app::App::new(config, kak_writer, proxy, registry, process_dispatcher);
     event_loop.run_app(&mut app_handler)?;
     Ok(())
 }

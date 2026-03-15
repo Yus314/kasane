@@ -8,6 +8,7 @@ use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceCommand;
 
 use super::PluginId;
+use super::io::StdinMode;
 
 /// A post-paint hook that can modify the CellGrid after the standard paint pass.
 ///
@@ -66,6 +67,26 @@ pub enum Command {
     Workspace(WorkspaceCommand),
     /// Register custom theme tokens with default faces.
     RegisterThemeTokens(Vec<(String, Face)>),
+    /// Spawn an external process.
+    SpawnProcess {
+        job_id: u64,
+        program: String,
+        args: Vec<String>,
+        stdin_mode: StdinMode,
+    },
+    /// Write data to a spawned process's stdin.
+    WriteToProcess {
+        job_id: u64,
+        data: Vec<u8>,
+    },
+    /// Close a spawned process's stdin (signals EOF).
+    CloseProcessStdin {
+        job_id: u64,
+    },
+    /// Kill a spawned process.
+    KillProcess {
+        job_id: u64,
+    },
 }
 
 /// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
@@ -86,6 +107,22 @@ pub enum DeferredCommand {
     Pane(PaneCommand),
     Workspace(WorkspaceCommand),
     RegisterThemeTokens(Vec<(String, Face)>),
+    SpawnProcess {
+        job_id: u64,
+        program: String,
+        args: Vec<String>,
+        stdin_mode: StdinMode,
+    },
+    WriteToProcess {
+        job_id: u64,
+        data: Vec<u8>,
+    },
+    CloseProcessStdin {
+        job_id: u64,
+    },
+    KillProcess {
+        job_id: u64,
+    },
 }
 
 /// Separate deferred commands from normal commands.
@@ -114,6 +151,26 @@ pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<D
             Command::Workspace(cmd) => deferred.push(DeferredCommand::Workspace(cmd)),
             Command::RegisterThemeTokens(tokens) => {
                 deferred.push(DeferredCommand::RegisterThemeTokens(tokens))
+            }
+            Command::SpawnProcess {
+                job_id,
+                program,
+                args,
+                stdin_mode,
+            } => deferred.push(DeferredCommand::SpawnProcess {
+                job_id,
+                program,
+                args,
+                stdin_mode,
+            }),
+            Command::WriteToProcess { job_id, data } => {
+                deferred.push(DeferredCommand::WriteToProcess { job_id, data })
+            }
+            Command::CloseProcessStdin { job_id } => {
+                deferred.push(DeferredCommand::CloseProcessStdin { job_id })
+            }
+            Command::KillProcess { job_id } => {
+                deferred.push(DeferredCommand::KillProcess { job_id })
             }
             other => normal.push(other),
         }
@@ -159,7 +216,11 @@ pub fn execute_commands(
             | Command::SetConfig { .. }
             | Command::Pane(_)
             | Command::Workspace(_)
-            | Command::RegisterThemeTokens(_) => {}
+            | Command::RegisterThemeTokens(_)
+            | Command::SpawnProcess { .. }
+            | Command::WriteToProcess { .. }
+            | Command::CloseProcessStdin { .. }
+            | Command::KillProcess { .. } => {}
         }
     }
     CommandResult::Continue

@@ -8,8 +8,8 @@ use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, Ove
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AnnotateContext, Command, ContribSizeHint, ContributeContext, OverlayContext, PluginId, SlotId,
-    TransformContext, TransformTarget,
+    AnnotateContext, Command, ContribSizeHint, ContributeContext, IoEvent, OverlayContext,
+    PluginId, ProcessEvent, SlotId, StdinMode, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, InfoStyle, KasaneRequest, MenuStyle, NamedColor,
@@ -145,11 +145,55 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
             target: PluginId(mc.target_plugin.clone()),
             payload: Box::new(mc.payload.clone()),
         },
+        wit::Command::SpawnProcess(cfg) => Command::SpawnProcess {
+            job_id: cfg.job_id,
+            program: cfg.program.clone(),
+            args: cfg.args.clone(),
+            stdin_mode: match cfg.stdin_mode {
+                wit::StdinMode::NullStdin => StdinMode::Null,
+                wit::StdinMode::Piped => StdinMode::Piped,
+            },
+        },
+        wit::Command::WriteToProcess(cfg) => Command::WriteToProcess {
+            job_id: cfg.job_id,
+            data: cfg.data.clone(),
+        },
+        wit::Command::CloseProcessStdin(job_id) => Command::CloseProcessStdin { job_id: *job_id },
+        wit::Command::KillProcess(job_id) => Command::KillProcess { job_id: *job_id },
     }
 }
 
 pub(crate) fn wit_commands_to_commands(wcs: &[wit::Command]) -> Vec<Command> {
     wcs.iter().map(wit_command_to_command).collect()
+}
+
+// ---------------------------------------------------------------------------
+// I/O event conversion (native → WIT, for calling guest exports)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn io_event_to_wit(event: &IoEvent) -> wit::IoEvent {
+    match event {
+        IoEvent::Process(pe) => wit::IoEvent::Process(process_event_to_wit(pe)),
+    }
+}
+
+fn process_event_to_wit(pe: &ProcessEvent) -> wit::ProcessEvent {
+    wit::ProcessEvent {
+        job_id: match pe {
+            ProcessEvent::Stdout { job_id, .. }
+            | ProcessEvent::Stderr { job_id, .. }
+            | ProcessEvent::Exited { job_id, .. }
+            | ProcessEvent::SpawnFailed { job_id, .. } => *job_id,
+        },
+        kind: match pe {
+            ProcessEvent::Stdout { data, .. } => wit::ProcessEventKind::Stdout(data.clone()),
+            ProcessEvent::Stderr { data, .. } => wit::ProcessEventKind::Stderr(data.clone()),
+            ProcessEvent::Exited { exit_code, .. } => wit::ProcessEventKind::Exited(*exit_code),
+            ProcessEvent::SpawnFailed { error, .. } => {
+                wit::ProcessEventKind::SpawnFailed(error.clone())
+            }
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -750,6 +794,188 @@ mod tests {
                 assert_eq!(*bytes, vec![42]);
             }
             _ => panic!("unexpected command variant"),
+        }
+    }
+
+    // --- Phase P-2: IoEvent conversion tests ---
+
+    #[test]
+    fn convert_io_event_process_stdout() {
+        let native = IoEvent::Process(ProcessEvent::Stdout {
+            job_id: 42,
+            data: b"output data".to_vec(),
+        });
+        let wit_ev = io_event_to_wit(&native);
+        match wit_ev {
+            wit::IoEvent::Process(pe) => {
+                assert_eq!(pe.job_id, 42);
+                match pe.kind {
+                    wit::ProcessEventKind::Stdout(data) => {
+                        assert_eq!(data, b"output data");
+                    }
+                    _ => panic!("expected Stdout kind"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn convert_io_event_process_stderr() {
+        let native = IoEvent::Process(ProcessEvent::Stderr {
+            job_id: 7,
+            data: b"err".to_vec(),
+        });
+        let wit_ev = io_event_to_wit(&native);
+        match wit_ev {
+            wit::IoEvent::Process(pe) => {
+                assert_eq!(pe.job_id, 7);
+                assert!(matches!(pe.kind, wit::ProcessEventKind::Stderr(ref d) if d == b"err"));
+            }
+        }
+    }
+
+    #[test]
+    fn convert_io_event_process_exited() {
+        let native = IoEvent::Process(ProcessEvent::Exited {
+            job_id: 1,
+            exit_code: 127,
+        });
+        let wit_ev = io_event_to_wit(&native);
+        match wit_ev {
+            wit::IoEvent::Process(pe) => {
+                assert_eq!(pe.job_id, 1);
+                assert!(matches!(pe.kind, wit::ProcessEventKind::Exited(127)));
+            }
+        }
+    }
+
+    #[test]
+    fn convert_io_event_process_spawn_failed() {
+        let native = IoEvent::Process(ProcessEvent::SpawnFailed {
+            job_id: 99,
+            error: "not found".to_string(),
+        });
+        let wit_ev = io_event_to_wit(&native);
+        match wit_ev {
+            wit::IoEvent::Process(pe) => {
+                assert_eq!(pe.job_id, 99);
+                match pe.kind {
+                    wit::ProcessEventKind::SpawnFailed(msg) => {
+                        assert_eq!(msg, "not found");
+                    }
+                    _ => panic!("expected SpawnFailed kind"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn convert_io_event_roundtrip_preserves_job_id() {
+        // Test all ProcessEvent variants preserve job_id through conversion
+        for job_id in [0u64, 1, u64::MAX] {
+            let events = vec![
+                IoEvent::Process(ProcessEvent::Stdout {
+                    job_id,
+                    data: vec![],
+                }),
+                IoEvent::Process(ProcessEvent::Stderr {
+                    job_id,
+                    data: vec![],
+                }),
+                IoEvent::Process(ProcessEvent::Exited {
+                    job_id,
+                    exit_code: 0,
+                }),
+                IoEvent::Process(ProcessEvent::SpawnFailed {
+                    job_id,
+                    error: String::new(),
+                }),
+            ];
+            for event in &events {
+                let wit_ev = io_event_to_wit(event);
+                match wit_ev {
+                    wit::IoEvent::Process(pe) => assert_eq!(pe.job_id, job_id),
+                }
+            }
+        }
+    }
+
+    // --- Phase P-2: Process command conversion tests ---
+
+    #[test]
+    fn convert_command_spawn_process() {
+        let wc = wit::Command::SpawnProcess(wit::SpawnProcessConfig {
+            job_id: 10,
+            program: "grep".into(),
+            args: vec!["-r".into(), "foo".into()],
+            stdin_mode: wit::StdinMode::Piped,
+        });
+        match wit_command_to_command(&wc) {
+            Command::SpawnProcess {
+                job_id,
+                program,
+                args,
+                stdin_mode,
+            } => {
+                assert_eq!(job_id, 10);
+                assert_eq!(program, "grep");
+                assert_eq!(args, vec!["-r".to_string(), "foo".to_string()]);
+                assert_eq!(stdin_mode, StdinMode::Piped);
+            }
+            _ => panic!("expected SpawnProcess"),
+        }
+    }
+
+    #[test]
+    fn convert_command_spawn_process_null_stdin() {
+        let wc = wit::Command::SpawnProcess(wit::SpawnProcessConfig {
+            job_id: 1,
+            program: "ls".into(),
+            args: vec![],
+            stdin_mode: wit::StdinMode::NullStdin,
+        });
+        match wit_command_to_command(&wc) {
+            Command::SpawnProcess { stdin_mode, .. } => {
+                assert_eq!(stdin_mode, StdinMode::Null);
+            }
+            _ => panic!("expected SpawnProcess"),
+        }
+    }
+
+    #[test]
+    fn convert_command_write_to_process() {
+        let wc = wit::Command::WriteToProcess(wit::WriteProcessConfig {
+            job_id: 5,
+            data: vec![1, 2, 3, 4],
+        });
+        match wit_command_to_command(&wc) {
+            Command::WriteToProcess { job_id, data } => {
+                assert_eq!(job_id, 5);
+                assert_eq!(data, vec![1, 2, 3, 4]);
+            }
+            _ => panic!("expected WriteToProcess"),
+        }
+    }
+
+    #[test]
+    fn convert_command_close_process_stdin() {
+        let wc = wit::Command::CloseProcessStdin(42);
+        match wit_command_to_command(&wc) {
+            Command::CloseProcessStdin { job_id } => {
+                assert_eq!(job_id, 42);
+            }
+            _ => panic!("expected CloseProcessStdin"),
+        }
+    }
+
+    #[test]
+    fn convert_command_kill_process() {
+        let wc = wit::Command::KillProcess(99);
+        match wit_command_to_command(&wc) {
+            Command::KillProcess { job_id } => {
+                assert_eq!(job_id, 99);
+            }
+            _ => panic!("expected KillProcess"),
         }
     }
 }

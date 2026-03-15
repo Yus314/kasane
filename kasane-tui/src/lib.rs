@@ -2,6 +2,7 @@ mod backend;
 mod input;
 
 use std::io::Write;
+use std::sync::Arc;
 
 use anyhow::Result;
 use crossbeam_channel::unbounded;
@@ -11,7 +12,8 @@ use kasane_core::event_loop::{TimerScheduler, handle_deferred_commands};
 use kasane_core::input::InputEvent;
 use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{
-    CommandResult, PluginId, PluginRegistry, execute_commands, extract_deferred_commands,
+    CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEventSink,
+    execute_commands, extract_deferred_commands,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::view::surface_view_sections_cached;
@@ -31,6 +33,16 @@ enum Event {
     Input(InputEvent),
     KakouneDied,
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
+    ProcessOutput(PluginId, IoEvent),
+}
+
+/// ProcessEventSink that injects process I/O events into the TUI event channel.
+struct TuiProcessEventSink(crossbeam_channel::Sender<Event>);
+
+impl ProcessEventSink for TuiProcessEventSink {
+    fn send_process_output(&self, plugin_id: PluginId, event: IoEvent) {
+        let _ = self.0.send(Event::ProcessOutput(plugin_id, event));
+    }
 }
 
 /// TimerScheduler that injects timer events into the TUI event channel.
@@ -65,10 +77,12 @@ fn process_event(
     initial_resize_sent: &mut bool,
     dirty: &mut DirtyFlags,
     timer: &TuiTimerScheduler,
+    process_dispatcher: &mut dyn kasane_core::plugin::ProcessDispatcher,
 ) -> bool {
     let is_kakoune = matches!(&event, Event::Kakoune(_));
     let is_input = matches!(&event, Event::Input(_));
 
+    let command_source_plugin;
     let (flags, commands) = match event {
         Event::Kakoune(req) => {
             kasane_core::io::send_initial_resize(
@@ -77,10 +91,21 @@ fn process_event(
                 state.rows,
                 state.cols,
             );
+            command_source_plugin = None;
             update(state, Msg::Kakoune(req), registry, scroll_amount)
         }
-        Event::Input(input_event) => update(state, Msg::from(input_event), registry, scroll_amount),
-        Event::PluginTimer(target, payload) => registry.deliver_message(&target, payload, state),
+        Event::Input(input_event) => {
+            command_source_plugin = None;
+            update(state, Msg::from(input_event), registry, scroll_amount)
+        }
+        Event::PluginTimer(target, payload) => {
+            command_source_plugin = None;
+            registry.deliver_message(&target, payload, state)
+        }
+        Event::ProcessOutput(plugin_id, io_event) => {
+            command_source_plugin = Some(plugin_id.clone());
+            registry.deliver_io_event(&plugin_id, &io_event, state)
+        }
         Event::KakouneDied => return true,
     };
 
@@ -115,6 +140,8 @@ fn process_event(
         &mut || backend.clipboard_get(),
         dirty,
         timer,
+        process_dispatcher,
+        command_source_plugin.as_ref(),
     )
 }
 
@@ -158,10 +185,13 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
 /// Run the TUI event loop.
 ///
 /// `spawn_kakoune`: closure that spawns/connects to Kakoune and returns (reader, writer, child).
+/// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
+///   a `ProcessDispatcher` for plugin-spawned processes.
 pub fn run_tui<R, W, C>(
     config: Config,
     spawn_kakoune: impl FnOnce() -> Result<(R, W, C)>,
     register_plugins: impl FnOnce(&mut PluginRegistry),
+    create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -262,6 +292,10 @@ where
     // Timer scheduler for plugin timer events
     let timer = TuiTimerScheduler(tx.clone());
 
+    // Process dispatcher for plugin-spawned processes
+    let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
+    let mut process_dispatcher = create_process_dispatcher(process_sink);
+
     // Drop the original sender so rx will close when reader threads exit
     drop(tx);
 
@@ -307,6 +341,7 @@ where
             &mut initial_resize_sent,
             &mut dirty,
             &timer,
+            &mut *process_dispatcher,
         ) {
             break;
         }
@@ -336,6 +371,7 @@ where
                 &mut initial_resize_sent,
                 &mut dirty,
                 &timer,
+                &mut *process_dispatcher,
             ) {
                 quit = true;
                 break;

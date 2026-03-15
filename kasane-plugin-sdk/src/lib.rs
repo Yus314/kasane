@@ -98,6 +98,7 @@ pub mod capability {
     pub const FILESYSTEM: u8 = 0;
     pub const ENVIRONMENT: u8 = 1;
     pub const MONOTONIC_CLOCK: u8 = 2;
+    pub const PROCESS: u8 = 3;
 }
 
 /// Modifier key bitflags matching `kasane_core::input::Modifiers`.
@@ -403,6 +404,16 @@ macro_rules! default_annotate_deps {
 macro_rules! default_capabilities {
     () => {
         fn requested_capabilities() -> Vec<Capability> {
+            vec![]
+        }
+    };
+}
+
+/// Default on-io-event stub (returns empty command list).
+#[macro_export]
+macro_rules! default_io_event {
+    () => {
+        fn on_io_event(_event: IoEvent) -> Vec<Command> {
             vec![]
         }
     };

@@ -12,7 +12,8 @@ use kasane_core::event_loop::{TimerScheduler, handle_deferred_commands};
 use kasane_core::input::InputEvent;
 use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{
-    Command, CommandResult, PluginRegistry, execute_commands, extract_deferred_commands,
+    Command, CommandResult, PluginRegistry, ProcessDispatcher, execute_commands,
+    extract_deferred_commands,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::view::surface_view_sections_cached;
@@ -94,6 +95,9 @@ pub struct App<W: Write + Send + 'static> {
 
     // Timer scheduler for plugin timer events
     timer_scheduler: GuiTimerScheduler,
+
+    // Process dispatcher for plugin process execution
+    process_dispatcher: Box<dyn ProcessDispatcher>,
 }
 
 impl<W: Write + Send + 'static> App<W> {
@@ -102,6 +106,7 @@ impl<W: Write + Send + 'static> App<W> {
         kak_writer: W,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
         registry: PluginRegistry,
+        process_dispatcher: Box<dyn ProcessDispatcher>,
     ) -> Self {
         let scroll_amount = config.scroll.lines_per_scroll;
 
@@ -146,6 +151,7 @@ impl<W: Write + Send + 'static> App<W> {
             cursor_dirty: false,
             last_render_result: None,
             timer_scheduler: GuiTimerScheduler(event_proxy),
+            process_dispatcher,
         }
     }
 
@@ -259,6 +265,16 @@ impl<W: Write + Send + 'static> App<W> {
                         return;
                     }
                 }
+                GuiEvent::ProcessOutput(plugin_id, io_event) => {
+                    let (flags, commands) =
+                        self.registry
+                            .deliver_io_event(&plugin_id, &io_event, &self.state);
+                    self.dirty |= flags;
+                    if self.exec_commands_from(commands, Some(&plugin_id)) {
+                        event_loop.exit();
+                        return;
+                    }
+                }
             }
         }
     }
@@ -281,6 +297,15 @@ impl<W: Write + Send + 'static> App<W> {
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
     fn exec_commands(&mut self, commands: Vec<Command>) -> bool {
+        self.exec_commands_from(commands, None)
+    }
+
+    /// Execute side-effect commands with an optional source plugin ID for process dispatch.
+    fn exec_commands_from(
+        &mut self,
+        commands: Vec<Command>,
+        source_plugin: Option<&kasane_core::plugin::PluginId>,
+    ) -> bool {
         let (normal, deferred) = extract_deferred_commands(commands);
         if matches!(
             execute_commands(normal, &mut self.kak_writer, &mut || {
@@ -299,6 +324,8 @@ impl<W: Write + Send + 'static> App<W> {
             &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
             &mut self.dirty,
             &self.timer_scheduler,
+            &mut *self.process_dispatcher,
+            source_plugin,
         )
     }
 

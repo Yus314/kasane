@@ -1,14 +1,17 @@
 pub mod cli;
 pub mod process;
+pub mod process_manager;
 
 pub use kasane_core;
 
 #[cfg(feature = "wasm-plugins")]
 pub use kasane_wasm;
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use kasane_core::config::Config;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::{PluginRegistry, ProcessDispatcher, ProcessEventSink};
 
 use cli::UiMode;
 
@@ -104,21 +107,37 @@ fn run_inner(
     // Wrap user-provided plugin registration to also discover WASM plugins
     let wrapped_register = wrap_with_wasm_discovery(config.plugins.clone(), register_plugins);
 
+    // Build tokio runtime for async process management (Phase P-2).
+    // The runtime must outlive run_tui/run_gui which are blocking calls.
+    let tokio_rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let make_dispatcher = |sink: Arc<dyn ProcessEventSink>| -> Box<dyn ProcessDispatcher> {
+        Box::new(process_manager::ProcessManager::new(
+            tokio_rt.handle().clone(),
+            sink,
+        ))
+    };
+
     match resolved_ui {
         UiMode::Tui => kasane_tui::run_tui(
             config,
             move || process::spawn_kakoune(&kak_args),
             wrapped_register,
+            make_dispatcher,
         ),
         #[cfg(feature = "gui")]
         UiMode::Gui => kasane_gui::run_gui(
             config,
             move || process::spawn_kakoune(&kak_args),
             wrapped_register,
+            make_dispatcher,
         ),
         #[cfg(not(feature = "gui"))]
         UiMode::Gui => {
             let _ = wrapped_register;
+            let _ = make_dispatcher;
             eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
             std::process::exit(1);
         }

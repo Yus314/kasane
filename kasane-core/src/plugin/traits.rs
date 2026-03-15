@@ -6,9 +6,9 @@ use crate::pane::{PaneId, PanePermissions};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, LineAnnotation, OverlayContext,
-    OverlayContribution, PaintHook, PluginCapabilities, PluginId, SlotId, TransformContext,
-    TransformTarget,
+    AnnotateContext, Command, ContributeContext, Contribution, IoEvent, LineAnnotation,
+    OverlayContext, OverlayContribution, PaintHook, PluginCapabilities, PluginId, SlotId,
+    TransformContext, TransformTarget,
 };
 
 pub trait Plugin: Any {
@@ -21,6 +21,10 @@ pub trait Plugin: Any {
     }
     fn on_shutdown(&mut self) {}
     fn on_state_changed(&mut self, _state: &AppState, _dirty: DirtyFlags) -> Vec<Command> {
+        vec![]
+    }
+    /// Handle an I/O event (process output, etc.).
+    fn on_io_event(&mut self, _event: &IoEvent, _state: &AppState) -> Vec<Command> {
         vec![]
     }
 
@@ -80,6 +84,15 @@ pub trait Plugin: Any {
     /// Declare which capabilities this plugin supports.
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::all()
+    }
+
+    /// Whether this plugin is allowed to spawn external processes.
+    ///
+    /// Native plugins default to `true`. WASM plugins check their resolved
+    /// capability grants (the `process` capability must be requested and not
+    /// denied by user configuration).
+    fn allows_process_spawn(&self) -> bool {
+        true
     }
 
     /// DirtyFlags dependencies for overlay contributions.

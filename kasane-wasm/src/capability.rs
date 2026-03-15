@@ -62,7 +62,30 @@ fn capability_name(cap: &Capability) -> &'static str {
         Capability::Filesystem => "filesystem",
         Capability::Environment => "environment",
         Capability::MonotonicClock => "monotonic-clock",
+        Capability::Process => "process",
     }
+}
+
+/// Check whether a specific capability is granted for a plugin.
+///
+/// Returns `true` if the capability is in the requested list and not denied by config.
+pub fn is_capability_granted(
+    plugin_id: &str,
+    cap: &Capability,
+    requested: &[Capability],
+    config: &WasiCapabilityConfig,
+) -> bool {
+    let name = capability_name(cap);
+    let is_requested = requested.iter().any(|r| capability_name(r) == name);
+    if !is_requested {
+        return false;
+    }
+    let denied = config
+        .deny_capabilities
+        .get(plugin_id)
+        .map(|v| v.as_slice())
+        .unwrap_or_default();
+    !denied.iter().any(|d| d == name)
 }
 
 /// Build a `WasiCtx` for a plugin based on its requested capabilities and user config.
@@ -117,6 +140,12 @@ pub fn build_wasi_ctx(
                 // Clocks are provided by default in WasiCtxBuilder::new().
                 // This branch exists for auditability logging.
                 tracing::info!(plugin = plugin_id, "granted monotonic-clock capability");
+            }
+            Capability::Process => {
+                // Process execution is handled at the DeferredCommand level
+                // (ProcessManager checks capability before spawning).
+                // This branch exists for auditability logging.
+                tracing::info!(plugin = plugin_id, "granted process capability");
             }
         }
     }
@@ -186,5 +215,91 @@ mod tests {
         // "test_plugin" is not denied, so environment should be granted
         let ctx = build_wasi_ctx("test_plugin", &[Capability::Environment], &config);
         assert!(ctx.is_ok());
+    }
+
+    // --- Phase P-2: process capability grant/deny tests ---
+
+    #[test]
+    fn process_capability_granted_when_requested() {
+        let config = WasiCapabilityConfig::default();
+        assert!(is_capability_granted(
+            "my_plugin",
+            &Capability::Process,
+            &[Capability::Process],
+            &config,
+        ));
+    }
+
+    #[test]
+    fn process_capability_denied_when_not_requested() {
+        let config = WasiCapabilityConfig::default();
+        // Plugin did not request process capability
+        assert!(!is_capability_granted(
+            "my_plugin",
+            &Capability::Process,
+            &[], // no capabilities requested
+            &config,
+        ));
+    }
+
+    #[test]
+    fn process_capability_denied_by_config() {
+        let config = WasiCapabilityConfig {
+            deny_capabilities: HashMap::from([(
+                "my_plugin".to_string(),
+                vec!["process".to_string()],
+            )]),
+            ..Default::default()
+        };
+        // Plugin requests process, but config denies it
+        assert!(!is_capability_granted(
+            "my_plugin",
+            &Capability::Process,
+            &[Capability::Process],
+            &config,
+        ));
+    }
+
+    #[test]
+    fn process_capability_deny_does_not_affect_other_capabilities() {
+        let config = WasiCapabilityConfig {
+            deny_capabilities: HashMap::from([(
+                "my_plugin".to_string(),
+                vec!["process".to_string()],
+            )]),
+            ..Default::default()
+        };
+        // Filesystem is requested and not denied, should be granted
+        assert!(is_capability_granted(
+            "my_plugin",
+            &Capability::Filesystem,
+            &[Capability::Filesystem, Capability::Process],
+            &config,
+        ));
+        // Process is denied
+        assert!(!is_capability_granted(
+            "my_plugin",
+            &Capability::Process,
+            &[Capability::Filesystem, Capability::Process],
+            &config,
+        ));
+    }
+
+    #[test]
+    fn process_deny_for_other_plugin_does_not_affect_target() {
+        let config = WasiCapabilityConfig {
+            deny_capabilities: HashMap::from([(
+                "other_plugin".to_string(),
+                vec!["process".to_string()],
+            )]),
+            ..Default::default()
+        };
+        // "my_plugin" is not denied
+        assert!(is_capability_granted(
+            "my_plugin",
+            &Capability::Process,
+            &[Capability::Process],
+            &config,
+        ));
     }
 }

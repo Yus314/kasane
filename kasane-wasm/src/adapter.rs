@@ -4,7 +4,7 @@ use std::cell::{Cell, RefCell};
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
-    AnnotateContext, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
+    AnnotateContext, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution, IoEvent,
     LineAnnotation, OverlayContext, OverlayContribution, Plugin, PluginCapabilities, PluginId,
     SlotId, TransformContext, TransformTarget,
 };
@@ -21,6 +21,8 @@ pub struct WasmPlugin {
     instance: bindings::KasanePlugin,
     plugin_id: PluginId,
     cached_state_hash: Cell<u64>,
+    /// Whether the `process` capability was granted (requested and not denied).
+    process_allowed: bool,
 }
 
 impl WasmPlugin {
@@ -28,12 +30,14 @@ impl WasmPlugin {
         store: wasmtime::Store<HostState>,
         instance: bindings::KasanePlugin,
         id: String,
+        process_allowed: bool,
     ) -> Self {
         Self {
             store: RefCell::new(store),
             instance,
             plugin_id: PluginId(id),
             cached_state_hash: Cell::new(0),
+            process_allowed,
         }
     }
 }
@@ -90,6 +94,20 @@ impl Plugin for WasmPlugin {
         }
 
         cmds
+    }
+
+    fn on_io_event(&mut self, event: &IoEvent, state: &AppState) -> Vec<Command> {
+        let store = self.store.get_mut();
+        host::sync_from_app_state(store.data_mut(), state);
+        let plugin_api = self.instance.kasane_plugin_plugin_api();
+        let wit_event = convert::io_event_to_wit(event);
+        match plugin_api.call_on_io_event(store, &wit_event) {
+            Ok(cmds) => convert::wit_commands_to_commands(&cmds),
+            Err(e) => {
+                tracing::error!("WASM plugin {}.on_io_event failed: {e}", self.plugin_id.0);
+                vec![]
+            }
+        }
     }
 
     fn state_hash(&self) -> u64 {
@@ -387,6 +405,10 @@ impl Plugin for WasmPlugin {
 
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::all()
+    }
+
+    fn allows_process_spawn(&self) -> bool {
+        self.process_allowed
     }
 
     // --- Inter-plugin messaging ---

@@ -107,6 +107,7 @@ impl Guest for SelBadgePlugin {
     kasane_plugin_sdk::default_transform_deps!();
     kasane_plugin_sdk::default_annotate_deps!();
     kasane_plugin_sdk::default_capabilities!();
+    kasane_plugin_sdk::default_io_event!();
 }
 
 export!(SelBadgePlugin);

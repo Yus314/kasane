@@ -46,7 +46,7 @@ Kasane プラグインには 2 つの開発パスがある。
 | `handle_key()` + `handle_mouse()` | インタラクティブ UI（ピッカー、ダイアログ） |
 | `Surface` (現状ネイティブ) | サイドバー、ファイルツリー、専用パネル |
 
-ファイルシステムアクセスは WASI ケイパビリティ宣言 (`Capability::Filesystem`) で利用可能。外部プロセス実行（ファジーファインダー等）は Phase P-2 で対応予定。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
+ファイルシステムアクセスは WASI ケイパビリティ宣言 (`Capability::Filesystem`) で利用可能。外部プロセス実行（ファジーファインダー等）は `Capability::Process` を宣言し、`Command::SpawnProcess` でプロセスを起動、`Plugin::on_io_event()` で stdout/stderr/終了を受信する (Phase P-2)。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
 
 ## 2. クイックスタート
 

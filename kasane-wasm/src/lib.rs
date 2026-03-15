@@ -67,6 +67,12 @@ impl WasmPluginLoader {
 
         // Query requested capabilities and build per-plugin WasiCtx
         let requested = plugin_api.call_requested_capabilities(&mut store)?;
+        let process_allowed = capability::is_capability_granted(
+            &id,
+            &crate::bindings::kasane::plugin::types::Capability::Process,
+            &requested,
+            wasi_config,
+        );
         if !requested.is_empty() {
             let wasi_ctx = capability::build_wasi_ctx(&id, &requested, wasi_config)?;
             let data = store.data_mut();
@@ -74,7 +80,7 @@ impl WasmPluginLoader {
             data.table = wasmtime::component::ResourceTable::new();
         }
 
-        Ok(WasmPlugin::new(store, instance, id))
+        Ok(WasmPlugin::new(store, instance, id, process_allowed))
     }
 
     /// Load a WASM plugin from a file path.
