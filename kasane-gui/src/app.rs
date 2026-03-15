@@ -610,22 +610,20 @@ where
             );
             self.last_render_result = Some(result);
 
-            // Update cursor animation
-            self.cursor_animation
-                .update_target(result.cursor_x, result.cursor_y);
-            let cursor_state = self
-                .cursor_animation
-                .tick(sr.metrics().cell_width, sr.metrics().cell_height);
-
             let gpu = self.gpu.as_ref().unwrap();
             let resolver = self.color_resolver.as_ref().unwrap();
-
-            tracing::debug!("[app] scene render: {} commands", commands.len());
-            match sr.render_with_cursor(gpu, commands, resolver, result.cursor_style, &cursor_state)
-            {
-                Ok(()) => tracing::debug!("[app] render_frame complete"),
-                Err(e) => tracing::error!("[app] scene render failed: {e}"),
-            }
+            let (cw, ch) = (sr.metrics().cell_width, sr.metrics().cell_height);
+            submit_render(
+                sr,
+                gpu,
+                resolver,
+                commands,
+                &mut self.cursor_animation,
+                result,
+                cw,
+                ch,
+                "scene render",
+            );
 
             // Rebuild HitMap from cached view tree for plugin mouse routing
             kasane_core::event_loop::rebuild_hit_map(
@@ -636,26 +634,43 @@ where
             );
         } else if let Some(result) = self.last_render_result {
             // Cursor-only frame: reuse cached scene commands
-            self.cursor_animation
-                .update_target(result.cursor_x, result.cursor_y);
-            let cursor_state = self
-                .cursor_animation
-                .tick(sr.metrics().cell_width, sr.metrics().cell_height);
-
             let gpu = self.gpu.as_ref().unwrap();
             let resolver = self.color_resolver.as_ref().unwrap();
             let commands = self.scene_cache.composed_ref();
-
-            tracing::debug!(
-                "[app] cursor-only render: {} cached commands",
-                commands.len()
+            let (cw, ch) = (sr.metrics().cell_width, sr.metrics().cell_height);
+            submit_render(
+                sr,
+                gpu,
+                resolver,
+                commands,
+                &mut self.cursor_animation,
+                result,
+                cw,
+                ch,
+                "cursor-only",
             );
-            match sr.render_with_cursor(gpu, commands, resolver, result.cursor_style, &cursor_state)
-            {
-                Ok(()) => tracing::debug!("[app] render_frame complete (cursor-only)"),
-                Err(e) => tracing::error!("[app] scene render failed: {e}"),
-            }
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn submit_render(
+    sr: &mut SceneRenderer,
+    gpu: &GpuState,
+    resolver: &ColorResolver,
+    commands: &[kasane_core::render::DrawCommand],
+    cursor_animation: &mut CursorAnimation,
+    result: RenderResult,
+    cell_width: f32,
+    cell_height: f32,
+    label: &str,
+) {
+    cursor_animation.update_target(result.cursor_x, result.cursor_y);
+    let cursor_state = cursor_animation.tick(cell_width, cell_height);
+    tracing::debug!("[app] {label}: {} commands", commands.len());
+    match sr.render_with_cursor(gpu, commands, resolver, result.cursor_style, &cursor_state) {
+        Ok(()) => tracing::debug!("[app] render_frame complete ({label})"),
+        Err(e) => tracing::error!("[app] scene render failed: {e}"),
     }
 }
 
