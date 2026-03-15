@@ -24,7 +24,8 @@ use kasane_core::surface::buffer::KakouneBufferSurface;
 
 use backend::TuiBackend;
 use event_handler::{
-    Event, TuiProcessEventSink, TuiTimerScheduler, process_event, spawn_session_reader,
+    Event, EventProcessingContext, TuiProcessEventSink, TuiTimerScheduler, process_event,
+    spawn_session_reader,
 };
 use input::convert_event;
 
@@ -220,61 +221,50 @@ where
         let mut dirty = DirtyFlags::empty();
         let _frame_span = tracing::debug_span!("frame").entered();
 
-        // Process first event
-        if process_event(
-            first,
-            &mut state,
-            &mut registry,
-            &mut surface_registry,
-            &mut session_manager,
-            &mut session_states,
-            &tx,
-            spawn_session,
-            &mut grid,
-            scroll_amount,
-            &mut backend,
-            &mut initial_resize_sent,
-            &mut dirty,
-            &timer,
-            &mut *process_dispatcher,
-        ) {
-            break;
-        }
-
-        // Drain any pending events before rendering (batch processing).
-        // Safety valve: stop batching after MAX_BATCH events or BATCH_DEADLINE_MS
-        // to prevent render starvation during macro replay / rapid input.
-        const MAX_BATCH: usize = 256;
-        const BATCH_DEADLINE_MS: u64 = 16;
-        let batch_deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(BATCH_DEADLINE_MS);
-        let mut batch_count = 0usize;
-        let mut quit = false;
-
-        while batch_count < MAX_BATCH && std::time::Instant::now() < batch_deadline {
-            let Ok(event) = rx.try_recv() else { break };
-            batch_count += 1;
-            if process_event(
-                event,
-                &mut state,
-                &mut registry,
-                &mut surface_registry,
-                &mut session_manager,
-                &mut session_states,
-                &tx,
+        let (batch_count, quit) = {
+            let mut ctx = EventProcessingContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                session_manager: &mut session_manager,
+                session_states: &mut session_states,
+                session_tx: &tx,
                 spawn_session,
-                &mut grid,
+                grid: &mut grid,
                 scroll_amount,
-                &mut backend,
-                &mut initial_resize_sent,
-                &mut dirty,
-                &timer,
-                &mut *process_dispatcher,
-            ) {
-                quit = true;
+                backend: &mut backend,
+                initial_resize_sent: &mut initial_resize_sent,
+                dirty: &mut dirty,
+                timer: &timer,
+                process_dispatcher: &mut *process_dispatcher,
+            };
+
+            // Process first event
+            if process_event(first, &mut ctx) {
                 break;
             }
-        }
+
+            // Drain any pending events before rendering (batch processing).
+            // Safety valve: stop batching after MAX_BATCH events or BATCH_DEADLINE_MS
+            // to prevent render starvation during macro replay / rapid input.
+            const MAX_BATCH: usize = 256;
+            const BATCH_DEADLINE_MS: u64 = 16;
+            let batch_deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(BATCH_DEADLINE_MS);
+            let mut batch_count = 0usize;
+            let mut quit = false;
+
+            while batch_count < MAX_BATCH && std::time::Instant::now() < batch_deadline {
+                let Ok(event) = rx.try_recv() else { break };
+                batch_count += 1;
+                if process_event(event, &mut ctx) {
+                    quit = true;
+                    break;
+                }
+            }
+            (batch_count, quit)
+        };
+
         if quit {
             break;
         }

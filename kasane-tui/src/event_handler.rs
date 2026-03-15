@@ -145,24 +145,28 @@ where
     }
 }
 
+/// Grouped mutable context for `process_event`, reducing its parameter count.
+pub(crate) struct EventProcessingContext<'a, R, W, C> {
+    pub state: &'a mut AppState,
+    pub registry: &'a mut PluginRegistry,
+    pub surface_registry: &'a mut SurfaceRegistry,
+    pub session_manager: &'a mut SessionManager<R, W, C>,
+    pub session_states: &'a mut SessionStateStore,
+    pub session_tx: &'a crossbeam_channel::Sender<Event>,
+    pub spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
+    pub grid: &'a mut CellGrid,
+    pub scroll_amount: i32,
+    pub backend: &'a mut TuiBackend,
+    pub initial_resize_sent: &'a mut bool,
+    pub dirty: &'a mut DirtyFlags,
+    pub timer: &'a TuiTimerScheduler,
+    pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+}
+
 /// Process a single event, returning `true` if the application should quit.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn process_event<R, W, C>(
     event: Event,
-    state: &mut AppState,
-    registry: &mut PluginRegistry,
-    surface_registry: &mut SurfaceRegistry,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    session_tx: &crossbeam_channel::Sender<Event>,
-    spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
-    grid: &mut CellGrid,
-    scroll_amount: i32,
-    backend: &mut TuiBackend,
-    initial_resize_sent: &mut bool,
-    dirty: &mut DirtyFlags,
-    timer: &TuiTimerScheduler,
-    process_dispatcher: &mut dyn ProcessDispatcher,
+    ctx: &mut EventProcessingContext<'_, R, W, C>,
 ) -> bool
 where
     R: std::io::BufRead + Send + 'static,
@@ -175,23 +179,31 @@ where
     let command_source_plugin;
     let (mut flags, commands, mut surface_command_groups) = match event {
         Event::Kakoune(session_id, req) => {
-            if session_manager.active_session_id() != Some(session_id) {
-                session_states.ensure_session(session_id, state).apply(req);
+            if ctx.session_manager.active_session_id() != Some(session_id) {
+                ctx.session_states
+                    .ensure_session(session_id, ctx.state)
+                    .apply(req);
                 return false;
             }
             kasane_core::io::send_initial_resize(
-                session_manager
+                ctx.session_manager
                     .active_writer_mut()
                     .expect("missing active session writer"),
-                initial_resize_sent,
-                state.rows,
-                state.cols,
+                ctx.initial_resize_sent,
+                ctx.state.rows,
+                ctx.state.cols,
             );
-            let (f, c, _source) = update(state, Msg::Kakoune(req), registry, scroll_amount);
+            let (f, c, _source) = update(
+                ctx.state,
+                Msg::Kakoune(req),
+                ctx.registry,
+                ctx.scroll_amount,
+            );
             let surface_command_groups = if f.is_empty() {
                 vec![]
             } else {
-                surface_registry.on_state_changed_with_sources(state, f)
+                ctx.surface_registry
+                    .on_state_changed_with_sources(ctx.state, f)
             };
             command_source_plugin = None;
             (f, c, surface_command_groups)
@@ -200,32 +212,42 @@ where
             let total = Rect {
                 x: 0,
                 y: 0,
-                w: state.cols,
-                h: state.rows,
+                w: ctx.state.cols,
+                h: ctx.state.rows,
             };
             if let Some(divider_dirty) =
-                handle_workspace_divider_input(&input_event, surface_registry, total)
+                handle_workspace_divider_input(&input_event, ctx.surface_registry, total)
             {
                 command_source_plugin = None;
                 (divider_dirty, vec![], vec![])
             } else {
                 let surface_event = surface_event_from_input(&input_event);
-                let (f, c, source) = update(state, Msg::from(input_event), registry, scroll_amount);
+                let (f, c, source) = update(
+                    ctx.state,
+                    Msg::from(input_event),
+                    ctx.registry,
+                    ctx.scroll_amount,
+                );
                 command_source_plugin = source;
                 let surface_command_groups = surface_event
-                    .map(|event| surface_registry.route_event_with_sources(event, state, total))
+                    .map(|event| {
+                        ctx.surface_registry
+                            .route_event_with_sources(event, ctx.state, total)
+                    })
                     .unwrap_or_default();
                 (f, c, surface_command_groups)
             }
         }
         Event::PluginTimer(target, payload) => {
             command_source_plugin = None;
-            let (flags, commands) = registry.deliver_message(&target, payload, state);
+            let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
             (flags, commands, vec![])
         }
         Event::ProcessOutput(plugin_id, io_event) => {
             command_source_plugin = Some(plugin_id.clone());
-            let (flags, commands) = registry.deliver_io_event(&plugin_id, &io_event, state);
+            let (flags, commands) = ctx
+                .registry
+                .deliver_io_event(&plugin_id, &io_event, ctx.state);
             // Free per-plugin process count slot when a job finishes
             let IoEvent::Process(ref pe) = io_event;
             let finished_job = match pe {
@@ -235,18 +257,19 @@ where
                 _ => None,
             };
             if let Some(job_id) = finished_job {
-                process_dispatcher.remove_finished_job(&plugin_id, job_id);
+                ctx.process_dispatcher
+                    .remove_finished_job(&plugin_id, job_id);
             }
             (flags, commands, vec![])
         }
         Event::KakouneDied(session_id) => {
             return kasane_core::event_loop::handle_session_death(
                 session_id,
-                session_manager,
-                session_states,
-                state,
-                dirty,
-                initial_resize_sent,
+                ctx.session_manager,
+                ctx.session_states,
+                ctx.state,
+                ctx.dirty,
+                ctx.initial_resize_sent,
             );
         }
     };
@@ -255,14 +278,15 @@ where
     }
 
     if flags.contains(DirtyFlags::ALL) {
-        grid.resize(state.cols, state.rows);
-        grid.invalidate_all();
+        ctx.grid.resize(ctx.state.cols, ctx.state.rows);
+        ctx.grid.invalidate_all();
     }
-    *dirty |= flags;
+    *ctx.dirty |= flags;
 
     // Suppress commands to Kakoune until initialization is complete.
-    if is_input && !*initial_resize_sent {
-        session_states.sync_active_from_manager(session_manager, state);
+    if is_input && !*ctx.initial_resize_sent {
+        ctx.session_states
+            .sync_active_from_manager(ctx.session_manager, ctx.state);
         return false;
     }
     // Kakoune events before initial resize: execute commands (they come from
@@ -274,10 +298,10 @@ where
     if matches!(
         execute_commands(
             normal,
-            session_manager
+            ctx.session_manager
                 .active_writer_mut()
                 .expect("missing active session writer"),
-            &mut || backend.clipboard_get(),
+            &mut || ctx.backend.clipboard_get(),
         ),
         CommandResult::Quit
     ) {
@@ -285,29 +309,30 @@ where
     }
     let should_quit = {
         let mut session_host = TuiSessionRuntime {
-            session_manager,
-            session_states,
-            tx: session_tx.clone(),
-            spawn_session,
+            session_manager: ctx.session_manager,
+            session_states: ctx.session_states,
+            tx: ctx.session_tx.clone(),
+            spawn_session: ctx.spawn_session,
         };
-        let mut ctx = DeferredContext {
-            state,
-            registry,
-            surface_registry,
-            clipboard_get: &mut || backend.clipboard_get(),
-            dirty,
-            timer,
+        let mut deferred_ctx = DeferredContext {
+            state: ctx.state,
+            registry: ctx.registry,
+            surface_registry: ctx.surface_registry,
+            clipboard_get: &mut || ctx.backend.clipboard_get(),
+            dirty: ctx.dirty,
+            timer: ctx.timer,
             session_host: &mut session_host,
-            initial_resize_sent,
-            process_dispatcher,
+            initial_resize_sent: ctx.initial_resize_sent,
+            process_dispatcher: ctx.process_dispatcher,
         };
-        if handle_deferred_commands(deferred, &mut ctx, command_source_plugin.as_ref()) {
+        if handle_deferred_commands(deferred, &mut deferred_ctx, command_source_plugin.as_ref()) {
             return true;
         }
-        handle_sourced_surface_commands(surface_command_groups, &mut ctx)
+        handle_sourced_surface_commands(surface_command_groups, &mut deferred_ctx)
     };
     if !should_quit {
-        session_states.sync_active_from_manager(session_manager, state);
+        ctx.session_states
+            .sync_active_from_manager(ctx.session_manager, ctx.state);
     }
     should_quit
 }
