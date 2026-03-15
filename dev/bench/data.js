@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773493718374,
+  "lastUpdate": 1773544801028,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -8291,6 +8291,450 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7481,
             "range": "± 36",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "f032e29ec8631e69a098d30dba7ea0351776b2f2",
+          "message": "feat(wasm): implement Phase P-1 WASI capability infrastructure\n\nAdd per-plugin WASI capability declaration and grant system. Plugins\ndeclare needed capabilities (filesystem, environment, monotonic-clock)\nvia WIT export `requested-capabilities`, and the host builds a\nper-plugin WasiCtx based on declarations and user config denials.\n\n- WIT v0.5.0: add `capability` enum and `requested-capabilities` export\n- SDK: add `capability` constants module and `default_capabilities!()` macro\n- New `kasane-wasm/src/capability.rs`: `WasiCapabilityConfig` + `build_wasi_ctx()`\n- Filesystem grants: plugin data dir (read/write) + CWD (read-only)\n- Config: `[plugins.deny_capabilities]` for per-plugin capability denial\n- Update `WasmPluginLoader::load()` to query and apply capabilities\n- Rebuild all bundled/fixture .wasm binaries with new WIT interface\n- 7 new tests (5 capability, 2 config)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-15T11:56:48+09:00",
+          "tree_id": "45f30677202c47cd72a8dd4699de5a8811c10c69",
+          "url": "https://github.com/Yus314/kasane/commit/f032e29ec8631e69a098d30dba7ea0351776b2f2"
+        },
+        "date": 1773544800111,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 567,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 4523,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 333,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 28453,
+            "range": "± 291",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 97789,
+            "range": "± 1488",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 33143,
+            "range": "± 219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 25193,
+            "range": "± 353",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 12758,
+            "range": "± 82",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 32665,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 12624,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3314,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 20734,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 45638,
+            "range": "± 180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 35002,
+            "range": "± 14013",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 59723,
+            "range": "± 444",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 59885,
+            "range": "± 459",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 60566,
+            "range": "± 1001",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 42825,
+            "range": "± 308",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 44989,
+            "range": "± 685",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 34985,
+            "range": "± 980",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 65083,
+            "range": "± 1180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 571179,
+            "range": "± 15640",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2810180,
+            "range": "± 36619",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3149,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 55432,
+            "range": "± 2674",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 12738,
+            "range": "± 169",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 49878,
+            "range": "± 241",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 263078,
+            "range": "± 1708",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 1284,
+            "range": "± 3167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5586,
+            "range": "± 167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 46470,
+            "range": "± 196",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 199534,
+            "range": "± 643",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 358272,
+            "range": "± 1667",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3049691,
+            "range": "± 53620",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 6150159,
+            "range": "± 119316",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 13554,
+            "range": "± 270",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 81642,
+            "range": "± 1211",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 154402,
+            "range": "± 335",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 7073,
+            "range": "± 26",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 6125,
+            "range": "± 82",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 17649,
+            "range": "± 211",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 5395,
+            "range": "± 21",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 17221,
+            "range": "± 74",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 26274,
+            "range": "± 68",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 43729,
+            "range": "± 167",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_status_update",
+            "value": 1281,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_menu_select",
+            "value": 6575,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_cursor_move",
+            "value": 220,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 6253,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 3813,
+            "range": "± 15",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 12883,
+            "range": "± 1559",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 7377,
+            "range": "± 32754",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 151970,
+            "range": "± 2050",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 843030,
+            "range": "± 17799",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 2003,
+            "range": "± 23",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 143789,
+            "range": "± 952",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 52444,
+            "range": "± 182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 283787,
+            "range": "± 1149",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 20347,
+            "range": "± 106",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 50728,
+            "range": "± 158",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 140211,
+            "range": "± 4957",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 50761,
+            "range": "± 179",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4041628,
+            "range": "± 18726",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15250069,
+            "range": "± 50770",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1661376,
+            "range": "± 17174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 18118415,
+            "range": "± 61713",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 7406,
+            "range": "± 332",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 54782,
+            "range": "± 1261",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 572,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 7577,
+            "range": "± 16",
             "unit": "ns/iter"
           }
         ]
