@@ -10,7 +10,7 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
     DeferredContext, TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
-    handle_workspace_divider_input,
+    handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::{Rect, build_hit_map};
@@ -26,8 +26,8 @@ use kasane_core::render::{
 };
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
+use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
-use kasane_core::surface::{SurfaceEvent, SurfaceRegistry};
 
 use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
@@ -392,22 +392,6 @@ where
         }
     }
 
-    fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
-        match input {
-            InputEvent::Key(key) => Some(SurfaceEvent::Key(key.clone())),
-            InputEvent::Mouse(mouse) => Some(SurfaceEvent::Mouse(mouse.clone())),
-            InputEvent::Resize(cols, rows) => Some(SurfaceEvent::Resize(Rect {
-                x: 0,
-                y: 0,
-                w: *cols,
-                h: *rows,
-            })),
-            InputEvent::FocusGained => Some(SurfaceEvent::FocusGained),
-            InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
-            InputEvent::Paste(_) => None,
-        }
-    }
-
     fn process_pending_events(&mut self, event_loop: &ActiveEventLoop) {
         let events: Vec<_> = self.pending_events.drain(..).collect();
         for event in events {
@@ -537,7 +521,7 @@ where
         {
             (dirty, vec![], None, vec![])
         } else {
-            let surface_event = Self::surface_event_from_input(&input);
+            let surface_event = surface_event_from_input(&input);
             let msg = Msg::from(input);
             let (flags, commands, source) =
                 update(&mut self.state, msg, &mut self.registry, self.scroll_amount);

@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use kasane_core::event_loop::{
     DeferredContext, TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
-    handle_workspace_divider_input,
+    handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -16,7 +16,7 @@ use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
-use kasane_core::surface::{SurfaceEvent, SurfaceRegistry};
+use kasane_core::surface::SurfaceRegistry;
 
 use crate::backend::TuiBackend;
 
@@ -52,22 +52,6 @@ impl TimerScheduler for TuiTimerScheduler {
             std::thread::sleep(delay);
             let _ = tx.send(Event::PluginTimer(target, payload));
         });
-    }
-}
-
-pub(crate) fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
-    match input {
-        InputEvent::Key(key) => Some(SurfaceEvent::Key(key.clone())),
-        InputEvent::Mouse(mouse) => Some(SurfaceEvent::Mouse(mouse.clone())),
-        InputEvent::Resize(cols, rows) => Some(SurfaceEvent::Resize(Rect {
-            x: 0,
-            y: 0,
-            w: *cols,
-            h: *rows,
-        })),
-        InputEvent::FocusGained => Some(SurfaceEvent::FocusGained),
-        InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
-        InputEvent::Paste(_) => None,
     }
 }
 

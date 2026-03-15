@@ -15,7 +15,26 @@ use crate::plugin::{
 };
 use crate::session::SessionSpec;
 use crate::state::{AppState, DirtyFlags};
-use crate::surface::{SourcedSurfaceCommands, SurfaceRegistry};
+use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
+
+/// Convert an input event into a surface event.
+///
+/// Shared between TUI and GUI backends for routing input through the surface system.
+pub fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
+    match input {
+        InputEvent::Key(key) => Some(SurfaceEvent::Key(key.clone())),
+        InputEvent::Mouse(mouse) => Some(SurfaceEvent::Mouse(mouse.clone())),
+        InputEvent::Resize(cols, rows) => Some(SurfaceEvent::Resize(Rect {
+            x: 0,
+            y: 0,
+            w: *cols,
+            h: *rows,
+        })),
+        InputEvent::FocusGained => Some(SurfaceEvent::FocusGained),
+        InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
+        InputEvent::Paste(_) => None,
+    }
+}
 
 /// Backend-agnostic timer scheduling.
 ///
