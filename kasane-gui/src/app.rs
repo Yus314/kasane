@@ -407,25 +407,16 @@ where
                         .sync_active_from_manager(&self.session_manager, &self.state);
                 }
                 GuiEvent::KakouneDied(session_id) => {
-                    let was_active = self.session_manager.active_session_id() == Some(session_id);
-                    let _ = self.session_manager.close(session_id);
-                    self.session_states.remove(session_id);
-                    if self.session_manager.is_empty() {
+                    if kasane_core::event_loop::handle_session_death(
+                        session_id,
+                        &mut self.session_manager,
+                        &mut self.session_states,
+                        &mut self.state,
+                        &mut self.dirty,
+                        &mut self.initial_resize_sent,
+                    ) {
                         event_loop.exit();
                         return;
-                    }
-                    if was_active {
-                        let restored =
-                            self.session_manager
-                                .active_session_id()
-                                .is_some_and(|active| {
-                                    self.session_states.restore_into(active, &mut self.state)
-                                });
-                        if !restored {
-                            self.state.reset_for_session_switch();
-                        }
-                        self.dirty |= DirtyFlags::ALL;
-                        self.initial_resize_sent = false;
                     }
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);

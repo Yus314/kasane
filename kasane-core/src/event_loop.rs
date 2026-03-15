@@ -72,6 +72,37 @@ pub fn setup_plugin_surfaces(
     }
 }
 
+/// Handle a Kakoune session death event.
+///
+/// Closes the session, removes its state, and restores the next active session
+/// if needed. Returns `true` if the application should quit (no sessions remain).
+pub fn handle_session_death<R, W, C>(
+    session_id: crate::session::SessionId,
+    session_manager: &mut crate::session::SessionManager<R, W, C>,
+    session_states: &mut crate::session::SessionStateStore,
+    state: &mut AppState,
+    dirty: &mut DirtyFlags,
+    initial_resize_sent: &mut bool,
+) -> bool {
+    let was_active = session_manager.active_session_id() == Some(session_id);
+    let _ = session_manager.close(session_id);
+    session_states.remove(session_id);
+    if session_manager.is_empty() {
+        return true;
+    }
+    if was_active {
+        let restored = session_manager
+            .active_session_id()
+            .is_some_and(|active| session_states.restore_into(active, state));
+        if !restored {
+            state.reset_for_session_switch();
+        }
+        *dirty |= DirtyFlags::ALL;
+        *initial_resize_sent = false;
+    }
+    false
+}
+
 /// Rebuild the HitMap from the current view tree for plugin mouse routing.
 ///
 /// Uses the cached view sections to avoid redundant element tree construction.

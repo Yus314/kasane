@@ -268,23 +268,14 @@ where
             (flags, commands, vec![])
         }
         Event::KakouneDied(session_id) => {
-            let was_active = session_manager.active_session_id() == Some(session_id);
-            let _ = session_manager.close(session_id);
-            session_states.remove(session_id);
-            if session_manager.is_empty() {
-                return true;
-            }
-            if was_active {
-                let restored = session_manager
-                    .active_session_id()
-                    .is_some_and(|active| session_states.restore_into(active, state));
-                if !restored {
-                    state.reset_for_session_switch();
-                }
-                *dirty |= DirtyFlags::ALL;
-                *initial_resize_sent = false;
-            }
-            return false;
+            return kasane_core::event_loop::handle_session_death(
+                session_id,
+                session_manager,
+                session_states,
+                state,
+                dirty,
+                initial_resize_sent,
+            );
         }
     };
     for entry in &mut surface_command_groups {
