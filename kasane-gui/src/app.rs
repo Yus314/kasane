@@ -13,13 +13,12 @@ use kasane_core::event_loop::{
     handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
-use kasane_core::layout::{Rect, build_hit_map};
+use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     Command, CommandResult, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent,
     execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::view::surface_view_sections_cached;
 use kasane_core::render::{
     CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache,
     scene_render_pipeline_surfaces_cached,
@@ -678,22 +677,12 @@ where
             }
 
             // Rebuild HitMap from cached view tree for plugin mouse routing
-            let element = surface_view_sections_cached(
+            kasane_core::event_loop::rebuild_hit_map(
                 &self.state,
-                &self.registry,
+                &mut self.registry,
                 &self.surface_registry,
                 &mut self.view_cache,
-            )
-            .into_element();
-            let root_area = kasane_core::layout::Rect {
-                x: 0,
-                y: 0,
-                w: self.state.cols,
-                h: self.state.rows,
-            };
-            let layout_result = kasane_core::layout::flex::place(&element, root_area, &self.state);
-            let hit_map = build_hit_map(&element, &layout_result);
-            self.registry.set_hit_map(hit_map);
+            );
         } else if let Some(result) = self.last_render_result {
             // Cursor-only frame: reuse cached scene commands
             self.cursor_animation

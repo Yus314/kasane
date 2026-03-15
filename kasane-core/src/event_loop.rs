@@ -72,6 +72,33 @@ pub fn setup_plugin_surfaces(
     }
 }
 
+/// Rebuild the HitMap from the current view tree for plugin mouse routing.
+///
+/// Uses the cached view sections to avoid redundant element tree construction.
+pub fn rebuild_hit_map(
+    state: &AppState,
+    registry: &mut PluginRegistry,
+    surface_registry: &SurfaceRegistry,
+    view_cache: &mut crate::render::ViewCache,
+) {
+    let element = crate::render::view::surface_view_sections_cached(
+        state,
+        registry,
+        surface_registry,
+        view_cache,
+    )
+    .into_element();
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let layout_result = crate::layout::flex::place(&element, root_area, state);
+    let hit_map = crate::layout::build_hit_map(&element, &layout_result);
+    registry.set_hit_map(hit_map);
+}
+
 /// Convert an input event into a surface event.
 ///
 /// Shared between TUI and GUI backends for routing input through the surface system.

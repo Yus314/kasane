@@ -10,11 +10,9 @@ use anyhow::{Result, anyhow};
 use crossbeam_channel::unbounded;
 
 use kasane_core::config::Config;
-use kasane_core::layout::build_hit_map;
 use kasane_core::plugin::{
     CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
 };
-use kasane_core::render::view::surface_view_sections_cached;
 use kasane_core::render::{
     CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
     ViewCache, render_pipeline_surfaces_patched,
@@ -319,18 +317,12 @@ where
             // This is an accepted tradeoff — the performance cost of mid-batch
             // HitMap rebuild outweighs the marginal correctness improvement
             // (at most 16ms of stale routing).
-            let element =
-                surface_view_sections_cached(&state, &registry, &surface_registry, &mut view_cache)
-                    .into_element();
-            let root_area = kasane_core::layout::Rect {
-                x: 0,
-                y: 0,
-                w: state.cols,
-                h: state.rows,
-            };
-            let layout_result = kasane_core::layout::flex::place(&element, root_area, &state);
-            let hit_map = build_hit_map(&element, &layout_result);
-            registry.set_hit_map(hit_map);
+            kasane_core::event_loop::rebuild_hit_map(
+                &state,
+                &mut registry,
+                &surface_registry,
+                &mut view_cache,
+            );
         }
     }
 
