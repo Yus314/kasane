@@ -52,14 +52,14 @@ fn bounded_constraint(max: u16) -> Option<u16> {
 }
 
 /// Result of a plugin's `contribute_to()` call.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Contribution {
     pub element: Element,
     pub priority: i16,
     pub size_hint: ContribSizeHint,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourcedContribution {
     pub contributor: PluginId,
     pub contribution: Contribution,

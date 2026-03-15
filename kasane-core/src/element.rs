@@ -93,7 +93,7 @@ pub enum GridWidth {
 }
 
 /// Column definition for Grid layout.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GridColumn {
     pub width: GridWidth,
 }
@@ -258,7 +258,7 @@ impl Edges {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OverlayAnchor {
     Fill,
     Absolute {
@@ -285,13 +285,13 @@ impl From<crate::layout::FloatingWindow> for OverlayAnchor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Overlay {
     pub element: Element,
     pub anchor: OverlayAnchor,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlexChild {
     pub element: Element,
     /// 0.0 = fixed size, >0.0 = proportional flex allocation.
@@ -320,7 +320,7 @@ impl FlexChild {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Element {
     Text(String, Style),
     StyledLine(Vec<Atom>),

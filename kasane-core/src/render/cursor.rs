@@ -93,28 +93,12 @@ pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginRegistry) 
 
 /// Default cursor style logic without plugin overrides.
 pub fn cursor_style_default(state: &AppState) -> CursorStyle {
-    if let Some(style) = state.ui_options.get("kasane_cursor_style") {
-        return match style.as_str() {
-            "bar" => CursorStyle::Bar,
-            "underline" => CursorStyle::Underline,
-            _ => CursorStyle::Block,
-        };
-    }
-    if !state.focused {
-        return CursorStyle::Outline;
-    }
-    if state.cursor_mode == CursorMode::Prompt {
-        return CursorStyle::Bar;
-    }
-    let mode = state
-        .status_mode_line
-        .iter()
-        .find_map(|atom| match atom.contents.as_str() {
-            "insert" => Some(CursorStyle::Bar),
-            "replace" => Some(CursorStyle::Underline),
-            _ => None,
-        });
-    mode.unwrap_or(CursorStyle::Block)
+    crate::state::derived::derive_cursor_style(
+        &state.ui_options,
+        state.focused,
+        state.cursor_mode,
+        &state.status_mode_line,
+    )
 }
 
 /// In non-block cursor modes (insert/replace), clear the PrimaryCursor face

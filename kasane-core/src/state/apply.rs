@@ -1,8 +1,6 @@
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+use crate::protocol::KakouneRequest;
 
-use crate::protocol::{Attributes, Coord, CursorMode, KakouneRequest};
-
+use super::derived;
 use super::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 
 impl AppState {
@@ -17,54 +15,22 @@ impl AppState {
             } => {
                 self.cursor_pos = cursor_pos;
 
-                // Heuristic: Atoms with FINAL_FG + REVERSE attributes are assumed to be cursor
-                // faces. This relies on Kakoune's internal rendering of multi-cursor
-                // selections, which is not part of the protocol specification and may change
-                // in future versions.
-                // Track coordinates using grapheme display widths for accurate column positions.
-                let mut all_cursors: Vec<Coord> = Vec::new();
-                for (line_idx, line) in lines.iter().enumerate() {
-                    let mut col: u32 = 0;
-                    for atom in line.iter() {
-                        let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
-                            && atom.face.attributes.contains(Attributes::REVERSE);
-                        if is_cursor {
-                            all_cursors.push(Coord {
-                                line: line_idx as i32,
-                                column: col as i32,
-                            });
-                        }
-                        for grapheme in atom.contents.as_str().graphemes(true) {
-                            if grapheme.starts_with(|c: char| c.is_control()) {
-                                continue;
-                            }
-                            col += UnicodeWidthStr::width(grapheme) as u32;
-                        }
-                    }
-                }
-                self.cursor_count = all_cursors.len();
-                self.secondary_cursors = all_cursors
-                    .into_iter()
-                    .filter(|c| *c != self.cursor_pos)
-                    .collect();
+                // Heuristic cursor detection via pure function
+                let (cursor_count, secondary_cursors) = derived::detect_cursors(&lines, cursor_pos);
+                self.cursor_count = cursor_count;
+                self.secondary_cursors = secondary_cursors;
 
                 self.widget_columns = widget_columns;
 
-                // Line-level dirty tracking: compare old vs new lines
-                let face_changed =
-                    self.default_face != default_face || self.padding_face != padding_face;
-                let len_changed = self.lines.len() != lines.len();
-
-                if face_changed || len_changed {
-                    self.lines_dirty = vec![true; lines.len()];
-                } else {
-                    self.lines_dirty = self
-                        .lines
-                        .iter()
-                        .zip(lines.iter())
-                        .map(|(old, new)| old != new)
-                        .collect();
-                }
+                // Line-level dirty tracking via pure function
+                self.lines_dirty = derived::compute_lines_dirty(
+                    &self.lines,
+                    &lines,
+                    &self.default_face,
+                    &default_face,
+                    &self.padding_face,
+                    &padding_face,
+                );
 
                 self.lines = lines;
                 self.default_face = default_face;
@@ -82,19 +48,13 @@ impl AppState {
                 self.status_content = content.clone();
                 self.status_content_cursor_pos = content_cursor_pos;
 
-                // Derive CursorMode from content_cursor_pos
-                let new_mode = if content_cursor_pos >= 0 {
-                    CursorMode::Prompt
-                } else {
-                    CursorMode::Buffer
-                };
+                // Derive CursorMode via pure function
+                let new_mode = derived::derive_cursor_mode(content_cursor_pos);
                 let mode_changed = self.cursor_mode != new_mode;
                 self.cursor_mode = new_mode;
 
-                // Combine prompt + content into status_line for view/patch compatibility
-                let mut combined = prompt;
-                combined.extend(content);
-                self.status_line = combined;
+                // Combine prompt + content into status_line via pure function
+                self.status_line = derived::build_status_line(&prompt, &content);
 
                 self.status_mode_line = mode_line;
                 self.status_default_face = default_face;
