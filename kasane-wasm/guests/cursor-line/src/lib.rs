@@ -105,6 +105,7 @@ impl Guest for CursorLinePlugin {
     kasane_plugin_sdk::default_overlay_v2!();
     kasane_plugin_sdk::default_contribute_deps!();
     kasane_plugin_sdk::default_transform_deps!();
+    kasane_plugin_sdk::default_capabilities!();
 }
 
 export!(CursorLinePlugin);

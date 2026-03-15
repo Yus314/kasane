@@ -13,13 +13,17 @@ use crate::WasmPluginLoader;
 fn load_cursor_line_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("cursor-line.wasm").expect("failed to load fixture");
-    loader.load(&bytes).expect("failed to load plugin")
+    loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .expect("failed to load plugin")
 }
 
 fn load_line_numbers_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("line-numbers.wasm").expect("failed to load fixture");
-    loader.load(&bytes).expect("failed to load plugin")
+    loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .expect("failed to load plugin")
 }
 
 fn default_annotate_ctx() -> AnnotateContext {
@@ -282,6 +286,7 @@ fn discover_loads_fixtures_directory() {
                 .into_owned(),
         ),
         disabled: vec![],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     crate::discover_and_register(&config, &mut registry);
@@ -301,6 +306,7 @@ fn discover_skips_disabled_plugins() {
                 .into_owned(),
         ),
         disabled: vec!["cursor_line".to_string()],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     crate::discover_and_register(&config, &mut registry);
@@ -320,6 +326,7 @@ fn discover_does_nothing_when_disabled() {
                 .into_owned(),
         ),
         disabled: vec![],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     crate::discover_and_register(&config, &mut registry);
@@ -333,6 +340,7 @@ fn discover_handles_missing_directory() {
         auto_discover: true,
         path: Some("/nonexistent/path/to/plugins".to_string()),
         disabled: vec![],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     // Should not panic, just silently skip
@@ -345,7 +353,9 @@ fn discover_handles_missing_directory() {
 fn load_color_preview_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("color-preview.wasm").expect("failed to load fixture");
-    loader.load(&bytes).expect("failed to load plugin")
+    loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .expect("failed to load plugin")
 }
 
 fn make_state_with_lines(lines: &[&str]) -> AppState {
@@ -503,6 +513,7 @@ fn register_bundled_plugins_loads_three() {
         auto_discover: false,
         path: None,
         disabled: vec![],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     crate::register_bundled_plugins(&config, &mut registry);
@@ -516,6 +527,7 @@ fn register_bundled_plugins_respects_disabled() {
         auto_discover: false,
         path: None,
         disabled: vec!["color_preview".to_string()],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     crate::register_bundled_plugins(&config, &mut registry);
@@ -529,6 +541,7 @@ fn filesystem_plugin_overrides_bundled() {
         auto_discover: false,
         path: None,
         disabled: vec![],
+        ..Default::default()
     };
     let mut registry = PluginRegistry::new();
     crate::register_bundled_plugins(&config, &mut registry);
@@ -537,7 +550,9 @@ fn filesystem_plugin_overrides_bundled() {
     // Register another plugin with the same ID
     let loader = WasmPluginLoader::new().unwrap();
     let bytes = crate::load_wasm_fixture("cursor-line.wasm").unwrap();
-    let plugin = loader.load(&bytes).unwrap();
+    let plugin = loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .unwrap();
     assert_eq!(plugin.id().0, "cursor_line");
     registry.register(Box::new(plugin));
 

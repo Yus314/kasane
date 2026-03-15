@@ -1,4 +1,5 @@
 mod adapter;
+pub mod capability;
 mod convert;
 mod host;
 
@@ -10,6 +11,7 @@ mod bindings {
 }
 
 pub use adapter::WasmPlugin;
+pub use capability::WasiCapabilityConfig;
 
 use std::path::Path;
 
@@ -44,8 +46,17 @@ impl WasmPluginLoader {
         Ok(Self { engine, linker })
     }
 
-    /// Load a WASM plugin from raw bytes.
-    pub fn load(&self, wasm_bytes: &[u8]) -> anyhow::Result<WasmPlugin> {
+    /// Load a WASM plugin from raw bytes with WASI capability configuration.
+    ///
+    /// The plugin is first instantiated with an empty WASI context to query
+    /// its ID and requested capabilities. Then a proper WASI context is built
+    /// based on the plugin's requests and user configuration, and swapped in
+    /// before returning.
+    pub fn load(
+        &self,
+        wasm_bytes: &[u8],
+        wasi_config: &WasiCapabilityConfig,
+    ) -> anyhow::Result<WasmPlugin> {
         let component = Component::new(&self.engine, wasm_bytes)?;
         let host_state = host::HostState::default();
         let mut store = wasmtime::Store::new(&self.engine, host_state);
@@ -54,13 +65,26 @@ impl WasmPluginLoader {
         let plugin_api = instance.kasane_plugin_plugin_api();
         let id = plugin_api.call_get_id(&mut store)?;
 
+        // Query requested capabilities and build per-plugin WasiCtx
+        let requested = plugin_api.call_requested_capabilities(&mut store)?;
+        if !requested.is_empty() {
+            let wasi_ctx = capability::build_wasi_ctx(&id, &requested, wasi_config)?;
+            let data = store.data_mut();
+            data.wasi = wasi_ctx;
+            data.table = wasmtime::component::ResourceTable::new();
+        }
+
         Ok(WasmPlugin::new(store, instance, id))
     }
 
     /// Load a WASM plugin from a file path.
-    pub fn load_file(&self, path: &Path) -> anyhow::Result<WasmPlugin> {
+    pub fn load_file(
+        &self,
+        path: &Path,
+        wasi_config: &WasiCapabilityConfig,
+    ) -> anyhow::Result<WasmPlugin> {
         let bytes = std::fs::read(path)?;
-        self.load(&bytes)
+        self.load(&bytes, wasi_config)
     }
 }
 
@@ -90,6 +114,8 @@ pub fn register_bundled_plugins(
         }
     };
 
+    let wasi_config = WasiCapabilityConfig::from_plugins_config(plugins_config);
+
     for (name, bytes) in [
         ("cursor_line", BUNDLED_CURSOR_LINE),
         ("color_preview", BUNDLED_COLOR_PREVIEW),
@@ -99,7 +125,7 @@ pub fn register_bundled_plugins(
             tracing::info!("bundled WASM plugin {name} disabled by config");
             continue;
         }
-        match loader.load(bytes) {
+        match loader.load(bytes, &wasi_config) {
             Ok(plugin) => {
                 tracing::info!("loaded bundled WASM plugin {name}");
                 registry.register(Box::new(plugin));
@@ -165,10 +191,12 @@ pub fn discover_and_register(
         }
     };
 
+    let wasi_config = WasiCapabilityConfig::from_plugins_config(plugins_config);
+
     for path in &wasm_files {
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
 
-        match loader.load_file(path) {
+        match loader.load_file(path, &wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
                 if plugins_config.disabled.contains(&id.0) {

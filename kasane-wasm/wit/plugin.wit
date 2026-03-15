@@ -1,4 +1,4 @@
-package kasane:plugin@0.4.0;
+package kasane:plugin@0.5.0;
 
 interface types {
     enum named-color {
@@ -277,6 +277,15 @@ interface types {
         anchor: overlay-anchor,
         z-index: s16,
     }
+
+    // --- v0.5.0: WASI capability declaration ---
+
+    /// WASI capabilities a plugin may request.
+    enum capability {
+        filesystem,
+        environment,
+        monotonic-clock,
+    }
 }
 
 interface host-state {
@@ -396,7 +405,8 @@ interface plugin-api {
     use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
                atom, decorate-target, replace-target,
                contribute-context, contribution, transform-target, transform-context,
-               annotate-context, line-annotation, overlay-context, overlay-contribution};
+               annotate-context, line-annotation, overlay-context, overlay-contribution,
+               capability};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -500,6 +510,12 @@ interface plugin-api {
 
     /// DirtyFlags dependencies for annotate-line.
     annotate-deps: func() -> u16;
+
+    // --- v0.5.0: WASI capability declaration ---
+
+    /// Declare WASI capabilities this plugin requires.
+    /// The host grants these unless denied by user configuration.
+    requested-capabilities: func() -> list<capability>;
 }
 
 world kasane-plugin {

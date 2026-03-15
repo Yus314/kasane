@@ -46,7 +46,7 @@ Kasane プラグインには 2 つの開発パスがある。
 | `handle_key()` + `handle_mouse()` | インタラクティブ UI（ピッカー、ダイアログ） |
 | `Surface` (現状ネイティブ) | サイドバー、ファイルツリー、専用パネル |
 
-外部プロセス実行やファイルシステムアクセスを必要とするプラグイン（ファジーファインダー、ファイルブラウザなど）は現在の API スコープ外である。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
+ファイルシステムアクセスは WASI ケイパビリティ宣言 (`Capability::Filesystem`) で利用可能。外部プロセス実行（ファジーファインダー等）は Phase P-2 で対応予定。詳細は [plugin-api.md §0](./plugin-api.md#0-プラグイン-api-のスコープ) を参照。
 
 ## 2. クイックスタート
 
@@ -141,6 +141,7 @@ impl Guest for SelBadgePlugin {
     kasane_plugin_sdk::default_overlay_v2!();
     kasane_plugin_sdk::default_transform_deps!();
     kasane_plugin_sdk::default_annotate_deps!();
+    kasane_plugin_sdk::default_capabilities!();
 }
 
 export!(SelBadgePlugin);
@@ -276,9 +277,37 @@ Kasane は次の順序でプラグインを登録する。
 ```toml
 [plugins]
 disabled = ["color_preview"]
+
+# プラグインごとの WASI ケイパビリティ拒否
+[plugins.deny_capabilities]
+untrusted_plugin = ["filesystem", "environment"]
 ```
 
-### 4.4 テスト
+### 4.4 WASI ケイパビリティ
+
+WASM プラグインは `requested_capabilities()` で必要な WASI ケイパビリティを宣言できる。
+ホストは宣言に基づき、プラグインごとに WASI コンテキストを構成する。
+
+利用可能なケイパビリティ:
+
+| ケイパビリティ | 効果 | デフォルト |
+|---|---|---|
+| `Capability::Filesystem` | `data/` (プラグイン専用データディレクトリ, read/write) と `.` (CWD, read-only) を preopen | 無効 |
+| `Capability::Environment` | ホストの環境変数を継承 | 無効 |
+| `Capability::MonotonicClock` | 単調時計へのアクセス (デフォルトで有効だが、宣言により監査可能) | 有効 |
+
+```rust
+// ファイルシステムアクセスが必要なプラグインの例
+fn requested_capabilities() -> Vec<Capability> {
+    vec![Capability::Filesystem]
+}
+```
+
+ケイパビリティは宣言即承認される。ユーザーは `config.toml` の `deny_capabilities` で拒否できる。
+
+制約: WASI ケイパビリティは `on_init()` 以降で利用可能。コンポーネント初期化 (`_initialize`) 中は利用できない。
+
+### 4.5 テスト
 
 `PluginRegistry` を直接使ってユニットテストが書ける。
 

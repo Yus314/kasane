@@ -554,6 +554,7 @@ impl Guest for ColorPreviewPlugin {
     kasane_plugin_sdk::default_transform_priority!();
     kasane_plugin_sdk::default_contribute_deps!();
     kasane_plugin_sdk::default_transform_deps!();
+    kasane_plugin_sdk::default_capabilities!();
 }
 
 export!(ColorPreviewPlugin);

@@ -299,6 +299,9 @@ pub struct PluginsConfig {
     pub path: Option<String>,
     /// Plugin IDs to disable (by plugin ID, e.g. "cursor_line").
     pub disabled: Vec<String>,
+    /// Per-plugin capability denials. Key: plugin ID, Value: list of denied capability names.
+    /// Valid capability names: "filesystem", "environment", "monotonic-clock".
+    pub deny_capabilities: HashMap<String, Vec<String>>,
 }
 
 impl Default for PluginsConfig {
@@ -307,6 +310,7 @@ impl Default for PluginsConfig {
             auto_discover: true,
             path: None,
             disabled: Vec::new(),
+            deny_capabilities: HashMap::new(),
         }
     }
 }
@@ -473,6 +477,34 @@ disabled = ["cursor_line", "line_numbers"]
         assert!(!config.plugins.auto_discover);
         assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
         assert_eq!(config.plugins.disabled.len(), 2);
+    }
+
+    #[test]
+    fn test_plugins_deny_capabilities() {
+        let toml_str = r#"
+[plugins]
+disabled = ["some_plugin"]
+
+[plugins.deny_capabilities]
+untrusted_plugin = ["filesystem", "environment"]
+another_plugin = ["monotonic-clock"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.plugins.deny_capabilities.get("untrusted_plugin"),
+            Some(&vec!["filesystem".to_string(), "environment".to_string()])
+        );
+        assert_eq!(
+            config.plugins.deny_capabilities.get("another_plugin"),
+            Some(&vec!["monotonic-clock".to_string()])
+        );
+        assert!(config.plugins.deny_capabilities.get("missing").is_none());
+    }
+
+    #[test]
+    fn test_plugins_deny_capabilities_default_empty() {
+        let config = Config::default();
+        assert!(config.plugins.deny_capabilities.is_empty());
     }
 
     #[test]

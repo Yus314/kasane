@@ -59,6 +59,7 @@
 //!     kasane_plugin_sdk::default_annotate_deps!();
 //!     kasane_plugin_sdk::default_cursor_style!();
 //!     kasane_plugin_sdk::default_update!();
+//!     kasane_plugin_sdk::default_capabilities!();
 //! }
 //!
 //! export!(MyPlugin);
@@ -90,6 +91,13 @@ pub mod dirty {
     pub const BUFFER: u16 = BUFFER_CONTENT | BUFFER_CURSOR;
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
     pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS;
+}
+
+/// WASI capability identifiers matching the WIT `capability` enum ordinals.
+pub mod capability {
+    pub const FILESYSTEM: u8 = 0;
+    pub const ENVIRONMENT: u8 = 1;
+    pub const MONOTONIC_CLOCK: u8 = 2;
 }
 
 /// Modifier key bitflags matching `kasane_core::input::Modifiers`.
@@ -386,6 +394,16 @@ macro_rules! default_annotate_deps {
     () => {
         fn annotate_deps() -> u16 {
             $crate::dirty::ALL
+        }
+    };
+}
+
+/// Default requested-capabilities stub (returns empty list = no WASI capabilities).
+#[macro_export]
+macro_rules! default_capabilities {
+    () => {
+        fn requested_capabilities() -> Vec<Capability> {
+            vec![]
         }
     };
 }
