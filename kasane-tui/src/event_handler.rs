@@ -100,29 +100,17 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) {
-        let Ok((reader, writer, child)) = (self.spawn_session)(&spec) else {
-            tracing::error!("failed to spawn session {}", spec.key);
-            return;
-        };
-        let Ok(session_id) = self.session_manager.insert(spec, reader, writer, child) else {
-            tracing::error!("failed to register spawned session");
-            return;
-        };
-        self.session_states.ensure_session(session_id, state);
-        let reader = self
-            .session_manager
-            .take_reader(session_id)
-            .expect("spawned session reader missing");
-        spawn_session_reader(session_id, reader, self.tx.clone());
-        if activate {
-            self.session_manager
-                .sync_and_activate(self.session_states, session_id, state)
-                .expect("spawned session must be activeable");
-            if !self.session_states.restore_into(session_id, state) {
-                state.reset_for_session_switch();
-            }
-            *dirty |= DirtyFlags::ALL;
-            *initial_resize_sent = false;
+        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
+            &spec,
+            activate,
+            self.session_manager,
+            self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+            self.spawn_session,
+        ) {
+            spawn_session_reader(session_id, reader, self.tx.clone());
         }
     }
 
@@ -133,30 +121,14 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) -> bool {
-        let target = key
-            .and_then(|k| self.session_manager.session_id_by_key(k))
-            .or_else(|| self.session_manager.active_session_id());
-        let Some(target) = target else {
-            return false;
-        };
-        let was_active = self.session_manager.active_session_id() == Some(target);
-        let _ = self.session_manager.close(target);
-        self.session_states.remove(target);
-        if self.session_manager.is_empty() {
-            return true;
-        }
-        if was_active {
-            let restored = self
-                .session_manager
-                .active_session_id()
-                .is_some_and(|active| self.session_states.restore_into(active, state));
-            if !restored {
-                state.reset_for_session_switch();
-            }
-            *dirty |= DirtyFlags::ALL;
-            *initial_resize_sent = false;
-        }
-        false
+        kasane_core::event_loop::close_session_core(
+            key,
+            self.session_manager,
+            self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+        )
     }
 }
 

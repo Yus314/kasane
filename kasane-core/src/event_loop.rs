@@ -13,7 +13,7 @@ use crate::plugin::{
     CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry, ProcessDispatcher,
     ProcessEvent, execute_commands, extract_deferred_commands,
 };
-use crate::session::SessionSpec;
+use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
 
@@ -77,9 +77,9 @@ pub fn setup_plugin_surfaces(
 /// Closes the session, removes its state, and restores the next active session
 /// if needed. Returns `true` if the application should quit (no sessions remain).
 pub fn handle_session_death<R, W, C>(
-    session_id: crate::session::SessionId,
-    session_manager: &mut crate::session::SessionManager<R, W, C>,
-    session_states: &mut crate::session::SessionStateStore,
+    session_id: SessionId,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
     state: &mut AppState,
     dirty: &mut DirtyFlags,
     initial_resize_sent: &mut bool,
@@ -87,6 +87,81 @@ pub fn handle_session_death<R, W, C>(
     let was_active = session_manager.active_session_id() == Some(session_id);
     let _ = session_manager.close(session_id);
     session_states.remove(session_id);
+    if session_manager.is_empty() {
+        return true;
+    }
+    if was_active {
+        let restored = session_manager
+            .active_session_id()
+            .is_some_and(|active| session_states.restore_into(active, state));
+        if !restored {
+            state.reset_for_session_switch();
+        }
+        *dirty |= DirtyFlags::ALL;
+        *initial_resize_sent = false;
+    }
+    false
+}
+
+/// Spawn a new managed session, returning the session ID and reader on success.
+///
+/// The reader is returned so the backend can wire it up to its specific event
+/// channel. The activation logic (state restore, dirty flags) is handled here.
+pub fn spawn_session_core<R, W, C>(
+    spec: &SessionSpec,
+    activate: bool,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    state: &mut AppState,
+    dirty: &mut DirtyFlags,
+    initial_resize_sent: &mut bool,
+    spawn_fn: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+) -> Option<(SessionId, R)> {
+    let Ok((reader, writer, child)) = spawn_fn(spec) else {
+        tracing::error!("failed to spawn session {}", spec.key);
+        return None;
+    };
+    let Ok(session_id) = session_manager.insert(spec.clone(), reader, writer, child) else {
+        tracing::error!("failed to register spawned session");
+        return None;
+    };
+    session_states.ensure_session(session_id, state);
+    let reader = session_manager
+        .take_reader(session_id)
+        .expect("spawned session reader missing");
+    if activate {
+        session_manager
+            .sync_and_activate(session_states, session_id, state)
+            .expect("spawned session must be activeable");
+        if !session_states.restore_into(session_id, state) {
+            state.reset_for_session_switch();
+        }
+        *dirty |= DirtyFlags::ALL;
+        *initial_resize_sent = false;
+    }
+    Some((session_id, reader))
+}
+
+/// Close a managed session by key, or the active session when `key` is `None`.
+///
+/// Returns `true` when the application should exit because no sessions remain.
+pub fn close_session_core<R, W, C>(
+    key: Option<&str>,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    state: &mut AppState,
+    dirty: &mut DirtyFlags,
+    initial_resize_sent: &mut bool,
+) -> bool {
+    let target = key
+        .and_then(|k| session_manager.session_id_by_key(k))
+        .or_else(|| session_manager.active_session_id());
+    let Some(target) = target else {
+        return false;
+    };
+    let was_active = session_manager.active_session_id() == Some(target);
+    let _ = session_manager.close(target);
+    session_states.remove(target);
     if session_manager.is_empty() {
         return true;
     }
