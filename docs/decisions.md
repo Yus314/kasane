@@ -45,7 +45,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Pipeline equivalence testing | Current | **Trace-Equivalence axiom + proptest** | Current harness generates DirtyFlags at coarse granularity |
 | SurfaceId-based invalidation | Proposed | **Per-surface dirty / cache design** | For multi-pane, not yet implemented |
 | Plugin I/O infrastructure | Current | **Hybrid model (WASI direct + host-mediated)** | Design foundation for Phase P. Details in [ADR-019](#adr-019-plugin-io-infrastructure--hybrid-model) |
-| Salsa incremental computation | Current | **Stage 1 (Salsa tracked) + Stage 2 (imperative plugins)** | Feature-gated `salsa-view`. Details in [ADR-020](#adr-020-salsa-incremental-computation--stage-12-split) |
+| Salsa incremental computation | Current | **Stage 1 (Salsa tracked) + Stage 2 (imperative plugins)** | Mandatory dependency (feature flag removed). Details in [ADR-020](#adr-020-salsa-incremental-computation--stage-12-split) |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 
@@ -1351,7 +1351,7 @@ Adopt a **Stage 1 / Stage 2 split** architecture where:
 - **Stage 1 (Salsa tracked)**: Pure Element generation from protocol state. Salsa automatically tracks dependencies and memoizes results. No plugin interaction.
 - **Stage 2 (imperative)**: Plugin contributions, transforms, and annotations applied outside Salsa. Uses existing `PluginRegistry` with its `RefCell` interior mutability unchanged.
 
-The entire Salsa pipeline is feature-gated behind `salsa-view`, forwarded through all crates (`kasane-core` → `kasane-tui` → `kasane-gui` → `kasane`).
+Salsa is a mandatory dependency. The legacy Surface-based pipeline (`pipeline_surface.rs`, `SurfaceViewSource`) has been removed; all rendering uses the Salsa path exclusively.
 
 ### Architecture
 
@@ -1415,7 +1415,7 @@ Four pipeline entry points mirror the legacy variants:
 
 #### SalsaViewSource
 
-`SalsaViewSource` implements the `ViewSource` trait, producing view sections by calling the tracked functions and composing with plugins. This allows the rendering pipeline to swap between legacy (`SurfaceViewSource`) and Salsa paths at the trait level.
+`SalsaViewSource` implements the `ViewSource` trait, producing view sections by calling the tracked functions and composing with plugins. The legacy `SurfaceViewSource` has been removed; `SalsaViewSource` is the sole implementation.
 
 ### What Is Kept
 
