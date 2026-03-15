@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773544801028,
+  "lastUpdate": 1773549402660,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -8735,6 +8735,450 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 7577,
             "range": "± 16",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "ad1148b3debffc4a1555a9766472d0bf1cb4b58c",
+          "message": "feat(wasm): implement Phase P-2 process execution infrastructure\n\nAdd host-mediated process execution for WASM plugins following ADR-019's\nhybrid I/O model. Plugins spawn processes via Command::SpawnProcess and\nreceive stdout/stderr/exit events through Plugin::on_io_event().\n\nCore types (kasane-core):\n- IoEvent/ProcessEvent/StdinMode types in new plugin/io.rs\n- Command::SpawnProcess/WriteToProcess/CloseProcessStdin/KillProcess\n- ProcessDispatcher/ProcessEventSink traits for backend abstraction\n- Plugin::on_io_event() + allows_process_spawn() trait methods\n- PluginRegistry::deliver_io_event() + capability check in event_loop\n\nWASM adapter (kasane-wasm):\n- WIT v0.6.0: io-event, process-event, on-io-event, capability::process\n- Conversion functions and WasmPlugin.on_io_event() adapter\n- is_capability_granted() for process capability resolution\n- Rebuilt all bundled/fixture WASM plugins\n\nProcess manager (kasane/):\n- Tokio-based ProcessManager with per-plugin limits (4/plugin, 16 total)\n- Async stdout/stderr/stdin management via tokio::select!\n\nEvent loop integration:\n- TUI: Event::ProcessOutput + TuiProcessEventSink + factory pattern\n- GUI: GuiEvent::ProcessOutput + GuiProcessEventSink + factory pattern\n- Tokio runtime created in kasane/src/lib.rs, passed via factory closure\n\nTests: 34 new tests across kasane-core, kasane-wasm, and kasane/ crates.\nDocs: Updated roadmap, plugin-api, plugin-development, and ADR-019.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-15T13:13:50+09:00",
+          "tree_id": "56bcc84754bec79e8eb995aadd0319dd75fb281c",
+          "url": "https://github.com/Yus314/kasane/commit/ad1148b3debffc4a1555a9766472d0bf1cb4b58c"
+        },
+        "date": 1773549402222,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 526,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 4190,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 313,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 25063,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 86186,
+            "range": "± 361",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 29337,
+            "range": "± 515",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 21687,
+            "range": "± 37",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 10606,
+            "range": "± 138",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 25354,
+            "range": "± 50",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 11233,
+            "range": "± 99",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 2942,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 18366,
+            "range": "± 332",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 40345,
+            "range": "± 221",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 31605,
+            "range": "± 4761",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 54052,
+            "range": "± 461",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 54218,
+            "range": "± 343",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 54327,
+            "range": "± 306",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 37560,
+            "range": "± 190",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 39207,
+            "range": "± 158",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 31866,
+            "range": "± 724",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 65666,
+            "range": "± 876",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 591334,
+            "range": "± 10801",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 3128466,
+            "range": "± 34329",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3110,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 60192,
+            "range": "± 503",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 12786,
+            "range": "± 1020",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 50476,
+            "range": "± 303",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 270310,
+            "range": "± 866",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 1133,
+            "range": "± 762",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5986,
+            "range": "± 159",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 40396,
+            "range": "± 177",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 173339,
+            "range": "± 525",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 319718,
+            "range": "± 657",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3356706,
+            "range": "± 17845",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 6842422,
+            "range": "± 45875",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 10621,
+            "range": "± 54",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 63980,
+            "range": "± 680",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 128729,
+            "range": "± 3409",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 7024,
+            "range": "± 24",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 5896,
+            "range": "± 52",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 19025,
+            "range": "± 101",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 6552,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 18406,
+            "range": "± 51",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 23549,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 39563,
+            "range": "± 58",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_status_update",
+            "value": 1187,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_menu_select",
+            "value": 6326,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_cursor_move",
+            "value": 193,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 5512,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 3447,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 12601,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 8371,
+            "range": "± 888",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 127124,
+            "range": "± 870",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 722572,
+            "range": "± 3572",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 1798,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 121465,
+            "range": "± 437",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 44852,
+            "range": "± 111",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 242883,
+            "range": "± 917",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 18763,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 44626,
+            "range": "± 122",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 121313,
+            "range": "± 434",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 44636,
+            "range": "± 88",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 3470729,
+            "range": "± 20931",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 15689651,
+            "range": "± 36794",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1614612,
+            "range": "± 2945",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 18181203,
+            "range": "± 67351",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 6961,
+            "range": "± 129",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 53400,
+            "range": "± 1519",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 511,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 6732,
+            "range": "± 95",
             "unit": "ns/iter"
           }
         ]
