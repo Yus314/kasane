@@ -10,45 +10,37 @@ use crossterm::{
 };
 use kasane_core::protocol::{Attributes, Color, Face, NamedColor};
 
+/// Emit a full reset followed by all colors and attributes for `face`.
+fn emit_full_face(buf: &mut Vec<u8>, face: &Face) -> anyhow::Result<()> {
+    queue!(buf, SetAttribute(CtAttribute::Reset))?;
+    queue!(
+        buf,
+        SetForegroundColor(convert_color(face.fg)),
+        SetBackgroundColor(convert_color(face.bg))
+    )?;
+    if face.underline != Color::Default {
+        queue!(buf, SetUnderlineColor(convert_color(face.underline)))?;
+    }
+    for attr in face.attributes.iter() {
+        if let Some(ct_attr) = convert_attribute(attr) {
+            queue!(buf, SetAttribute(ct_attr))?;
+        }
+    }
+    Ok(())
+}
+
 /// Emit only the SGR codes that differ between `old` and `new` faces.
 /// When `old` is None (first cell), emits a full reset + set.
 pub fn emit_sgr_diff(buf: &mut Vec<u8>, old: Option<&Face>, new: &Face) -> anyhow::Result<()> {
     match old {
         None => {
-            // First cell: full reset + set
-            queue!(buf, SetAttribute(CtAttribute::Reset))?;
-            queue!(
-                buf,
-                SetForegroundColor(convert_color(new.fg)),
-                SetBackgroundColor(convert_color(new.bg))
-            )?;
-            if new.underline != Color::Default {
-                queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
-            }
-            for attr in new.attributes.iter() {
-                if let Some(ct_attr) = convert_attribute(attr) {
-                    queue!(buf, SetAttribute(ct_attr))?;
-                }
-            }
+            emit_full_face(buf, new)?;
         }
         Some(old) => {
             // Attributes changed: we must reset and re-apply since there's no
             // individual "unset bold" etc. that works reliably across terminals.
             if old.attributes != new.attributes {
-                queue!(buf, SetAttribute(CtAttribute::Reset))?;
-                queue!(
-                    buf,
-                    SetForegroundColor(convert_color(new.fg)),
-                    SetBackgroundColor(convert_color(new.bg))
-                )?;
-                if new.underline != Color::Default {
-                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
-                }
-                for attr in new.attributes.iter() {
-                    if let Some(ct_attr) = convert_attribute(attr) {
-                        queue!(buf, SetAttribute(ct_attr))?;
-                    }
-                }
+                emit_full_face(buf, new)?;
             } else {
                 // Same attributes — only emit changed colors
                 if old.fg != new.fg {
