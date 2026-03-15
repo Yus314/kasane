@@ -4,6 +4,9 @@ version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 
+[features]
+salsa-view = ["kasane-core/salsa-view"]
+
 [dependencies]
 kasane-core = { workspace = true }
 crossterm = { workspace = true }

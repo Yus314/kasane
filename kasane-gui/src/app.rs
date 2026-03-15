@@ -19,10 +19,15 @@ use kasane_core::plugin::{
     execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::{
-    CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache,
-    scene_render_pipeline_surfaces_cached,
-};
+#[cfg(feature = "salsa-view")]
+use kasane_core::render::scene_render_pipeline_salsa_cached;
+#[cfg(not(feature = "salsa-view"))]
+use kasane_core::render::scene_render_pipeline_surfaces_cached;
+use kasane_core::render::{CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache};
+#[cfg(feature = "salsa-view")]
+use kasane_core::salsa_db::KasaneDatabase;
+#[cfg(feature = "salsa-view")]
+use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state, sync_plugin_epoch};
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 use kasane_core::surface::SurfaceRegistry;
@@ -179,6 +184,12 @@ where
 
     // Process dispatcher for plugin process execution
     process_dispatcher: Box<dyn ProcessDispatcher>,
+
+    // Salsa database (feature-gated)
+    #[cfg(feature = "salsa-view")]
+    salsa_db: KasaneDatabase,
+    #[cfg(feature = "salsa-view")]
+    salsa_handles: SalsaInputHandles,
 }
 
 impl<R, W, C> App<R, W, C>
@@ -225,6 +236,14 @@ where
         let _init_commands = registry.init_all(&state);
         // init_commands will be executed once initial_resize_sent is true
 
+        #[cfg(feature = "salsa-view")]
+        let (salsa_db, salsa_handles) = {
+            let mut db = KasaneDatabase::default();
+            let handles = SalsaInputHandles::new(&mut db);
+            sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+            (db, handles)
+        };
+
         App {
             window: None,
             gpu: None,
@@ -253,6 +272,10 @@ where
             last_render_result: None,
             timer_scheduler: GuiTimerScheduler(event_proxy),
             process_dispatcher,
+            #[cfg(feature = "salsa-view")]
+            salsa_db,
+            #[cfg(feature = "salsa-view")]
+            salsa_handles,
         }
     }
 
@@ -599,6 +622,32 @@ where
         if !self.dirty.is_empty() {
             self.surface_registry.sync_ephemeral_surfaces(&self.state);
             self.registry.prepare_plugin_cache(self.dirty);
+
+            // Sync Salsa inputs from updated state
+            #[cfg(feature = "salsa-view")]
+            {
+                sync_inputs_from_state(
+                    &mut self.salsa_db,
+                    &self.state,
+                    self.dirty,
+                    &self.salsa_handles,
+                );
+                sync_plugin_epoch(&mut self.salsa_db, &self.registry, &self.salsa_handles);
+            }
+
+            #[cfg(feature = "salsa-view")]
+            let (commands, result) = scene_render_pipeline_salsa_cached(
+                &self.salsa_db,
+                &self.salsa_handles,
+                &self.state,
+                &self.registry,
+                cell_size,
+                self.dirty,
+                &mut self.view_cache,
+                &mut self.scene_cache,
+            );
+
+            #[cfg(not(feature = "salsa-view"))]
             let (commands, result) = scene_render_pipeline_surfaces_cached(
                 &self.state,
                 &self.registry,

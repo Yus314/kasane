@@ -17,10 +17,18 @@ use kasane_core::config::Config;
 use kasane_core::plugin::{
     CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
 };
+#[cfg(feature = "salsa-view")]
+use kasane_core::render::render_pipeline_salsa_patched;
+#[cfg(not(feature = "salsa-view"))]
+use kasane_core::render::render_pipeline_surfaces_patched;
 use kasane_core::render::{
     CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
-    ViewCache, render_pipeline_surfaces_patched,
+    ViewCache,
 };
+#[cfg(feature = "salsa-view")]
+use kasane_core::salsa_db::KasaneDatabase;
+#[cfg(feature = "salsa-view")]
+use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state, sync_plugin_epoch};
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, tick_scroll_animation};
 use kasane_core::surface::SurfaceRegistry;
@@ -162,6 +170,15 @@ where
     // Collect paint hooks from plugins
     let paint_hooks = registry.collect_paint_hooks();
 
+    // Salsa database (feature-gated)
+    #[cfg(feature = "salsa-view")]
+    let (mut salsa_db, salsa_handles) = {
+        let mut db = KasaneDatabase::default();
+        let handles = SalsaInputHandles::new(&mut db);
+        sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+        (db, handles)
+    };
+
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
     let mut view_cache = ViewCache::new();
@@ -295,9 +312,33 @@ where
         if !dirty.is_empty() {
             surface_registry.sync_ephemeral_surfaces(&state);
             registry.prepare_plugin_cache(dirty);
+
+            // Sync Salsa inputs from updated state
+            #[cfg(feature = "salsa-view")]
+            {
+                sync_inputs_from_state(&mut salsa_db, &state, dirty, &salsa_handles);
+                sync_plugin_epoch(&mut salsa_db, &registry, &salsa_handles);
+            }
+
             backend.begin_frame()?;
             let patches: &[&dyn kasane_core::render::PaintPatch] =
                 &[&status_patch, &menu_patch, &cursor_patch];
+
+            #[cfg(feature = "salsa-view")]
+            let result = render_pipeline_salsa_patched(
+                &salsa_db,
+                &salsa_handles,
+                &state,
+                &registry,
+                &mut grid,
+                dirty,
+                &mut view_cache,
+                &mut layout_cache,
+                patches,
+                &paint_hooks,
+            );
+
+            #[cfg(not(feature = "salsa-view"))]
             let result = render_pipeline_surfaces_patched(
                 &state,
                 &registry,
