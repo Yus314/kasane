@@ -1,8 +1,7 @@
 use crate::animation::CursorRenderState;
 use glyphon::{
-    Attrs, Buffer as GlyphonBuffer, Cache, Color as GlyphonColor, FontSystem, Metrics, Resolution,
-    Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
-    cosmic_text::{FeatureTag, FontFeatures},
+    Buffer as GlyphonBuffer, Cache, FontSystem, Metrics, Resolution, Shaping, SwashCache,
+    TextAtlas, TextRenderer, Viewport,
 };
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;
@@ -286,7 +285,7 @@ impl SceneRenderer {
 
             // Build TextAreas for this layer's text buffers only
             let layer_text_end = self.text_buffer_count;
-            let text_areas = prepare_text_areas(
+            let text_areas = super::text_helpers::prepare_text_areas(
                 &self.text_positions[layer_text_start..layer_text_end],
                 &self.text_buffers[layer_text_start..layer_text_end],
                 screen_w,
@@ -421,8 +420,8 @@ impl SceneRenderer {
                 let fg = color_resolver.resolve(face.fg, true);
                 let buf_idx = self.alloc_text_buffer(screen_w);
                 self.text_positions.push((pos.x, pos.y));
-                let attrs = default_attrs(&self.font_family);
-                let color = to_glyphon_color(fg);
+                let attrs = super::text_helpers::default_attrs(&self.font_family);
+                let color = super::text_helpers::to_glyphon_color(fg);
                 let buffer = &mut self.text_buffers[buf_idx];
                 buffer.set_rich_text(
                     &mut self.font_system,
@@ -440,7 +439,8 @@ impl SceneRenderer {
                 fill_face,
             } => {
                 let border_color = color_resolver.resolve(face.fg, true);
-                let (corner_radius, border_width) = border_style_params(line_style.clone(), cell_h);
+                let (corner_radius, border_width) =
+                    super::text_helpers::border_style_params(line_style.clone(), cell_h);
                 let fill = match fill_face {
                     Some(ff) => color_resolver.resolve(ff.bg, false),
                     None => [0.0, 0.0, 0.0, 0.0],
@@ -642,15 +642,15 @@ impl SceneRenderer {
 
         // Insert Word Joiners to prevent cosmic-text from splitting operator
         // sequences (like `->`, `!=`) into separate shaping runs.
-        insert_word_joiners(&mut self.row_text, &mut self.span_ranges);
+        super::text_helpers::insert_word_joiners(&mut self.row_text, &mut self.span_ranges);
 
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_positions.push((px, py));
-        let default_attrs = default_attrs(&self.font_family);
+        let default_attrs = super::text_helpers::default_attrs(&self.font_family);
 
         let rich_text_iter = self.span_ranges.iter().map(|(start, end, fg)| {
             let text = &self.row_text[*start..*end];
-            let color = to_glyphon_color(*fg);
+            let color = super::text_helpers::to_glyphon_color(*fg);
             (text, default_attrs.clone().color(color))
         });
 
@@ -691,8 +691,8 @@ impl SceneRenderer {
         let fg = color_resolver.resolve(face.fg, true);
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_positions.push((px, py));
-        let default_attrs = default_attrs(&self.font_family);
-        let color = to_glyphon_color(fg);
+        let default_attrs = super::text_helpers::default_attrs(&self.font_family);
+        let color = super::text_helpers::to_glyphon_color(fg);
 
         let buffer = &mut self.text_buffers[buf_idx];
         buffer.set_rich_text(
@@ -729,114 +729,4 @@ impl SceneRenderer {
         }
         idx
     }
-}
-
-/// Build TextAreas from position/buffer slices for a single layer.
-fn prepare_text_areas<'a>(
-    positions: &'a [(f32, f32)],
-    buffers: &'a [GlyphonBuffer],
-    screen_w: f32,
-    screen_h: f32,
-) -> Vec<TextArea<'a>> {
-    positions
-        .iter()
-        .zip(buffers.iter())
-        .map(|(&(left, top), buffer)| TextArea {
-            buffer,
-            left,
-            top,
-            scale: 1.0,
-            bounds: TextBounds {
-                left: 0,
-                top: 0,
-                right: screen_w as i32,
-                bottom: screen_h as i32,
-            },
-            default_color: GlyphonColor::rgb(255, 255, 255),
-            custom_glyphs: &[],
-        })
-        .collect()
-}
-
-/// Map BorderLineStyle to (corner_radius, border_width).
-fn border_style_params(style: BorderLineStyle, cell_height: f32) -> (f32, f32) {
-    // Scale border width with cell size so it looks proportional on any DPI.
-    let base = (cell_height * 0.08).max(1.5);
-    match style {
-        BorderLineStyle::Single => (0.0, base),
-        BorderLineStyle::Rounded => (cell_height * 0.3, base),
-        BorderLineStyle::Double => (0.0, base),
-        BorderLineStyle::Heavy => (0.0, base * 2.0),
-        BorderLineStyle::Ascii => (0.0, base),
-        BorderLineStyle::Custom(_) => (0.0, base),
-    }
-}
-
-/// Build default `Attrs` with font family and discretionary ligatures enabled.
-fn default_attrs(font_family: &str) -> Attrs<'_> {
-    let mut features = FontFeatures::new();
-    features.enable(FeatureTag::DISCRETIONARY_LIGATURES);
-    Attrs::new()
-        .family(super::to_family(font_family))
-        .font_features(features)
-}
-
-/// Insert Word Joiners (U+2060) after characters whose Unicode line-break
-/// class allows a break, preventing `cosmic-text` from splitting operator
-/// sequences (e.g. `->`, `!=`, `|>`, `/*`) into separate shaping words.
-///
-/// Without this, `unicode_linebreak` treats `-` (HY), `!` (EX), `/` (SY),
-/// `|` (BA), and `+` (PR) as break opportunities, which splits them from
-/// the following character and prevents ligature formation in harfrust.
-fn insert_word_joiners(text: &mut String, spans: &mut [(usize, usize, [f32; 4])]) {
-    const WJ: &str = "\u{2060}";
-    const WJ_LEN: usize = 3; // UTF-8 byte length of U+2060
-
-    let bytes = text.as_bytes();
-    let mut insert_positions = Vec::new();
-
-    for i in 0..bytes.len().saturating_sub(1) {
-        if matches!(bytes[i], b'-' | b'!' | b'/' | b'|' | b'+') {
-            // Only insert WJ if the next byte is a printable ASCII non-space
-            // character (potential ligature partner).
-            let next = bytes[i + 1];
-            if next > b' ' && next < 0x7F {
-                insert_positions.push(i + 1);
-            }
-        }
-    }
-
-    if insert_positions.is_empty() {
-        return;
-    }
-
-    // Build new string with WJs inserted at each position.
-    let mut new_text = String::with_capacity(text.len() + insert_positions.len() * WJ_LEN);
-    let mut last = 0;
-    for &pos in &insert_positions {
-        new_text.push_str(&text[last..pos]);
-        new_text.push_str(WJ);
-        last = pos;
-    }
-    new_text.push_str(&text[last..]);
-
-    // Adjust span byte ranges: each WJ inserted at position p shifts all
-    // offsets after p by WJ_LEN bytes.
-    for span in spans.iter_mut() {
-        let start_shift = insert_positions.partition_point(|&p| p <= span.0) * WJ_LEN;
-        let end_shift = insert_positions.partition_point(|&p| p <= span.1) * WJ_LEN;
-        span.0 += start_shift;
-        span.1 += end_shift;
-    }
-
-    *text = new_text;
-}
-
-fn to_glyphon_color(c: [f32; 4]) -> GlyphonColor {
-    GlyphonColor::rgba(
-        (c[0] * 255.0) as u8,
-        (c[1] * 255.0) as u8,
-        (c[2] * 255.0) as u8,
-        255,
-    )
 }

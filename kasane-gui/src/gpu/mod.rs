@@ -4,6 +4,7 @@ pub mod cell_renderer;
 pub mod metrics;
 pub(crate) mod pipeline_common;
 pub mod scene_renderer;
+mod text_helpers;
 
 pub use metrics::CellMetrics;
 
