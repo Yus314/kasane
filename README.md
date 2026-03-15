@@ -2,8 +2,9 @@
 
 Extensible Kakoune frontend. Drop in, then grow.
 
-Your kakrc works unchanged. Kasane adds a plugin system, GPU backend,
-and independent rendering — all optional, always compatible.
+Your kakrc works unchanged. Kasane adds a GPU backend, independent
+rendering, and a plugin system spanning the full UI — all optional,
+always compatible.
 
 <p align="center">
   <img src="docs/assets/demo.gif" alt="Kasane demo" width="800"><br>
@@ -93,7 +94,14 @@ Configuration: `~/.config/kasane/config.toml` — see [docs/config.md](docs/conf
 
 ## For Plugin Authors
 
-Kasane supports WASM and native plugins. See [Plugin Development](docs/plugin-development.md) and [Plugin API](docs/plugin-api.md). The plugin API is unstable — expect breaking changes.
+Kasane supports WASM and native plugins. Plugins are distributed as
+single `.wasm` files, auto-discovered at startup. Each plugin runs
+sandboxed, composes with others without conflict, and adds no overhead
+to the rendering pipeline thanks to automatic caching.
+
+See [Plugin Development](docs/plugin-development.md) and
+[Plugin API](docs/plugin-api.md). The plugin API is unstable — expect
+breaking changes.
 
 ## Documentation
 
