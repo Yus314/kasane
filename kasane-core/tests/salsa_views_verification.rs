@@ -4,7 +4,6 @@
 //! 1. Pure tracked view functions produce structurally correct Element trees
 //! 2. Memoization works (same inputs → cached result without re-execution)
 //! 3. Menu and info view functions handle edge cases correctly
-#![cfg(feature = "salsa-view")]
 
 use kasane_core::element::{Element, OverlayAnchor};
 use kasane_core::protocol::{Atom, Coord, Face, InfoStyle, MenuStyle};
@@ -233,8 +232,13 @@ fn pure_info_overlays_empty() {
     let state = AppState::default(); // no infos
     sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
 
-    let overlays =
-        salsa_views::pure_info_overlays(&db, handles.info, handles.buffer, handles.config);
+    let overlays = salsa_views::pure_info_overlays(
+        &db,
+        handles.info,
+        handles.menu,
+        handles.buffer,
+        handles.config,
+    );
     assert!(overlays.is_empty());
 }
 
@@ -262,8 +266,13 @@ fn pure_info_overlays_single_modal() {
     });
     sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
 
-    let overlays =
-        salsa_views::pure_info_overlays(&db, handles.info, handles.buffer, handles.config);
+    let overlays = salsa_views::pure_info_overlays(
+        &db,
+        handles.info,
+        handles.menu,
+        handles.buffer,
+        handles.config,
+    );
     assert_eq!(overlays.len(), 1, "should produce 1 info overlay");
 
     // Check that it has Interactive wrapper
@@ -302,8 +311,13 @@ fn pure_info_overlays_multiple() {
     }
     sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
 
-    let overlays =
-        salsa_views::pure_info_overlays(&db, handles.info, handles.buffer, handles.config);
+    let overlays = salsa_views::pure_info_overlays(
+        &db,
+        handles.info,
+        handles.menu,
+        handles.buffer,
+        handles.config,
+    );
     assert_eq!(overlays.len(), 3, "should produce 3 info overlays");
 }
 
@@ -334,8 +348,13 @@ fn pure_info_overlays_prompt_style() {
     });
     sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
 
-    let overlays =
-        salsa_views::pure_info_overlays(&db, handles.info, handles.buffer, handles.config);
+    let overlays = salsa_views::pure_info_overlays(
+        &db,
+        handles.info,
+        handles.menu,
+        handles.buffer,
+        handles.config,
+    );
     assert_eq!(overlays.len(), 1, "should produce 1 prompt info overlay");
 }
 

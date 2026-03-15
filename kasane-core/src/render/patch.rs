@@ -192,7 +192,7 @@ impl PaintPatch for MenuSelectionPatch {
             && state
                 .menu
                 .as_ref()
-                .is_some_and(|m| m.columns_split.is_none())
+                .is_some_and(|m| m.columns_split.is_none() && m.columns <= 1)
     }
 
     fn apply_grid(&self, grid: &mut CellGrid, state: &AppState, _layout_cache: &LayoutCache) {
@@ -254,12 +254,13 @@ fn repaint_menu_item_row(
     item: &[crate::protocol::Atom],
     face: &crate::protocol::Face,
 ) {
-    // Menu items have 1 cell border on each side for inline/prompt menus
-    let content_x = menu_rect.x + 1;
-    let content_w = menu_rect.w.saturating_sub(2); // exclude border columns
-    let y = menu_rect.y + 1 + row_offset; // +1 for top border
+    // Menu items span the full rect width minus 1 column for the scrollbar.
+    // No border padding — the overlay rect already represents content bounds.
+    let content_x = menu_rect.x;
+    let content_w = menu_rect.w.saturating_sub(1); // exclude scrollbar column
+    let y = menu_rect.y + row_offset;
 
-    if y >= menu_rect.y + menu_rect.h.saturating_sub(1) || y >= grid.height() {
+    if y >= menu_rect.y + menu_rect.h || y >= grid.height() {
         return;
     }
 

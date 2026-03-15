@@ -525,6 +525,7 @@ fn build_menu_search_dropdown_pure(
 pub fn pure_info_overlays(
     db: &dyn KasaneDb,
     info_input: InfoInput,
+    menu_input: MenuInput,
     buffer: BufferInput,
     config: ConfigInput,
 ) -> Vec<Overlay> {
@@ -539,8 +540,16 @@ pub fn pure_info_overlays(
     let cursor_pos = buffer.cursor_pos(db);
     let assistant_art = config.assistant_art(db);
 
-    // Build avoid rects (menu rect not available in pure path, start with cursor only)
+    // Build avoid rects: menu rect + cursor position
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
+    if let Some(menu_rect) = compute_menu_rect(
+        menu_input.menu(db),
+        cols,
+        screen_h,
+        config.menu_position(db),
+    ) {
+        avoid_rects.push(menu_rect);
+    }
     avoid_rects.push(crate::layout::Rect {
         x: cursor_pos.column as u16,
         y: cursor_pos.line as u16,
@@ -580,6 +589,57 @@ pub fn pure_info_overlays(
         }
     }
     overlays
+}
+
+/// Compute the menu rectangle from a `MenuSnapshot`, mirroring `get_menu_rect()`.
+fn compute_menu_rect(
+    menu: &Option<MenuSnapshot>,
+    cols: u16,
+    screen_h: u16,
+    menu_position: crate::config::MenuPosition,
+) -> Option<crate::layout::Rect> {
+    let menu = menu.as_ref()?;
+    if menu.items.is_empty() || menu.win_height == 0 {
+        return None;
+    }
+    match menu.style {
+        MenuStyle::Prompt => {
+            let start_y = screen_h.saturating_sub(menu.win_height);
+            Some(crate::layout::Rect {
+                x: 0,
+                y: start_y,
+                w: cols,
+                h: menu.win_height,
+            })
+        }
+        MenuStyle::Search => Some(crate::layout::Rect {
+            x: 0,
+            y: screen_h.saturating_sub(1),
+            w: cols,
+            h: 1,
+        }),
+        MenuStyle::Inline => {
+            let win_w = (menu.effective_content_width(cols) + 1).min(cols);
+            let placement = MenuPlacement::from(menu_position);
+            let win = layout_menu_inline(
+                &menu.anchor,
+                win_w,
+                menu.win_height,
+                cols,
+                screen_h,
+                placement,
+            );
+            if win.width == 0 || win.height == 0 {
+                return None;
+            }
+            Some(crate::layout::Rect {
+                x: win.x,
+                y: win.y,
+                w: win.width,
+                h: win.height,
+            })
+        }
+    }
 }
 
 fn build_info_overlay_pure(

@@ -8,8 +8,7 @@
 //! 2. Plugin transforms are applied on top (using PluginRegistry)
 //! 3. ViewCache caches the combined result
 //!
-//! This is a parallel path to PluginViewSource/SurfaceViewSource, enabled
-//! via the `salsa-view` feature flag.
+//! This is the sole rendering pipeline, replacing the legacy SurfaceViewSource path.
 
 use super::cache::{LayoutCache, ViewCache, cache_dirty_snapshot};
 use super::grid::CellGrid;
@@ -132,7 +131,7 @@ impl ViewSource for SalsaViewSource<'_> {
             BUILD_INFO_SECTION_DEPS,
             || {
                 // Stage 1: get pure info overlays from Salsa
-                let pure = salsa_views::pure_info_overlays(db, h.info, h.buffer, h.config);
+                let pure = salsa_views::pure_info_overlays(db, h.info, h.menu, h.buffer, h.config);
 
                 // Stage 2: apply plugin transforms to each overlay
                 pure.into_iter()
