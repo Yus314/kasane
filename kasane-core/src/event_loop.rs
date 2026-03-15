@@ -107,6 +107,7 @@ pub fn handle_session_death<R, W, C>(
 ///
 /// The reader is returned so the backend can wire it up to its specific event
 /// channel. The activation logic (state restore, dirty flags) is handled here.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_session_core<R, W, C>(
     spec: &SessionSpec,
     activate: bool,
