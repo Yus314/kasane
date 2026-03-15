@@ -312,6 +312,15 @@ pub(crate) fn wit_rect_to_rect(rect: &wit::Rect) -> Rect {
     }
 }
 
+pub(crate) fn rect_to_wit(rect: &Rect) -> wit::Rect {
+    wit::Rect {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: rect.h,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Element builder type conversions (WIT → native)
 // ---------------------------------------------------------------------------
@@ -464,24 +473,14 @@ pub(crate) fn wit_surface_placement_to_request(
 
 pub(crate) fn surface_view_context_to_wit(ctx: &ViewContext<'_>) -> wit::SurfaceViewContext {
     wit::SurfaceViewContext {
-        rect: wit::Rect {
-            x: ctx.rect.x,
-            y: ctx.rect.y,
-            w: ctx.rect.w,
-            h: ctx.rect.h,
-        },
+        rect: rect_to_wit(&ctx.rect),
         focused: ctx.focused,
     }
 }
 
 pub(crate) fn surface_event_context_to_wit(ctx: &EventContext<'_>) -> wit::SurfaceEventContext {
     wit::SurfaceEventContext {
-        rect: wit::Rect {
-            x: ctx.rect.x,
-            y: ctx.rect.y,
-            w: ctx.rect.w,
-            h: ctx.rect.h,
-        },
+        rect: rect_to_wit(&ctx.rect),
         focused: ctx.focused,
     }
 }
@@ -492,12 +491,7 @@ pub(crate) fn surface_event_to_wit(event: &SurfaceEvent) -> wit::SurfaceEvent {
         SurfaceEvent::Mouse(event) => wit::SurfaceEvent::Mouse(mouse_event_to_wit(event)),
         SurfaceEvent::FocusGained => wit::SurfaceEvent::FocusGained,
         SurfaceEvent::FocusLost => wit::SurfaceEvent::FocusLost,
-        SurfaceEvent::Resize(rect) => wit::SurfaceEvent::Resize(wit::Rect {
-            x: rect.x,
-            y: rect.y,
-            w: rect.w,
-            h: rect.h,
-        }),
+        SurfaceEvent::Resize(rect) => wit::SurfaceEvent::Resize(rect_to_wit(rect)),
     }
 }
 
@@ -571,22 +565,8 @@ pub(crate) fn overlay_context_to_wit(ctx: &OverlayContext) -> wit::OverlayContex
     wit::OverlayContext {
         screen_cols: ctx.screen_cols,
         screen_rows: ctx.screen_rows,
-        menu_rect: ctx.menu_rect.map(|r| wit::Rect {
-            x: r.x,
-            y: r.y,
-            w: r.w,
-            h: r.h,
-        }),
-        existing_overlays: ctx
-            .existing_overlays
-            .iter()
-            .map(|r| wit::Rect {
-                x: r.x,
-                y: r.y,
-                w: r.w,
-                h: r.h,
-            })
-            .collect(),
+        menu_rect: ctx.menu_rect.as_ref().map(rect_to_wit),
+        existing_overlays: ctx.existing_overlays.iter().map(rect_to_wit).collect(),
     }
 }
 

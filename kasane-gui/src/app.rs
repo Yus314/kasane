@@ -9,7 +9,7 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
+    DeferredContext, TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
     handle_workspace_divider_input,
 };
 use kasane_core::input::InputEvent;
@@ -599,33 +599,24 @@ where
         }
         let proxy = self.timer_scheduler.0.clone();
         let spawn_session = self.session_spawner;
-        let state = &mut self.state;
-        let registry = &mut self.registry;
-        let surface_registry = &mut self.surface_registry;
-        let session_manager = &mut self.session_manager;
-        let session_states = &mut self.session_states;
-        let dirty = &mut self.dirty;
-        let initial_resize_sent = &mut self.initial_resize_sent;
-        let process_dispatcher = &mut *self.process_dispatcher;
         let mut session_runtime = GuiSessionRuntime {
-            session_manager,
-            session_states,
+            session_manager: &mut self.session_manager,
+            session_states: &mut self.session_states,
             proxy,
             spawn_session,
         };
-        handle_deferred_commands(
-            deferred,
-            state,
-            registry,
-            surface_registry,
-            &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
-            dirty,
-            &self.timer_scheduler,
-            &mut session_runtime,
-            initial_resize_sent,
-            process_dispatcher,
-            source_plugin,
-        )
+        let mut ctx = DeferredContext {
+            state: &mut self.state,
+            registry: &mut self.registry,
+            surface_registry: &mut self.surface_registry,
+            clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
+            dirty: &mut self.dirty,
+            timer: &self.timer_scheduler,
+            session_host: &mut session_runtime,
+            initial_resize_sent: &mut self.initial_resize_sent,
+            process_dispatcher: &mut *self.process_dispatcher,
+        };
+        handle_deferred_commands(deferred, &mut ctx, source_plugin)
     }
 
     fn exec_surface_command_groups(
@@ -634,32 +625,24 @@ where
     ) -> bool {
         let proxy = self.timer_scheduler.0.clone();
         let spawn_session = self.session_spawner;
-        let state = &mut self.state;
-        let registry = &mut self.registry;
-        let surface_registry = &mut self.surface_registry;
-        let session_manager = &mut self.session_manager;
-        let session_states = &mut self.session_states;
-        let dirty = &mut self.dirty;
-        let initial_resize_sent = &mut self.initial_resize_sent;
-        let process_dispatcher = &mut *self.process_dispatcher;
         let mut session_runtime = GuiSessionRuntime {
-            session_manager,
-            session_states,
+            session_manager: &mut self.session_manager,
+            session_states: &mut self.session_states,
             proxy,
             spawn_session,
         };
-        handle_sourced_surface_commands(
-            surface_command_groups,
-            state,
-            registry,
-            surface_registry,
-            &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
-            dirty,
-            &self.timer_scheduler,
-            &mut session_runtime,
-            initial_resize_sent,
-            process_dispatcher,
-        )
+        let mut ctx = DeferredContext {
+            state: &mut self.state,
+            registry: &mut self.registry,
+            surface_registry: &mut self.surface_registry,
+            clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
+            dirty: &mut self.dirty,
+            timer: &self.timer_scheduler,
+            session_host: &mut session_runtime,
+            initial_resize_sent: &mut self.initial_resize_sent,
+            process_dispatcher: &mut *self.process_dispatcher,
+        };
+        handle_sourced_surface_commands(surface_command_groups, &mut ctx)
     }
 
     fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {

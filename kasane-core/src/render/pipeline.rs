@@ -99,7 +99,7 @@ impl ViewSource for SurfaceViewSource<'_> {
 // ---------------------------------------------------------------------------
 
 /// Apply paint hooks that match the current dirty flags.
-pub fn apply_paint_hooks(
+pub(crate) fn apply_paint_hooks(
     hooks: &[Box<dyn PaintHook>],
     grid: &mut CellGrid,
     region: &Rect,
@@ -603,7 +603,7 @@ pub fn scene_render_pipeline(
 }
 
 /// GUI scene rendering pipeline (cached variant — ViewCache only).
-pub fn scene_render_pipeline_cached(
+pub(crate) fn scene_render_pipeline_cached(
     state: &AppState,
     registry: &PluginRegistry,
     cell_size: scene::CellSize,
@@ -669,7 +669,7 @@ pub fn render_pipeline_cached(
 }
 
 /// Declarative rendering pipeline (cached variant with paint hooks).
-pub fn render_pipeline_cached_with_hooks(
+pub(crate) fn render_pipeline_cached_with_hooks(
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
@@ -759,8 +759,8 @@ pub fn render_pipeline_surfaces_cached(
 }
 
 /// Surface-based section-aware rendering pipeline (TUI).
-#[allow(clippy::too_many_arguments)]
-pub fn render_pipeline_surfaces_sectioned(
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn render_pipeline_surfaces_sectioned(
     state: &AppState,
     plugin_registry: &PluginRegistry,
     surface_registry: &SurfaceRegistry,

@@ -212,17 +212,17 @@ impl SceneRenderer {
         // Update screen size uniforms
         let screen_size_data = [screen_w, screen_h];
         gpu.queue.write_buffer(
-            &self.shadow.uniform_buffer,
+            self.shadow.uniform_buffer(),
             0,
             bytemuck::cast_slice(&screen_size_data),
         );
         gpu.queue.write_buffer(
-            &self.bg.uniform_buffer,
+            self.bg.uniform_buffer(),
             0,
             bytemuck::cast_slice(&screen_size_data),
         );
         gpu.queue.write_buffer(
-            &self.border.uniform_buffer,
+            self.border.uniform_buffer(),
             0,
             bytemuck::cast_slice(&screen_size_data),
         );

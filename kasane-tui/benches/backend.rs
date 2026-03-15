@@ -2,8 +2,8 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use crossterm::{
     cursor, queue,
     style::{
-        self, Attribute as CtAttribute, Color as CtColor, SetAttribute, SetBackgroundColor,
-        SetForegroundColor, SetUnderlineColor,
+        self, Attribute as CtAttribute, SetAttribute, SetBackgroundColor, SetForegroundColor,
+        SetUnderlineColor,
     },
     terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
 };
@@ -15,6 +15,7 @@ use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::render::{CellDiff, CellGrid, render_pipeline};
 use kasane_core::state::AppState;
+use kasane_tui::sgr::{convert_attribute, convert_color, emit_sgr_diff};
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
@@ -123,101 +124,6 @@ impl MockBackend {
     fn bytes_generated(&self) -> usize {
         self.buf.len()
     }
-}
-
-// ---------------------------------------------------------------------------
-// Color/attribute conversion (duplicated from kasane-tui backend — private)
-// ---------------------------------------------------------------------------
-
-fn convert_color(color: Color) -> CtColor {
-    match color {
-        Color::Default => CtColor::Reset,
-        Color::Named(named) => match named {
-            NamedColor::Black => CtColor::Black,
-            NamedColor::Red => CtColor::DarkRed,
-            NamedColor::Green => CtColor::DarkGreen,
-            NamedColor::Yellow => CtColor::DarkYellow,
-            NamedColor::Blue => CtColor::DarkBlue,
-            NamedColor::Magenta => CtColor::DarkMagenta,
-            NamedColor::Cyan => CtColor::DarkCyan,
-            NamedColor::White => CtColor::Grey,
-            NamedColor::BrightBlack => CtColor::DarkGrey,
-            NamedColor::BrightRed => CtColor::Red,
-            NamedColor::BrightGreen => CtColor::Green,
-            NamedColor::BrightYellow => CtColor::Yellow,
-            NamedColor::BrightBlue => CtColor::Blue,
-            NamedColor::BrightMagenta => CtColor::Magenta,
-            NamedColor::BrightCyan => CtColor::Cyan,
-            NamedColor::BrightWhite => CtColor::White,
-        },
-        Color::Rgb { r, g, b } => CtColor::Rgb { r, g, b },
-    }
-}
-
-fn convert_attribute(attr: Attributes) -> Option<CtAttribute> {
-    match attr {
-        Attributes::UNDERLINE => Some(CtAttribute::Underlined),
-        Attributes::CURLY_UNDERLINE => Some(CtAttribute::Undercurled),
-        Attributes::DOUBLE_UNDERLINE => Some(CtAttribute::DoubleUnderlined),
-        Attributes::REVERSE => Some(CtAttribute::Reverse),
-        Attributes::BLINK => Some(CtAttribute::SlowBlink),
-        Attributes::BOLD => Some(CtAttribute::Bold),
-        Attributes::DIM => Some(CtAttribute::Dim),
-        Attributes::ITALIC => Some(CtAttribute::Italic),
-        Attributes::STRIKETHROUGH => Some(CtAttribute::CrossedOut),
-        _ => None,
-    }
-}
-
-/// Incremental SGR: emit only the escape codes that differ between faces.
-fn emit_sgr_diff(buf: &mut Vec<u8>, old: Option<&Face>, new: &Face) -> anyhow::Result<()> {
-    match old {
-        None => {
-            queue!(buf, SetAttribute(CtAttribute::Reset))?;
-            queue!(
-                buf,
-                SetForegroundColor(convert_color(new.fg)),
-                SetBackgroundColor(convert_color(new.bg))
-            )?;
-            if new.underline != Color::Default {
-                queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
-            }
-            for attr in new.attributes.iter() {
-                if let Some(ct_attr) = convert_attribute(attr) {
-                    queue!(buf, SetAttribute(ct_attr))?;
-                }
-            }
-        }
-        Some(old) => {
-            if old.attributes != new.attributes {
-                queue!(buf, SetAttribute(CtAttribute::Reset))?;
-                queue!(
-                    buf,
-                    SetForegroundColor(convert_color(new.fg)),
-                    SetBackgroundColor(convert_color(new.bg))
-                )?;
-                if new.underline != Color::Default {
-                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
-                }
-                for attr in new.attributes.iter() {
-                    if let Some(ct_attr) = convert_attribute(attr) {
-                        queue!(buf, SetAttribute(ct_attr))?;
-                    }
-                }
-            } else {
-                if old.fg != new.fg {
-                    queue!(buf, SetForegroundColor(convert_color(new.fg)))?;
-                }
-                if old.bg != new.bg {
-                    queue!(buf, SetBackgroundColor(convert_color(new.bg)))?;
-                }
-                if old.underline != new.underline {
-                    queue!(buf, SetUnderlineColor(convert_color(new.underline)))?;
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

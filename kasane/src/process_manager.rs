@@ -44,6 +44,19 @@ impl ProcessManager {
         }
     }
 
+    fn send_spawn_failed(&self, plugin_id: &PluginId, job_id: u64, error: String) {
+        self.sink.send_process_output(
+            plugin_id.clone(),
+            IoEvent::Process(ProcessEvent::SpawnFailed { job_id, error }),
+        );
+    }
+
+    fn decrement_plugin_count(&mut self, plugin_id: &PluginId) {
+        if let Some(count) = self.per_plugin_count.get_mut(plugin_id) {
+            *count = count.saturating_sub(1);
+        }
+    }
+
     /// Spawn a child process. Events are sent to the sink.
     fn spawn_process(
         &mut self,
@@ -57,37 +70,27 @@ impl ProcessManager {
 
         // Check limits
         if self.jobs.len() >= MAX_PROCESSES_TOTAL {
-            self.sink.send_process_output(
-                plugin_id.clone(),
-                IoEvent::Process(ProcessEvent::SpawnFailed {
-                    job_id,
-                    error: format!("total process limit reached ({MAX_PROCESSES_TOTAL})"),
-                }),
+            self.send_spawn_failed(
+                plugin_id,
+                job_id,
+                format!("total process limit reached ({MAX_PROCESSES_TOTAL})"),
             );
             return;
         }
 
         let count = self.per_plugin_count.get(plugin_id).copied().unwrap_or(0);
         if count >= MAX_PROCESSES_PER_PLUGIN {
-            self.sink.send_process_output(
-                plugin_id.clone(),
-                IoEvent::Process(ProcessEvent::SpawnFailed {
-                    job_id,
-                    error: format!("per-plugin process limit reached ({MAX_PROCESSES_PER_PLUGIN})"),
-                }),
+            self.send_spawn_failed(
+                plugin_id,
+                job_id,
+                format!("per-plugin process limit reached ({MAX_PROCESSES_PER_PLUGIN})"),
             );
             return;
         }
 
         // Duplicate check
         if self.jobs.contains_key(&key) {
-            self.sink.send_process_output(
-                plugin_id.clone(),
-                IoEvent::Process(ProcessEvent::SpawnFailed {
-                    job_id,
-                    error: format!("job_id {job_id} already in use"),
-                }),
-            );
+            self.send_spawn_failed(plugin_id, job_id, format!("job_id {job_id} already in use"));
             return;
         }
 
@@ -266,19 +269,14 @@ impl ProcessManager {
         let key = (plugin_id.clone(), job_id);
         if let Some(handle) = self.jobs.remove(&key) {
             handle.abort_handle.abort();
-            if let Some(count) = self.per_plugin_count.get_mut(plugin_id) {
-                *count = count.saturating_sub(1);
-            }
+            self.decrement_plugin_count(plugin_id);
         }
     }
 
     /// Shut down all running processes.
     pub fn shutdown(&mut self) {
-        for ((plugin_id, _), handle) in self.jobs.drain() {
+        for (_, handle) in self.jobs.drain() {
             handle.abort_handle.abort();
-            if let Some(count) = self.per_plugin_count.get_mut(&plugin_id) {
-                *count = count.saturating_sub(1);
-            }
         }
         self.per_plugin_count.clear();
     }
@@ -286,10 +284,8 @@ impl ProcessManager {
     /// Remove finished jobs from tracking (called when Exited/SpawnFailed is delivered).
     pub fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64) {
         let key = (plugin_id.clone(), job_id);
-        if self.jobs.remove(&key).is_some()
-            && let Some(count) = self.per_plugin_count.get_mut(plugin_id)
-        {
-            *count = count.saturating_sub(1);
+        if self.jobs.remove(&key).is_some() {
+            self.decrement_plugin_count(plugin_id);
         }
     }
 }

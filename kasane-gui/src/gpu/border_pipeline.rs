@@ -1,5 +1,7 @@
 use wgpu::MultisampleState;
 
+use super::pipeline_common::{InstanceBuffer, ScreenUniforms};
+
 /// Initial capacity for border instance buffer.
 const INITIAL_BORDER_CAPACITY: usize = 64;
 
@@ -14,10 +16,8 @@ const BYTES_PER_INSTANCE: u64 = (FLOATS_PER_INSTANCE * 4) as u64;
 /// SDF-based rounded rectangle pipeline for borders and shadows.
 pub struct BorderPipeline {
     pipeline: wgpu::RenderPipeline,
-    pub uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
-    instance_buffer: wgpu::Buffer,
-    instance_capacity: usize,
+    uniforms: ScreenUniforms,
+    instance_buf: InstanceBuffer,
     pub instances: Vec<f32>,
 }
 
@@ -30,43 +30,13 @@ impl BorderPipeline {
                 source: wgpu::ShaderSource::Wgsl(include_str!("rounded_rect.wgsl").into()),
             });
 
-        let uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("border_uniforms"),
-            size: 8, // vec2<f32> screen_size
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bind_group_layout =
-            gpu.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("border_bind_group_layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                });
-
-        let uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("border_bind_group"),
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
+        let uniforms = ScreenUniforms::new(&gpu.device, "border_uniforms");
 
         let pipeline_layout = gpu
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("border_pipeline_layout"),
-                bind_group_layouts: &[&bind_group_layout],
+                bind_group_layouts: &[&uniforms.bind_group_layout],
                 immediate_size: 0,
             });
 
@@ -131,21 +101,24 @@ impl BorderPipeline {
                 cache: None,
             });
 
-        let instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("border_instances"),
-            size: INITIAL_BORDER_CAPACITY as u64 * BYTES_PER_INSTANCE,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let instance_buf = InstanceBuffer::new(
+            &gpu.device,
+            INITIAL_BORDER_CAPACITY,
+            BYTES_PER_INSTANCE,
+            "border_instances",
+        );
 
         BorderPipeline {
             pipeline,
-            uniform_buffer,
-            uniform_bind_group,
-            instance_buffer,
-            instance_capacity: INITIAL_BORDER_CAPACITY,
+            uniforms,
+            instance_buf,
             instances: Vec::with_capacity(INITIAL_BORDER_CAPACITY * FLOATS_PER_INSTANCE),
         }
+    }
+
+    /// Access the uniform buffer (for writing screen_size data).
+    pub fn uniform_buffer(&self) -> &wgpu::Buffer {
+        &self.uniforms.buffer
     }
 
     /// Push a rounded rect instance.
@@ -181,17 +154,7 @@ impl BorderPipeline {
 
     /// Ensure the instance buffer is large enough.
     pub fn ensure_buffer(&mut self, gpu: &super::GpuState, needed: usize) {
-        if needed <= self.instance_capacity {
-            return;
-        }
-        let new_cap = (self.instance_capacity * 2).max(needed);
-        self.instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("border_instances"),
-            size: new_cap as u64 * BYTES_PER_INSTANCE,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.instance_capacity = new_cap;
+        self.instance_buf.ensure_capacity(&gpu.device, needed);
     }
 
     /// Upload instance data and draw. Returns the number of instances drawn.
@@ -205,13 +168,13 @@ impl BorderPipeline {
             return 0;
         }
         gpu.queue.write_buffer(
-            &self.instance_buffer,
+            self.instance_buf.buffer(),
             0,
             bytemuck::cast_slice(&self.instances),
         );
         render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+        render_pass.set_bind_group(0, &self.uniforms.bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.instance_buf.buffer().slice(..));
         render_pass.draw(0..4, 0..instance_count as u32);
         instance_count as u32
     }

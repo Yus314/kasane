@@ -1,16 +1,20 @@
 use wgpu::MultisampleState;
 
+use super::pipeline_common::{InstanceBuffer, ScreenUniforms};
+
 /// Initial capacity for bg instance buffer (enough for 256x64 grid + cursor).
 const INITIAL_BG_CAPACITY: usize = 256 * 64 + 8;
+
+/// Per-instance data: 8 floats, 32 bytes.
+const FLOATS_PER_INSTANCE: usize = 8;
+const BYTES_PER_INSTANCE: u64 = (FLOATS_PER_INSTANCE * 4) as u64;
 
 /// Background quad rendering pipeline — owns the GPU pipeline, uniform buffer,
 /// bind group, instance buffer, and CPU-side scratch vector.
 pub struct BgPipeline {
     pipeline: wgpu::RenderPipeline,
-    pub uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
-    instance_buffer: wgpu::Buffer,
-    instance_capacity: usize,
+    uniforms: ScreenUniforms,
+    instance_buf: InstanceBuffer,
     pub instances: Vec<f32>,
 }
 
@@ -24,43 +28,13 @@ impl BgPipeline {
                 source: wgpu::ShaderSource::Wgsl(include_str!("bg.wgsl").into()),
             });
 
-        let uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("bg_uniforms"),
-            size: 8, // vec2<f32> screen_size
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bg_bind_group_layout =
-            gpu.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("bg_bind_group_layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                });
-
-        let uniform_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bg_bind_group"),
-            layout: &bg_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
+        let uniforms = ScreenUniforms::new(&gpu.device, "bg_uniforms");
 
         let bg_pipeline_layout =
             gpu.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("bg_pipeline_layout"),
-                    bind_group_layouts: &[&bg_bind_group_layout],
+                    bind_group_layouts: &[&uniforms.bind_group_layout],
                     immediate_size: 0,
                 });
 
@@ -73,7 +47,7 @@ impl BgPipeline {
                     module: &bg_shader,
                     entry_point: Some("vs_main"),
                     buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: 32, // 4 floats rect + 4 floats color = 32 bytes
+                        array_stride: BYTES_PER_INSTANCE,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &[
                             // rect: vec4<f32> (x, y, w, h)
@@ -113,37 +87,29 @@ impl BgPipeline {
                 cache: None,
             });
 
-        let instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("bg_instances"),
-            size: (INITIAL_BG_CAPACITY * 32) as u64, // 32 bytes per instance
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let instance_buf = InstanceBuffer::new(
+            &gpu.device,
+            INITIAL_BG_CAPACITY,
+            BYTES_PER_INSTANCE,
+            "bg_instances",
+        );
 
         BgPipeline {
             pipeline,
-            uniform_buffer,
-            uniform_bind_group,
-            instance_buffer,
-            instance_capacity: INITIAL_BG_CAPACITY,
-            instances: Vec::with_capacity(INITIAL_BG_CAPACITY * 8),
+            uniforms,
+            instance_buf,
+            instances: Vec::with_capacity(INITIAL_BG_CAPACITY * FLOATS_PER_INSTANCE),
         }
+    }
+
+    /// Access the uniform buffer (for writing screen_size data).
+    pub fn uniform_buffer(&self) -> &wgpu::Buffer {
+        &self.uniforms.buffer
     }
 
     /// Ensure the persistent instance buffer is large enough.
     pub fn ensure_buffer(&mut self, gpu: &super::GpuState, needed: usize) {
-        if needed <= self.instance_capacity {
-            return;
-        }
-        // Grow by 2x or to needed, whichever is larger
-        let new_cap = (self.instance_capacity * 2).max(needed);
-        self.instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("bg_instances"),
-            size: (new_cap * 32) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.instance_capacity = new_cap;
+        self.instance_buf.ensure_capacity(&gpu.device, needed);
     }
 
     /// Push a rectangle instance (8 floats: x, y, w, h, r, g, b, a).
@@ -158,18 +124,18 @@ impl BgPipeline {
         gpu: &super::GpuState,
         render_pass: &mut wgpu::RenderPass<'a>,
     ) -> u32 {
-        let instance_count = self.instances.len() / 8;
+        let instance_count = self.instances.len() / FLOATS_PER_INSTANCE;
         if instance_count == 0 {
             return 0;
         }
         gpu.queue.write_buffer(
-            &self.instance_buffer,
+            self.instance_buf.buffer(),
             0,
             bytemuck::cast_slice(&self.instances),
         );
         render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+        render_pass.set_bind_group(0, &self.uniforms.bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.instance_buf.buffer().slice(..));
         render_pass.draw(0..4, 0..instance_count as u32);
         instance_count as u32
     }

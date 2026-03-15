@@ -19,7 +19,11 @@ pub use cache::{LayoutCache, ViewCache};
 pub use cursor::*;
 pub use grid::{Cell, CellDiff, CellGrid};
 pub use patch::{CursorPatch, MenuSelectionPatch, PaintPatch, StatusBarPatch};
-pub use pipeline::*;
+pub use pipeline::{
+    render_pipeline, render_pipeline_cached, render_pipeline_patched, render_pipeline_sectioned,
+    render_pipeline_surfaces_cached, render_pipeline_surfaces_patched, scene_render_pipeline,
+    scene_render_pipeline_scene_cached, scene_render_pipeline_surfaces_cached,
+};
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};
 
 // ---------------------------------------------------------------------------

@@ -54,48 +54,43 @@ pub trait SessionHost: SessionRuntime {
     fn active_writer(&mut self) -> &mut dyn Write;
 }
 
+/// Shared mutable context for deferred command handling.
+///
+/// Groups the many `&mut` parameters that `handle_deferred_commands` and
+/// `handle_sourced_surface_commands` previously accepted individually.
+pub struct DeferredContext<'a> {
+    pub state: &'a mut AppState,
+    pub registry: &'a mut PluginRegistry,
+    pub surface_registry: &'a mut SurfaceRegistry,
+    pub clipboard_get: &'a mut dyn FnMut() -> Option<String>,
+    pub dirty: &'a mut DirtyFlags,
+    pub timer: &'a dyn TimerScheduler,
+    pub session_host: &'a mut dyn SessionHost,
+    pub initial_resize_sent: &'a mut bool,
+    pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+}
+
 /// Handle deferred commands (timers, inter-plugin messages, config overrides).
 ///
 /// Returns `true` if a `Quit` command was encountered.
-#[allow(clippy::too_many_arguments)]
 pub fn handle_deferred_commands(
     deferred: Vec<DeferredCommand>,
-    state: &mut AppState,
-    registry: &mut PluginRegistry,
-    surface_registry: &mut SurfaceRegistry,
-    clipboard_get: &mut dyn FnMut() -> Option<String>,
-    dirty: &mut DirtyFlags,
-    timer: &dyn TimerScheduler,
-    session_host: &mut dyn SessionHost,
-    initial_resize_sent: &mut bool,
-    process_dispatcher: &mut dyn ProcessDispatcher,
+    ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
 ) -> bool {
     for cmd in deferred {
         match cmd {
             DeferredCommand::PluginMessage { target, payload } => {
-                let (flags, commands) = registry.deliver_message(&target, payload, state);
-                *dirty |= flags;
+                let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
+                *ctx.dirty |= flags;
                 let (normal, nested_deferred) = extract_deferred_commands(commands);
                 if matches!(
-                    execute_commands(normal, session_host.active_writer(), clipboard_get),
+                    execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
                     CommandResult::Quit
                 ) {
                     return true;
                 }
-                if handle_deferred_commands(
-                    nested_deferred,
-                    state,
-                    registry,
-                    surface_registry,
-                    clipboard_get,
-                    dirty,
-                    timer,
-                    session_host,
-                    initial_resize_sent,
-                    process_dispatcher,
-                    Some(&target),
-                ) {
+                if handle_deferred_commands(nested_deferred, ctx, Some(&target)) {
                     return true;
                 }
             }
@@ -104,24 +99,24 @@ pub fn handle_deferred_commands(
                 target,
                 payload,
             } => {
-                timer.schedule_timer(delay, target, payload);
+                ctx.timer.schedule_timer(delay, target, payload);
             }
             DeferredCommand::SetConfig { key, value } => {
-                crate::state::apply_set_config(state, dirty, &key, &value);
+                crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
             }
             DeferredCommand::Pane(_) => {
                 // Pane commands will be handled in Phase 5a-1
             }
             DeferredCommand::Workspace(ws_cmd) => {
                 crate::workspace::dispatch_workspace_command_with_total(
-                    surface_registry,
+                    ctx.surface_registry,
                     ws_cmd,
-                    dirty,
+                    ctx.dirty,
                     Some(crate::layout::Rect {
                         x: 0,
                         y: 0,
-                        w: state.cols,
-                        h: state.rows,
+                        w: ctx.state.cols,
+                        h: ctx.state.rows,
                     }),
                 );
             }
@@ -136,8 +131,9 @@ pub fn handle_deferred_commands(
                 stdin_mode,
             } => {
                 if let Some(plugin_id) = command_source_plugin {
-                    if registry.plugin_allows_process_spawn(plugin_id) {
-                        process_dispatcher.spawn(plugin_id, job_id, &program, &args, stdin_mode);
+                    if ctx.registry.plugin_allows_process_spawn(plugin_id) {
+                        ctx.process_dispatcher
+                            .spawn(plugin_id, job_id, &program, &args, stdin_mode);
                     } else {
                         tracing::warn!(
                             plugin = plugin_id.0,
@@ -148,28 +144,21 @@ pub fn handle_deferred_commands(
                             error: "process capability not granted".to_string(),
                         });
                         let (flags, fail_cmds) =
-                            registry.deliver_io_event(plugin_id, &fail_event, state);
-                        *dirty |= flags;
+                            ctx.registry
+                                .deliver_io_event(plugin_id, &fail_event, ctx.state);
+                        *ctx.dirty |= flags;
                         let (normal, nested_deferred) = extract_deferred_commands(fail_cmds);
                         if matches!(
-                            execute_commands(normal, session_host.active_writer(), clipboard_get),
+                            execute_commands(
+                                normal,
+                                ctx.session_host.active_writer(),
+                                ctx.clipboard_get
+                            ),
                             CommandResult::Quit
                         ) {
                             return true;
                         }
-                        if handle_deferred_commands(
-                            nested_deferred,
-                            state,
-                            registry,
-                            surface_registry,
-                            clipboard_get,
-                            dirty,
-                            timer,
-                            session_host,
-                            initial_resize_sent,
-                            process_dispatcher,
-                            Some(plugin_id),
-                        ) {
+                        if handle_deferred_commands(nested_deferred, ctx, Some(plugin_id)) {
                             return true;
                         }
                     }
@@ -177,17 +166,17 @@ pub fn handle_deferred_commands(
             }
             DeferredCommand::WriteToProcess { job_id, data } => {
                 if let Some(plugin_id) = command_source_plugin {
-                    process_dispatcher.write(plugin_id, job_id, &data);
+                    ctx.process_dispatcher.write(plugin_id, job_id, &data);
                 }
             }
             DeferredCommand::CloseProcessStdin { job_id } => {
                 if let Some(plugin_id) = command_source_plugin {
-                    process_dispatcher.close_stdin(plugin_id, job_id);
+                    ctx.process_dispatcher.close_stdin(plugin_id, job_id);
                 }
             }
             DeferredCommand::KillProcess { job_id } => {
                 if let Some(plugin_id) = command_source_plugin {
-                    process_dispatcher.kill(plugin_id, job_id);
+                    ctx.process_dispatcher.kill(plugin_id, job_id);
                 }
             }
             DeferredCommand::Session(cmd) => match cmd {
@@ -197,17 +186,21 @@ pub fn handle_deferred_commands(
                     args,
                     activate,
                 } => {
-                    session_host.spawn_session(
+                    ctx.session_host.spawn_session(
                         SessionSpec::with_fallback_key(key, session, args),
                         activate,
-                        state,
-                        dirty,
-                        initial_resize_sent,
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
                     );
                 }
                 crate::session::SessionCommand::Close { key } => {
-                    if session_host.close_session(key.as_deref(), state, dirty, initial_resize_sent)
-                    {
+                    if ctx.session_host.close_session(
+                        key.as_deref(),
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
+                    ) {
                         return true;
                     }
                 }
@@ -220,40 +213,19 @@ pub fn handle_deferred_commands(
 /// Execute grouped surface commands while preserving each surface owner's plugin identity.
 ///
 /// Returns `true` if a `Quit` command was encountered.
-#[allow(clippy::too_many_arguments)]
 pub fn handle_sourced_surface_commands(
     command_groups: Vec<SourcedSurfaceCommands>,
-    state: &mut AppState,
-    registry: &mut PluginRegistry,
-    surface_registry: &mut SurfaceRegistry,
-    clipboard_get: &mut dyn FnMut() -> Option<String>,
-    dirty: &mut DirtyFlags,
-    timer: &dyn TimerScheduler,
-    session_host: &mut dyn SessionHost,
-    initial_resize_sent: &mut bool,
-    process_dispatcher: &mut dyn ProcessDispatcher,
+    ctx: &mut DeferredContext<'_>,
 ) -> bool {
     for entry in command_groups {
         let (normal, deferred) = extract_deferred_commands(entry.commands);
         if matches!(
-            execute_commands(normal, session_host.active_writer(), clipboard_get),
+            execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
             CommandResult::Quit
         ) {
             return true;
         }
-        if handle_deferred_commands(
-            deferred,
-            state,
-            registry,
-            surface_registry,
-            clipboard_get,
-            dirty,
-            timer,
-            session_host,
-            initial_resize_sent,
-            process_dispatcher,
-            entry.source_plugin.as_ref(),
-        ) {
+        if handle_deferred_commands(deferred, ctx, entry.source_plugin.as_ref()) {
             return true;
         }
     }
@@ -400,15 +372,17 @@ mod tests {
                     stdin_mode: StdinMode::Null,
                 }],
             }],
-            &mut state,
-            &mut registry,
-            &mut surface_registry,
-            &mut || None,
-            &mut dirty,
-            &timer,
-            &mut sessions,
-            &mut initial_resize_sent,
-            &mut dispatcher,
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+            },
         );
 
         assert!(!quit);
@@ -478,15 +452,17 @@ mod tests {
                     activate: true,
                 },
             )],
-            &mut state,
-            &mut registry,
-            &mut surface_registry,
-            &mut || None,
-            &mut dirty,
-            &timer,
-            &mut sessions,
-            &mut initial_resize_sent,
-            &mut dispatcher,
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+            },
             None,
         );
 
@@ -515,15 +491,17 @@ mod tests {
                     key: Some("work".to_string()),
                 },
             )],
-            &mut state,
-            &mut registry,
-            &mut surface_registry,
-            &mut || None,
-            &mut dirty,
-            &timer,
-            &mut sessions,
-            &mut initial_resize_sent,
-            &mut dispatcher,
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+            },
             None,
         );
 
@@ -549,15 +527,17 @@ mod tests {
             vec![DeferredCommand::Session(
                 crate::session::SessionCommand::Close { key: None },
             )],
-            &mut state,
-            &mut registry,
-            &mut surface_registry,
-            &mut || None,
-            &mut dirty,
-            &timer,
-            &mut sessions,
-            &mut initial_resize_sent,
-            &mut dispatcher,
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+            },
             None,
         );
 

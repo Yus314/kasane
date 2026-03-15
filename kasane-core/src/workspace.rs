@@ -118,6 +118,63 @@ impl WorkspaceNode {
         WorkspaceNode::Leaf { surface_id }
     }
 
+    /// Apply a function to all direct children (including floating entries).
+    fn for_each_child(&self, f: &mut impl FnMut(&WorkspaceNode)) {
+        match self {
+            WorkspaceNode::Leaf { .. } => {}
+            WorkspaceNode::Split { first, second, .. } => {
+                f(first);
+                f(second);
+            }
+            WorkspaceNode::Tabs { tabs, .. } => {
+                for tab in tabs {
+                    f(tab);
+                }
+            }
+            WorkspaceNode::Float { base, floating } => {
+                f(base);
+                for entry in floating {
+                    f(&entry.node);
+                }
+            }
+        }
+    }
+
+    /// Apply a function to all direct children mutably (including floating entries).
+    fn for_each_child_mut(&mut self, f: &mut impl FnMut(&mut WorkspaceNode)) {
+        match self {
+            WorkspaceNode::Leaf { .. } => {}
+            WorkspaceNode::Split { first, second, .. } => {
+                f(first);
+                f(second);
+            }
+            WorkspaceNode::Tabs { tabs, .. } => {
+                for tab in tabs {
+                    f(tab);
+                }
+            }
+            WorkspaceNode::Float { base, floating } => {
+                f(base);
+                for entry in floating {
+                    f(&mut entry.node);
+                }
+            }
+        }
+    }
+
+    /// Test whether any direct child satisfies a predicate (including floating entries).
+    #[allow(dead_code)]
+    fn any_child(&self, f: &mut impl FnMut(&WorkspaceNode) -> bool) -> bool {
+        match self {
+            WorkspaceNode::Leaf { .. } => false,
+            WorkspaceNode::Split { first, second, .. } => f(first) || f(second),
+            WorkspaceNode::Tabs { tabs, .. } => tabs.iter().any(&mut *f),
+            WorkspaceNode::Float { base, floating } => {
+                f(base) || floating.iter().any(|e| f(&e.node))
+            }
+        }
+    }
+
     /// Find a node containing the given SurfaceId.
     pub fn find(&self, target: SurfaceId) -> Option<&WorkspaceNode> {
         match self {
@@ -141,23 +198,10 @@ impl WorkspaceNode {
     }
 
     fn collect_ids_inner(&self, ids: &mut Vec<SurfaceId>) {
-        match self {
-            WorkspaceNode::Leaf { surface_id } => ids.push(*surface_id),
-            WorkspaceNode::Split { first, second, .. } => {
-                first.collect_ids_inner(ids);
-                second.collect_ids_inner(ids);
-            }
-            WorkspaceNode::Tabs { tabs, .. } => {
-                for tab in tabs {
-                    tab.collect_ids_inner(ids);
-                }
-            }
-            WorkspaceNode::Float { base, floating } => {
-                base.collect_ids_inner(ids);
-                for entry in floating {
-                    entry.node.collect_ids_inner(ids);
-                }
-            }
+        if let WorkspaceNode::Leaf { surface_id } = self {
+            ids.push(*surface_id);
+        } else {
+            self.for_each_child(&mut |child| child.collect_ids_inner(ids));
         }
     }
 
@@ -334,18 +378,12 @@ impl WorkspaceNode {
 
     /// Count the number of leaf nodes.
     pub fn leaf_count(&self) -> usize {
-        match self {
-            WorkspaceNode::Leaf { .. } => 1,
-            WorkspaceNode::Split { first, second, .. } => first.leaf_count() + second.leaf_count(),
-            WorkspaceNode::Tabs { tabs, .. } => tabs.iter().map(|tab| tab.leaf_count()).sum(),
-            WorkspaceNode::Float { base, floating } => {
-                base.leaf_count()
-                    + floating
-                        .iter()
-                        .map(|entry| entry.node.leaf_count())
-                        .sum::<usize>()
-            }
+        if matches!(self, WorkspaceNode::Leaf { .. }) {
+            return 1;
         }
+        let mut sum = 0;
+        self.for_each_child(&mut |child| sum += child.leaf_count());
+        sum
     }
 
     /// Compute screen rectangles for all leaf surfaces given the total available area.
@@ -570,29 +608,14 @@ impl WorkspaceNode {
 
     /// Swap the positions of two leaf surfaces.
     fn swap_leaf_ids(&mut self, a: SurfaceId, b: SurfaceId) {
-        match self {
-            WorkspaceNode::Leaf { surface_id } => {
-                if *surface_id == a {
-                    *surface_id = b;
-                } else if *surface_id == b {
-                    *surface_id = a;
-                }
+        if let WorkspaceNode::Leaf { surface_id } = self {
+            if *surface_id == a {
+                *surface_id = b;
+            } else if *surface_id == b {
+                *surface_id = a;
             }
-            WorkspaceNode::Split { first, second, .. } => {
-                first.swap_leaf_ids(a, b);
-                second.swap_leaf_ids(a, b);
-            }
-            WorkspaceNode::Tabs { tabs, .. } => {
-                for tab in tabs {
-                    tab.swap_leaf_ids(a, b);
-                }
-            }
-            WorkspaceNode::Float { base, floating } => {
-                base.swap_leaf_ids(a, b);
-                for entry in floating {
-                    entry.node.swap_leaf_ids(a, b);
-                }
-            }
+        } else {
+            self.for_each_child_mut(&mut |child| child.swap_leaf_ids(a, b));
         }
     }
 
@@ -1368,10 +1391,8 @@ fn focus_direction_score(
 fn range_gap(start_a: u16, end_a: u16, start_b: u16, end_b: u16) -> u16 {
     if end_a <= start_b {
         start_b - end_a
-    } else if end_b <= start_a {
-        start_a - end_b
     } else {
-        0
+        start_a.saturating_sub(end_b)
     }
 }
 

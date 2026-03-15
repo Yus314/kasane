@@ -288,17 +288,13 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
 impl bindings::kasane::plugin::element_builder::Host for HostState {
     fn create_text(&mut self, content: String, face: bindings::kasane::plugin::types::Face) -> u32 {
         let element = Element::text(content, convert::wit_face_to_face(&face));
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_styled_line(&mut self, atoms: Vec<bindings::kasane::plugin::types::Atom>) -> u32 {
         let line: Line = atoms.iter().map(convert::wit_atom_to_atom).collect();
         let element = Element::styled_line(line);
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_column(&mut self, children: Vec<u32>) -> u32 {
@@ -307,9 +303,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             .map(|h| FlexChild::fixed(self.take_element(h)))
             .collect();
         let element = Element::column(flex_children);
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_row(&mut self, children: Vec<u32>) -> u32 {
@@ -318,9 +312,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             .map(|h| FlexChild::fixed(self.take_element(h)))
             .collect();
         let element = Element::row(flex_children);
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_interactive(&mut self, child: u32, id: u32) -> u32 {
@@ -329,9 +321,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             child: Box::new(child_element),
             id: InteractiveId(id),
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_grid(
@@ -354,9 +344,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             align: kasane_core::element::Align::Start,
             cross_align: kasane_core::element::Align::Start,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_container(
@@ -375,15 +363,11 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             style: Style::Direct(Face::default()),
             title: None,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_empty(&mut self) -> u32 {
-        let handle = self.elements.len() as u32;
-        self.elements.push(Element::Empty);
-        handle
+        self.store_element(Element::Empty)
     }
 
     fn create_column_flex(
@@ -410,9 +394,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             align: kasane_core::element::Align::Start,
             cross_align: kasane_core::element::Align::Start,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_row_flex(
@@ -439,9 +421,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             align: kasane_core::element::Align::Start,
             cross_align: kasane_core::element::Align::Start,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_slot_placeholder(
@@ -456,9 +436,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             direction: convert::wit_layout_direction_to_direction(direction),
             gap,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     // --- v0.3.0: Advanced element builders ---
@@ -483,9 +461,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             style: Style::Direct(convert::wit_face_to_face(&style)),
             title: title_line,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_scrollable(&mut self, child: u32, offset: u16, vertical: bool) -> u32 {
@@ -500,9 +476,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             offset,
             direction,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_stack(
@@ -523,9 +497,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             base: Box::new(base_element),
             overlays: native_overlays,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 
     fn create_container_custom_border(
@@ -560,13 +532,18 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             style: Style::Direct(convert::wit_face_to_face(&style)),
             title: title_line,
         };
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 }
 
 impl HostState {
+    /// Store an element in the arena and return its handle.
+    fn store_element(&mut self, element: Element) -> u32 {
+        let handle = self.elements.len() as u32;
+        self.elements.push(element);
+        handle
+    }
+
     /// Take an element from the arena by handle, replacing it with Empty.
     fn take_element(&mut self, handle: u32) -> Element {
         let idx = handle as usize;
@@ -588,9 +565,7 @@ impl HostState {
     /// Inject an existing element into the arena, returning its handle.
     /// Used by the decorator system to pass the original element to the guest.
     pub(crate) fn inject_element(&mut self, element: Element) -> u32 {
-        let handle = self.elements.len() as u32;
-        self.elements.push(element);
-        handle
+        self.store_element(element)
     }
 }
 
