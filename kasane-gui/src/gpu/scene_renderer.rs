@@ -266,228 +266,12 @@ impl SceneRenderer {
 
             // Process this layer's DrawCommands
             for cmd in &commands[range_start..range_end] {
-                match cmd {
-                    DrawCommand::FillRect {
-                        rect,
-                        face,
-                        elevated,
-                    } => {
-                        let mut bg = color_resolver.resolve(face.bg, false);
-                        if *elevated {
-                            // Lighten popup background significantly.
-                            // In the dark sRGB range, small additive steps are
-                            // imperceptible.  Use a large lift (+0.25 ≈ +64 in
-                            // 0-255) to make floating panels clearly distinct.
-                            bg[0] = (bg[0] + 0.25).min(1.0);
-                            bg[1] = (bg[1] + 0.25).min(1.0);
-                            bg[2] = (bg[2] + 0.25).min(1.0);
-                            tracing::debug!(
-                                "elevated FillRect: bg=[{:.3},{:.3},{:.3}] rect=({:.0},{:.0},{:.0},{:.0})",
-                                bg[0],
-                                bg[1],
-                                bg[2],
-                                rect.x,
-                                rect.y,
-                                rect.w,
-                                rect.h,
-                            );
-                        }
-                        self.bg.push_rect(rect.x, rect.y, rect.w, rect.h, bg);
-                    }
-                    DrawCommand::DrawAtoms {
-                        pos,
-                        atoms,
-                        max_width,
-                    } => {
-                        self.process_draw_atoms(pos.x, pos.y, atoms, *max_width, color_resolver);
-                    }
-                    DrawCommand::DrawText {
-                        pos,
-                        text,
-                        face,
-                        max_width,
-                    } => {
-                        self.process_draw_text(
-                            pos.x,
-                            pos.y,
-                            text,
-                            face,
-                            *max_width,
-                            color_resolver,
-                        );
-                    }
-                    DrawCommand::DrawPaddingRow {
-                        pos,
-                        width: _,
-                        ch,
-                        face,
-                    } => {
-                        let fg = color_resolver.resolve(face.fg, true);
-                        let buf_idx = self.alloc_text_buffer(screen_w);
-                        self.text_positions.push((pos.x, pos.y));
-                        let attrs = default_attrs(&self.font_family);
-                        let color = to_glyphon_color(fg);
-                        let buffer = &mut self.text_buffers[buf_idx];
-                        buffer.set_rich_text(
-                            &mut self.font_system,
-                            [(ch.as_str(), attrs.clone().color(color))],
-                            &attrs,
-                            Shaping::Advanced,
-                            None,
-                        );
-                        buffer.shape_until_scroll(&mut self.font_system, false);
-                    }
-                    DrawCommand::DrawBorder {
-                        rect,
-                        line_style,
-                        face,
-                        fill_face,
-                    } => {
-                        let border_color = color_resolver.resolve(face.fg, true);
-                        let (corner_radius, border_width) =
-                            border_style_params(line_style.clone(), cell_h);
-                        let fill = match fill_face {
-                            Some(ff) => color_resolver.resolve(ff.bg, false),
-                            None => [0.0, 0.0, 0.0, 0.0],
-                        };
-                        if *line_style == BorderLineStyle::Double {
-                            self.border.push_rounded_rect(
-                                rect.x,
-                                rect.y,
-                                rect.w,
-                                rect.h,
-                                corner_radius,
-                                border_width,
-                                fill,
-                                border_color,
-                            );
-                            let inset = border_width + 1.0;
-                            if rect.w > inset * 2.0 && rect.h > inset * 2.0 {
-                                self.border.push_rounded_rect(
-                                    rect.x + inset,
-                                    rect.y + inset,
-                                    rect.w - inset * 2.0,
-                                    rect.h - inset * 2.0,
-                                    corner_radius,
-                                    border_width,
-                                    fill,
-                                    border_color,
-                                );
-                            }
-                        } else {
-                            self.border.push_rounded_rect(
-                                rect.x,
-                                rect.y,
-                                rect.w,
-                                rect.h,
-                                corner_radius,
-                                border_width,
-                                fill,
-                                border_color,
-                            );
-                        }
-                    }
-                    DrawCommand::DrawBorderTitle {
-                        rect,
-                        title,
-                        border_face,
-                        elevated,
-                    } => {
-                        // Compute the title width in pixels
-                        let title_w: f32 = title
-                            .iter()
-                            .map(|a| line_display_width_str(&a.contents) as f32 * cell_w)
-                            .sum();
-                        // Horizontal padding around the title text so it doesn't
-                        // touch the border line.
-                        let pad_x = cell_w * 0.5;
-
-                        // Center the title on the top edge of the border rect,
-                        // vertically aligned so text sits on the border line.
-                        let title_x = rect.x + (rect.w - title_w) / 2.0;
-                        let title_y = rect.y - cell_h * 0.35;
-
-                        // Match the container's background color.
-                        // Elevated containers (shadow=true) add +0.25.
-                        let mut title_bg = color_resolver.resolve(border_face.bg, false);
-                        if *elevated {
-                            title_bg[0] = (title_bg[0] + 0.25).min(1.0);
-                            title_bg[1] = (title_bg[1] + 0.25).min(1.0);
-                            title_bg[2] = (title_bg[2] + 0.25).min(1.0);
-                        }
-
-                        // Push bg into the border pipeline so it renders AFTER the
-                        // border line, covering the line segment behind the title.
-                        // The bg rect is wider than the text by pad_x on each side.
-                        self.border.push_rounded_rect(
-                            title_x - pad_x,
-                            title_y,
-                            title_w + pad_x * 2.0,
-                            cell_h,
-                            0.0,
-                            0.0, // no corner radius, no border
-                            title_bg,
-                            [0.0, 0.0, 0.0, 0.0],
-                        );
-
-                        // Draw the title text
-                        self.process_draw_atoms(title_x, title_y, title, title_w, color_resolver);
-                    }
-                    DrawCommand::DrawShadow {
-                        rect,
-                        offset,
-                        blur_radius,
-                        color,
-                    } => {
-                        let expand = *blur_radius;
-                        self.shadow.push_rounded_rect(
-                            rect.x + offset.0 - expand,
-                            rect.y + offset.1 - expand,
-                            rect.w + expand * 2.0,
-                            rect.h + expand * 2.0,
-                            expand,
-                            0.0,
-                            *color,
-                            [0.0, 0.0, 0.0, 0.0],
-                        );
-                    }
-                    DrawCommand::PushClip(_) | DrawCommand::PopClip => {
-                        // Will be implemented with scissor rects
-                    }
-                    DrawCommand::BeginOverlay => {} // handled by layer splitting
-                }
+                self.process_draw_command(cmd, color_resolver, cell_w, cell_h, screen_w);
             }
 
             // Cursor belongs to the base layer (layer 0)
-            if layer_idx == 0
-                && let Some((x, y, opacity, style)) = cursor
-            {
-                let mut cc = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
-                cc[3] = opacity;
-                match style {
-                    CursorStyle::Block => {
-                        self.bg.push_rect(x, y, cell_w, cell_h, cc);
-                    }
-                    CursorStyle::Bar => {
-                        self.bg.push_rect(x, y, CURSOR_BAR_WIDTH, cell_h, cc);
-                    }
-                    CursorStyle::Underline => {
-                        self.bg.push_rect(
-                            x,
-                            y + cell_h - CURSOR_UNDERLINE_HEIGHT,
-                            cell_w,
-                            CURSOR_UNDERLINE_HEIGHT,
-                            cc,
-                        );
-                    }
-                    CursorStyle::Outline => {
-                        let t = CURSOR_OUTLINE_THICKNESS;
-                        self.bg.push_rect(x, y, cell_w, t, cc);
-                        self.bg.push_rect(x, y + cell_h - t, cell_w, t, cc);
-                        self.bg.push_rect(x, y, t, cell_h, cc);
-                        self.bg.push_rect(x + cell_w - t, y, t, cell_h, cc);
-                    }
-                }
+            if layer_idx == 0 {
+                self.render_cursor(cursor, color_resolver, cell_w, cell_h);
             }
 
             // Ensure GPU buffers are large enough for this layer
@@ -502,24 +286,12 @@ impl SceneRenderer {
 
             // Build TextAreas for this layer's text buffers only
             let layer_text_end = self.text_buffer_count;
-            let text_areas: Vec<TextArea> = self.text_positions[layer_text_start..layer_text_end]
-                .iter()
-                .zip(self.text_buffers[layer_text_start..layer_text_end].iter())
-                .map(|(&(left, top), buffer)| TextArea {
-                    buffer,
-                    left,
-                    top,
-                    scale: 1.0,
-                    bounds: TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: screen_w as i32,
-                        bottom: screen_h as i32,
-                    },
-                    default_color: GlyphonColor::rgb(255, 255, 255),
-                    custom_glyphs: &[],
-                })
-                .collect();
+            let text_areas = prepare_text_areas(
+                &self.text_positions[layer_text_start..layer_text_end],
+                &self.text_buffers[layer_text_start..layer_text_end],
+                screen_w,
+                screen_h,
+            );
 
             // Prepare this layer's text
             self.text_renderer
@@ -590,6 +362,222 @@ impl SceneRenderer {
         self.text_atlas.trim();
 
         Ok(())
+    }
+
+    /// Process a single DrawCommand, dispatching to the appropriate pipeline.
+    fn process_draw_command(
+        &mut self,
+        cmd: &DrawCommand,
+        color_resolver: &ColorResolver,
+        cell_w: f32,
+        cell_h: f32,
+        screen_w: f32,
+    ) {
+        match cmd {
+            DrawCommand::FillRect {
+                rect,
+                face,
+                elevated,
+            } => {
+                let mut bg = color_resolver.resolve(face.bg, false);
+                if *elevated {
+                    bg[0] = (bg[0] + 0.25).min(1.0);
+                    bg[1] = (bg[1] + 0.25).min(1.0);
+                    bg[2] = (bg[2] + 0.25).min(1.0);
+                    tracing::debug!(
+                        "elevated FillRect: bg=[{:.3},{:.3},{:.3}] rect=({:.0},{:.0},{:.0},{:.0})",
+                        bg[0],
+                        bg[1],
+                        bg[2],
+                        rect.x,
+                        rect.y,
+                        rect.w,
+                        rect.h,
+                    );
+                }
+                self.bg.push_rect(rect.x, rect.y, rect.w, rect.h, bg);
+            }
+            DrawCommand::DrawAtoms {
+                pos,
+                atoms,
+                max_width,
+            } => {
+                self.process_draw_atoms(pos.x, pos.y, atoms, *max_width, color_resolver);
+            }
+            DrawCommand::DrawText {
+                pos,
+                text,
+                face,
+                max_width,
+            } => {
+                self.process_draw_text(pos.x, pos.y, text, face, *max_width, color_resolver);
+            }
+            DrawCommand::DrawPaddingRow {
+                pos,
+                width: _,
+                ch,
+                face,
+            } => {
+                let fg = color_resolver.resolve(face.fg, true);
+                let buf_idx = self.alloc_text_buffer(screen_w);
+                self.text_positions.push((pos.x, pos.y));
+                let attrs = default_attrs(&self.font_family);
+                let color = to_glyphon_color(fg);
+                let buffer = &mut self.text_buffers[buf_idx];
+                buffer.set_rich_text(
+                    &mut self.font_system,
+                    [(ch.as_str(), attrs.clone().color(color))],
+                    &attrs,
+                    Shaping::Advanced,
+                    None,
+                );
+                buffer.shape_until_scroll(&mut self.font_system, false);
+            }
+            DrawCommand::DrawBorder {
+                rect,
+                line_style,
+                face,
+                fill_face,
+            } => {
+                let border_color = color_resolver.resolve(face.fg, true);
+                let (corner_radius, border_width) = border_style_params(line_style.clone(), cell_h);
+                let fill = match fill_face {
+                    Some(ff) => color_resolver.resolve(ff.bg, false),
+                    None => [0.0, 0.0, 0.0, 0.0],
+                };
+                if *line_style == BorderLineStyle::Double {
+                    self.border.push_rounded_rect(
+                        rect.x,
+                        rect.y,
+                        rect.w,
+                        rect.h,
+                        corner_radius,
+                        border_width,
+                        fill,
+                        border_color,
+                    );
+                    let inset = border_width + 1.0;
+                    if rect.w > inset * 2.0 && rect.h > inset * 2.0 {
+                        self.border.push_rounded_rect(
+                            rect.x + inset,
+                            rect.y + inset,
+                            rect.w - inset * 2.0,
+                            rect.h - inset * 2.0,
+                            corner_radius,
+                            border_width,
+                            fill,
+                            border_color,
+                        );
+                    }
+                } else {
+                    self.border.push_rounded_rect(
+                        rect.x,
+                        rect.y,
+                        rect.w,
+                        rect.h,
+                        corner_radius,
+                        border_width,
+                        fill,
+                        border_color,
+                    );
+                }
+            }
+            DrawCommand::DrawBorderTitle {
+                rect,
+                title,
+                border_face,
+                elevated,
+            } => {
+                let title_w: f32 = title
+                    .iter()
+                    .map(|a| line_display_width_str(&a.contents) as f32 * cell_w)
+                    .sum();
+                let pad_x = cell_w * 0.5;
+                let title_x = rect.x + (rect.w - title_w) / 2.0;
+                let title_y = rect.y - cell_h * 0.35;
+
+                let mut title_bg = color_resolver.resolve(border_face.bg, false);
+                if *elevated {
+                    title_bg[0] = (title_bg[0] + 0.25).min(1.0);
+                    title_bg[1] = (title_bg[1] + 0.25).min(1.0);
+                    title_bg[2] = (title_bg[2] + 0.25).min(1.0);
+                }
+
+                self.border.push_rounded_rect(
+                    title_x - pad_x,
+                    title_y,
+                    title_w + pad_x * 2.0,
+                    cell_h,
+                    0.0,
+                    0.0,
+                    title_bg,
+                    [0.0, 0.0, 0.0, 0.0],
+                );
+
+                self.process_draw_atoms(title_x, title_y, title, title_w, color_resolver);
+            }
+            DrawCommand::DrawShadow {
+                rect,
+                offset,
+                blur_radius,
+                color,
+            } => {
+                let expand = *blur_radius;
+                self.shadow.push_rounded_rect(
+                    rect.x + offset.0 - expand,
+                    rect.y + offset.1 - expand,
+                    rect.w + expand * 2.0,
+                    rect.h + expand * 2.0,
+                    expand,
+                    0.0,
+                    *color,
+                    [0.0, 0.0, 0.0, 0.0],
+                );
+            }
+            DrawCommand::PushClip(_) | DrawCommand::PopClip => {
+                // Will be implemented with scissor rects
+            }
+            DrawCommand::BeginOverlay => {} // handled by layer splitting
+        }
+    }
+
+    /// Render the cursor into the bg pipeline.
+    fn render_cursor(
+        &mut self,
+        cursor: Option<(f32, f32, f32, CursorStyle)>,
+        color_resolver: &ColorResolver,
+        cell_w: f32,
+        cell_h: f32,
+    ) {
+        let Some((x, y, opacity, style)) = cursor else {
+            return;
+        };
+        let mut cc = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
+        cc[3] = opacity;
+        match style {
+            CursorStyle::Block => {
+                self.bg.push_rect(x, y, cell_w, cell_h, cc);
+            }
+            CursorStyle::Bar => {
+                self.bg.push_rect(x, y, CURSOR_BAR_WIDTH, cell_h, cc);
+            }
+            CursorStyle::Underline => {
+                self.bg.push_rect(
+                    x,
+                    y + cell_h - CURSOR_UNDERLINE_HEIGHT,
+                    cell_w,
+                    CURSOR_UNDERLINE_HEIGHT,
+                    cc,
+                );
+            }
+            CursorStyle::Outline => {
+                let t = CURSOR_OUTLINE_THICKNESS;
+                self.bg.push_rect(x, y, cell_w, t, cc);
+                self.bg.push_rect(x, y + cell_h - t, cell_w, t, cc);
+                self.bg.push_rect(x, y, t, cell_h, cc);
+                self.bg.push_rect(x + cell_w - t, y, t, cell_h, cc);
+            }
+        }
     }
 
     /// Process DrawAtoms: build atom-level spans for ligature support.
@@ -741,6 +729,33 @@ impl SceneRenderer {
         }
         idx
     }
+}
+
+/// Build TextAreas from position/buffer slices for a single layer.
+fn prepare_text_areas<'a>(
+    positions: &'a [(f32, f32)],
+    buffers: &'a [GlyphonBuffer],
+    screen_w: f32,
+    screen_h: f32,
+) -> Vec<TextArea<'a>> {
+    positions
+        .iter()
+        .zip(buffers.iter())
+        .map(|(&(left, top), buffer)| TextArea {
+            buffer,
+            left,
+            top,
+            scale: 1.0,
+            bounds: TextBounds {
+                left: 0,
+                top: 0,
+                right: screen_w as i32,
+                bottom: screen_h as i32,
+            },
+            default_color: GlyphonColor::rgb(255, 255, 255),
+            custom_glyphs: &[],
+        })
+        .collect()
 }
 
 /// Map BorderLineStyle to (corner_radius, border_width).
