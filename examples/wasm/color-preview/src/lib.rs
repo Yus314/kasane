@@ -2,10 +2,7 @@ kasane_plugin_sdk::generate!();
 
 use std::collections::HashMap;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::types::*;
-use kasane::plugin::{element_builder, host_state};
-use kasane_plugin_sdk::{dirty, modifiers, plugin};
+use kasane_plugin_sdk::{dirty, keys, modifiers, plugin};
 
 // ---------------------------------------------------------------------------
 // Color detection
@@ -158,25 +155,16 @@ fn decode_picker_id(id: InteractiveId) -> Option<(usize, usize, bool)> {
 }
 
 // ---------------------------------------------------------------------------
-// Key escaping for Kakoune commands
+// Helpers
 // ---------------------------------------------------------------------------
-
-fn push_literal_keys(keys: &mut Vec<String>, text: &str) {
-    for ch in text.chars() {
-        match ch {
-            ' ' => keys.push("<space>".into()),
-            '<' => keys.push("<lt>".into()),
-            '>' => keys.push("<gt>".into()),
-            '-' => keys.push("<minus>".into()),
-            c => keys.push(c.to_string()),
-        }
-    }
-}
 
 fn format_color(channels: [u8; 3], format: ColorFormat) -> String {
     match format {
         ColorFormat::RgbColon => {
-            format!("rgb:{:02x}{:02x}{:02x}", channels[0], channels[1], channels[2])
+            format!(
+                "rgb:{:02x}{:02x}{:02x}",
+                channels[0], channels[1], channels[2]
+            )
         }
         _ => format!("#{:02x}{:02x}{:02x}", channels[0], channels[1], channels[2]),
     }
@@ -186,23 +174,10 @@ fn format_color(channels: [u8; 3], format: ColorFormat) -> String {
 // State
 // ---------------------------------------------------------------------------
 
-thread_local! {
-    static STATE: std::cell::RefCell<PluginState> = std::cell::RefCell::new(PluginState::default());
-}
-
-#[derive(Default)]
-struct PluginState {
-    color_lines: HashMap<usize, ColorLine>,
-    active_line: i32,
-    generation: u64,
-}
-
-fn default_face() -> Face {
-    Face {
-        fg: Color::DefaultColor,
-        bg: Color::DefaultColor,
-        underline: Color::DefaultColor,
-        attributes: 0,
+kasane_plugin_sdk::state! {
+    struct PluginState {
+        color_lines: HashMap<usize, ColorLine> = HashMap::new(),
+        active_line: i32 = 0,
     }
 }
 
@@ -215,12 +190,7 @@ fn build_swatch(colors: &[ColorEntry]) -> ElementHandle {
         .iter()
         .take(4)
         .map(|e| Atom {
-            face: Face {
-                fg: Color::Rgb(RgbColor { r: e.r, g: e.g, b: e.b }),
-                bg: Color::Rgb(RgbColor { r: e.r, g: e.g, b: e.b }),
-                underline: Color::DefaultColor,
-                attributes: 0,
-            },
+            face: face(rgb(e.r, e.g, e.b), rgb(e.r, e.g, e.b)),
             contents: "\u{2588}".to_string(), // █
         })
         .collect();
@@ -251,18 +221,19 @@ fn build_color_grid(entry: &ColorEntry, color_idx: usize) -> ElementHandle {
 
     // Row 1: swatch + hex display
     let swatch_atom = Atom {
-        face: Face {
-            fg: Color::Rgb(RgbColor { r: entry.r, g: entry.g, b: entry.b }),
-            bg: Color::Rgb(RgbColor { r: entry.r, g: entry.g, b: entry.b }),
-            underline: Color::DefaultColor,
-            attributes: 0,
-        },
+        face: face(
+            rgb(entry.r, entry.g, entry.b),
+            rgb(entry.r, entry.g, entry.b),
+        ),
         contents: "\u{2588} ".to_string(), // "█ "
     };
     children.push(element_builder::create_styled_line(&[swatch_atom]));
     children.push(element_builder::create_text("#", default_face()));
     for ch_val in channels {
-        children.push(element_builder::create_text(&format!("{ch_val:02x}"), default_face()));
+        children.push(element_builder::create_text(
+            &format!("{ch_val:02x}"),
+            default_face(),
+        ));
     }
 
     // Row 2: arrows down
@@ -296,7 +267,6 @@ impl Guest for ColorPreviewPlugin {
     fn on_shutdown() -> Vec<Command> {
         vec![]
     }
-
 
     fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
         if dirty_flags & dirty::BUFFER == 0 {
@@ -345,7 +315,7 @@ impl Guest for ColorPreviewPlugin {
             state.color_lines.retain(|&k, _| k < lc);
 
             if changed {
-                state.generation += 1;
+                state.bump_generation();
             }
 
             vec![]
@@ -390,11 +360,11 @@ impl Guest for ColorPreviewPlugin {
 
             let kak_line = line_idx + 1; // 0-based to 1-based
             let cmd = format!("exec -draft {kak_line}gxs{old_text}<ret>c{new_text}<esc>");
-            let mut keys: Vec<String> = vec!["<esc>".into(), ":".into()];
-            push_literal_keys(&mut keys, &cmd);
-            keys.push("<ret>".into());
+            let mut kak_keys: Vec<String> = vec!["<esc>".into(), ":".into()];
+            keys::push_literal(&mut kak_keys, &cmd);
+            kak_keys.push("<ret>".into());
 
-            Some(vec![Command::SendKeys(keys)])
+            Some(vec![Command::SendKeys(kak_keys)])
         })
     }
 
@@ -410,7 +380,9 @@ impl Guest for ColorPreviewPlugin {
             let state = state.borrow();
             // Simple hash combining generation and active_line
             let mut h = state.generation;
-            h = h.wrapping_mul(6364136223846793005).wrapping_add(state.active_line as u64);
+            h = h
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(state.active_line as u64);
             h
         })
     }
@@ -445,13 +417,21 @@ impl Guest for ColorPreviewPlugin {
                 .enumerate()
                 .map(|(idx, entry)| {
                     let grid = build_color_grid(entry, idx);
-                    FlexEntry { child: grid, flex: 0.0 }
+                    FlexEntry {
+                        child: grid,
+                        flex: 0.0,
+                    }
                 })
                 .collect();
 
             let inner = element_builder::create_column_flex(&entries, 1);
 
-            let padding = Edges { top: 0, right: 0, bottom: 0, left: 0 };
+            let padding = Edges {
+                top: 0,
+                right: 0,
+                bottom: 0,
+                left: 0,
+            };
             let container = element_builder::create_container(
                 inner,
                 Some(BorderLineStyle::Rounded),
@@ -482,7 +462,6 @@ impl Guest for ColorPreviewPlugin {
             })
         })
     }
-
 }
 
 export!(ColorPreviewPlugin);
@@ -558,12 +537,21 @@ mod tests {
 
     #[test]
     fn format_color_hash() {
-        assert_eq!(format_color([0x11, 0x00, 0x00], ColorFormat::HashRrggbb), "#110000");
-        assert_eq!(format_color([0x11, 0x00, 0x00], ColorFormat::HashRgb), "#110000");
+        assert_eq!(
+            format_color([0x11, 0x00, 0x00], ColorFormat::HashRrggbb),
+            "#110000"
+        );
+        assert_eq!(
+            format_color([0x11, 0x00, 0x00], ColorFormat::HashRgb),
+            "#110000"
+        );
     }
 
     #[test]
     fn format_color_rgb_colon() {
-        assert_eq!(format_color([0x11, 0x00, 0x00], ColorFormat::RgbColon), "rgb:110000");
+        assert_eq!(
+            format_color([0x11, 0x00, 0x00], ColorFormat::RgbColon),
+            "rgb:110000"
+        );
     }
 }

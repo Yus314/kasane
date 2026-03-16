@@ -2,10 +2,7 @@ kasane_plugin_sdk::generate!();
 
 use std::cell::RefCell;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::types::*;
-use kasane::plugin::element_builder;
-use kasane_plugin_sdk::{dirty, modifiers, plugin};
+use kasane_plugin_sdk::{dirty, keys, modifiers, plugin};
 
 // ---------------------------------------------------------------------------
 // Job ID scheme
@@ -34,7 +31,7 @@ impl Default for FzfState {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct PluginState {
     state: FzfState,
     query: String,
@@ -161,64 +158,20 @@ fn kill_active_processes(state: &PluginState) -> Vec<Command> {
     cmds
 }
 
-fn push_literal_keys(keys: &mut Vec<String>, text: &str) {
-    for ch in text.chars() {
-        match ch {
-            ' ' => keys.push("<space>".into()),
-            '<' => keys.push("<lt>".into()),
-            '>' => keys.push("<gt>".into()),
-            '-' => keys.push("<minus>".into()),
-            '%' => keys.push("<percent>".into()),
-            c => keys.push(c.to_string()),
-        }
-    }
-}
-
-fn edit_file_keys(path: &str) -> Vec<String> {
-    let mut keys = vec!["<esc>".to_string(), ":".to_string()];
-    push_literal_keys(&mut keys, &format!("edit {path}"));
-    keys.push("<ret>".to_string());
-    keys
-}
-
 // ---------------------------------------------------------------------------
 // Overlay UI
 // ---------------------------------------------------------------------------
 
-fn default_face() -> Face {
-    Face {
-        fg: Color::DefaultColor,
-        bg: Color::DefaultColor,
-        underline: Color::DefaultColor,
-        attributes: 0,
-    }
-}
-
 fn highlight_face() -> Face {
-    Face {
-        fg: Color::Named(NamedColor::White),
-        bg: Color::Rgb(RgbColor { r: 4, g: 57, b: 94 }),
-        underline: Color::DefaultColor,
-        attributes: 0,
-    }
+    face(named(NamedColor::White), rgb(4, 57, 94))
 }
 
 fn dim_face() -> Face {
-    Face {
-        fg: Color::Named(NamedColor::BrightBlack),
-        bg: Color::DefaultColor,
-        underline: Color::DefaultColor,
-        attributes: 0,
-    }
+    face_fg(named(NamedColor::BrightBlack))
 }
 
 fn error_face() -> Face {
-    Face {
-        fg: Color::Named(NamedColor::Red),
-        bg: Color::DefaultColor,
-        underline: Color::DefaultColor,
-        attributes: 0,
-    }
+    face_fg(named(NamedColor::Red))
 }
 
 fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayContribution> {
@@ -226,17 +179,10 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
         return None;
     }
 
-    let cols = ctx.screen_cols;
-    let rows = ctx.screen_rows;
-
-    // Overlay dimensions: ~60% width, ~50% height, with minimums
-    let w = (cols as u32 * 60 / 100).max(40).min(cols as u32) as u16;
-    let h = (rows as u32 * 50 / 100).max(10).min(rows as u32) as u16;
-    let x = (cols.saturating_sub(w)) / 2;
-    let y = (rows.saturating_sub(h)) / 2;
+    let anchor = centered_overlay(ctx.screen_cols, ctx.screen_rows, 60, 50, 40, 10);
 
     // Available rows for results: total height minus border(2) + query(1) + separator(1)
-    let max_results = (h as usize).saturating_sub(4).max(1);
+    let max_results = (anchor.h as usize).saturating_sub(4).max(1);
 
     let mut children: Vec<ElementHandle> = Vec::new();
 
@@ -245,13 +191,16 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
     children.push(element_builder::create_text(&query_display, default_face()));
 
     // Separator
-    let sep = "\u{2500}".repeat(w.saturating_sub(2) as usize);
+    let sep = "\u{2500}".repeat(anchor.w.saturating_sub(2) as usize);
     children.push(element_builder::create_text(&sep, dim_face()));
 
     // Content area
     match &state.state {
         FzfState::Scanning => {
-            children.push(element_builder::create_text("Scanning files...", dim_face()));
+            children.push(element_builder::create_text(
+                "Scanning files...",
+                dim_face(),
+            ));
         }
         FzfState::Error(msg) => {
             children.push(element_builder::create_text(msg, error_face()));
@@ -277,24 +226,28 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
                 let end = (start + visible_count).min(items.len());
 
                 for i in start..end {
-                    let face = if i == state.selected {
+                    let f = if i == state.selected {
                         highlight_face()
                     } else {
                         default_face()
                     };
                     let prefix = if i == state.selected { "> " } else { "  " };
                     let text = format!("{prefix}{}", &items[i]);
-                    children.push(element_builder::create_text(&text, face));
+                    children.push(element_builder::create_text(&text, f));
                 }
             }
-
         }
         FzfState::Inactive => unreachable!(),
     }
 
     let inner = element_builder::create_column(&children);
 
-    let padding = Edges { top: 0, right: 1, bottom: 0, left: 1 };
+    let padding = Edges {
+        top: 0,
+        right: 1,
+        bottom: 0,
+        left: 1,
+    };
 
     // Title: show file count on the border line
     let title_text = match &state.state {
@@ -327,7 +280,7 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
 
     Some(OverlayContribution {
         element: container,
-        anchor: OverlayAnchor::Absolute(AbsoluteAnchor { x, y, w, h }),
+        anchor: OverlayAnchor::Absolute(anchor),
         z_index: 100,
     })
 }
@@ -411,7 +364,9 @@ impl Guest for FuzzyFinderPlugin {
                             state.reset();
                             let mut cmds = kill_cmds;
                             if let Some(path) = selected {
-                                cmds.push(Command::SendKeys(edit_file_keys(&path)));
+                                cmds.push(Command::SendKeys(keys::command(&format!(
+                                    "edit {path}"
+                                ))));
                             }
                             cmds.push(Command::RequestRedraw(dirty::ALL));
                             Some(cmds)
@@ -443,7 +398,8 @@ impl Guest for FuzzyFinderPlugin {
                                 // Show all files, kill any running fzf
                                 state.results.clear();
                                 state.state = FzfState::Ready;
-                                let mut cmds = vec![Command::KillProcess(state.current_fzf_job_id())];
+                                let mut cmds =
+                                    vec![Command::KillProcess(state.current_fzf_job_id())];
                                 cmds.push(Command::RequestRedraw(dirty::ALL));
                                 Some(cmds)
                             } else {
@@ -478,7 +434,7 @@ impl Guest for FuzzyFinderPlugin {
                             Some(cmds)
                         }
                         KeyCode::Tab => Some(vec![]), // consume but ignore
-                        _ => Some(vec![]), // consume all keys when active
+                        _ => Some(vec![]),            // consume all keys when active
                     }
                 }
             }
@@ -534,9 +490,7 @@ impl Guest for FuzzyFinderPlugin {
                                     return vec![Command::RequestRedraw(dirty::ALL)];
                                 }
                                 // Non-zero exit with no data — treat as error
-                                state.state = FzfState::Error(
-                                    "file listing failed".to_string(),
-                                );
+                                state.state = FzfState::Error("file listing failed".to_string());
                                 state.bump_generation();
                                 return vec![Command::RequestRedraw(dirty::ALL)];
                             }
@@ -566,9 +520,8 @@ impl Guest for FuzzyFinderPlugin {
                                 return vec![Command::RequestRedraw(dirty::ALL)];
                             }
                             if job_id == state.current_fzf_job_id() {
-                                state.state = FzfState::Error(
-                                    format!("fzf not installed: {error}"),
-                                );
+                                state.state =
+                                    FzfState::Error(format!("fzf not installed: {error}"));
                                 state.bump_generation();
                                 return vec![Command::RequestRedraw(dirty::ALL)];
                             }
@@ -586,7 +539,6 @@ impl Guest for FuzzyFinderPlugin {
             build_overlay(&state, &ctx)
         })
     }
-
 }
 
 export!(FuzzyFinderPlugin);

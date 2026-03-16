@@ -2,9 +2,6 @@ kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::host_state;
-use kasane::plugin::types::*;
 use kasane_plugin_sdk::{dirty, plugin};
 
 thread_local! {
@@ -38,16 +35,7 @@ impl Guest for CursorLinePlugin {
                 left_gutter: None,
                 right_gutter: None,
                 background: Some(BackgroundLayer {
-                    face: Face {
-                        fg: Color::DefaultColor,
-                        bg: Color::Rgb(RgbColor {
-                            r: 40,
-                            g: 40,
-                            b: 50,
-                        }),
-                        underline: Color::DefaultColor,
-                        attributes: 0,
-                    },
+                    face: face_bg(rgb(40, 40, 50)),
                     z_order: 0,
                     blend_opaque: true,
                 }),

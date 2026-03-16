@@ -8,10 +8,6 @@ kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::element_builder;
-use kasane::plugin::host_state;
-use kasane::plugin::types::*;
 use kasane_plugin_sdk::{dirty, plugin};
 
 /// Cursor mode constants (matches host encoding).
@@ -55,19 +51,20 @@ impl Guest for PromptHighlightPlugin {
         }
 
         // Wrap the status bar in a container with a distinct background
-        let face = Face {
-            fg: Color::Named(NamedColor::Black),
-            bg: Color::Named(NamedColor::Yellow),
-            underline: Color::DefaultColor,
-            attributes: 0,
-        };
         let padding = Edges {
             top: 0,
             right: 0,
             bottom: 0,
             left: 0,
         };
-        element_builder::create_container_styled(element, None, false, padding, face, None)
+        element_builder::create_container_styled(
+            element,
+            None,
+            false,
+            padding,
+            face(named(NamedColor::Black), named(NamedColor::Yellow)),
+            None,
+        )
     }
 
     fn transform_priority() -> i16 {

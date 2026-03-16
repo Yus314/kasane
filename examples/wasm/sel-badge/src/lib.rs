@@ -2,10 +2,6 @@ kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::element_builder;
-use kasane::plugin::host_state;
-use kasane::plugin::types::*;
 use kasane_plugin_sdk::{dirty, plugin};
 
 thread_local! {
@@ -37,13 +33,7 @@ impl Guest for SelBadgePlugin {
                 let count = CURSOR_COUNT.get();
                 if count > 1 {
                     let text = format!(" {} sel ", count);
-                    let face = Face {
-                        fg: Color::DefaultColor,
-                        bg: Color::DefaultColor,
-                        underline: Color::DefaultColor,
-                        attributes: 0,
-                    };
-                    let el = element_builder::create_text(&text, face);
+                    let el = element_builder::create_text(&text, default_face());
                     Some(Contribution {
                         element: el,
                         priority: 0,
@@ -61,7 +51,6 @@ impl Guest for SelBadgePlugin {
             STATUS_RIGHT => dirty::BUFFER,
         })
     }
-
 }
 
 export!(SelBadgePlugin);
