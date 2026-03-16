@@ -127,7 +127,7 @@ where
     state.apply_config(&config);
     let mut session_states = SessionStateStore::new();
     session_states.sync_from_active(active_session, &state);
-    kasane_core::event_loop::sync_session_metadata(&session_manager, &mut state);
+    kasane_core::event_loop::sync_session_metadata(&session_manager, &session_states, &mut state);
 
     // Plugin registry
     let mut registry = PluginRegistry::new();

@@ -241,6 +241,8 @@ fn test_session_fields_preserved_on_reset() {
     state.session_descriptors = vec![SessionDescriptor {
         key: "work".into(),
         session_name: Some("project".into()),
+        buffer_name: None,
+        mode_line: None,
     }];
     state.active_session_key = Some("work".into());
     state.lines = vec![vec![]]; // session-owned data
@@ -281,6 +283,8 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     state.session_descriptors = vec![SessionDescriptor {
         key: "work".into(),
         session_name: Some("proj".into()),
+        buffer_name: None,
+        mode_line: None,
     }];
     state.active_session_key = Some("work".into());
 

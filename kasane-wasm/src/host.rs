@@ -62,7 +62,7 @@ pub(crate) struct HostState {
     pub menu_selected_face: Option<Face>,
 
     // --- v0.7.0 Tier 8: Session metadata ---
-    pub session_descriptors: Vec<(String, Option<String>)>,
+    pub session_descriptors: Vec<SessionDescriptorCache>,
     pub active_session_key: Option<String>,
 
     /// Element arena: WASM plugins build elements via host calls, stored here.
@@ -71,6 +71,14 @@ pub(crate) struct HostState {
     // WASI support (required by wasmtime-wasi for wasm32-wasip2 components)
     pub wasi: wasmtime_wasi::WasiCtx,
     pub table: wasmtime::component::ResourceTable,
+}
+
+/// Cached session descriptor for WASM host state.
+pub(crate) struct SessionDescriptorCache {
+    pub key: String,
+    pub session_name: Option<String>,
+    pub buffer_name: Option<String>,
+    pub mode_line: Option<String>,
 }
 
 impl Default for HostState {
@@ -288,14 +296,14 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         &mut self,
         index: u32,
     ) -> Option<bindings::kasane::plugin::types::SessionDescriptor> {
-        self.session_descriptors
-            .get(index as usize)
-            .map(
-                |(key, name)| bindings::kasane::plugin::types::SessionDescriptor {
-                    key: key.clone(),
-                    session_name: name.clone(),
-                },
-            )
+        self.session_descriptors.get(index as usize).map(|d| {
+            bindings::kasane::plugin::types::SessionDescriptor {
+                key: d.key.clone(),
+                session_name: d.session_name.clone(),
+                buffer_name: d.buffer_name.clone(),
+                mode_line: d.mode_line.clone(),
+            }
+        })
     }
     fn get_active_session_key(&mut self) -> Option<String> {
         self.active_session_key.clone()
@@ -680,7 +688,12 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     host.session_descriptors = state
         .session_descriptors
         .iter()
-        .map(|d| (d.key.clone(), d.session_name.clone()))
+        .map(|d| SessionDescriptorCache {
+            key: d.key.clone(),
+            session_name: d.session_name.clone(),
+            buffer_name: d.buffer_name.clone(),
+            mode_line: d.mode_line.clone(),
+        })
         .collect();
     host.active_session_key = state.active_session_key.clone();
 }

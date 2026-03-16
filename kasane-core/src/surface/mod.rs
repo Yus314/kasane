@@ -343,7 +343,6 @@ mod tests {
         reg.try_register_for_owner(
             Box::new(TestSurface::new(surface_id, "plugin.alpha.surface", vec![])),
             Some(owner.clone()),
-            None,
         )
         .unwrap();
 
@@ -365,7 +364,6 @@ mod tests {
                 DirtyFlags::STATUS,
             )),
             Some(owner.clone()),
-            None,
         )
         .unwrap();
 
@@ -419,7 +417,6 @@ mod tests {
                 DirtyFlags::STATUS,
             )),
             Some(owner_a.clone()),
-            None,
         )
         .unwrap();
         reg.try_register_for_owner(
@@ -429,7 +426,6 @@ mod tests {
                 DirtyFlags::MENU,
             )),
             Some(owner_b.clone()),
-            None,
         )
         .unwrap();
 
@@ -509,7 +505,6 @@ mod tests {
                 DirtyFlags::BUFFER,
             )),
             Some(owner.clone()),
-            None,
         )
         .unwrap();
 
@@ -1254,98 +1249,5 @@ mod tests {
 
         reg.remove(SurfaceId::BUFFER);
         assert!(reg.slot_owner("kasane.buffer.left").is_none());
-    }
-
-    // --- Session affinity infrastructure ---
-
-    #[test]
-    fn test_register_with_session_id() {
-        use crate::session::SessionId;
-        let mut reg = SurfaceRegistry::new();
-        let session = SessionId(42);
-        let surface_id = SurfaceId(630);
-        reg.try_register_for_owner(
-            Box::new(TestSurface::new(surface_id, "plugin.session-bound", vec![])),
-            None,
-            Some(session),
-        )
-        .unwrap();
-
-        assert_eq!(reg.surface_session_id(surface_id), Some(session));
-    }
-
-    #[test]
-    fn test_register_without_session_id_returns_none() {
-        use crate::session::SessionId;
-        let mut reg = SurfaceRegistry::new();
-        let surface_id = SurfaceId(631);
-        reg.try_register_for_owner(
-            Box::new(TestSurface::new(surface_id, "plugin.no-session", vec![])),
-            None,
-            None,
-        )
-        .unwrap();
-
-        assert_eq!(reg.surface_session_id(surface_id), None);
-        // Non-existent surface also returns None
-        assert_eq!(reg.surface_session_id(SurfaceId(999)), None);
-    }
-
-    #[test]
-    fn test_remove_surfaces_for_session_removes_bound_surfaces() {
-        use crate::session::SessionId;
-        let mut reg = SurfaceRegistry::new();
-        let session_a = SessionId(10);
-
-        // Register a session-agnostic surface
-        let agnostic_id = SurfaceId(632);
-        reg.try_register_for_owner(
-            Box::new(TestSurface::new(agnostic_id, "plugin.agnostic", vec![])),
-            None,
-            None,
-        )
-        .unwrap();
-
-        // Register two surfaces bound to session_a
-        let bound_1 = SurfaceId(633);
-        reg.try_register_for_owner(
-            Box::new(TestSurface::new(bound_1, "plugin.bound-1", vec![])),
-            None,
-            Some(session_a),
-        )
-        .unwrap();
-        let bound_2 = SurfaceId(634);
-        reg.try_register_for_owner(
-            Box::new(TestSurface::new(bound_2, "plugin.bound-2", vec![])),
-            None,
-            Some(session_a),
-        )
-        .unwrap();
-
-        assert_eq!(reg.surface_count(), 3);
-
-        let removed = reg.remove_surfaces_for_session(session_a);
-        assert_eq!(removed.len(), 2);
-        assert!(removed.contains(&bound_1));
-        assert!(removed.contains(&bound_2));
-
-        // Agnostic surface remains
-        assert_eq!(reg.surface_count(), 1);
-        assert!(reg.get(agnostic_id).is_some());
-        assert!(reg.get(bound_1).is_none());
-        assert!(reg.get(bound_2).is_none());
-    }
-
-    #[test]
-    fn test_remove_surfaces_for_session_noop_when_no_bound_surfaces() {
-        use crate::session::SessionId;
-        let mut reg = SurfaceRegistry::new();
-        reg.register(Box::new(KakouneBufferSurface::new()));
-
-        let initial_count = reg.surface_count();
-        let removed = reg.remove_surfaces_for_session(SessionId(99));
-
-        assert!(removed.is_empty());
-        assert_eq!(reg.surface_count(), initial_count);
     }
 }

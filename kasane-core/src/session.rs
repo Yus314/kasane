@@ -52,6 +52,21 @@ fn next_synthetic_key_fragment(args: &[String]) -> String {
 pub struct SessionDescriptor {
     pub key: String,
     pub session_name: Option<String>,
+    /// Buffer name extracted from `status_content` atoms (typically `%val{bufname}`).
+    pub buffer_name: Option<String>,
+    /// Mode line extracted from `status_mode_line` atoms (e.g. `normal`, `insert`, `1 sel`).
+    pub mode_line: Option<String>,
+}
+
+/// Concatenate atom text contents, returning `None` if the result is empty/whitespace.
+fn extract_atom_text(atoms: &[crate::protocol::Atom]) -> Option<String> {
+    let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +133,10 @@ impl SessionStateStore {
 
     pub fn remove(&mut self, id: SessionId) -> Option<AppState> {
         self.states.remove(&id)
+    }
+
+    pub fn get(&self, id: &SessionId) -> Option<&AppState> {
+        self.states.get(id)
     }
 
     pub fn sync_active_from_manager<R, W, C>(
@@ -195,6 +214,35 @@ impl<R, W, C> SessionManager<R, W, C> {
                 self.sessions.get(id).map(|session| SessionDescriptor {
                     key: session.spec.key.clone(),
                     session_name: session.spec.session.clone(),
+                    buffer_name: None,
+                    mode_line: None,
+                })
+            })
+            .collect()
+    }
+
+    /// Build session descriptors enriched with metadata from inactive session
+    /// snapshots and the active `AppState`.
+    pub fn enriched_session_descriptors(
+        &self,
+        store: &SessionStateStore,
+        active_state: &AppState,
+    ) -> Vec<SessionDescriptor> {
+        self.order
+            .iter()
+            .filter_map(|id| {
+                let session = self.sessions.get(id)?;
+                let is_active = self.active == Some(*id);
+                let app_state = if is_active {
+                    Some(active_state)
+                } else {
+                    store.get(id)
+                };
+                Some(SessionDescriptor {
+                    key: session.spec.key.clone(),
+                    session_name: session.spec.session.clone(),
+                    buffer_name: app_state.and_then(|s| extract_atom_text(&s.status_content)),
+                    mode_line: app_state.and_then(|s| extract_atom_text(&s.status_mode_line)),
                 })
             })
             .collect()
@@ -549,5 +597,107 @@ mod tests {
             .insert(SessionSpec::new("work", None, vec![]), (), (), ())
             .unwrap();
         assert_eq!(sessions.active_session_key(), Some("work"));
+    }
+
+    #[test]
+    fn test_enriched_descriptors_active_session() {
+        use crate::protocol::{Atom, Face};
+
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        sessions
+            .insert(SessionSpec::new("work", None, vec![]), (), (), ())
+            .unwrap();
+
+        let store = SessionStateStore::new();
+        let mut active_state = AppState::default();
+        active_state.status_content = vec![Atom {
+            face: Face::default(),
+            contents: "main.rs".into(),
+        }];
+        active_state.status_mode_line = vec![Atom {
+            face: Face::default(),
+            contents: "normal".into(),
+        }];
+
+        let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].key, "work");
+        assert_eq!(descriptors[0].buffer_name.as_deref(), Some("main.rs"));
+        assert_eq!(descriptors[0].mode_line.as_deref(), Some("normal"));
+    }
+
+    #[test]
+    fn test_enriched_descriptors_inactive_session() {
+        use crate::protocol::{Atom, Face};
+
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        let id_a = sessions
+            .insert(SessionSpec::new("first", None, vec![]), (), (), ())
+            .unwrap();
+        let id_b = sessions
+            .insert(SessionSpec::new("second", None, vec![]), (), (), ())
+            .unwrap();
+        // Make "second" active so "first" becomes inactive
+        sessions.set_active(id_b).unwrap();
+
+        let mut store = SessionStateStore::new();
+        let mut snapshot = AppState::default();
+        snapshot.status_content = vec![Atom {
+            face: Face::default(),
+            contents: "lib.rs".into(),
+        }];
+        snapshot.status_mode_line = vec![Atom {
+            face: Face::default(),
+            contents: "insert".into(),
+        }];
+        store.sync_from_active(id_a, &snapshot);
+
+        // Active is "second", "first" is inactive with snapshot
+        let active_state = AppState::default();
+        let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
+        assert_eq!(descriptors.len(), 2);
+        // "first" is inactive, gets metadata from store
+        assert_eq!(descriptors[0].buffer_name.as_deref(), Some("lib.rs"));
+        assert_eq!(descriptors[0].mode_line.as_deref(), Some("insert"));
+        // "second" is active, gets metadata from active_state (empty)
+        assert_eq!(descriptors[1].buffer_name, None);
+        assert_eq!(descriptors[1].mode_line, None);
+    }
+
+    #[test]
+    fn test_extract_atom_text_empty() {
+        assert_eq!(extract_atom_text(&[]), None);
+
+        use crate::protocol::{Atom, Face};
+        let atoms = vec![Atom {
+            face: Face::default(),
+            contents: "   ".into(),
+        }];
+        assert_eq!(extract_atom_text(&atoms), None);
+    }
+
+    #[test]
+    fn test_extract_atom_text_trims() {
+        use crate::protocol::{Atom, Face};
+        let atoms = vec![Atom {
+            face: Face::default(),
+            contents: " main.rs ".into(),
+        }];
+        assert_eq!(extract_atom_text(&atoms).as_deref(), Some("main.rs"));
+    }
+
+    #[test]
+    fn test_session_state_store_get() {
+        let mut store = SessionStateStore::new();
+        let id = SessionId(10);
+
+        assert!(store.get(&id).is_none());
+
+        let mut state = AppState::default();
+        state.cols = 120;
+        store.sync_from_active(id, &state);
+
+        let snapshot = store.get(&id).unwrap();
+        assert_eq!(snapshot.cols, 120);
     }
 }

@@ -340,7 +340,7 @@ fn test_session_metadata_consistent_after_operations() {
         .insert(SessionSpec::new("work", None, vec![]), (), vec![], ())
         .unwrap();
     store.ensure_session(id_a, &state);
-    kasane_core::event_loop::sync_session_metadata(&mgr, &mut state);
+    kasane_core::event_loop::sync_session_metadata(&mgr, &store, &mut state);
     assert_eq!(state.session_descriptors.len(), 1);
     assert_eq!(state.session_descriptors[0].key, "work");
     assert_eq!(state.active_session_key.as_deref(), Some("work"));
@@ -350,7 +350,7 @@ fn test_session_metadata_consistent_after_operations() {
         .insert(SessionSpec::new("play", None, vec![]), (), vec![], ())
         .unwrap();
     store.ensure_session(id_b, &state);
-    kasane_core::event_loop::sync_session_metadata(&mgr, &mut state);
+    kasane_core::event_loop::sync_session_metadata(&mgr, &store, &mut state);
     assert_eq!(state.session_descriptors.len(), 2);
 
     // Switch to second

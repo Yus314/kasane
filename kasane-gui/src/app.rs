@@ -223,7 +223,11 @@ where
         if let Some(active) = session_manager.active_session_id() {
             session_states.sync_from_active(active, &state);
         }
-        kasane_core::event_loop::sync_session_metadata(&session_manager, &mut state);
+        kasane_core::event_loop::sync_session_metadata(
+            &session_manager,
+            &session_states,
+            &mut state,
+        );
         let mut registry = registry;
 
         let mut surface_registry = SurfaceRegistry::new();

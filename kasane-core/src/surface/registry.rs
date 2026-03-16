@@ -6,7 +6,6 @@ use crate::element::Element;
 use crate::input::{MouseButton, MouseEventKind};
 use crate::layout::{Rect, SplitDirection};
 use crate::plugin::{Command, PluginId, PluginRegistry};
-use crate::session::SessionId;
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::{
     Placement, Workspace, WorkspaceCommand, WorkspaceDivider, WorkspaceDividerId,
@@ -22,7 +21,6 @@ pub(crate) struct RegisteredSurface {
     pub(crate) surface: Box<dyn Surface>,
     pub(crate) descriptor: SurfaceDescriptor,
     pub(crate) owner_plugin: Option<PluginId>,
-    pub(crate) session_id: Option<SessionId>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -75,7 +73,7 @@ impl SurfaceRegistry {
         &mut self,
         surface: Box<dyn Surface>,
     ) -> Result<(), SurfaceRegistrationError> {
-        self.try_register_for_owner(surface, None, None)
+        self.try_register_for_owner(surface, None)
     }
 
     /// Register a surface owned by the given plugin after validating its static contract.
@@ -83,7 +81,6 @@ impl SurfaceRegistry {
         &mut self,
         surface: Box<dyn Surface>,
         owner_plugin: Option<PluginId>,
-        session_id: Option<SessionId>,
     ) -> Result<(), SurfaceRegistrationError> {
         let descriptor = SurfaceDescriptor::from_surface(surface.as_ref())?;
 
@@ -130,7 +127,6 @@ impl SurfaceRegistry {
                 surface,
                 descriptor,
                 owner_plugin,
-                session_id,
             },
         );
         Ok(())
@@ -177,29 +173,6 @@ impl SurfaceRegistry {
         self.surfaces
             .get(&id)
             .and_then(|entry| entry.owner_plugin.as_ref())
-    }
-
-    /// Query the session binding of a registered surface.
-    pub fn surface_session_id(&self, id: SurfaceId) -> Option<SessionId> {
-        self.surfaces.get(&id).and_then(|entry| entry.session_id)
-    }
-
-    /// Remove all surfaces bound to the given session.
-    ///
-    /// Returns the IDs of removed surfaces. Surfaces with `session_id: None`
-    /// (session-agnostic) are never removed by this method.
-    pub fn remove_surfaces_for_session(&mut self, session_id: SessionId) -> Vec<SurfaceId> {
-        let to_remove: Vec<SurfaceId> = self
-            .surfaces
-            .iter()
-            .filter(|(_, entry)| entry.session_id == Some(session_id))
-            .map(|(id, _)| *id)
-            .collect();
-        for &id in &to_remove {
-            self.remove(id);
-            self.workspace.close(id);
-        }
-        to_remove
     }
 
     /// Resolve a surface key to its surface ID.
