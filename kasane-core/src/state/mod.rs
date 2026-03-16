@@ -15,6 +15,7 @@ use bitflags::bitflags;
 use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
 use crate::protocol::{Coord, CursorMode, Face, KasaneRequest, Line};
+use crate::session::SessionDescriptor;
 
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
@@ -34,13 +35,15 @@ bitflags! {
         const BUFFER_CURSOR   = 1 << 6;
         /// Plugin internal state changed (for Plugin state externalization).
         const PLUGIN_STATE    = 1 << 7;
+        /// Session list or active session changed.
+        const SESSION         = 1 << 8;
 
         /// Composite: any buffer-related change.
         const BUFFER = Self::BUFFER_CONTENT.bits() | Self::BUFFER_CURSOR.bits();
         const MENU = Self::MENU_STRUCTURE.bits() | Self::MENU_SELECTION.bits();
         const ALL  = Self::BUFFER.bits() | Self::STATUS.bits()
                    | Self::MENU.bits() | Self::INFO.bits() | Self::OPTIONS.bits()
-                   | Self::PLUGIN_STATE.bits();
+                   | Self::PLUGIN_STATE.bits() | Self::SESSION.bits();
     }
 }
 
@@ -141,6 +144,10 @@ pub struct AppState {
     pub secondary_blend_ratio: f32,
     pub smooth_scroll: bool,
 
+    // -- Session metadata (from SessionManager, preserved across session switches) --
+    pub session_descriptors: Vec<SessionDescriptor>,
+    pub active_session_key: Option<String>,
+
     // -- Runtime / Ephemeral (not part of protocol or config) --
     pub focused: bool,
     pub drag: DragState,
@@ -192,39 +199,74 @@ impl AppState {
     }
 
     /// Reset session-owned UI state while preserving frontend configuration and dimensions.
+    ///
+    /// Uses exhaustive destructure of `Self::default()` so that adding a new field
+    /// to `AppState` produces a compile error here, forcing an explicit decision
+    /// on whether the field should be reset or preserved across session switches.
     pub fn reset_for_session_switch(&mut self) {
-        let cols = self.cols;
-        let rows = self.rows;
-        let focused = self.focused;
-        let shadow_enabled = self.shadow_enabled;
-        let padding_char = self.padding_char.clone();
-        let menu_max_height = self.menu_max_height;
-        let menu_position = self.menu_position;
-        let search_dropdown = self.search_dropdown;
-        let status_at_top = self.status_at_top;
-        let scrollbar_thumb = self.scrollbar_thumb.clone();
-        let scrollbar_track = self.scrollbar_track.clone();
-        let assistant_art = self.assistant_art.clone();
-        let plugin_config = self.plugin_config.clone();
-        let secondary_blend_ratio = self.secondary_blend_ratio;
-        let smooth_scroll = self.smooth_scroll;
+        let d = Self::default();
+        let AppState {
+            // === RESET: move default values into self ===
+            lines,
+            default_face,
+            padding_face,
+            lines_dirty,
+            cursor_mode,
+            cursor_pos,
+            status_prompt,
+            status_content,
+            status_content_cursor_pos,
+            status_line,
+            status_mode_line,
+            status_default_face,
+            widget_columns,
+            menu,
+            infos,
+            ui_options,
+            cursor_count,
+            secondary_cursors,
+            drag,
+            scroll_animation,
+            // === PRESERVE: discard defaults, keep current values ===
+            cols: _,
+            rows: _,
+            focused: _,
+            shadow_enabled: _,
+            padding_char: _,
+            menu_max_height: _,
+            menu_position: _,
+            search_dropdown: _,
+            status_at_top: _,
+            scrollbar_thumb: _,
+            scrollbar_track: _,
+            assistant_art: _,
+            plugin_config: _,
+            secondary_blend_ratio: _,
+            smooth_scroll: _,
+            session_descriptors: _,
+            active_session_key: _,
+        } = d;
 
-        *self = Self::default();
-        self.cols = cols;
-        self.rows = rows;
-        self.focused = focused;
-        self.shadow_enabled = shadow_enabled;
-        self.padding_char = padding_char;
-        self.menu_max_height = menu_max_height;
-        self.menu_position = menu_position;
-        self.search_dropdown = search_dropdown;
-        self.status_at_top = status_at_top;
-        self.scrollbar_thumb = scrollbar_thumb;
-        self.scrollbar_track = scrollbar_track;
-        self.assistant_art = assistant_art;
-        self.plugin_config = plugin_config;
-        self.secondary_blend_ratio = secondary_blend_ratio;
-        self.smooth_scroll = smooth_scroll;
+        self.lines = lines;
+        self.default_face = default_face;
+        self.padding_face = padding_face;
+        self.lines_dirty = lines_dirty;
+        self.cursor_mode = cursor_mode;
+        self.cursor_pos = cursor_pos;
+        self.status_prompt = status_prompt;
+        self.status_content = status_content;
+        self.status_content_cursor_pos = status_content_cursor_pos;
+        self.status_line = status_line;
+        self.status_mode_line = status_mode_line;
+        self.status_default_face = status_default_face;
+        self.widget_columns = widget_columns;
+        self.menu = menu;
+        self.infos = infos;
+        self.ui_options = ui_options;
+        self.cursor_count = cursor_count;
+        self.secondary_cursors = secondary_cursors;
+        self.drag = drag;
+        self.scroll_animation = scroll_animation;
     }
 }
 
@@ -331,6 +373,8 @@ impl Default for AppState {
             plugin_config: HashMap::new(),
             cursor_count: 0,
             secondary_cursors: Vec::new(),
+            session_descriptors: Vec::new(),
+            active_session_key: None,
             drag: DragState::None,
             secondary_blend_ratio: 0.4,
             smooth_scroll: false,

@@ -222,3 +222,105 @@ fn test_menu_select_with_scroll_returns_structure() {
     assert!(flags.contains(DirtyFlags::MENU_SELECTION));
     assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
 }
+
+#[test]
+fn test_session_flag_value() {
+    assert_eq!(DirtyFlags::SESSION.bits(), 0x100);
+}
+
+#[test]
+fn test_all_contains_session() {
+    assert!(DirtyFlags::ALL.contains(DirtyFlags::SESSION));
+}
+
+#[test]
+fn test_session_fields_preserved_on_reset() {
+    use crate::session::SessionDescriptor;
+
+    let mut state = AppState::default();
+    state.session_descriptors = vec![SessionDescriptor {
+        key: "work".into(),
+        session_name: Some("project".into()),
+    }];
+    state.active_session_key = Some("work".into());
+    state.lines = vec![vec![]]; // session-owned data
+
+    state.reset_for_session_switch();
+
+    // Session fields preserved
+    assert_eq!(state.session_descriptors.len(), 1);
+    assert_eq!(state.session_descriptors[0].key, "work");
+    assert_eq!(state.active_session_key.as_deref(), Some("work"));
+    // Session-owned data reset
+    assert!(state.lines.is_empty());
+}
+
+#[test]
+fn test_reset_preserves_all_config_and_runtime_fields() {
+    use crate::config::MenuPosition;
+    use crate::session::SessionDescriptor;
+
+    let mut state = AppState::default();
+
+    // Set all preserved fields to non-default values
+    state.cols = 200;
+    state.rows = 50;
+    state.focused = false;
+    state.shadow_enabled = false;
+    state.padding_char = "x".into();
+    state.menu_max_height = 20;
+    state.menu_position = MenuPosition::Below;
+    state.search_dropdown = true;
+    state.status_at_top = true;
+    state.scrollbar_thumb = "T".into();
+    state.scrollbar_track = "t".into();
+    state.assistant_art = Some(vec!["art".into()]);
+    state.plugin_config.insert("key".into(), "value".into());
+    state.secondary_blend_ratio = 0.8;
+    state.smooth_scroll = true;
+    state.session_descriptors = vec![SessionDescriptor {
+        key: "work".into(),
+        session_name: Some("proj".into()),
+    }];
+    state.active_session_key = Some("work".into());
+
+    // Set some protocol fields to non-default values
+    state.lines = vec![vec![]];
+    state.cursor_count = 3;
+    state.cursor_pos = Coord {
+        line: 5,
+        column: 10,
+    };
+
+    state.reset_for_session_switch();
+
+    // All preserved fields must retain their non-default values
+    assert_eq!(state.cols, 200);
+    assert_eq!(state.rows, 50);
+    assert!(!state.focused);
+    assert!(!state.shadow_enabled);
+    assert_eq!(state.padding_char, "x");
+    assert_eq!(state.menu_max_height, 20);
+    assert_eq!(state.menu_position, MenuPosition::Below);
+    assert!(state.search_dropdown);
+    assert!(state.status_at_top);
+    assert_eq!(state.scrollbar_thumb, "T");
+    assert_eq!(state.scrollbar_track, "t");
+    assert_eq!(state.assistant_art.as_ref().unwrap()[0], "art");
+    assert_eq!(state.plugin_config.get("key").unwrap(), "value");
+    assert_eq!(state.secondary_blend_ratio, 0.8);
+    assert!(state.smooth_scroll);
+    assert_eq!(state.session_descriptors.len(), 1);
+    assert_eq!(state.active_session_key.as_deref(), Some("work"));
+
+    // All protocol/ephemeral fields must be reset to defaults
+    assert!(state.lines.is_empty());
+    assert_eq!(state.cursor_count, 0);
+    assert_eq!(state.cursor_pos, Coord::default());
+    assert_eq!(state.default_face, Face::default());
+    assert!(state.menu.is_none());
+    assert!(state.infos.is_empty());
+    assert!(state.ui_options.is_empty());
+    assert_eq!(state.drag, crate::state::DragState::None);
+    assert!(state.scroll_animation.is_none());
+}
