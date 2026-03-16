@@ -47,6 +47,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Plugin I/O infrastructure | Current | **Hybrid model (WASI direct + host-mediated)** | Design foundation for Phase P. Details in [ADR-019](#adr-019-plugin-io-infrastructure--hybrid-model) |
 | Salsa incremental computation | Current | **Stage 1 (Salsa tracked) + Stage 2 (imperative plugins)** | Mandatory dependency (feature flag removed). Details in [ADR-020](#adr-020-salsa-incremental-computation--stage-12-split) |
 | Plugin trait naming | Current | **`Plugin` (state-externalized, primary) + `PluginBackend` (mutable, internal)** | Renamed from `PurePlugin`/`Plugin`. Details in [ADR-022](#adr-022-plugin-trait-rename--pureplugin--plugin-plugin--pluginbackend) |
+| Session management boundaries | Current | **Mechanism (core) / Policy (plugin) split** | Session lifecycle in core; session UI in plugins. Details in [ADR-023](#adr-023-session-management-boundaries--mechanism--policy-split) |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 
@@ -419,41 +420,9 @@ Furthermore, Rust's ownership model naturally aligns with TEA (`&State` for view
 
 ### Implementation Record
 
-All 4 stages completed.
+All 4 stages completed: (1) DirtyFlags-based view memoization, (2) verified dependency tracking via `#[kasane::component(deps(...))]`, (3) SceneCache for DrawCommand-level caching, (4) compiled PaintPatch with StatusBarPatch / MenuSelectionPatch / CursorPatch.
 
-**Stage 1: DirtyFlags-based view memoization**
-
-- Extended DirtyFlags from `u8` → `u16`. Split `MENU` into `MENU_STRUCTURE` + `MENU_SELECTION` to enable a fast path for selection-only changes
-- `ViewCache`: per-section (base/menu/info) Element memoization. `ComponentCache<T>` generic wrapper providing `get_or_insert()` + `invalidate()`
-- Decomposed `view()` into `build_base()`, `build_menu_section()`, `build_info_section()`. DEPS constants for each section declare required DirtyFlags
-- `render_pipeline_cached()` / `scene_render_pipeline_cached()`: conditional rebuild via DirtyFlags + ViewCache
-
-**Stage 2: Verified dependency tracking**
-
-- `#[kasane::component(deps(FLAG, ...))]` proc macro: AST visitor (`syn::visit`) walks the function body for `state.field` accesses
-- `FIELD_FLAG_MAP`: mapping from AppState fields → required DirtyFlags. Compile error if declared `deps()` is insufficient
-- `allow(field, ...)` escape hatch: explicitly marks intentional dependency gaps (e.g., `cursor_pos` does not need the INFO flag)
-- Macro token stream scanning also detects field accesses inside `format!` / `println!`, etc.
-- Free reads: `cols`, `rows`, `focused`, `drag`, `smooth_scroll`, `scroll_animation` (no flag needed)
-
-**Stage 3: SceneCache (DrawCommand-level caching)**
-
-- `SceneCache`: per-section (base/menu/info) `Vec<DrawCommand>` cache. Invalidation rules are the same as ViewCache (`BUFFER_CONTENT|STATUS|OPTIONS`→base, `MENU`→menu, `INFO`→info)
-- Cell size / screen size change → invalidate all sections
-- `view_sections_cached()` + `ViewSections`: decomposed view output for per-section processing
-- `layout_overlay()`: single overlay layout helper
-- `scene_paint_section()`: thin wrapper for painting individual Element subtrees
-- GUI cursor animation: does not set `DirtyFlags::BUFFER`, uses `cursor_dirty` flag. Cursor-only frames reuse `scene_cache.composed_ref()` (0 μs pipeline)
-
-**Stage 4: Compiled PaintPatch**
-
-- `PaintPatch` trait: `deps()` / `can_apply()` / `apply_grid()` / `apply_scene()` methods
-- `StatusBarPatch`: dirty==STATUS → direct status row repaint only (~80 cells vs 1920)
-- `MenuSelectionPatch`: dirty==MENU_SELECTION → swap face on old/new selected items (~10 cells)
-- `CursorPatch`: dirty==empty + cursor moved → swap face at old/new positions (2 cells)
-- `LayoutCache`: cache for `base_layout`, `status_row`, `root_area`. Used for per-section repainting
-- `render_pipeline_patched()`: fallback chain of patch → sectioned → full pipeline
-- Debug mode correctness assertion: patch output == full pipeline output
+For detailed implementation status and benchmark results, see [performance-benchmarks.md — Compiler-Driven Optimization](./performance-benchmarks.md#compiler-driven-optimization-adr-010--implementation-status).
 
 **Stage 5: Compiled rendering for plugins (design analysis)**
 
@@ -752,97 +721,20 @@ While evaluating runtime loading approaches for external plugins in Phase 5b, it
 
 ### 13-1: Benchmark Results
 
-#### Gate 1: Raw WASM Overhead — Pass
+A 4-stage gate approach was used. All gates passed (Gate 3 conditionally — ratio criterion fails for lightweight functions, but absolute values fit within frame budget):
 
-Measurement of basic WASM call overhead.
+- **Gate 1 (Raw WASM overhead):** ~25 ns/call boundary crossing. Pass.
+- **Gate 2 (Data crossing):** 59 ns–4.50 μs depending on payload. Pass.
+- **Gate 3 (Component Model overhead):** ~500 ns fixed overhead from canonical ABI. 4.1x–23.7x ratio vs raw module, but absolute values < 7 μs. Conditional pass.
+- **Gate 4 (Realistic simulation):** ~1.8 μs/plugin (linear), 5 plugins = 8.91 μs (18.2% of frame budget). Pass.
 
-| Measurement | Result | Pass Criteria |
-|-------------|--------|---------------|
-| Empty function call (noop) | **26.5 ns** | < 200 ns |
-| Integer arithmetic (add) | **23.5 ns** | < 200 ns |
-| Host function call (1 time) | **29.2 ns** | < 300 ns |
-| Host function call (10 times) | **77.5 ns** | < 500 ns |
-| Native noop comparison | 1.2 ns | — |
-
-Fixed cost of WASM boundary crossing is **~25 ns/call**. Additional host function calls are **~5 ns/call**.
-
-#### Gate 2: Data Crossing Boundary — Pass
-
-Measurement of data transfer across the WASM boundary (raw module, manual memory management).
-
-| Measurement | Result | Pass Criteria |
-|-------------|--------|---------------|
-| String echo 100B | **59 ns** | < 1 μs |
-| String guest-generated+read 100B | **165 ns** | < 1 μs |
-| String guest-generated+read 1KB | **1.17 μs** | < 5 μs |
-| Element gutter 24 lines | **1.50 μs** | < 3 μs |
-| Element nested 3x24 | **4.50 μs** | < 10 μs |
-| Host function state_changed (3 times) | **42 ns** | — |
-| Host function state_changed (6 times) | **56 ns** | — |
-| contribute_lines 24 lines | **75 ns** | — |
-| Full cycle (state+lines) | **115 ns** | < 3 μs |
-
-Binary Element protocol decode is 987 ns (24-line gutter). Host function density is good.
-
-#### Gate 3: Component Model Overhead — Conditional Pass
-
-Comparison between Component Model (WIT + canonical ABI) and raw module.
-
-| Measurement | Raw Module | Component Model | Ratio |
-|-------------|-----------|----------------|-------|
-| noop | 26.5 ns | **552 ns** | 20.8x |
-| add | 23.5 ns | **556 ns** | 23.7x |
-| echo_string 100B | 59 ns | **758 ns** | 12.9x |
-| build_gutter 24 lines | 1.50 μs | **6.12 μs** | 4.1x |
-| on_state_changed | 42 ns | **787 ns** | 18.7x |
-| contribute_lines 24 lines | 75 ns | **1.04 μs** | 13.9x |
-| full_cycle | 115 ns | **1.84 μs** | 16.0x |
-
-| Instantiation | Time |
-|---------------|------|
-| Component compilation | **9.97 ms** (once at startup) |
-| Component instantiation | **24.8 μs** (per Store creation) |
-
-Component Model adds **~500 ns fixed overhead** from canonical ABI lift/lower. The ratio criterion (< 5x) fails for lightweight functions, but all absolute values in practice fit within the frame budget. For payload-heavy functions (build_gutter), the ratio drops to 4.1x as the fixed cost is amortized.
-
-#### Gate 4: Realistic Simulation — Pass
-
-Measurement of actual plugin usage patterns with Component Model.
-
-| Measurement | Result | Pass Criteria |
-|-------------|--------|---------------|
-| 1 plugin full frame | **1.80 μs** | < 8 μs |
-| 3 plugins full frame | **5.45 μs** | < 20 μs |
-| 5 plugins full frame | **8.91 μs** | < 30 μs |
-| 10 plugins full frame | **18.0 μs** | < 40 μs |
-| Cache hit (host-side) | **0.26 ns** | — |
-
-| Scaling | Value |
-|---------|-------|
-| Per-plugin cost | **~1.8 μs/plugin** (linear) |
-| 1 plugin instantiation | 29.3 μs |
-| 5 plugin instantiation | 131 μs |
-| 10 plugin instantiation | 280 μs |
-
-| WASM vs Native comparison | Native | WASM (CM) | Ratio |
-|---------------------------|--------|-----------|-------|
-| cursor_line full cycle | 9.5 ns | 2.01 μs | 212x |
-| gutter_24 | 1.63 μs | 6.18 μs | 3.8x |
-
-The cursor_line ratio (212x) is large, but the absolute value (2 μs) is 5% of the frame budget. For gutter_24 with substantial computation, the ratio drops to 3.8x.
+For detailed benchmark tables, see [performance-benchmarks.md — WASM Plugin Benchmarks](./performance-benchmarks.md#wasm-plugin-benchmarks).
 
 ### 13-2: Frame Budget Analysis
 
-WASM plugin share of the ~49 μs @ 80x24 frame budget:
+5 plugins consume 18.2% of the ~49 μs frame budget; 10 plugins consume 36.7%. L1 cache (DirtyFlags) completely skips WASM calls on frames with no state change (cache hit: 0.26 ns).
 
-| Plugin Count | WASM Cost | Budget Share | Remaining Budget |
-|-------------|-----------|-------------|------------------|
-| 1 | 1.80 μs | 3.7% | 47.2 μs |
-| 3 | 5.45 μs | 11.1% | 43.6 μs |
-| 5 | 8.91 μs | 18.2% | 40.1 μs |
-| 10 | 18.0 μs | 36.7% | 31.0 μs |
-
-L1 cache (DirtyFlags) allows complete skipping of WASM calls for frames with no state change (cache hit: 0.26 ns). In actual editor usage, most frames are cache hits, so the effective cost is even lower.
+For detailed budget breakdown, see [performance-benchmarks.md — WASM Plugin Benchmarks](./performance-benchmarks.md#realistic-plugin-simulation).
 
 ### 13-3: Decision
 
@@ -924,34 +816,13 @@ The CPU pipeline was ~49 μs (80×24) within the frame budget, but the following
 3. **Narrow line_dirty optimization coverage**: Only exact match of `dirty == DirtyFlags::BUFFER`. Ineffective for `BUFFER|STATUS` (the most common batch)
 4. **Container fill overhead**: `paint_container` executes per-cell `put_char(" ")` with wide character cleanup checks
 
-### Implementation (4 stages)
+### Implementation
 
-| Stage | Content | Key Changes | Improvement |
-|-------|---------|-------------|-------------|
-| P4 | Container fill optimization | `put_char()` loop → `clear_region()` | ~0.5-2 μs/container |
-| P1 | Zero-allocation diff | `diff_into()`, `iter_diffs()`, `is_first_frame()` | 196 KB/frame → 0 |
-| P3 | line_dirty coverage extension | `selective_clear()` supporting BUFFER\|STATUS | ~57% CPU reduction (1-line change) |
-| P2 | Direct grid drawing + SGR diff | `draw_grid()` + cursor auto-advance + `emit_sgr_diff()` | 2.4-3x speedup |
+All 4 stages implemented: (P4) container fill → `clear_region()`, (P1) zero-allocation diff via `diff_into()` / `iter_diffs()`, (P3) line_dirty coverage extension via `selective_clear()`, (P2) `draw_grid()` with cursor auto-advance + incremental SGR diff.
 
-### Benchmark Results
+Key results: TUI backend 2.4–3x faster, diff allocation eliminated (196 KB → 0), common editing pattern 57% CPU reduction.
 
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| `backend.draw()` 80×24 all cells | 163 μs | 58 μs (`draw_grid`) | 2.8x |
-| `backend.draw()` 200×60 all cells | 1,010 μs | 335 μs (`draw_grid`) | 3.0x |
-| diff phase allocation | 196 KB/frame | 0 | 100% eliminated |
-| BUFFER\|STATUS 1-line change | ~49 μs | ~21 μs | 57% reduction |
-
-### Changed Files
-
-| File | Changes |
-|------|---------|
-| `kasane-core/src/render/grid.rs` | Added `diff_into()`, `iter_diffs()`, `is_first_frame()` |
-| `kasane-core/src/render/paint.rs` | Replaced container fill with `clear_region()` |
-| `kasane-core/src/render/pipeline.rs` | `selective_clear()` helper, extended line_dirty gate |
-| `kasane-core/src/render/mod.rs` | Added `draw_grid()` to `RenderBackend` (with default implementation) |
-| `kasane-tui/src/backend.rs` | `draw_grid()` implementation (cursor auto-advance + SGR diff) |
-| `kasane-tui/src/lib.rs` | Switched event loop to `draw_grid()` |
+For detailed benchmark tables, see [performance-benchmarks.md — ADR-015](./performance-benchmarks.md#rendering-pipeline-optimization-adr-015--implementation-status).
 
 ## ADR-016: Pipeline Equivalence Testing — Trace-Equivalence Axiom
 
@@ -1324,11 +1195,7 @@ Reflecting the decisions of 19-1 and 19-2, the Phase P sub-phases are restructur
 - Moved P-c earlier as P-1 (can be implemented independently of process execution)
 - Added P-3 (proof-of-concept phase)
 
-**Implementation status:**
-
-- P-1: Done — WIT v0.5.0 `capability` enum, `WasiCapabilityConfig` + `build_wasi_ctx()`, `deny_capabilities` configuration
-- P-2: Done — `IoEvent` / `ProcessEvent` types, `Plugin::on_io_event()` + WIT v0.6.0, `Command::SpawnProcess` and 3 other commands, tokio-based `ProcessManager`, TUI/GUI event loop integration, `Capability::Process` capability check
-- P-3: Done — Fuzzy finder reference implementation (`examples/wasm/fuzzy-finder/`), `on_io_event` criterion benchmark (`kasane-wasm/benches/io_event.rs`), `perf_span!("deliver_io_event")` measurement point, TUI/GUI frame span + batch drain logging, `state_hash` cache inconsistency bug fix (adapter.rs: cache update after `on_io_event` / `handle_key`)
+**Implementation status:** All sub-phases (P-1, P-2, P-3) are done. For detailed implementation status, see [requirements-traceability.md](./requirements-traceability.md).
 
 ## ADR-020: Salsa Incremental Computation — Stage 1/2 Split
 
@@ -1357,90 +1224,9 @@ Salsa is a mandatory dependency. The legacy Surface-based pipeline (`pipeline_su
 
 ### Architecture
 
-#### Salsa Database and Inputs
+Stage 1 uses 6 Salsa input structs (grouped by protocol message boundary) + `PluginEpochInput` (monotonic counter bridging plugin state changes into Salsa's dependency graph). Four tracked view functions produce Element trees from these inputs. Stage 2 composes plugin contributions outside Salsa. Four pipeline variants mirror the legacy paths (cached/sectioned/patched/scene-cached). The legacy Surface-based pipeline has been removed; `SalsaViewSource` is the sole implementation.
 
-`KasaneDatabase` (`salsa_db.rs`) — concrete database with `salsa::Storage`.
-
-Six input structs (`salsa_inputs.rs`), grouped by protocol message boundary:
-
-| Input | Source | Durability |
-|-------|--------|------------|
-| `BufferInput` | `KakouneRequest::Draw` | LOW (default) |
-| `CursorInput` | Heuristic detection in Layer 1 | LOW |
-| `StatusInput` | `KakouneRequest::DrawStatus` | LOW |
-| `MenuInput` | `KakouneRequest::MenuShow/Select/Hide` | LOW |
-| `InfoInput` | `KakouneRequest::InfoShow/Hide` | LOW |
-| `ConfigInput` | Config + dimensions + focus | HIGH (infrequent changes) |
-
-Plus `PluginEpochInput` — a monotonic counter incremented when any plugin's `state_hash()` changes, bridging the plugin system into Salsa's dependency graph without storing plugin data in Salsa.
-
-#### State Synchronization
-
-`sync_inputs_from_state()` (`salsa_sync.rs`) projects `AppState` onto Salsa inputs once per frame, conditioned on `DirtyFlags`. Only dirty inputs are set, so Salsa's revision tracking skips revalidation of unchanged inputs.
-
-`sync_plugin_epoch()` bumps `PluginEpochInput::epoch` when `PluginRegistry::any_plugin_state_changed()` returns true.
-
-#### Tracked View Functions
-
-Four tracked functions in `salsa_views.rs` produce Element trees from Salsa inputs:
-
-| Function | Inputs | Output |
-|----------|--------|--------|
-| `pure_buffer_element` | `ConfigInput` | `Element::BufferRef` |
-| `pure_status_element` | `StatusInput` | `Element::Row` (status + mode) |
-| `pure_menu_overlay` | `MenuInput`, `ConfigInput` | `Option<Overlay>` |
-| `pure_info_overlays` | `InfoInput`, `BufferInput`, `ConfigInput` | `Vec<Overlay>` |
-
-All use `#[salsa::tracked(no_eq)]` because `Element` does not implement `PartialEq`. Memoization still works: if inputs haven't changed, the cached result is returned without re-execution.
-
-Derived queries in `salsa_queries.rs`: `available_height`, `is_prompt_mode`, `cursor_style_query`, `plugin_epoch`.
-
-#### Stage 2 Composition
-
-`compose_base_with_plugins()` in `pipeline_salsa.rs` applies plugin effects to pure elements:
-
-1. Collects slot contributions for all 7 slots (BUFFER_LEFT/RIGHT, ABOVE/BELOW_BUFFER, STATUS_LEFT/RIGHT, ABOVE_STATUS)
-2. Applies transforms (TransformTarget::Buffer, TransformTarget::StatusLine)
-3. Collects line annotations (gutter, backgrounds)
-4. Builds final Element tree with slot children inlined as `FlexChild` nodes
-
-#### Pipeline Variants
-
-Four pipeline entry points mirror the legacy variants:
-
-| Function | Purpose |
-|----------|---------|
-| `render_pipeline_salsa_cached` | Subtree memoization via ViewCache |
-| `render_pipeline_salsa_sectioned` | Selective section-level redraw |
-| `render_pipeline_salsa_patched` | Direct cell writes via PaintPatch (TUI hot path) |
-| `scene_render_pipeline_salsa_cached` | DrawCommand-level caching (GUI hot path) |
-
-#### SalsaViewSource
-
-`SalsaViewSource` implements the `ViewSource` trait, producing view sections by calling the tracked functions and composing with plugins. The legacy `SurfaceViewSource` has been removed; `SalsaViewSource` is the sole implementation.
-
-### What Is Kept
-
-| Component | Reason |
-|-----------|--------|
-| `AppState` + `apply()` | Protocol truth layer (Layer 1). Salsa reads from it, does not replace it |
-| `DirtyFlags` | Still drives PaintPatch fast paths and selective Salsa input sync |
-| `PluginSlotCache` (L1/L3) | Plugin interior mutability incompatible with Salsa's purity requirement |
-| `ViewCache` | Section-level subtree caching, warmed by Salsa output |
-| `LayoutCache` | Layout memoization independent of view generation |
-| `SceneCache` | DrawCommand-level caching (GUI) |
-| `lines_dirty` | Per-line paint skipping, ephemeral per-frame state |
-
-### What Is Added
-
-| Component | Purpose |
-|-----------|--------|
-| `salsa_db.rs` | Database definition |
-| `salsa_inputs.rs` | 6 input structs + PluginEpochInput |
-| `salsa_views.rs` | 4 tracked view functions |
-| `salsa_queries.rs` | Derived tracked queries |
-| `salsa_sync.rs` | AppState → Salsa input projection |
-| `pipeline_salsa.rs` | 4 pipeline variants + Stage 2 composition |
+For implementation details (input structs, tracked functions, pipeline variants, file mapping), see the source code in `kasane-core/src/state/salsa_*.rs` and `kasane-core/src/render/pipeline_salsa.rs`.
 
 ### Trade-offs
 
@@ -1557,6 +1343,52 @@ Rename the traits to reflect their actual roles:
 - `registry.register_pure(x)` → `registry.register(x)`
 - `registry.register(Box::new(x))` → `registry.register_backend(Box::new(x))`
 - Historical ADR text (ADR-021) preserved with original names; current documentation updated
+
+## ADR-023: Session Management Boundaries — Mechanism / Policy Split
+
+**Status:** Current
+
+### Context
+
+Kasane's `SessionManager` manages multiple Kakoune processes, with `SessionStateStore` preserving `AppState` snapshots for inactive sessions. Prior to this decision, session information was invisible to plugins: there was no query API, no lifecycle event notification, and no command for plugins to switch sessions.
+
+The roadmap identifies two active workstreams: Session/Surface parity (automatic surface generation per session) and Multi-session UI parity (session switcher/list). The question is which parts of these belong to core and which to plugins.
+
+### Decision
+
+Apply the principle of "mechanism, not policy" to session management:
+
+- **Core owns mechanism**: process lifecycle, state snapshots, session-bound surface generation, switching mechanics
+- **Plugins own policy**: session UI presentation, switching keybindings, status indicators, list decoration
+
+Core additionally provides **infrastructure for plugin observability**:
+
+1. Session descriptors exposed in observable state (session list, active session ID)
+2. Session lifecycle dirty flag (`DirtyFlags::SESSION`) for cache invalidation
+3. Session switch command exposed to plugins (including WIT)
+
+### Rationale
+
+The decision criterion is "Does a single correct implementation exist?":
+
+- Process management, snapshot atomicity, and surface binding have single correct implementations → Core
+- Session UI presentation varies by user preference → Plugin
+- Observation and command infrastructure is owned by core (source of truth) but exists to enable plugins
+
+This separation means the default session UI can ship as a bundled WASM plugin, replaceable by users. Core remains minimal and policy-free.
+
+### Alternatives Considered
+
+| Alternative | Rejected because |
+|---|---|
+| All-core (session UI in core) | Session UI is display policy; hardcoding it prevents customization and contradicts the layer model |
+| All-plugin (session lifecycle in plugins) | Process management requires backend-specific wiring (reader/writer streams) that cannot be safely exposed to plugins |
+
+### Implementation Order
+
+1. ~~Core infrastructure: session descriptors in observable state, `DirtyFlags::SESSION`, `SessionCommand::Switch`~~ — Done
+2. Session/Surface parity: automatic surface generation and deterministic switching
+3. Session UI plugin: bundled WASM providing default session switcher
 
 ## Related Documents
 

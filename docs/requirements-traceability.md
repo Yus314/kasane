@@ -131,6 +131,16 @@ For specific use cases, see [requirements.md](./requirements.md#4-validation-tar
 | P-061 | Config + Foundation | Semantic style tokens | ○ Basic implementation exists | 5a |
 | P-062 | Renderer | Text policy assuming GPU backend (`glyphon`) | - Candidate | 5c |
 
+## 4b. Plugin I/O Infrastructure (ADR-019) Implementation Status
+
+| Sub-phase | Content | Status | Details |
+|-----------|---------|--------|---------|
+| P-1 | WASI capability infrastructure | ✓ Done | WIT v0.5.0 `capability` enum, `WasiCapabilityConfig` + `build_wasi_ctx()`, `deny_capabilities` configuration |
+| P-2 | Process execution infrastructure | ✓ Done | `IoEvent` / `ProcessEvent` types, `Plugin::on_io_event()` + WIT v0.6.0, `Command::SpawnProcess` and 3 other commands, tokio-based `ProcessManager`, TUI/GUI event loop integration, `Capability::Process` capability check |
+| P-3 | Proof-of-concept and stabilization | ✓ Done | Fuzzy finder reference implementation (`examples/wasm/fuzzy-finder/`), `on_io_event` criterion benchmark (`kasane-wasm/benches/io_event.rs`), `perf_span!("deliver_io_event")` measurement point, TUI/GUI frame span + batch drain logging, `state_hash` cache inconsistency bug fix (adapter.rs: cache update after `on_io_event` / `handle_key`) |
+
+For the design decisions behind this structure, see [ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model).
+
 ## 5. Upstream Dependency / Degraded Behavior Traceability
 
 | ID | Resolution Layer | Notes | Status |
