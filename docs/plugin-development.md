@@ -146,7 +146,7 @@ These are available in all plugin code (emitted by `generate!()` / `define_plugi
 | Status widget | `state` (`#[bind]`), `slots` | `contribution` | sel-badge |
 | Line annotator | `state` (`#[bind]`), `annotate`, `annotate_deps` | `annotation` | cursor-line |
 | Element transformer | `state` (`#[bind]`), `transform`, `transform_deps` | `transform` | prompt-highlight |
-| Display transform | `state`, `on_state_changed`, `display_directives`, `display_directives_deps` | — | — |
+| Display transform | `state`, `on_state_changed`, `display_directives`, `display_directives_deps` | — | virtual-text-demo (native) |
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
 | Process launcher | Above + `on_io_event`, `capabilities` | `process` | fuzzy-finder |
 
@@ -363,6 +363,7 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
 | line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |
+| virtual-text-demo (native) | `examples/virtual-text-demo/` | `Plugin` trait, `display_directives()`, `contribute_to()`, `handle_key()`, virtual text insertion |
 
 ## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
 

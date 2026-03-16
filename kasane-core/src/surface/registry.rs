@@ -517,12 +517,14 @@ impl SurfaceRegistry {
             })
             .collect();
 
+        let display_map = plugin_registry.collect_display_map(state);
         view::ViewSections {
             base: base_result.base.unwrap_or(Element::Empty),
             menu_overlay,
             info_overlays,
             plugin_overlays,
             surface_reports: base_result.surface_reports,
+            display_map,
         }
     }
 

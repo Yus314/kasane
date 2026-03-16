@@ -26,6 +26,19 @@ pub(crate) enum Event {
     KakouneDied(SessionId),
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
     ProcessOutput(PluginId, IoEvent),
+    PluginReload,
+}
+
+impl Event {
+    /// Returns `true` if this is a `Kakoune(_, Draw { .. })` event.
+    pub(crate) fn is_draw(&self) -> bool {
+        matches!(self, Event::Kakoune(_, KakouneRequest::Draw { .. }))
+    }
+
+    /// Returns `true` if this is a `Kakoune(_, Refresh { .. })` event.
+    pub(crate) fn is_refresh(&self) -> bool {
+        matches!(self, Event::Kakoune(_, KakouneRequest::Refresh { .. }))
+    }
 }
 
 /// ProcessEventSink that injects process I/O events into the TUI event channel.
@@ -178,6 +191,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub dirty: &'a mut DirtyFlags,
     pub timer: &'a TuiTimerScheduler,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+    pub plugin_reloader: &'a Option<crate::PluginReloader>,
 }
 
 /// Process a single event, returning `true` if the application should quit.
@@ -301,6 +315,19 @@ where
                 commands,
                 surface_commands: vec![],
                 command_source: Some(plugin_id),
+            }
+        }
+        Event::PluginReload => {
+            // Reload plugins from disk — triggered by `.reload` sentinel
+            if let Some(reloader) = ctx.plugin_reloader.as_ref() {
+                reloader(ctx.registry, ctx.state);
+                tracing::info!("hot-reloaded plugins");
+            }
+            EventResult {
+                flags: DirtyFlags::all(),
+                commands: vec![],
+                surface_commands: vec![],
+                command_source: None,
             }
         }
         Event::KakouneDied(session_id) => {

@@ -4,6 +4,7 @@ pub(crate) mod menu;
 #[allow(clippy::field_reassign_with_default)]
 mod tests;
 
+use crate::display::DisplayMapRef;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, PluginRegistry, TransformTarget};
@@ -108,6 +109,8 @@ pub struct ViewSections {
     pub info_overlays: Vec<Overlay>,
     pub plugin_overlays: Vec<Overlay>,
     pub surface_reports: Vec<SurfaceRenderReport>,
+    /// The active DisplayMap for the current frame (identity if no transforms).
+    pub display_map: DisplayMapRef,
 }
 
 impl ViewSections {
@@ -186,6 +189,7 @@ fn build_sections_with_base(
     registry: &PluginRegistry,
     cache: &mut ViewCache,
 ) -> ViewSections {
+    let display_map = registry.collect_display_map(state);
     let menu_overlay = cache.menu_overlay.get_or_insert(
         cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
         BUILD_MENU_SECTION_DEPS,
@@ -219,6 +223,7 @@ fn build_sections_with_base(
         info_overlays,
         plugin_overlays,
         surface_reports: base_result.surface_reports,
+        display_map,
     }
 }
 
@@ -384,17 +389,36 @@ struct BufferCoreParts {
 }
 
 fn build_buffer_core_parts(state: &AppState, registry: &PluginRegistry) -> BufferCoreParts {
+    use std::sync::Arc;
+
     let buffer_rows = state.available_height() as usize;
+
+    // Collect display map before annotations (annotations may use it)
+    let display_map = registry.collect_display_map(state);
+    let dm_for_element = if display_map.is_identity() {
+        None
+    } else {
+        Some(Arc::clone(&display_map))
+    };
     let annotate_ctx = AnnotateContext {
         line_width: state.cols,
         gutter_width: 0,
+        display_map: Some(Arc::clone(&display_map)),
     };
     let annotations = registry.collect_annotations(state, &annotate_ctx);
     let line_backgrounds = annotations.line_backgrounds;
-    let buffer_element = if line_backgrounds.is_some() {
+    // When a non-identity DisplayMap is active, line_range must reflect
+    // the display line count (which is fewer than buffer lines after fold).
+    let effective_rows = if !display_map.is_identity() {
+        display_map.display_line_count().min(buffer_rows)
+    } else {
+        buffer_rows
+    };
+    let buffer_element = if line_backgrounds.is_some() || dm_for_element.is_some() {
         Element::BufferRef {
-            line_range: 0..buffer_rows,
+            line_range: 0..effective_rows,
             line_backgrounds,
+            display_map: dm_for_element,
         }
     } else {
         Element::buffer_ref(0..buffer_rows)

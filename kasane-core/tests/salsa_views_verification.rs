@@ -100,6 +100,7 @@ fn pure_buffer_element_basic() {
         Element::BufferRef {
             line_range,
             line_backgrounds,
+            ..
         } => {
             assert_eq!(line_range.len(), 23, "available_height = rows - 1");
             assert!(line_backgrounds.is_none());

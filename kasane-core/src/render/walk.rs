@@ -15,6 +15,7 @@ use super::scene::{
     to_pixel_rect,
 };
 use super::theme::Theme;
+use crate::display::DisplayMap;
 use crate::element::{BorderConfig, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
@@ -58,6 +59,7 @@ pub(crate) trait PaintVisitor {
         line_range: Range<usize>,
         state: &AppState,
         line_backgrounds: Option<&[Option<Face>]>,
+        display_map: Option<&DisplayMap>,
     );
 
     /// Pre-visit for Container: render shadow, background fill, border, title.
@@ -100,8 +102,20 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
         Element::BufferRef {
             line_range,
             line_backgrounds,
+            display_map,
+            ..
         } => {
-            visitor.visit_buffer_ref(area, line_range.clone(), state, line_backgrounds.as_deref());
+            let dm = display_map
+                .as_ref()
+                .map(|dm| dm.as_ref())
+                .filter(|dm| !dm.is_identity());
+            visitor.visit_buffer_ref(
+                area,
+                line_range.clone(),
+                state,
+                line_backgrounds.as_deref(),
+                dm,
+            );
         }
         Element::Empty => {}
         Element::SlotPlaceholder { .. } => {
@@ -219,8 +233,16 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         line_range: Range<usize>,
         state: &AppState,
         line_backgrounds: Option<&[Option<Face>]>,
+        display_map: Option<&DisplayMap>,
     ) {
-        paint_buffer_ref(self.grid, &area, line_range, state, line_backgrounds);
+        paint_buffer_ref(
+            self.grid,
+            &area,
+            line_range,
+            state,
+            line_backgrounds,
+            display_map,
+        );
     }
 
     fn visit_container_pre(&mut self, info: &ContainerPaintInfo) {
@@ -314,14 +336,58 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         line_range: Range<usize>,
         state: &AppState,
         line_backgrounds: Option<&[Option<Face>]>,
+        display_map: Option<&DisplayMap>,
     ) {
         let cs = self.cell_size;
 
         for y_offset in 0..area.h {
-            let line_idx = line_range.start + y_offset as usize;
+            let display_line = line_range.start + y_offset as usize;
             let py = (area.y + y_offset) as f32 * cs.height;
             let px = area.x as f32 * cs.width;
             let row_w = area.w as f32 * cs.width;
+
+            // Resolve display line → buffer line via DisplayMap
+            let (buffer_line_idx, synthetic) = if let Some(dm) = display_map {
+                if let Some(entry) = dm.entry(display_line) {
+                    let buf_line = match &entry.source {
+                        crate::display::SourceMapping::BufferLine(l) => Some(*l),
+                        crate::display::SourceMapping::LineRange(r) => Some(r.start),
+                        crate::display::SourceMapping::None => None,
+                    };
+                    (buf_line, entry.synthetic.as_ref())
+                } else {
+                    // Beyond display map range — render padding, not a buffer line
+                    (None, None)
+                }
+            } else {
+                (Some(display_line), None)
+            };
+
+            // Render synthetic content (fold summary, virtual text)
+            if let Some(syn) = synthetic {
+                self.out.push(DrawCommand::FillRect {
+                    rect: PixelRect {
+                        x: px,
+                        y: py,
+                        w: row_w,
+                        h: cs.height,
+                    },
+                    face: syn.face,
+                    elevated: false,
+                });
+                self.out.push(DrawCommand::DrawText {
+                    pos: PixelPos { x: px, y: py },
+                    text: syn.text.clone(),
+                    face: syn.face,
+                    max_width: row_w,
+                });
+                continue;
+            }
+
+            let line_idx = match buffer_line_idx {
+                Some(idx) => idx,
+                None => continue, // virtual text with no buffer source
+            };
 
             if let Some(line) = state.lines.get(line_idx) {
                 // Background fill for the row (with optional per-line override)

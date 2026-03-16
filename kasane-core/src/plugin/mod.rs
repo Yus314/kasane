@@ -34,6 +34,9 @@ pub use context::{
 // Re-export registry module
 pub use registry::{EffectiveSectionDeps, PluginRegistry, PluginSurfaceSet};
 
+// Re-export display types for plugin API
+pub use crate::display::{DisplayDirective, DisplayMapRef};
+
 // Re-export traits module
 pub use traits::PluginBackend;
 
@@ -59,6 +62,7 @@ bitflags! {
         const TRANSFORMER        = 1 << 15;
         const ANNOTATOR          = 1 << 16;
         const IO_HANDLER         = 1 << 17;
+        const DISPLAY_TRANSFORM  = 1 << 18;
     }
 }
 

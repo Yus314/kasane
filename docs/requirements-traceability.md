@@ -115,11 +115,11 @@ For specific use cases, see [requirements.md](./requirements.md#4-validation-tar
 | P-021 | Foundation | Event routing and target resolution | ○ Partially implemented | 4b |
 | P-022 | Foundation | Semantic recognizer / binding | - Candidate | 5c |
 | P-023 | Renderer + Foundation | GUI file drop -> `:edit` implemented. Generic drop routing to UI elements / plugins not yet done | ○ Partial | Separate track |
-| P-030 | Foundation | Display transformation hook | - Candidate | 5c |
-| P-031 | Foundation | Composition rules for elision, proxy display, and additional display | - Candidate | 5c |
+| P-030 | Foundation | Display transformation hook | ✓ Done | DT | `display_directives()` on `Plugin` / `PluginBackend`, `PluginCapabilities::DISPLAY_TRANSFORM`, `collect_display_map()` in `PluginRegistry` |
+| P-031 | Foundation | Composition rules for elision, proxy display, and additional display | ○ Single-plugin only | DT | `debug_assert!(contributor_count <= 1)`. Multi-plugin composition deferred |
 | P-032 | Foundation + Semantics | Observed / policy separation. Authoritative source is [semantics.md](./semantics.md) | ○ Theory organized | 5c |
-| P-033 | Foundation | Plugin-defined transformation API | - Candidate | 5c |
-| P-034 | Foundation + Semantics | Read-only / restricted interaction policy | - Candidate | 5c |
+| P-033 | Foundation | Plugin-defined transformation API | ✓ Done | DT | `DisplayDirective` enum (`Fold`, `InsertAfter`, `Hide`), `DisplayMap::build()` |
+| P-034 | Foundation + Semantics | Read-only / restricted interaction policy | ✓ Done | DT | `InteractionPolicy` enum, `SourceMapping`, mouse click suppression in `mouse_to_kakoune()` |
 | P-040 | Foundation | Display unit model | - Candidate | 5c |
 | P-041 | Foundation | Geometry / source mapping / role | - Candidate | 5c |
 | P-042 | Foundation + Renderer | Visual navigation / hit test | - Candidate | 5c |

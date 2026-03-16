@@ -6,6 +6,8 @@ use crate::layout::flex::Constraints;
 use crate::protocol::Face;
 use crate::state::AppState;
 
+use crate::display::DisplayMapRef;
+
 use super::PluginId;
 
 /// Layout constraints passed to plugins during contribution.
@@ -100,6 +102,8 @@ pub struct TransformContext {
 pub struct AnnotateContext {
     pub line_width: u16,
     pub gutter_width: u16,
+    /// The active DisplayMap, if any display transformations are in effect.
+    pub display_map: Option<DisplayMapRef>,
 }
 
 /// A background layer with z-ordering and blend mode.

@@ -1,5 +1,6 @@
 use super::CursorStyle;
 use super::grid::CellGrid;
+use crate::display::DisplayMap;
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
 use crate::layout::line_display_width;
@@ -60,12 +61,27 @@ pub fn find_buffer_x_offset(element: &Element, layout: &LayoutResult) -> u16 {
 
 /// Compute the terminal cursor position from the application state.
 /// `buffer_x_offset` accounts for left gutter columns.
+/// `display_map` transforms buffer line to display line when active.
 /// Returns (x, y) coordinates for the terminal cursor.
-pub fn cursor_position(state: &AppState, grid: &CellGrid, buffer_x_offset: u16) -> (u16, u16) {
+pub fn cursor_position(
+    state: &AppState,
+    grid: &CellGrid,
+    buffer_x_offset: u16,
+    display_map: Option<&DisplayMap>,
+) -> (u16, u16) {
     match state.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
-            let cy = state.cursor_pos.line as u16;
+            let cy = display_map
+                .and_then(|dm| {
+                    if dm.is_identity() {
+                        None
+                    } else {
+                        dm.buffer_to_display(state.cursor_pos.line as usize)
+                            .map(|y| y as u16)
+                    }
+                })
+                .unwrap_or(state.cursor_pos.line as u16);
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -108,6 +124,7 @@ pub fn clear_block_cursor_face(
     grid: &mut CellGrid,
     style: CursorStyle,
     buffer_x_offset: u16,
+    display_map: Option<&DisplayMap>,
 ) {
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
@@ -115,7 +132,16 @@ pub fn clear_block_cursor_face(
     let (cx, cy) = match state.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
-            let cy = state.cursor_pos.line as u16;
+            let cy = display_map
+                .and_then(|dm| {
+                    if dm.is_identity() {
+                        None
+                    } else {
+                        dm.buffer_to_display(state.cursor_pos.line as usize)
+                            .map(|y| y as u16)
+                    }
+                })
+                .unwrap_or(state.cursor_pos.line as u16);
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -197,10 +223,23 @@ pub fn make_secondary_cursor_face(
 
 /// Apply secondary cursor face differentiation to the grid.
 /// Rewrites face at each secondary cursor position.
-pub fn apply_secondary_cursor_faces(state: &AppState, grid: &mut CellGrid, buffer_x_offset: u16) {
+pub fn apply_secondary_cursor_faces(
+    state: &AppState,
+    grid: &mut CellGrid,
+    buffer_x_offset: u16,
+    display_map: Option<&DisplayMap>,
+) {
     for coord in &state.secondary_cursors {
         let x = coord.column as u16 + buffer_x_offset;
-        let y = coord.line as u16;
+        let y = display_map
+            .and_then(|dm| {
+                if dm.is_identity() {
+                    None
+                } else {
+                    dm.buffer_to_display(coord.line as usize).map(|y| y as u16)
+                }
+            })
+            .unwrap_or(coord.line as u16);
         if let Some(cell) = grid.get_mut(x, y) {
             cell.face = make_secondary_cursor_face(
                 &cell.face,

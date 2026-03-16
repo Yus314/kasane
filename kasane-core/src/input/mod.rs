@@ -139,36 +139,57 @@ fn format_with_modifiers(base: &str, modifiers: Modifiers) -> String {
 }
 
 /// Convert a mouse event to a KasaneRequest-compatible representation.
+///
+/// When `display_map` is provided and non-identity, `event.line` (which is in
+/// display-space) is translated back to buffer-space before being sent to
+/// Kakoune.  Lines with `InteractionPolicy::ReadOnly` or `Skip` suppress the
+/// event (returns `None`).
 pub fn mouse_to_kakoune(
     event: &MouseEvent,
     scroll_amount: i32,
+    display_map: Option<&crate::display::DisplayMap>,
 ) -> Option<crate::protocol::KasaneRequest> {
+    use crate::display::InteractionPolicy;
     use crate::protocol::KasaneRequest;
+
+    let (line, column) = if let Some(dm) = display_map.filter(|dm| !dm.is_identity()) {
+        let display_y = event.line as usize;
+        // Check interaction policy — skip ReadOnly/Skip lines
+        if let Some(entry) = dm.entry(display_y) {
+            match entry.interaction {
+                InteractionPolicy::Normal => {}
+                InteractionPolicy::ReadOnly | InteractionPolicy::Skip => return None,
+            }
+        }
+        let buffer_line = dm.display_to_buffer(display_y).unwrap_or(display_y) as u32;
+        (buffer_line, event.column)
+    } else {
+        (event.line, event.column)
+    };
 
     match event.kind {
         MouseEventKind::Press(button) => Some(KasaneRequest::MousePress {
             button: mouse_button_str(button).to_string(),
-            line: event.line,
-            column: event.column,
+            line,
+            column,
         }),
         MouseEventKind::Release(button) => Some(KasaneRequest::MouseRelease {
             button: mouse_button_str(button).to_string(),
-            line: event.line,
-            column: event.column,
+            line,
+            column,
         }),
-        MouseEventKind::Move | MouseEventKind::Drag(_) => Some(KasaneRequest::MouseMove {
-            line: event.line,
-            column: event.column,
-        }),
+        MouseEventKind::Move | MouseEventKind::Drag(_) => {
+            Some(KasaneRequest::MouseMove { line, column })
+        }
         MouseEventKind::ScrollUp => Some(KasaneRequest::Scroll {
             amount: -scroll_amount,
-            line: event.line,
-            column: event.column,
+            line,
+            column,
         }),
         MouseEventKind::ScrollDown => Some(KasaneRequest::Scroll {
             amount: scroll_amount,
-            line: event.line,
-            column: event.column,
+            line,
+            column,
         }),
     }
 }
@@ -356,7 +377,7 @@ mod tests {
             column: 10,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::MousePress {
@@ -377,7 +398,7 @@ mod tests {
             column: 7,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 3, column: 7 });
     }
 
@@ -391,7 +412,7 @@ mod tests {
             column: 2,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 1, column: 2 });
     }
 
@@ -432,7 +453,7 @@ mod tests {
             column: 0,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
         assert_eq!(
             req,
             KasaneRequest::Scroll {

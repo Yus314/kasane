@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use compact_str::CompactString;
 
+use crate::display::DisplayMapRef;
 use crate::layout::Rect;
 use crate::protocol::{Atom, Coord, Face, Line};
 
@@ -381,6 +382,8 @@ pub enum Element {
         line_range: Range<usize>,
         /// Per-line background overrides from plugins (indexed by line within range).
         line_backgrounds: Option<Vec<Option<Face>>>,
+        /// Display transformation map (None = identity, no transformations).
+        display_map: Option<DisplayMapRef>,
     },
 }
 
@@ -425,6 +428,7 @@ impl Element {
         Element::BufferRef {
             line_range,
             line_backgrounds: None,
+            display_map: None,
         }
     }
 

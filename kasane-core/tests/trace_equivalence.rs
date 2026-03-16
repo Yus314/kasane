@@ -776,6 +776,7 @@ proptest! {
         let cursor_patch = CursorPatch {
             prev_cursor_x: state.cursor_pos.column as u16,
             prev_cursor_y: state.cursor_pos.line as u16,
+            display_map: None,
         };
         let patches: Vec<&dyn PaintPatch> = vec![&status_patch, &cursor_patch];
 
@@ -795,6 +796,7 @@ proptest! {
         let new_cursor_patch = CursorPatch {
             prev_cursor_x: old_x,
             prev_cursor_y: old_y,
+            display_map: None,
         };
         let new_patches: Vec<&dyn PaintPatch> = vec![&status_patch, &new_cursor_patch];
 
@@ -838,7 +840,7 @@ proptest! {
         }
 
         // CursorPatch: only accepts empty dirty flags
-        let cp = CursorPatch { prev_cursor_x: 99, prev_cursor_y: 99 };
+        let cp = CursorPatch { prev_cursor_x: 99, prev_cursor_y: 99, display_map: None };
         if !dirty.is_empty() {
             prop_assert!(!cp.can_apply(dirty, &state), "CursorPatch should reject dirty={dirty:?}");
         }
@@ -871,7 +873,7 @@ proptest! {
         let mut vc = ViewCache::new();
         let mut lc = LayoutCache::new();
 
-        let cursor_patch = CursorPatch { prev_cursor_x: prev_cx, prev_cursor_y: prev_cy };
+        let cursor_patch = CursorPatch { prev_cursor_x: prev_cx, prev_cursor_y: prev_cy, display_map: None };
         let menu_patch = MenuSelectionPatch { prev_selected };
         let init_patches: Vec<&dyn PaintPatch> = vec![&status_patch, &cursor_patch, &menu_patch];
         let mut grid = warm_render(&state, &registry, &mut vc, &mut lc, &init_patches);
@@ -883,7 +885,7 @@ proptest! {
         }
 
         // Render with accumulated dirty flags and patches
-        let new_cursor = CursorPatch { prev_cursor_x: prev_cx, prev_cursor_y: prev_cy };
+        let new_cursor = CursorPatch { prev_cursor_x: prev_cx, prev_cursor_y: prev_cy, display_map: None };
         let new_menu = MenuSelectionPatch { prev_selected };
         let patches: Vec<&dyn PaintPatch> = vec![&status_patch, &new_cursor, &new_menu];
         render_pipeline_patched(

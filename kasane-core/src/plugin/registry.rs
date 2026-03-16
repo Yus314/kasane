@@ -2,6 +2,9 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use std::sync::Arc;
+
+use crate::display::{DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild, InteractiveId};
 use crate::layout::HitMap;
 use crate::state::{AppState, DirtyFlags};
@@ -184,6 +187,7 @@ impl PluginRegistry {
             base |= self.contribute_deps(slot);
         }
         base |= self.annotate_deps();
+        base |= self.display_directives_deps();
         base |= self.transform_deps(&TransformTarget::Buffer);
         base |= self.transform_deps(&TransformTarget::StatusBar);
 
@@ -249,6 +253,30 @@ impl PluginRegistry {
         for plugin in &mut self.plugins {
             plugin.on_shutdown();
         }
+    }
+
+    /// Reload a single plugin by replacing it in-place.
+    ///
+    /// Shuts down the old plugin (if it exists with the same ID), registers the
+    /// new one, and initializes it. Returns any commands from the new plugin's
+    /// `on_init()`.
+    pub fn reload_plugin(
+        &mut self,
+        plugin: Box<dyn PluginBackend>,
+        state: &AppState,
+    ) -> Vec<Command> {
+        let id = plugin.id();
+        // Shut down old plugin if present
+        if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
+            self.plugins[pos].on_shutdown();
+        }
+        // register_backend handles replacement or insertion
+        self.register_backend(plugin);
+        // Init the new plugin
+        if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
+            return self.plugins[pos].on_init(state);
+        }
+        vec![]
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
@@ -526,6 +554,50 @@ impl PluginRegistry {
             },
             line_backgrounds: if has_bg { Some(backgrounds) } else { None },
         }
+    }
+
+    /// Collect display transformation directives from all plugins and build
+    /// a `DisplayMapRef`.
+    ///
+    /// In the initial implementation, only a single plugin may contribute
+    /// directives. If no plugin contributes directives, returns an identity map.
+    pub fn collect_display_map(&self, state: &AppState) -> DisplayMapRef {
+        if !self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM) {
+            let line_count = state.visible_line_range().len();
+            return Arc::new(DisplayMap::identity(line_count));
+        }
+
+        let mut all_directives = Vec::new();
+        let mut contributor_count = 0;
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
+                continue;
+            }
+            let directives = plugin.display_directives(state);
+            if !directives.is_empty() {
+                all_directives.extend(directives);
+                contributor_count += 1;
+            }
+        }
+
+        // Initial constraint: single plugin only
+        debug_assert!(
+            contributor_count <= 1,
+            "DisplayMap: only one plugin may contribute display directives (got {contributor_count})"
+        );
+
+        let line_count = state.visible_line_range().len();
+        let dm = DisplayMap::build(line_count, &all_directives);
+        Arc::new(dm)
+    }
+
+    /// Aggregate DirtyFlags dependencies for display directives.
+    pub fn display_directives_deps(&self) -> DirtyFlags {
+        self.plugins
+            .iter()
+            .fold(DirtyFlags::empty(), |deps, plugin| {
+                deps | plugin.display_directives_deps()
+            })
     }
 
     /// Collect overlay contributions with collision-avoidance context.

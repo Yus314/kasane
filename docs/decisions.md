@@ -48,6 +48,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Salsa incremental computation | Current | **Stage 1 (Salsa tracked) + Stage 2 (imperative plugins)** | Mandatory dependency (feature flag removed). Details in [ADR-020](#adr-020-salsa-incremental-computation--stage-12-split) |
 | Plugin trait naming | Current | **`Plugin` (state-externalized, primary) + `PluginBackend` (mutable, internal)** | Renamed from `PurePlugin`/`Plugin`. Details in [ADR-022](#adr-022-plugin-trait-rename--pureplugin--plugin-plugin--pluginbackend) |
 | Session management boundaries | Current | **Mechanism (core) / Policy (plugin) split** | Session lifecycle in core; session UI in plugins. Details in [ADR-023](#adr-023-session-management-boundaries--mechanism--policy-split) |
+| Display transformation | Current | **DisplayMap + DisplayDirective** | Plugin-declared directives (Fold/InsertAfter/Hide) → core builds O(1) bidirectional mapping. Single-plugin constraint initially. Virtual text proof artifact in `examples/virtual-text-demo/`. Kakoune viewport control limits true folding |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 

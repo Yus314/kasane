@@ -11,9 +11,9 @@ use crate::state::{AppState, DirtyFlags};
 
 use super::state::{Plugin, PluginState};
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, IoEvent, LineAnnotation,
-    OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities, PluginId, SlotId,
-    TransformContext, TransformTarget,
+    AnnotateContext, Command, ContributeContext, Contribution, DisplayDirective, IoEvent,
+    LineAnnotation, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities,
+    PluginId, SlotId, TransformContext, TransformTarget,
 };
 
 // =============================================================================
@@ -110,11 +110,19 @@ pub(crate) trait ErasedPlugin: Send {
         app: &AppState,
     ) -> Option<Vec<crate::protocol::Atom>>;
 
+    // Display transform
+    fn display_directives_erased(
+        &self,
+        state: &dyn PluginState,
+        app: &AppState,
+    ) -> Vec<DisplayDirective>;
+
     // Dependency declarations
     fn contribute_deps_erased(&self, region: &SlotId) -> DirtyFlags;
     fn transform_deps_erased(&self, target: &TransformTarget) -> DirtyFlags;
     fn annotate_deps_erased(&self) -> DirtyFlags;
     fn overlay_deps_erased(&self) -> DirtyFlags;
+    fn display_directives_deps_erased(&self) -> DirtyFlags;
 }
 
 impl<P: Plugin> ErasedPlugin for P {
@@ -284,6 +292,15 @@ impl<P: Plugin> ErasedPlugin for P {
         self.transform_menu_item(typed, item, index, selected, app)
     }
 
+    fn display_directives_erased(
+        &self,
+        state: &dyn PluginState,
+        app: &AppState,
+    ) -> Vec<DisplayDirective> {
+        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
+        self.display_directives(typed, app)
+    }
+
     fn contribute_deps_erased(&self, region: &SlotId) -> DirtyFlags {
         self.contribute_deps(region)
     }
@@ -295,6 +312,9 @@ impl<P: Plugin> ErasedPlugin for P {
     }
     fn overlay_deps_erased(&self) -> DirtyFlags {
         self.overlay_deps()
+    }
+    fn display_directives_deps_erased(&self) -> DirtyFlags {
+        self.display_directives_deps()
     }
 }
 
@@ -467,6 +487,14 @@ impl PluginBackend for PluginBridge {
         self.inner.annotate_deps_erased()
     }
 
+    fn display_directives(&self, state: &AppState) -> Vec<DisplayDirective> {
+        self.inner.display_directives_erased(&*self.state, state)
+    }
+
+    fn display_directives_deps(&self) -> DirtyFlags {
+        self.inner.display_directives_deps_erased()
+    }
+
     fn contribute_overlay_with_ctx(
         &self,
         state: &AppState,
@@ -578,6 +606,7 @@ mod tests {
         let ctx = AnnotateContext {
             line_width: 80,
             gutter_width: 0,
+            display_map: None,
         };
 
         assert!(bridge.annotate_line_with_ctx(3, &app, &ctx).is_some());
@@ -648,6 +677,7 @@ mod tests {
         let ctx = AnnotateContext {
             line_width: 80,
             gutter_width: 0,
+            display_map: None,
         };
         let result = registry.collect_annotations(&app, &ctx);
         assert!(result.line_backgrounds.is_some());

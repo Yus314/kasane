@@ -8,6 +8,7 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::theme::Theme;
 use super::walk;
 use super::{RenderResult, patch, view};
+use crate::display::{DisplayMap, DisplayMapRef};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
@@ -119,12 +120,17 @@ fn compute_render_result(
     state: &AppState,
     registry: &PluginRegistry,
     buffer_x_offset: u16,
+    display_map: Option<&DisplayMap>,
 ) -> RenderResult {
     let style = cursor_style(state, registry);
     let (cx, cy) = match state.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
-            let cy = state.cursor_pos.line as u16;
+            let cy = display_map
+                .filter(|dm| !dm.is_identity())
+                .and_then(|dm| dm.buffer_to_display(state.cursor_pos.line as usize))
+                .map(|y| y as u16)
+                .unwrap_or(state.cursor_pos.line as u16);
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -143,6 +149,12 @@ fn compute_render_result(
         cursor_y: cy,
         cursor_style: style,
     }
+}
+
+/// Extract a display_map Option reference from a DisplayMapRef,
+/// returning None when the map is identity (optimization).
+fn dm_ref(dm: &DisplayMapRef) -> Option<&DisplayMap> {
+    if dm.is_identity() { None } else { Some(dm) }
 }
 
 /// Debug assertion: check that two grids produce equivalent content.
@@ -209,6 +221,8 @@ pub(crate) fn render_cached_core(
 
     source.invalidate_view_cache(dirty, registry, cache);
     let mut sections = source.view_sections(state, registry, cache);
+    let display_map = std::sync::Arc::clone(&sections.display_map);
+    let dm = dm_ref(&display_map);
     let root_area = Rect {
         x: 0,
         y: 0,
@@ -234,11 +248,11 @@ pub(crate) fn render_cached_core(
     let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
 
     // Differentiate secondary cursor faces before clearing primary cursor
-    apply_secondary_cursor_faces(state, grid, buffer_x_offset);
+    apply_secondary_cursor_faces(state, grid, buffer_x_offset, dm);
 
     let style = cursor_style(state, registry);
-    clear_block_cursor_face(state, grid, style, buffer_x_offset);
-    let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+    clear_block_cursor_face(state, grid, style, buffer_x_offset, dm);
+    let (cx, cy) = cursor_position(state, grid, buffer_x_offset, dm);
 
     RenderResult {
         cursor_x: cx,
@@ -287,6 +301,8 @@ pub(crate) fn render_sectioned_core(
 
         source.invalidate_view_cache(dirty, registry, view_cache);
         let mut sections = source.view_sections(state, registry, view_cache);
+        let display_map = std::sync::Arc::clone(&sections.display_map);
+        let dm = dm_ref(&display_map);
         let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
         let element = sections.into_element();
         let layout_result = flex::place(&element, root_area, state);
@@ -307,8 +323,8 @@ pub(crate) fn render_sectioned_core(
 
         let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
         let style = cursor_style(state, registry);
-        clear_block_cursor_face(state, grid, style, buffer_x_offset);
-        let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+        clear_block_cursor_face(state, grid, style, buffer_x_offset, dm);
+        let (cx, cy) = cursor_position(state, grid, buffer_x_offset, dm);
         return RenderResult {
             cursor_x: cx,
             cursor_y: cy,
@@ -320,6 +336,8 @@ pub(crate) fn render_sectioned_core(
     if dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some() {
         source.invalidate_view_cache(dirty, registry, view_cache);
         let mut sections = source.view_sections(state, registry, view_cache);
+        let display_map = std::sync::Arc::clone(&sections.display_map);
+        let dm = dm_ref(&display_map);
 
         let menu_rect = sections
             .menu_overlay
@@ -340,8 +358,8 @@ pub(crate) fn render_sectioned_core(
 
             let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
             let style = cursor_style(state, registry);
-            clear_block_cursor_face(state, grid, style, buffer_x_offset);
-            let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+            clear_block_cursor_face(state, grid, style, buffer_x_offset, dm);
+            let (cx, cy) = cursor_position(state, grid, buffer_x_offset, dm);
             return RenderResult {
                 cursor_x: cx,
                 cursor_y: cy,
@@ -402,18 +420,19 @@ pub(crate) fn render_patched_core(
     // Try each patch
     let plugins_changed = registry.any_plugin_state_changed();
     if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache, plugins_changed) {
-        // Compute buffer_x_offset from cached layout if available
+        // Compute buffer_x_offset and display_map from cached layout if available
+        let sections = source.view_sections(state, registry, view_cache);
+        let display_map = std::sync::Arc::clone(&sections.display_map);
+        let dm = dm_ref(&display_map);
         let buffer_x_offset = if let Some(ref base_layout) = layout_cache.base_layout {
-            let element = source
-                .view_sections(state, registry, view_cache)
-                .into_element();
+            let element = sections.into_element();
             find_buffer_x_offset(&element, base_layout)
         } else {
             0
         };
         let style = cursor_style(state, registry);
-        clear_block_cursor_face(state, grid, style, buffer_x_offset);
-        let (cx, cy) = cursor_position(state, grid, buffer_x_offset);
+        clear_block_cursor_face(state, grid, style, buffer_x_offset, dm);
+        let (cx, cy) = cursor_position(state, grid, buffer_x_offset, dm);
 
         let result = RenderResult {
             cursor_x: cx,
@@ -486,9 +505,11 @@ pub(crate) fn scene_render_core<'a>(
     };
 
     // Compute buffer_x_offset from the base layout
+    let display_map = std::sync::Arc::clone(&sections.display_map);
+    let dm = dm_ref(&display_map);
     let base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
     let buffer_x_offset = find_buffer_x_offset(&sections.base, &base_layout);
-    let result = compute_render_result(state, registry, buffer_x_offset);
+    let result = compute_render_result(state, registry, buffer_x_offset, dm);
 
     // Fast path: all sections cached
     if scene_cache.is_fully_cached() {

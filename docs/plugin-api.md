@@ -71,18 +71,34 @@ As a principle, prefer the least flexible mechanism that suffices. Do not use `t
 
 ### 1.2.1 Display Transformations and Display Units
 
-As described in `P-030..P-043` of [requirements.md](./requirements.md) and `Display Transformations and Display Units` in [semantics.md](./semantics.md), Kasane's long-term direction is to allow plugins to treat display transformations and display units as first-class concepts.
+As described in `P-030..P-043` of [requirements.md](./requirements.md) and `Display Transformations and Display Units` in [semantics.md](./semantics.md), Kasane allows plugins to treat display transformations as first-class concepts.
 
-Dedicated APIs for this are not yet complete. Therefore, plugins should currently use the following combination of existing mechanisms to approximate the desired behavior:
+The **Display Transform API** (`display_directives()`) provides the first concrete implementation of this direction. Plugins declare `DisplayDirective` values describing how buffer lines map to display lines. The core builds a `DisplayMap` — an O(1) bidirectional mapping between buffer lines and display lines — and integrates it throughout the rendering pipeline (paint, cursor, input, patch).
 
-- UI contribution: `contribute_to()`
-- Modifying or replacing existing UI: `transform()`
-- Local per-item transformation: `transform_menu_item()`
-- Overlay display: `contribute_overlay_with_ctx()`
-- Line / gutter contribution: `annotate_line_with_ctx()`
-- Independent UI context: `Surface`
+**Available `DisplayDirective` variants:**
 
-However, these are not fully synonymous with the future display transformation API. In particular, source mapping, display-oriented navigation, and restricted interaction policies have not yet been established as dedicated abstractions.
+| Variant | Description |
+|---|---|
+| `InsertAfter { after, content, face }` | Insert a virtual text line after the given buffer line |
+| `Fold { range, summary, face }` | Collapse a range of buffer lines into a single summary line |
+| `Hide { range }` | Hide a range of buffer lines entirely |
+
+**Key types:**
+
+- `DisplayMap`: bidirectional buffer↔display line mapping with `display_to_buffer()`, `buffer_to_display()`, `entry()`, `is_identity()`
+- `SourceMapping`: `BufferLine(usize)`, `LineRange(Range)`, `None` (virtual text)
+- `InteractionPolicy`: `Normal`, `ReadOnly` (clicks suppressed), `Skip` (navigation skips)
+- `SyntheticContent`: text and face for non-buffer display lines
+
+**Constraints:**
+- In the initial implementation, only a single plugin may contribute display directives (`debug_assert!` enforced)
+- Display-oriented navigation (Display Units, P-040..P-043) is not yet implemented
+- Kakoune controls the viewport and cursor movement, so true code folding (where folded lines are skipped during navigation) is not possible; `Fold` is best suited for read-only summaries
+- `InsertAfter` (virtual text) is the primary practical use case
+
+See `examples/virtual-text-demo/` for a working proof artifact.
+
+For mechanisms not covered by DisplayDirective (overlay composition, element-level restructuring), plugins should use the existing combination of `contribute_to()`, `transform()`, `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, and `Surface`.
 
 ### 1.2.2 Choosing a Plugin Model
 
@@ -290,18 +306,35 @@ Guidelines:
 
 `transform_menu_item()` is a per-menu-item transformation corresponding to the `MENU_TRANSFORM` capability. Use it when you want to locally transform the label or style of individual items. If you need to replace the entire menu structure, use `transform()` with `TransformTarget::Menu`.
 
-### 1.10 Future Display Transformation API
+### 1.10 Display Transformation API
 
-Display transformation is a future API for omitting, substituting, supplementing, and restructuring the Observed State. It is more powerful than simple decorators or replacements, and presupposes the semantic distinction between source truth and display policy.
+The display transformation API allows plugins to restructure the display without falsifying protocol truth. `display_directives()` returns a `Vec<DisplayDirective>` describing how buffer lines map to display lines.
 
-Current direction:
+Design principles:
 
-- Transformations do not falsify protocol truth
-- Transformations are treated as display policy
-- Transformation results will connect to the future display unit model
-- When the inverse mapping to source is weak, read-only or restricted interaction is permitted
+- Transformations do not falsify protocol truth — they are display policy
+- The core builds a `DisplayMap` providing source mapping and interaction policy
+- When the inverse mapping to source is weak, read-only or restricted interaction is applied automatically
+- `InsertAfter` virtual text lines get `InteractionPolicy::ReadOnly` and `SourceMapping::None`
+- `Fold` summary lines get `InteractionPolicy::ReadOnly` and `SourceMapping::LineRange`
 
-This API is incomplete, and the current approach is to proceed with incremental validation using `Decorator`, `Replacement`, `Overlay`, and `Surface`.
+```rust
+fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
+    vec![DisplayDirective::InsertAfter {
+        after: 2,
+        content: "  ⚠ TODO — address before merge".into(),
+        face: Face { fg: Color::Named(NamedColor::Yellow), ..Face::default() },
+    }]
+}
+
+fn display_directives_deps(&self) -> DirtyFlags {
+    DirtyFlags::PLUGIN_STATE | DirtyFlags::BUFFER_CONTENT
+}
+```
+
+The `DisplayMap` is integrated into: paint (buffer rendering), cursor positioning (`buffer_to_display`), mouse input (`display_to_buffer` with interaction policy check), and the patch optimization layer.
+
+Future extensions: display unit model (P-040..P-043), multi-plugin directive composition, WASM WIT `display-directives` function.
 
 ## 2. Element API
 
@@ -509,13 +542,18 @@ Mouse input is passed to `handle_mouse(event, id, state)` after `observe_mouse()
 
 ### 3.4.1 Display Units and Interaction Policy
 
-In the future, restructured UI introduced by plugins is expected to have hit test, focus, navigation, and source mapping on a per-display-unit basis.
+The `DisplayMap` provides the first concrete implementation of source mapping and interaction policy for display lines:
 
-This model is not yet exposed as a dedicated API, and plugins should use existing APIs under the following constraints:
+- `SourceMapping::BufferLine(n)`: display line maps 1:1 to buffer line `n` — `InteractionPolicy::Normal`
+- `SourceMapping::LineRange(range)`: display line represents a folded range — `InteractionPolicy::ReadOnly`
+- `SourceMapping::None`: virtual text with no buffer origin — `InteractionPolicy::ReadOnly`
+
+Mouse clicks on `ReadOnly` or `Skip` lines are suppressed by `mouse_to_kakoune()` (returns `None`). Cursor positioning uses `buffer_to_display()` to translate buffer coordinates to display coordinates.
+
+The full Display Unit model (P-040..P-043) with per-unit hit test, focus, and navigation is not yet implemented. Plugins should use existing APIs under the following constraints:
 
 - `InteractiveId` is a hit test target identifier and does not yet represent the full semantics of a display unit
 - `handle_mouse()` may need to interpret source mapping on its own
-- UI without a complete inverse mapping to source should be designed as read-only or with limited operations
 - Plugins must not fabricate facts that Kakoune has not provided as the result of interactions
 
 ### 3.5 Commands

@@ -36,6 +36,7 @@
 //!   cursor position (marked dirty for the cursor face pass). Empty dirty flags
 //!   guarantee no state-driven content changes anywhere.
 
+use crate::display::DisplayMapRef;
 use crate::layout::Rect;
 use crate::render::LayoutCache;
 use crate::render::grid::CellGrid;
@@ -319,6 +320,21 @@ pub struct CursorPatch {
     /// Previous cursor position.
     pub prev_cursor_x: u16,
     pub prev_cursor_y: u16,
+    /// Display map for buffer→display coordinate transformation.
+    pub display_map: Option<DisplayMapRef>,
+}
+
+impl CursorPatch {
+    /// Map a buffer line to a display line using the display map.
+    /// Falls back to identity (buffer_line as u16) when no map is set or map is identity.
+    fn map_buffer_line(&self, buffer_line: usize) -> u16 {
+        self.display_map
+            .as_ref()
+            .filter(|dm| !dm.is_identity())
+            .and_then(|dm| dm.buffer_to_display(buffer_line))
+            .map(|y| y as u16)
+            .unwrap_or(buffer_line as u16)
+    }
 }
 
 impl PaintPatch for CursorPatch {
@@ -331,7 +347,7 @@ impl PaintPatch for CursorPatch {
             return false;
         }
         let new_x = state.cursor_pos.column as u16;
-        let new_y = state.cursor_pos.line as u16;
+        let new_y = self.map_buffer_line(state.cursor_pos.line as usize);
         // Only apply if cursor actually moved
         new_x != self.prev_cursor_x || new_y != self.prev_cursor_y
     }
@@ -341,7 +357,8 @@ impl PaintPatch for CursorPatch {
         // otherwise restore to default.
         if let Some(cell) = grid.get_mut(self.prev_cursor_x, self.prev_cursor_y) {
             let is_secondary = state.secondary_cursors.iter().any(|c| {
-                c.column as u16 == self.prev_cursor_x && c.line as u16 == self.prev_cursor_y
+                c.column as u16 == self.prev_cursor_x
+                    && self.map_buffer_line(c.line as usize) == self.prev_cursor_y
             });
             if is_secondary {
                 cell.face = crate::render::cursor::make_secondary_cursor_face(
@@ -356,7 +373,7 @@ impl PaintPatch for CursorPatch {
 
         // The new cursor face will be applied by the caller (show_cursor / clear_block_cursor_face)
         // We just need to mark the new cursor row as dirty.
-        let new_y = state.cursor_pos.line as u16;
+        let new_y = self.map_buffer_line(state.cursor_pos.line as usize);
         if new_y < grid.height() {
             let rect = Rect {
                 x: 0,
@@ -524,6 +541,7 @@ mod tests {
         let patch = CursorPatch {
             prev_cursor_x: 5,
             prev_cursor_y: 3,
+            display_map: None,
         };
 
         // Dirty flags must be empty and cursor must have moved
@@ -533,6 +551,7 @@ mod tests {
         let patch_same = CursorPatch {
             prev_cursor_x: state.cursor_pos.column as u16,
             prev_cursor_y: state.cursor_pos.line as u16,
+            display_map: None,
         };
         assert!(!patch_same.can_apply(DirtyFlags::empty(), &state));
 

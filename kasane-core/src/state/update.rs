@@ -134,7 +134,7 @@ pub fn update(
                 if handle_info_scroll(state, &mouse, registry) {
                     return (DirtyFlags::INFO, vec![], None);
                 }
-                if let Some(scroll_req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
+                if let Some(scroll_req) = input::mouse_to_kakoune(&mouse, scroll_amount, None) {
                     let edge_line = match mouse.kind {
                         input::MouseEventKind::ScrollUp => 0,
                         _ => state.rows.saturating_sub(2) as u32,
@@ -190,7 +190,7 @@ pub fn update(
                 return (DirtyFlags::empty(), vec![], None);
             }
 
-            let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount) {
+            let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount, None) {
                 vec![Command::SendToKakoune(req)]
             } else {
                 vec![]

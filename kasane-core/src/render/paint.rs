@@ -55,16 +55,60 @@ pub(crate) fn paint_buffer_ref(
     line_range: std::ops::Range<usize>,
     state: &AppState,
     line_backgrounds: Option<&[Option<Face>]>,
+    display_map: Option<&crate::display::DisplayMap>,
 ) {
     let has_line_dirty = !state.lines_dirty.is_empty();
     for y_offset in 0..area.h {
-        let line_idx = line_range.start + y_offset as usize;
+        let display_line = line_range.start + y_offset as usize;
         let y = area.y + y_offset;
 
-        // Skip clean lines — grid retains valid content from previous frame
-        if has_line_dirty && !state.lines_dirty.get(line_idx).copied().unwrap_or(true) {
+        // Resolve display line → buffer line via DisplayMap
+        let (buffer_line_idx, synthetic) = if let Some(dm) = display_map {
+            if let Some(entry) = dm.entry(display_line) {
+                let buf_line = match &entry.source {
+                    crate::display::SourceMapping::BufferLine(l) => Some(*l),
+                    crate::display::SourceMapping::LineRange(r) => Some(r.start),
+                    crate::display::SourceMapping::None => None,
+                };
+                (buf_line, entry.synthetic.as_ref())
+            } else {
+                // Beyond display map range — render padding, not a buffer line
+                (None, None)
+            }
+        } else {
+            (Some(display_line), None)
+        };
+
+        // Skip clean lines — grid retains valid content from previous frame.
+        // Synthetic lines (virtual text, fold summaries) are always repainted:
+        // lines_dirty tracks buffer lines only, so SourceMapping::None lines
+        // would be incorrectly skipped after a grid.clear().
+        if has_line_dirty && synthetic.is_none() {
+            let is_dirty = if let Some(dm) = display_map {
+                dm.is_display_line_dirty(display_line, &state.lines_dirty)
+            } else {
+                state.lines_dirty.get(display_line).copied().unwrap_or(true)
+            };
+            if !is_dirty {
+                continue;
+            }
+        }
+
+        // Render synthetic content (fold summary, virtual text)
+        if let Some(syn) = synthetic {
+            grid.fill_region(y, area.x, area.w, &syn.face);
+            let atom = crate::protocol::Atom {
+                face: syn.face,
+                contents: syn.text.clone().into(),
+            };
+            grid.put_line_with_base(y, area.x, &[atom], area.w, Some(&syn.face));
             continue;
         }
+
+        let line_idx = match buffer_line_idx {
+            Some(idx) => idx,
+            None => continue,
+        };
 
         if let Some(line) = state.lines.get(line_idx) {
             // Use plugin background override if available, otherwise default_face

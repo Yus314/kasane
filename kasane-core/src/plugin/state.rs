@@ -13,9 +13,9 @@ use crate::input::{KeyEvent, MouseEvent};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, IoEvent, LineAnnotation,
-    OverlayContext, OverlayContribution, PluginCapabilities, PluginId, SlotId, TransformContext,
-    TransformTarget,
+    AnnotateContext, Command, ContributeContext, Contribution, DisplayDirective, IoEvent,
+    LineAnnotation, OverlayContext, OverlayContribution, PluginCapabilities, PluginId, SlotId,
+    TransformContext, TransformTarget,
 };
 
 // =============================================================================
@@ -241,6 +241,15 @@ pub trait Plugin: Send + 'static {
     }
 
     fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
+
+    fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
+        let _ = (state, app);
+        vec![]
+    }
+
+    fn display_directives_deps(&self) -> DirtyFlags {
         DirtyFlags::ALL
     }
 

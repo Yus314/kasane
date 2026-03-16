@@ -135,6 +135,9 @@ fn run_inner(
         .insert(primary_session, reader, writer, child)
         .expect("primary session key should be unique");
 
+    // Build plugin reloader for hot-reload support
+    let plugin_reloader = make_plugin_reloader(config.plugins.clone());
+
     let result = match resolved_ui {
         UiMode::Tui => kasane_tui::run_tui(
             config,
@@ -142,6 +145,7 @@ fn run_inner(
             process::spawn_kakoune_for_spec,
             wrapped_register,
             make_dispatcher,
+            plugin_reloader,
         ),
         #[cfg(feature = "gui")]
         UiMode::Gui => kasane_gui::run_gui(
@@ -155,6 +159,7 @@ fn run_inner(
         UiMode::Gui => {
             let _ = wrapped_register;
             let _ = make_dispatcher;
+            let _ = plugin_reloader;
             eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
             std::process::exit(1);
         }
@@ -168,6 +173,24 @@ fn run_inner(
     }
 
     Ok(())
+}
+
+fn make_plugin_reloader(
+    plugins_config: kasane_core::config::PluginsConfig,
+) -> Option<kasane_tui::PluginReloader> {
+    #[cfg(feature = "wasm-plugins")]
+    {
+        Some(Box::new(move |registry, state| {
+            kasane_wasm::discover_and_register(&plugins_config, registry);
+            // Re-init all plugins to pick up any new ones
+            let _ = registry.init_all(state);
+        }))
+    }
+    #[cfg(not(feature = "wasm-plugins"))]
+    {
+        let _ = plugins_config;
+        None
+    }
 }
 
 fn wrap_with_wasm_discovery(

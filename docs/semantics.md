@@ -777,9 +777,11 @@ There is room for the split ratios computed on the Workspace side and the final 
 
 The GUI-side scene invalidation and plugin overlay dependencies are not fully integrated, leaving theoretical room for overlays to become stale.
 
-### 12.6 Lack of Integration Between Display Transformation and Core Invalidation
+### 12.6 Display Transformation and Core Invalidation
 
-The display transformation and display unit model have been introduced at the requirements level, but the current global dirty / section cache does not yet treat them as first-class invalidation units.
+The `DisplayMap` is now integrated into the rendering pipeline. `display_directives_deps()` contributes to `EffectiveSectionDeps.base`, ensuring that the base view cache is invalidated when display directive dependencies change. The `DisplayMap` is rebuilt each frame via `collect_display_map()` and propagated through `Element::BufferRef`, `ViewSections`, and cursor/input functions.
+
+Remaining gap: the display unit model (P-040..P-043) has not yet been introduced as a first-class invalidation unit. Per-display-unit dirty tracking and navigation are not implemented.
 
 ### 12.7 Incomplete Display-Oriented Navigation
 

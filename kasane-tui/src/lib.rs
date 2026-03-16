@@ -81,17 +81,25 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
     });
 }
 
+/// Callback for hot-reloading plugins at runtime.
+///
+/// Called when the `.reload` sentinel file is detected in the plugins directory.
+/// The callback should re-discover and reload changed WASM plugins into the registry.
+pub type PluginReloader = Box<dyn Fn(&mut PluginRegistry, &AppState) + Send>;
+
 /// Run the TUI event loop.
 ///
 /// `session_manager`: managed Kakoune sessions. V1 consumes the active session only.
 /// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
 ///   a `ProcessDispatcher` for plugin-spawned processes.
+/// `plugin_reloader`: optional callback for hot-reloading plugins at runtime.
 pub fn run_tui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
     spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
     register_plugins: impl FnOnce(&mut PluginRegistry),
     create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
+    plugin_reloader: Option<PluginReloader>,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -187,6 +195,7 @@ where
     let mut cursor_patch = CursorPatch {
         prev_cursor_x: 0,
         prev_cursor_y: 0,
+        display_map: None,
     };
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
@@ -208,6 +217,26 @@ where
 
     // crossterm input reader thread
     spawn_input_thread(tx.clone());
+
+    // Plugin hot-reload sentinel watcher thread
+    {
+        let plugins_dir = config.plugins.plugins_dir();
+        let reload_sentinel = plugins_dir.join(".reload");
+        let reload_tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut last_modified = reload_sentinel.metadata().and_then(|m| m.modified()).ok();
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let current = reload_sentinel.metadata().and_then(|m| m.modified()).ok();
+                if current != last_modified && current.is_some() {
+                    last_modified = current;
+                    if reload_tx.send(Event::PluginReload).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+    }
 
     // Timer scheduler for plugin timer events
     let timer = TuiTimerScheduler(tx.clone());
@@ -252,6 +281,12 @@ where
         let mut dirty = DirtyFlags::empty();
         let _frame_span = tracing::debug_span!("frame").entered();
 
+        // FIFO metrics: count message types in the batch for diagnostics
+        let mut fifo_draw_count: u32 = if first.is_draw() { 1 } else { 0 };
+        let mut fifo_refresh_count: u32 = if first.is_refresh() { 1 } else { 0 };
+        let batch_start = std::time::Instant::now();
+        let queue_depth = rx.len();
+
         let (batch_count, quit) = {
             let mut ctx = EventProcessingContext {
                 state: &mut state,
@@ -268,6 +303,7 @@ where
                 dirty: &mut dirty,
                 timer: &timer,
                 process_dispatcher: &mut *process_dispatcher,
+                plugin_reloader: &plugin_reloader,
             };
 
             // Process first event
@@ -288,6 +324,8 @@ where
             while batch_count < MAX_BATCH && std::time::Instant::now() < batch_deadline {
                 let Ok(event) = rx.try_recv() else { break };
                 batch_count += 1;
+                fifo_draw_count += u32::from(event.is_draw());
+                fifo_refresh_count += u32::from(event.is_refresh());
                 if process_event(event, &mut ctx) {
                     quit = true;
                     break;
@@ -300,11 +338,25 @@ where
             break;
         }
 
-        if batch_count > 0 {
+        // Emit FIFO diagnostics when the batch contained multiple draw messages
+        // (indicates rapid Kakoune updates, e.g. FIFO buffer streaming).
+        if fifo_draw_count > 1 || fifo_refresh_count > 0 {
+            let batch_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
+            tracing::debug!(
+                draw_count = fifo_draw_count,
+                refresh_count = fifo_refresh_count,
+                batch_count,
+                queue_depth,
+                batch_ms = format_args!("{batch_ms:.2}"),
+                "fifo_metrics"
+            );
+        } else if batch_count > 0 {
             tracing::debug!(batch_count, "event batch drained");
         }
 
         if !dirty.is_empty() {
+            let render_start = std::time::Instant::now();
+
             surface_registry.sync_ephemeral_surfaces(&state);
             registry.prepare_plugin_cache(dirty);
 
@@ -334,6 +386,15 @@ where
             backend.flush()?;
             grid.swap_with_dirty();
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
+
+            let frame_ms = render_start.elapsed().as_secs_f64() * 1000.0;
+            if fifo_draw_count > 0 {
+                tracing::debug!(
+                    frame_ms = format_args!("{frame_ms:.2}"),
+                    dirty = ?dirty,
+                    "fifo_frame"
+                );
+            }
 
             // Update patch state for next frame
             cursor_patch.prev_cursor_x = result.cursor_x;

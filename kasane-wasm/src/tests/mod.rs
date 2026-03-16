@@ -63,6 +63,7 @@ fn default_annotate_ctx() -> AnnotateContext {
     AnnotateContext {
         line_width: 80,
         gutter_width: 0,
+        display_map: None,
     }
 }
 

@@ -1008,6 +1008,7 @@ fn bench_patch_cursor_move(c: &mut Criterion) {
     let cursor_patch = kasane_core::render::CursorPatch {
         prev_cursor_x: 0,
         prev_cursor_y: 0,
+        display_map: None,
     };
     let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&cursor_patch];
 

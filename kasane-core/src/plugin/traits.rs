@@ -6,9 +6,9 @@ use crate::pane::{PaneId, PanePermissions};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, IoEvent, LineAnnotation,
-    OverlayContext, OverlayContribution, PaintHook, PluginCapabilities, PluginId, SlotId,
-    TransformContext, TransformTarget,
+    AnnotateContext, Command, ContributeContext, Contribution, DisplayDirective, IoEvent,
+    LineAnnotation, OverlayContext, OverlayContribution, PaintHook, PluginCapabilities, PluginId,
+    SlotId, TransformContext, TransformTarget,
 };
 
 /// Internal framework trait. Plugin authors should use [`Plugin`] instead.
@@ -213,6 +213,18 @@ pub trait PluginBackend: Any {
 
     /// DirtyFlags dependencies for `annotate_line_with_ctx()`.
     fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
+
+    // === Display Transform ===
+
+    /// Return display transformation directives (fold, hide, insert virtual text).
+    fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
+        vec![]
+    }
+
+    /// DirtyFlags dependencies for `display_directives()`.
+    fn display_directives_deps(&self) -> DirtyFlags {
         DirtyFlags::ALL
     }
 

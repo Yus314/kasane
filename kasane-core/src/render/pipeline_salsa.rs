@@ -179,12 +179,14 @@ impl ViewSource for SalsaViewSource<'_> {
             })
             .collect();
 
+        let display_map = registry.collect_display_map(state);
         view::ViewSections {
             base: base.base.unwrap_or(Element::Empty),
             menu_overlay,
             info_overlays,
             plugin_overlays,
             surface_reports: base.surface_reports,
+            display_map,
         }
     }
 }
@@ -225,21 +227,41 @@ fn compose_base_with_plugins(
     state: &AppState,
     registry: &PluginRegistry,
 ) -> Element {
+    use std::sync::Arc;
+
     let ctx = ContributeContext::new(state, None);
 
-    // Apply plugin annotations (line backgrounds, gutters)
+    // Collect display map before annotations (annotations may use it)
     let buffer_rows = state.available_height() as usize;
+    let display_map = registry.collect_display_map(state);
+    let dm_for_element = if display_map.is_identity() {
+        None
+    } else {
+        Some(Arc::clone(&display_map))
+    };
+
+    // Apply plugin annotations (line backgrounds, gutters)
     let annotate_ctx = AnnotateContext {
         line_width: state.cols,
         gutter_width: 0,
+        display_map: Some(Arc::clone(&display_map)),
     };
     let annotations = registry.collect_annotations(state, &annotate_ctx);
 
-    // Incorporate line backgrounds into buffer element
-    let buffer_with_bg = if annotations.line_backgrounds.is_some() {
+    // When a non-identity DisplayMap is active, line_range must reflect
+    // the display line count (which is fewer than buffer lines after fold).
+    let effective_rows = if !display_map.is_identity() {
+        display_map.display_line_count().min(buffer_rows)
+    } else {
+        buffer_rows
+    };
+
+    // Incorporate line backgrounds and display_map into buffer element
+    let buffer_with_bg = if annotations.line_backgrounds.is_some() || dm_for_element.is_some() {
         Element::BufferRef {
-            line_range: 0..buffer_rows,
+            line_range: 0..effective_rows,
             line_backgrounds: annotations.line_backgrounds,
+            display_map: dm_for_element,
         }
     } else {
         buffer_el

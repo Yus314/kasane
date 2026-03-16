@@ -1,6 +1,6 @@
 use std::fs;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use kasane_core::config::Config;
 
 pub fn run() -> Result<()> {
@@ -47,11 +47,12 @@ pub fn run() -> Result<()> {
         let id = load_plugin_id(path);
 
         match id {
-            Some(id) => {
+            Ok(id) => {
                 println!("  {id:<20} {filename:<30} ({} KiB)", size / 1024);
             }
-            None => {
-                println!("  {:<20} {filename:<30} ({} KiB)", "(error)", size / 1024);
+            Err(detail) => {
+                let msg = format!("(error: {detail})");
+                println!("  {msg:<20} {filename:<30} ({} KiB)", size / 1024);
             }
         }
     }
@@ -60,19 +61,23 @@ pub fn run() -> Result<()> {
 }
 
 #[cfg(feature = "wasm-plugins")]
-fn load_plugin_id(path: &std::path::Path) -> Option<String> {
+fn load_plugin_id(path: &std::path::Path) -> std::result::Result<String, String> {
     use kasane_core::plugin::PluginBackend;
     use kasane_wasm::{WasiCapabilityConfig, WasmPluginLoader};
 
-    let loader = WasmPluginLoader::new().ok()?;
+    let loader = WasmPluginLoader::new().map_err(|e| e.to_string())?;
     let wasi_config = WasiCapabilityConfig::default();
-    let plugin = loader.load_file(path, &wasi_config).ok()?;
-    Some(plugin.id().0)
+    let plugin = loader.load_file(path, &wasi_config).map_err(|e| {
+        e.to_string()
+            .lines()
+            .next()
+            .unwrap_or("unknown error")
+            .to_string()
+    })?;
+    Ok(plugin.id().0)
 }
 
 #[cfg(not(feature = "wasm-plugins"))]
-fn load_plugin_id(_path: &std::path::Path) -> Option<String> {
-    None
+fn load_plugin_id(_path: &std::path::Path) -> std::result::Result<String, String> {
+    Err("wasm-plugins feature not enabled".to_string())
 }
-
-use anyhow::Context;

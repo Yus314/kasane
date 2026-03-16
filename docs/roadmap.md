@@ -119,16 +119,20 @@ Proof / completion criteria (all met):
 
 ### 3.3 Display transformation / display unit model
 
-Remaining work:
+**Completed (first slice):**
 
-- P-030 through P-043
-- Display transformation
-- Display unit model
-- Navigation policy
+- P-030: Display transformation hook — `display_directives()` API on `Plugin` / `PluginBackend`
+- P-033: Plugin-defined transformation API — `DisplayDirective` enum (`Fold`, `InsertAfter`, `Hide`)
+- P-034: Read-only / restricted interaction policy — `InteractionPolicy` enum, `SourceMapping`
+- Core `DisplayMap` with O(1) bidirectional mapping, integrated into paint, cursor, input, and patch layers
+- Proof artifact: `examples/virtual-text-demo/` (virtual text insertion with keyword detection)
 
-Next deliverable:
+**Remaining work:**
 
-- Select the smallest single slice from the above and introduce it with a proof artifact
+- P-031: Composition rules for multi-plugin display directives (currently single-plugin constraint)
+- P-032: Formal observed/policy separation (theory organized, not yet enforced)
+- P-040 through P-043: Display unit model, geometry/source mapping/role, visual navigation, plugin-defined navigation policy
+- WASM WIT extension: `display-directives` function for WASM plugins
 
 ### 3.4 WASM runtime operations
 

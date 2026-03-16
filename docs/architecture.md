@@ -143,7 +143,11 @@ The roles of this layer are as follows:
 - Separate protocol truth from display policy
 - Allow plugin-driven restructuring to participate in the core's composition rules
 - Assemble hit test / focus / navigation targets before paint
-- Serve as an intermediate layer to accommodate the future display transformation / display unit API
+- Provide `DisplayMap` — O(1) bidirectional mapping between buffer lines and display lines
+
+The `DisplayMap` is the concrete mechanism for display transformation. Plugins declare `DisplayDirective` values (fold, virtual text insertion, hide) via `display_directives()`. The core builds a `DisplayMap` and integrates it into paint, cursor positioning, mouse input, and patch optimization. Key types: `DisplayDirective`, `SourceMapping`, `InteractionPolicy`, `SyntheticContent`. See `kasane-core/src/display/mod.rs`.
+
+The full Display Unit model (geometry, semantic role, navigation relationships) is planned but not yet implemented (P-040..P-043).
 
 ### Plugin Models
 
