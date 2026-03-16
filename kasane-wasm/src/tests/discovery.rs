@@ -81,6 +81,12 @@ fn register_bundled_plugins_loads_four() {
     let config = PluginsConfig {
         auto_discover: false,
         path: None,
+        enabled: vec![
+            "cursor_line".into(),
+            "color_preview".into(),
+            "sel_badge".into(),
+            "fuzzy_finder".into(),
+        ],
         disabled: vec![],
         ..Default::default()
     };
@@ -95,6 +101,12 @@ fn register_bundled_plugins_respects_disabled() {
     let config = PluginsConfig {
         auto_discover: false,
         path: None,
+        enabled: vec![
+            "cursor_line".into(),
+            "color_preview".into(),
+            "sel_badge".into(),
+            "fuzzy_finder".into(),
+        ],
         disabled: vec!["color_preview".to_string()],
         ..Default::default()
     };
@@ -109,6 +121,12 @@ fn filesystem_plugin_overrides_bundled() {
     let config = PluginsConfig {
         auto_discover: false,
         path: None,
+        enabled: vec![
+            "cursor_line".into(),
+            "color_preview".into(),
+            "sel_badge".into(),
+            "fuzzy_finder".into(),
+        ],
         disabled: vec![],
         ..Default::default()
     };

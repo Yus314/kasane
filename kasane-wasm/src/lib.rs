@@ -139,7 +139,9 @@ pub fn register_bundled_plugins(
     let wasi_config = WasiCapabilityConfig::from_plugins_config(plugins_config);
 
     for (name, bytes) in bundled {
-        if !plugins_config.is_bundled_enabled(name) {
+        if !plugins_config.is_bundled_enabled(name)
+            || plugins_config.disabled.iter().any(|d| d == name)
+        {
             continue;
         }
         match loader.load(bytes, &wasi_config) {
