@@ -89,6 +89,7 @@ impl AppState {
             }
             KakouneRequest::MenuSelect { selected } => {
                 if let Some(menu) = &mut self.menu {
+                    let old_first_item = menu.first_item;
                     tracing::debug!(
                         "MenuSelect: selected={}, first_item={}, win_height={}, items={}, columns={}",
                         selected,
@@ -98,8 +99,14 @@ impl AppState {
                         menu.columns,
                     );
                     menu.select(selected);
+                    if menu.first_item != old_first_item {
+                        DirtyFlags::MENU_SELECTION | DirtyFlags::MENU_STRUCTURE
+                    } else {
+                        DirtyFlags::MENU_SELECTION
+                    }
+                } else {
+                    DirtyFlags::MENU_SELECTION
                 }
-                DirtyFlags::MENU_SELECTION
             }
             KakouneRequest::MenuHide => {
                 self.menu = None;

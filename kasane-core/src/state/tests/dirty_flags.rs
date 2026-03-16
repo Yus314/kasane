@@ -174,3 +174,51 @@ fn test_apply_draw_lines_dirty_first_draw() {
     });
     assert_eq!(state.lines_dirty, vec![true, true]);
 }
+
+#[test]
+fn test_menu_select_no_scroll_returns_selection_only() {
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    // 3 items fit in win_height without scrolling
+    state.apply(KakouneRequest::MenuShow {
+        items: vec![make_line("a"), make_line("b"), make_line("c")],
+        anchor: Coord { line: 0, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+    state.apply(KakouneRequest::MenuSelect { selected: 0 });
+
+    // Moving selection within the same visible window → no scroll
+    let flags = state.apply(KakouneRequest::MenuSelect { selected: 1 });
+    assert!(flags.contains(DirtyFlags::MENU_SELECTION));
+    assert!(!flags.contains(DirtyFlags::MENU_STRUCTURE));
+}
+
+#[test]
+fn test_menu_select_with_scroll_returns_structure() {
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    // Many items: win_height will be limited, so scrolling past visible range triggers first_item change
+    let items: Vec<_> = (0..30).map(|i| make_line(&format!("item{i}"))).collect();
+    state.apply(KakouneRequest::MenuShow {
+        items,
+        anchor: Coord { line: 0, column: 0 },
+        selected_item_face: Face::default(),
+        menu_face: Face::default(),
+        style: MenuStyle::Inline,
+    });
+    state.apply(KakouneRequest::MenuSelect { selected: 0 });
+    let first_before = state.menu.as_ref().unwrap().first_item;
+
+    // Select an item far enough to force scroll (beyond win_height * columns)
+    let flags = state.apply(KakouneRequest::MenuSelect { selected: 25 });
+    let first_after = state.menu.as_ref().unwrap().first_item;
+
+    // first_item must have changed → MENU_STRUCTURE should be set
+    assert_ne!(first_before, first_after, "scroll should have occurred");
+    assert!(flags.contains(DirtyFlags::MENU_SELECTION));
+    assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
+}

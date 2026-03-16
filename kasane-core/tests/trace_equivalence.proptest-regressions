@@ -5,3 +5,6 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 5c42a57d75570e884bafe59f5b7f8886dbee0d5ab818368c444bf682f8fc61c7 # shrinks to mutation = MoveCursor(1, 20), extra_dirty = DirtyFlags(0x0)
+cc 5a3a7111b8a8de8e58c3b09086e884860c85d703b2fa57d90f5165c64ec40e53 # shrinks to new_line = 0, new_col = 1, secondary_count = 1
+cc 91d1acb4bd3d69dbf83d45cf61855c52431f78d40b59543c93e1319c9a0d4a0c # shrinks to mutations = [MoveCursor(0, 0), MoveCursor(1, 20), MoveCursor(1, 20)]
+cc 96f282651b08d950ed4c169e01b5fb8808d280e1648280d98d1c8354cd3d2b03 # shrinks to mutations = [MoveCursor(1, 20), ChangeStatusLine(" buffer.rs [+] "), MoveCursor(0, 0)]
