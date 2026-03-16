@@ -11,7 +11,9 @@ use super::{
     TransformContext, TransformTarget,
 };
 
-pub trait Plugin: Any {
+/// Internal framework trait. Plugin authors should use [`Plugin`] instead.
+#[doc(hidden)]
+pub trait PluginBackend: Any {
     fn id(&self) -> PluginId;
 
     // --- Lifecycle hooks ---

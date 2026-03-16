@@ -366,6 +366,18 @@ Plugins may not change protocol truth, the core state machine, the semantics of 
 
 Plugin-defined UI is not a precondition for core frontend semantics. Even in the absence of plugins, Kasane's standard frontend semantics must be self-contained. Display transformations introduced by plugins should in principle be additive, and must not capture core semantics by replacing the sole truth for standard users.
 
+### 8.10 Plugin State Model (State-Externalized)
+
+The `Plugin` trait externalizes plugin state ownership to the framework. The key semantic properties are:
+
+- **State ownership**: The framework holds `Box<dyn PluginState>` for each Plugin. State transitions produce new values; the old state is replaced atomically.
+- **Transition semantics**: All state-mutating operations return `(NewState, Vec<Command>)`. The framework detects changes via `PartialEq` on the concrete state type and increments a generation counter for `state_hash()`.
+- **Invalidation**: `DirtyFlags::PLUGIN_STATE` (bit 7) signals plugin state changes to the view cache. `BUILD_BASE_DEPS` includes `PLUGIN_STATE` to trigger base section rebuilds when plugin state changes.
+- **DynCompare**: `dyn PluginState` supports equality comparison via downcasting. Two states of different concrete types are always unequal.
+- **Compatibility**: `PluginBridge` adapts `Plugin` to `PluginBackend`, preserving all existing cache invalidation behavior (L1 state_hash, L3 slot_deps).
+
+> **Naming history**: This model was originally introduced as `PurePlugin` (ADR-021), with the mutable trait called `Plugin`. In ADR-022, the traits were renamed: `PurePlugin` became `Plugin` (primary API) and the old `Plugin` became `PluginBackend` (internal). The adapter was renamed from `PurePluginBridge` to `PluginBridge`, and the marker trait from `IsPurePlugin` to `IsBridgedPlugin`.
+
 ## 9. Display Transformation and Display Units
 
 ### 9.1 Meaning of Display Transformation

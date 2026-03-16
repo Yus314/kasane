@@ -159,7 +159,7 @@ fn test_pageup_intercept() {
         column: 5,
     };
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(crate::input::BuiltinInputPlugin));
+    registry.register_backend(Box::new(crate::input::BuiltinInputPlugin));
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageUp,
@@ -190,7 +190,7 @@ fn test_pagedown_intercept() {
         column: 5,
     };
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(crate::input::BuiltinInputPlugin));
+    registry.register_backend(Box::new(crate::input::BuiltinInputPlugin));
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageDown,
@@ -210,7 +210,7 @@ fn test_pagedown_intercept() {
 fn test_pageup_with_modifier_not_intercepted() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(crate::input::BuiltinInputPlugin));
+    registry.register_backend(Box::new(crate::input::BuiltinInputPlugin));
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::PageUp,

@@ -71,7 +71,13 @@ Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Grid`, `
 
 ### Plugin System
 
-`Plugin` trait in `kasane-core/src/plugin/traits.rs` defines the plugin interface. Four main extension mechanisms:
+Two native plugin models in `kasane-core/src/plugin/`:
+- **`Plugin` trait** (`pure.rs`): State-externalized model (primary user-facing API). Framework owns state; all methods are pure functions `(&self, &State) → (State, effects)`. Automatic cache invalidation via `PartialEq`. Register via `registry.register()`.
+- **`PluginBackend` trait** (`traits.rs`): Mutable state model (`&mut self`). Internal framework trait with full access to all extension points including `Surface`, `PaintHook`, pane lifecycle. Register via `registry.register_backend(Box::new(...))`.
+
+`PluginBridge` (`pure.rs`) adapts `Plugin` to `PluginBackend`, enabling both models to coexist in `PluginRegistry`.
+
+Four main extension mechanisms (shared by both models):
 - **Contribution** (`contribute_to`): Inject elements at named `SlotId` insertion points (e.g., `BUFFER_LEFT`, `STATUS_RIGHT`)
 - **Transform** (`transform`): Modify or replace existing elements by `TransformTarget`, with priority ordering
 - **Line Annotation** (`annotate_line_with_ctx`): Add per-line gutter/background decorations
@@ -79,7 +85,7 @@ Defined in `kasane-core/src/element.rs`: `Text`, `StyledLine`, `Flex`, `Grid`, `
 
 `PluginRegistry` in `kasane-core/src/plugin/registry.rs` collects and applies contributions during `view()`.
 
-External crates can create plugins using `kasane_core::plugin_prelude` and register them via `kasane::run(|registry| { ... })`. See `docs/plugin-development.md` and `examples/line-numbers/`.
+External crates can create plugins using `kasane_core::plugin_prelude` and register them via `kasane::run(|registry| { ... })`. The `Plugin` trait (state-externalized) is the recommended API for new plugins; `PluginBackend` is for internal/advanced use cases. See `docs/plugin-development.md` and `examples/line-numbers/`.
 
 ## Conventions
 

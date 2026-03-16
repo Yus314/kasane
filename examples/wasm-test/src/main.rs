@@ -8,11 +8,11 @@ fn main() {
         let cursor_line = loader
             .load_file(&fixtures.join("cursor-line.wasm"), &wasi_config)
             .unwrap();
-        registry.register(Box::new(cursor_line));
+        registry.register_backend(Box::new(cursor_line));
 
         let line_numbers = loader
             .load_file(&fixtures.join("line-numbers.wasm"), &wasi_config)
             .unwrap();
-        registry.register(Box::new(line_numbers));
+        registry.register_backend(Box::new(line_numbers));
     });
 }

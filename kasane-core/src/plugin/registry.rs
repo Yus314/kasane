@@ -7,10 +7,11 @@ use crate::layout::HitMap;
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::Placement;
 
+use super::pure::{Plugin, PluginBridge};
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
-    IoEvent, OverlayContext, OverlayContribution, PaintHook, Plugin, PluginCapabilities, PluginId,
-    SlotId, SourcedContribution, TransformContext, TransformTarget, extract_redraw_flags,
+    IoEvent, OverlayContext, OverlayContribution, PaintHook, PluginBackend, PluginCapabilities,
+    PluginId, SlotId, SourcedContribution, TransformContext, TransformTarget, extract_redraw_flags,
 };
 
 /// Cached result for a single plugin's contributions.
@@ -62,7 +63,7 @@ impl Default for EffectiveSectionDeps {
 }
 
 pub struct PluginRegistry {
-    plugins: Vec<Box<dyn Plugin>>,
+    plugins: Vec<Box<dyn PluginBackend>>,
     capabilities: Vec<PluginCapabilities>,
     hit_map: HitMap,
     slot_cache: RefCell<PluginSlotCache>,
@@ -97,7 +98,7 @@ impl PluginRegistry {
         self.any_plugin_state_changed
     }
 
-    pub fn register(&mut self, plugin: Box<dyn Plugin>) {
+    pub fn register_backend(&mut self, plugin: Box<dyn PluginBackend>) {
         let id = plugin.id();
         let caps = plugin.capabilities();
         if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
@@ -249,7 +250,7 @@ impl PluginRegistry {
         }
     }
 
-    pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn Plugin>> {
+    pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
         self.plugins.iter_mut()
     }
 
@@ -598,6 +599,15 @@ impl PluginRegistry {
             }
         }
         (DirtyFlags::empty(), vec![])
+    }
+
+    /// Register a `Plugin` by wrapping it in a `PluginBridge`.
+    ///
+    /// The bridge adapts the pure interface to `PluginBackend`, with framework-owned
+    /// state and generation-based `state_hash()` for L1 cache invalidation.
+    pub fn register<P: Plugin>(&mut self, plugin: P) {
+        let bridge = PluginBridge::new(plugin);
+        self.register_backend(Box::new(bridge));
     }
 }
 

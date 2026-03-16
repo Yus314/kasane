@@ -32,12 +32,15 @@ bitflags! {
         const OPTIONS         = 1 << 5;
         /// Cursor position/mode changed (cursor_pos, cursor_mode, secondary_cursors).
         const BUFFER_CURSOR   = 1 << 6;
+        /// Plugin internal state changed (for Plugin state externalization).
+        const PLUGIN_STATE    = 1 << 7;
 
         /// Composite: any buffer-related change.
         const BUFFER = Self::BUFFER_CONTENT.bits() | Self::BUFFER_CURSOR.bits();
         const MENU = Self::MENU_STRUCTURE.bits() | Self::MENU_SELECTION.bits();
         const ALL  = Self::BUFFER.bits() | Self::STATUS.bits()
-                   | Self::MENU.bits() | Self::INFO.bits() | Self::OPTIONS.bits();
+                   | Self::MENU.bits() | Self::INFO.bits() | Self::OPTIONS.bits()
+                   | Self::PLUGIN_STATE.bits();
     }
 }
 

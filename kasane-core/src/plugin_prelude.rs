@@ -9,9 +9,9 @@ pub use crate::kasane_plugin;
 // Plugin trait and types
 pub use crate::plugin::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, Command, ContribSizeHint,
-    ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
-    PaintHook, Plugin, PluginCapabilities, PluginId, PluginRegistry, SlotId, TransformContext,
-    TransformTarget,
+    ContributeContext, Contribution, IsBridgedPlugin, LineAnnotation, OverlayContext,
+    OverlayContribution, PaintHook, Plugin, PluginBackend, PluginBridge, PluginCapabilities,
+    PluginId, PluginRegistry, PluginState, SlotId, TransformContext, TransformTarget,
 };
 
 // Element tree

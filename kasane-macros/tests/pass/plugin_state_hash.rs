@@ -25,7 +25,7 @@ mod counter_plugin {
 }
 
 fn main() {
-    use kasane_core::plugin::Plugin;
+    use kasane_core::plugin::PluginBackend;
     let plugin = CounterPluginPlugin::new();
     // state_hash should be generated and callable
     let h1 = plugin.state_hash();

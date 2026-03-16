@@ -20,7 +20,7 @@ mod test_external {
 #[test]
 fn external_plugin_registers_and_inits() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(TestExternalPlugin::new()));
+    registry.register_backend(Box::new(TestExternalPlugin::new()));
     let state = AppState::default();
     let _ = registry.init_all(&state);
     // No panic = success; plugin was registered and initialized

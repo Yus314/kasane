@@ -82,6 +82,48 @@ Dedicated APIs for this are not yet complete. Therefore, plugins should currentl
 
 However, these are not fully synonymous with the future display transformation API. In particular, source mapping, display-oriented navigation, and restricted interaction policies have not yet been established as dedicated abstractions.
 
+### 1.2.2 Choosing a Plugin Model
+
+Native plugins can be implemented using one of two traits:
+
+| | `Plugin` (state-externalized, recommended) | `PluginBackend` (mutable, internal) |
+|---|---|---|
+| State ownership | Framework holds state; methods are `(&self, &State) → (State, effects)` | Plugin holds its own state (`&mut self`) |
+| Cache invalidation | Automatic via `PartialEq` comparison (generation counter) | Manual `state_hash()` |
+| Salsa compatibility | State transitions are pure functions; future Salsa integration path | Not directly memoizable (mutable state) |
+| Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, `PaintHook`, pane lifecycle, or complex host integration |
+
+`Plugin` is recommended for new native plugins. Register via `PluginRegistry::register()`.
+
+```rust
+use kasane_core::plugin_prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Default)]
+struct MyState { counter: u32 }
+
+struct MyPlugin;
+
+impl Plugin for MyPlugin {
+    type State = MyState;
+    fn id(&self) -> PluginId { PluginId("my_plugin".into()) }
+    fn capabilities(&self) -> PluginCapabilities { PluginCapabilities::ANNOTATOR }
+
+    fn on_state_changed(&self, state: &Self::State, app: &AppState, dirty: DirtyFlags)
+        -> (Self::State, Vec<Command>)
+    {
+        if dirty.intersects(DirtyFlags::BUFFER) {
+            (MyState { counter: state.counter + 1 }, vec![])
+        } else {
+            (state.clone(), vec![])
+        }
+    }
+    // ... view methods receive &Self::State as parameter
+}
+
+// Registration:
+registry.register(MyPlugin);
+```
+
 ### 1.3 Composition Rules
 
 The composition order for extensions is as follows:
@@ -536,7 +578,9 @@ fn contribute_deps(region: SlotId) -> u16 {
 }
 ```
 
-Native plugins implement `state_hash()` and dependency tracking methods directly.
+`PluginBackend` implementors provide `state_hash()` and dependency tracking methods directly.
+
+`Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter for L1 cache invalidation. Dependency tracking methods (`contribute_deps`, `transform_deps`, `annotate_deps`, `overlay_deps`) work identically for both models.
 
 ### 4.3 PaintHook
 
@@ -605,7 +649,7 @@ fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
 Plugins with the `SURFACE_PROVIDER` capability can provide their own surfaces. In Native, they return `Box<dyn Surface>`, while in WASM, they map to a hosted surface model returning static `surface-descriptor` groups, `render-surface(surface-key, ctx)`, `handle-surface-event(surface-key, event, ctx)`, and `handle-surface-state-changed(surface-key, dirty-flags)`.
 
 ```rust
-impl Plugin for MyPlugin {
+impl PluginBackend for MyPlugin {
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::SURFACE_PROVIDER
     }

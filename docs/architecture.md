@@ -145,6 +145,15 @@ The roles of this layer are as follows:
 - Assemble hit test / focus / navigation targets before paint
 - Serve as an intermediate layer to accommodate the future display transformation / display unit API
 
+### Plugin Models
+
+Kasane supports two native plugin models:
+
+- **`Plugin` (state-externalized, recommended)**: The framework owns the plugin state. All methods are pure functions: `(&self, &State, ...) → (State, effects)`. State changes are tracked automatically via `PartialEq` comparison, eliminating manual `state_hash()`. This model opens the path to making Stage 2 (plugin contributions) a pure, Salsa-memoizable function. This is the primary user-facing API.
+- **`PluginBackend` (mutable, internal)**: Plugins own their state via `&mut self` methods. This is the internal framework trait with full access to all extension points including `Surface`, `PaintHook`, and pane lifecycle.
+
+`PluginBridge` adapts `Plugin` to `PluginBackend`, allowing both models to coexist in the same `PluginRegistry`. The bridge uses a generation counter for `state_hash()` and `PartialEq`-based change detection.
+
 For semantic details, see the `Display Policy State` and `Display Transformation and Display Units` sections in [semantics.md](./semantics.md).
 
 ## Related Documents

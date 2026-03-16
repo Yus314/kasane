@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
-use crate::plugin::{Command, Plugin, PluginId, PluginRegistry};
+use crate::plugin::{Command, PluginBackend, PluginId, PluginRegistry};
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
 use crate::state::update::{Msg, update};
 use crate::state::{AppState, DirtyFlags};
@@ -79,7 +79,7 @@ fn test_update_focus_gained() {
 #[test]
 fn test_update_plugin_handles_key() {
     struct KeyPlugin;
-    impl Plugin for KeyPlugin {
+    impl PluginBackend for KeyPlugin {
         fn id(&self) -> PluginId {
             PluginId("key_plugin".into())
         }
@@ -96,7 +96,7 @@ fn test_update_plugin_handles_key() {
 
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(KeyPlugin));
+    registry.register_backend(Box::new(KeyPlugin));
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::Char('a'),
@@ -119,7 +119,7 @@ fn test_update_plugin_handles_key() {
 #[test]
 fn test_update_mouse_routes_to_plugin() {
     struct MousePlugin;
-    impl Plugin for MousePlugin {
+    impl PluginBackend for MousePlugin {
         fn id(&self) -> PluginId {
             PluginId("mouse_plugin".into())
         }
@@ -137,7 +137,7 @@ fn test_update_mouse_routes_to_plugin() {
     state.cols = 80;
     state.rows = 24;
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(MousePlugin));
+    registry.register_backend(Box::new(MousePlugin));
 
     // Build a HitMap with an interactive region at (5,3)-(12,3)
     let el = crate::element::Element::Interactive {
@@ -194,7 +194,7 @@ fn test_observe_key_called_for_all_plugins() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
-    impl Plugin for ObserverPlugin {
+    impl PluginBackend for ObserverPlugin {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
@@ -205,7 +205,7 @@ fn test_observe_key_called_for_all_plugins() {
 
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(ObserverPlugin(observed.clone())));
+    registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
 
     let key = KeyEvent {
         key: Key::Char('x'),
@@ -221,7 +221,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct ObserverPlugin(Arc<AtomicBool>);
-    impl Plugin for ObserverPlugin {
+    impl PluginBackend for ObserverPlugin {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
@@ -231,7 +231,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
     }
 
     struct HandlerPlugin;
-    impl Plugin for HandlerPlugin {
+    impl PluginBackend for HandlerPlugin {
         fn id(&self) -> PluginId {
             PluginId("handler".into())
         }
@@ -242,8 +242,8 @@ fn test_observe_key_called_even_when_plugin_handles() {
 
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(ObserverPlugin(observed.clone())));
-    registry.register(Box::new(HandlerPlugin));
+    registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
+    registry.register_backend(Box::new(HandlerPlugin));
 
     let key = KeyEvent {
         key: Key::Char('x'),
@@ -256,7 +256,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
 #[test]
 fn test_plugin_can_override_pageup() {
     struct PageUpPlugin;
-    impl Plugin for PageUpPlugin {
+    impl PluginBackend for PageUpPlugin {
         fn id(&self) -> PluginId {
             PluginId("pageup_override".into())
         }
@@ -273,7 +273,7 @@ fn test_plugin_can_override_pageup() {
 
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(PageUpPlugin));
+    registry.register_backend(Box::new(PageUpPlugin));
 
     let key = KeyEvent {
         key: Key::PageUp,
@@ -294,7 +294,7 @@ fn test_observe_mouse_called_without_hit_test() {
     let observed = Arc::new(AtomicBool::new(false));
 
     struct MouseObserver(Arc<AtomicBool>);
-    impl Plugin for MouseObserver {
+    impl PluginBackend for MouseObserver {
         fn id(&self) -> PluginId {
             PluginId("mouse_observer".into())
         }
@@ -307,7 +307,7 @@ fn test_observe_mouse_called_without_hit_test() {
     state.cols = 80;
     state.rows = 24;
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(MouseObserver(observed.clone())));
+    registry.register_backend(Box::new(MouseObserver(observed.clone())));
     // No interactive regions → hit_test returns None
 
     let mouse = MouseEvent {
@@ -325,7 +325,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
     let called = Arc::new(AtomicBool::new(false));
 
     struct StateWatcher(Arc<AtomicBool>);
-    impl Plugin for StateWatcher {
+    impl PluginBackend for StateWatcher {
         fn id(&self) -> PluginId {
             PluginId("watcher".into())
         }
@@ -339,7 +339,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
 
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(StateWatcher(called.clone())));
+    registry.register_backend(Box::new(StateWatcher(called.clone())));
 
     let (flags, _, _) = update(
         &mut state,

@@ -19,7 +19,10 @@ use crate::state::DirtyFlags;
 // DirtyFlags dependency masks for each component function.
 // These match the deps() annotations on the #[kasane_component] attributes.
 pub(crate) const BUILD_BASE_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
-    DirtyFlags::BUFFER_CONTENT.bits() | DirtyFlags::STATUS.bits() | DirtyFlags::OPTIONS.bits(),
+    DirtyFlags::BUFFER_CONTENT.bits()
+        | DirtyFlags::STATUS.bits()
+        | DirtyFlags::OPTIONS.bits()
+        | DirtyFlags::PLUGIN_STATE.bits(),
 );
 pub(crate) const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
     DirtyFlags::MENU_STRUCTURE.bits()

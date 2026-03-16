@@ -3,6 +3,8 @@ use kasane::kasane_core::plugin_prelude::*;
 struct LineNumbersPlugin;
 
 impl Plugin for LineNumbersPlugin {
+    type State = ();
+
     fn id(&self) -> PluginId {
         PluginId("line_numbers".into())
     }
@@ -13,15 +15,16 @@ impl Plugin for LineNumbersPlugin {
 
     fn contribute_to(
         &self,
+        _state: &(),
         region: &SlotId,
-        state: &AppState,
+        app: &AppState,
         _ctx: &ContributeContext,
     ) -> Option<Contribution> {
         if region != &SlotId::BUFFER_LEFT {
             return None;
         }
 
-        let total = state.lines.len();
+        let total = app.lines.len();
         let width = total.to_string().len().max(2);
 
         let children: Vec<_> = (0..total)
@@ -51,6 +54,6 @@ impl Plugin for LineNumbersPlugin {
 
 fn main() {
     kasane::run(|registry| {
-        registry.register(Box::new(LineNumbersPlugin));
+        registry.register(LineNumbersPlugin);
     });
 }

@@ -14,7 +14,7 @@ impl ObservingPlugin {
     }
 }
 
-impl Plugin for ObservingPlugin {
+impl PluginBackend for ObservingPlugin {
     fn id(&self) -> PluginId {
         PluginId("observer".to_string())
     }
@@ -29,7 +29,7 @@ impl Plugin for ObservingPlugin {
 #[test]
 fn test_observe_key_called() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(ObservingPlugin::new()));
+    registry.register_backend(Box::new(ObservingPlugin::new()));
     let state = AppState::default();
     let key = KeyEvent {
         key: crate::input::Key::Char('a'),
@@ -45,7 +45,7 @@ fn test_observe_key_called() {
 
 struct IconPlugin;
 
-impl Plugin for IconPlugin {
+impl PluginBackend for IconPlugin {
     fn id(&self) -> PluginId {
         PluginId("icons".to_string())
     }
@@ -69,7 +69,7 @@ impl Plugin for IconPlugin {
 #[test]
 fn test_transform_menu_item() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(IconPlugin));
+    registry.register_backend(Box::new(IconPlugin));
     let state = AppState::default();
     let item = vec![crate::protocol::Atom {
         face: Face::default(),
@@ -149,7 +149,7 @@ struct PaintHookPlugin {
     hooks: Vec<Box<dyn PaintHook>>,
 }
 
-impl Plugin for PaintHookPlugin {
+impl PluginBackend for PaintHookPlugin {
     fn id(&self) -> PluginId {
         PluginId("paint-hook-test".to_string())
     }
@@ -180,7 +180,7 @@ impl Plugin for PaintHookPlugin {
 #[test]
 fn test_collect_paint_hooks() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(PaintHookPlugin {
+    registry.register_backend(Box::new(PaintHookPlugin {
         hooks: vec![
             Box::new(TestPaintHook {
                 id: "hook-a",
@@ -255,7 +255,7 @@ fn test_apply_paint_hooks_deps_filtering() {
 #[test]
 fn test_paint_hook_no_capability_not_collected() {
     struct NoPaintHookPlugin;
-    impl Plugin for NoPaintHookPlugin {
+    impl PluginBackend for NoPaintHookPlugin {
         fn id(&self) -> PluginId {
             PluginId("no-hook".to_string())
         }
@@ -263,7 +263,7 @@ fn test_paint_hook_no_capability_not_collected() {
     }
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(NoPaintHookPlugin));
+    registry.register_backend(Box::new(NoPaintHookPlugin));
     let hooks = registry.collect_paint_hooks();
     assert!(hooks.is_empty());
 }

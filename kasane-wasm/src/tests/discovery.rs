@@ -123,7 +123,7 @@ fn filesystem_plugin_overrides_bundled() {
         .load(&bytes, &crate::WasiCapabilityConfig::default())
         .unwrap();
     assert_eq!(plugin.id().0, "cursor_line");
-    registry.register(Box::new(plugin));
+    registry.register_backend(Box::new(plugin));
 
     // Should still be 4, not 5 (replaced, not added)
     assert_eq!(registry.plugin_count(), 4);

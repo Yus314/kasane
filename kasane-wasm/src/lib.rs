@@ -15,7 +15,7 @@ pub use capability::WasiCapabilityConfig;
 
 use std::path::Path;
 
-use kasane_core::plugin::Plugin;
+use kasane_core::plugin::PluginBackend;
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine};
 
@@ -145,7 +145,7 @@ pub fn register_bundled_plugins(
         match loader.load(bytes, &wasi_config) {
             Ok(plugin) => {
                 tracing::info!("loaded bundled WASM plugin {name}");
-                registry.register(Box::new(plugin));
+                registry.register_backend(Box::new(plugin));
             }
             Err(e) => {
                 tracing::error!("failed to load bundled WASM plugin {name}: {e}");
@@ -221,7 +221,7 @@ pub fn discover_and_register(
                     continue;
                 }
                 tracing::info!("loaded WASM plugin {id:?} from {file_name}");
-                registry.register(Box::new(plugin));
+                registry.register_backend(Box::new(plugin));
             }
             Err(e) => {
                 tracing::error!("failed to load WASM plugin {file_name}: {e}");

@@ -459,14 +459,14 @@ pub fn handle_workspace_divider_input(
 mod tests {
     use super::*;
 
-    use crate::plugin::{Command, Plugin, StdinMode};
+    use crate::plugin::{Command, PluginBackend, StdinMode};
 
     struct TestPlugin {
         id: PluginId,
         allow_spawn: bool,
     }
 
-    impl Plugin for TestPlugin {
+    impl PluginBackend for TestPlugin {
         fn id(&self) -> PluginId {
             self.id.clone()
         }
@@ -557,7 +557,7 @@ mod tests {
     fn sourced_surface_commands_preserve_plugin_for_spawn_process() {
         let plugin_id = PluginId("surface-owner".to_string());
         let mut registry = PluginRegistry::new();
-        registry.register(Box::new(TestPlugin {
+        registry.register_backend(Box::new(TestPlugin {
             id: plugin_id.clone(),
             allow_spawn: true,
         }));

@@ -15,7 +15,7 @@ fn test_plugin_id() {
 #[test]
 fn test_init_all_returns_commands() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(LifecyclePlugin::new()));
+    registry.register_backend(Box::new(LifecyclePlugin::new()));
     let state = AppState::default();
     let commands = registry.init_all(&state);
     assert_eq!(commands.len(), 1);
@@ -25,8 +25,8 @@ fn test_init_all_returns_commands() {
 #[test]
 fn test_shutdown_all_calls_all_plugins() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(LifecyclePlugin::new()));
-    registry.register(Box::new(LifecyclePlugin::new()));
+    registry.register_backend(Box::new(LifecyclePlugin::new()));
+    registry.register_backend(Box::new(LifecyclePlugin::new()));
     registry.shutdown_all();
     // Verify via count — can't inspect internal state, but no panic = success
 }
@@ -34,7 +34,7 @@ fn test_shutdown_all_calls_all_plugins() {
 #[test]
 fn test_collect_plugin_surfaces_returns_owner_group() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(SurfacePlugin));
+    registry.register_backend(Box::new(SurfacePlugin));
 
     let surface_sets = registry.collect_plugin_surfaces();
     assert_eq!(surface_sets.len(), 1);
@@ -57,8 +57,8 @@ fn test_collect_plugin_surfaces_returns_owner_group() {
 #[test]
 fn test_remove_plugin_removes_registered_plugin() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(TestPlugin));
-    registry.register(Box::new(SurfacePlugin));
+    registry.register_backend(Box::new(TestPlugin));
+    registry.register_backend(Box::new(SurfacePlugin));
 
     assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
     assert_eq!(registry.plugin_count(), 1);
@@ -68,7 +68,7 @@ fn test_remove_plugin_removes_registered_plugin() {
 #[test]
 fn test_on_state_changed_dispatched_with_flags() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(LifecyclePlugin::new()));
+    registry.register_backend(Box::new(LifecyclePlugin::new()));
     let state = AppState::default();
 
     // Simulate what update() does for Msg::Kakoune
@@ -83,7 +83,7 @@ fn test_on_state_changed_dispatched_with_flags() {
 fn test_lifecycle_defaults() {
     // TestPlugin has no lifecycle hooks — defaults should work
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(TestPlugin));
+    registry.register_backend(Box::new(TestPlugin));
     let state = AppState::default();
 
     let commands = registry.init_all(&state);
@@ -96,7 +96,7 @@ fn test_lifecycle_defaults() {
 #[test]
 fn test_any_plugin_state_changed_flag() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(StatefulPlugin { hash: 1 }));
+    registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
 
     // Initial prepare: hash differs from default 0 → changed
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -112,7 +112,7 @@ fn test_any_plugin_state_changed_flag() {
 #[test]
 fn test_deliver_message_to_plugin() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(TestPlugin));
+    registry.register_backend(Box::new(TestPlugin));
     let state = AppState::default();
     let (flags, commands) =
         registry.deliver_message(&PluginId("test".to_string()), Box::new(42u32), &state);

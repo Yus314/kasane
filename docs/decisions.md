@@ -46,6 +46,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | SurfaceId-based invalidation | Proposed | **Per-surface dirty / cache design** | For multi-pane, not yet implemented |
 | Plugin I/O infrastructure | Current | **Hybrid model (WASI direct + host-mediated)** | Design foundation for Phase P. Details in [ADR-019](#adr-019-plugin-io-infrastructure--hybrid-model) |
 | Salsa incremental computation | Current | **Stage 1 (Salsa tracked) + Stage 2 (imperative plugins)** | Mandatory dependency (feature flag removed). Details in [ADR-020](#adr-020-salsa-incremental-computation--stage-12-split) |
+| Plugin trait naming | Current | **`Plugin` (state-externalized, primary) + `PluginBackend` (mutable, internal)** | Renamed from `PurePlugin`/`Plugin`. Details in [ADR-022](#adr-022-plugin-trait-rename--pureplugin--plugin-plugin--pluginbackend) |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 
@@ -264,7 +265,8 @@ See [plugin-development.md](./plugin-development.md) for detailed design.
 **Subsequent updates:**
 - [ADR-013](#adr-013-wasm-plugin-runtime--component-model-adoption) added the WASM Component Model, and the recommended distribution path is now WASM
 - The native path continues for registration via `kasane::run()`, full access to `&AppState`, and escape hatches such as `Surface` / `PaintHook`
-- Hook parity of the `#[kasane_plugin]` macro is being expanded incrementally; currently some hooks still require direct `Plugin` trait implementation
+- Hook parity of the `#[kasane_plugin]` macro is being expanded incrementally; currently some hooks still require direct trait implementation
+- [ADR-022](#adr-022-plugin-trait-rename--pureplugin--plugin-plugin--pluginbackend) renamed the traits: the `Plugin` trait referenced above is now called `PluginBackend` (internal), and the primary user-facing trait is the new `Plugin` (state-externalized, formerly `PurePlugin`)
 
 ### 9-3: Element Memory Model — Owned
 
@@ -1463,6 +1465,98 @@ Four pipeline entry points mirror the legacy variants:
 - If `Element` gains `PartialEq`, remove `no_eq` annotations for better downstream invalidation suppression
 - When Phase 5 (multi-pane) introduces `SurfaceDirtyMap`, the Salsa input sync can be extended to per-surface granularity
 - Plugin purity contracts (future): plugins that opt into pure `fn(&AppState) -> Element` could become tracked functions, eliminating the epoch bridge for those plugins
+
+## ADR-021: PurePlugin State Externalization
+
+**Status:** Decided — **Note:** The traits introduced here have been renamed in [ADR-022](#adr-022-plugin-trait-rename--pureplugin--plugin-plugin--pluginbackend): `PurePlugin` → `Plugin`, `Plugin` → `PluginBackend`, `PurePluginBridge` → `PluginBridge`, `IsPurePlugin` → `IsBridgedPlugin`. The body below preserves the original names at the time of decision.
+
+### Background
+
+Kasane's rendering pipeline uses a Stage 1/2 split (ADR-020): Stage 1 is Salsa-tracked pure functions, Stage 2 is imperative plugin application. The split exists because plugins hold mutable internal state (`&mut self` methods), making them incompatible with Salsa's pure function model.
+
+The `Plugin` trait has 15+ `&mut self` methods for state transitions and 11+ `&self` methods for view generation. Plugin state caching relies on manual `state_hash() -> u64` (L1) combined with `DirtyFlags`-based slot dependency tracking (L3). This has two weaknesses:
+
+1. Hash collisions can cause stale cache hits (hash-based, not structural equality)
+2. Plugin state changes are opaque to the framework (no `PartialEq`, no direct state access)
+
+### Decision
+
+Introduce `PurePlugin` as an alternative to `Plugin` where the framework owns the state:
+
+- **State externalization**: `PurePlugin::State` is a framework-owned `Clone + PartialEq + Debug + Default` type
+- **Pure functions**: All methods are `(&self, &State, ...) → (State, effects)` — no `&mut self`
+- **Automatic change detection**: State changes detected via `PartialEq` comparison, eliminating manual `state_hash()`
+- **Adapter pattern**: `PurePluginBridge` wraps `PurePlugin` into `Plugin`, allowing coexistence
+
+### Trade-offs
+
+| For | Against |
+|-----|---------|
+| Automatic, collision-free state change detection | State clone cost on every transition (negligible for small states) |
+| Pure functions enable future Salsa memoization of Stage 2 | `PurePlugin` cannot use `Surface`, `PaintHook`, or pane lifecycle |
+| Framework-owned state enables snapshotting and diffing | Blanket `PluginState` impl causes method resolution ambiguity with `Box<dyn PluginState>` (mitigated by using `&mut dyn PluginState` in erased interface) |
+| Zero boilerplate for state types (blanket impl) | WASM plugins cannot externalize state to host without serialization overhead |
+| Opt-in migration — existing plugins unchanged | Two plugin models to maintain during transition |
+
+### Implementation
+
+- `PluginState` trait with blanket impl for `T: Clone + PartialEq + Debug + Send + 'static`
+- `PurePlugin` trait with explicit `State` associated type
+- `ErasedPurePlugin` (object-safe, `pub(crate)`) erases the `State` type parameter
+- `PurePluginBridge` adapts erased pure plugin to `Plugin` trait with generation-counter `state_hash()`
+- `DirtyFlags::PLUGIN_STATE` (bit 7) added for explicit plugin state change signaling
+- `IsPurePlugin` marker trait for runtime detection of pure-plugin-backed `dyn Plugin` objects
+
+## ADR-022: Plugin Trait Rename — PurePlugin → Plugin, Plugin → PluginBackend
+
+**Status:** Accepted
+
+### Background
+
+Since ADR-021, Kasane has had two native plugin models: `Plugin` (mutable, `&mut self`) and `PurePlugin` (state-externalized, pure functions). In practice, `PurePlugin` became the recommended model for the vast majority of plugins — it provides automatic cache invalidation, a path to Salsa memoization, and a simpler mental model.
+
+However, the naming was a source of confusion:
+
+- New plugin authors encountered `Plugin` first (the natural name) but it was the lower-level, internal-facing trait
+- `PurePlugin` was the recommended API but its name suggested it was a specialized alternative
+- The "Pure" prefix implied a secondary, academic variant rather than the primary API
+- Documentation repeatedly had to explain that `PurePlugin` was preferred despite `Plugin` being the more obvious name
+
+### Decision
+
+Rename the traits to reflect their actual roles:
+
+| Before | After | Role |
+|--------|-------|------|
+| `PurePlugin` | `Plugin` | Primary user-facing plugin trait (state-externalized) |
+| `Plugin` | `PluginBackend` | Internal framework trait (mutable, full access) |
+| `PurePluginBridge` | `PluginBridge` | Adapter: `Plugin` → `PluginBackend` |
+| `IsPurePlugin` | `IsBridgedPlugin` | Marker trait for runtime detection |
+| `register_pure()` | `register()` | Registration method for `Plugin` |
+| `register()` (old, took `Box<dyn Plugin>`) | `register_backend()` | Registration method for `PluginBackend` |
+
+### Rationale
+
+- The primary API should have the simplest, most discoverable name
+- `PluginBackend` clearly communicates that it is an internal/framework-level trait, not the first thing plugin authors should reach for
+- `PluginBridge` and `IsBridgedPlugin` are more descriptive of what they actually do (bridging between models)
+- `register()` for the common case, `register_backend()` for the advanced case follows the principle of progressive disclosure
+
+### Trade-offs
+
+| For | Against |
+|-----|---------|
+| Primary API has the natural name | Breaking change for existing native plugin code |
+| Reduces confusion in documentation and onboarding | ADR-021 historical references now use old names |
+| `PluginBackend` signals "internal, not your first choice" | Two renames in the plugin system's lifetime |
+
+### Migration
+
+- All `impl PurePlugin` → `impl Plugin`
+- All `impl Plugin` (old mutable) → `impl PluginBackend`
+- `registry.register_pure(x)` → `registry.register(x)`
+- `registry.register(Box::new(x))` → `registry.register_backend(Box::new(x))`
+- Historical ADR text (ADR-021) preserved with original names; current documentation updated
 
 ## Related Documents
 

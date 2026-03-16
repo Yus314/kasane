@@ -16,7 +16,7 @@ There are two development paths for Kasane plugins.
 | API | Via WIT (`host-state` + `element-builder`) | Direct `&AppState` reference |
 | Dependencies | `kasane-plugin-sdk` + `wit-bindgen` | `kasane` + `kasane-core` |
 
-The WASM path is recommended for first-time plugin development. The native path is suited for cases that require full access to `&AppState` or need to use escape hatches that do not yet have WASM parity. With native, you can both directly implement the `Plugin` trait and use proc macro assistance.
+The WASM path is recommended for first-time plugin development. The native path is suited for cases that require full access to `&AppState` or need to use escape hatches that do not yet have WASM parity. With native, you can both directly implement the `Plugin` trait (state-externalized, recommended) and use proc macro assistance. For advanced use cases requiring `Surface`, `PaintHook`, or pane lifecycle, implement the `PluginBackend` trait instead.
 
 ### 1.2 How to Read This Guide
 
@@ -179,7 +179,9 @@ cargo build --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 ```
 
-### 2.2 Native Plugin
+### 2.2 Native Plugin (PluginBackend)
+
+> **Note:** For most native plugins, the `Plugin` trait (state-externalized, section 2.3) is recommended. Use `PluginBackend` only when you need `Surface`, `PaintHook`, pane lifecycle, or other advanced framework integration.
 
 ```rust
 // examples/line-numbers/src/main.rs
@@ -187,7 +189,7 @@ use kasane::kasane_core::plugin_prelude::*;
 
 struct LineNumbersPlugin;
 
-impl Plugin for LineNumbersPlugin {
+impl PluginBackend for LineNumbersPlugin {
     fn id(&self) -> PluginId {
         PluginId("line_numbers".into())
     }
@@ -236,7 +238,7 @@ impl Plugin for LineNumbersPlugin {
 
 fn main() {
     kasane::run(|registry| {
-        registry.register(Box::new(LineNumbersPlugin));
+        registry.register_backend(Box::new(LineNumbersPlugin));
     });
 }
 ```
@@ -248,7 +250,89 @@ kasane = { path = "../kasane" }
 kasane-core = { path = "../kasane-core" }
 ```
 
-Directly implement the `Plugin` trait and register the plugin with `kasane::run()` to distribute as a custom binary. Use `PluginCapabilities` to declare which features are used. The `#[kasane_plugin]` macro is convenient for supported hooks, but direct implementation is required for some features where hook parity is not yet complete.
+Directly implement the `PluginBackend` trait and register the plugin with `kasane::run()` to distribute as a custom binary. Use `PluginCapabilities` to declare which features are used. The `#[kasane_plugin]` macro is convenient for supported hooks, but direct implementation is required for some features where hook parity is not yet complete.
+
+### 2.3 Native Plugin (Recommended)
+
+`Plugin` is the recommended model for native plugins. The framework owns the state; all methods are pure functions receiving state as a parameter and returning new state + effects.
+
+```rust
+use kasane::kasane_core::plugin_prelude::*;
+
+#[derive(Clone, Debug, PartialEq, Default)]
+struct CursorLineState {
+    active_line: i32,
+}
+
+struct CursorLinePlugin;
+
+impl Plugin for CursorLinePlugin {
+    type State = CursorLineState;
+
+    fn id(&self) -> PluginId {
+        PluginId("cursor_line".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ANNOTATOR
+    }
+
+    fn on_state_changed(
+        &self,
+        state: &Self::State,
+        app: &AppState,
+        dirty: DirtyFlags,
+    ) -> (Self::State, Vec<Command>) {
+        if dirty.intersects(DirtyFlags::BUFFER) {
+            (CursorLineState { active_line: app.cursor_pos.line }, vec![])
+        } else {
+            (state.clone(), vec![])
+        }
+    }
+
+    fn annotate_line_with_ctx(
+        &self,
+        state: &Self::State,
+        line: usize,
+        _app: &AppState,
+        _ctx: &AnnotateContext,
+    ) -> Option<LineAnnotation> {
+        if line as i32 == state.active_line {
+            Some(LineAnnotation {
+                left_gutter: None,
+                right_gutter: None,
+                background: Some(BackgroundLayer {
+                    face: Face { bg: Color::Named(NamedColor::Blue), ..Face::default() },
+                    z_order: 0,
+                    blend: BlendMode::Opaque,
+                }),
+                priority: 0,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn annotate_deps(&self) -> DirtyFlags {
+        DirtyFlags::BUFFER
+    }
+}
+
+fn main() {
+    kasane::run(|registry| {
+        registry.register(CursorLinePlugin);
+    });
+}
+```
+
+**Key differences from `PluginBackend`:**
+
+| Aspect | `PluginBackend` (internal) | `Plugin` (recommended) |
+|---|---|---|
+| State mutations | `&mut self` methods | `(&self, &State) → (State, effects)` |
+| State hash | Manual `state_hash()` | Automatic (framework compares via `PartialEq`) |
+| Registration | `registry.register_backend(Box::new(..))` | `registry.register(..)` |
+| State type | Implicit (fields on impl struct) | Explicit `type State` (must derive `Clone + PartialEq + Debug + Default`) |
 
 ## 3. Further Reading
 
@@ -323,7 +407,8 @@ Unit tests can be written using `PluginRegistry` directly.
 #[test]
 fn my_plugin_contributes_gutter() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(MyPlugin));
+    registry.register(MyPlugin);  // Plugin trait (state-externalized)
+    // or: registry.register_backend(Box::new(MyBackendPlugin));  // PluginBackend trait
 
     let state = AppState::default();
     let _ = registry.init_all(&state);
@@ -341,19 +426,24 @@ fn my_plugin_contributes_gutter() {
 | sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 111 lines | `contribute_to()` (`STATUS_RIGHT`) |
 | line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92 lines | `contribute_to()` (`BUFFER_LEFT`) |
 | color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 641 lines | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
-| line-numbers (native) | `examples/line-numbers/` | 57 lines | Direct `Plugin` trait implementation, `contribute_to()`, `kasane::run()` |
+| line-numbers (native) | `examples/line-numbers/` | 57 lines | Direct `PluginBackend` trait implementation, `contribute_to()`, `kasane::run()` |
+| cursor-line-pure (test) | `kasane-core/src/plugin/pure.rs` | test double | `Plugin` implementation (state-externalized), `annotate_line_with_ctx()`, automatic state tracking |
+| color-preview-pure (test) | `kasane-core/src/plugin/pure.rs` | test double | `Plugin` with complex `HashMap` state |
 
 ## 6. Appendix: WASM vs Native Comparison
 
-| Aspect | WASM | Native |
-|---|---|---|
-| Safety | Sandbox isolation, prevents host crashes | Same process as host |
-| Performance | WASM boundary crossing cost | Direct function calls |
-| API access | `host-state` + `element-builder` | Direct `&AppState` reference |
-| Distribution | `.wasm` file placement | Custom binary |
-| Developer experience | SDK macros + `wit-bindgen` | `#[kasane::plugin]` macro |
-| `Surface` / `PaintHook` | Not supported | Supported |
-| Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` |
+| Aspect | WASM | Native (`Plugin`, recommended) | Native (`PluginBackend`, internal) |
+|---|---|---|---|
+| Safety | Sandbox isolation | Same process as host | Same process as host |
+| Performance | WASM boundary crossing cost | Direct function calls | Direct function calls |
+| API access | `host-state` + `element-builder` | Direct `&AppState` + `&State` | Direct `&AppState` reference |
+| Distribution | `.wasm` file placement | Custom binary | Custom binary |
+| Developer experience | SDK macros + `wit-bindgen` | Derive `Clone + PartialEq + Debug + Default` on state | `#[kasane::plugin]` macro |
+| `Surface` / `PaintHook` | Not supported | Not supported (use `PluginBackend`) | Supported |
+| State model | Mutable (guest linear memory) | Externalized (framework-owned, pure functions) | Mutable (`&mut self`) |
+| Cache invalidation | Manual `state_hash()` | Automatic (`PartialEq` comparison) | Manual `state_hash()` |
+| Salsa compatibility | Not directly | Future path to Salsa memoization | Not directly |
+| Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` | `Box<dyn Any>` |
 
 ## 7. Related Documents
 

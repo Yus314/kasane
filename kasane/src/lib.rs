@@ -185,6 +185,6 @@ fn wrap_with_wasm_discovery(
         register_plugins(registry);
 
         // 4. Built-in input handler (lowest priority — all plugins can override)
-        registry.register(Box::new(kasane_core::input::BuiltinInputPlugin));
+        registry.register_backend(Box::new(kasane_core::input::BuiltinInputPlugin));
     }
 }

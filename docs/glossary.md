@@ -42,14 +42,15 @@ For authoritative definitions of semantics and responsibilities, see [semantics.
 | Msg | A message that triggers state changes. Includes Kakoune messages, input events, plugin messages, etc. |
 | update() | A function that takes State and Msg, updates State, and returns a Command. Side effects are made explicit as Commands |
 | Command | A description of side effects returned by update(). SendToKakoune, Paste, Quit, RequestRedraw, ScheduleTimer, PluginMessage, SetConfig |
-| DirtyFlags | Bit flags (u16) indicating which parts of AppState have changed. 6 types: BUFFER, STATUS, MENU_STRUCTURE, MENU_SELECTION, INFO, OPTIONS. Used for invalidation decisions in on_state_changed() and PluginSlotCache |
+| DirtyFlags | Bit flags (u16) indicating which parts of AppState have changed. 8 types: BUFFER_CONTENT, STATUS, MENU_STRUCTURE, MENU_SELECTION, INFO, OPTIONS, BUFFER_CURSOR, PLUGIN_STATE. Used for invalidation decisions in on_state_changed() and PluginSlotCache |
 | CoreState | State derived from the Kakoune protocol (buffer lines, cursor, menus, status, etc.). Read-only from plugins |
 
 ## Plugin System
 
 | Term | Description |
 |------|-------------|
-| Plugin | The unit of extension in Kasane. A Rust crate with its own State, Msg, update(), and view() |
+| Plugin | The primary user-facing plugin trait (state-externalized). Framework owns state; all methods are pure functions `(&self, &State) → (State, effects)`. Recommended for new plugins. Formerly called `PurePlugin` (renamed in ADR-022) |
+| PluginBackend | The internal framework plugin trait (mutable `&mut self`). Full access to all extension points including Surface, PaintHook, pane lifecycle. Formerly called `Plugin` (renamed in ADR-022) |
 | PluginId | A unique identifier for a plugin |
 | PluginRegistry | Manages all registered plugins, performing Slot collection, Decorator application, and Replacement resolution |
 | Slot | An extension point defined by the framework. Plugins insert Elements into Slots to extend the UI |
@@ -59,12 +60,12 @@ For authoritative definitions of semantics and responsibilities, see [semantics.
 | ReplaceTarget | The target of Replacement application (MenuPrompt, MenuInline, InfoPrompt, StatusBar, etc.) |
 | proc macro | Procedural macros such as `#[kasane::plugin]` and `#[kasane::component]`. Automate boilerplate generation and compile-time validation |
 | LineDecoration | Decoration provided by a plugin for each buffer line. Composed of 3 optional elements: left_gutter (left gutter Element), right_gutter (right gutter Element), and background (line background Face) |
-| contribute_overlay | A method on the Plugin trait. An extension point where a plugin provides a single Overlay (a floating Element with position specification). Independent of Slot::Overlay |
-| contribute_line | A method on the Plugin trait. Returns LineDecoration for a specified line. Used for implementing gutter icons and line backgrounds |
-| on_state_changed | A lifecycle method on the Plugin trait. Called with DirtyFlags when AppState is updated. Used for synchronizing plugin internal state |
-| observe_key / observe_mouse | Input observation methods on the Plugin trait. Notified to all plugins but cannot consume events. Used for tracking internal state |
-| state_hash | A method on the Plugin trait. Returns a u64 hash of internal state. Used for differential evaluation in the L1 cache layer of PluginSlotCache |
-| slot_deps | A method on the Plugin trait. Returns the DirtyFlags that a contribute() for a given Slot depends on. Used in the L3 cache layer of PluginSlotCache |
+| contribute_overlay | A method on the Plugin/PluginBackend traits. An extension point where a plugin provides a single Overlay (a floating Element with position specification). Independent of Slot::Overlay |
+| contribute_line | A method on the Plugin/PluginBackend traits. Returns LineDecoration for a specified line. Used for implementing gutter icons and line backgrounds |
+| on_state_changed | A lifecycle method on the Plugin/PluginBackend traits. Called with DirtyFlags when AppState is updated. Used for synchronizing plugin internal state |
+| observe_key / observe_mouse | Input observation methods on the PluginBackend trait. Notified to all plugins but cannot consume events. Used for tracking internal state |
+| state_hash | A method on the PluginBackend trait. Returns a u64 hash of internal state. Used for differential evaluation in the L1 cache layer of PluginSlotCache. `Plugin` (state-externalized) does not require manual `state_hash()` — the framework tracks changes via `PartialEq` |
+| slot_deps | A method on the PluginBackend trait. Returns the DirtyFlags that a contribute() for a given Slot depends on. Used in the L3 cache layer of PluginSlotCache |
 | PluginSlotCache | An in-memory cache in PluginRegistry. Caches contribute() results across two tiers, L1 (state_hash) and L3 (slot_deps), to avoid unnecessary recalculation |
 | transform_menu_item | A method on the Plugin trait. Pre-rendering transformation of menu items (Atom arrays). Used for adding icons, etc. |
 | cursor_line | A bundled WASM plugin. Highlights the cursor line background. A practical example of contribute_line(). Source: `kasane-wasm/guests/cursor-line/` |
@@ -103,7 +104,12 @@ For authoritative definitions of semantics and responsibilities, see [semantics.
 | Placement | Placement specification for a new Surface: SplitFocused / SplitFrom / Tab / TabIn / Dock / Float |
 | SlotId | Open slot system. Replaces the legacy `Slot` enum (deprecated). Custom slots can be defined with `SlotId::new("myplugin.sidebar")` |
 | PaintHook | A trait for directly modifying the CellGrid after paint. Controls targets via DirtyFlags-based + Surface filter |
-| PluginCapabilities | Bitflags (14 types) indicating which extension points a plugin participates in. Used as an optimization to skip WASM boundary calls for non-participating plugins |
+| PluginCapabilities | Bitflags (14 types) indicating which extension points a plugin participates in. Used as an optimization to skip WASM boundary calls for non-participating plugins. Shared by both `Plugin` and `PluginBackend` |
+| PluginState | Marker trait for externalized plugin state. Blanket-implemented for `T: Clone + PartialEq + Debug + Send + 'static`. Supports trait-object cloning (via `dyn-clone`) and dynamic equality comparison |
+| PluginBridge | Adapter that wraps a `Plugin` into the `PluginBackend` trait interface. Holds framework-owned state and uses a generation counter for `state_hash()`. Formerly called `PurePluginBridge` (renamed in ADR-022) |
+| IsBridgedPlugin | Marker trait for runtime detection of `Plugin`-backed `dyn PluginBackend` objects. Provides access to the externalized state. Formerly called `IsPurePlugin` (renamed in ADR-022) |
+| State Externalization | Design pattern where plugin state is owned by the framework rather than the plugin. Used by the `Plugin` trait (primary API). Enables structural equality comparison, automatic cache invalidation, and future Salsa memoization |
+| DirtyFlags::PLUGIN_STATE | Dirty flag (bit 7) indicating that plugin internal state has changed. Used for `Plugin` (state-externalized) state change signaling |
 
 ## Rendering Optimization
 

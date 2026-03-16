@@ -76,7 +76,7 @@ impl IoHandlerPlugin {
     }
 }
 
-impl Plugin for IoHandlerPlugin {
+impl PluginBackend for IoHandlerPlugin {
     fn id(&self) -> PluginId {
         PluginId("io_handler".to_string())
     }
@@ -116,7 +116,7 @@ impl Plugin for IoHandlerPlugin {
 #[test]
 fn test_deliver_io_event_dispatches_to_plugin() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(IoHandlerPlugin::new()));
+    registry.register_backend(Box::new(IoHandlerPlugin::new()));
     let state = AppState::default();
 
     let event = IoEvent::Process(ProcessEvent::Stdout {
@@ -134,7 +134,7 @@ fn test_deliver_io_event_dispatches_to_plugin() {
 #[test]
 fn test_deliver_io_event_unknown_target() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(IoHandlerPlugin::new()));
+    registry.register_backend(Box::new(IoHandlerPlugin::new()));
     let state = AppState::default();
 
     let event = IoEvent::Process(ProcessEvent::Stdout {
@@ -151,7 +151,7 @@ fn test_deliver_io_event_unknown_target() {
 fn test_deliver_io_event_skips_plugin_without_io_handler_capability() {
     // TestPlugin has default capabilities (all()), but let's make one with no IO_HANDLER
     struct NoIoCapPlugin;
-    impl Plugin for NoIoCapPlugin {
+    impl PluginBackend for NoIoCapPlugin {
         fn id(&self) -> PluginId {
             PluginId("no_io".to_string())
         }
@@ -166,7 +166,7 @@ fn test_deliver_io_event_skips_plugin_without_io_handler_capability() {
     }
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(NoIoCapPlugin));
+    registry.register_backend(Box::new(NoIoCapPlugin));
     let state = AppState::default();
 
     let event = IoEvent::Process(ProcessEvent::Exited {
@@ -265,14 +265,14 @@ fn test_recording_dispatcher_tracks_operations() {
 fn test_plugin_allows_process_spawn_default_true() {
     // TestPlugin uses default allows_process_spawn() which returns true
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(TestPlugin));
+    registry.register_backend(Box::new(TestPlugin));
     assert!(registry.plugin_allows_process_spawn(&PluginId("test".to_string())));
 }
 
 #[test]
 fn test_plugin_allows_process_spawn_denied() {
     struct DenySpawnPlugin;
-    impl Plugin for DenySpawnPlugin {
+    impl PluginBackend for DenySpawnPlugin {
         fn id(&self) -> PluginId {
             PluginId("deny_spawn".to_string())
         }
@@ -282,7 +282,7 @@ fn test_plugin_allows_process_spawn_denied() {
     }
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(DenySpawnPlugin));
+    registry.register_backend(Box::new(DenySpawnPlugin));
     assert!(!registry.plugin_allows_process_spawn(&PluginId("deny_spawn".to_string())));
 }
 

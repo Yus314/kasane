@@ -7,8 +7,8 @@ use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution, IoEvent,
-    LineAnnotation, OverlayContext, OverlayContribution, Plugin, PluginCapabilities, PluginId,
-    SlotId, TransformContext, TransformTarget,
+    LineAnnotation, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities,
+    PluginId, SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::state::{AppState, DirtyFlags};
@@ -235,7 +235,7 @@ impl WasmPlugin {
     }
 }
 
-impl Plugin for WasmPlugin {
+impl PluginBackend for WasmPlugin {
     fn id(&self) -> PluginId {
         self.shared.plugin_id.clone()
     }

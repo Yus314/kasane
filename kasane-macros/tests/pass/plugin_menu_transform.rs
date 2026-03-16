@@ -26,7 +26,7 @@ mod icon_plugin {
 }
 
 fn main() {
-    use kasane_core::plugin::Plugin;
+    use kasane_core::plugin::PluginBackend;
     use kasane_core::protocol::{Atom, Face};
     use kasane_core::state::AppState;
 

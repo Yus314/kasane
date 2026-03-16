@@ -4,7 +4,7 @@
 //! can override these keys via `handle_key()`.
 
 use crate::input::{Key, KeyEvent};
-use crate::plugin::{Command, Plugin, PluginCapabilities, PluginId};
+use crate::plugin::{Command, PluginBackend, PluginCapabilities, PluginId};
 use crate::protocol::KasaneRequest;
 use crate::state::AppState;
 
@@ -14,7 +14,7 @@ use crate::state::AppState;
 /// first-wins priority on these keys.
 pub struct BuiltinInputPlugin;
 
-impl Plugin for BuiltinInputPlugin {
+impl PluginBackend for BuiltinInputPlugin {
     fn id(&self) -> PluginId {
         PluginId("kasane.builtin.input".into())
     }
@@ -117,7 +117,7 @@ mod tests {
         use crate::state::{Msg, update};
 
         struct CustomPageUpPlugin;
-        impl Plugin for CustomPageUpPlugin {
+        impl PluginBackend for CustomPageUpPlugin {
             fn id(&self) -> PluginId {
                 PluginId("custom_pageup".into())
             }
@@ -135,8 +135,8 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRegistry::new();
         // Custom plugin registered BEFORE builtin → gets priority
-        registry.register(Box::new(CustomPageUpPlugin));
-        registry.register(Box::new(BuiltinInputPlugin));
+        registry.register_backend(Box::new(CustomPageUpPlugin));
+        registry.register_backend(Box::new(BuiltinInputPlugin));
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
@@ -159,7 +159,7 @@ mod tests {
 
         // Plugin that doesn't handle PageUp
         struct NoOpPlugin;
-        impl Plugin for NoOpPlugin {
+        impl PluginBackend for NoOpPlugin {
             fn id(&self) -> PluginId {
                 PluginId("noop".into())
             }
@@ -167,8 +167,8 @@ mod tests {
 
         let mut state = AppState::default();
         let mut registry = PluginRegistry::new();
-        registry.register(Box::new(NoOpPlugin));
-        registry.register(Box::new(BuiltinInputPlugin));
+        registry.register_backend(Box::new(NoOpPlugin));
+        registry.register_backend(Box::new(BuiltinInputPlugin));
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),

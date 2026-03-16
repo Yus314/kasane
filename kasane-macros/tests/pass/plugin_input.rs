@@ -37,7 +37,7 @@ mod input_plugin {
 }
 
 fn main() {
-    use kasane_core::plugin::Plugin;
+    use kasane_core::plugin::PluginBackend;
     use kasane_core::input::{Key, KeyEvent, Modifiers};
     use kasane_core::state::AppState;
 

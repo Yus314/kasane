@@ -8,7 +8,7 @@ use kasane_core::element::Element;
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
 use kasane_core::plugin::{
-    Command, ContribSizeHint, ContributeContext, Contribution, Plugin, PluginCapabilities,
+    Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
     PluginId, PluginRegistry, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
@@ -63,7 +63,7 @@ mod key_consumer_plugin {
 fn handle_key_first_wins() {
     let mut state = setup_state(vec![make_line("text")]);
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(KeyConsumerPluginPlugin::new()));
+    registry.register_backend(Box::new(KeyConsumerPluginPlugin::new()));
     registry.init_all(&state);
 
     // Case 1: Ctrl+S should be consumed by the plugin
@@ -134,7 +134,7 @@ fn plugin_message_delivery() {
     let state = setup_state(vec![make_line("text")]);
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(MsgReceiverPluginPlugin::new()));
+    registry.register_backend(Box::new(MsgReceiverPluginPlugin::new()));
     registry.init_all(&state);
 
     let target_id = kasane_core::plugin::PluginId("msg_receiver_plugin".into());
@@ -210,7 +210,7 @@ fn menu_transform_adds_prefix() {
     });
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(PrefixPluginPlugin::new()));
+    registry.register_backend(Box::new(PrefixPluginPlugin::new()));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
 
@@ -277,7 +277,7 @@ fn buffer_transform_adds_banner() {
     let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(BufferBannerPlugin::new()));
+    registry.register_backend(Box::new(BufferBannerPlugin::new()));
     registry.init_all(&state);
 
     let transformed = registry.apply_transform_chain(
@@ -308,7 +308,7 @@ fn buffer_transform_adds_banner() {
 
 struct VerticalBandsPlugin;
 
-impl Plugin for VerticalBandsPlugin {
+impl PluginBackend for VerticalBandsPlugin {
     fn id(&self) -> PluginId {
         PluginId("vertical_bands".into())
     }
@@ -344,7 +344,7 @@ fn above_and_below_buffer_slots_render() {
     let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(VerticalBandsPlugin));
+    registry.register_backend(Box::new(VerticalBandsPlugin));
     registry.init_all(&state);
 
     let grid = render_with_registry(&state, &registry);
@@ -366,7 +366,7 @@ fn above_and_below_buffer_slots_render() {
 
 struct UnderlineCursorPlugin;
 
-impl Plugin for UnderlineCursorPlugin {
+impl PluginBackend for UnderlineCursorPlugin {
     fn id(&self) -> PluginId {
         PluginId("underline_cursor".into())
     }
@@ -388,7 +388,7 @@ fn cursor_style_override_wins_over_default_logic() {
     assert_eq!(cursor_style_default(&state), CursorStyle::Outline);
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(UnderlineCursorPlugin));
+    registry.register_backend(Box::new(UnderlineCursorPlugin));
     registry.init_all(&state);
 
     assert_eq!(

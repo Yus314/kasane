@@ -1,6 +1,7 @@
 mod command;
 mod context;
 pub mod io;
+pub mod pure;
 mod registry;
 mod traits;
 
@@ -33,7 +34,10 @@ pub use context::{
 pub use registry::{EffectiveSectionDeps, PluginRegistry, PluginSurfaceSet};
 
 // Re-export traits module
-pub use traits::Plugin;
+pub use traits::PluginBackend;
+
+// Re-export pure plugin module
+pub use pure::{IsBridgedPlugin, Plugin, PluginBridge, PluginState};
 
 bitflags! {
     /// Declares which Plugin trait methods a plugin actually implements.

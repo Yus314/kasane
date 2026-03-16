@@ -34,6 +34,7 @@ hdrhistogram = "7"
 toml = "0.8"
 bitflags = "2"
 compact_str = { version = "0.9", features = ["serde"] }
+dyn-clone = "1"
 salsa = "0.26"
 bytemuck = { version = "1", features = ["derive"] }
 kasane-gui = { path = "kasane-gui" }

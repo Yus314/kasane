@@ -690,7 +690,7 @@ mod tests {
     use crate::element::FlexChild;
     use crate::element::{Edges, Style};
     use crate::layout::flex;
-    use crate::plugin::{Plugin, PluginCapabilities, PluginId};
+    use crate::plugin::{PluginBackend, PluginCapabilities, PluginId};
     use crate::protocol::Face;
     use crate::state::AppState;
     use crate::surface::{
@@ -763,7 +763,7 @@ mod tests {
         seen: Rc<RefCell<Vec<ContributeContext>>>,
     }
 
-    impl Plugin for RecordingPlugin {
+    impl PluginBackend for RecordingPlugin {
         fn id(&self) -> PluginId {
             PluginId("recording_plugin".into())
         }
@@ -858,7 +858,7 @@ mod tests {
     fn test_resolve_placeholder_uses_container_child_constraints() {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut registry = PluginRegistry::new();
-        registry.register(Box::new(RecordingPlugin { seen: seen.clone() }));
+        registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
         let state = AppState::default();
 
         let root = Element::Container {
@@ -909,7 +909,7 @@ mod tests {
     fn test_resolve_placeholder_uses_flex_share_constraints() {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut registry = PluginRegistry::new();
-        registry.register(Box::new(RecordingPlugin { seen: seen.clone() }));
+        registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
         let state = AppState::default();
 
         let root = Element::row(vec![
@@ -951,7 +951,7 @@ mod tests {
     fn test_resolve_overlay_slot_inside_stack_overlay() {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut registry = PluginRegistry::new();
-        registry.register(Box::new(RecordingPlugin { seen: seen.clone() }));
+        registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
         let state = AppState::default();
 
         let root = Element::stack(

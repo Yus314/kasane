@@ -39,7 +39,7 @@ impl Surface for TestSurface {
 
 struct TestPlugin;
 
-impl Plugin for TestPlugin {
+impl PluginBackend for TestPlugin {
     fn id(&self) -> PluginId {
         PluginId("test".to_string())
     }
@@ -61,7 +61,7 @@ impl LifecyclePlugin {
     }
 }
 
-impl Plugin for LifecyclePlugin {
+impl PluginBackend for LifecyclePlugin {
     fn id(&self) -> PluginId {
         PluginId("lifecycle".to_string())
     }
@@ -83,7 +83,7 @@ impl Plugin for LifecyclePlugin {
 
 struct SurfacePlugin;
 
-impl Plugin for SurfacePlugin {
+impl PluginBackend for SurfacePlugin {
     fn id(&self) -> PluginId {
         PluginId("surface-plugin".to_string())
     }
@@ -107,7 +107,7 @@ struct StatefulPlugin {
     hash: u64,
 }
 
-impl Plugin for StatefulPlugin {
+impl PluginBackend for StatefulPlugin {
     fn id(&self) -> PluginId {
         PluginId("stateful".to_string())
     }

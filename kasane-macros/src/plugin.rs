@@ -442,7 +442,7 @@ fn generate_plugin_struct(def: &PluginDef, module: &ItemMod) -> syn::Result<Toke
             }
         }
 
-        impl kasane_core::plugin::Plugin for #struct_name {
+        impl kasane_core::plugin::PluginBackend for #struct_name {
             fn id(&self) -> kasane_core::plugin::PluginId {
                 kasane_core::plugin::PluginId(#id_str.to_string())
             }

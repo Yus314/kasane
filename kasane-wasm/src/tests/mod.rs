@@ -4,7 +4,7 @@ use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, Mous
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     AnnotateContext, Command, ContribSizeHint, ContributeContext, Contribution, IoEvent,
-    OverlayContext, Plugin, PluginId, PluginRegistry, ProcessEvent, SlotId,
+    OverlayContext, PluginBackend, PluginId, PluginRegistry, ProcessEvent, SlotId,
 };
 use kasane_core::protocol::Color;
 use kasane_core::render::cache::ViewCache;
@@ -81,7 +81,7 @@ fn default_surface_rect() -> Rect {
 
 struct SurfaceProbeContributor;
 
-impl Plugin for SurfaceProbeContributor {
+impl PluginBackend for SurfaceProbeContributor {
     fn id(&self) -> PluginId {
         PluginId("surface_probe_contributor".to_string())
     }

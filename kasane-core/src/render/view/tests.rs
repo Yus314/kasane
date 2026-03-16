@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use crate::element::{Direction, OverlayAnchor, ResolvedSlotInstanceId};
 use crate::plugin::{
-    ContributeContext, Contribution, LineAnnotation, Plugin, PluginCapabilities, PluginId,
+    ContributeContext, Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId,
     PluginRegistry, SlotId, TransformTarget,
 };
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
@@ -175,11 +175,12 @@ fn test_status_bar_resolves_default_face() {
 #[test]
 fn test_status_left_slot_in_status_bar() {
     use crate::plugin::{
-        ContribSizeHint, ContributeContext, Contribution, Plugin, PluginCapabilities, PluginId,
+        ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
+        PluginId,
     };
 
     struct StatusLeftPlugin;
-    impl Plugin for StatusLeftPlugin {
+    impl PluginBackend for StatusLeftPlugin {
         fn id(&self) -> PluginId {
             PluginId("status_left".into())
         }
@@ -209,7 +210,7 @@ fn test_status_left_slot_in_status_bar() {
     state.status_mode_line = make_line("normal");
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(StatusLeftPlugin));
+    registry.register_backend(Box::new(StatusLeftPlugin));
 
     let el = view(&state, &registry);
 
@@ -506,7 +507,7 @@ fn test_buffer_surface_abstract_shape() {
 fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     struct GutterPlugin;
 
-    impl Plugin for GutterPlugin {
+    impl PluginBackend for GutterPlugin {
         fn id(&self) -> PluginId {
             PluginId("gutter_plugin".into())
         }
@@ -534,7 +535,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     state.lines = vec![make_line("buffer")];
 
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(GutterPlugin));
+    registry.register_backend(Box::new(GutterPlugin));
     let element = build_buffer_surface_abstract(&state, &registry);
 
     match element {
@@ -623,7 +624,7 @@ fn test_surface_view_sections_cached_preserves_surface_reports() {
 
 struct SurfaceDepsPlugin;
 
-impl Plugin for SurfaceDepsPlugin {
+impl PluginBackend for SurfaceDepsPlugin {
     fn id(&self) -> PluginId {
         PluginId("surface_deps".into())
     }
@@ -710,7 +711,7 @@ impl Surface for TestSurface {
 #[test]
 fn test_effective_surface_section_deps_uses_present_slots_and_active_surface_transforms() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(SurfaceDepsPlugin));
+    registry.register_backend(Box::new(SurfaceDepsPlugin));
 
     let mut surface_registry = SurfaceRegistry::new();
     surface_registry.register(Box::new(KakouneBufferSurface::new()));
@@ -759,7 +760,7 @@ fn test_effective_surface_section_deps_uses_present_slots_and_active_surface_tra
 #[test]
 fn test_effective_surface_section_deps_falls_back_to_declared_slots_for_owner_failures() {
     let mut registry = PluginRegistry::new();
-    registry.register(Box::new(SurfaceDepsPlugin));
+    registry.register_backend(Box::new(SurfaceDepsPlugin));
 
     let mut surface_registry = SurfaceRegistry::new();
     surface_registry.register(Box::new(TestSurface::new(

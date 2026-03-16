@@ -5,7 +5,7 @@ use std::any::Any;
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
-    Command, ContribSizeHint, ContributeContext, Contribution, Plugin, PluginCapabilities,
+    Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
     PluginId, PluginRegistry, SlotId,
 };
 use kasane_core::protocol::{
@@ -22,7 +22,7 @@ struct BenchPlugin {
     id: String,
 }
 
-impl Plugin for BenchPlugin {
+impl PluginBackend for BenchPlugin {
     fn id(&self) -> PluginId {
         PluginId(self.id.clone())
     }
@@ -563,7 +563,7 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
 pub fn registry_with_plugins(n: usize) -> PluginRegistry {
     let mut registry = PluginRegistry::new();
     for i in 0..n {
-        registry.register(Box::new(BenchPlugin {
+        registry.register_backend(Box::new(BenchPlugin {
             id: format!("bench_plugin_{i}"),
         }));
     }
