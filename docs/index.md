@@ -14,7 +14,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Using Plugins](using-plugins.md)
 
 **Build plugins:**
-[Plugin Development](plugin-development.md) → [Plugin API](plugin-api.md)
+[Plugin Development](plugin-development.md) → [Plugin API](plugin-api.md) → [WASM Constraints](wasm-constraints.md)
 
 **Use GPU backend:**
 [GPU Backend](gpu-backend.md)
@@ -43,6 +43,7 @@ Authoritative specifications, responsibilities, and usage guides.
 - [layer-responsibilities.md](layer-responsibilities.md) — upstream / core / plugin responsibilities
 - [plugin-development.md](plugin-development.md) — plugin development guide
 - [plugin-api.md](plugin-api.md) — plugin API reference
+- [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path
 - [config.md](config.md) — configuration reference
 - [json-ui-protocol.md](json-ui-protocol.md) — JSON UI protocol specification
 - [repo-layout.md](repo-layout.md) — source tree and crate responsibilities

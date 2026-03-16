@@ -21,6 +21,8 @@ The following operations are currently outside the scope of the plugin API.
 
 Native plugins run within the host process and can therefore technically use `std::process`, `std::fs`, etc. However, Plugin trait hook functions are called synchronously, so the plugin developer bears the design responsibility for avoiding main thread blocking.
 
+For a comprehensive catalog of WASM-specific constraints and their evolution path, see [wasm-constraints.md](./wasm-constraints.md).
+
 Kasane's long-term strategy is to **make WASM the first-class distribution and execution path, with capabilities as close to native as possible**. Accordingly, native-only APIs are treated not as "permanent advantages" but as one of the following:
 
 - A provisional escape hatch not yet stably exposed via WIT

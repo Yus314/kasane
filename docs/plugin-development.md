@@ -461,7 +461,7 @@ Register via `registry.register_backend(Box::new(..))`. See the `PluginBackend` 
 | API access | `host-state` + `element-builder` | Direct `&AppState` + `&State` | Direct `&AppState` reference |
 | Distribution | `.wasm` file placement | Custom binary | Custom binary |
 | Developer experience | `#[plugin]` macro + `wit-bindgen` | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
-| `Surface` / `PaintHook` | Not supported | Not supported (use `PluginBackend`) | Supported |
+| `Surface` / `PaintHook` | Not supported ([details](./wasm-constraints.md)) | Not supported (use `PluginBackend`) | Supported |
 | State model | Mutable (guest linear memory) | Externalized (framework-owned, pure functions) | Mutable (`&mut self`) |
 | Cache invalidation | Manual `state_hash()` | Automatic (`PartialEq` comparison) | Manual `state_hash()` |
 | Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` | `Box<dyn Any>` |
