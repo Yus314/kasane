@@ -7,7 +7,8 @@ use crate::layout::HitMap;
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::Placement;
 
-use super::pure::{Plugin, PluginBridge};
+use super::bridge::PluginBridge;
+use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     IoEvent, OverlayContext, OverlayContribution, PaintHook, PluginBackend, PluginCapabilities,

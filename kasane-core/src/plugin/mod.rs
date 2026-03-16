@@ -1,8 +1,9 @@
+pub mod bridge;
 mod command;
 mod context;
 pub mod io;
-pub mod pure;
 mod registry;
+pub mod state;
 mod traits;
 
 #[cfg(test)]
@@ -36,8 +37,9 @@ pub use registry::{EffectiveSectionDeps, PluginRegistry, PluginSurfaceSet};
 // Re-export traits module
 pub use traits::PluginBackend;
 
-// Re-export pure plugin module
-pub use pure::{IsBridgedPlugin, Plugin, PluginBridge, PluginState};
+// Re-export state and bridge modules
+pub use bridge::{IsBridgedPlugin, PluginBridge};
+pub use state::{Plugin, PluginState};
 
 bitflags! {
     /// Declares which Plugin trait methods a plugin actually implements.
