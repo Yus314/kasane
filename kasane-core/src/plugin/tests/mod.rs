@@ -3,39 +3,14 @@ use crate::input::KeyEvent;
 use crate::layout::SplitDirection;
 use crate::protocol::Face;
 use crate::state::{AppState, DirtyFlags};
-use crate::surface::{EventContext, SizeHint, Surface, SurfaceEvent, SurfaceId, ViewContext};
+use crate::surface::{Surface, SurfaceId};
+use crate::test_support::TestSurfaceBuilder;
 use crate::workspace::Placement;
 
 mod commands;
 mod hooks;
 mod io;
 mod registry;
-
-struct TestSurface {
-    id: SurfaceId,
-}
-
-impl Surface for TestSurface {
-    fn id(&self) -> SurfaceId {
-        self.id
-    }
-
-    fn surface_key(&self) -> compact_str::CompactString {
-        format!("test.surface.{}", self.id.0).into()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        SizeHint::fill()
-    }
-
-    fn view(&self, _ctx: &ViewContext<'_>) -> crate::element::Element {
-        crate::element::Element::Empty
-    }
-
-    fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
-        vec![]
-    }
-}
 
 struct TestPlugin;
 
@@ -90,8 +65,8 @@ impl PluginBackend for SurfacePlugin {
 
     fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
         vec![
-            Box::new(TestSurface { id: SurfaceId(200) }),
-            Box::new(TestSurface { id: SurfaceId(201) }),
+            TestSurfaceBuilder::new(SurfaceId(200)).build(),
+            TestSurfaceBuilder::new(SurfaceId(201)).build(),
         ]
     }
 

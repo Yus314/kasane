@@ -693,10 +693,8 @@ mod tests {
     use crate::plugin::{PluginBackend, PluginCapabilities, PluginId};
     use crate::protocol::Face;
     use crate::state::AppState;
-    use crate::surface::{
-        EventContext, SizeHint, SlotDeclaration, SlotKind, Surface, SurfaceEvent, SurfaceId,
-        SurfaceRegistry, ViewContext,
-    };
+    use crate::surface::{SlotDeclaration, SlotKind, SurfaceId, SurfaceRegistry};
+    use crate::test_support::TestSurfaceBuilder;
 
     #[test]
     fn test_resolved_tree_rejects_placeholder() {
@@ -791,41 +789,6 @@ mod tests {
         }
     }
 
-    struct ResolveTestSurface {
-        root: Element,
-        slots: Vec<SlotDeclaration>,
-    }
-
-    impl Surface for ResolveTestSurface {
-        fn id(&self) -> SurfaceId {
-            SurfaceId(900)
-        }
-
-        fn surface_key(&self) -> CompactString {
-            "test.surface".into()
-        }
-
-        fn size_hint(&self) -> SizeHint {
-            SizeHint::fill()
-        }
-
-        fn view(&self, _ctx: &ViewContext<'_>) -> Element {
-            self.root.clone()
-        }
-
-        fn handle_event(
-            &mut self,
-            _event: SurfaceEvent,
-            _ctx: &EventContext<'_>,
-        ) -> Vec<crate::plugin::Command> {
-            vec![]
-        }
-
-        fn declared_slots(&self) -> &[SlotDeclaration] {
-            &self.slots
-        }
-    }
-
     fn resolve_with_surface(
         root: Element,
         slots: Vec<SlotDeclaration>,
@@ -834,10 +797,13 @@ mod tests {
     ) -> SurfaceRenderOutcome {
         let mut surface_registry = SurfaceRegistry::new();
         surface_registry
-            .try_register(Box::new(ResolveTestSurface {
-                root: root.clone(),
-                slots,
-            }))
+            .try_register(
+                TestSurfaceBuilder::new(SurfaceId(900))
+                    .key("test.surface")
+                    .slots(slots)
+                    .root(root.clone())
+                    .build(),
+            )
             .unwrap();
         let descriptor = surface_registry.descriptor(SurfaceId(900)).unwrap().clone();
         resolve_surface_tree(

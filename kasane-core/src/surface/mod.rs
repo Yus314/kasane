@@ -94,8 +94,6 @@ mod tests {
 
     // --- SurfaceRegistry tests ---
 
-    use compact_str::CompactString;
-
     use crate::element::Element;
     use crate::input::{MouseButton, MouseEvent, MouseEventKind};
     use crate::layout::{Rect, SplitDirection};
@@ -103,121 +101,8 @@ mod tests {
     use crate::state::DirtyFlags;
     use crate::surface::buffer::KakouneBufferSurface;
     use crate::surface::status::StatusBarSurface;
+    use crate::test_support::TestSurfaceBuilder;
     use crate::workspace::{DockPosition, Placement, WorkspaceCommand};
-
-    struct TestSurface {
-        id: SurfaceId,
-        surface_key: CompactString,
-        slots: Vec<SlotDeclaration>,
-        initial_placement: Option<SurfacePlacementRequest>,
-        size_hint: SizeHint,
-    }
-
-    impl TestSurface {
-        fn new(
-            id: SurfaceId,
-            surface_key: impl Into<CompactString>,
-            slots: Vec<SlotDeclaration>,
-        ) -> Self {
-            Self {
-                id,
-                surface_key: surface_key.into(),
-                slots,
-                initial_placement: None,
-                size_hint: SizeHint::fill(),
-            }
-        }
-
-        fn with_initial_placement(mut self, initial_placement: SurfacePlacementRequest) -> Self {
-            self.initial_placement = Some(initial_placement);
-            self
-        }
-
-        fn with_size_hint(mut self, size_hint: SizeHint) -> Self {
-            self.size_hint = size_hint;
-            self
-        }
-    }
-
-    impl Surface for TestSurface {
-        fn id(&self) -> SurfaceId {
-            self.id
-        }
-
-        fn surface_key(&self) -> CompactString {
-            self.surface_key.clone()
-        }
-
-        fn size_hint(&self) -> SizeHint {
-            self.size_hint
-        }
-
-        fn initial_placement(&self) -> Option<SurfacePlacementRequest> {
-            self.initial_placement.clone()
-        }
-
-        fn view(&self, _ctx: &ViewContext<'_>) -> Element {
-            Element::Empty
-        }
-
-        fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
-            vec![]
-        }
-
-        fn declared_slots(&self) -> &[SlotDeclaration] {
-            &self.slots
-        }
-    }
-
-    struct EventSurface {
-        id: SurfaceId,
-        surface_key: CompactString,
-        command_flag: DirtyFlags,
-    }
-
-    impl EventSurface {
-        fn new(
-            id: SurfaceId,
-            surface_key: impl Into<CompactString>,
-            command_flag: DirtyFlags,
-        ) -> Self {
-            Self {
-                id,
-                surface_key: surface_key.into(),
-                command_flag,
-            }
-        }
-    }
-
-    impl Surface for EventSurface {
-        fn id(&self) -> SurfaceId {
-            self.id
-        }
-
-        fn surface_key(&self) -> CompactString {
-            self.surface_key.clone()
-        }
-
-        fn size_hint(&self) -> SizeHint {
-            SizeHint::fill()
-        }
-
-        fn view(&self, _ctx: &ViewContext<'_>) -> Element {
-            Element::Empty
-        }
-
-        fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
-            vec![Command::RequestRedraw(self.command_flag)]
-        }
-
-        fn on_state_changed(
-            &mut self,
-            _state: &crate::state::AppState,
-            _dirty: DirtyFlags,
-        ) -> Vec<Command> {
-            vec![Command::RequestRedraw(self.command_flag)]
-        }
-    }
 
     #[test]
     fn test_registry_register_and_get() {
@@ -254,11 +139,11 @@ mod tests {
         let mut reg = SurfaceRegistry::new();
         reg.register(Box::new(KakouneBufferSurface::new()));
         let err = reg
-            .try_register(Box::new(TestSurface::new(
-                SurfaceId::BUFFER,
-                "plugin.buffer-shadow",
-                vec![],
-            )))
+            .try_register(
+                TestSurfaceBuilder::new(SurfaceId::BUFFER)
+                    .key("plugin.buffer-shadow")
+                    .build(),
+            )
             .unwrap_err();
         assert!(matches!(
             err,
@@ -274,11 +159,11 @@ mod tests {
         let mut reg = SurfaceRegistry::new();
         reg.register(Box::new(KakouneBufferSurface::new()));
         let err = reg
-            .try_register(Box::new(TestSurface::new(
-                SurfaceId(500),
-                "kasane.buffer",
-                vec![],
-            )))
+            .try_register(
+                TestSurfaceBuilder::new(SurfaceId(500))
+                    .key("kasane.buffer")
+                    .build(),
+            )
             .unwrap_err();
         assert_eq!(
             err,
@@ -293,14 +178,15 @@ mod tests {
         let mut reg = SurfaceRegistry::new();
         reg.register(Box::new(KakouneBufferSurface::new()));
         let err = reg
-            .try_register(Box::new(TestSurface::new(
-                SurfaceId(501),
-                "plugin.duplicate-slot",
-                vec![SlotDeclaration::new(
-                    "kasane.buffer.left",
-                    SlotKind::LeftRail,
-                )],
-            )))
+            .try_register(
+                TestSurfaceBuilder::new(SurfaceId(501))
+                    .key("plugin.duplicate-slot")
+                    .slots(vec![SlotDeclaration::new(
+                        "kasane.buffer.left",
+                        SlotKind::LeftRail,
+                    )])
+                    .build(),
+            )
             .unwrap_err();
         assert_eq!(
             err,
@@ -316,14 +202,15 @@ mod tests {
     fn test_registry_reject_duplicate_declared_slot_in_surface() {
         let mut reg = SurfaceRegistry::new();
         let err = reg
-            .try_register(Box::new(TestSurface::new(
-                SurfaceId(502),
-                "plugin.bad-slots",
-                vec![
-                    SlotDeclaration::new("plugin.bad-slots.left", SlotKind::LeftRail),
-                    SlotDeclaration::new("plugin.bad-slots.left", SlotKind::RightRail),
-                ],
-            )))
+            .try_register(
+                TestSurfaceBuilder::new(SurfaceId(502))
+                    .key("plugin.bad-slots")
+                    .slots(vec![
+                        SlotDeclaration::new("plugin.bad-slots.left", SlotKind::LeftRail),
+                        SlotDeclaration::new("plugin.bad-slots.left", SlotKind::RightRail),
+                    ])
+                    .build(),
+            )
             .unwrap_err();
         assert_eq!(
             err,
@@ -341,7 +228,9 @@ mod tests {
         let owner = PluginId("plugin.alpha".into());
         let surface_id = SurfaceId(620);
         reg.try_register_for_owner(
-            Box::new(TestSurface::new(surface_id, "plugin.alpha.surface", vec![])),
+            TestSurfaceBuilder::new(surface_id)
+                .key("plugin.alpha.surface")
+                .build(),
             Some(owner.clone()),
         )
         .unwrap();
@@ -358,11 +247,11 @@ mod tests {
         let owner = PluginId("plugin.focused".into());
         let surface_id = SurfaceId(621);
         reg.try_register_for_owner(
-            Box::new(EventSurface::new(
-                surface_id,
-                "plugin.focused.surface",
-                DirtyFlags::STATUS,
-            )),
+            TestSurfaceBuilder::new(surface_id)
+                .key("plugin.focused.surface")
+                .on_event(DirtyFlags::STATUS)
+                .on_state_changed(DirtyFlags::STATUS)
+                .build(),
             Some(owner.clone()),
         )
         .unwrap();
@@ -411,20 +300,20 @@ mod tests {
         let surface_a = SurfaceId(622);
         let surface_b = SurfaceId(623);
         reg.try_register_for_owner(
-            Box::new(EventSurface::new(
-                surface_a,
-                "plugin.alpha.surface",
-                DirtyFlags::STATUS,
-            )),
+            TestSurfaceBuilder::new(surface_a)
+                .key("plugin.alpha.surface")
+                .on_event(DirtyFlags::STATUS)
+                .on_state_changed(DirtyFlags::STATUS)
+                .build(),
             Some(owner_a.clone()),
         )
         .unwrap();
         reg.try_register_for_owner(
-            Box::new(EventSurface::new(
-                surface_b,
-                "plugin.beta.surface",
-                DirtyFlags::MENU,
-            )),
+            TestSurfaceBuilder::new(surface_b)
+                .key("plugin.beta.surface")
+                .on_event(DirtyFlags::MENU)
+                .on_state_changed(DirtyFlags::MENU)
+                .build(),
             Some(owner_b.clone()),
         )
         .unwrap();
@@ -499,11 +388,11 @@ mod tests {
         let owner = PluginId("plugin.stateful".into());
         let surface_id = SurfaceId(624);
         reg.try_register_for_owner(
-            Box::new(EventSurface::new(
-                surface_id,
-                "plugin.stateful.surface",
-                DirtyFlags::BUFFER,
-            )),
+            TestSurfaceBuilder::new(surface_id)
+                .key("plugin.stateful.surface")
+                .on_event(DirtyFlags::BUFFER)
+                .on_state_changed(DirtyFlags::BUFFER)
+                .build(),
             Some(owner.clone()),
         )
         .unwrap();
@@ -525,7 +414,7 @@ mod tests {
         let mut reg = SurfaceRegistry::new();
         reg.register(Box::new(KakouneBufferSurface::new()));
         let right = SurfaceId(625);
-        reg.register(Box::new(TestSurface::new(right, "plugin.right", vec![])));
+        reg.register(TestSurfaceBuilder::new(right).key("plugin.right").build());
 
         let mut dirty = DirtyFlags::empty();
         crate::workspace::dispatch_workspace_command(
@@ -638,7 +527,7 @@ mod tests {
         let mut reg = SurfaceRegistry::new();
         reg.register(Box::new(KakouneBufferSurface::new()));
         let right = SurfaceId(626);
-        reg.register(Box::new(TestSurface::new(right, "plugin.right", vec![])));
+        reg.register(TestSurfaceBuilder::new(right).key("plugin.right").build());
 
         let mut dirty = DirtyFlags::empty();
         crate::workspace::dispatch_workspace_command(
@@ -697,11 +586,11 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let anchor_id = SurfaceId(610);
-        reg.register(Box::new(TestSurface::new(
-            anchor_id,
-            "plugin.anchor",
-            vec![],
-        )));
+        reg.register(
+            TestSurfaceBuilder::new(anchor_id)
+                .key("plugin.anchor")
+                .build(),
+        );
         let mut dirty = DirtyFlags::empty();
         crate::workspace::dispatch_workspace_command(
             &mut reg,
@@ -717,15 +606,16 @@ mod tests {
         reg.workspace_mut().focus(anchor_id);
 
         let placed_id = SurfaceId(611);
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.placed", vec![]).with_initial_placement(
-                SurfacePlacementRequest::SplitFrom {
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.placed")
+                .initial_placement(SurfacePlacementRequest::SplitFrom {
                     target_surface_key: "kasane.buffer".into(),
                     direction: SplitDirection::Horizontal,
                     ratio: 0.5,
-                },
-            ),
-        ));
+                })
+                .build(),
+        );
 
         let unresolved = reg.apply_initial_placements(
             &[placed_id],
@@ -761,11 +651,11 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let placed_id = SurfaceId(612);
-        reg.register(Box::new(TestSurface::new(
-            placed_id,
-            "plugin.legacy-placement",
-            vec![],
-        )));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.legacy-placement")
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements(
@@ -806,10 +696,12 @@ mod tests {
             direction: SplitDirection::Vertical,
             ratio: 0.5,
         };
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.unresolved-placement", vec![])
-                .with_initial_placement(request.clone()),
-        ));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.unresolved-placement")
+                .initial_placement(request.clone())
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements(&[placed_id], None, &mut dirty);
@@ -823,10 +715,12 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let placed_id = SurfaceId(614);
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.tabbed", vec![])
-                .with_initial_placement(SurfacePlacementRequest::Tab),
-        ));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.tabbed")
+                .initial_placement(SurfacePlacementRequest::Tab)
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements(&[placed_id], None, &mut dirty);
@@ -858,13 +752,14 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let placed_id = SurfaceId(617);
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.tabbed-keyed", vec![]).with_initial_placement(
-                SurfacePlacementRequest::TabIn {
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.tabbed-keyed")
+                .initial_placement(SurfacePlacementRequest::TabIn {
                     target_surface_key: "kasane.buffer".into(),
-                },
-            ),
-        ));
+                })
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements(&[placed_id], None, &mut dirty);
@@ -896,10 +791,12 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let placed_id = SurfaceId(615);
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.left-dock", vec![])
-                .with_initial_placement(SurfacePlacementRequest::Dock(DockPosition::Left)),
-        ));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.left-dock")
+                .initial_placement(SurfacePlacementRequest::Dock(DockPosition::Left))
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements(&[placed_id], None, &mut dirty);
@@ -937,11 +834,13 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let placed_id = SurfaceId(618);
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.sized-left-dock", vec![])
-                .with_size_hint(SizeHint::fixed(12, 8))
-                .with_initial_placement(SurfacePlacementRequest::Dock(DockPosition::Left)),
-        ));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.sized-left-dock")
+                .size_hint(SizeHint::fixed(12, 8))
+                .initial_placement(SurfacePlacementRequest::Dock(DockPosition::Left))
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements_with_total(
@@ -995,10 +894,12 @@ mod tests {
             w: 30,
             h: 10,
         };
-        reg.register(Box::new(
-            TestSurface::new(placed_id, "plugin.float", vec![])
-                .with_initial_placement(SurfacePlacementRequest::Float { rect: float_rect }),
-        ));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.float")
+                .initial_placement(SurfacePlacementRequest::Float { rect: float_rect })
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         let unresolved = reg.apply_initial_placements(&[placed_id], None, &mut dirty);
@@ -1028,11 +929,11 @@ mod tests {
         reg.register(Box::new(KakouneBufferSurface::new()));
 
         let placed_id = SurfaceId(618);
-        reg.register(Box::new(TestSurface::new(
-            placed_id,
-            "plugin.float-roundtrip",
-            vec![],
-        )));
+        reg.register(
+            TestSurfaceBuilder::new(placed_id)
+                .key("plugin.float-roundtrip")
+                .build(),
+        );
 
         let mut dirty = DirtyFlags::empty();
         crate::workspace::dispatch_workspace_command(

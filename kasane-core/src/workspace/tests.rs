@@ -1,42 +1,6 @@
 use super::*;
-use compact_str::CompactString;
 
-use crate::element::Element;
-use crate::plugin::Command;
-use crate::surface::{EventContext, SizeHint, Surface, SurfaceEvent, ViewContext};
-
-struct WorkspaceTestSurface {
-    id: SurfaceId,
-    key: &'static str,
-}
-
-impl WorkspaceTestSurface {
-    fn new(id: SurfaceId, key: &'static str) -> Self {
-        Self { id, key }
-    }
-}
-
-impl Surface for WorkspaceTestSurface {
-    fn id(&self) -> SurfaceId {
-        self.id
-    }
-
-    fn surface_key(&self) -> CompactString {
-        self.key.into()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        SizeHint::fill()
-    }
-
-    fn view(&self, _ctx: &ViewContext<'_>) -> Element {
-        Element::Empty
-    }
-
-    fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
-        vec![]
-    }
-}
+use crate::test_support::TestSurfaceBuilder;
 
 #[test]
 fn test_new_workspace() {
@@ -192,7 +156,7 @@ fn test_dispatch_workspace_command_with_total_handles_focus_direction() {
     let mut reg = SurfaceRegistry::new();
     reg.register(Box::new(crate::surface::buffer::KakouneBufferSurface::new()));
     let right = SurfaceId(10);
-    reg.try_register(Box::new(WorkspaceTestSurface::new(right, "test.right")))
+    reg.try_register(TestSurfaceBuilder::new(right).key("test.right").build())
         .unwrap();
 
     let mut dirty = DirtyFlags::empty();
@@ -293,7 +257,7 @@ fn test_dispatch_workspace_command_resize_marks_dirty() {
     let mut reg = SurfaceRegistry::new();
     reg.register(Box::new(crate::surface::buffer::KakouneBufferSurface::new()));
     let right = SurfaceId(10);
-    reg.try_register(Box::new(WorkspaceTestSurface::new(right, "test.right")))
+    reg.try_register(TestSurfaceBuilder::new(right).key("test.right").build())
         .unwrap();
 
     let mut dirty = DirtyFlags::empty();
@@ -391,7 +355,7 @@ fn test_dispatch_workspace_command_swap_marks_dirty() {
     let mut reg = SurfaceRegistry::new();
     reg.register(Box::new(crate::surface::buffer::KakouneBufferSurface::new()));
     let right = SurfaceId(10);
-    reg.try_register(Box::new(WorkspaceTestSurface::new(right, "test.right")))
+    reg.try_register(TestSurfaceBuilder::new(right).key("test.right").build())
         .unwrap();
 
     let mut dirty = DirtyFlags::empty();
