@@ -47,6 +47,13 @@ fn next_synthetic_key_fragment(args: &[String]) -> String {
         .unwrap_or_else(|| "unnamed".to_string())
 }
 
+/// Lightweight descriptor of a managed session, suitable for plugin consumption.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionDescriptor {
+    pub key: String,
+    pub session_name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionCommand {
     Spawn {
@@ -57,6 +64,9 @@ pub enum SessionCommand {
     },
     Close {
         key: Option<String>,
+    },
+    Switch {
+        key: String,
     },
 }
 
@@ -176,6 +186,25 @@ impl<R, W, C> SessionManager<R, W, C> {
 
     pub fn session_id_by_key(&self, key: &str) -> Option<SessionId> {
         self.ids_by_key.get(key).copied()
+    }
+
+    pub fn session_descriptors(&self) -> Vec<SessionDescriptor> {
+        self.order
+            .iter()
+            .filter_map(|id| {
+                self.sessions.get(id).map(|session| SessionDescriptor {
+                    key: session.spec.key.clone(),
+                    session_name: session.spec.session.clone(),
+                })
+            })
+            .collect()
+    }
+
+    pub fn active_session_key(&self) -> Option<&str> {
+        let active = self.active?;
+        self.sessions
+            .get(&active)
+            .map(|session| session.spec.key.as_str())
     }
 
     pub fn ordered_sessions(&self) -> Vec<(SessionId, &SessionSpec)> {
@@ -486,5 +515,39 @@ mod tests {
         assert_eq!(restored.cols, 100);
         assert_eq!(restored.rows, 30);
         assert_eq!(restored.cursor_count, 4);
+    }
+
+    #[test]
+    fn test_session_descriptors_from_manager() {
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        sessions
+            .insert(
+                SessionSpec::new("first", Some("ses1".into()), vec![]),
+                (),
+                (),
+                (),
+            )
+            .unwrap();
+        sessions
+            .insert(SessionSpec::new("second", None, vec![]), (), (), ())
+            .unwrap();
+
+        let descriptors = sessions.session_descriptors();
+        assert_eq!(descriptors.len(), 2);
+        assert_eq!(descriptors[0].key, "first");
+        assert_eq!(descriptors[0].session_name.as_deref(), Some("ses1"));
+        assert_eq!(descriptors[1].key, "second");
+        assert_eq!(descriptors[1].session_name, None);
+    }
+
+    #[test]
+    fn test_active_session_key() {
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        assert_eq!(sessions.active_session_key(), None);
+
+        sessions
+            .insert(SessionSpec::new("work", None, vec![]), (), (), ())
+            .unwrap();
+        assert_eq!(sessions.active_session_key(), Some("work"));
     }
 }

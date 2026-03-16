@@ -677,3 +677,14 @@ fn convert_command_close_session() {
         _ => panic!("expected Session::Close"),
     }
 }
+
+#[test]
+fn convert_command_switch_session() {
+    let wc = wit::Command::SwitchSession("work".to_string());
+    match wit_command_to_command(&wc) {
+        Command::Session(SessionCommand::Switch { key }) => {
+            assert_eq!(key, "work");
+        }
+        _ => panic!("expected Session::Switch"),
+    }
+}

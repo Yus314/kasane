@@ -196,6 +196,7 @@ fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateC
             background: Some(BackgroundLayer {
                 face: Face { bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 50 }), ..Face::default() },
                 z_order: 0,
+                blend: BlendMode::Opaque,
             }),
         })
     } else {
@@ -208,7 +209,7 @@ fn annotate_deps(&self) -> DirtyFlags {
 }
 ```
 
-`LineAnnotation` consists of three elements: `left_gutter`, `right_gutter`, and `background`. `BackgroundLayer` has `face` and `z_order`; background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
+`LineAnnotation` consists of three elements: `left_gutter`, `right_gutter`, and `background`. `BackgroundLayer` has `face`, `z_order`, and `blend` (compositing mode); background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
 
 ### 1.6 Overlay (`contribute_overlay_with_ctx`)
 
@@ -526,6 +527,16 @@ Hook functions issue side-effect requests by returning `Vec<Command>`.
 The V1 session runtime can hold multiple sessions, but only one active session is rendered at a time. The Kakoune reader for inactive sessions remains alive, and its events continue to be reflected in the off-screen session snapshot. When activated, that snapshot is restored, but automatic generation of session-bound surfaces and multi-session dedicated UI are not yet implemented.
 
 In WASM, these are represented as `command` variants. `Pane`, `Workspace`, and `RegisterThemeTokens` are currently not supported in WASM. Process execution commands (`SpawnProcess`, etc.) and session management commands (`spawn-session`, `close-session`) have been introduced on the WIT side.
+
+#### 3.5.1 Session Observability
+
+Plugins can observe session state and control session switching:
+
+- **Session query**: `AppState.session_descriptors` provides the list of sessions (`SessionDescriptor { key, session_name }`), and `AppState.active_session_key` identifies the current session. In WASM, Tier 8 host-state functions `get-session-count`, `get-session(index)`, and `get-active-session-key` provide equivalent access.
+- **Session lifecycle notification**: `DirtyFlags::SESSION` is set when sessions are created, closed, switched, or when a session dies. Plugins react via `contribute_deps` / `on_state_changed`.
+- **Session switch command**: `SessionCommand::Switch { key }` (native) or `command::switch-session(key)` (WIT) requests activation of a specific session by key.
+
+See [layer-responsibilities.md](./layer-responsibilities.md) for the boundary rationale and [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the decision record.
 
 WASM plugins are sandboxed by default. The host constructs WASM instances without granting capabilities via `WasiCtxBuilder`, so access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `Capability::Process`, which can be denied via `deny_capabilities` in `config.toml`.
 

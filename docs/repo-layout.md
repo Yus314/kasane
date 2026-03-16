@@ -53,7 +53,15 @@ kasane/
 kasane-core/src/
 ├── lib.rs
 ├── element.rs
-├── plugin.rs
+├── plugin/
+│   ├── mod.rs
+│   ├── pure.rs
+│   ├── traits.rs
+│   ├── registry.rs
+│   ├── context.rs
+│   ├── command.rs
+│   ├── io.rs
+│   └── tests/
 ├── input/
 │   ├── mod.rs
 │   └── builtin.rs
@@ -83,9 +91,11 @@ kasane-core/src/
 │   ├── mod.rs
 │   ├── apply.rs
 │   ├── update.rs
+│   ├── derived.rs
+│   ├── snapshot.rs
 │   ├── info.rs
 │   ├── menu.rs
-│   └── tests.rs
+│   └── tests/
 ├── layout/
 │   ├── mod.rs
 │   ├── flex.rs
@@ -130,7 +140,7 @@ Key responsibilities:
 | Path | Contents |
 |---|---|
 | `element.rs` | The core `Element` type for declarative UI |
-| `plugin.rs` | `Plugin` trait, registry, slot/decorator/replacement composition |
+| `plugin/` | `Plugin` trait, `PluginBackend` trait, registry, context, command, I/O |
 | `state/` | `AppState`, `apply()`, `update()`, dirty generation |
 | `layout/` | measure/place, overlay positioning, hit test |
 | `render/` | View construction, paint, cache, pipeline, scene |
@@ -230,7 +240,8 @@ kasane-wasm/
 │   ├── cursor-line.wasm
 │   ├── color-preview.wasm
 │   ├── sel-badge.wasm
-│   └── fuzzy-finder.wasm
+│   ├── fuzzy-finder.wasm
+│   └── line-numbers.wasm
 ├── fixtures/
 │   └── *.wasm              # Pre-built .wasm for tests
 └── guests/
@@ -258,7 +269,7 @@ kasane-wasm/
 | Desired change | Primary locations |
 |---|---|
 | Changes to `AppState` or dirty flags | `kasane-core/src/state/` |
-| Changes to plugin composition or registry | `kasane-core/src/plugin.rs` |
+| Changes to plugin composition or registry | `kasane-core/src/plugin/` |
 | Adding or modifying `Element` types | `kasane-core/src/element.rs` |
 | Changes to layout algorithms | `kasane-core/src/layout/` |
 | Changes to the TUI rendering pipeline | `kasane-core/src/render/` and `kasane-tui/src/backend.rs` |

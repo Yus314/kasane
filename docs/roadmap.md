@@ -57,6 +57,7 @@ Current status:
 - `SessionManager` foundation, primary session linkage, and runtime `spawn-session` / `close-session` wiring are in place
 - Kakoune events from inactive sessions continue to be reflected in off-screen snapshots
 - Hosted surface `render-surface` / `handle-surface-event` / `handle-surface-state-changed` are in place
+- Session observability infrastructure complete: `AppState.session_descriptors` / `active_session_key`, `DirtyFlags::SESSION`, `SessionCommand::Switch`, WIT Tier 8 host-state functions (ADR-023 step 1)
 
 Remaining work:
 
@@ -82,16 +83,17 @@ Current status:
 - Runtime can hold multiple sessions
 - State snapshots of inactive sessions are retained
 - Rendering target is still only the single active session
+- Session observability and control are available to plugins: session descriptors in `AppState`, `DirtyFlags::SESSION` for lifecycle notifications, `SessionCommand::Switch` for session activation, WIT Tier 8 for WASM plugins
 
 Remaining work:
 
-- Minimal UI for session list / session switcher
-- User-visible active session display
+- Bundled WASM plugin providing session list / session switcher UI
+- User-visible active session display (e.g., status bar indicator via slot contribution)
 - UI feedback for session close / promote
 
 Next deliverable:
 
-- Minimal UI showing session list and active state
+- Bundled session UI plugin showing session list and active state
 - Command path to switch sessions from the UI
 
 Proof / completion criteria:

@@ -110,6 +110,23 @@ where
             initial_resize_sent,
         )
     }
+
+    fn switch_session(
+        &mut self,
+        key: &str,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) {
+        kasane_core::event_loop::switch_session_core(
+            key,
+            self.session_manager,
+            self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+        );
+    }
 }
 
 impl<'a, R, W, C> kasane_core::event_loop::SessionHost for GuiSessionRuntime<'a, R, W, C>
@@ -201,11 +218,12 @@ where
     ) -> Self {
         let scroll_amount = config.scroll.lines_per_scroll;
 
-        let state = AppState::default();
+        let mut state = AppState::default();
         let mut session_states = SessionStateStore::new();
         if let Some(active) = session_manager.active_session_id() {
             session_states.sync_from_active(active, &state);
         }
+        kasane_core::event_loop::sync_session_metadata(&session_manager, &mut state);
         let mut registry = registry;
 
         let mut surface_registry = SurfaceRegistry::new();

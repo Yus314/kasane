@@ -28,6 +28,7 @@ General UI settings.
 | `padding_char` | string | `"~"` | Character shown on empty lines below buffer content |
 | `border_style` | string | `"rounded"` | Border style: `"single"`, `"rounded"`, `"double"`, `"heavy"`, `"ascii"` |
 | `status_position` | string | `"bottom"` | Status bar position: `"top"` or `"bottom"` |
+| `scene_renderer` | bool or null | `null` | Enable the scene-based GPU renderer (bypasses CellGrid). `null` = auto (`true` for GUI, `false` for TUI). |
 
 ```toml
 [ui]

@@ -1,4 +1,4 @@
-package kasane:plugin@0.6.0;
+package kasane:plugin@0.7.0;
 
 interface types {
     enum named-color {
@@ -73,6 +73,7 @@ interface types {
         write-to-process(write-process-config),
         close-process-stdin(u64),
         kill-process(u64),
+        switch-session(string),
     }
     record config-entry {
         key: string,
@@ -425,10 +426,17 @@ interface types {
         job-id: u64,
         data: list<u8>,
     }
+
+    // --- v0.7.0: Session management types ---
+
+    record session-descriptor {
+        key: string,
+        session-name: option<string>,
+    }
 }
 
 interface host-state {
-    use types.{face, atom, coord};
+    use types.{face, atom, coord, session-descriptor};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -482,6 +490,11 @@ interface host-state {
     get-menu-style: func() -> option<string>;
     get-menu-face: func() -> option<face>;
     get-menu-selected-face: func() -> option<face>;
+
+    // --- v0.7.0 Tier 8: Session metadata ---
+    get-session-count: func() -> u32;
+    get-session: func(index: u32) -> option<session-descriptor>;
+    get-active-session-key: func() -> option<string>;
 }
 
 /// Host-provided functions for building Element trees.

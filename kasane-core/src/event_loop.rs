@@ -72,6 +72,15 @@ pub fn setup_plugin_surfaces(
     }
 }
 
+/// Synchronize session metadata from SessionManager into AppState.
+pub fn sync_session_metadata<R, W, C>(
+    session_manager: &SessionManager<R, W, C>,
+    state: &mut AppState,
+) {
+    state.session_descriptors = session_manager.session_descriptors();
+    state.active_session_key = session_manager.active_session_key().map(str::to_owned);
+}
+
 /// Handle a Kakoune session death event.
 ///
 /// Closes the session, removes its state, and restores the next active session
@@ -86,6 +95,7 @@ pub fn handle_session_death<R, W, C>(
 ) -> bool {
     let was_active = session_manager.active_session_id() == Some(session_id);
     let _ = session_manager.close(session_id);
+    *dirty |= DirtyFlags::SESSION;
     session_states.remove(session_id);
     if session_manager.is_empty() {
         return true;
@@ -100,6 +110,7 @@ pub fn handle_session_death<R, W, C>(
         *dirty |= DirtyFlags::ALL;
         *initial_resize_sent = false;
     }
+    sync_session_metadata(session_manager, state);
     false
 }
 
@@ -127,6 +138,7 @@ pub fn spawn_session_core<R, W, C>(
         return None;
     };
     session_states.ensure_session(session_id, state);
+    *dirty |= DirtyFlags::SESSION;
     let reader = session_manager
         .take_reader(session_id)
         .expect("spawned session reader missing");
@@ -139,7 +151,9 @@ pub fn spawn_session_core<R, W, C>(
         }
         *dirty |= DirtyFlags::ALL;
         *initial_resize_sent = false;
+        sync_session_metadata(session_manager, state);
     }
+    sync_session_metadata(session_manager, state);
     Some((session_id, reader))
 }
 
@@ -163,6 +177,7 @@ pub fn close_session_core<R, W, C>(
     let was_active = session_manager.active_session_id() == Some(target);
     let _ = session_manager.close(target);
     session_states.remove(target);
+    *dirty |= DirtyFlags::SESSION;
     if session_manager.is_empty() {
         return true;
     }
@@ -176,7 +191,36 @@ pub fn close_session_core<R, W, C>(
         *dirty |= DirtyFlags::ALL;
         *initial_resize_sent = false;
     }
+    sync_session_metadata(session_manager, state);
     false
+}
+
+/// Switch to an existing managed session by key.
+///
+/// No-op if the key doesn't exist or is already active.
+pub fn switch_session_core<R, W, C>(
+    key: &str,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    state: &mut AppState,
+    dirty: &mut DirtyFlags,
+    initial_resize_sent: &mut bool,
+) {
+    let Some(target) = session_manager.session_id_by_key(key) else {
+        return;
+    };
+    if session_manager.active_session_id() == Some(target) {
+        return;
+    }
+    session_manager
+        .sync_and_activate(session_states, target, state)
+        .expect("switch target must be valid");
+    if !session_states.restore_into(target, state) {
+        state.reset_for_session_switch();
+    }
+    *dirty |= DirtyFlags::ALL | DirtyFlags::SESSION;
+    *initial_resize_sent = false;
+    sync_session_metadata(session_manager, state);
 }
 
 /// Rebuild the HitMap from the current view tree for plugin mouse routing.
@@ -255,6 +299,15 @@ pub trait SessionRuntime {
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) -> bool;
+
+    /// Switch to an existing session by key.
+    fn switch_session(
+        &mut self,
+        key: &str,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    );
 }
 
 /// Backend-owned access to the active session writer plus session lifecycle hooks.
@@ -412,6 +465,14 @@ pub fn handle_deferred_commands(
                         return true;
                     }
                 }
+                crate::session::SessionCommand::Switch { key } => {
+                    ctx.session_host.switch_session(
+                        &key,
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
+                    );
+                }
             },
         }
     }
@@ -513,6 +574,15 @@ mod tests {
         ) -> bool {
             false
         }
+
+        fn switch_session(
+            &mut self,
+            _key: &str,
+            _state: &mut AppState,
+            _dirty: &mut DirtyFlags,
+            _initial_resize_sent: &mut bool,
+        ) {
+        }
     }
 
     impl SessionHost for NoopSessionRuntime {
@@ -607,6 +677,7 @@ mod tests {
         writer: Vec<u8>,
         spawned: Vec<(SessionSpec, bool)>,
         closed: Vec<Option<String>>,
+        switched: Vec<String>,
         close_returns_quit: bool,
     }
 
@@ -631,6 +702,16 @@ mod tests {
         ) -> bool {
             self.closed.push(key.map(ToOwned::to_owned));
             self.close_returns_quit
+        }
+
+        fn switch_session(
+            &mut self,
+            key: &str,
+            _state: &mut AppState,
+            _dirty: &mut DirtyFlags,
+            _initial_resize_sent: &mut bool,
+        ) {
+            self.switched.push(key.to_owned());
         }
     }
 
@@ -751,5 +832,40 @@ mod tests {
 
         assert!(quit);
         assert_eq!(sessions.closed, vec![None]);
+    }
+
+    #[test]
+    fn deferred_session_switch_is_routed() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = RecordingSessionHost::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+
+        let quit = handle_deferred_commands(
+            vec![DeferredCommand::Session(
+                crate::session::SessionCommand::Switch {
+                    key: "work".to_string(),
+                },
+            )],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+            },
+            None,
+        );
+
+        assert!(!quit);
+        assert_eq!(sessions.switched, vec!["work".to_string()]);
     }
 }

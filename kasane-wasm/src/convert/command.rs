@@ -51,6 +51,9 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         },
         wit::Command::CloseProcessStdin(job_id) => Command::CloseProcessStdin { job_id: *job_id },
         wit::Command::KillProcess(job_id) => Command::KillProcess { job_id: *job_id },
+        wit::Command::SwitchSession(key) => {
+            Command::Session(SessionCommand::Switch { key: key.clone() })
+        }
     }
 }
 

@@ -61,6 +61,10 @@ pub(crate) struct HostState {
     pub menu_face: Option<Face>,
     pub menu_selected_face: Option<Face>,
 
+    // --- v0.7.0 Tier 8: Session metadata ---
+    pub session_descriptors: Vec<(String, Option<String>)>,
+    pub active_session_key: Option<String>,
+
     /// Element arena: WASM plugins build elements via host calls, stored here.
     /// Cleared before each `contribute()` call.
     pub elements: Vec<Element>,
@@ -103,6 +107,8 @@ impl Default for HostState {
             menu_style: None,
             menu_face: None,
             menu_selected_face: None,
+            session_descriptors: Vec::new(),
+            active_session_key: None,
             elements: Vec::new(),
             wasi: WasiCtxBuilder::new().build(),
             table: wasmtime::component::ResourceTable::new(),
@@ -282,6 +288,27 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
     fn get_menu_selected_face(&mut self) -> Option<bindings::kasane::plugin::types::Face> {
         self.menu_selected_face.map(|f| convert::face_to_wit(&f))
+    }
+
+    // --- v0.7.0 Tier 8: Session metadata ---
+    fn get_session_count(&mut self) -> u32 {
+        self.session_descriptors.len() as u32
+    }
+    fn get_session(
+        &mut self,
+        index: u32,
+    ) -> Option<bindings::kasane::plugin::types::SessionDescriptor> {
+        self.session_descriptors
+            .get(index as usize)
+            .map(
+                |(key, name)| bindings::kasane::plugin::types::SessionDescriptor {
+                    key: key.clone(),
+                    session_name: name.clone(),
+                },
+            )
+    }
+    fn get_active_session_key(&mut self) -> Option<String> {
+        self.active_session_key.clone()
     }
 }
 
@@ -658,4 +685,12 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
         host.menu_face = None;
         host.menu_selected_face = None;
     }
+
+    // Tier 8: Session metadata
+    host.session_descriptors = state
+        .session_descriptors
+        .iter()
+        .map(|d| (d.key.clone(), d.session_name.clone()))
+        .collect();
+    host.active_session_key = state.active_session_key.clone();
 }

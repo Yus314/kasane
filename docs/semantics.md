@@ -442,7 +442,7 @@ The core guarantees the following in return.
 - Plugin-defined UI can participate in the same composition rules as standard UI
 - Plugin-defined UI builds upon standard frontend semantics as its foundation, and must not break the meaning of the core frontend in its absence
 
-## 10. Surface and Workspace
+## 10. Surface, Workspace, and Session
 
 ### 10.1 Meaning of Surface
 
@@ -473,6 +473,24 @@ The current implementation has at least the following constraints.
 ### 10.6 Relationship to Future Per-Surface Invalidation
 
 `SurfaceId`-based invalidation is a promising future direction, but this document does not treat it as part of the current semantics. What is addressed here is solely the fact that the current system assumes global dirty.
+
+### 10.7 Meaning of Session
+
+A Session represents a single managed Kakoune process and its associated UI state. `SessionManager` assigns a stable `SessionId` to each session and tracks multiple sessions concurrently. At any given time, exactly one session is active and rendered; inactive sessions are held in the background with their Kakoune readers still alive.
+
+A session is not a Surface, a Workspace layout, or a buffer. It is the runtime container that binds a Kakoune process, an `AppState` snapshot, and (in the future) a set of session-bound surfaces into a single switchable unit.
+
+### 10.8 Session State Preservation
+
+When the active session switches, `SessionStateStore` saves a full `AppState` clone of the outgoing session and restores the stored snapshot of the incoming session. This transition is atomic from the perspective of the rendering pipeline: the pipeline always sees a complete, consistent `AppState`.
+
+Inactive sessions continue to receive Kakoune protocol messages. Their `AppState` snapshots are updated in the background, so when an inactive session is activated, it reflects the latest state from its Kakoune process rather than a stale snapshot from the moment of deactivation.
+
+### 10.9 Session and Surface Binding (Current Constraints)
+
+In the current implementation, the relationship between sessions and surfaces is not yet formalized. Surfaces are registered globally in `SurfaceRegistry` and are not scoped to a specific session. Automatic generation of session-bound surface groups (buffer, status, supplemental) and deterministic surface detachment on session switch are planned but not yet implemented.
+
+Until session-bound surface generation is in place, multi-session operation relies solely on `AppState` snapshot swapping, and the surface composition does not change on session switch.
 
 ## 11. Equivalence and Proof Obligations
 
@@ -548,6 +566,12 @@ The display transformation and display unit model have been introduced at the re
 ### 12.8 Incomplete Display-Oriented Navigation
 
 Visual unit-based navigation is required as a future foundation, but the current implementation still centers on buffer-oriented navigation, and a complete unification theory with display units is unfinished.
+
+### 12.9 (Resolved) Session Invisibility to Plugins
+
+~~Session state (active session, session list, session lifecycle events) is not currently exposed to plugins.~~
+
+Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant. See [layer-responsibilities.md](./layer-responsibilities.md) for the boundary rationale and [plugin-api.md § 3.5.1](./plugin-api.md) for API details.
 
 ## 13. Non-Goals
 

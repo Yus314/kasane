@@ -130,6 +130,23 @@ where
             initial_resize_sent,
         )
     }
+
+    fn switch_session(
+        &mut self,
+        key: &str,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) {
+        kasane_core::event_loop::switch_session_core(
+            key,
+            self.session_manager,
+            self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+        );
+    }
 }
 
 impl<'a, R, W, C> kasane_core::event_loop::SessionHost for TuiSessionRuntime<'a, R, W, C>

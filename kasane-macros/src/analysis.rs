@@ -15,6 +15,7 @@ pub const KNOWN_FLAGS: &[&str] = &[
     "MENU",
     "INFO",
     "OPTIONS",
+    "SESSION",
     "ALL",
 ];
 
@@ -56,6 +57,9 @@ pub const FIELD_FLAG_MAP: &[(&str, &[&str])] = &[
     ("assistant_art", &["OPTIONS"]),
     ("plugin_config", &["OPTIONS"]),
     ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
+    // SESSION
+    ("session_descriptors", &["SESSION"]),
+    ("active_session_key", &["SESSION"]),
     // Free reads (no DirtyFlag — resize triggers ALL externally):
     // cols, rows, focused, drag, smooth_scroll, scroll_animation
 ];
@@ -218,6 +222,7 @@ fn expand_single_flag(flag: &str, expanded: &mut HashSet<String>) {
                     "MENU_SELECTION",
                     "INFO",
                     "OPTIONS",
+                    "SESSION",
                 ]
                 .iter()
                 .map(|s| s.to_string()),

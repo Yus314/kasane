@@ -129,6 +129,41 @@ Native-only APIs are handled separately from shared validation. The long-term po
 | `Surface` / `SURFACE_PROVIDER` | Hosted surface model introduced | `surface-descriptor` / `render-surface` / `handle-surface-event` / `handle-surface-state-changed` are introduced. Runtime wiring of `SessionManager` with `spawn-session` / `close-session`, and retention of inactive session snapshots are introduced. See [roadmap.md](./roadmap.md) for prioritization of remaining session/surface parity |
 | `Pane` / `Workspace` advanced API | Native-only but parity target | Aiming for parity via command / observer model rather than object access |
 
+## Session Management Boundaries
+
+Session management spans both core and plugin layers. The boundary follows the same decision criterion as all features: "Does a single correct implementation exist?"
+
+**Core (mechanism):**
+
+| Responsibility | Rationale |
+|---|---|
+| Process lifecycle (spawn / close / death handling) | OS process management + backend-specific reader/writer wiring. The single correct implementation |
+| `SessionStateStore` (state snapshots) | Full `AppState` preservation during session switches. The single correct implementation for transition correctness |
+| `SessionManager` (ID assignment, creation-order tracking) | Runtime infrastructure. The single correct implementation |
+| `sync_and_activate()` (switching mechanism) | Atomicity of snapshot save → active swap → state restore. The single correct implementation |
+| Session-bound surface generation and detachment | Deterministic surface group management on session transitions. The single correct implementation |
+
+**Plugin (policy):**
+
+| Responsibility | Rationale |
+|---|---|
+| Session switcher / list UI | Display presentation varies by user preference (tabs, dropdown, sidebar, etc.) |
+| Status bar session indicator | Slot contribution; display format is a policy decision |
+| Session switching keybindings | Input handling policy; plugins capture keys and issue `SessionCommand` |
+| Session list decoration (icons, colors, filtering) | Pure UI policy |
+
+**Core-provided infrastructure for plugins:**
+
+For plugins to implement session UI, core must provide observability and command primitives. These are core responsibilities because the information and control originates in core, but their purpose is to enable plugin-layer features.
+
+| Infrastructure | Purpose | Status |
+|---|---|---|
+| Session descriptors in observable state | Plugins need to know which sessions exist and which is active | `AppState.session_descriptors` / `active_session_key`; WIT Tier 8 `get-session-count` / `get-session` / `get-active-session-key` |
+| Session lifecycle dirty flag | Plugins need to know when sessions are added, removed, or switched | `DirtyFlags::SESSION` (bit 8), set on spawn / close / switch / death |
+| Session switch command | Plugins need to request activation of a specific session | `SessionCommand::Switch { key }`; WIT `switch-session(key)` |
+
+This boundary follows the principle of "mechanism, not policy": core provides the session management machinery and observation/command infrastructure, while plugins decide how to present and interact with sessions in the UI. See [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the decision record.
+
 ---
 
 ## Concrete Examples: Item Classification
