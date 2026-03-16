@@ -288,12 +288,12 @@ Plugin discovery and loading settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | array of strings | `[]` | Bundled plugin IDs to enable (opt-in). Available: `"cursor_line"`, `"color_preview"`, `"sel_badge"`, `"fuzzy_finder"` |
+| `enabled` | array of strings | `[]` | Example plugin IDs to enable (opt-in). Available: `"cursor_line"`, `"color_preview"`, `"sel_badge"`, `"fuzzy_finder"` |
 | `auto_discover` | bool | `true` | Automatically discover `.wasm` plugins from the plugins directory |
 | `path` | string or omit | *(auto)* | Custom plugins directory. Default: `$XDG_DATA_HOME/kasane/plugins/` or `~/.local/share/kasane/plugins/` |
 | `disabled` | array of strings | `[]` | Plugin IDs to disable (applies to discovered and user-registered plugins) |
 
-Bundled plugins are embedded in the Kasane binary but are **not loaded by default**. Add their IDs to `enabled` to activate them:
+Example plugins are embedded in the Kasane binary but are **not loaded by default**. Add their IDs to `enabled` to activate them:
 
 ```toml
 [plugins]

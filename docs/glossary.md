@@ -68,16 +68,16 @@ For authoritative definitions of semantics and responsibilities, see [semantics.
 | slot_deps | A method on the PluginBackend trait. Returns the DirtyFlags that a contribute() for a given Slot depends on. Used in the L3 cache layer of PluginSlotCache |
 | PluginSlotCache | An in-memory cache in PluginRegistry. Caches contribute() results across two tiers, L1 (state_hash) and L3 (slot_deps), to avoid unnecessary recalculation |
 | transform_menu_item | A method on the Plugin trait. Pre-rendering transformation of menu items (Atom arrays). Used for adding icons, etc. |
-| cursor_line | A bundled WASM plugin. Highlights the cursor line background. A practical example of contribute_line(). Source: `kasane-wasm/guests/cursor-line/` |
-| color_preview | A bundled WASM plugin. Detects color codes (#RRGGBB, #RGB, rgb:RRGGBB) in the buffer and provides gutter swatches and an interactive color picker. A practical example of contribute_line() + contribute_overlay() + handle_mouse(). Source: `kasane-wasm/guests/color-preview/` |
+| cursor_line | An example WASM plugin. Highlights the cursor line background. A practical example of annotate_line_with_ctx(). Source: `examples/wasm/cursor-line/` |
+| color_preview | An example WASM plugin. Detects color codes (#RRGGBB, #RGB, rgb:RRGGBB) in the buffer and provides gutter swatches and an interactive color picker. A practical example of annotate_line_with_ctx() + contribute_overlay_with_ctx() + handle_mouse(). Source: `examples/wasm/color-preview/` |
 
 ## Layer Responsibilities
 
 | Term | Description |
 |------|-------------|
 | Three-layer responsibility model | A model that classifies feature responsibilities across three layers: upstream (Kakoune) / core (kasane-core) / plugin. A decision flowchart determines which layer a feature belongs to. See [layer-responsibilities.md](./layer-responsibilities.md) for details |
-| Bundled WASM plugin | Default plugins embedded in the binary via `include_bytes!` (cursor_line, color_preview). Can be overridden by FS-discovered plugins |
-| API proof | Verifying unproven Plugin trait extension points with real plugins. `examples/` and `kasane-wasm/guests/` serve as reference implementations |
+| Example WASM plugin | Example plugins embedded in the binary via `include_bytes!` (cursor_line, color_preview, sel_badge, fuzzy_finder). Can be overridden by FS-discovered plugins. Source: `examples/wasm/` |
+| API proof | Verifying unproven Plugin trait extension points with real plugins. `examples/` serves as reference implementations |
 | Frontend-native | Capabilities specific to the OS or window system (focus detection, D&D, clipboard, etc.). A category of features belonging to the core layer |
 
 ## Layout

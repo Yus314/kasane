@@ -16,22 +16,22 @@ The plugin API is extensible — plugins can:
 - Transform existing elements (status bar customization)
 - Handle keyboard and mouse input
 
-## Available Example Plugins
+## Included Example Plugins
 
-These plugins are bundled with Kasane and can be enabled via configuration:
+Kasane includes several example plugins that demonstrate the plugin system's extension points. Their source is in [`examples/wasm/`](../examples/wasm/):
 
-| Plugin | ID | Description |
+| Plugin | ID | Demonstrates |
 |---|---|---|
-| Cursor Line | `cursor_line` | Highlight the current line with a background color |
-| Color Preview | `color_preview` | Detect color codes in text and show interactive color preview |
-| Selection Badge | `sel_badge` | Show selection count in the status bar when multiple cursors are active |
-| Fuzzy Finder | `fuzzy_finder` | Fuzzy file finder overlay |
+| Cursor Line | `cursor_line` | Line annotation (`annotate_line_with_ctx`) |
+| Color Preview | `color_preview` | Line annotation + overlay + mouse input |
+| Selection Badge | `sel_badge` | Slot contribution (`contribute_to`) |
+| Fuzzy Finder | `fuzzy_finder` | Overlay + key input + external process I/O |
 
-An example native plugin is also available at [examples/line-numbers/](../examples/line-numbers/).
+A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
 
-## Enabling Bundled Plugins
+## Enabling Example Plugins
 
-Add plugin IDs to the `enabled` list in your configuration:
+Example plugins are included in the binary but not loaded by default. Add plugin IDs to the `enabled` list in your configuration:
 
 ```toml
 # ~/.config/kasane/config.toml

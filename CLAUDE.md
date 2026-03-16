@@ -41,9 +41,12 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-tui/` | TUI backend — crossterm-based terminal rendering |
 | `kasane-gui/` | GPU backend — winit+wgpu+glyphon (feature-gated via `--features gui`) |
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
-| `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, bundled plugins (`bundled/`), guest sources (`guests/`) |
+| `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, pre-built example plugins (`bundled/`) |
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
+| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, line-numbers |
+| `examples/line-numbers/` | Native plugin example — direct `PluginBackend` trait implementation |
+| `tools/wasm-test/` | WASM integration test binary |
 
 ## Architecture
 

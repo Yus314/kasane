@@ -1328,7 +1328,7 @@ Reflecting the decisions of 19-1 and 19-2, the Phase P sub-phases are restructur
 
 - P-1: Done — WIT v0.5.0 `capability` enum, `WasiCapabilityConfig` + `build_wasi_ctx()`, `deny_capabilities` configuration
 - P-2: Done — `IoEvent` / `ProcessEvent` types, `Plugin::on_io_event()` + WIT v0.6.0, `Command::SpawnProcess` and 3 other commands, tokio-based `ProcessManager`, TUI/GUI event loop integration, `Capability::Process` capability check
-- P-3: Done — Fuzzy finder reference implementation (`kasane-wasm/guests/fuzzy-finder/`), `on_io_event` criterion benchmark (`kasane-wasm/benches/io_event.rs`), `perf_span!("deliver_io_event")` measurement point, TUI/GUI frame span + batch drain logging, `state_hash` cache inconsistency bug fix (adapter.rs: cache update after `on_io_event` / `handle_key`)
+- P-3: Done — Fuzzy finder reference implementation (`examples/wasm/fuzzy-finder/`), `on_io_event` criterion benchmark (`kasane-wasm/benches/io_event.rs`), `perf_span!("deliver_io_event")` measurement point, TUI/GUI frame span + batch drain logging, `state_hash` cache inconsistency bug fix (adapter.rs: cache update after `on_io_event` / `handle_key`)
 
 ## ADR-020: Salsa Incremental Computation — Stage 1/2 Split
 

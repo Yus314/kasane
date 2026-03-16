@@ -57,7 +57,7 @@ Filesystem access is available through WASI capability declaration (`Capability:
 The following is the complete source of a `sel-badge` plugin that displays the selection cursor count on the right side of the status bar.
 
 ```rust
-// kasane-wasm/guests/sel-badge/src/lib.rs
+// examples/wasm/sel-badge/src/lib.rs
 kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
 
 use std::cell::Cell;
@@ -353,11 +353,11 @@ fn main() {
 
 Kasane registers plugins in the following order:
 
-1. Bundled WASM
+1. Example WASM (embedded in the binary)
 2. FS-discovered WASM (`~/.local/share/kasane/plugins/*.wasm`)
 3. Native plugins registered via `kasane::run(|registry| { ... })`
 
-An FS-discovered WASM plugin with the same ID can override a bundled plugin.
+An FS-discovered WASM plugin with the same ID can override an example plugin.
 
 ### 4.2 Distribution Methods
 
@@ -418,14 +418,15 @@ fn my_plugin_contributes_gutter() {
 }
 ```
 
-## 5. Reference Implementation List
+## 5. Example Plugin List
 
 | Plugin | Path | Lines | Main Features |
 |---|---|---|---|
-| cursor-line (WASM) | `kasane-wasm/guests/cursor-line/` | 73 lines | `annotate_line_with_ctx()`, `state_hash()` |
-| sel-badge (WASM) | `kasane-wasm/guests/sel-badge/` | 111 lines | `contribute_to()` (`STATUS_RIGHT`) |
-| line-numbers (WASM) | `kasane-wasm/guests/line-numbers/` | 92 lines | `contribute_to()` (`BUFFER_LEFT`) |
-| color-preview (WASM) | `kasane-wasm/guests/color-preview/` | 641 lines | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
+| cursor-line (WASM) | `examples/wasm/cursor-line/` | 73 lines | `annotate_line_with_ctx()`, `state_hash()` |
+| sel-badge (WASM) | `examples/wasm/sel-badge/` | 111 lines | `contribute_to()` (`STATUS_RIGHT`) |
+| line-numbers (WASM) | `examples/wasm/line-numbers/` | 92 lines | `contribute_to()` (`BUFFER_LEFT`) |
+| color-preview (WASM) | `examples/wasm/color-preview/` | 641 lines | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
+| fuzzy-finder (WASM) | `examples/wasm/fuzzy-finder/` | 620 lines | `contribute_overlay_with_ctx()`, `handle_key()`, `Command::SpawnProcess` |
 | line-numbers (native) | `examples/line-numbers/` | 57 lines | Direct `PluginBackend` trait implementation, `contribute_to()`, `kasane::run()` |
 | cursor-line-pure (test) | `kasane-core/src/plugin/pure.rs` | test double | `Plugin` implementation (state-externalized), `annotate_line_with_ctx()`, automatic state tracking |
 | color-preview-pure (test) | `kasane-core/src/plugin/pure.rs` | test double | `Plugin` with complex `HashMap` state |

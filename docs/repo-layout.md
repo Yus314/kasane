@@ -19,7 +19,17 @@ kasane/
 ├── kasane/
 ├── kasane-wasm/
 ├── kasane-plugin-sdk/
-└── kasane-wasm-bench/
+├── kasane-wasm-bench/
+├── examples/
+│   ├── line-numbers/        # Native plugin example
+│   └── wasm/                # WASM plugin examples
+│       ├── cursor-line/
+│       ├── color-preview/
+│       ├── sel-badge/
+│       ├── fuzzy-finder/
+│       └── line-numbers/
+└── tools/
+    └── wasm-test/           # WASM integration test binary
 ```
 
 ## 2. Crate Responsibilities
@@ -216,26 +226,24 @@ kasane-wasm/
 │   ├── host.rs
 │   ├── convert.rs
 │   └── tests.rs
-├── wit/
-│   └── plugin.wit
 ├── bundled/
 │   ├── cursor-line.wasm
 │   ├── color-preview.wasm
-│   └── sel-badge.wasm
+│   ├── sel-badge.wasm
+│   └── fuzzy-finder.wasm
+├── fixtures/
+│   └── *.wasm              # Pre-built .wasm for tests
 └── guests/
-    ├── cursor-line/
-    ├── color-preview/
-    ├── sel-badge/
-    └── line-numbers/
+    └── surface-probe/       # Test-only WASM guest
 ```
 
 | Path | Contents |
 |---|---|
-| `src/adapter.rs` | WASM adapter for the `Plugin` trait |
+| `src/adapter.rs` | WASM adapter for the `PluginBackend` trait |
 | `src/host.rs` | Guest-to-host calls |
-| `wit/plugin.wit` | WIT API definition |
-| `guests/` | Reference implementation plugins |
-| `bundled/` | Bundled WASM binaries |
+| `bundled/` | Pre-built .wasm embedded in binary via `include_bytes!` |
+| `fixtures/` | Pre-built .wasm for tests |
+| `guests/` | Test-only WASM guests (not user-facing examples) |
 
 ### 3.7 Auxiliary Crates
 
@@ -258,7 +266,7 @@ kasane-wasm/
 | Proc macro deps validation | `kasane-macros/src/component.rs` and `analysis.rs` |
 | Changes to plugin WIT / host API | `kasane-wasm/wit/plugin.wit`, `kasane-wasm/src/host.rs`, `kasane-plugin-sdk/src/lib.rs` |
 | Changes to CLI or startup paths | `kasane/src/cli.rs`, `kasane/src/process.rs`, `kasane/src/lib.rs` |
-| Changes to bundled plugins | `kasane-wasm/guests/` |
+| Changes to example plugins | `examples/wasm/`, `examples/line-numbers/` |
 
 ## 5. Related Documents
 

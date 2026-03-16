@@ -18,7 +18,7 @@ The "resolution layer" in [requirements-traceability.md](./requirements-traceabi
 
 ## Three-Layer Model
 
-> **Background:** Originally this was a four-layer model of "upstream / core / built-in plugins / external plugins," but built-in plugins (`kasane-core/src/plugins/`) were migrated to bundled WASM plugins, and `kasane-core/src/plugins/` was removed. The roles that built-in plugins served (API validation, reference implementations, default UX) are now absorbed by `examples/`, WASM guests (`kasane-wasm/guests/`), and bundled WASM respectively, so the plugin layers were unified and the model was revised to three layers.
+> **Background:** Originally this was a four-layer model of "upstream / core / built-in plugins / external plugins," but built-in plugins (`kasane-core/src/plugins/`) were migrated to WASM, and `kasane-core/src/plugins/` was removed. The roles that built-in plugins served (API validation, reference implementations, default UX) are now absorbed by example plugins (`examples/wasm/`, `examples/line-numbers/`) respectively, so the plugin layers were unified and the model was revised to three layers.
 
 ### Upstream (Kakoune)
 
@@ -65,13 +65,13 @@ The "resolution layer" in [requirements-traceability.md](./requirements-traceabi
 
 | Form | Mechanism | Use case |
 |------|-----------|----------|
-| **Bundled WASM** | Embedded in binary via `include_bytes!` | Default UX (cursor_line, color_preview) |
+| **Example WASM** | Embedded in binary via `include_bytes!` | Included examples (cursor_line, color_preview, sel_badge, fuzzy_finder) |
 | **FS-discovered WASM** | `~/.local/share/kasane/plugins/*.wasm` | WASM plugins placed by users |
 | **Native** | Compile-time binding via `kasane::run(\|registry\| { ... })` | Performance-critical or uses Surface/PaintHook/Pane |
 
-**Registration order:** Bundled WASM → FS-discovered WASM (can override with same ID) → User callback
+**Registration order:** Example WASM → FS-discovered WASM (can override with same ID) → User callback
 
-**Reference implementations:** `examples/` (native) and `kasane-wasm/guests/` (WASM) serve as implementation examples for plugin authors.
+**Reference implementations:** `examples/` (native and WASM) serve as implementation examples for plugin authors.
 
 ---
 
@@ -90,7 +90,6 @@ Want to add feature F
   │  No ↓
   ▼
 3. Plugin
-  │  Required by default? → Bundled WASM (kasane-wasm/guests/ + bundled/)
   │  Otherwise → External plugin (WASM or native)
   │  Insufficient API? → Plugin trait / WIT extension comes first
 ```
