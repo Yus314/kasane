@@ -24,22 +24,52 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 
 ## Quick Start
 
-### Project Setup
-
-The fastest way to create a new plugin project is with `kasane plugin new`:
+### Hello World (4 lines)
 
 ```bash
-kasane plugin new my-plugin                         # Default (contribution template)
-kasane plugin new my-highlighter --template annotation   # Line annotation template
-kasane plugin new my-transform --template transform      # Element transform template
-kasane plugin new my-overlay --template overlay           # Interactive overlay template
-kasane plugin new my-runner --template process            # Process launcher template
+kasane plugin new my-hello --template hello
+cd my-hello && kasane plugin build
 ```
 
-This generates a ready-to-build project with `Cargo.toml`, `src/lib.rs`, and `.gitignore`. You also need the `wasm32-wasip2` target (the command will remind you if it's missing):
+This creates a minimal plugin:
+
+```rust
+kasane_plugin_sdk::define_plugin! {
+    id: "my_hello",
+    slots {
+        STATUS_RIGHT(0) => |_ctx| {
+            Some(auto_contribution(plain(" Hello from my_hello! ")))
+        },
+    },
+}
+```
+
+### Progressive Learning Path
+
+| Level | Template | What you learn | Key concepts |
+|---|---|---|---|
+| 1 | `hello` | Minimal plugin, slot contribution | `define_plugin!`, `plain()`, `auto_contribution()` |
+| 2 | `contribution` | State, dirty flags, state caching | `state {}`, `on_state_changed()`, `dirty::BUFFER` |
+| 3 | `annotation` | Per-line decoration | `annotate()`, `annotate_deps` |
+| 4 | `overlay` | Interactive UI, key handling | `handle_key()`, `overlay()`, `is_ctrl()` |
+| 5 | `process` | External processes, I/O events | `capabilities`, `on_io_event()`, `is_ctrl_shift()` |
+
+### Project Setup
+
+```bash
+kasane plugin new my-plugin                              # Default (contribution template)
+kasane plugin new my-plugin --template hello              # Minimal hello world
+kasane plugin new my-highlighter --template annotation    # Line annotation template
+kasane plugin new my-transform --template transform       # Element transform template
+kasane plugin new my-overlay --template overlay            # Interactive overlay template
+kasane plugin new my-runner --template process             # Process launcher template
+```
+
+This generates a ready-to-build project with `Cargo.toml`, `src/lib.rs`, and `.gitignore`. You also need the `wasm32-wasip2` target:
 
 ```bash
 rustup target add wasm32-wasip2
+# or: kasane plugin doctor --fix
 ```
 
 <details>
@@ -67,73 +97,6 @@ wit-bindgen = "0.41"
 This plugin displays the selection count on the right side of the status bar when multiple cursors are active.
 
 ```rust
-// examples/wasm/sel-badge/src/lib.rs
-kasane_plugin_sdk::generate!();
-
-use std::cell::Cell;
-
-use kasane_plugin_sdk::{dirty, plugin};
-
-thread_local! {
-    static CURSOR_COUNT: Cell<u32> = const { Cell::new(0) };
-}
-
-struct SelBadgePlugin;
-
-#[plugin]
-impl Guest for SelBadgePlugin {
-    fn get_id() -> String {
-        "sel_badge".to_string()
-    }
-
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::BUFFER != 0 {
-            CURSOR_COUNT.set(host_state::get_cursor_count());
-        }
-        vec![]
-    }
-
-    fn state_hash() -> u64 {
-        CURSOR_COUNT.get() as u64
-    }
-
-    kasane_plugin_sdk::slots! {
-        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-            let count = CURSOR_COUNT.get();
-            (count > 1).then(|| {
-                auto_contribution(text(&format!(" {} sel ", count), default_face()))
-            })
-        },
-    }
-}
-
-export!(SelBadgePlugin);
-```
-
-**Key points:**
-
-- **`generate!()`** emits WIT bindings and auto-imports common types (`Guest`, `host_state`, `element_builder`, `types::*`) plus SDK helpers (`default_face()`, `rgb()`, `face_bg()`, etc.).
-- **`#[plugin]`** fills in default implementations for all `Guest` methods you don't write. Without it, you would need to add `default_*!()` macro stubs for every unused method.
-- **`on_state_changed()`** is called when editor state changes. Cache data you need; the `dirty_flags` bitmask tells you what changed.
-- **`slots!{}`** declares slot contributions with dependency tracking. Each entry maps a `SlotId` to a closure that returns `Option<Contribution>`, with dirty flag dependencies for caching. For manual routing, `route_slot_ids!` is also available.
-- **`state_hash()`** returns a value that changes when your plugin's output would change. The framework uses this to skip redundant work.
-
-### Plugin Profiles
-
-| Profile | Implement | Template | Example |
-|---|---|---|---|
-| Status widget | `get_id`, `on_state_changed`, `state_hash`, `slots!{}` | `contribution` | sel-badge |
-| Line annotator | `get_id`, `on_state_changed`, `state_hash`, `annotate_line`, `annotate_deps` | `annotation` | cursor-line |
-| Element transformer | `get_id`, `on_state_changed`, `state_hash`, `transform_element`, `transform_deps` | `transform` | prompt-highlight |
-| Display transform | `get_id`, `on_state_changed`, `state_hash`, `display_directives`, `display_directives_deps` | — | — |
-| Interactive overlay | `get_id`, `handle_key`, `state_hash`, `contribute_overlay_v2` | `overlay` | session-ui |
-| Process launcher | Above + `on_io_event`, `requested_capabilities` | `process` | fuzzy-finder |
-
-### `define_plugin!` — All-in-One Macro
-
-For simple plugins, `define_plugin!` combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro:
-
-```rust
 kasane_plugin_sdk::define_plugin! {
     id: "sel_badge",
 
@@ -141,46 +104,76 @@ kasane_plugin_sdk::define_plugin! {
         cursor_count: u32 = 0,
     },
 
-    on_state_changed(dirty) {
-        if dirty & dirty::BUFFER != 0 {
+    on_state_changed(flags) {
+        if flags & dirty::BUFFER != 0 {
             state.cursor_count = host_state::get_cursor_count();
         }
     },
 
     slots {
         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-            let count = state.cursor_count;
-            (count > 1).then(|| {
-                auto_contribution(text(&format!(" {} sel ", count), default_face()))
-            })
+            // Inside slots closures, use STATE.with() for state access
+            let count = STATE.with(|s| s.borrow().cursor_count);
+            status_badge(count > 1, &format!(" {} sel ", count))
         },
     },
 }
 ```
 
-This expands to all four boilerplate steps (`generate!()` + `state!` + `#[plugin] impl Guest` + `export!()`). All sections are optional — omitted methods get default implementations.
+**Key points:**
 
-Available sections: `id`, `state`, `on_init`, `on_state_changed`, `slots`, `annotate`, `annotate_deps`, `transform`, `transform_deps`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
+- **`define_plugin!`** combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro. All sections are optional except `id`.
+- **`on_state_changed()`** is called when editor state changes. Cache data you need; the `flags` bitmask tells you what changed. Inside this section, `state.field` accesses work directly.
+- **`slots {}`** declares slot contributions with dependency tracking. **Important:** Inside `slots` closures, use `STATE.with(|s| s.borrow().field)` for state access (the macro does not auto-wrap slots).
+- **`status_badge()`** is a helper that returns `Some(auto_contribution(plain(label)))` when the condition is true.
+- The `dirty` and `modifiers` modules are auto-imported by `define_plugin!`.
 
-> The explicit `generate!()` + `#[plugin]` + `export!()` pattern shown in the [Full Example](#full-example-sel-badge) above remains fully supported and gives you more control over state management.
+### SDK Helpers Reference
+
+| Helper | Signature | Description |
+|---|---|---|
+| `plain(s)` | `&str → ElementHandle` | `text(s, default_face())` shorthand |
+| `colored(s, fg)` | `&str, Color → ElementHandle` | `text(s, face_fg(fg))` shorthand |
+| `is_ctrl(event, key)` | `&KeyEvent, &str → bool` | Checks Ctrl+key (no Alt/Shift) |
+| `is_alt(event, key)` | `&KeyEvent, &str → bool` | Checks Alt+key (no Ctrl/Shift) |
+| `is_ctrl_shift(event, key)` | `&KeyEvent, &str → bool` | Checks Ctrl+Shift+key (no Alt) |
+| `status_badge(cond, label)` | `bool, &str → Option<Contribution>` | Conditional status bar badge |
+| `hex(s)` | `&str → Color` | Parse `"#rrggbb"` / `"#rgb"` to `Color::Rgb` |
+
+These are available in all plugin code (emitted by `generate!()` / `define_plugin!`).
+
+### Plugin Profiles
+
+| Profile | Sections | Template | Example |
+|---|---|---|---|
+| Status widget | `state`, `on_state_changed`, `slots` | `contribution` | sel-badge |
+| Line annotator | `state`, `on_state_changed`, `annotate`, `annotate_deps` | `annotation` | cursor-line |
+| Element transformer | `state`, `on_state_changed`, `transform`, `transform_deps` | `transform` | prompt-highlight |
+| Display transform | `state`, `on_state_changed`, `display_directives`, `display_directives_deps` | — | — |
+| Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
+| Process launcher | Above + `on_io_event`, `capabilities` | `process` | fuzzy-finder |
+
+Available `define_plugin!` sections: `id`, `state`, `on_init`, `on_state_changed`, `slots`, `annotate`, `annotate_deps`, `transform`, `transform_deps`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
 
 ### Build & Deploy
 
 ```bash
-kasane plugin build              # Build for wasm32-wasip2
+kasane plugin build              # Build for wasm32-wasip2 (release)
 kasane plugin install            # Build, validate, and install to plugins directory
-kasane plugin dev [path]         # Build, install, and watch for changes (hot-reload)
+kasane plugin dev [path]         # Build (debug) and watch for changes (hot-reload)
+kasane plugin dev --release      # Same, but release builds
 ```
 
 `kasane plugin install` copies the `.wasm` to `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`). The plugin loads automatically on the next `kasane` launch.
 
-`kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
+`kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 To see installed plugins or diagnose environment issues:
 
 ```bash
 kasane plugin list               # List installed plugins
 kasane plugin doctor             # Check toolchain, SDK version, and plugin health
+kasane plugin doctor --fix       # Auto-fix missing target and plugins directory
 ```
 
 <details>
@@ -195,81 +188,53 @@ cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 
 ### Transform Example: prompt-highlight
 
-This plugin demonstrates `transform_element()` — the mechanism for wrapping or
+This plugin demonstrates `transform` — the mechanism for wrapping or
 replacing existing UI elements. It highlights the status bar when the editor
 enters prompt mode (`:`, `/`, etc.).
 
 ```rust
-// examples/wasm/prompt-highlight/src/lib.rs
-kasane_plugin_sdk::generate!();
+kasane_plugin_sdk::define_plugin! {
+    id: "prompt_highlight",
 
-use std::cell::Cell;
+    state {
+        cursor_mode: u8 = 0,
+    },
 
-use kasane_plugin_sdk::{dirty, plugin};
-
-const MODE_BUFFER: u8 = 0;
-const MODE_PROMPT: u8 = 1;
-
-thread_local! {
-    static CURSOR_MODE: Cell<u8> = const { Cell::new(MODE_BUFFER) };
-}
-
-struct PromptHighlightPlugin;
-
-#[plugin]
-impl Guest for PromptHighlightPlugin {
-    fn get_id() -> String {
-        "prompt_highlight".to_string()
-    }
-
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::STATUS != 0 {
-            CURSOR_MODE.set(host_state::get_cursor_mode());
+    on_state_changed(flags) {
+        if flags & dirty::STATUS != 0 {
+            state.cursor_mode = host_state::get_cursor_mode();
         }
-        vec![]
-    }
+    },
 
-    fn state_hash() -> u64 {
-        CURSOR_MODE.get() as u64
-    }
-
-    fn transform_element(
-        target: TransformTarget,
-        element: ElementHandle,
-        _ctx: TransformContext,
-    ) -> ElementHandle {
+    transform(target, element, _ctx) {
         if !matches!(target, TransformTarget::StatusBarT) {
-            return element; // passthrough for non-status targets
+            return element;
         }
-        if CURSOR_MODE.get() != MODE_PROMPT {
-            return element; // passthrough in buffer mode
+        if state.cursor_mode != 1 {
+            return element;
         }
-        // Wrap status bar in highlighted container
-        let padding = Edges { top: 0, right: 0, bottom: 0, left: 0 };
-        element_builder::create_container_styled(
-            element, None, false, padding,
-            face(named(NamedColor::Black), named(NamedColor::Yellow)),
-            None,
-        )
-    }
+        container(element)
+            .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+            .build()
+    },
 
-    fn transform_deps(target: TransformTarget) -> u16 {
+    transform_deps(target) {
         match target {
             TransformTarget::StatusBarT => dirty::STATUS,
             _ => 0,
         }
-    }
-}
+    },
 
-export!(PromptHighlightPlugin);
+    transform_priority: 0,
+}
 ```
 
 **Key points:**
 
-- **`transform_element()`** receives an opaque `ElementHandle` for the target element. Return it unchanged for passthrough, or wrap it with `create_container_styled()`.
+- **`transform(target, element, ctx)`** receives an opaque `ElementHandle` for the target element. Return it unchanged for passthrough, or wrap it with `container().build()`.
 - **`TransformTarget`** selects which UI component to transform (e.g., `StatusBarT`, `Buffer`, `MenuT`). Ignore targets your plugin doesn't handle.
-- **`transform_deps()`** declares per-target dirty flag dependencies for caching.
-- **`transform_priority()`** (defaulted to `0` by `#[plugin]`) controls ordering in the transform chain. Higher priority = applied first (inner).
+- **`transform_deps(target)`** declares per-target dirty flag dependencies for caching.
+- **`transform_priority`** (default `0`) controls ordering in the transform chain. Higher priority = applied first (inner).
 
 ## Testing
 
@@ -564,13 +529,66 @@ Register via `registry.register_backend(Box::new(..))`. See the `PluginBackend` 
 | Performance | WASM boundary crossing cost | Direct function calls | Direct function calls |
 | API access | `host-state` + `element-builder` | Direct `&AppState` + `&State` | Direct `&AppState` reference |
 | Distribution | `.wasm` file placement | Custom binary | Custom binary |
-| Developer experience | `#[plugin]` macro + `wit-bindgen` | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
+| Developer experience | `define_plugin!` (4-line hello world) | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
 | `Surface` / `PaintHook` | Not supported ([details](./wasm-constraints.md)) | Not supported (use `PluginBackend`) | Supported |
 | State model | Mutable (guest linear memory) | Externalized (framework-owned, pure functions) | Mutable (`&mut self`) |
 | Cache invalidation | Manual `state_hash()` | Automatic (`PartialEq` comparison) | Manual `state_hash()` |
 | Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` | `Box<dyn Any>` |
 
 > Earlier WIT versions (v0.3) used `contribute()`, `contribute_line()`, and `contribute_overlay()`. These are superseded by the current API. Legacy stubs are generated automatically by `#[plugin]`.
+
+## Appendix D: Explicit WASM Pattern {#appendix-d-explicit-wasm-pattern}
+
+The `define_plugin!` macro is recommended for most WASM plugins. For full control over state management, you can use the explicit `generate!()` + `#[plugin]` + `export!()` pattern:
+
+```rust
+kasane_plugin_sdk::generate!();
+
+use std::cell::Cell;
+
+use kasane_plugin_sdk::{dirty, plugin};
+
+thread_local! {
+    static CURSOR_COUNT: Cell<u32> = const { Cell::new(0) };
+}
+
+struct SelBadgePlugin;
+
+#[plugin]
+impl Guest for SelBadgePlugin {
+    fn get_id() -> String {
+        "sel_badge".to_string()
+    }
+
+    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
+        if dirty_flags & dirty::BUFFER != 0 {
+            CURSOR_COUNT.set(host_state::get_cursor_count());
+        }
+        vec![]
+    }
+
+    fn state_hash() -> u64 {
+        CURSOR_COUNT.get() as u64
+    }
+
+    kasane_plugin_sdk::slots! {
+        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+            let count = CURSOR_COUNT.get();
+            (count > 1).then(|| {
+                auto_contribution(text(&format!(" {} sel ", count), default_face()))
+            })
+        },
+    }
+}
+
+export!(SelBadgePlugin);
+```
+
+Key differences from `define_plugin!`:
+- You manage state manually (e.g., `thread_local!` + `Cell`/`RefCell`)
+- You implement `state_hash()` explicitly
+- You get direct control over struct naming and imports
+- You can use `#[plugin]` on an existing `impl Guest` block
 
 ## Related Documents
 

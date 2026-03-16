@@ -8,44 +8,29 @@ and hot-loadable.
 
 ## Quick Start
 
-```toml
-# Cargo.toml
-[package]
-name = "my-plugin"
-edition = "2024"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-kasane-plugin-sdk = "0.1"
-wit-bindgen = "0.41"
+```bash
+kasane plugin new my-plugin --template hello
+cd my-plugin && kasane plugin build
 ```
+
+This generates a minimal plugin (`src/lib.rs`):
 
 ```rust
-// src/lib.rs
-kasane_plugin_sdk::generate!();
-
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::types::*;
-use kasane_plugin_sdk::plugin;
-
-struct MyPlugin;
-
-#[plugin]
-impl Guest for MyPlugin {
-    fn get_id() -> String { "my_plugin".into() }
-    // ... only implement the methods you need
+kasane_plugin_sdk::define_plugin! {
+    id: "my_plugin",
+    slots {
+        STATUS_RIGHT(0) => |_ctx| {
+            Some(auto_contribution(plain(" Hello! ")))
+        },
+    },
 }
-
-export!(MyPlugin);
 ```
 
-```bash
-rustup target add wasm32-wasip2
-cargo build --target wasm32-wasip2 --release
-cp target/wasm32-wasip2/release/my_plugin.wasm ~/.local/share/kasane/plugins/
-```
+`define_plugin!` combines WIT bindings, state, `#[plugin]`, and `export!()` into one macro.
+SDK helpers (`plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, etc.) are auto-imported.
+
+For full control, use the explicit pattern: `generate!()` + `#[plugin]` + `export!()`.
+See the [Plugin Development Guide](https://github.com/Yus314/kasane/blob/master/docs/plugin-development.md) for details.
 
 ## MSRV
 

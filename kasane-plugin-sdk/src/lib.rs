@@ -5,6 +5,54 @@
 //!
 //! # Quick Start
 //!
+//! The simplest plugin is 4 lines with [`define_plugin!`]:
+//!
+//! ```ignore
+//! kasane_plugin_sdk::define_plugin! {
+//!     id: "my_plugin",
+//!     slots {
+//!         STATUS_RIGHT(0) => |_ctx| {
+//!             Some(auto_contribution(plain(" Hello! ")))
+//!         },
+//!     },
+//! }
+//! ```
+//!
+//! `define_plugin!` combines WIT bindings, state declaration, `#[plugin]`,
+//! and `export!()` into a single macro. It auto-imports `dirty`, `modifiers`,
+//! `keys`, and `attributes` modules, plus SDK helpers like `plain()`,
+//! `colored()`, `is_ctrl()`, `status_badge()`, and `hex()`.
+//!
+//! ## With State
+//!
+//! ```ignore
+//! kasane_plugin_sdk::define_plugin! {
+//!     id: "sel_badge",
+//!
+//!     state {
+//!         cursor_count: u32 = 0,
+//!     },
+//!
+//!     on_state_changed(flags) {
+//!         if flags & dirty::BUFFER != 0 {
+//!             state.cursor_count = host_state::get_cursor_count();
+//!         }
+//!     },
+//!
+//!     slots {
+//!         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+//!             let count = STATE.with(|s| s.borrow().cursor_count);
+//!             status_badge(count > 1, &format!(" {} sel ", count))
+//!         },
+//!     },
+//! }
+//! ```
+//!
+//! # Explicit Pattern
+//!
+//! For full control over state management, use `generate!()` + `#[plugin]`
+//! + `export!()` separately:
+//!
 //! ```ignore
 //! kasane_plugin_sdk::generate!();
 //!
@@ -28,85 +76,22 @@
 //!
 //! `generate!()` emits WIT bindings and auto-imports common types (`Guest`,
 //! `host_state`, `element_builder`, `types::*`) plus helper functions
-//! (`default_face()`, `rgb()`, `face_bg()`, `centered_overlay()`, etc.).
+//! (`default_face()`, `rgb()`, `face_bg()`, `plain()`, `colored()`, etc.).
 //!
-//! All `Guest` methods not listed in the `impl` block are automatically filled
-//! with SDK defaults by the `#[plugin]` attribute macro.
-//!
-//! # Legacy Quick Start (without `#[plugin]`)
-//!
-//! The `#[plugin]` macro is recommended. If you prefer explicit control,
-//! you can still use individual `default_*!()` macros:
-//!
-//! ```ignore
-//! // Cargo.toml:
-//! // [dependencies]
-//! // kasane-plugin-sdk = "0.1"
-//!
-//! // src/lib.rs:
-//! kasane_plugin_sdk::generate!();
-//!
-//! use exports::kasane::plugin::plugin_api::Guest;
-//! use kasane::plugin::types::*;
-//! use kasane::plugin::{host_state, element_builder};
-//! use kasane_plugin_sdk::{dirty, slot};
-//!
-//! struct MyPlugin;
-//!
-//! impl Guest for MyPlugin {
-//!     fn get_id() -> String { "my_plugin".into() }
-//!
-//!     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
-//!         kasane_plugin_sdk::route_slot_ids!(region, {
-//!             BUFFER_LEFT => {
-//!                 // ... build elements via element_builder ...
-//!                 None
-//!             },
-//!         })
-//!     }
-//!
-//!     fn contribute_deps(region: SlotId) -> u16 {
-//!         kasane_plugin_sdk::route_slot_id_deps!(region, {
-//!             BUFFER_LEFT => dirty::BUFFER,
-//!         })
-//!     }
-//!
-//!     kasane_plugin_sdk::default_lifecycle!();
-//!     kasane_plugin_sdk::default_cache!();
-//!     kasane_plugin_sdk::default_input!();
-//!     kasane_plugin_sdk::default_surfaces!();
-//!     kasane_plugin_sdk::default_render_surface!();
-//!     kasane_plugin_sdk::default_handle_surface_event!();
-//!     kasane_plugin_sdk::default_handle_surface_state_changed!();
-//!     // Old WIT stubs (required by interface, not called by host)
-//!     kasane_plugin_sdk::default_contribute!();
-//!     kasane_plugin_sdk::default_line!();
-//!     kasane_plugin_sdk::default_overlay!();
-//!     kasane_plugin_sdk::default_decorate!();
-//!     kasane_plugin_sdk::default_replace!();
-//!     kasane_plugin_sdk::default_decorator_priority!();
-//!     kasane_plugin_sdk::default_named_slot!();
-//!     // New API defaults
-//!     kasane_plugin_sdk::default_menu_transform!();
-//!     kasane_plugin_sdk::default_transform!();
-//!     kasane_plugin_sdk::default_transform_priority!();
-//!     kasane_plugin_sdk::default_annotate!();
-//!     kasane_plugin_sdk::default_overlay_v2!();
-//!     kasane_plugin_sdk::default_transform_deps!();
-//!     kasane_plugin_sdk::default_annotate_deps!();
-//!     kasane_plugin_sdk::default_cursor_style!();
-//!     kasane_plugin_sdk::default_update!();
-//!     kasane_plugin_sdk::default_capabilities!();
-//! }
-//!
-//! export!(MyPlugin);
-//! ```
+//! `#[plugin]` fills in default implementations for all `Guest` methods
+//! you don't write.
 
 /// Attribute macro that fills in default implementations for all
 /// unimplemented `Guest` trait methods.
 ///
 /// See the [module-level documentation](crate) for usage.
 pub use kasane_plugin_sdk_macros::kasane_wasm_plugin as plugin;
+
+/// All-in-one plugin definition macro.
+///
+/// Combines `generate!()`, `state!`, `#[plugin]`, and `export!()` into a
+/// single declaration. See the proc macro documentation for full syntax.
+pub use kasane_plugin_sdk_macros::kasane_define_plugin as define_plugin;
 
 /// Slot indices matching `kasane_core::plugin::Slot`.
 pub mod slot {
@@ -134,18 +119,33 @@ pub mod slot_name {
 }
 
 /// DirtyFlags bit values matching `kasane_core::state::DirtyFlags`.
+///
+/// Each flag indicates what part of the editor state changed. Use these
+/// in `on_state_changed()` to selectively update cached data, and in
+/// `contribute_deps()` / `annotate_deps()` / `transform_deps()` to
+/// declare which changes affect your plugin's output.
 pub mod dirty {
+    /// Buffer line contents changed (Kakoune `draw` command).
     pub const BUFFER_CONTENT: u16 = 1 << 0;
+    /// Status bar changed (Kakoune `draw_status` command).
     pub const STATUS: u16 = 1 << 1;
+    /// Menu items added or removed (`menu_show` / `menu_hide`).
     pub const MENU_STRUCTURE: u16 = 1 << 2;
+    /// Menu selection index changed (`menu_select`).
     pub const MENU_SELECTION: u16 = 1 << 3;
+    /// Info popup changed (`info_show` / `info_hide`).
     pub const INFO: u16 = 1 << 4;
+    /// UI options changed (`set_ui_options`).
     pub const OPTIONS: u16 = 1 << 5;
+    /// Cursor position or mode changed.
     pub const BUFFER_CURSOR: u16 = 1 << 6;
+    /// Session metadata changed (session added/removed/switched).
     pub const SESSION: u16 = 1 << 8;
     /// Composite: any buffer-related change (content or cursor).
     pub const BUFFER: u16 = BUFFER_CONTENT | BUFFER_CURSOR;
+    /// Composite: any menu-related change (structure or selection).
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
+    /// All flags combined.
     pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS | SESSION;
 }
 

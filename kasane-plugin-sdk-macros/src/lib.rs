@@ -3,6 +3,9 @@
 //! Provides `#[kasane_wasm_plugin]` to auto-fill default method stubs
 //! in a `Guest` trait implementation, so plugin authors only need to
 //! implement the methods they actually use.
+//!
+//! Also provides `define_plugin!` for a single-macro plugin definition
+//! that combines `generate!()`, `state!`, `#[plugin]`, and `export!()`.
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -617,6 +620,62 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
+            // ----- Convenience shortcuts -----
+
+            /// Create a text element with the default face.
+            pub fn plain(s: &str) -> ElementHandle {
+                text(s, default_face())
+            }
+
+            /// Create a text element with a foreground color.
+            pub fn colored(s: &str, fg: Color) -> ElementHandle {
+                text(s, face_fg(fg))
+            }
+
+            /// Check if a key event is Ctrl+key (no Alt/Shift).
+            pub fn is_ctrl(event: &KeyEvent, key: &str) -> bool {
+                matches!(event.key, KeyCode::Character(ref c) if c == key)
+                    && event.modifiers == 0x01 // CTRL only
+            }
+
+            /// Check if a key event is Alt+key (no Ctrl/Shift).
+            pub fn is_alt(event: &KeyEvent, key: &str) -> bool {
+                matches!(event.key, KeyCode::Character(ref c) if c == key)
+                    && event.modifiers == 0x02 // ALT only
+            }
+
+            /// Check if a key event is Ctrl+Shift+key (no Alt).
+            pub fn is_ctrl_shift(event: &KeyEvent, key: &str) -> bool {
+                matches!(event.key, KeyCode::Character(ref c) if c == key)
+                    && event.modifiers == (0x01 | 0x04) // CTRL + SHIFT
+            }
+
+            /// Conditional status bar badge: returns a contribution if `condition` is true.
+            pub fn status_badge(condition: bool, label: &str) -> Option<Contribution> {
+                condition.then(|| auto_contribution(plain(label)))
+            }
+
+            /// Parse a hex color string (`"#rrggbb"` or `"#rgb"`) into a `Color`.
+            /// Returns `Color::DefaultColor` on invalid input.
+            pub fn hex(s: &str) -> Color {
+                let s = s.strip_prefix('#').unwrap_or(s);
+                match s.len() {
+                    6 => {
+                        let Ok(r) = u8::from_str_radix(&s[0..2], 16) else { return Color::DefaultColor };
+                        let Ok(g) = u8::from_str_radix(&s[2..4], 16) else { return Color::DefaultColor };
+                        let Ok(b) = u8::from_str_radix(&s[4..6], 16) else { return Color::DefaultColor };
+                        Color::Rgb(RgbColor { r, g, b })
+                    }
+                    3 => {
+                        let Ok(r) = u8::from_str_radix(&s[0..1], 16) else { return Color::DefaultColor };
+                        let Ok(g) = u8::from_str_radix(&s[1..2], 16) else { return Color::DefaultColor };
+                        let Ok(b) = u8::from_str_radix(&s[2..3], 16) else { return Color::DefaultColor };
+                        Color::Rgb(RgbColor { r: r * 17, g: g * 17, b: b * 17 })
+                    }
+                    _ => Color::DefaultColor,
+                }
+            }
+
             // ----- Edges shortcuts -----
 
             /// Create edges with explicit values.
@@ -738,4 +797,639 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
         #[allow(unused_imports)]
         use __kasane_sdk::*;
     }
+}
+
+// ============================================================================
+// define_plugin! proc macro
+// ============================================================================
+
+/// All-in-one plugin definition macro that combines `generate!()`, `state!`,
+/// `#[plugin]`, and `export!()` into a single declaration.
+///
+/// # Example
+///
+/// ```ignore
+/// kasane_plugin_sdk::define_plugin! {
+///     id: "sel_badge",
+///
+///     state {
+///         cursor_count: u32 = 0,
+///     },
+///
+///     on_state_changed(flags) {
+///         if flags & dirty::BUFFER != 0 {
+///             state.cursor_count = host_state::get_cursor_count();
+///         }
+///     },
+///
+///     slots {
+///         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+///             // Note: inside slots closures, use STATE.with() for state access
+///             let count = STATE.with(|s| s.borrow().cursor_count);
+///             (count > 1).then(|| {
+///                 auto_contribution(text(&format!(" {} sel ", count), default_face()))
+///             })
+///         },
+///     },
+/// }
+/// ```
+///
+/// ## Supported sections (all optional except `id`):
+///
+/// - `id: "plugin_id"` — plugin identifier (required)
+/// - `state { field: Type = default, ... }` — plugin state with generation counter
+/// - `on_init() { ... }` → `fn on_init()`
+/// - `on_state_changed(dirty) { ... }` → `fn on_state_changed()`
+/// - `slots { SLOT(deps) => |ctx| { ... }, ... }` → `slots!` macro expansion
+/// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
+/// - `annotate_deps: expr` → `fn annotate_deps()`
+/// - `transform(target, element, ctx) { ... }` → `fn transform_element()`
+/// - `transform_deps(target) { ... }` → `fn transform_deps()`
+/// - `transform_priority: expr` → `fn transform_priority()`
+/// - `overlay(ctx) { ... }` → `fn contribute_overlay_v2()`
+/// - `handle_key(event) { ... }` → `fn handle_key()`
+/// - `handle_mouse(event, id) { ... }` → `fn handle_mouse()`
+/// - `capabilities: [Cap1, Cap2]` → `fn requested_capabilities()`
+/// - `on_io_event(event) { ... }` → `fn on_io_event()`
+#[proc_macro]
+pub fn kasane_define_plugin(input: TokenStream) -> TokenStream {
+    let input2: proc_macro2::TokenStream = input.into();
+
+    // We parse at the token stream level rather than using syn's full parser
+    // because the input has a custom DSL syntax, not standard Rust.
+    let result = define_plugin_impl(input2);
+    match result {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+    let def: PluginDef = syn::parse2(input)?;
+
+    // 1. generate!()
+    let wit_content = include_str!("../wit/plugin.wit");
+    let wit_bindings = quote! {
+        wit_bindgen::generate!({
+            world: "kasane-plugin",
+            inline: #wit_content,
+        });
+    };
+    let sdk_helpers = generate_sdk_helpers();
+
+    // 2. State definition (if present)
+    let state_tokens = if let Some(ref state_def) = def.state {
+        let fields: Vec<_> = state_def
+            .fields
+            .iter()
+            .map(|f| {
+                let name = &f.name;
+                let ty = &f.ty;
+                quote! { #name: #ty }
+            })
+            .collect();
+        let defaults: Vec<_> = state_def
+            .fields
+            .iter()
+            .map(|f| {
+                let name = &f.name;
+                let default = &f.default;
+                quote! { #name: #default }
+            })
+            .collect();
+        quote! {
+            #[derive(Debug)]
+            struct __KasanePluginState {
+                #( #fields, )*
+                generation: u64,
+            }
+
+            impl Default for __KasanePluginState {
+                fn default() -> Self {
+                    Self {
+                        #( #defaults, )*
+                        generation: 0,
+                    }
+                }
+            }
+
+            impl __KasanePluginState {
+                fn bump_generation(&mut self) {
+                    self.generation = self.generation.wrapping_add(1);
+                }
+            }
+
+            ::std::thread_local! {
+                static STATE: ::std::cell::RefCell<__KasanePluginState> =
+                    ::std::cell::RefCell::new(<__KasanePluginState>::default());
+            }
+
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            fn __kasane_auto_state_hash() -> u64 {
+                STATE.with(|s| s.borrow().generation)
+            }
+        }
+    } else {
+        // No state: provide a minimal state_hash
+        quote! {
+            #[doc(hidden)]
+            #[allow(dead_code)]
+            fn __kasane_auto_state_hash() -> u64 { 0 }
+        }
+    };
+
+    // 3. Build Guest methods
+    let id_str = &def.id;
+    let get_id = quote! {
+        fn get_id() -> String {
+            #id_str.to_string()
+        }
+    };
+
+    let has_state = def.state.is_some();
+
+    // Helper: wrap body with STATE.with_borrow_mut if state is present
+    let wrap_state = |body: &proc_macro2::TokenStream| -> proc_macro2::TokenStream {
+        if has_state {
+            quote! {
+                STATE.with(|__s| {
+                    let mut state = __s.borrow_mut();
+                    #body
+                })
+            }
+        } else {
+            body.clone()
+        }
+    };
+
+    let on_init_method = if let Some(ref body) = def.on_init {
+        let wrapped = wrap_state(body);
+        quote! { fn on_init() -> Vec<Command> { #wrapped } }
+    } else {
+        quote! {}
+    };
+
+    let on_state_changed_method = if let Some(ref osc) = def.on_state_changed {
+        let param = &osc.param;
+        let body = &osc.body;
+        let wrapped = if has_state {
+            quote! {
+                STATE.with(|__s| {
+                    let mut state = __s.borrow_mut();
+                    #body
+                })
+            }
+        } else {
+            body.clone()
+        };
+        quote! {
+            fn on_state_changed(#param: u16) -> Vec<Command> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let slots_method = if let Some(ref slots) = def.slots {
+        let tokens = slots;
+        quote! {
+            kasane_plugin_sdk::slots! {
+                #tokens
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let annotate_method = if let Some(ref ann) = def.annotate {
+        let line_param = &ann.line_param;
+        let ctx_param = &ann.ctx_param;
+        let body = &ann.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn annotate_line(#line_param: u32, #ctx_param: AnnotateContext) -> Option<LineAnnotation> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let annotate_deps_method = if let Some(ref deps) = def.annotate_deps {
+        quote! { fn annotate_deps() -> u16 { #deps } }
+    } else {
+        quote! {}
+    };
+
+    let transform_method = if let Some(ref tr) = def.transform {
+        let target_param = &tr.target_param;
+        let element_param = &tr.element_param;
+        let ctx_param = &tr.ctx_param;
+        let body = &tr.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn transform_element(
+                #target_param: TransformTarget,
+                #element_param: ElementHandle,
+                #ctx_param: TransformContext,
+            ) -> ElementHandle {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let transform_deps_method = if let Some(ref td) = def.transform_deps {
+        let target_param = &td.param;
+        let body = &td.body;
+        quote! {
+            fn transform_deps(#target_param: TransformTarget) -> u16 {
+                #body
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let transform_priority_method = if let Some(ref tp) = def.transform_priority {
+        quote! { fn transform_priority() -> i16 { #tp } }
+    } else {
+        quote! {}
+    };
+
+    let overlay_method = if let Some(ref ov) = def.overlay {
+        let ctx_param = &ov.param;
+        let body = &ov.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn contribute_overlay_v2(#ctx_param: OverlayContext) -> Option<OverlayContribution> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let handle_key_method = if let Some(ref hk) = def.handle_key {
+        let event_param = &hk.param;
+        let body = &hk.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn handle_key(#event_param: KeyEvent) -> Option<Vec<Command>> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let handle_mouse_method = if let Some(ref hm) = def.handle_mouse {
+        let event_param = &hm.event_param;
+        let id_param = &hm.id_param;
+        let body = &hm.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn handle_mouse(#event_param: MouseEvent, #id_param: InteractiveId) -> Option<Vec<Command>> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let capabilities_method = if let Some(ref caps) = def.capabilities {
+        quote! {
+            fn requested_capabilities() -> Vec<Capability> {
+                vec![ #caps ]
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let on_io_event_method = if let Some(ref io) = def.on_io_event {
+        let event_param = &io.param;
+        let body = &io.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn on_io_event(#event_param: IoEvent) -> Vec<Command> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    // Combine everything
+    Ok(quote! {
+        #wit_bindings
+        #sdk_helpers
+
+        #[allow(unused_imports)]
+        use kasane_plugin_sdk::{dirty, modifiers, keys, attributes};
+
+        #state_tokens
+
+        struct __KasanePlugin;
+
+        #[kasane_plugin_sdk::plugin]
+        impl Guest for __KasanePlugin {
+            #get_id
+            #on_init_method
+            #on_state_changed_method
+            #slots_method
+            #annotate_method
+            #annotate_deps_method
+            #transform_method
+            #transform_deps_method
+            #transform_priority_method
+            #overlay_method
+            #handle_key_method
+            #handle_mouse_method
+            #capabilities_method
+            #on_io_event_method
+        }
+
+        export!(__KasanePlugin);
+    })
+}
+
+// --- define_plugin! DSL parser ---
+
+struct PluginDef {
+    id: syn::LitStr,
+    state: Option<StateDef>,
+    on_init: Option<proc_macro2::TokenStream>,
+    on_state_changed: Option<OnStateChanged>,
+    slots: Option<proc_macro2::TokenStream>,
+    annotate: Option<AnnotateDef>,
+    annotate_deps: Option<proc_macro2::TokenStream>,
+    transform: Option<TransformDef>,
+    transform_deps: Option<TransformDepsDef>,
+    transform_priority: Option<proc_macro2::TokenStream>,
+    overlay: Option<ParamBodyDef>,
+    handle_key: Option<ParamBodyDef>,
+    handle_mouse: Option<HandleMouseDef>,
+    capabilities: Option<proc_macro2::TokenStream>,
+    on_io_event: Option<ParamBodyDef>,
+}
+
+struct StateDef {
+    fields: Vec<StateField>,
+}
+
+struct StateField {
+    name: syn::Ident,
+    ty: syn::Type,
+    default: syn::Expr,
+}
+
+struct OnStateChanged {
+    param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+struct AnnotateDef {
+    line_param: syn::Ident,
+    ctx_param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+struct TransformDef {
+    target_param: syn::Ident,
+    element_param: syn::Ident,
+    ctx_param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+struct TransformDepsDef {
+    param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+struct ParamBodyDef {
+    param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+struct HandleMouseDef {
+    event_param: syn::Ident,
+    id_param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+impl syn::parse::Parse for PluginDef {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut def = PluginDef {
+            id: syn::LitStr::new("", proc_macro2::Span::call_site()),
+            state: None,
+            on_init: None,
+            on_state_changed: None,
+            slots: None,
+            annotate: None,
+            annotate_deps: None,
+            transform: None,
+            transform_deps: None,
+            transform_priority: None,
+            overlay: None,
+            handle_key: None,
+            handle_mouse: None,
+            capabilities: None,
+            on_io_event: None,
+        };
+
+        let mut has_id = false;
+
+        while !input.is_empty() {
+            let ident: syn::Ident = input.parse()?;
+            let section = ident.to_string();
+
+            match section.as_str() {
+                "id" => {
+                    input.parse::<syn::Token![:]>()?;
+                    def.id = input.parse()?;
+                    has_id = true;
+                }
+                "state" => {
+                    let content;
+                    syn::braced!(content in input);
+                    let mut fields = Vec::new();
+                    while !content.is_empty() {
+                        let name: syn::Ident = content.parse()?;
+                        content.parse::<syn::Token![:]>()?;
+                        let ty: syn::Type = content.parse()?;
+                        content.parse::<syn::Token![=]>()?;
+                        let default: syn::Expr = content.parse()?;
+                        if !content.is_empty() {
+                            content.parse::<syn::Token![,]>()?;
+                        }
+                        fields.push(StateField { name, ty, default });
+                    }
+                    def.state = Some(StateDef { fields });
+                }
+                "on_init" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let _ = params; // empty params for on_init()
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_init = Some(body.parse()?);
+                }
+                "on_state_changed" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_state_changed = Some(OnStateChanged {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "slots" => {
+                    let body;
+                    syn::braced!(body in input);
+                    def.slots = Some(body.parse()?);
+                }
+                "annotate" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let line_param: syn::Ident = params.parse()?;
+                    params.parse::<syn::Token![,]>()?;
+                    let ctx_param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.annotate = Some(AnnotateDef {
+                        line_param,
+                        ctx_param,
+                        body: body.parse()?,
+                    });
+                }
+                "annotate_deps" => {
+                    input.parse::<syn::Token![:]>()?;
+                    def.annotate_deps = Some(parse_until_comma_or_end(input)?);
+                }
+                "transform" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let target_param: syn::Ident = params.parse()?;
+                    params.parse::<syn::Token![,]>()?;
+                    let element_param: syn::Ident = params.parse()?;
+                    params.parse::<syn::Token![,]>()?;
+                    let ctx_param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.transform = Some(TransformDef {
+                        target_param,
+                        element_param,
+                        ctx_param,
+                        body: body.parse()?,
+                    });
+                }
+                "transform_deps" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.transform_deps = Some(TransformDepsDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "transform_priority" => {
+                    input.parse::<syn::Token![:]>()?;
+                    def.transform_priority = Some(parse_until_comma_or_end(input)?);
+                }
+                "overlay" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.overlay = Some(ParamBodyDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "handle_key" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.handle_key = Some(ParamBodyDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "handle_mouse" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let event_param: syn::Ident = params.parse()?;
+                    params.parse::<syn::Token![,]>()?;
+                    let id_param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.handle_mouse = Some(HandleMouseDef {
+                        event_param,
+                        id_param,
+                        body: body.parse()?,
+                    });
+                }
+                "capabilities" => {
+                    input.parse::<syn::Token![:]>()?;
+                    let content;
+                    syn::bracketed!(content in input);
+                    def.capabilities = Some(content.parse()?);
+                }
+                "on_io_event" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_io_event = Some(ParamBodyDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown define_plugin section: `{other}`"),
+                    ));
+                }
+            }
+
+            // Consume optional trailing comma between sections
+            if !input.is_empty() {
+                let _ = input.parse::<syn::Token![,]>();
+            }
+        }
+
+        if !has_id {
+            return Err(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "define_plugin! requires an `id: \"...\"` section",
+            ));
+        }
+
+        Ok(def)
+    }
+}
+
+/// Parse tokens until a comma or end of input, consuming the comma if present.
+fn parse_until_comma_or_end(
+    input: syn::parse::ParseStream,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let mut tokens = Vec::new();
+    while !input.is_empty() && !input.peek(syn::Token![,]) {
+        let tt: proc_macro2::TokenTree = input.parse()?;
+        tokens.push(tt);
+    }
+    Ok(tokens.into_iter().collect())
 }

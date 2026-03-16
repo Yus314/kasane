@@ -57,175 +57,309 @@ lto = true
 /// Generate a lib.rs for a new plugin project.
 pub fn lib_rs(name: &str, template: PluginTemplate) -> String {
     let id = plugin_id_from_name(name);
-    let struct_name = struct_name_from_name(name);
 
     match template {
-        PluginTemplate::Contribution => contribution_template(&id, &struct_name),
-        PluginTemplate::Annotation => annotation_template(&id, &struct_name),
-        PluginTemplate::Transform => transform_template(&id, &struct_name),
+        PluginTemplate::Hello => hello_template(&id),
+        PluginTemplate::Contribution => contribution_template(&id),
+        PluginTemplate::Annotation => annotation_template(&id),
+        PluginTemplate::Transform => transform_template(&id),
+        PluginTemplate::Overlay => overlay_template(&id),
+        PluginTemplate::Process => process_template(&id),
     }
 }
 
-fn contribution_template(id: &str, struct_name: &str) -> String {
+fn hello_template(id: &str) -> String {
     format!(
-        r#"kasane_plugin_sdk::generate!();
-
-use std::cell::Cell;
-
-use kasane_plugin_sdk::{{dirty, plugin}};
-
-thread_local! {{
-    static CURSOR_COUNT: Cell<u32> = const {{ Cell::new(0) }};
+        r#"kasane_plugin_sdk::define_plugin! {{
+    id: "{id}",
+    slots {{
+        STATUS_RIGHT(0) => |_ctx| {{
+            Some(auto_contribution(plain(" Hello from {id}! ")))
+        }},
+    }},
 }}
+"#
+    )
+}
 
-struct {struct_name};
+fn contribution_template(id: &str) -> String {
+    format!(
+        r#"kasane_plugin_sdk::define_plugin! {{
+    id: "{id}",
 
-#[plugin]
-impl Guest for {struct_name} {{
-    fn get_id() -> String {{
-        "{id}".to_string()
-    }}
+    state {{
+        cursor_count: u32 = 0,
+    }},
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {{
-        if dirty_flags & dirty::BUFFER != 0 {{
-            CURSOR_COUNT.set(host_state::get_cursor_count());
+    on_state_changed(flags) {{
+        if flags & dirty::BUFFER != 0 {{
+            state.cursor_count = host_state::get_cursor_count();
         }}
-        vec![]
-    }}
+    }},
 
-    fn state_hash() -> u64 {{
-        CURSOR_COUNT.get() as u64
-    }}
-
-    kasane_plugin_sdk::slots! {{
+    slots {{
         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {{
-            let count = CURSOR_COUNT.get();
+            let count = STATE.with(|s| s.borrow().cursor_count);
             (count > 1).then(|| {{
                 auto_contribution(text(&format!(" {{}} sel ", count), default_face()))
             }})
         }},
-    }}
+    }},
 }}
-
-export!({struct_name});
 "#
     )
 }
 
-fn annotation_template(id: &str, struct_name: &str) -> String {
+fn annotation_template(id: &str) -> String {
     format!(
-        r#"kasane_plugin_sdk::generate!();
+        r#"kasane_plugin_sdk::define_plugin! {{
+    id: "{id}",
 
-use std::cell::Cell;
+    state {{
+        active_line: i32 = -1,
+    }},
 
-use kasane_plugin_sdk::{{dirty, plugin}};
-
-thread_local! {{
-    static ACTIVE_LINE: Cell<i32> = const {{ Cell::new(-1) }};
-}}
-
-struct {struct_name};
-
-#[plugin]
-impl Guest for {struct_name} {{
-    fn get_id() -> String {{
-        "{id}".to_string()
-    }}
-
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {{
-        if dirty_flags & dirty::BUFFER != 0 {{
-            let line = host_state::get_cursor_line();
-            ACTIVE_LINE.set(line);
+    on_state_changed(flags) {{
+        if flags & dirty::BUFFER != 0 {{
+            state.active_line = host_state::get_cursor_line();
         }}
-        vec![]
-    }}
+    }},
 
-    fn state_hash() -> u64 {{
-        ACTIVE_LINE.get() as u64
-    }}
+    annotate(line, _ctx) {{
+        (line as i32 == state.active_line).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
+    }},
 
-    fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {{
-        let active = ACTIVE_LINE.get();
-        (line as i32 == active).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
-    }}
-
-    fn annotate_deps() -> u16 {{
-        dirty::BUFFER
-    }}
+    annotate_deps: dirty::BUFFER,
 }}
-
-export!({struct_name});
 "#
     )
 }
 
-fn transform_template(id: &str, struct_name: &str) -> String {
+fn transform_template(id: &str) -> String {
     format!(
-        r#"kasane_plugin_sdk::generate!();
+        r#"kasane_plugin_sdk::define_plugin! {{
+    id: "{id}",
 
-use std::cell::Cell;
+    state {{
+        cursor_mode: u8 = 0,
+    }},
 
-use kasane_plugin_sdk::{{dirty, plugin}};
-
-/// Cursor mode constants (matches host encoding).
-const MODE_BUFFER: u8 = 0;
-const MODE_PROMPT: u8 = 1;
-
-thread_local! {{
-    static CURSOR_MODE: Cell<u8> = const {{ Cell::new(MODE_BUFFER) }};
-}}
-
-struct {struct_name};
-
-#[plugin]
-impl Guest for {struct_name} {{
-    fn get_id() -> String {{
-        "{id}".to_string()
-    }}
-
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {{
-        if dirty_flags & dirty::STATUS != 0 {{
-            CURSOR_MODE.set(host_state::get_cursor_mode());
+    on_state_changed(flags) {{
+        if flags & dirty::STATUS != 0 {{
+            state.cursor_mode = host_state::get_cursor_mode();
         }}
-        vec![]
-    }}
+    }},
 
-    fn state_hash() -> u64 {{
-        CURSOR_MODE.get() as u64
-    }}
-
-    fn transform_element(
-        target: TransformTarget,
-        element: ElementHandle,
-        _ctx: TransformContext,
-    ) -> ElementHandle {{
+    transform(target, element, _ctx) {{
         if !matches!(target, TransformTarget::StatusBarT) {{
             return element;
         }}
-
-        if CURSOR_MODE.get() != MODE_PROMPT {{
+        if state.cursor_mode != 1 {{
             return element;
         }}
-
         // Wrap the status bar in a container with a distinct background
         container(element)
             .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
             .build()
-    }}
+    }},
 
-    fn transform_priority() -> i16 {{
-        0
-    }}
-
-    fn transform_deps(target: TransformTarget) -> u16 {{
+    transform_deps(target) {{
         match target {{
             TransformTarget::StatusBarT => dirty::STATUS,
             _ => 0,
         }}
-    }}
-}}
+    }},
 
-export!({struct_name});
+    transform_priority: 0,
+}}
+"#
+    )
+}
+
+fn overlay_template(id: &str) -> String {
+    format!(
+        r#"kasane_plugin_sdk::define_plugin! {{
+    id: "{id}",
+
+    state {{
+        open: bool = false,
+        selected: usize = 0,
+    }},
+
+    handle_key(event) {{
+        if !state.open {{
+            if is_ctrl(&event, "o") {{
+                state.open = true;
+                state.selected = 0;
+                state.bump_generation();
+                return Some(vec![Command::RequestRedraw(dirty::ALL)]);
+            }}
+            return None;
+        }}
+
+        match &event.key {{
+            KeyCode::Escape => {{
+                state.open = false;
+                state.bump_generation();
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }}
+            KeyCode::Up => {{
+                if state.selected > 0 {{
+                    state.selected -= 1;
+                    state.bump_generation();
+                }}
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }}
+            KeyCode::Down => {{
+                if state.selected < 2 {{
+                    state.selected += 1;
+                    state.bump_generation();
+                }}
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }}
+            KeyCode::Enter => {{
+                state.open = false;
+                state.bump_generation();
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }}
+            _ => Some(vec![]),
+        }}
+    }},
+
+    overlay(ctx) {{
+        if !state.open {{
+            return None;
+        }}
+
+        let items = ["Item 1", "Item 2", "Item 3"];
+        let highlight = face(named(NamedColor::White), rgb(4, 57, 94));
+        let anchor = centered_overlay(ctx.screen_cols, ctx.screen_rows, 40, 30, 20, 8);
+        let mut children: Vec<ElementHandle> = Vec::new();
+
+        for (i, item) in items.iter().enumerate() {{
+            let f = if i == state.selected {{ highlight.clone() }} else {{ default_face() }};
+            let prefix = if i == state.selected {{ "> " }} else {{ "  " }};
+            let label = format!("{{prefix}}{{item}}");
+            children.push(text(&label, f));
+        }}
+
+        let inner = column(&children);
+        let el = container(inner)
+            .border(BorderLineStyle::Rounded)
+            .shadow()
+            .padding(padding_h(1))
+            .title_text(" Select Item ")
+            .build();
+
+        Some(OverlayContribution {{
+            element: el,
+            anchor: OverlayAnchor::Absolute(anchor),
+            z_index: 100,
+        }})
+    }},
+}}
+"#
+    )
+}
+
+fn process_template(id: &str) -> String {
+    format!(
+        r#"kasane_plugin_sdk::define_plugin! {{
+    id: "{id}",
+
+    state {{
+        active: bool = false,
+        output: Vec<String> = Vec::new(),
+    }},
+
+    capabilities: [Capability::Process],
+
+    handle_key(event) {{
+        if !state.active {{
+            if is_ctrl_shift(&event, "P") {{
+                state.active = true;
+                state.output.clear();
+                state.bump_generation();
+                return Some(vec![
+                    Command::SpawnProcess(SpawnProcessConfig {{
+                        job_id: 1,
+                        program: "echo".to_string(),
+                        args: vec!["Hello from process!".to_string()],
+                        stdin_mode: StdinMode::NullStdin,
+                    }}),
+                    Command::RequestRedraw(dirty::ALL),
+                ]);
+            }}
+            return None;
+        }}
+
+        match &event.key {{
+            KeyCode::Escape => {{
+                state.active = false;
+                state.bump_generation();
+                Some(vec![
+                    Command::KillProcess(1),
+                    Command::RequestRedraw(dirty::ALL),
+                ])
+            }}
+            _ => Some(vec![]),
+        }}
+    }},
+
+    on_io_event(event) {{
+        match event {{
+            IoEvent::Process(pe) => match pe.kind {{
+                ProcessEventKind::Stdout(data) => {{
+                    let text_data = String::from_utf8_lossy(&data);
+                    for line in text_data.lines() {{
+                        if !line.is_empty() {{
+                            state.output.push(line.to_string());
+                        }}
+                    }}
+                    state.bump_generation();
+                    vec![Command::RequestRedraw(dirty::ALL)]
+                }}
+                ProcessEventKind::Exited(_) => {{
+                    state.bump_generation();
+                    vec![Command::RequestRedraw(dirty::ALL)]
+                }}
+                _ => vec![],
+            }},
+        }}
+    }},
+
+    overlay(ctx) {{
+        if !state.active {{
+            return None;
+        }}
+
+        let dim = face_fg(named(NamedColor::BrightBlack));
+        let anchor = centered_overlay(ctx.screen_cols, ctx.screen_rows, 50, 40, 30, 8);
+        let mut children: Vec<ElementHandle> = Vec::new();
+
+        if state.output.is_empty() {{
+            children.push(text("Running...", dim));
+        }} else {{
+            for line in &state.output {{
+                children.push(text(line, default_face()));
+            }}
+        }}
+
+        let inner = column(&children);
+        let el = container(inner)
+            .border(BorderLineStyle::Rounded)
+            .shadow()
+            .padding(padding_h(1))
+            .title_text(" Process Output ")
+            .build();
+
+        Some(OverlayContribution {{
+            element: el,
+            anchor: OverlayAnchor::Absolute(anchor),
+            z_index: 100,
+        }})
+    }},
+}}
 "#
     )
 }
@@ -263,30 +397,59 @@ mod tests {
     }
 
     #[test]
+    fn test_lib_rs_hello() {
+        let src = lib_rs("test-plug", PluginTemplate::Hello);
+        assert!(src.contains("define_plugin!"));
+        assert!(src.contains("\"test_plug\""));
+        assert!(src.contains("STATUS_RIGHT"));
+        assert!(src.contains("plain("));
+    }
+
+    #[test]
     fn test_lib_rs_contribution() {
         let src = lib_rs("test-plug", PluginTemplate::Contribution);
-        assert!(src.contains("generate!()"));
-        assert!(src.contains("#[plugin]"));
-        assert!(src.contains("export!(TestPlugPlugin)"));
+        assert!(src.contains("define_plugin!"));
         assert!(src.contains("\"test_plug\""));
-        assert!(src.contains("slots!"));
+        assert!(src.contains("slots"));
+        assert!(src.contains("on_state_changed"));
     }
 
     #[test]
     fn test_lib_rs_annotation() {
         let src = lib_rs("test-plug", PluginTemplate::Annotation);
-        assert!(src.contains("generate!()"));
-        assert!(src.contains("#[plugin]"));
-        assert!(src.contains("export!(TestPlugPlugin)"));
-        assert!(src.contains("annotate_line"));
+        assert!(src.contains("define_plugin!"));
+        assert!(src.contains("\"test_plug\""));
+        assert!(src.contains("annotate"));
+        assert!(src.contains("annotate_deps"));
     }
 
     #[test]
     fn test_lib_rs_transform() {
         let src = lib_rs("test-plug", PluginTemplate::Transform);
-        assert!(src.contains("generate!()"));
-        assert!(src.contains("#[plugin]"));
-        assert!(src.contains("export!(TestPlugPlugin)"));
-        assert!(src.contains("transform_element"));
+        assert!(src.contains("define_plugin!"));
+        assert!(src.contains("\"test_plug\""));
+        assert!(src.contains("transform"));
+        assert!(src.contains("transform_deps"));
+    }
+
+    #[test]
+    fn test_lib_rs_overlay() {
+        let src = lib_rs("test-plug", PluginTemplate::Overlay);
+        assert!(src.contains("define_plugin!"));
+        assert!(src.contains("overlay"));
+        assert!(src.contains("handle_key"));
+        assert!(src.contains("is_ctrl"));
+        assert!(src.contains("\"test_plug\""));
+    }
+
+    #[test]
+    fn test_lib_rs_process() {
+        let src = lib_rs("test-plug", PluginTemplate::Process);
+        assert!(src.contains("define_plugin!"));
+        assert!(src.contains("capabilities"));
+        assert!(src.contains("on_io_event"));
+        assert!(src.contains("SpawnProcess"));
+        assert!(src.contains("is_ctrl_shift"));
+        assert!(src.contains("\"test_plug\""));
     }
 }

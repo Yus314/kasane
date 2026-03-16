@@ -1,4 +1,6 @@
 mod build;
+mod dev;
+mod doctor;
 mod install;
 mod list;
 mod new;
@@ -14,5 +16,7 @@ pub fn execute(cmd: PluginSubcommand) -> Result<()> {
         PluginSubcommand::Build { path } => build::run(path.as_deref()),
         PluginSubcommand::Install { path } => install::run(path.as_deref()),
         PluginSubcommand::List => list::run(),
+        PluginSubcommand::Doctor { fix } => doctor::run(fix),
+        PluginSubcommand::Dev { path, release } => dev::run(path.as_deref(), release),
     }
 }

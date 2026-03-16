@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 pub fn run(path: Option<&str>) -> Result<()> {
-    let wasm_path = build_plugin(path.unwrap_or("."))?;
+    let wasm_path = build_plugin(path.unwrap_or("."), true)?;
     let size = std::fs::metadata(&wasm_path)?.len();
     println!("Built {} ({} KiB)", wasm_path.display(), size / 1024);
     Ok(())
@@ -13,8 +13,9 @@ pub fn run(path: Option<&str>) -> Result<()> {
 
 /// Build the plugin and return the path to the output .wasm file.
 ///
-/// This is public so `install` can reuse it.
-pub fn build_plugin(project_dir: &str) -> Result<PathBuf> {
+/// This is public so `install` and `dev` can reuse it.
+/// When `release` is false, builds in debug mode for faster iteration.
+pub fn build_plugin(project_dir: &str, release: bool) -> Result<PathBuf> {
     let project_path = Path::new(project_dir);
     if !project_path.join("Cargo.toml").exists() {
         bail!(
@@ -23,14 +24,18 @@ pub fn build_plugin(project_dir: &str) -> Result<PathBuf> {
         );
     }
 
+    let mut args = vec![
+        "build",
+        "--target",
+        "wasm32-wasip2",
+        "--message-format=json",
+    ];
+    if release {
+        args.push("--release");
+    }
+
     let mut child = Command::new("cargo")
-        .args([
-            "build",
-            "--target",
-            "wasm32-wasip2",
-            "--release",
-            "--message-format=json",
-        ])
+        .args(&args)
         .current_dir(project_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -71,12 +76,16 @@ pub fn build_plugin(project_dir: &str) -> Result<PathBuf> {
 
     let status = child.wait()?;
     if !status.success() {
+        eprintln!();
+        eprintln!("hint: Run `kasane plugin doctor` to diagnose your environment");
+        eprintln!("hint: Common cause: missing target. Run `rustup target add wasm32-wasip2`");
         bail!("cargo build failed");
     }
 
     // Fallback: scan target directory if JSON didn't yield the path
     if wasm_path.is_none() {
-        let target_dir = project_path.join("target/wasm32-wasip2/release");
+        let profile = if release { "release" } else { "debug" };
+        let target_dir = project_path.join(format!("target/wasm32-wasip2/{profile}"));
         if target_dir.exists()
             && let Ok(entries) = std::fs::read_dir(&target_dir)
         {

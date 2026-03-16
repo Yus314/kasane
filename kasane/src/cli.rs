@@ -34,6 +34,13 @@ pub enum PluginSubcommand {
         path: Option<String>,
     },
     List,
+    Doctor {
+        fix: bool,
+    },
+    Dev {
+        path: Option<String>,
+        release: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -41,7 +48,10 @@ pub enum PluginTemplate {
     Annotation,
     #[default]
     Contribution,
+    Hello,
     Transform,
+    Overlay,
+    Process,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -71,13 +81,13 @@ impl std::fmt::Display for CliError {
             CliError::PluginMissingSubcommand => {
                 write!(
                     f,
-                    "missing subcommand. Usage: kasane plugin <new|build|install|list>"
+                    "missing subcommand. Usage: kasane plugin <new|build|install|list|doctor|dev>"
                 )
             }
             CliError::PluginUnknownSubcommand(s) => {
                 write!(
                     f,
-                    "unknown plugin subcommand: {s}. Use new, build, install, or list."
+                    "unknown plugin subcommand: {s}. Use new, build, install, list, doctor, or dev."
                 )
             }
             CliError::PluginMissingName => {
@@ -86,7 +96,7 @@ impl std::fmt::Display for CliError {
             CliError::PluginUnknownTemplate(t) => {
                 write!(
                     f,
-                    "unknown template: {t}. Use contribution, annotation, or transform."
+                    "unknown template: {t}. Use hello, contribution, annotation, transform, overlay, or process."
                 )
             }
         }
@@ -207,7 +217,10 @@ fn parse_plugin_args<'a>(
                 template = match t.as_str() {
                     "annotation" | "annotate" => PluginTemplate::Annotation,
                     "contribution" | "contribute" => PluginTemplate::Contribution,
+                    "hello" => PluginTemplate::Hello,
                     "transform" => PluginTemplate::Transform,
+                    "overlay" => PluginTemplate::Overlay,
+                    "process" => PluginTemplate::Process,
                     _ => return Err(CliError::PluginUnknownTemplate(t.clone())),
                 };
             }
@@ -220,6 +233,21 @@ fn parse_plugin_args<'a>(
             path: iter.next().cloned(),
         }),
         "list" => Ok(PluginSubcommand::List),
+        "doctor" => {
+            let fix = iter.next().is_some_and(|f| f == "--fix");
+            Ok(PluginSubcommand::Doctor { fix })
+        }
+        "dev" => {
+            let mut path = None;
+            let mut release = false;
+            for arg in iter {
+                match arg.as_str() {
+                    "--release" => release = true,
+                    _ => path = Some(arg.clone()),
+                }
+            }
+            Ok(PluginSubcommand::Dev { path, release })
+        }
         other => Err(CliError::PluginUnknownSubcommand(other.to_string())),
     }
 }
@@ -237,10 +265,12 @@ Kasane options:
   --help           Show this help message
 
 Subcommands:
-  plugin new <name> [--template T]  Create a new plugin project (T: contribution, annotation, transform)
+  plugin new <name> [--template T]  Create a new plugin project (T: hello, contribution, annotation, transform, overlay, process)
   plugin build [<path>]             Build plugin for wasm32-wasip2
   plugin install [<path>]           Build, validate, and install plugin
   plugin list                       Show installed plugins
+  plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
+  plugin dev [<path>] [--release]   Build and watch for changes (hot-reload)
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.
@@ -573,6 +603,99 @@ mod tests {
         assert_eq!(
             parse_cli_args(&args(&["plugin", "new", "x", "--template", "bad"])),
             Err(CliError::PluginUnknownTemplate("bad".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_plugin_doctor() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "doctor"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Doctor { fix: false }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_doctor_fix() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "doctor", "--fix"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Doctor { fix: true }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_dev_no_path() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "dev"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Dev {
+                path: None,
+                release: false,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_dev_with_path() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "dev", "./my-plugin"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Dev {
+                path: Some("./my-plugin".to_string()),
+                release: false,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_dev_release() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "dev", "--release"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Dev {
+                path: None,
+                release: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_dev_path_and_release() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "dev", "./my-plugin", "--release"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Dev {
+                path: Some("./my-plugin".to_string()),
+                release: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_new_hello_template() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new", "x", "--template", "hello"])),
+            Ok(CliAction::Plugin(PluginSubcommand::New {
+                name: "x".to_string(),
+                template: PluginTemplate::Hello,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_new_overlay_template() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new", "x", "--template", "overlay"])),
+            Ok(CliAction::Plugin(PluginSubcommand::New {
+                name: "x".to_string(),
+                template: PluginTemplate::Overlay,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_new_process_template() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new", "x", "--template", "process"])),
+            Ok(CliAction::Plugin(PluginSubcommand::New {
+                name: "x".to_string(),
+                template: PluginTemplate::Process,
+            }))
         );
     }
 }

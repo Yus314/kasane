@@ -85,10 +85,10 @@ untrusted_plugin = ["filesystem", "environment"]
 The quickest way to start is with `kasane plugin new`:
 
 ```bash
-kasane plugin new my-plugin
+kasane plugin new my-plugin --template hello   # 4-line hello world
 cd my-plugin
 kasane plugin build        # Build for wasm32-wasip2
 kasane plugin install      # Build, validate, and install
 ```
 
-See [Plugin Development](plugin-development.md) for a full guide, and [Plugin API](plugin-api.md) for the API reference.
+Other templates: `contribution` (default), `annotation`, `transform`, `overlay`, `process`. See [Plugin Development](plugin-development.md) for a full guide, and [Plugin API](plugin-api.md) for the API reference.

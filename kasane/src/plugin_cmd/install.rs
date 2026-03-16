@@ -1,14 +1,14 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use kasane_core::config::Config;
 
 use super::build;
 
 pub fn run(path: Option<&str>) -> Result<()> {
     let project_dir = path.unwrap_or(".");
-    let wasm_path = build::build_plugin(project_dir)?;
+    let wasm_path = build::build_plugin(project_dir, true)?;
 
     let plugin_id = validate_wasm(&wasm_path)?;
 
@@ -47,11 +47,21 @@ fn validate_wasm(wasm_path: &Path) -> Result<Option<String>> {
 
     let loader = WasmPluginLoader::new().context("failed to create WASM plugin loader")?;
     let wasi_config = WasiCapabilityConfig::default();
-    let plugin = loader
-        .load_file(wasm_path, &wasi_config)
-        .with_context(|| format!("failed to validate plugin: {}", wasm_path.display()))?;
-    let id = plugin.id().0;
-    Ok(Some(id))
+    match loader.load_file(wasm_path, &wasi_config) {
+        Ok(plugin) => Ok(Some(plugin.id().0)),
+        Err(e) => {
+            let detail = format!("{e:#}");
+            if detail.contains("type mismatch") || detail.contains("import") {
+                bail!(
+                    "Plugin incompatible with this Kasane version (v{}).\n\
+                     Rebuild with latest SDK: kasane plugin build\n\
+                     Diagnose: kasane plugin doctor",
+                    env!("CARGO_PKG_VERSION")
+                );
+            }
+            bail!("Plugin validation failed: {e:#}");
+        }
+    }
 }
 
 #[cfg(not(feature = "wasm-plugins"))]
