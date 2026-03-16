@@ -3,6 +3,10 @@
 //! Each info popup (`AppState::infos[i]`) is represented as a separate Surface
 //! with ID `SurfaceId(SurfaceId::INFO_BASE + i)`. These surfaces are created
 //! and destroyed dynamically as infos appear and disappear.
+//!
+//! NOTE: Info rendering delegates to `render::view::info::build_info_overlay_indexed`.
+//! A parallel pure implementation exists in `salsa_views::info::pure_info_overlays`
+//! for the Salsa pipeline. Future consolidation should extract shared helpers.
 
 use crate::element::Element;
 use crate::plugin::Command;

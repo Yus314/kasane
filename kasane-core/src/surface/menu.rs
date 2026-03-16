@@ -3,6 +3,10 @@
 //! Wraps the existing menu rendering logic from `render::view::menu` as a
 //! first-class Surface. Created dynamically when a menu appears and removed
 //! when it disappears.
+//!
+//! NOTE: The menu rendering delegates to `render::view::menu::build_menu_overlay`.
+//! A parallel pure implementation exists in `salsa_views::menu::pure_menu_overlay`
+//! for the Salsa pipeline. Future consolidation should extract shared helpers.
 
 use crate::element::Element;
 use crate::plugin::Command;
