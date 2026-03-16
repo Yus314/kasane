@@ -10,7 +10,8 @@ What is defined here is "what Kasane means." Benchmark values, implementation pr
 - Kasane's system boundaries
 - The meaning of state, update, rendering, and invalidation
 - Plugin composition and Surface/Workspace semantics
-- Observational equivalence required for optimization passes
+- WASM plugin constraints and state access model
+- Formal correctness theorems for optimization paths
 - Currently known theoretical gaps
 
 ### 1.2 What This Document Does Not Define
@@ -179,15 +180,36 @@ The semantic benefits of TEA are as follows.
 
 ### 4.3 Meaning of Command
 
-`Command` is not a side effect itself but a description of a side-effect request. It includes input transmission to Kakoune, configuration changes, redraw requests, workspace operations, inter-plugin notifications, and so on.
+`Command` is not a side effect itself but a description of a side-effect request. `Command` is not generated from view; it is generated from the update system or plugin hooks.
 
-`Command` is not generated from view; it is generated from the update system or plugin hooks.
+Commands fall into the following categories.
+
+- Protocol commands: `SendToKakoune` (key forwarding, command execution)
+- Frontend commands: `Paste`, `Quit`, `RequestRedraw(DirtyFlags)`
+- Timer and scheduling: `ScheduleTimer`
+- Plugin communication: `PluginMessage` (inter-plugin messaging)
+- Configuration: `SetConfig`, `RegisterThemeTokens`
+- Process management: `SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`
+- Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `Pane(PaneCommand)`
+
+The runtime receives Commands and executes them as side effects. The important invariant is that Command generation is deterministic given the same state and input, even though Command execution may involve I/O.
 
 ### 4.4 Generation of DirtyFlags
 
 `DirtyFlags` is a coarse-grained change set representing "which observable aspects have changed." `DirtyFlags` serves as input for cache invalidation and selective redraw, not as a complete proof of state differences.
 
 The important point is that `DirtyFlags` represents "what kind of information has changed," not "the detailed content of the change."
+
+### 4.5 Semantic Split of Buffer Flags
+
+`DirtyFlags` splits buffer-related changes into two independent flags.
+
+- `BUFFER_CONTENT`: Buffer lines, faces, and structural changes received via `draw`
+- `BUFFER_CURSOR`: Cursor position, cursor mode, and secondary cursor coordinates
+
+This split is a semantic design decision, not merely an optimization. It encodes the invariant that cursor movement alone does not change the meaning of the buffer body. Consequently, `BUILD_BASE_DEPS` includes `BUFFER_CONTENT` but excludes `BUFFER_CURSOR`, enabling cursor-only redraws without rebuilding the base section Element tree.
+
+The composite flag `BUFFER` is defined as `BUFFER_CONTENT | BUFFER_CURSOR` for convenience.
 
 ## 5. Rendering Semantics
 
@@ -245,6 +267,30 @@ Examples of observable targets:
 - Presence and placement of overlays/menus/info popups
 - Cursor display
 
+### 5.6 Rendering Faithfulness
+
+Under Default Frontend Semantics, every element of Observed State must appear in the final rendering output unless explicitly elided by Display Policy State.
+
+```text
+Invariant (Rendering Faithfulness):
+  For all observable elements e in Observed State S:
+    e is visible in render(S)
+    ∨ e is elided by an active Display Policy
+```
+
+This invariant does not apply to Extended Frontend Semantics, where Observed-eliding transformations are permitted.
+
+### 5.7 Diff and Incremental Drawing
+
+In TUI, the output of the rendering pipeline is not drawn in full each frame. Instead, `CellGrid` maintains both the current and previous frame states.
+
+1. `paint` writes into the current grid
+2. `diff()` computes the set of changed cells between current and previous grids
+3. The backend emits terminal I/O only for changed cells
+4. `swap()` promotes the current grid to become the previous grid for the next frame
+
+Correctness of this cycle requires that `diff()` detects all cells that have changed and that `swap()` is called exactly once per frame.
+
 ## 6. Invalidation and Caching
 
 ### 6.1 Meaning of DirtyFlags
@@ -269,7 +315,35 @@ This design means that a menu change does not always require rebuilding the buff
 
 ### 6.5 PaintPatch
 
-`PaintPatch` is a compiled fast path on the TUI side that performs direct cell updates for specific change patterns. It is an alternative to the full pipeline, and its correctness condition is defined by observational equivalence with the reference path.
+`PaintPatch` is a compiled fast path on the TUI side that performs direct cell updates for specific change patterns. It is an alternative to the full pipeline.
+
+The correctness of a PaintPatch is defined by three conditions.
+
+```text
+For a PaintPatch P with guard predicate guard_P(dirty):
+
+  (1) Guard soundness:
+      P.can_apply(dirty) = true  →  guard_P(dirty) holds
+      P.can_apply(dirty) = false →  P is not applied
+
+  (2) Observational equivalence:
+      P.apply(S, dirty, grid) ≡obs full_pipeline(S, dirty, grid)
+      for all states S where guard_P(dirty) holds
+
+  (3) Spatial isolation:
+      For all cells c outside P's designated region:
+        grid[c] after P.apply = grid[c] before P.apply
+```
+
+Current built-in patches and their guard predicates:
+
+- `StatusBarPatch`: `dirty == STATUS` — repaints only the status row (~80 cells vs full grid)
+- `MenuSelectionPatch`: `dirty == MENU_SELECTION` — swaps face on old/new selected menu items (~10 cells)
+- `CursorPatch`: `dirty == ∅ ∧ cursor_moved` — swaps face at old/new cursor positions (2 cells)
+
+All patches are disabled when `plugins_changed` is true, as plugin state changes may affect any region.
+
+In debug builds, a correctness assertion (`patch_correctness_assertion`) verifies condition (2) by comparing patch output against the full pipeline output for every patched frame.
 
 ### 6.6 LayoutCache
 
@@ -281,15 +355,30 @@ This design means that a menu change does not always require rebuilding the buff
 
 Therefore, a component with `stable(x)` may read `x`. In that case, the component may become stale relative to Exact Semantics, but this is permitted under Policy Semantics.
 
+The distinction between `stable()` and `allow()` is as follows.
+
+- `stable(field)`: The macro can detect the field access, but staleness is intentionally permitted. This is a **policy declaration**.
+- `allow(field)`: The macro cannot detect the field access (e.g., access through helper functions, macros, or opaque references). This is a **verification escape hatch**.
+
+Example: `build_info_section` is declared `stable(cursor_pos)`. It reads `cursor_pos` for overlap avoidance logic, but info popups are permitted to be stale relative to cursor movement. This avoids rebuilding info overlays on every cursor move.
+
 ### 6.8 Meaning of `allow()`
 
 `allow()` is an explicit escape hatch for the static dependency analysis of `#[kasane::component]`. It is not a function that strengthens soundness; rather, it is a function for intentionally exempting dependencies that the verifier cannot handle.
 
+When the AST analysis cannot detect a field access (e.g., field read inside a `format!()` macro, through a helper function, or via an opaque reference), `allow(field)` suppresses the diagnostic. Unlike `stable()`, `allow()` does not imply that staleness is intentionally permitted — it indicates that the dependency exists but cannot be statically verified.
+
 ### 6.9 Locations Where Exactness Is Intentionally Weakened
 
-Current Kasane does not require step-by-step equivalence with complete re-rendering for all fast paths. Particularly where `stable()` is involved, warm/cold cache consistency becomes the primary correctness condition.
+Current Kasane does not require step-by-step equivalence with complete re-rendering for all fast paths. Particularly where `stable()` is involved, warm/cold cache consistency becomes the primary correctness condition (see §11.2 for the formal statement).
 
-This weakening is a design trade-off and is treated as a documented specification.
+This weakening is a design trade-off and is treated as a documented specification. In debug builds, PaintPatch outputs are verified against the full pipeline (§6.5), providing empirical evidence that optimization paths preserve observational equivalence.
+
+### 6.10 ComponentCache
+
+`ComponentCache<T>` is a generic memoization wrapper used by `ViewCache` and other caches. It stores a value of type `T` and invalidates it when the corresponding dirty flags are set.
+
+`ComponentCache` provides `get_or_insert()` for lazy construction and `invalidate()` for manual clearing. The distinction between a warm cache (value present) and a cold cache (value absent) is observable via `cache_dirty_snapshot()`, which is used in tests to verify warm/cold equivalence (§11.2).
 
 ## 7. Dependency Tracking Semantics
 
@@ -314,8 +403,11 @@ Main reasons:
 - Dependencies across helper functions may not be automatically detected
 - Hand-written deps constants and macro analysis are dual-managed
 - `allow()` is an explicit exemption
+- WASM plugins declare dependencies via WIT functions (`contribute_deps()`, `transform_deps()`, `annotate_deps()`) with no compile-time verification (see §8.12)
 
 Therefore, dependency tracking is effective as "strong discipline" but is not a "complete proof."
+
+For native plugins, the `#[kasane::component(deps(...))]` macro provides partial compile-time verification. For WASM plugins, dependency declarations are entirely manual and unverified. Incorrect WASM dependency declarations may cause plugin output to become stale without detection.
 
 ## 8. Plugin Composition Semantics
 
@@ -327,9 +419,12 @@ Kasane's UI extensions are primarily composed of the following mechanisms.
 - Line Annotation (`annotate_line_with_ctx`)
 - Overlay (`contribute_overlay_with_ctx`)
 - Transform (`transform`)
+- Menu Item Transform (`transform_menu_item`)
 - PaintHook
 
 These are not at the same level of abstraction; they differ in degrees of freedom and responsibilities.
+
+These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface). The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §8.11, §8.12).
 
 ### 8.2 Contribution
 
@@ -345,9 +440,11 @@ These are not at the same level of abstraction; they differ in degrees of freedo
 
 ### 8.5 Transform
 
-`transform()` is a unified mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
+`transform()` is a mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
 
-Transform is unified in the plugin composition pipeline as `apply_transform_chain`.
+Element-level transforms are unified in the plugin composition pipeline as `apply_transform_chain`.
+
+`transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of `apply_transform_chain`.
 
 ### 8.6 Composition Order and Priority
 
@@ -358,6 +455,23 @@ The current basic principles are as follows.
 3. Compose contributions and overlays
 
 The transform chain is the result of unifying what were formerly separate replacement and decorator mechanisms. Priority determines application order, and both lightweight decorations and full replacements are processed in the same pipeline.
+
+### 8.7 Input Dispatch and Key Consumption
+
+Plugin input handling follows a defined dispatch order.
+
+1. `observe_key()` is called on **all** plugins (observation only, no consumption)
+2. `handle_key()` is called on plugins in registration order; the **first** plugin to return a non-None result consumes the key
+3. If no plugin consumes the key, built-in handlers (PageUp, PageDown, etc.) are tried
+4. If no built-in handler matches, the key is forwarded to Kakoune
+
+This is a first-wins dispatch model. Plugin registration order determines priority for key consumption. `observe_key` is always exhaustive; `handle_key` is short-circuiting.
+
+### 8.8 Inter-Plugin Messaging
+
+Plugins may communicate via `PluginMessage`, which carries a target plugin ID and an opaque payload. The runtime delivers the message to the target plugin's `update()` (for `Plugin` trait) or a dedicated handler (for `PluginBackend` trait).
+
+Message delivery returns `(DirtyFlags, Vec<Command>)`, allowing the receiving plugin to trigger state changes and side effects in response. Message delivery is synchronous within a single update cycle.
 
 ### 8.9 What Plugins May and May Not Change
 
@@ -377,6 +491,56 @@ The `Plugin` trait externalizes plugin state ownership to the framework. The key
 - **Compatibility**: `PluginBridge` adapts `Plugin` to `PluginBackend`, preserving all existing cache invalidation behavior (L1 state_hash, L3 slot_deps).
 
 > **Naming history**: This model was originally introduced as `PurePlugin` (ADR-021), with the mutable trait called `Plugin`. In ADR-022, the traits were renamed: `PurePlugin` became `Plugin` (primary API) and the old `Plugin` became `PluginBackend` (internal). The adapter was renamed from `PurePluginBridge` to `PluginBridge`, and the marker trait from `IsPurePlugin` to `IsBridgedPlugin`.
+
+### 8.11 Plugin Model Positioning
+
+Kasane provides two plugin trait models with different levels of abstraction.
+
+- **`Plugin` trait** (recommended, primary API): State-externalized model. The framework owns plugin state; all methods are pure functions. Automatic cache invalidation via `PartialEq`. Suitable for most plugins.
+- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and pane lifecycle hooks. Intended for framework-internal use and advanced scenarios.
+
+`PluginBridge` adapts `Plugin` to `PluginBackend`, enabling both models to coexist in `PluginRegistry`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
+
+WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer.
+
+### 8.12 WASM Plugin Semantics
+
+WASM plugins participate in the same composition model as native plugins but operate under additional constraints imposed by the Component Model boundary.
+
+#### 8.12.1 Snapshot-Based State Access
+
+WASM plugins do not access `AppState` directly. Before each WASM call, the host creates a snapshot of relevant state fields in `HostState`. The plugin reads this snapshot via host-imported functions.
+
+```text
+Invariant (WASM State Isolation):
+  Within a single WASM call, the state snapshot is immutable.
+  The plugin cannot observe state changes made by other plugins
+  in the same frame.
+```
+
+State fields are organized into tiers (Tier 0–8), reflecting the evolutionary history of the WIT interface. All tiers are refreshed before each call.
+
+#### 8.12.2 Element Arena Lifecycle
+
+WASM plugins construct `Element` trees via `element_builder` host calls. Elements are stored in a per-call arena that is cleared at the start of each WASM invocation.
+
+Element handles returned by builder calls are valid only within the current invocation. They must not be cached or reused across calls.
+
+#### 8.12.3 Dependency Declaration
+
+WASM plugins declare `DirtyFlags` dependencies via WIT functions: `contribute_deps()`, `transform_deps()`, `annotate_deps()`. Unlike native `#[kasane::component(deps(...))]`, these declarations have no compile-time verification.
+
+If a WASM plugin does not implement a dependency function, the default is `DirtyFlags::ALL` (always recompute). This is conservative but may negate caching benefits.
+
+#### 8.12.4 State Hash and Cache Invalidation
+
+WASM plugins must implement `state_hash() → u64` to enable the host-side plugin slot cache. The host compares state hashes across frames to determine whether plugin contributions need recomputation.
+
+Unlike the `Plugin` trait, where `PartialEq`-based change detection is automatic, WASM plugins bear full responsibility for state hash correctness. An incorrect state hash may cause stale contributions to persist.
+
+#### 8.12.5 Capability Gating
+
+Privileged operations (process spawning, filesystem access) require explicit capability grants declared via `requested_capabilities()`. The host constructs a per-plugin WASI context based on these grants. Native plugins default to full access; WASM plugins default to sandboxed.
 
 ## 9. Display Transformation and Display Units
 
@@ -458,9 +622,9 @@ A Workspace is a layout structure that manages surface placement, focus, splitti
 
 ### 10.4 Relationship Between Surfaces and the Existing View Layer
 
-In the current implementation, the Surface theory is not fully unified. Surface lifecycle has been introduced, but parts of the rendering construction still remain in the legacy view layer.
+Surface lifecycle has been integrated into the core view pipeline via `surface_view_sections_cached()`, which delegates base element composition to `SurfaceRegistry::compose_base_result()`. The legacy view layer remains as an explicit fallback (`legacy_surface_compose_result()`).
 
-Therefore, Surface is a work-in-progress toward becoming a first-class abstraction and is not yet the sole theory governing the entire UI.
+Therefore, Surface is partially integrated as a first-class abstraction. The rendering pipeline uses Surfaces when registered, falling back to the legacy direct-construction path otherwise. Full unification (where all core UI elements are Surfaces) is not yet complete.
 
 ### 10.5 Current Constraints
 
@@ -498,31 +662,91 @@ Until session-bound surface generation is in place, multi-session operation reli
 
 Kasane has multiple rendering optimization paths. These are required to be equivalent in observable results, even though their internal procedures differ.
 
+```text
+Theorem (Trace-Equivalence):
+  For all valid states S, dirty flags D, and cache states C
+  consistent with prior state history:
+
+    render_pipeline(S, ALL, ∅)
+      ≡obs render_pipeline_cached(S, D, C)
+      ≡obs render_pipeline_sectioned(S, D, C)
+      ≡obs render_pipeline_patched(S, D, C)
+
+  where ≡obs denotes identity of the final CellGrid / DrawCommand
+  sequence as observable output.
+```
+
+This is Kasane's central correctness theorem. All optimization paths — cached view reuse, section-level repaints, and compiled paint patches — must produce output identical to the reference full-pipeline path.
+
+Trace-equivalence is verified empirically via property-based tests (`trace_equivalence.rs`) across randomly generated states and dirty flag combinations.
+
 ### 11.2 Warm/Cold Cache Equivalence
 
-In the current test strategy, not only equivalence with complete re-rendering but also warm cache and cold cache returning consistent results under the same dirty conditions is an important invariant.
+When `stable()` is involved, the trace-equivalence theorem as stated in §11.1 requires qualification. A component declared `stable(x)` may produce stale output relative to changes in `x`. Therefore, the practical correctness criterion is warm/cold cache equivalence under the same dirty flags.
 
-### 11.3 What Tests Guarantee
+```text
+Theorem (Warm/Cold Equivalence):
+  For all valid states S and dirty flags D:
+
+    render(S, D, warm_cache) ≡obs render(S, D, cold_cache)
+
+  where warm_cache has been populated by prior rendering,
+  and cold_cache is freshly constructed.
+```
+
+Note what this does **not** require:
+
+```text
+  render(S, D, warm_cache) ≡obs render(S, ALL, ∅)
+
+  — This may NOT hold when stable() permits staleness.
+  — This is by specification, not a defect (§6.7, §6.9).
+```
+
+The distinction is critical: warm/cold equivalence for a given `D` is the soundness oracle; full-pipeline equivalence with `ALL` flags is the exactness oracle. Where `stable()` weakens exactness, warm/cold equivalence remains the binding correctness criterion.
+
+### 11.3 PaintPatch Correctness
+
+Each PaintPatch has its own correctness obligation, derived from the general trace-equivalence theorem.
+
+```text
+Theorem (PaintPatch Correctness):
+  For a PaintPatch P with guard predicate guard_P:
+
+    guard_P(dirty) ∧ ¬plugins_changed
+      → P.apply(S, dirty, grid) ≡obs full_pipeline(S, dirty, grid)
+
+  Additionally (spatial isolation):
+    ∀ cell c ∉ P.region:
+      grid[c] is unchanged by P.apply
+```
+
+See §6.5 for the specific guard predicates of built-in patches.
+
+### 11.4 What Tests Guarantee
 
 What tests primarily guarantee are the following properties.
 
-- Observational equivalence between the reference path and optimization paths
-- Consistency of cache invalidation
+- Trace-equivalence across pipeline variants (property-based, §11.1)
+- Warm/cold cache equivalence for each atomic dirty flag (§11.2)
+- PaintPatch guard soundness, observational equivalence, and spatial isolation (§11.3)
+- Plugin cache invalidation consistency (L1 state hash, L3 slot deps)
 - Preservation of semantics shared across backends
 
-### 11.4 Contracts Expressible Only in Prose
+### 11.5 Contracts Expressible Only in Prose
 
 The following contracts are difficult to fully express through tests alone.
 
-- That weakening exactness via `stable()` is by specification
-- That heuristic state is not on par with protocol truth
-- The boundaries that plugins may and may not cross
+- That weakening exactness via `stable()` is by specification (§6.7, §6.9)
+- That heuristic state is not on par with protocol truth (§3.4)
+- The boundaries that plugins may and may not cross (§8.9)
+- That WASM state snapshot isolation holds across the Component Model boundary (§8.12)
 
 As a non-goal of Kasane, requiring existing Kakoune users to participate in a Kasane-specific ecosystem within the standard frontend semantics is not included. Kasane has a plugin platform, but Default Frontend Semantics is not subordinate to it.
 
 These are maintained through both prose and tests.
 
-### 11.5 What Must Be Consistent Across Backends
+### 11.6 What Must Be Consistent Across Backends
 
 TUI and GUI differ in output methods, but at least the following semantics must be consistent.
 
@@ -535,11 +759,11 @@ TUI and GUI differ in output methods, but at least the following semantics must 
 
 ### 12.1 Non-Strictness Due to `stable()`
 
-`stable()` intentionally weakens strict equivalence with exact semantics. This is a specification at the policy level, but which locations permit staleness must be carefully managed.
+`stable()` intentionally weakens strict equivalence with exact semantics. This is a specification at the policy level, but which locations permit staleness must be carefully managed. See §6.7 for the definition and §11.2 for the formal correctness criterion under staleness.
 
 ### 12.2 Limits of Dependency Tracking
 
-AST-based verification and hand-written deps are useful but do not guarantee complete soundness. The dependency theory is not yet a single source of truth.
+AST-based verification and hand-written deps are useful but do not guarantee complete soundness. The dependency theory is not yet a single source of truth. See §7.4 for the detailed enumeration.
 
 ### 12.3 Mismatch Between Global DirtyFlags and Surface Theory
 
@@ -553,25 +777,32 @@ There is room for the split ratios computed on the Workspace side and the final 
 
 The GUI-side scene invalidation and plugin overlay dependencies are not fully integrated, leaving theoretical room for overlays to become stale.
 
-### 12.6 (Resolved) Unification of Transform and Replacement
-
-~~The new transform API can produce results observationally close to replacement, but in terms of lazy seed selection and cost model, they are still treated as separate things.~~
-
-At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
-
-### 12.7 Lack of Integration Between Display Transformation and Core Invalidation
+### 12.6 Lack of Integration Between Display Transformation and Core Invalidation
 
 The display transformation and display unit model have been introduced at the requirements level, but the current global dirty / section cache does not yet treat them as first-class invalidation units.
 
-### 12.8 Incomplete Display-Oriented Navigation
+### 12.7 Incomplete Display-Oriented Navigation
 
 Visual unit-based navigation is required as a future foundation, but the current implementation still centers on buffer-oriented navigation, and a complete unification theory with display units is unfinished.
 
-### 12.9 (Resolved) Session Invisibility to Plugins
+### 12.8 Unverified WASM Dependency Declarations
 
-~~Session state (active session, session list, session lifecycle events) is not currently exposed to plugins.~~
+WASM plugins declare `DirtyFlags` dependencies via WIT functions with no compile-time verification (§8.12.3). Incorrect declarations may cause plugin output to become stale without detection. The default fallback (`DirtyFlags::ALL`) is conservative but negates caching benefits.
 
-Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant. See [layer-responsibilities.md](./layer-responsibilities.md) for the boundary rationale and [plugin-api.md § 3.5.1](./plugin-api.md) for API details.
+### 12.9 WASM Snapshot Consistency Across Plugins
+
+WASM plugins receive a frozen state snapshot before each call (§8.12.1). Multiple plugins' state changes within a single frame are not atomically visible to subsequent WASM calls; each call sees a fresh snapshot. This means WASM plugin ordering may affect observable output when plugins have state dependencies on each other.
+
+### 12.10 Menu Item Transform Outside Unified Pipeline
+
+`transform_menu_item()` operates separately from the Element-level `apply_transform_chain` (§8.5). The two transform mechanisms have independent priority orderings and are not subject to the same composition rules.
+
+### Resolved Gaps
+
+The following gaps have been resolved and are retained for historical reference.
+
+- **Transform and Replacement unification**: At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
+- **Session invisibility to plugins**: Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant.
 
 ## 13. Non-Goals
 
