@@ -362,8 +362,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "slot_deps",
-        // dirty::ALL = 0x7F
-        quote! { fn slot_deps(_slot: u8) -> u16 { 0x7F } }
+        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
+        quote! { fn slot_deps(_slot: u8) -> u16 { 0x17F } }
     );
 
     add_default!(
@@ -373,14 +373,14 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "transform_deps",
-        // dirty::ALL = 0x7F
-        quote! { fn transform_deps(_target: TransformTarget) -> u16 { 0x7F } }
+        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
+        quote! { fn transform_deps(_target: TransformTarget) -> u16 { 0x17F } }
     );
 
     add_default!(
         "annotate_deps",
-        // dirty::ALL = 0x7F
-        quote! { fn annotate_deps() -> u16 { 0x7F } }
+        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
+        quote! { fn annotate_deps() -> u16 { 0x17F } }
     );
 
     // --- Cursor ---
@@ -409,6 +409,21 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     add_default!(
         "on_io_event",
         quote! { fn on_io_event(_event: IoEvent) -> Vec<Command> { vec![] } }
+    );
+
+    // Static assertion: SDK ALL must match our hardcoded default.
+    // If this fails, update the three 0x17F literals above.
+    #[allow(clippy::eq_op, clippy::assertions_on_constants)]
+    const _: () = assert!(
+        0x17F
+            == ((1 << 0)
+                | (1 << 1)
+                | (1 << 2)
+                | (1 << 3)
+                | (1 << 4)
+                | (1 << 5)
+                | (1 << 6)
+                | (1 << 8))
     );
 
     defaults
