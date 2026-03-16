@@ -133,25 +133,11 @@ fn detect_colors(text: &str) -> Vec<ColorEntry> {
 // Interactive overlay: ID encoding
 // ---------------------------------------------------------------------------
 
-const COLOR_PICKER_BASE: u32 = 2000;
-
-fn encode_picker_id(color_idx: usize, channel: usize, is_down: bool) -> InteractiveId {
-    COLOR_PICKER_BASE + (color_idx * 6 + channel + if is_down { 3 } else { 0 }) as u32
-}
-
-fn decode_picker_id(id: InteractiveId) -> Option<(usize, usize, bool)> {
-    if id < COLOR_PICKER_BASE {
-        return None;
+// stride must cover max packed value: u8(255) + u8(255<<8) + bool(1<<16) = 131071
+kasane_plugin_sdk::interactive_id! {
+    enum PickerId(base = 2000, stride = 131072) {
+        Picker { color_idx: u8, channel: u8, down: bool },
     }
-    let offset = (id - COLOR_PICKER_BASE) as usize;
-    let color_idx = offset / 6;
-    let rem = offset % 6;
-    let is_down = rem >= 3;
-    let channel = if is_down { rem - 3 } else { rem };
-    if channel >= 3 {
-        return None;
-    }
-    Some((color_idx, channel, is_down))
 }
 
 // ---------------------------------------------------------------------------
@@ -194,10 +180,10 @@ fn build_swatch(colors: &[ColorEntry]) -> ElementHandle {
             contents: "\u{2588}".to_string(), // █
         })
         .collect();
-    element_builder::create_styled_line(&atoms)
+    styled_line(&atoms)
 }
 
-fn build_color_grid(entry: &ColorEntry, color_idx: usize) -> ElementHandle {
+fn build_color_grid(entry: &ColorEntry, color_idx: u8) -> ElementHandle {
     let channels = [entry.r, entry.g, entry.b];
 
     let columns = vec![
@@ -213,10 +199,9 @@ fn build_color_grid(entry: &ColorEntry, color_idx: usize) -> ElementHandle {
     // Row 0: arrows up
     children.push(element_builder::create_empty());
     children.push(element_builder::create_empty());
-    for ch in 0..3 {
-        let id = encode_picker_id(color_idx, ch, false);
-        let text = element_builder::create_text(" \u{25b2}", default_face()); // ▲
-        children.push(element_builder::create_interactive(text, id));
+    for ch in 0..3u8 {
+        let id = PickerId::Picker { color_idx, channel: ch, down: false }.encode();
+        children.push(interactive(text(" \u{25b2}", default_face()), id)); // ▲
     }
 
     // Row 1: swatch + hex display
@@ -227,22 +212,18 @@ fn build_color_grid(entry: &ColorEntry, color_idx: usize) -> ElementHandle {
         ),
         contents: "\u{2588} ".to_string(), // "█ "
     };
-    children.push(element_builder::create_styled_line(&[swatch_atom]));
-    children.push(element_builder::create_text("#", default_face()));
+    children.push(styled_line(&[swatch_atom]));
+    children.push(text("#", default_face()));
     for ch_val in channels {
-        children.push(element_builder::create_text(
-            &format!("{ch_val:02x}"),
-            default_face(),
-        ));
+        children.push(text(&format!("{ch_val:02x}"), default_face()));
     }
 
     // Row 2: arrows down
     children.push(element_builder::create_empty());
     children.push(element_builder::create_empty());
-    for ch in 0..3 {
-        let id = encode_picker_id(color_idx, ch, true);
-        let text = element_builder::create_text(" \u{25bc}", default_face()); // ▼
-        children.push(element_builder::create_interactive(text, id));
+    for ch in 0..3u8 {
+        let id = PickerId::Picker { color_idx, channel: ch, down: true }.encode();
+        children.push(interactive(text(" \u{25bc}", default_face()), id)); // ▼
     }
 
     element_builder::create_grid(&columns, &children, 0, 0)
@@ -323,7 +304,7 @@ impl Guest for ColorPreviewPlugin {
     }
 
     fn handle_mouse(event: MouseEvent, id: InteractiveId) -> Option<Vec<Command>> {
-        let (color_idx, channel, is_down) = decode_picker_id(id)?;
+        let PickerId::Picker { color_idx, channel, down: is_down } = PickerId::decode(id)?;
 
         // Consume all events on picker IDs
         let is_left_press = matches!(event.kind, MouseEventKind::Press(MouseButton::Left));
@@ -334,7 +315,7 @@ impl Guest for ColorPreviewPlugin {
         STATE.with(|state| {
             let state = state.borrow();
             let line_idx = state.active_line as usize;
-            let entry = state.color_lines.get(&line_idx)?.colors.get(color_idx)?;
+            let entry = state.color_lines.get(&line_idx)?.colors.get(color_idx as usize)?;
 
             let step: i16 = if event.modifiers & (modifiers::SHIFT | modifiers::CTRL) != 0 {
                 16
@@ -344,7 +325,7 @@ impl Guest for ColorPreviewPlugin {
             let delta = if is_down { -step } else { step };
 
             let mut channels = [entry.r, entry.g, entry.b];
-            channels[channel] = (channels[channel] as i16 + delta).clamp(0, 255) as u8;
+            channels[channel as usize] = (channels[channel as usize] as i16 + delta).clamp(0, 255) as u8;
 
             // Safety check: verify old text at expected offset
             let buffer_text = host_state::get_line_text(line_idx as u32).unwrap_or_default();
@@ -375,29 +356,12 @@ impl Guest for ColorPreviewPlugin {
     fn observe_key(_event: KeyEvent) {}
     fn observe_mouse(_event: MouseEvent) {}
 
-    fn state_hash() -> u64 {
-        STATE.with(|state| {
-            let state = state.borrow();
-            // Simple hash combining generation and active_line
-            let mut h = state.generation;
-            h = h
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(state.active_line as u64);
-            h
-        })
-    }
-
     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
         STATE.with(|state| {
             let state = state.borrow();
             let cl = state.color_lines.get(&(line as usize))?;
             let swatch = build_swatch(&cl.colors);
-            Some(LineAnnotation {
-                left_gutter: Some(swatch),
-                right_gutter: None,
-                background: None,
-                priority: 0,
-            })
+            Some(gutter_annotation(swatch, 0))
         })
     }
 
@@ -416,7 +380,7 @@ impl Guest for ColorPreviewPlugin {
                 .iter()
                 .enumerate()
                 .map(|(idx, entry)| {
-                    let grid = build_color_grid(entry, idx);
+                    let grid = build_color_grid(entry, idx as u8);
                     FlexEntry {
                         child: grid,
                         flex: 0.0,
@@ -426,18 +390,9 @@ impl Guest for ColorPreviewPlugin {
 
             let inner = element_builder::create_column_flex(&entries, 1);
 
-            let padding = Edges {
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-            };
-            let container = element_builder::create_container(
-                inner,
-                Some(BorderLineStyle::Rounded),
-                false,
-                padding,
-            );
+            let el = container(inner)
+                .border(BorderLineStyle::Rounded)
+                .build();
 
             let cursor_line = host_state::get_cursor_line();
             let cursor_col = host_state::get_cursor_col();
@@ -449,7 +404,7 @@ impl Guest for ColorPreviewPlugin {
             }
 
             Some(OverlayContribution {
-                element: container,
+                element: el,
                 anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
                     coord: Coord {
                         line: cursor_line,
@@ -517,14 +472,14 @@ mod tests {
 
     #[test]
     fn encode_decode_picker_id_roundtrip() {
-        for color_idx in 0..3 {
-            for channel in 0..3 {
-                for is_down in [false, true] {
-                    let id = encode_picker_id(color_idx, channel, is_down);
-                    let (ci, ch, down) = decode_picker_id(id).unwrap();
+        for color_idx in 0..3u8 {
+            for channel in 0..3u8 {
+                for down in [false, true] {
+                    let id = PickerId::Picker { color_idx, channel, down }.encode();
+                    let PickerId::Picker { color_idx: ci, channel: ch, down: d } = PickerId::decode(id).unwrap();
                     assert_eq!(ci, color_idx);
                     assert_eq!(ch, channel);
-                    assert_eq!(down, is_down);
+                    assert_eq!(d, down);
                 }
             }
         }
@@ -532,7 +487,7 @@ mod tests {
 
     #[test]
     fn decode_picker_id_below_base_returns_none() {
-        assert!(decode_picker_id(999).is_none());
+        assert!(PickerId::decode(999).is_none());
     }
 
     #[test]

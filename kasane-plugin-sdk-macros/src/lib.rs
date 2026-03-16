@@ -131,6 +131,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_update" => vec!["update".into()],
         "default_capabilities" => vec!["requested_capabilities".into()],
         "default_io_event" => vec!["on_io_event".into()],
+        "slots" => vec!["contribute_to".into(), "contribute_deps".into()],
         _ => vec![],
     }
 }
@@ -358,7 +359,10 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     // --- Caching ---
 
-    add_default!("state_hash", quote! { fn state_hash() -> u64 { 0 } });
+    add_default!(
+        "state_hash",
+        quote! { fn state_hash() -> u64 { __kasane_auto_state_hash() } }
+    );
 
     add_default!(
         "slot_deps",
@@ -547,6 +551,166 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             /// Create a named color.
             pub fn named(n: NamedColor) -> Color {
                 Color::Named(n)
+            }
+
+            // ----- Element builder shorthand wrappers -----
+
+            /// Create a text element.
+            pub fn text(content: &str, f: Face) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_text(content, f)
+            }
+
+            /// Create a styled-line element from atoms.
+            pub fn styled_line(atoms: &[Atom]) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_styled_line(atoms)
+            }
+
+            /// Create a vertical column of children.
+            pub fn column(children: &[ElementHandle]) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_column(children)
+            }
+
+            /// Create a horizontal row of children.
+            pub fn row(children: &[ElementHandle]) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_row(children)
+            }
+
+            /// Create an interactive wrapper element.
+            pub fn interactive(child: ElementHandle, id: InteractiveId) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_interactive(child, id)
+            }
+
+            // ----- LineAnnotation shortcuts -----
+
+            /// Create a background-only line annotation.
+            pub fn bg_annotation(f: Face) -> LineAnnotation {
+                LineAnnotation {
+                    left_gutter: None,
+                    right_gutter: None,
+                    background: Some(BackgroundLayer {
+                        face: f,
+                        z_order: 0,
+                        blend_opaque: true,
+                    }),
+                    priority: 0,
+                }
+            }
+
+            /// Create a left-gutter line annotation.
+            pub fn gutter_annotation(el: ElementHandle, priority: i16) -> LineAnnotation {
+                LineAnnotation {
+                    left_gutter: Some(el),
+                    right_gutter: None,
+                    background: None,
+                    priority,
+                }
+            }
+
+            // ----- Contribution shortcut -----
+
+            /// Create a contribution with auto size hint and priority 0.
+            pub fn auto_contribution(element: ElementHandle) -> Contribution {
+                Contribution {
+                    element,
+                    priority: 0,
+                    size_hint: ContribSizeHint::Auto,
+                }
+            }
+
+            // ----- Edges shortcuts -----
+
+            /// Create edges with explicit values.
+            pub fn edges(top: u16, right: u16, bottom: u16, left: u16) -> Edges {
+                Edges { top, right, bottom, left }
+            }
+
+            /// Create edges with horizontal padding only.
+            pub fn padding_h(lr: u16) -> Edges {
+                Edges { top: 0, right: lr, bottom: 0, left: lr }
+            }
+
+            // ----- Container builder -----
+
+            /// Builder for container elements.
+            pub struct ContainerBuilder {
+                child: ElementHandle,
+                border: Option<BorderLineStyle>,
+                shadow: bool,
+                padding: Edges,
+                style: Face,
+                title: Option<Vec<Atom>>,
+            }
+
+            impl ContainerBuilder {
+                pub fn new(child: ElementHandle) -> Self {
+                    Self {
+                        child,
+                        border: None,
+                        shadow: false,
+                        padding: Edges { top: 0, right: 0, bottom: 0, left: 0 },
+                        style: Face {
+                            fg: Color::DefaultColor,
+                            bg: Color::DefaultColor,
+                            underline: Color::DefaultColor,
+                            attributes: 0,
+                        },
+                        title: None,
+                    }
+                }
+
+                pub fn border(mut self, style: BorderLineStyle) -> Self {
+                    self.border = Some(style);
+                    self
+                }
+
+                pub fn shadow(mut self) -> Self {
+                    self.shadow = true;
+                    self
+                }
+
+                pub fn padding(mut self, edges: Edges) -> Self {
+                    self.padding = edges;
+                    self
+                }
+
+                pub fn style(mut self, face: Face) -> Self {
+                    self.style = face;
+                    self
+                }
+
+                pub fn title_text(mut self, text: &str) -> Self {
+                    self.title = Some(vec![Atom {
+                        face: Face {
+                            fg: Color::DefaultColor,
+                            bg: Color::DefaultColor,
+                            underline: Color::DefaultColor,
+                            attributes: 0,
+                        },
+                        contents: text.to_string(),
+                    }]);
+                    self
+                }
+
+                pub fn title(mut self, atoms: &[Atom]) -> Self {
+                    self.title = Some(atoms.to_vec());
+                    self
+                }
+
+                pub fn build(self) -> ElementHandle {
+                    super::kasane::plugin::element_builder::create_container_styled(
+                        self.child,
+                        self.border,
+                        self.shadow,
+                        self.padding,
+                        self.style,
+                        self.title.as_deref(),
+                    )
+                }
+            }
+
+            /// Start building a container element.
+            pub fn container(child: ElementHandle) -> ContainerBuilder {
+                ContainerBuilder::new(child)
             }
 
             /// Compute a centered overlay `AbsoluteAnchor` given screen dimensions,

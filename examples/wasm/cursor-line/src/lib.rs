@@ -30,20 +30,7 @@ impl Guest for CursorLinePlugin {
 
     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
         let active = ACTIVE_LINE.get();
-        if line as i32 == active {
-            Some(LineAnnotation {
-                left_gutter: None,
-                right_gutter: None,
-                background: Some(BackgroundLayer {
-                    face: face_bg(rgb(40, 40, 50)),
-                    z_order: 0,
-                    blend_opaque: true,
-                }),
-                priority: 0,
-            })
-        } else {
-            None
-        }
+        (line as i32 == active).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
     }
 
     fn annotate_deps() -> u16 {

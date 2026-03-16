@@ -51,20 +51,9 @@ impl Guest for PromptHighlightPlugin {
         }
 
         // Wrap the status bar in a container with a distinct background
-        let padding = Edges {
-            top: 0,
-            right: 0,
-            bottom: 0,
-            left: 0,
-        };
-        element_builder::create_container_styled(
-            element,
-            None,
-            false,
-            padding,
-            face(named(NamedColor::Black), named(NamedColor::Yellow)),
-            None,
-        )
+        container(element)
+            .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+            .build()
     }
 
     fn transform_priority() -> i16 {

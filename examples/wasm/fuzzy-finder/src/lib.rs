@@ -188,22 +188,19 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
 
     // Query input line: "> query_"
     let query_display = format!("> {}_", state.query);
-    children.push(element_builder::create_text(&query_display, default_face()));
+    children.push(text(&query_display, default_face()));
 
     // Separator
     let sep = "\u{2500}".repeat(anchor.w.saturating_sub(2) as usize);
-    children.push(element_builder::create_text(&sep, dim_face()));
+    children.push(text(&sep, dim_face()));
 
     // Content area
     match &state.state {
         FzfState::Scanning => {
-            children.push(element_builder::create_text(
-                "Scanning files...",
-                dim_face(),
-            ));
+            children.push(text("Scanning files...", dim_face()));
         }
         FzfState::Error(msg) => {
-            children.push(element_builder::create_text(msg, error_face()));
+            children.push(text(msg, error_face()));
         }
         FzfState::Ready | FzfState::Filtering => {
             let items = state.visible_results();
@@ -215,7 +212,7 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
                 } else {
                     "No matches"
                 };
-                children.push(element_builder::create_text(msg, dim_face()));
+                children.push(text(msg, dim_face()));
             } else {
                 // Scroll window around selected
                 let start = if state.selected >= visible_count {
@@ -232,22 +229,15 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
                         default_face()
                     };
                     let prefix = if i == state.selected { "> " } else { "  " };
-                    let text = format!("{prefix}{}", &items[i]);
-                    children.push(element_builder::create_text(&text, f));
+                    let label = format!("{prefix}{}", &items[i]);
+                    children.push(text(&label, f));
                 }
             }
         }
         FzfState::Inactive => unreachable!(),
     }
 
-    let inner = element_builder::create_column(&children);
-
-    let padding = Edges {
-        top: 0,
-        right: 1,
-        bottom: 0,
-        left: 1,
-    };
+    let inner = column(&children);
 
     // Title: show file count on the border line
     let title_text = match &state.state {
@@ -265,21 +255,15 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
         FzfState::Error(_) => " Find File ── error ".to_string(),
         FzfState::Inactive => unreachable!(),
     };
-    let title_atoms = [Atom {
-        face: default_face(),
-        contents: title_text,
-    }];
-    let container = element_builder::create_container_styled(
-        inner,
-        Some(BorderLineStyle::Rounded),
-        true,
-        padding,
-        default_face(),
-        Some(&title_atoms),
-    );
+    let el = container(inner)
+        .border(BorderLineStyle::Rounded)
+        .shadow()
+        .padding(padding_h(1))
+        .title_text(&title_text)
+        .build();
 
     Some(OverlayContribution {
-        element: container,
+        element: el,
         anchor: OverlayAnchor::Absolute(anchor),
         z_index: 100,
     })

@@ -39,7 +39,7 @@ fn discover_skips_disabled_plugins() {
     crate::discover_and_register(&config, &mut registry);
 
     // cursor-line skipped; the remaining fixtures still load.
-    assert_eq!(registry.plugin_count(), 5);
+    assert_eq!(registry.plugin_count(), 6);
 }
 
 #[test]

@@ -16,22 +16,11 @@
 //! impl Guest for MyPlugin {
 //!     fn get_id() -> String { "my_plugin".into() }
 //!
-//!     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
-//!         kasane_plugin_sdk::route_slot_ids!(region, {
-//!             BUFFER_LEFT => {
-//!                 let el = element_builder::create_text("★", default_face());
-//!                 Some(Contribution { element: el, priority: 0, size_hint: ContribSizeHint::Auto })
-//!             },
-//!         })
+//!     kasane_plugin_sdk::slots! {
+//!         BUFFER_LEFT(dirty::BUFFER) => |_ctx| {
+//!             Some(auto_contribution(text("★", default_face())))
+//!         },
 //!     }
-//!
-//!     fn contribute_deps(region: SlotId) -> u16 {
-//!         kasane_plugin_sdk::route_slot_id_deps!(region, {
-//!             BUFFER_LEFT => dirty::BUFFER,
-//!         })
-//!     }
-//!
-//!     fn state_hash() -> u64 { 0 }
 //! }
 //!
 //! export!(MyPlugin);
@@ -791,6 +780,14 @@ macro_rules! state {
         ::std::thread_local! {
             static STATE: ::std::cell::RefCell<$name> = ::std::cell::RefCell::new(<$name>::default());
         }
+
+        /// Auto-generated state hash based on generation counter.
+        /// Override by implementing `state_hash()` manually in Guest impl.
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        fn __kasane_auto_state_hash() -> u64 {
+            STATE.with(|s| s.borrow().generation)
+        }
     };
 }
 
@@ -864,6 +861,345 @@ macro_rules! route_slot_id_deps {
         let __slot = &$slot;
         $crate::__route_slot_id_deps_impl!(__slot, { $($rest)* })
     }};
+}
+
+/// Type-safe interactive element ID encoding/decoding.
+///
+/// Generates an enum with `encode()` and `decode()` methods that pack variant +
+/// field data into a single `u32` interactive ID.
+///
+/// # Example
+/// ```ignore
+/// kasane_plugin_sdk::interactive_id! {
+///     enum PickerId(base = 2000, stride = 6) {
+///         Swatch,
+///         Channel { idx: u8, ch: u8, down: bool },
+///         Close,
+///     }
+/// }
+///
+/// let id = PickerId::Channel { idx: 3, ch: 1, down: true }.encode();
+/// match PickerId::decode(id) {
+///     Some(PickerId::Channel { idx, ch, down }) => { /* ... */ }
+///     _ => {}
+/// }
+/// ```
+///
+/// - `base`: starting ID value
+/// - `stride`: multiplier per variant (must be large enough to fit field encodings)
+/// - Fieldless variants encode as `base + tag * stride`
+/// - Field variants pack fields in declaration order using byte-level little-endian:
+///   `u8` → 1 byte, `bool` → 1 byte (0/1), `u16` → 2 bytes
+#[macro_export]
+macro_rules! interactive_id {
+    (
+        enum $name:ident (base = $base:expr, stride = $stride:expr) {
+            $( $variant:ident $( { $( $field:ident : $fty:tt ),* $(,)? } )? ),* $(,)?
+        }
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum $name {
+            $( $variant $( { $( $field: $fty ),* } )? ),*
+        }
+
+        impl $name {
+            #[allow(unused_assignments, unused_variables)]
+            fn encode(&self) -> u32 {
+                let mut __tag: u32 = 0;
+                $(
+                    if let $name::$variant $( { $( $field ),* } )? = *self {
+                        let mut __packed: u32 = 0;
+                        let mut __shift: u32 = 0;
+                        $($(
+                            __packed |= ($field as u32) << __shift;
+                            __shift += $crate::__iid_width!($fty);
+                        )*)?
+                        return ($base) + __tag * ($stride) + __packed;
+                    }
+                    __tag += 1;
+                )*
+                unreachable!()
+            }
+
+            #[allow(unused_assignments, unused_variables, unused_mut)]
+            fn decode(id: u32) -> Option<Self> {
+                if id < ($base) {
+                    return None;
+                }
+                let __rel = id - ($base);
+                let __tag = __rel / ($stride);
+                let __rem = __rel % ($stride);
+
+                let mut __expected_tag: u32 = 0;
+                $(
+                    if __tag == __expected_tag {
+                        let mut __v: u32 = __rem;
+                        $($(
+                            let $field = $crate::__iid_dec!(__v, $fty);
+                        )*)?
+                        return Some($name::$variant $( { $( $field ),* } )? );
+                    }
+                    __expected_tag += 1;
+                )*
+                None
+            }
+        }
+    };
+}
+
+/// Width in bits for each supported interactive_id field type.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __iid_width {
+    (u8) => {
+        8
+    };
+    (bool) => {
+        8
+    };
+    (u16) => {
+        16
+    };
+}
+
+/// Decode a field from a packed u32, consuming bits by shifting.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __iid_dec {
+    ($v:ident, bool) => {{
+        let __r = ($v & 0xFF) != 0;
+        $v >>= 8;
+        __r
+    }};
+    ($v:ident, u8) => {{
+        let __r = ($v & 0xFF) as u8;
+        $v >>= 8;
+        __r
+    }};
+    ($v:ident, u16) => {{
+        let __r = ($v & 0xFFFF) as u16;
+        $v >>= 16;
+        __r
+    }};
+}
+
+/// Helpers for tracking async job results with generation-based stale detection.
+///
+/// Useful for plugins that spawn external processes and need to handle
+/// out-of-order or stale results.
+///
+/// # Example
+/// ```
+/// use kasane_plugin_sdk::job::JobTracker;
+///
+/// let mut tracker = JobTracker::new(100);
+/// let job1 = tracker.current_id();
+/// assert_eq!(job1, 100);
+///
+/// // Advance to next generation (invalidates previous)
+/// let job2 = tracker.advance();
+/// assert_eq!(job2, 101);
+/// assert!(!tracker.is_current(job1));
+/// assert!(tracker.is_current(job2));
+///
+/// // Stale data is rejected
+/// assert!(!tracker.append_stdout(job1, "old"));
+/// assert!(tracker.append_stdout(job2, "new"));
+/// assert_eq!(tracker.take_output(), "new");
+/// ```
+pub mod job {
+    /// Tracks async job generations, automatically discarding stale results.
+    #[derive(Debug)]
+    pub struct JobTracker {
+        base_id: u64,
+        generation: u64,
+        buffer: String,
+    }
+
+    impl JobTracker {
+        /// Create a new tracker with the given base job ID.
+        pub fn new(base_id: u64) -> Self {
+            Self {
+                base_id,
+                generation: 0,
+                buffer: String::new(),
+            }
+        }
+
+        /// The current job ID (base + generation).
+        pub fn current_id(&self) -> u64 {
+            self.base_id + self.generation
+        }
+
+        /// Check if the given job ID matches the current generation.
+        pub fn is_current(&self, job_id: u64) -> bool {
+            job_id == self.current_id()
+        }
+
+        /// Advance to the next generation, clearing the output buffer.
+        /// Returns the new current job ID.
+        pub fn advance(&mut self) -> u64 {
+            self.generation += 1;
+            self.buffer.clear();
+            self.current_id()
+        }
+
+        /// Append stdout data for the given job ID.
+        /// Returns `false` (and discards data) if the job ID is stale.
+        pub fn append_stdout(&mut self, job_id: u64, data: &str) -> bool {
+            if !self.is_current(job_id) {
+                return false;
+            }
+            self.buffer.push_str(data);
+            true
+        }
+
+        /// Take the accumulated output, leaving the buffer empty.
+        pub fn take_output(&mut self) -> String {
+            std::mem::take(&mut self.buffer)
+        }
+
+        /// Iterate over lines in the accumulated output.
+        pub fn lines(&self) -> impl Iterator<Item = &str> {
+            self.buffer.lines()
+        }
+    }
+}
+
+/// Unified slot contribution + dependency declaration.
+///
+/// Generates both `contribute_to` and `contribute_deps` methods from a single
+/// declaration block. Use inside a `#[plugin] impl Guest` block.
+///
+/// # Example
+/// ```ignore
+/// #[plugin]
+/// impl Guest for MyPlugin {
+///     kasane_plugin_sdk::slots! {
+///         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+///             Some(auto_contribution(text("hello", default_face())))
+///         },
+///         named("my.slot")(dirty::ALL) => |ctx| {
+///             None
+///         },
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! slots {
+    ( $( $slot_def:tt ($deps:expr) => |$ctx:ident| $body:block ),* $(,)? ) => {
+        fn contribute_to(__region: SlotId, __ctx: ContributeContext) -> Option<Contribution> {
+            $crate::__slots_contribute_impl!(__region, __ctx, $( $slot_def => |$ctx| $body ),*)
+        }
+        fn contribute_deps(__region: SlotId) -> u16 {
+            $crate::__slots_deps_impl!(__region, $( $slot_def => $deps ),*)
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __slots_contribute_impl {
+    // terminal
+    ($region:expr, $ctx_val:expr, ) => { None };
+    // named slot
+    ($region:expr, $ctx_val:expr, named($name:expr) => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::Named(name) if name == $name => {
+                let $ctx = &$ctx_val;
+                $body
+            }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    // well-known slot — use tt munching for each variant
+    ($region:expr, $ctx_val:expr, BUFFER_LEFT => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::BufferLeft) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, BUFFER_RIGHT => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::BufferRight) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, ABOVE_BUFFER => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::AboveBuffer) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, BELOW_BUFFER => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::BelowBuffer) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, ABOVE_STATUS => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::AboveStatus) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, STATUS_LEFT => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::StatusLeft) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, STATUS_RIGHT => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::StatusRight) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+    ($region:expr, $ctx_val:expr, OVERLAY => |$ctx:ident| $body:block $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::WellKnown(WellKnownSlot::Overlay) => { let $ctx = &$ctx_val; $body }
+            _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __slots_deps_impl {
+    // terminal
+    ($region:expr, ) => { 0 };
+    // named slot
+    ($region:expr, named($name:expr) => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region {
+            SlotId::Named(name) if name == $name => $deps,
+            _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? )
+        }
+    };
+    // well-known variants
+    ($region:expr, BUFFER_LEFT => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::BufferLeft) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, BUFFER_RIGHT => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::BufferRight) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, ABOVE_BUFFER => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::AboveBuffer) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, BELOW_BUFFER => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::BelowBuffer) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, ABOVE_STATUS => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::AboveStatus) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, STATUS_LEFT => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::StatusLeft) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, STATUS_RIGHT => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::StatusRight) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
+    ($region:expr, OVERLAY => $deps:expr $( , $($rest:tt)* )? ) => {
+        match &$region { SlotId::WellKnown(WellKnownSlot::Overlay) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
+    };
 }
 
 #[cfg(test)]
@@ -951,5 +1287,127 @@ mod tests {
         // "edit foo.rs" → "e","d","i","t","<space>","f","o","o",".","r","s"
         assert_eq!(k.last().unwrap(), "<ret>");
         assert!(k.contains(&"<space>".to_string()));
+    }
+
+    // --- interactive_id! tests ---
+
+    // stride must be >= max packed value across all variants + 1.
+    // Mixed: 3 byte fields → max = 255 + 255*256 + 1*65536 = 131071, so stride ≥ 131072 = 2^17
+    interactive_id! {
+        enum TestId(base = 1000, stride = 131072) {
+            Simple,
+            OneField { val: u8 },
+            TwoFields { a: u8, b: u8 },
+            WithBool { flag: bool },
+            Mixed { idx: u8, ch: u8, down: bool },
+        }
+    }
+
+    #[test]
+    fn interactive_id_simple_roundtrip() {
+        let id = TestId::Simple.encode();
+        assert_eq!(id, 1000);
+        assert_eq!(TestId::decode(id), Some(TestId::Simple));
+    }
+
+    #[test]
+    fn interactive_id_one_field_roundtrip() {
+        for v in [0u8, 1, 127, 255] {
+            let id = TestId::OneField { val: v }.encode();
+            assert_eq!(TestId::decode(id), Some(TestId::OneField { val: v }));
+        }
+    }
+
+    #[test]
+    fn interactive_id_two_fields_roundtrip() {
+        let id = TestId::TwoFields { a: 42, b: 99 }.encode();
+        assert_eq!(TestId::decode(id), Some(TestId::TwoFields { a: 42, b: 99 }));
+    }
+
+    #[test]
+    fn interactive_id_bool_roundtrip() {
+        for flag in [false, true] {
+            let id = TestId::WithBool { flag }.encode();
+            assert_eq!(TestId::decode(id), Some(TestId::WithBool { flag }));
+        }
+    }
+
+    #[test]
+    fn interactive_id_mixed_roundtrip() {
+        for idx in 0..3u8 {
+            for ch in 0..3u8 {
+                for down in [false, true] {
+                    let orig = TestId::Mixed { idx, ch, down };
+                    let id = orig.encode();
+                    assert_eq!(TestId::decode(id), Some(orig));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn interactive_id_below_base_returns_none() {
+        assert_eq!(TestId::decode(999), None);
+    }
+
+    #[test]
+    fn interactive_id_out_of_range_tag_returns_none() {
+        // tag 5 does not exist (only 0..4)
+        assert_eq!(TestId::decode(1000 + 5 * 131072), None);
+    }
+
+    // --- JobTracker tests ---
+
+    #[test]
+    fn job_tracker_basic() {
+        let tracker = job::JobTracker::new(100);
+        assert_eq!(tracker.current_id(), 100);
+        assert!(tracker.is_current(100));
+        assert!(!tracker.is_current(101));
+    }
+
+    #[test]
+    fn job_tracker_advance() {
+        let mut tracker = job::JobTracker::new(100);
+        let id2 = tracker.advance();
+        assert_eq!(id2, 101);
+        assert!(!tracker.is_current(100));
+        assert!(tracker.is_current(101));
+    }
+
+    #[test]
+    fn job_tracker_stale_rejected() {
+        let mut tracker = job::JobTracker::new(100);
+        let old_id = tracker.current_id();
+        tracker.advance();
+        assert!(!tracker.append_stdout(old_id, "stale data"));
+        assert_eq!(tracker.take_output(), "");
+    }
+
+    #[test]
+    fn job_tracker_current_accepted() {
+        let mut tracker = job::JobTracker::new(100);
+        let id = tracker.current_id();
+        assert!(tracker.append_stdout(id, "hello "));
+        assert!(tracker.append_stdout(id, "world"));
+        assert_eq!(tracker.take_output(), "hello world");
+    }
+
+    #[test]
+    fn job_tracker_advance_clears_buffer() {
+        let mut tracker = job::JobTracker::new(100);
+        let id = tracker.current_id();
+        tracker.append_stdout(id, "old data");
+        tracker.advance();
+        assert_eq!(tracker.take_output(), "");
+    }
+
+    #[test]
+    fn job_tracker_lines() {
+        let mut tracker = job::JobTracker::new(100);
+        let id = tracker.current_id();
+        tracker.append_stdout(id, "a\nb\nc");
+        let lines: Vec<&str> = tracker.lines().collect();
+        assert_eq!(lines, vec!["a", "b", "c"]);
     }
 }

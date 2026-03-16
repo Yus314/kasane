@@ -27,29 +27,13 @@ impl Guest for SelBadgePlugin {
         CURSOR_COUNT.get() as u64
     }
 
-    fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
-        kasane_plugin_sdk::route_slot_ids!(region, {
-            STATUS_RIGHT => {
-                let count = CURSOR_COUNT.get();
-                if count > 1 {
-                    let text = format!(" {} sel ", count);
-                    let el = element_builder::create_text(&text, default_face());
-                    Some(Contribution {
-                        element: el,
-                        priority: 0,
-                        size_hint: ContribSizeHint::Auto,
-                    })
-                } else {
-                    None
-                }
-            },
-        })
-    }
-
-    fn contribute_deps(region: SlotId) -> u16 {
-        kasane_plugin_sdk::route_slot_id_deps!(region, {
-            STATUS_RIGHT => dirty::BUFFER,
-        })
+    kasane_plugin_sdk::slots! {
+        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+            let count = CURSOR_COUNT.get();
+            (count > 1).then(|| {
+                auto_contribution(text(&format!(" {} sel ", count), default_face()))
+            })
+        },
     }
 }
 
