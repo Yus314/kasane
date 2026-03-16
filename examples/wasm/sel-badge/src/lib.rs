@@ -6,7 +6,7 @@ use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::element_builder;
 use kasane::plugin::host_state;
 use kasane::plugin::types::*;
-use kasane_plugin_sdk::{dirty, slot};
+use kasane_plugin_sdk::{dirty, plugin, slot};
 
 thread_local! {
     static CURSOR_COUNT: Cell<u32> = const { Cell::new(0) };
@@ -14,6 +14,7 @@ thread_local! {
 
 struct SelBadgePlugin;
 
+#[plugin]
 impl Guest for SelBadgePlugin {
     fn get_id() -> String {
         "sel_badge".to_string()
@@ -87,31 +88,6 @@ impl Guest for SelBadgePlugin {
         })
     }
 
-    kasane_plugin_sdk::default_init!();
-    kasane_plugin_sdk::default_shutdown!();
-    kasane_plugin_sdk::default_surfaces!();
-    kasane_plugin_sdk::default_render_surface!();
-    kasane_plugin_sdk::default_handle_surface_event!();
-    kasane_plugin_sdk::default_handle_surface_state_changed!();
-    kasane_plugin_sdk::default_line!();
-    kasane_plugin_sdk::default_input!();
-    kasane_plugin_sdk::default_overlay!();
-    kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_update!();
-    kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_named_slot!();
-    // contribute_to already implemented above with route_slots! fallback
-    kasane_plugin_sdk::default_transform!();
-    kasane_plugin_sdk::default_transform_priority!();
-    kasane_plugin_sdk::default_annotate!();
-    kasane_plugin_sdk::default_overlay_v2!();
-    kasane_plugin_sdk::default_transform_deps!();
-    kasane_plugin_sdk::default_annotate_deps!();
-    kasane_plugin_sdk::default_capabilities!();
-    kasane_plugin_sdk::default_io_event!();
 }
 
 export!(SelBadgePlugin);

@@ -5,7 +5,7 @@ use std::cell::Cell;
 use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::host_state;
 use kasane::plugin::types::*;
-use kasane_plugin_sdk::dirty;
+use kasane_plugin_sdk::{dirty, plugin};
 
 thread_local! {
     static ACTIVE_LINE: Cell<i32> = const { Cell::new(-1) };
@@ -13,6 +13,7 @@ thread_local! {
 
 struct CursorLinePlugin;
 
+#[plugin]
 impl Guest for CursorLinePlugin {
     fn get_id() -> String {
         "cursor_line".to_string()
@@ -86,31 +87,6 @@ impl Guest for CursorLinePlugin {
     fn annotate_deps() -> u16 {
         dirty::BUFFER
     }
-
-    kasane_plugin_sdk::default_init!();
-    kasane_plugin_sdk::default_shutdown!();
-    kasane_plugin_sdk::default_surfaces!();
-    kasane_plugin_sdk::default_render_surface!();
-    kasane_plugin_sdk::default_handle_surface_event!();
-    kasane_plugin_sdk::default_handle_surface_state_changed!();
-    kasane_plugin_sdk::default_contribute!();
-    kasane_plugin_sdk::default_input!();
-    kasane_plugin_sdk::default_overlay!();
-    kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_update!();
-    kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_named_slot!();
-    kasane_plugin_sdk::default_contribute_to!();
-    kasane_plugin_sdk::default_transform!();
-    kasane_plugin_sdk::default_transform_priority!();
-    kasane_plugin_sdk::default_overlay_v2!();
-    kasane_plugin_sdk::default_contribute_deps!();
-    kasane_plugin_sdk::default_transform_deps!();
-    kasane_plugin_sdk::default_capabilities!();
-    kasane_plugin_sdk::default_io_event!();
 }
 
 export!(CursorLinePlugin);

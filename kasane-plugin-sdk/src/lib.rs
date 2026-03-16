@@ -6,6 +6,51 @@
 //! # Quick Start
 //!
 //! ```ignore
+//! use kasane_plugin_sdk::plugin;
+//!
+//! kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+//!
+//! use exports::kasane::plugin::plugin_api::Guest;
+//! use kasane::plugin::types::*;
+//! use kasane::plugin::host_state;
+//! use kasane_plugin_sdk::dirty;
+//!
+//! struct MyPlugin;
+//!
+//! #[plugin]
+//! impl Guest for MyPlugin {
+//!     fn get_id() -> String { "my_plugin".into() }
+//!
+//!     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
+//!         kasane_plugin_sdk::route_slot_ids!(region, {
+//!             BUFFER_LEFT => {
+//!                 // ... build elements via element_builder ...
+//!                 None
+//!             },
+//!         })
+//!     }
+//!
+//!     fn contribute_deps(region: SlotId) -> u16 {
+//!         kasane_plugin_sdk::route_slot_id_deps!(region, {
+//!             BUFFER_LEFT => dirty::BUFFER,
+//!         })
+//!     }
+//!
+//!     fn state_hash() -> u64 { 0 }
+//! }
+//!
+//! export!(MyPlugin);
+//! ```
+//!
+//! All `Guest` methods not listed in the `impl` block are automatically filled
+//! with SDK defaults by the `#[plugin]` attribute macro.
+//!
+//! # Legacy Quick Start (without `#[plugin]`)
+//!
+//! The `#[plugin]` macro is recommended. If you prefer explicit control,
+//! you can still use individual `default_*!()` macros:
+//!
+//! ```ignore
 //! // Cargo.toml:
 //! // [dependencies]
 //! // kasane-plugin-sdk = { path = "../../kasane-plugin-sdk" }
@@ -68,6 +113,12 @@
 //!
 //! export!(MyPlugin);
 //! ```
+
+/// Attribute macro that fills in default implementations for all
+/// unimplemented `Guest` trait methods.
+///
+/// See the [module-level documentation](crate) for usage.
+pub use kasane_plugin_sdk_macros::kasane_wasm_plugin as plugin;
 
 /// Slot indices matching `kasane_core::plugin::Slot`.
 pub mod slot {

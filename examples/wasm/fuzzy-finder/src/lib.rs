@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::types::*;
 use kasane::plugin::element_builder;
-use kasane_plugin_sdk::{dirty, modifiers};
+use kasane_plugin_sdk::{dirty, modifiers, plugin};
 
 // ---------------------------------------------------------------------------
 // Job ID scheme
@@ -338,6 +338,7 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
 
 struct FuzzyFinderPlugin;
 
+#[plugin]
 impl Guest for FuzzyFinderPlugin {
     fn get_id() -> String {
         "fuzzy_finder".to_string()
@@ -358,11 +359,6 @@ impl Guest for FuzzyFinderPlugin {
     fn on_state_changed(_dirty_flags: u16) -> Vec<Command> {
         vec![]
     }
-
-    kasane_plugin_sdk::default_surfaces!();
-    kasane_plugin_sdk::default_render_surface!();
-    kasane_plugin_sdk::default_handle_surface_event!();
-    kasane_plugin_sdk::default_handle_surface_state_changed!();
 
     fn state_hash() -> u64 {
         STATE.with(|s| {
@@ -599,22 +595,6 @@ impl Guest for FuzzyFinderPlugin {
         None
     }
 
-    kasane_plugin_sdk::default_line!();
-    kasane_plugin_sdk::default_contribute!();
-    kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_update!();
-    kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_named_slot!();
-    kasane_plugin_sdk::default_contribute_to!();
-    kasane_plugin_sdk::default_transform!();
-    kasane_plugin_sdk::default_transform_priority!();
-    kasane_plugin_sdk::default_contribute_deps!();
-    kasane_plugin_sdk::default_transform_deps!();
-    kasane_plugin_sdk::default_annotate!();
-    kasane_plugin_sdk::default_annotate_deps!();
 }
 
 export!(FuzzyFinderPlugin);

@@ -1,6 +1,6 @@
 [workspace]
 members = ["kasane", "kasane-core", "kasane-tui", "kasane-macros", "kasane-gui", "kasane-wasm-bench", "kasane-wasm"]
-exclude = ["examples/line-numbers", "examples/wasm/cursor-line", "examples/wasm/color-preview", "examples/wasm/sel-badge", "examples/wasm/fuzzy-finder", "examples/wasm/line-numbers", "tools/wasm-test", "kasane-plugin-sdk", "kasane-wasm-bench/guests/string-echo", "kasane-wasm-bench/guests/element-builder", "kasane-wasm-bench/guests/state-reader", "kasane-wasm-bench/guests/component-plugin", "kasane-wasm/guests/surface-probe"]
+exclude = ["examples/line-numbers", "examples/wasm/cursor-line", "examples/wasm/color-preview", "examples/wasm/sel-badge", "examples/wasm/fuzzy-finder", "examples/wasm/line-numbers", "tools/wasm-test", "kasane-plugin-sdk", "kasane-plugin-sdk-macros", "kasane-wasm-bench/guests/string-echo", "kasane-wasm-bench/guests/element-builder", "kasane-wasm-bench/guests/state-reader", "kasane-wasm-bench/guests/component-plugin", "kasane-wasm/guests/surface-probe"]
 resolver = "3"
 
 [workspace.package]

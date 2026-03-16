@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::types::*;
 use kasane::plugin::{element_builder, host_state};
-use kasane_plugin_sdk::{dirty, modifiers};
+use kasane_plugin_sdk::{dirty, modifiers, plugin};
 
 // ---------------------------------------------------------------------------
 // Color detection
@@ -283,6 +283,7 @@ fn build_color_grid(entry: &ColorEntry, color_idx: usize) -> ElementHandle {
 
 struct ColorPreviewPlugin;
 
+#[plugin]
 impl Guest for ColorPreviewPlugin {
     fn get_id() -> String {
         "color_preview".to_string()
@@ -296,10 +297,6 @@ impl Guest for ColorPreviewPlugin {
         vec![]
     }
 
-    kasane_plugin_sdk::default_surfaces!();
-    kasane_plugin_sdk::default_render_surface!();
-    kasane_plugin_sdk::default_handle_surface_event!();
-    kasane_plugin_sdk::default_handle_surface_state_changed!();
 
     fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
         if dirty_flags & dirty::BUFFER == 0 {
@@ -546,21 +543,6 @@ impl Guest for ColorPreviewPlugin {
         })
     }
 
-    kasane_plugin_sdk::default_contribute!();
-    kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_update!();
-    kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_named_slot!();
-    kasane_plugin_sdk::default_contribute_to!();
-    kasane_plugin_sdk::default_transform!();
-    kasane_plugin_sdk::default_transform_priority!();
-    kasane_plugin_sdk::default_contribute_deps!();
-    kasane_plugin_sdk::default_transform_deps!();
-    kasane_plugin_sdk::default_capabilities!();
-    kasane_plugin_sdk::default_io_event!();
 }
 
 export!(ColorPreviewPlugin);
