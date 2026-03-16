@@ -10,12 +10,38 @@ use std::time::Duration;
 use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
-    CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry, ProcessDispatcher,
-    ProcessEvent, execute_commands, extract_deferred_commands,
+    Command, CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry, ProcessDispatcher,
+    ProcessEvent, execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
+
+/// Structured result from processing a single event.
+pub struct EventResult {
+    pub flags: DirtyFlags,
+    pub commands: Vec<Command>,
+    pub surface_commands: Vec<SourcedSurfaceCommands>,
+    pub command_source: Option<PluginId>,
+}
+
+impl EventResult {
+    pub fn empty() -> Self {
+        Self {
+            flags: DirtyFlags::empty(),
+            commands: vec![],
+            surface_commands: vec![],
+            command_source: None,
+        }
+    }
+
+    /// Accumulate redraw flags from surface command groups.
+    pub fn extract_surface_flags(&mut self) {
+        for entry in &mut self.surface_commands {
+            self.flags |= extract_redraw_flags(&mut entry.commands);
+        }
+    }
+}
 
 /// Register plugin-owned surfaces in the surface registry.
 ///
@@ -33,11 +59,8 @@ pub fn setup_plugin_surfaces(
         let mut registration_error = None;
         for surface in surface_set.surfaces {
             let surface_id = surface.id();
-            match surface_registry.try_register_for_owner(
-                surface,
-                Some(surface_set.owner.clone()),
-                None,
-            ) {
+            match surface_registry.try_register_for_owner(surface, Some(surface_set.owner.clone()))
+            {
                 Ok(()) => registered_ids.push(surface_id),
                 Err(err) => {
                     registration_error = Some(err);
@@ -78,9 +101,10 @@ pub fn setup_plugin_surfaces(
 /// Synchronize session metadata from SessionManager into AppState.
 pub fn sync_session_metadata<R, W, C>(
     session_manager: &SessionManager<R, W, C>,
+    session_states: &SessionStateStore,
     state: &mut AppState,
 ) {
-    state.session_descriptors = session_manager.session_descriptors();
+    state.session_descriptors = session_manager.enriched_session_descriptors(session_states, state);
     state.active_session_key = session_manager.active_session_key().map(str::to_owned);
 }
 
@@ -113,7 +137,7 @@ pub fn handle_session_death<R, W, C>(
         *dirty |= DirtyFlags::ALL;
         *initial_resize_sent = false;
     }
-    sync_session_metadata(session_manager, state);
+    sync_session_metadata(session_manager, session_states, state);
     false
 }
 
@@ -154,9 +178,9 @@ pub fn spawn_session_core<R, W, C>(
         }
         *dirty |= DirtyFlags::ALL;
         *initial_resize_sent = false;
-        sync_session_metadata(session_manager, state);
+        sync_session_metadata(session_manager, session_states, state);
     }
-    sync_session_metadata(session_manager, state);
+    sync_session_metadata(session_manager, session_states, state);
     Some((session_id, reader))
 }
 
@@ -194,7 +218,7 @@ pub fn close_session_core<R, W, C>(
         *dirty |= DirtyFlags::ALL;
         *initial_resize_sent = false;
     }
-    sync_session_metadata(session_manager, state);
+    sync_session_metadata(session_manager, session_states, state);
     false
 }
 
@@ -223,7 +247,7 @@ pub fn switch_session_core<R, W, C>(
     }
     *dirty |= DirtyFlags::ALL | DirtyFlags::SESSION;
     *initial_resize_sent = false;
-    sync_session_metadata(session_manager, state);
+    sync_session_metadata(session_manager, session_states, state);
 }
 
 /// Rebuild the HitMap from the current view tree for plugin mouse routing.

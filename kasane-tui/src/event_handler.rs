@@ -3,14 +3,14 @@ use std::io::Write;
 use anyhow::Result;
 
 use kasane_core::event_loop::{
-    DeferredContext, TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
-    handle_workspace_divider_input, surface_event_from_input,
+    DeferredContext, EventResult, TimerScheduler, handle_deferred_commands,
+    handle_sourced_surface_commands, handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    ProcessEventSink, execute_commands, extract_deferred_commands, extract_redraw_flags,
+    ProcessEventSink, execute_commands, extract_deferred_commands,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -190,11 +190,9 @@ where
     W: Write + Send + 'static,
     C: Send + 'static,
 {
-    let is_kakoune = matches!(&event, Event::Kakoune(..));
     let is_input = matches!(&event, Event::Input(_));
 
-    let command_source_plugin;
-    let (mut flags, commands, mut surface_command_groups) = match event {
+    let result = match event {
         Event::Kakoune(session_id, req) => {
             if ctx.session_manager.active_session_id() != Some(session_id) {
                 ctx.session_states
@@ -216,14 +214,18 @@ where
                 ctx.registry,
                 ctx.scroll_amount,
             );
-            let surface_command_groups = if f.is_empty() {
+            let surface_commands = if f.is_empty() {
                 vec![]
             } else {
                 ctx.surface_registry
                     .on_state_changed_with_sources(ctx.state, f)
             };
-            command_source_plugin = None;
-            (f, c, surface_command_groups)
+            EventResult {
+                flags: f,
+                commands: c,
+                surface_commands,
+                command_source: None,
+            }
         }
         Event::Input(input_event) => {
             let total = Rect {
@@ -235,8 +237,12 @@ where
             if let Some(divider_dirty) =
                 handle_workspace_divider_input(&input_event, ctx.surface_registry, total)
             {
-                command_source_plugin = None;
-                (divider_dirty, vec![], vec![])
+                EventResult {
+                    flags: divider_dirty,
+                    commands: vec![],
+                    surface_commands: vec![],
+                    command_source: None,
+                }
             } else {
                 let surface_event = surface_event_from_input(&input_event);
                 let (f, c, source) = update(
@@ -245,23 +251,30 @@ where
                     ctx.registry,
                     ctx.scroll_amount,
                 );
-                command_source_plugin = source;
-                let surface_command_groups = surface_event
+                let surface_commands = surface_event
                     .map(|event| {
                         ctx.surface_registry
                             .route_event_with_sources(event, ctx.state, total)
                     })
                     .unwrap_or_default();
-                (f, c, surface_command_groups)
+                EventResult {
+                    flags: f,
+                    commands: c,
+                    surface_commands,
+                    command_source: source,
+                }
             }
         }
         Event::PluginTimer(target, payload) => {
-            command_source_plugin = None;
             let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
-            (flags, commands, vec![])
+            EventResult {
+                flags,
+                commands,
+                surface_commands: vec![],
+                command_source: None,
+            }
         }
         Event::ProcessOutput(plugin_id, io_event) => {
-            command_source_plugin = Some(plugin_id.clone());
             let (flags, commands) = ctx
                 .registry
                 .deliver_io_event(&plugin_id, &io_event, ctx.state);
@@ -277,7 +290,12 @@ where
                 ctx.process_dispatcher
                     .remove_finished_job(&plugin_id, job_id);
             }
-            (flags, commands, vec![])
+            EventResult {
+                flags,
+                commands,
+                surface_commands: vec![],
+                command_source: Some(plugin_id),
+            }
         }
         Event::KakouneDied(session_id) => {
             return kasane_core::event_loop::handle_session_death(
@@ -290,15 +308,31 @@ where
             );
         }
     };
-    for entry in &mut surface_command_groups {
-        flags |= extract_redraw_flags(&mut entry.commands);
-    }
 
-    if flags.contains(DirtyFlags::ALL) {
+    process_event_result(result, is_input, ctx)
+}
+
+/// Apply an `EventResult` to the shared context: accumulate dirty flags,
+/// execute commands, handle deferred commands and surface commands.
+///
+/// Returns `true` if the application should quit.
+fn process_event_result<R, W, C>(
+    mut result: EventResult,
+    is_input: bool,
+    ctx: &mut EventProcessingContext<'_, R, W, C>,
+) -> bool
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    result.extract_surface_flags();
+
+    if result.flags.contains(DirtyFlags::ALL) {
         ctx.grid.resize(ctx.state.cols, ctx.state.rows);
         ctx.grid.invalidate_all();
     }
-    *ctx.dirty |= flags;
+    *ctx.dirty |= result.flags;
 
     // Suppress commands to Kakoune until initialization is complete.
     if is_input && !*ctx.initial_resize_sent {
@@ -306,12 +340,8 @@ where
             .sync_active_from_manager(ctx.session_manager, ctx.state);
         return false;
     }
-    // Kakoune events before initial resize: execute commands (they come from
-    // init_all) but don't send anything to Kakoune yet (handled by the
-    // send_initial_resize guard above).
-    let _ = is_kakoune; // used only for the send_initial_resize call above
 
-    let (normal, deferred) = extract_deferred_commands(commands);
+    let (normal, deferred) = extract_deferred_commands(result.commands);
     if matches!(
         execute_commands(
             normal,
@@ -342,10 +372,10 @@ where
             initial_resize_sent: ctx.initial_resize_sent,
             process_dispatcher: ctx.process_dispatcher,
         };
-        if handle_deferred_commands(deferred, &mut deferred_ctx, command_source_plugin.as_ref()) {
+        if handle_deferred_commands(deferred, &mut deferred_ctx, result.command_source.as_ref()) {
             return true;
         }
-        handle_sourced_surface_commands(surface_command_groups, &mut deferred_ctx)
+        handle_sourced_surface_commands(result.surface_commands, &mut deferred_ctx)
     };
     if !should_quit {
         ctx.session_states
