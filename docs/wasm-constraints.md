@@ -126,26 +126,19 @@ Buffer content is accessed one line at a time via `get_line_text(line_index)`. T
 
 WASM plugins interact with Kakoune exclusively through `SendKeys(Vec<String>)` — a list of keystroke strings. There is no structured command API for operations like "insert text at cursor" or "execute command".
 
-This means every plugin that modifies buffer content must manually escape special characters:
+The SDK provides helpers for the most common patterns:
 
 ```rust
-// Inserting "Hello World" requires escaping spaces
-fn push_literal_keys(keys: &mut Vec<String>, text: &str) {
-    for ch in text.chars() {
-        match ch {
-            ' ' => keys.push("<space>".into()),
-            '<' => keys.push("<lt>".into()),
-            '>' => keys.push("<gt>".into()),
-            '-' => keys.push("<minus>".into()),
-            c => keys.push(c.to_string()),
-        }
-    }
-}
+use kasane_plugin_sdk::keys;
+
+// Escape special characters in text and push as individual keys
+keys::push_literal(&mut keys_vec, "edit foo.rs");
+
+// Build a full <esc>:cmd<ret> sequence
+let keys = keys::command("edit foo.rs");
 ```
 
 There is no feedback mechanism — plugins cannot know whether a command succeeded or failed.
-
-> Workaround: Use the escaping utility pattern shown above. The SDK could provide a helper function in the future.
 
 ### Missing Command Variants \[Not Yet Implemented\]
 
@@ -187,20 +180,24 @@ If a WASM trap propagates as a Rust panic (unlikely but possible in edge cases),
 
 ### Manual State Hash \[Improvement\]
 
-Native `Plugin` trait plugins get automatic cache invalidation via `PartialEq` comparison. WASM plugins must implement `state_hash() -> u64` manually, typically using generation counters and hash combining:
+Native `Plugin` trait plugins get automatic cache invalidation via `PartialEq` comparison. WASM plugins must implement `state_hash() -> u64` manually, typically using generation counters.
+
+The `kasane_plugin_sdk::state!` macro reduces state management boilerplate by generating the struct, `Default` impl, `bump_generation()`, and `thread_local! STATE`:
 
 ```rust
+kasane_plugin_sdk::state! {
+    struct PluginState {
+        active_line: i32 = 0,
+        color_lines: HashMap<usize, ColorLine> = HashMap::new(),
+    }
+}
+
 fn state_hash() -> u64 {
-    STATE.with(|s| {
-        let state = s.borrow();
-        let mut h = state.generation;
-        h = h.wrapping_mul(6364136223846793005).wrapping_add(state.active_line as u64);
-        h
-    })
+    STATE.with(|s| s.borrow().generation)
 }
 ```
 
-Every stateful plugin repeats this pattern. A derive macro or SDK helper could reduce this boilerplate.
+The `generation` counter pattern is sufficient for most plugins. Complex plugins may still need custom hash combining.
 
 ### Interactive Element ID Encoding \[Improvement\]
 
@@ -216,9 +213,9 @@ There is no namespace isolation between plugins — ID collisions are the plugin
 
 > Workaround: Use a base offset (e.g., 2000) to avoid collisions with other plugins.
 
-### SendKeys Character Escaping \[Improvement\]
+### SendKeys Character Escaping \[Resolved\]
 
-As described in [Command API](#no-structured-kakoune-command-api-improvement), every plugin that sends keystrokes must implement character escaping. The SDK does not currently provide a helper function for this.
+The SDK provides `kasane_plugin_sdk::keys::push_literal()` and `kasane_plugin_sdk::keys::command()` for key escaping. Plugins no longer need to implement their own escaping logic.
 
 ### Process Job ID Management \[Improvement\]
 
@@ -256,8 +253,8 @@ The WIT interface is language-neutral by design — any language compiling to th
 | Theme tokens | Add `RegisterThemeTokens` command to WIT | — |
 | Dynamic surfaces | Extend WIT surface API with lifecycle commands | — |
 | Fuel / timeout | Configure wasmtime fuel or epoch interruption | — |
-| State hash | SDK derive macro or helper function | §3.4 |
-| SendKeys escaping | SDK utility function | §3.4 |
+| State hash | `state!` macro (generation counter pattern) | §3.4 — resolved |
+| SendKeys escaping | `keys::push_literal()` / `keys::command()` | §3.4 — resolved |
 | ID encoding | SDK helper or structured metadata on elements | §3.4 |
 | Job management | SDK job abstraction | §3.4 |
 | Multi-language | Validate and document non-Rust toolchains | §3.4 |

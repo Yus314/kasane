@@ -468,6 +468,25 @@ For semantic classification, see [semantics.md](./semantics.md).
 | `get_menu_face()` | `Option<Face>` |
 | `get_menu_selected_face()` | `Option<Face>` |
 
+**Session state (Tier 8):**
+
+| Function | Return type |
+|---|---|
+| `get_session_count()` | `u32` |
+| `get_session(index)` | `Option<SessionDescriptor>` |
+| `get_active_session_key()` | `Option<String>` |
+
+`SessionDescriptor` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `key` | `String` | Stable session key within the host |
+| `session_name` | `Option<String>` | Kakoune session name (`kak -c <name>`) |
+| `buffer_name` | `Option<String>` | Buffer name extracted from `status_content` atoms (e.g. `main.rs`) |
+| `mode_line` | `Option<String>` | Mode line extracted from `status_mode_line` atoms (e.g. `normal`, `insert`) |
+
+`buffer_name` and `mode_line` are populated from the session's `AppState` snapshot — for the active session from the live state, for inactive sessions from the stored snapshot. These fields enable session switcher UIs that display meaningful per-session metadata without requiring plugins to access raw `AppState`.
+
 ### 3.3 Lifecycle hooks
 
 | Hook | Timing | Purpose |
@@ -534,7 +553,7 @@ In WASM, these are represented as `command` variants. `Pane`, `Workspace`, and `
 
 Plugins can observe session state and control session switching:
 
-- **Session query**: `AppState.session_descriptors` provides the list of sessions (`SessionDescriptor { key, session_name }`), and `AppState.active_session_key` identifies the current session. In WASM, Tier 8 host-state functions `get-session-count`, `get-session(index)`, and `get-active-session-key` provide equivalent access.
+- **Session query**: `AppState.session_descriptors` provides the list of sessions (`SessionDescriptor { key, session_name, buffer_name, mode_line }`), and `AppState.active_session_key` identifies the current session. `buffer_name` is extracted from `status_content` atoms and `mode_line` from `status_mode_line` atoms of the session's `AppState` snapshot. In WASM, Tier 8 host-state functions `get-session-count`, `get-session(index)`, and `get-active-session-key` provide equivalent access.
 - **Session lifecycle notification**: `DirtyFlags::SESSION` is set when sessions are created, closed, switched, or when a session dies. Plugins react via `contribute_deps` / `on_state_changed`.
 - **Session switch command**: `SessionCommand::Switch { key }` (native) or `command::switch-session(key)` (WIT) requests activation of a specific session by key.
 
@@ -613,6 +632,74 @@ impl PaintHook for MyHighlightHook {
     }
 }
 ```
+
+## 4.4 SDK Helpers
+
+The `kasane_plugin_sdk::generate!()` macro emits the following helper functions alongside WIT bindings, reducing boilerplate for common operations.
+
+### Face/Color Construction
+
+| Helper | Description |
+|---|---|
+| `default_face()` | `Face` with all colors default, no attributes |
+| `face_fg(color)` | `Face` with only foreground color set |
+| `face_bg(color)` | `Face` with only background color set |
+| `face(fg, bg)` | `Face` with foreground and background |
+| `face_full(fg, bg, underline, attrs)` | `Face` with all fields specified |
+| `rgb(r, g, b)` | `Color::Rgb(RgbColor { r, g, b })` |
+| `named(n)` | `Color::Named(n)` |
+
+```rust
+// Before
+let face = Face {
+    fg: Color::DefaultColor,
+    bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 50 }),
+    underline: Color::DefaultColor,
+    attributes: 0,
+};
+
+// After
+let face = face_bg(rgb(40, 40, 50));
+```
+
+### Overlay Layout
+
+| Helper | Description |
+|---|---|
+| `centered_overlay(cols, rows, w_pct, h_pct, min_w, min_h)` | Compute a centered `AbsoluteAnchor` |
+
+### Key Escaping (`kasane_plugin_sdk::keys`)
+
+| Function | Description |
+|---|---|
+| `keys::push_literal(keys, text)` | Push each char as an escaped key string |
+| `keys::command(cmd)` | Build `<esc>:cmd<ret>` key sequence |
+
+### Attribute Constants (`kasane_plugin_sdk::attributes`)
+
+Constants matching `kasane_core::protocol::color::Attributes` bitflags: `UNDERLINE`, `BOLD`, `ITALIC`, `REVERSE`, etc.
+
+### State Macro (`kasane_plugin_sdk::state!`)
+
+Generates a struct with a `generation` counter, `Default` impl, `bump_generation()` method, and `thread_local! STATE`.
+
+```rust
+kasane_plugin_sdk::state! {
+    struct PluginState {
+        cursor_count: u32 = 0,
+        active: bool = false,
+    }
+}
+// Access: STATE.with(|s| { let state = s.borrow(); ... })
+```
+
+### Auto Imports
+
+`generate!()` also provides glob-imported auto-imports for common WIT types. Explicit `use` statements in existing code shadow these without conflict:
+
+- `Guest` (from `exports::kasane::plugin::plugin_api`)
+- `host_state`, `element_builder` (from `kasane::plugin`)
+- `types::*` (`Face`, `Color`, `SlotId`, `Command`, etc.)
 
 ## 5. Styling
 

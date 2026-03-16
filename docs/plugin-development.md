@@ -56,10 +56,6 @@ kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::element_builder;
-use kasane::plugin::host_state;
-use kasane::plugin::types::*;
 use kasane_plugin_sdk::{dirty, plugin};
 
 thread_local! {
@@ -91,13 +87,7 @@ impl Guest for SelBadgePlugin {
                 let count = CURSOR_COUNT.get();
                 if count > 1 {
                     let text = format!(" {} sel ", count);
-                    let face = Face {
-                        fg: Color::DefaultColor,
-                        bg: Color::DefaultColor,
-                        underline: Color::DefaultColor,
-                        attributes: 0,
-                    };
-                    let el = element_builder::create_text(&text, face);
+                    let el = element_builder::create_text(&text, default_face());
                     Some(Contribution {
                         element: el,
                         priority: 0,
@@ -122,10 +112,11 @@ export!(SelBadgePlugin);
 
 **Key points:**
 
+- **`generate!()`** emits WIT bindings and auto-imports common types (`Guest`, `host_state`, `element_builder`, `types::*`) plus SDK helpers (`default_face()`, `rgb()`, `face_bg()`, etc.).
 - **`#[plugin]`** fills in default implementations for all `Guest` methods you don't write. Without it, you would need to add `default_*!()` macro stubs for every unused method.
 - **`on_state_changed()`** is called when editor state changes. Cache data you need; the `dirty_flags` bitmask tells you what changed.
 - **`contribute_to()`** injects an element at a named slot. Use `route_slot_ids!` to match slot regions.
-- **`contribute_deps()`** declares which dirty flags affect your contribution (enables caching).
+- **`contribute_deps()`** declares which dirty flags affect your contribution (enables caching). The default is `ALL` (always recalculate).
 - **`state_hash()`** returns a value that changes when your plugin's output would change. The framework uses this to skip redundant work.
 
 ### Build & Deploy
@@ -149,10 +140,6 @@ kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 
-use exports::kasane::plugin::plugin_api::Guest;
-use kasane::plugin::element_builder;
-use kasane::plugin::host_state;
-use kasane::plugin::types::*;
 use kasane_plugin_sdk::{dirty, plugin};
 
 const MODE_BUFFER: u8 = 0;
@@ -193,14 +180,12 @@ impl Guest for PromptHighlightPlugin {
             return element; // passthrough in buffer mode
         }
         // Wrap status bar in highlighted container
-        let face = Face {
-            fg: Color::Named(NamedColor::Black),
-            bg: Color::Named(NamedColor::Yellow),
-            underline: Color::DefaultColor,
-            attributes: 0,
-        };
         let padding = Edges { top: 0, right: 0, bottom: 0, left: 0 };
-        element_builder::create_container_styled(element, None, false, padding, face, None)
+        element_builder::create_container_styled(
+            element, None, false, padding,
+            face(named(NamedColor::Black), named(NamedColor::Yellow)),
+            None,
+        )
     }
 
     fn transform_deps(target: TransformTarget) -> u16 {
@@ -292,6 +277,59 @@ Capabilities are granted upon declaration. Users can deny them via `deny_capabil
 
 Constraint: WASI capabilities are available from `on_init()` onward. They are not available during component initialization (`_initialize`).
 
+## Session-Aware Plugins
+
+Plugins can observe and control sessions using the Tier 8 host-state API and `SessionCommand`. The `session-ui` example (`examples/wasm/session-ui/`) demonstrates the full pattern.
+
+**Reading session state:**
+
+```rust
+use kasane::plugin::host_state;
+
+fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
+    if dirty_flags & dirty::SESSION != 0 {
+        let count = host_state::get_session_count();
+        let active_key = host_state::get_active_session_key();
+        // Each descriptor includes key, session_name, buffer_name, mode_line
+        for i in 0..count {
+            if let Some(desc) = host_state::get_session(i) {
+                // desc.buffer_name: e.g. Some("main.rs")
+                // desc.mode_line: e.g. Some("normal")
+            }
+        }
+    }
+    vec![]
+}
+```
+
+**Switching sessions:**
+
+```rust
+// In handle_key():
+if let Some(desc) = host_state::get_session(selected_index) {
+    return Some(vec![Command::SwitchSession(desc.key)]);
+}
+```
+
+**Closing sessions:**
+
+```rust
+// Guard: don't close the last session
+if host_state::get_session_count() > 1 {
+    if let Some(desc) = host_state::get_session(selected_index) {
+        return Some(vec![Command::CloseSession(Some(desc.key))]);
+    }
+}
+```
+
+**Key patterns from session-ui:**
+
+- Use `contribute_deps(STATUS_RIGHT) → dirty::SESSION` so the status bar indicator updates on session changes
+- Use `contribute_overlay_v2()` for a floating session list triggered by a keybinding
+- Track `generation` counter for `state_hash()` — bump it on switcher open/close/navigate and on session state changes
+
+See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
+
 ## Example Plugin List
 
 | Plugin | Path | Main Features |
@@ -301,6 +339,7 @@ Constraint: WASI capabilities are available from `on_init()` onward. They are no
 | prompt-highlight | `examples/wasm/prompt-highlight/` | `transform_element()` (`StatusBarT`), `transform_deps()` |
 | color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
+| session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
 | line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |
 
 ## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
