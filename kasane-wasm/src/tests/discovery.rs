@@ -155,4 +155,35 @@ fn sdk_wit_matches_host_wit() {
         host_wit, sdk_wit,
         "SDK WIT and host WIT are out of sync — update kasane-plugin-sdk/wit/plugin.wit"
     );
+    let macros_wit = include_str!("../../../kasane-plugin-sdk-macros/wit/plugin.wit");
+    assert_eq!(
+        host_wit, macros_wit,
+        "Macros WIT and host WIT are out of sync — update kasane-plugin-sdk-macros/wit/plugin.wit"
+    );
+}
+
+#[test]
+fn sdk_slot_names_match_core() {
+    use kasane_core::plugin::SlotId;
+
+    // Verify SDK slot_name constants match core SlotId string representations
+    let expected = [
+        (SlotId::BUFFER_LEFT, "kasane.buffer.left"),
+        (SlotId::BUFFER_RIGHT, "kasane.buffer.right"),
+        (SlotId::ABOVE_BUFFER, "kasane.buffer.above"),
+        (SlotId::BELOW_BUFFER, "kasane.buffer.below"),
+        (SlotId::ABOVE_STATUS, "kasane.status.above"),
+        (SlotId::STATUS_LEFT, "kasane.status.left"),
+        (SlotId::STATUS_RIGHT, "kasane.status.right"),
+        (SlotId::OVERLAY, "kasane.overlay"),
+    ];
+
+    for (slot_id, sdk_name) in &expected {
+        assert_eq!(
+            slot_id.as_str(),
+            *sdk_name,
+            "SDK slot_name constant mismatch for {:?}",
+            slot_id
+        );
+    }
 }

@@ -36,7 +36,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-kasane-plugin-sdk = { path = "../../kasane-plugin-sdk" }
+kasane-plugin-sdk = "0.1"
 wit-bindgen = "0.41"
 ```
 
@@ -52,7 +52,7 @@ This plugin displays the selection count on the right side of the status bar whe
 
 ```rust
 // examples/wasm/sel-badge/src/lib.rs
-kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 
@@ -145,7 +145,7 @@ enters prompt mode (`:`, `/`, etc.).
 
 ```rust
 // examples/wasm/prompt-highlight/src/lib.rs
-kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 

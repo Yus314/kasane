@@ -4,7 +4,7 @@
 //! prompt mode (`:`, `/`, etc.), making the mode visually distinct.
 //! In normal buffer mode the status bar is passed through unchanged.
 
-kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+kasane_plugin_sdk::generate!();
 
 use std::cell::Cell;
 

@@ -413,3 +413,31 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     defaults
 }
+
+/// Generate Kasane WIT bindings with embedded WIT content.
+///
+/// Two forms:
+/// - `kasane_plugin_sdk::generate!()` — uses embedded WIT (crates.io consumers)
+/// - `kasane_plugin_sdk::generate!("path/to/wit")` — uses file path (monorepo dev)
+#[proc_macro]
+pub fn kasane_generate(input: TokenStream) -> TokenStream {
+    if input.is_empty() {
+        let wit_content = include_str!("../wit/plugin.wit");
+        quote! {
+            wit_bindgen::generate!({
+                world: "kasane-plugin",
+                inline: #wit_content,
+            });
+        }
+        .into()
+    } else {
+        let path = parse_macro_input!(input as syn::LitStr);
+        quote! {
+            wit_bindgen::generate!({
+                world: "kasane-plugin",
+                path: #path,
+            });
+        }
+        .into()
+    }
+}

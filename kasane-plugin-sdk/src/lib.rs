@@ -8,7 +8,7 @@
 //! ```ignore
 //! use kasane_plugin_sdk::plugin;
 //!
-//! kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+//! kasane_plugin_sdk::generate!();
 //!
 //! use exports::kasane::plugin::plugin_api::Guest;
 //! use kasane::plugin::types::*;
@@ -53,10 +53,10 @@
 //! ```ignore
 //! // Cargo.toml:
 //! // [dependencies]
-//! // kasane-plugin-sdk = { path = "../../kasane-plugin-sdk" }
+//! // kasane-plugin-sdk = "0.1"
 //!
 //! // src/lib.rs:
-//! kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+//! kasane_plugin_sdk::generate!();
 //!
 //! use exports::kasane::plugin::plugin_api::Guest;
 //! use kasane::plugin::types::*;
@@ -154,10 +154,11 @@ pub mod dirty {
     pub const INFO: u16 = 1 << 4;
     pub const OPTIONS: u16 = 1 << 5;
     pub const BUFFER_CURSOR: u16 = 1 << 6;
+    pub const SESSION: u16 = 1 << 8;
     /// Composite: any buffer-related change (content or cursor).
     pub const BUFFER: u16 = BUFFER_CONTENT | BUFFER_CURSOR;
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
-    pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS;
+    pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS | SESSION;
 }
 
 /// WASI capability identifiers matching the WIT `capability` enum ordinals.
@@ -180,13 +181,13 @@ pub const WIT: &str = include_str!("../wit/plugin.wit");
 
 /// Generate Kasane plugin WIT bindings.
 ///
-/// Pass the path to the SDK's `wit` directory (relative to the guest crate root).
-/// The macro wraps `wit_bindgen::generate!` and also brings `wit_bindgen` into
-/// scope via the SDK's re-export, so guests don't need a direct `wit-bindgen` dep.
+/// Two forms:
+/// - `kasane_plugin_sdk::generate!()` — uses embedded WIT (recommended, works with crates.io)
+/// - `kasane_plugin_sdk::generate!("path/to/wit")` — uses file path (monorepo dev)
 ///
 /// # Example
 /// ```ignore
-/// kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+/// kasane_plugin_sdk::generate!();
 /// ```
 ///
 /// The generated modules:
@@ -194,17 +195,10 @@ pub const WIT: &str = include_str!("../wit/plugin.wit");
 /// - `kasane::plugin::host_state` — host state query functions
 /// - `kasane::plugin::element_builder` — element construction functions
 /// - `kasane::plugin::types::*` — shared types (Face, Color, etc.)
+///
 /// Note: Guest crates must also depend on `wit-bindgen` directly, since
 /// `wit_bindgen::generate!` generates code referencing `wit_bindgen` runtime types.
-#[macro_export]
-macro_rules! generate {
-    ($wit_dir:literal) => {
-        wit_bindgen::generate!({
-            world: "kasane-plugin",
-            path: $wit_dir,
-        });
-    };
-}
+pub use kasane_plugin_sdk_macros::kasane_generate as generate;
 
 /// Default lifecycle stubs (on_init, on_shutdown, on_state_changed).
 ///
@@ -264,10 +258,7 @@ macro_rules! default_surfaces {
 #[macro_export]
 macro_rules! default_render_surface {
     () => {
-        fn render_surface(
-            _surface_key: String,
-            _ctx: SurfaceViewContext,
-        ) -> Option<ElementHandle> {
+        fn render_surface(_surface_key: String, _ctx: SurfaceViewContext) -> Option<ElementHandle> {
             None
         }
     };
@@ -291,10 +282,7 @@ macro_rules! default_handle_surface_event {
 #[macro_export]
 macro_rules! default_handle_surface_state_changed {
     () => {
-        fn handle_surface_state_changed(
-            _surface_key: String,
-            _dirty_flags: u16,
-        ) -> Vec<Command> {
+        fn handle_surface_state_changed(_surface_key: String, _dirty_flags: u16) -> Vec<Command> {
             vec![]
         }
     };
@@ -784,7 +772,7 @@ mod tests {
     fn dirty_flags_all_covers_all_bits() {
         assert_eq!(
             dirty::ALL,
-            dirty::BUFFER | dirty::STATUS | dirty::MENU | dirty::INFO | dirty::OPTIONS
+            dirty::BUFFER | dirty::STATUS | dirty::MENU | dirty::INFO | dirty::OPTIONS | dirty::SESSION
         );
     }
 
@@ -795,8 +783,13 @@ mod tests {
 
     #[test]
     fn dirty_all_matches_bitflags() {
-        // Ensure our constants match kasane-core's DirtyFlags::ALL = 0x7F
-        assert_eq!(dirty::ALL, 0x7F);
+        // SDK's ALL intentionally excludes PLUGIN_STATE (bit 7). Core ALL = 0xFF, SDK ALL = 0x17F.
+        assert_eq!(dirty::ALL, 0x17F);
+    }
+
+    #[test]
+    fn test_session_constant() {
+        assert_eq!(dirty::SESSION, 0x100);
     }
 
     #[test]

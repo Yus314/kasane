@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 description = "Proc macros for the Kasane WASM plugin SDK"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/Yus314/kasane"
+rust-version = "1.85"
+keywords = ["kakoune", "wasm", "plugin"]
+categories = ["development-tools::procedural-macro-helpers"]
+readme = "README.md"
 
 [lib]
 proc-macro = true

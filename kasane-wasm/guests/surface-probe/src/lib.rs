@@ -1,4 +1,4 @@
-kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+kasane_plugin_sdk::generate!();
 
 use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::element_builder;

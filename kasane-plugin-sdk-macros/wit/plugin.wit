@@ -1,0 +1,686 @@
+package kasane:plugin@0.6.0;
+
+interface types {
+    enum named-color {
+        black,
+        red,
+        green,
+        yellow,
+        blue,
+        magenta,
+        cyan,
+        white,
+        bright-black,
+        bright-red,
+        bright-green,
+        bright-yellow,
+        bright-blue,
+        bright-magenta,
+        bright-cyan,
+        bright-white,
+    }
+
+    record rgb-color {
+        r: u8,
+        g: u8,
+        b: u8,
+    }
+
+    variant color {
+        default-color,
+        named(named-color),
+        rgb(rgb-color),
+    }
+
+    /// Attribute bitflags as u16 (matches kasane-core Attributes layout).
+    type attribute-flags = u16;
+
+    record face {
+        fg: color,
+        bg: color,
+        underline: color,
+        attributes: attribute-flags,
+    }
+
+    /// A styled text fragment (face + content).
+    record atom {
+        face: face,
+        contents: string,
+    }
+
+    /// Line decoration with optional gutter elements and background.
+    record line-decoration {
+        left-gutter: option<element-handle>,
+        right-gutter: option<element-handle>,
+        background: option<face>,
+    }
+
+    /// Opaque handle to a host-side Element.
+    type element-handle = u32;
+
+    /// Commands that WASM plugins can return to the host.
+    variant command {
+        send-keys(list<string>),
+        paste,
+        quit,
+        request-redraw(u16),
+        set-config(config-entry),
+        schedule-timer(timer-config),
+        plugin-message(message-config),
+        spawn-process(spawn-process-config),
+        spawn-session(session-config),
+        close-session(option<string>),
+        write-to-process(write-process-config),
+        close-process-stdin(u64),
+        kill-process(u64),
+    }
+    record config-entry {
+        key: string,
+        value: string,
+    }
+    record timer-config {
+        delay-ms: u64,
+        target-plugin: string,
+        payload: list<u8>,
+    }
+    record message-config {
+        target-plugin: string,
+        payload: list<u8>,
+    }
+
+    record session-config {
+        key: option<string>,
+        session: option<string>,
+        args: list<string>,
+        activate: bool,
+    }
+
+    /// Interactive element ID for mouse hit testing.
+    type interactive-id = u32;
+
+    /// Modifier key bitflags (CTRL=1, ALT=2, SHIFT=4).
+    type modifier-flags = u8;
+
+    enum mouse-button { left, middle, right }
+
+    variant mouse-event-kind {
+        press(mouse-button),
+        release(mouse-button),
+        move-event,
+        drag(mouse-button),
+        scroll-up,
+        scroll-down,
+    }
+
+    record mouse-event {
+        kind: mouse-event-kind,
+        line: u32,
+        column: u32,
+        modifiers: modifier-flags,
+    }
+
+    variant key-code {
+        character(string),
+        backspace,
+        delete,
+        enter,
+        tab,
+        escape,
+        up,
+        down,
+        left-arrow,
+        right-arrow,
+        home,
+        end,
+        page-up,
+        page-down,
+        f-key(u8),
+    }
+
+    record key-event {
+        key: key-code,
+        modifiers: modifier-flags,
+    }
+
+    record coord {
+        line: s32,
+        column: s32,
+    }
+
+    record rect {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    }
+
+    variant overlay-anchor {
+        absolute(absolute-anchor),
+        anchor-point(anchor-point-config),
+    }
+    record absolute-anchor {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    }
+    record anchor-point-config {
+        coord: coord,
+        prefer-above: bool,
+        avoid: list<rect>,
+    }
+
+    record overlay {
+        element: element-handle,
+        anchor: overlay-anchor,
+    }
+
+    // --- Element builder types ---
+
+    enum border-line-style { single, rounded, double, heavy, ascii }
+
+    record edges {
+        top: u16,
+        right: u16,
+        bottom: u16,
+        left: u16,
+    }
+
+    variant grid-width {
+        fixed(u16),
+        flex-width(f32),
+        auto-width,
+    }
+
+    record flex-entry {
+        child: element-handle,
+        flex: f32,
+    }
+
+    enum layout-direction { row, column }
+
+    // --- v0.3.0: Decorator / Replacement / Menu types ---
+
+    /// Target for element decoration (wrapping).
+    variant decorate-target {
+        buffer,
+        status-bar,
+        menu,
+        info,
+        buffer-line(u32),
+    }
+
+    /// Target for component replacement.
+    enum replace-target {
+        menu-prompt,
+        menu-inline,
+        menu-search,
+        info-prompt,
+        info-modal,
+        status-bar,
+    }
+
+    // --- v0.5.0: Contribute / Transform / Annotate types ---
+
+    enum well-known-slot {
+        buffer-left,
+        buffer-right,
+        above-buffer,
+        below-buffer,
+        above-status,
+        status-left,
+        status-right,
+        overlay,
+    }
+
+    variant slot-id {
+        well-known(well-known-slot),
+        named(string),
+    }
+
+    enum slot-kind {
+        above-band,
+        below-band,
+        left-rail,
+        right-rail,
+        overlay,
+    }
+
+    record declared-slot {
+        name: string,
+        kind: slot-kind,
+    }
+
+    record surface-size-hint {
+        min-width: u16,
+        min-height: u16,
+        preferred-width: option<u16>,
+        preferred-height: option<u16>,
+        flex: f32,
+    }
+
+    enum split-direction { horizontal, vertical }
+
+    enum dock-position { left, right, bottom, panel }
+
+    record split-focused-placement {
+        direction: split-direction,
+        ratio: f32,
+    }
+
+    record split-from-placement {
+        target-surface-key: string,
+        direction: split-direction,
+        ratio: f32,
+    }
+
+    variant surface-placement {
+        split-focused(split-focused-placement),
+        split-from(split-from-placement),
+        tab,
+        tab-in(string),
+        dock(dock-position),
+        float(rect),
+    }
+
+    record surface-view-context {
+        rect: rect,
+        focused: bool,
+    }
+
+    record surface-event-context {
+        rect: rect,
+        focused: bool,
+    }
+
+    variant surface-event {
+        key(key-event),
+        mouse(mouse-event),
+        focus-gained,
+        focus-lost,
+        resize(rect),
+    }
+
+    record surface-descriptor {
+        surface-key: string,
+        size-hint: surface-size-hint,
+        declared-slots: list<declared-slot>,
+        initial-placement: option<surface-placement>,
+    }
+
+    record contribute-context {
+        min-width: u16,
+        max-width: option<u16>,
+        min-height: u16,
+        max-height: option<u16>,
+        visible-line-start: u32,
+        visible-line-end: u32,
+        screen-cols: u16,
+        screen-rows: u16,
+    }
+
+    variant contrib-size-hint {
+        auto,
+        fixed-size(u16),
+        flex-ratio(f32),
+    }
+
+    record contribution {
+        element: element-handle,
+        priority: s16,
+        size-hint: contrib-size-hint,
+    }
+
+    enum transform-target {
+        buffer,
+        buffer-line,
+        status-bar-t,
+        menu-t,
+        menu-prompt-t,
+        menu-inline-t,
+        menu-search-t,
+        info-t,
+        info-prompt-t,
+        info-modal-t,
+    }
+
+    record transform-context {
+        is-default: bool,
+        chain-position: u32,
+    }
+
+    record annotate-context {
+        line-width: u16,
+        gutter-width: u16,
+    }
+
+    record background-layer {
+        face: face,
+        z-order: s16,
+        blend-opaque: bool,
+    }
+
+    record line-annotation {
+        left-gutter: option<element-handle>,
+        right-gutter: option<element-handle>,
+        background: option<background-layer>,
+        /// Sort priority for gutter ordering (lower = first). Default: 0.
+        priority: s16,
+    }
+
+    record overlay-context {
+        screen-cols: u16,
+        screen-rows: u16,
+        menu-rect: option<rect>,
+        existing-overlays: list<rect>,
+    }
+
+    record overlay-contribution {
+        element: element-handle,
+        anchor: overlay-anchor,
+        z-index: s16,
+    }
+
+    // --- v0.5.0: WASI capability declaration ---
+
+    /// WASI capabilities a plugin may request.
+    enum capability {
+        filesystem,
+        environment,
+        monotonic-clock,
+        process,
+    }
+
+    // --- v0.6.0: Process I/O types ---
+
+    /// Whether stdin should be available for writing to a spawned process.
+    enum stdin-mode { null-stdin, piped }
+
+    /// Events from a spawned child process.
+    variant process-event-kind {
+        stdout(list<u8>),
+        stderr(list<u8>),
+        exited(s32),
+        spawn-failed(string),
+    }
+
+    record process-event {
+        job-id: u64,
+        kind: process-event-kind,
+    }
+
+    /// I/O event delivered to plugins.
+    variant io-event {
+        process(process-event),
+    }
+
+    record spawn-process-config {
+        job-id: u64,
+        program: string,
+        args: list<string>,
+        stdin-mode: stdin-mode,
+    }
+
+    record write-process-config {
+        job-id: u64,
+        data: list<u8>,
+    }
+}
+
+interface host-state {
+    use types.{face, atom, coord};
+
+    get-cursor-line: func() -> s32;
+    get-cursor-col: func() -> s32;
+    get-line-count: func() -> u32;
+    get-cols: func() -> u16;
+    get-rows: func() -> u16;
+    is-focused: func() -> bool;
+
+    // --- Buffer line access ---
+    get-line-text: func(line: u32) -> option<string>;
+    is-line-dirty: func(line: u32) -> bool;
+
+    // --- v0.3.0 Tier 1: Status bar state ---
+    get-status-prompt: func() -> list<atom>;
+    get-status-content: func() -> list<atom>;
+    get-status-line: func() -> list<atom>;
+    get-status-mode-line: func() -> list<atom>;
+    get-status-default-face: func() -> face;
+
+    // --- v0.3.0 Tier 2: Menu / Info state ---
+    has-menu: func() -> bool;
+    get-menu-item-count: func() -> u32;
+    get-menu-item: func(index: u32) -> option<list<atom>>;
+    get-menu-selected: func() -> s32;
+    has-info: func() -> bool;
+    get-info-count: func() -> u32;
+
+    // --- v0.3.0 Tier 3: General state ---
+    get-ui-option: func(key: string) -> option<string>;
+    get-cursor-mode: func() -> u8;
+    get-widget-columns: func() -> u16;
+    get-default-face: func() -> face;
+    get-padding-face: func() -> face;
+
+    // --- v0.4.0 Tier 4: Multi-cursor ---
+    get-cursor-count: func() -> u32;
+    get-secondary-cursor-count: func() -> u32;
+    get-secondary-cursor: func(index: u32) -> option<coord>;
+
+    // --- v0.4.0 Tier 5: Config ---
+    get-config-string: func(key: string) -> option<string>;
+
+    // --- v0.4.0 Tier 6: Info content ---
+    get-info-title: func(index: u32) -> option<list<atom>>;
+    get-info-content: func(index: u32) -> option<list<list<atom>>>;
+    get-info-style: func(index: u32) -> option<string>;
+    get-info-anchor: func(index: u32) -> option<coord>;
+
+    // --- v0.4.0 Tier 7: Menu details ---
+    get-menu-anchor: func() -> option<coord>;
+    get-menu-style: func() -> option<string>;
+    get-menu-face: func() -> option<face>;
+    get-menu-selected-face: func() -> option<face>;
+}
+
+/// Host-provided functions for building Element trees.
+/// Handles are valid only within the current plugin call scope.
+interface element-builder {
+    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction};
+
+    /// Create a text element with a direct face.
+    create-text: func(content: string, face: face) -> element-handle;
+
+    /// Create a styled line from a list of atoms.
+    create-styled-line: func(atoms: list<atom>) -> element-handle;
+
+    /// Create a vertical column of fixed-size children.
+    create-column: func(children: list<element-handle>) -> element-handle;
+
+    /// Create a horizontal row of fixed-size children.
+    create-row: func(children: list<element-handle>) -> element-handle;
+
+    /// Create an interactive wrapper element for mouse hit testing.
+    create-interactive: func(child: element-handle, id: interactive-id) -> element-handle;
+
+    /// Create a 2D grid layout.
+    create-grid: func(columns: list<grid-width>, children: list<element-handle>, col-gap: u16, row-gap: u16) -> element-handle;
+
+    /// Create a container with optional border, shadow, and padding.
+    create-container: func(child: element-handle, border: option<border-line-style>, shadow: bool, padding: edges) -> element-handle;
+
+    /// Create an empty element.
+    create-empty: func() -> element-handle;
+
+    /// Create a vertical flex layout with proportional children.
+    create-column-flex: func(children: list<flex-entry>, gap: u16) -> element-handle;
+
+    /// Create a horizontal flex layout with proportional children.
+    create-row-flex: func(children: list<flex-entry>, gap: u16) -> element-handle;
+
+    /// Create a slot placeholder for hosted surface expansion.
+    create-slot-placeholder: func(slot: slot-id, direction: layout-direction, gap: u16) -> element-handle;
+
+    // --- v0.3.0: Advanced element builders ---
+
+    /// Create a container with full styling (border, shadow, padding, face, title).
+    create-container-styled: func(child: element-handle, border: option<border-line-style>,
+        shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
+
+    /// Create a scrollable wrapper.
+    create-scrollable: func(child: element-handle, offset: u16, vertical: bool) -> element-handle;
+
+    /// Create a stack (base element + overlay layers).
+    create-stack: func(base: element-handle, overlays: list<overlay>) -> element-handle;
+
+    // --- v0.4.0: Custom border container ---
+
+    /// Create a container with custom border characters.
+    /// `border-chars` must have exactly 11 single-character strings:
+    /// [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow].
+    create-container-custom-border: func(child: element-handle, border-chars: list<string>,
+        shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
+}
+
+interface plugin-api {
+    use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
+               atom, decorate-target, replace-target,
+               slot-id, contribute-context, contribution, transform-target, transform-context,
+               annotate-context, line-annotation, overlay-context, overlay-contribution,
+               capability, io-event, surface-view-context, surface-event-context, surface-event,
+               surface-descriptor};
+
+    /// Unique plugin identifier.
+    get-id: func() -> string;
+
+    /// Lifecycle hooks — return commands to execute.
+    on-init: func() -> list<command>;
+    on-shutdown: func() -> list<command>;
+    on-state-changed: func(dirty-flags: u16) -> list<command>;
+
+    /// Static hosted surfaces exposed by this plugin.
+    /// Called during bootstrap preflight before `on-init`.
+    surfaces: func() -> list<surface-descriptor>;
+
+    /// Render a hosted surface's abstract Element tree for the given surface key.
+    render-surface: func(surface-key: string, ctx: surface-view-context) -> option<element-handle>;
+
+    /// Handle an event routed to a hosted surface.
+    handle-surface-event: func(surface-key: string, event: surface-event, ctx: surface-event-context) -> list<command>;
+
+    /// Notify a hosted surface that shared application state changed.
+    handle-surface-state-changed: func(surface-key: string, dirty-flags: u16) -> list<command>;
+
+    /// Line decoration (gutter elements + background).
+    contribute-line: func(line: u32) -> option<line-decoration>;
+
+    /// Contribute an Element to a named slot.
+    /// Slot indices: 0=BufferLeft, 1=BufferRight, 2=AboveBuffer,
+    /// 3=BelowBuffer, 4=AboveStatus, 5=StatusLeft, 6=StatusRight, 7=Overlay.
+    contribute: func(slot: u8) -> option<element-handle>;
+
+    /// Plugin state hash for view caching (L1).
+    state-hash: func() -> u64;
+
+    /// DirtyFlags dependencies for a given slot index (L3).
+    slot-deps: func(slot: u8) -> u16;
+
+    // --- Input handling ---
+
+    /// Handle a mouse event on an interactive element owned by this plugin.
+    /// Return Some(commands) to consume the event, None to pass through.
+    handle-mouse: func(event: mouse-event, id: interactive-id) -> option<list<command>>;
+
+    /// Handle a key event (first-wins among plugins).
+    /// Return Some(commands) to consume the event, None to pass through.
+    handle-key: func(event: key-event) -> option<list<command>>;
+
+    /// Observe a key event (notification only, cannot consume).
+    observe-key: func(event: key-event);
+
+    /// Observe a mouse event (notification only, cannot consume).
+    observe-mouse: func(event: mouse-event);
+
+    /// Contribute an overlay element with positioning.
+    contribute-overlay: func() -> option<overlay>;
+
+    // --- v0.3.0: Menu transformation ---
+
+    /// Transform a menu item before rendering. Return None for no change.
+    transform-menu-item: func(item: list<atom>, index: u32, selected: bool) -> option<list<atom>>;
+
+    // --- v0.3.0: Replacement ---
+
+    /// Replace a UI component entirely. Return None for no replacement.
+    replace: func(target: replace-target) -> option<element-handle>;
+
+    // --- v0.3.0: Decorator ---
+
+    /// Decorate (wrap) an existing element. The element-handle refers to the
+    /// original element injected into the arena at handle 0.
+    /// Return the (possibly wrapped) element handle.
+    decorate: func(target: decorate-target, element: element-handle) -> element-handle;
+
+    /// Priority for decorator ordering (lower = applied first). Default: 0.
+    decorator-priority: func() -> u32;
+
+    // --- v0.4.0: Cursor style override ---
+
+    /// Override cursor style. Return None to defer to default logic.
+    /// 0=Block, 1=Bar, 2=Underline, 3=Outline.
+    cursor-style-override: func() -> option<u8>;
+
+    // --- v0.4.0: Named slot contributions ---
+
+    /// Contribute an element to a custom named slot.
+    contribute-named: func(slot-name: string) -> option<element-handle>;
+
+    // --- v0.3.0: Inter-plugin messaging ---
+
+    /// Receive a message from another plugin (payload is opaque bytes).
+    update: func(payload: list<u8>) -> list<command>;
+
+    // --- v0.5.0: Contribute / Transform / Annotate ---
+
+    /// Contribute an element to a region with layout context.
+    contribute-to: func(region: slot-id, ctx: contribute-context) -> option<contribution>;
+
+    /// Transform an element for a given target (replaces decorate + replace).
+    transform-element: func(target: transform-target, element: element-handle, ctx: transform-context) -> element-handle;
+
+    /// Priority for transform chain ordering.
+    transform-priority: func() -> s16;
+
+    /// Annotate a buffer line (replaces contribute-line).
+    annotate-line: func(line: u32, ctx: annotate-context) -> option<line-annotation>;
+
+    /// Contribute an overlay with collision-avoidance context.
+    contribute-overlay-v2: func(ctx: overlay-context) -> option<overlay-contribution>;
+
+    /// DirtyFlags dependencies for contribute-to.
+    contribute-deps: func(region: slot-id) -> u16;
+
+    /// DirtyFlags dependencies for transform on a given target.
+    transform-deps: func(target: transform-target) -> u16;
+
+    /// DirtyFlags dependencies for annotate-line.
+    annotate-deps: func() -> u16;
+
+    // --- v0.5.0: WASI capability declaration ---
+
+    /// Declare WASI capabilities this plugin requires.
+    /// The host grants these unless denied by user configuration.
+    requested-capabilities: func() -> list<capability>;
+
+    // --- v0.6.0: I/O event handling ---
+
+    /// Handle an I/O event (process output, etc.). Return commands to execute.
+    on-io-event: func(event: io-event) -> list<command>;
+}
+
+world kasane-plugin {
+    import host-state;
+    import element-builder;
+    export plugin-api;
+}

@@ -4,7 +4,12 @@ version = "0.1.0"
 edition = "2024"
 description = "SDK for writing Kasane WASM plugins"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/Yus314/kasane"
+rust-version = "1.85"
+keywords = ["kakoune", "wasm", "plugin", "component-model"]
+categories = ["development-tools"]
+readme = "README.md"
 
 [dependencies]
 wit-bindgen = "0.41"
-kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros" }
+kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.1.0" }
