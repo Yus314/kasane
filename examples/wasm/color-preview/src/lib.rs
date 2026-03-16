@@ -352,62 +352,6 @@ impl Guest for ColorPreviewPlugin {
         })
     }
 
-    fn contribute_line(line: u32) -> Option<LineDecoration> {
-        STATE.with(|state| {
-            let state = state.borrow();
-            let cl = state.color_lines.get(&(line as usize))?;
-            let swatch = build_swatch(&cl.colors);
-            Some(LineDecoration {
-                left_gutter: Some(swatch),
-                right_gutter: None,
-                background: None,
-            })
-        })
-    }
-
-    fn contribute_overlay() -> Option<Overlay> {
-        STATE.with(|state| {
-            let state = state.borrow();
-            let line_idx = state.active_line as usize;
-            let cl = state.color_lines.get(&line_idx)?;
-
-            let entries: Vec<FlexEntry> = cl
-                .colors
-                .iter()
-                .enumerate()
-                .map(|(idx, entry)| {
-                    let grid = build_color_grid(entry, idx);
-                    FlexEntry { child: grid, flex: 0.0 }
-                })
-                .collect();
-
-            let inner = element_builder::create_column_flex(&entries, 1);
-
-            let padding = Edges { top: 0, right: 0, bottom: 0, left: 0 };
-            let container = element_builder::create_container(
-                inner,
-                Some(BorderLineStyle::Rounded),
-                false,
-                padding,
-            );
-
-            let cursor_line = host_state::get_cursor_line();
-            let cursor_col = host_state::get_cursor_col();
-
-            Some(Overlay {
-                element: container,
-                anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
-                    coord: Coord {
-                        line: cursor_line,
-                        column: cursor_col,
-                    },
-                    prefer_above: false,
-                    avoid: vec![],
-                }),
-            })
-        })
-    }
-
     fn handle_mouse(event: MouseEvent, id: InteractiveId) -> Option<Vec<Command>> {
         let (color_idx, channel, is_down) = decode_picker_id(id)?;
 
@@ -469,10 +413,6 @@ impl Guest for ColorPreviewPlugin {
             h = h.wrapping_mul(6364136223846793005).wrapping_add(state.active_line as u64);
             h
         })
-    }
-
-    fn slot_deps(_slot: u8) -> u16 {
-        0
     }
 
     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {

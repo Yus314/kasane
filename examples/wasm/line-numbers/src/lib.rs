@@ -4,7 +4,7 @@ use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::element_builder;
 use kasane::plugin::host_state;
 use kasane::plugin::types::*;
-use kasane_plugin_sdk::{dirty, plugin, slot};
+use kasane_plugin_sdk::{dirty, plugin};
 
 struct LineNumbersPlugin;
 
@@ -14,41 +14,8 @@ impl Guest for LineNumbersPlugin {
         "wasm_line_numbers".to_string()
     }
 
-    fn contribute(slot: u8) -> Option<ElementHandle> {
-        kasane_plugin_sdk::route_slots!(slot, {
-            slot::BUFFER_LEFT => {
-                let total = host_state::get_line_count();
-                if total == 0 {
-                    return None;
-                }
-
-                let width = digit_count(total).max(2) as usize;
-                let mut children = Vec::with_capacity(total as usize);
-                for i in 1..=total {
-                    let num = right_pad(i, width);
-                    let face = Face {
-                        fg: Color::Named(NamedColor::Cyan),
-                        bg: Color::DefaultColor,
-                        underline: Color::DefaultColor,
-                        attributes: 0,
-                    };
-                    let text_handle = element_builder::create_text(&num, face);
-                    children.push(text_handle);
-                }
-
-                Some(element_builder::create_column(&children))
-            },
-        })
-    }
-
     fn state_hash() -> u64 {
         host_state::get_line_count() as u64
-    }
-
-    fn slot_deps(slot: u8) -> u16 {
-        kasane_plugin_sdk::route_slot_deps!(slot, {
-            slot::BUFFER_LEFT => dirty::BUFFER,
-        })
     }
 
     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {

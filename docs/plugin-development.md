@@ -1,60 +1,54 @@
-# Kasane Plugin Development Guide: Declarative UI
+# Kasane Plugin Development Guide
 
-This document is the quickstart guide for writing Kasane plugins.
-For API details, see [plugin-api.md](./plugin-api.md). For composition order and correctness conditions, see [semantics.md](./semantics.md).
+Kasane plugins are WASM components distributed as single `.wasm` files.
+Place one in `~/.local/share/kasane/plugins/` and it loads at startup
+— sandboxed, composable, and automatically cached.
 
-## 1. Introduction
+Plugins describe *what* to display. The framework handles rendering,
+layout, and cache invalidation.
 
-### 1.1 Target Audience and Development Paths
+For API details, see [plugin-api.md](./plugin-api.md). For composition semantics, see [semantics.md](./semantics.md).
 
-There are two development paths for Kasane plugins.
+## What Plugins Can Do
 
-| | WASM (recommended) | Native |
-|---|---|---|
-| Safety | Runs inside a sandbox | Same address space as the host process |
-| Distribution | Place `.wasm` files in `plugins/` | Distribute as a custom binary |
-| API | Via WIT (`host-state` + `element-builder`) | Direct `&AppState` reference |
-| Dependencies | `kasane-plugin-sdk` + `wit-bindgen` | `kasane` + `kasane-core` |
-
-The WASM path is recommended for first-time plugin development. The native path is suited for cases that require full access to `&AppState` or need to use escape hatches that do not yet have WASM parity. With native, you can both directly implement the `Plugin` trait (state-externalized, recommended) and use proc macro assistance. For advanced use cases requiring `Surface`, `PaintHook`, or pane lifecycle, implement the `PluginBackend` trait instead.
-
-### 1.2 How to Read This Guide
-
-1. First, run the WASM example in `## 2. Quick Start` as-is
-2. Then look up the extension point you want to use in [plugin-api.md](./plugin-api.md)
-3. Only read [semantics.md](./semantics.md) when changing the semantics of `transform()` / `stable()` / cache
-
-> Note: Kasane is moving toward treating `display transformation` and `display unit` as first-class concepts, but the dedicated APIs are not yet complete. The current shared APIs are being incrementally validated through combinations of `contribute_to()`, `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, and `transform()`. `Surface` and `PaintHook` are native escape hatches, and will be redesigned toward WASM parity in the long term.
-
-### 1.3 Design Philosophy
-
-- Plugins describe "what to display"; the framework decides "how to render it"
-- Extensions offer progressive levels of freedom through `contribute_to()`, `annotate_line_with_ctx()`, `transform()`, etc.
-- Bold restructuring of the display is permitted as a future direction, but fabricating protocol truth is not allowed
-- Kasane is a UI foundation specifically for Kakoune; becoming a general-purpose UI framework is a non-goal
-
-### 1.4 What Plugins Can Achieve
-
-The following shows examples of what each mechanism can achieve.
-
-| Mechanism | Achievable Examples |
+| Mechanism | Examples |
 |---|---|
-| `contribute_to()` | Line numbers, selection cursor count badge, Git diff markers, breadcrumbs |
-| `annotate_line_with_ctx()` | Cursor line highlight, indent guides, changed line markers |
-| `contribute_overlay_with_ctx()` | Color picker, tooltips, diagnostic popups |
-| `transform()` | Status bar customization, menu layout changes |
-| `handle_key()` + `handle_mouse()` | Interactive UI (pickers, dialogs) |
-| `Surface` (currently native only) | Sidebars, file trees, dedicated panels |
+| `contribute_to()` | Line numbers, git markers, status bar widgets |
+| `annotate_line()` | Cursor line highlight, indent guides |
+| `contribute_overlay_v2()` | Color picker, tooltips, diagnostic popups |
+| `transform_element()` | Status bar customization, menu layout changes |
+| `handle_key()` + `handle_mouse()` | Interactive pickers, dialogs |
 
-Filesystem access is available through WASI capability declaration (`Capability::Filesystem`). External process execution (e.g., fuzzy finders) requires declaring `Capability::Process`, spawning a process with `Command::SpawnProcess`, and receiving stdout/stderr/exit via `Plugin::on_io_event()` (Phase P-2). For details, see [plugin-api.md §0](./plugin-api.md#0-scope-of-the-plugin-api).
+> Native plugins can also use `Surface` for sidebars and dedicated panels. See [Appendix A](#appendix-a-alternative-native-plugin).
 
-`Command::Session(SessionCommand::Spawn { .. })` / `Close { .. }` allows adding or terminating Kakoune sessions managed by the host runtime. Setting `activate: true` makes the new session immediately active, and all subsequent Kakoune events, surface events, and command execution operate on that session. In V1, Kakoune events from inactive sessions are still reflected in an off-screen snapshot, but only the active session is rendered; automatic surface generation for inactive sessions is not yet implemented.
+## Quick Start
 
-## 2. Quick Start
+### Project Setup
 
-### 2.1 WASM Plugin (Recommended)
+```toml
+# Cargo.toml
+[package]
+name = "sel-badge"
+version = "0.1.0"
+edition = "2024"
 
-The following is the complete source of a `sel-badge` plugin that displays the selection cursor count on the right side of the status bar.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kasane-plugin-sdk = { path = "../../kasane-plugin-sdk" }
+wit-bindgen = "0.41"
+```
+
+You also need the `wasm32-wasip2` target:
+
+```bash
+rustup target add wasm32-wasip2
+```
+
+### Full Example: sel-badge
+
+This plugin displays the selection count on the right side of the status bar when multiple cursors are active.
 
 ```rust
 // examples/wasm/sel-badge/src/lib.rs
@@ -66,7 +60,7 @@ use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::element_builder;
 use kasane::plugin::host_state;
 use kasane::plugin::types::*;
-use kasane_plugin_sdk::{dirty, slot};
+use kasane_plugin_sdk::{dirty, plugin};
 
 thread_local! {
     static CURSOR_COUNT: Cell<u32> = const { Cell::new(0) };
@@ -74,6 +68,7 @@ thread_local! {
 
 struct SelBadgePlugin;
 
+#[plugin]
 impl Guest for SelBadgePlugin {
     fn get_id() -> String {
         "sel_badge".to_string()
@@ -84,6 +79,10 @@ impl Guest for SelBadgePlugin {
             CURSOR_COUNT.set(host_state::get_cursor_count());
         }
         vec![]
+    }
+
+    fn state_hash() -> u64 {
+        CURSOR_COUNT.get() as u64
     }
 
     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
@@ -116,145 +115,115 @@ impl Guest for SelBadgePlugin {
             STATUS_RIGHT => dirty::BUFFER,
         })
     }
-
-    fn state_hash() -> u64 {
-        CURSOR_COUNT.get() as u64
-    }
-
-    // Legacy WIT stubs (still required by the interface)
-    kasane_plugin_sdk::default_contribute!();
-    kasane_plugin_sdk::default_line!();
-    kasane_plugin_sdk::default_overlay!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_named_slot!();
-
-    // Shared API defaults
-    kasane_plugin_sdk::default_init!();
-    kasane_plugin_sdk::default_shutdown!();
-    kasane_plugin_sdk::default_input!();
-    kasane_plugin_sdk::default_surfaces!();
-    kasane_plugin_sdk::default_render_surface!();
-    kasane_plugin_sdk::default_handle_surface_event!();
-    kasane_plugin_sdk::default_handle_surface_state_changed!();
-    kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_update!();
-    kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_transform!();
-    kasane_plugin_sdk::default_transform_priority!();
-    kasane_plugin_sdk::default_annotate!();
-    kasane_plugin_sdk::default_overlay_v2!();
-    kasane_plugin_sdk::default_transform_deps!();
-    kasane_plugin_sdk::default_annotate_deps!();
-    kasane_plugin_sdk::default_capabilities!();
 }
 
 export!(SelBadgePlugin);
 ```
 
-Commands returned by `handle_surface_event(...)` and `handle_surface_state_changed(...)` are passed to the host side with the surface owner plugin as the source. Capability checks for deferred commands such as `SpawnProcess` are also performed against this owner plugin, so the same permission model as regular plugin commands applies in hosted surface handlers.
+**Key points:**
 
-**Project Setup:**
+- **`#[plugin]`** fills in default implementations for all `Guest` methods you don't write. Without it, you would need to add `default_*!()` macro stubs for every unused method.
+- **`on_state_changed()`** is called when editor state changes. Cache data you need; the `dirty_flags` bitmask tells you what changed.
+- **`contribute_to()`** injects an element at a named slot. Use `route_slot_ids!` to match slot regions.
+- **`contribute_deps()`** declares which dirty flags affect your contribution (enables caching).
+- **`state_hash()`** returns a value that changes when your plugin's output would change. The framework uses this to skip redundant work.
 
-```toml
-# Cargo.toml
-[package]
-name = "sel-badge"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-kasane-plugin-sdk = { path = "../../kasane-plugin-sdk" }
-wit-bindgen = "0.41"
-```
-
-**Build & Deploy:**
+### Build & Deploy
 
 ```bash
 cargo build --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 ```
 
-### 2.2 Native Plugin (PluginBackend)
+The plugin loads automatically on the next `kasane` launch.
 
-> **Note:** For most native plugins, the `Plugin` trait (state-externalized, section 2.3) is recommended. Use `PluginBackend` only when you need `Surface`, `PaintHook`, pane lifecycle, or other advanced framework integration.
+## Testing
+
+Unit tests can be written using `PluginRegistry` directly.
 
 ```rust
-// examples/line-numbers/src/main.rs
-use kasane::kasane_core::plugin_prelude::*;
+#[test]
+fn my_plugin_contributes_gutter() {
+    let mut registry = PluginRegistry::new();
+    registry.register(MyPlugin);  // Plugin trait (state-externalized)
 
-struct LineNumbersPlugin;
+    let state = AppState::default();
+    let _ = registry.init_all(&state);
 
-impl PluginBackend for LineNumbersPlugin {
-    fn id(&self) -> PluginId {
-        PluginId("line_numbers".into())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        state: &AppState,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region != &SlotId::BUFFER_LEFT {
-            return None;
-        }
-
-        let total = state.lines.len();
-        let width = total.to_string().len().max(2);
-
-        let children: Vec<_> = (0..total)
-            .map(|i| {
-                let num = format!("{:>w$} ", i + 1, w = width);
-                FlexChild::fixed(Element::text(
-                    num,
-                    Face {
-                        fg: Color::Named(NamedColor::Cyan),
-                        ..Face::default()
-                    },
-                ))
-            })
-            .collect();
-
-        Some(Contribution {
-            element: Element::column(children),
-            priority: 0,
-            size_hint: ContribSizeHint::Auto,
-        })
-    }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
-    }
-}
-
-fn main() {
-    kasane::run(|registry| {
-        registry.register_backend(Box::new(LineNumbersPlugin));
-    });
+    let contributions = registry.collect_contributions(&SlotId::BUFFER_LEFT, &state);
+    assert_eq!(contributions.len(), 1);
 }
 ```
+
+For WASM integration tests, see `tools/wasm-test/` and `kasane-wasm/src/tests/`.
+
+## Registration and Distribution
+
+### Registration Order
+
+Kasane registers plugins in the following order:
+
+1. Example WASM (embedded in the binary)
+2. FS-discovered WASM (`~/.local/share/kasane/plugins/*.wasm`)
+3. Native plugins registered via `kasane::run(|registry| { ... })`
+
+An FS-discovered WASM plugin with the same ID can override an example plugin.
+
+### Distribution Methods
+
+- WASM: Place `.wasm` files in `~/.local/share/kasane/plugins/`
+- Native: Distribute as a custom binary using `kasane::run()`
+
+### Control via config.toml
 
 ```toml
-# Cargo.toml
-[dependencies]
-kasane = { path = "../kasane" }
-kasane-core = { path = "../kasane-core" }
+[plugins]
+enabled = ["cursor_line", "color_preview"]
+disabled = ["some_plugin"]
+
+# Per-plugin WASI capability denial
+[plugins.deny_capabilities]
+untrusted_plugin = ["filesystem", "environment"]
 ```
 
-Directly implement the `PluginBackend` trait and register the plugin with `kasane::run()` to distribute as a custom binary. Use `PluginCapabilities` to declare which features are used. The `#[kasane_plugin]` macro is convenient for supported hooks, but direct implementation is required for some features where hook parity is not yet complete.
+### WASI Capabilities
 
-### 2.3 Native Plugin (Recommended)
+WASM plugins can declare required WASI capabilities via `requested_capabilities()`.
+The host configures a WASI context per plugin based on the declarations.
 
-`Plugin` is the recommended model for native plugins. The framework owns the state; all methods are pure functions receiving state as a parameter and returning new state + effects.
+| Capability | Effect | Default |
+|---|---|---|
+| `Capability::Filesystem` | Preopens `data/` (plugin-specific, read/write) and `.` (CWD, read-only) | Disabled |
+| `Capability::Environment` | Inherits host environment variables | Disabled |
+| `Capability::MonotonicClock` | Access to a monotonic clock | Enabled |
+| `Capability::Process` | Spawn external processes | Disabled |
+
+```rust
+fn requested_capabilities() -> Vec<Capability> {
+    vec![Capability::Filesystem]
+}
+```
+
+Capabilities are granted upon declaration. Users can deny them via `deny_capabilities` in `config.toml`.
+
+Constraint: WASI capabilities are available from `on_init()` onward. They are not available during component initialization (`_initialize`).
+
+## Example Plugin List
+
+| Plugin | Path | Main Features |
+|---|---|---|
+| cursor-line | `examples/wasm/cursor-line/` | `annotate_line()`, `state_hash()` |
+| sel-badge | `examples/wasm/sel-badge/` | `contribute_to()` (`STATUS_RIGHT`) |
+| line-numbers | `examples/wasm/line-numbers/` | `contribute_to()` (`BUFFER_LEFT`) |
+| color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
+| fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
+| line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |
+
+## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
+
+For use cases that require full `&AppState` access, or features not yet available via WASM (such as `Surface` or `PaintHook`), you can write a native plugin. Native plugins are distributed as custom binaries.
+
+The `Plugin` trait (state-externalized) is the recommended native API. The framework owns the state; all methods are pure functions receiving state as a parameter and returning new state + effects.
 
 ```rust
 use kasane::kasane_core::plugin_prelude::*;
@@ -325,113 +294,81 @@ fn main() {
 }
 ```
 
-**Key differences from `PluginBackend`:**
+**Key differences from WASM:**
 
-| Aspect | `PluginBackend` (internal) | `Plugin` (recommended) |
+| Aspect | WASM | Native (`Plugin`) |
 |---|---|---|
-| State mutations | `&mut self` methods | `(&self, &State) → (State, effects)` |
-| State hash | Manual `state_hash()` | Automatic (framework compares via `PartialEq`) |
-| Registration | `registry.register_backend(Box::new(..))` | `registry.register(..)` |
-| State type | Implicit (fields on impl struct) | Explicit `type State` (must derive `Clone + PartialEq + Debug + Default`) |
+| Safety | Sandbox isolation | Same process as host |
+| Distribution | `.wasm` file placement | Custom binary |
+| State | Manual (`thread_local!` + `state_hash()`) | Automatic (`PartialEq` comparison) |
+| Registration | Auto-discovered or embedded | `registry.register(..)` in `kasane::run()` |
 
-## 3. Further Reading
+## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
-| Purpose | Document to Read |
-|---|---|
-| Understand the differences between `contribute_to`, `transform`, `annotate_line_with_ctx`, and `contribute_overlay_with_ctx` | [plugin-api.md](./plugin-api.md) |
-| Learn about the future direction of `display transformation` / `display unit` | [plugin-api.md](./plugin-api.md), [semantics.md](./semantics.md) |
-| Look up how to create an `Element` | [plugin-api.md](./plugin-api.md) |
-| Check `host-state`, input, and `Command` | [plugin-api.md](./plugin-api.md) |
-| Use `state_hash()`, `contribute_deps()`, or `PaintHook` | [plugin-api.md](./plugin-api.md) |
-| Use `Surface`, `Workspace`, or custom slots | [plugin-api.md](./plugin-api.md) |
-| Check composition order, `stable()`, and observational equivalence | [semantics.md](./semantics.md) |
-| Learn about dominant performance costs and measurement results | [performance.md](./performance.md) |
-
-## 4. Registration and Distribution
-
-### 4.1 Registration Order
-
-Kasane registers plugins in the following order:
-
-1. Example WASM (embedded in the binary)
-2. FS-discovered WASM (`~/.local/share/kasane/plugins/*.wasm`)
-3. Native plugins registered via `kasane::run(|registry| { ... })`
-
-An FS-discovered WASM plugin with the same ID can override an example plugin.
-
-### 4.2 Distribution Methods
-
-- WASM: Place `.wasm` files in `~/.local/share/kasane/plugins/`
-- Native: Distribute as a custom binary using `kasane::run()`
-
-### 4.3 Control via config.toml
-
-```toml
-[plugins]
-disabled = ["color_preview"]
-
-# Per-plugin WASI capability denial
-[plugins.deny_capabilities]
-untrusted_plugin = ["filesystem", "environment"]
-```
-
-### 4.4 WASI Capabilities
-
-WASM plugins can declare required WASI capabilities via `requested_capabilities()`.
-The host configures a WASI context per plugin based on the declarations.
-
-Available capabilities:
-
-| Capability | Effect | Default |
-|---|---|---|
-| `Capability::Filesystem` | Preopens `data/` (plugin-specific data directory, read/write) and `.` (CWD, read-only) | Disabled |
-| `Capability::Environment` | Inherits host environment variables | Disabled |
-| `Capability::MonotonicClock` | Access to a monotonic clock (enabled by default, but declaration enables auditing) | Enabled |
+`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface`, `PaintHook`, and pane lifecycle. Use this only when `Plugin` cannot express what you need.
 
 ```rust
-// Example of a plugin that needs filesystem access
-fn requested_capabilities() -> Vec<Capability> {
-    vec![Capability::Filesystem]
+use kasane::kasane_core::plugin_prelude::*;
+
+struct LineNumbersPlugin;
+
+impl PluginBackend for LineNumbersPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("line_numbers".into())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        state: &AppState,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if region != &SlotId::BUFFER_LEFT {
+            return None;
+        }
+
+        let total = state.lines.len();
+        let width = total.to_string().len().max(2);
+
+        let children: Vec<_> = (0..total)
+            .map(|i| {
+                let num = format!("{:>w$} ", i + 1, w = width);
+                FlexChild::fixed(Element::text(
+                    num,
+                    Face {
+                        fg: Color::Named(NamedColor::Cyan),
+                        ..Face::default()
+                    },
+                ))
+            })
+            .collect();
+
+        Some(Contribution {
+            element: Element::column(children),
+            priority: 0,
+            size_hint: ContribSizeHint::Auto,
+        })
+    }
+
+    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
+        DirtyFlags::BUFFER_CONTENT
+    }
+}
+
+fn main() {
+    kasane::run(|registry| {
+        registry.register_backend(Box::new(LineNumbersPlugin));
+    });
 }
 ```
 
-Capabilities are granted upon declaration. Users can deny them via `deny_capabilities` in `config.toml`.
+Register via `registry.register_backend(Box::new(..))`. See the `PluginBackend` trait in `kasane-core/src/plugin/traits.rs` for the full method list.
 
-Constraint: WASI capabilities are available from `on_init()` onward. They are not available during component initialization (`_initialize`).
-
-### 4.5 Testing
-
-Unit tests can be written using `PluginRegistry` directly.
-
-```rust
-#[test]
-fn my_plugin_contributes_gutter() {
-    let mut registry = PluginRegistry::new();
-    registry.register(MyPlugin);  // Plugin trait (state-externalized)
-    // or: registry.register_backend(Box::new(MyBackendPlugin));  // PluginBackend trait
-
-    let state = AppState::default();
-    let _ = registry.init_all(&state);
-
-    let contributions = registry.collect_contributions(&SlotId::BUFFER_LEFT, &state);
-    assert_eq!(contributions.len(), 1);
-}
-```
-
-## 5. Example Plugin List
-
-| Plugin | Path | Lines | Main Features |
-|---|---|---|---|
-| cursor-line (WASM) | `examples/wasm/cursor-line/` | 73 lines | `annotate_line_with_ctx()`, `state_hash()` |
-| sel-badge (WASM) | `examples/wasm/sel-badge/` | 111 lines | `contribute_to()` (`STATUS_RIGHT`) |
-| line-numbers (WASM) | `examples/wasm/line-numbers/` | 92 lines | `contribute_to()` (`BUFFER_LEFT`) |
-| color-preview (WASM) | `examples/wasm/color-preview/` | 641 lines | `annotate_line_with_ctx()`, `contribute_overlay_with_ctx()`, `handle_mouse()` |
-| fuzzy-finder (WASM) | `examples/wasm/fuzzy-finder/` | 620 lines | `contribute_overlay_with_ctx()`, `handle_key()`, `Command::SpawnProcess` |
-| line-numbers (native) | `examples/line-numbers/` | 57 lines | Direct `PluginBackend` trait implementation, `contribute_to()`, `kasane::run()` |
-| cursor-line-pure (test) | `kasane-core/src/plugin/pure.rs` | test double | `Plugin` implementation (state-externalized), `annotate_line_with_ctx()`, automatic state tracking |
-| color-preview-pure (test) | `kasane-core/src/plugin/pure.rs` | test double | `Plugin` with complex `HashMap` state |
-
-## 6. Appendix: WASM vs Native Comparison
+## Appendix C: WASM vs Native Comparison {#appendix-c-wasm-vs-native-comparison}
 
 | Aspect | WASM | Native (`Plugin`, recommended) | Native (`PluginBackend`, internal) |
 |---|---|---|---|
@@ -439,16 +376,17 @@ fn my_plugin_contributes_gutter() {
 | Performance | WASM boundary crossing cost | Direct function calls | Direct function calls |
 | API access | `host-state` + `element-builder` | Direct `&AppState` + `&State` | Direct `&AppState` reference |
 | Distribution | `.wasm` file placement | Custom binary | Custom binary |
-| Developer experience | SDK macros + `wit-bindgen` | Derive `Clone + PartialEq + Debug + Default` on state | `#[kasane::plugin]` macro |
+| Developer experience | `#[plugin]` macro + `wit-bindgen` | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
 | `Surface` / `PaintHook` | Not supported | Not supported (use `PluginBackend`) | Supported |
 | State model | Mutable (guest linear memory) | Externalized (framework-owned, pure functions) | Mutable (`&mut self`) |
 | Cache invalidation | Manual `state_hash()` | Automatic (`PartialEq` comparison) | Manual `state_hash()` |
-| Salsa compatibility | Not directly | Future path to Salsa memoization | Not directly |
 | Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` | `Box<dyn Any>` |
 
-## 7. Related Documents
+> Earlier WIT versions (v0.3) used `contribute()`, `contribute_line()`, and `contribute_overlay()`. These are superseded by the current API. Legacy stubs are generated automatically by `#[plugin]`.
 
-- [plugin-api.md](./plugin-api.md) — API details
+## Related Documents
+
+- [plugin-api.md](./plugin-api.md) — API reference
 - [semantics.md](./semantics.md) — Composition order and correctness conditions
 - [repo-layout.md](./repo-layout.md) — Code locations
 - [index.md](./index.md) — Entry point for all docs

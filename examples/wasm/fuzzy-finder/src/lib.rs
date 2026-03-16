@@ -367,10 +367,6 @@ impl Guest for FuzzyFinderPlugin {
         })
     }
 
-    fn slot_deps(_slot: u8) -> u16 {
-        0
-    }
-
     fn handle_key(event: KeyEvent) -> Option<Vec<Command>> {
         STATE.with(|s| {
             let mut state = s.borrow_mut();
@@ -589,10 +585,6 @@ impl Guest for FuzzyFinderPlugin {
             let state = s.borrow();
             build_overlay(&state, &ctx)
         })
-    }
-
-    fn contribute_overlay() -> Option<Overlay> {
-        None
     }
 
 }

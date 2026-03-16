@@ -6,7 +6,7 @@ use exports::kasane::plugin::plugin_api::Guest;
 use kasane::plugin::element_builder;
 use kasane::plugin::host_state;
 use kasane::plugin::types::*;
-use kasane_plugin_sdk::{dirty, plugin, slot};
+use kasane_plugin_sdk::{dirty, plugin};
 
 thread_local! {
     static CURSOR_COUNT: Cell<u32> = const { Cell::new(0) };
@@ -27,34 +27,8 @@ impl Guest for SelBadgePlugin {
         vec![]
     }
 
-    fn contribute(s: u8) -> Option<ElementHandle> {
-        kasane_plugin_sdk::route_slots!(s, {
-            slot::STATUS_RIGHT => {
-                let count = CURSOR_COUNT.get();
-                if count > 1 {
-                    let text = format!(" {} sel ", count);
-                    let face = Face {
-                        fg: Color::DefaultColor,
-                        bg: Color::DefaultColor,
-                        underline: Color::DefaultColor,
-                        attributes: 0,
-                    };
-                    Some(element_builder::create_text(&text, face))
-                } else {
-                    None
-                }
-            },
-        })
-    }
-
     fn state_hash() -> u64 {
         CURSOR_COUNT.get() as u64
-    }
-
-    fn slot_deps(s: u8) -> u16 {
-        kasane_plugin_sdk::route_slot_deps!(s, {
-            slot::STATUS_RIGHT => dirty::BUFFER,
-        })
     }
 
     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {

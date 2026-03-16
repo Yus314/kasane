@@ -93,7 +93,7 @@ External crates can create plugins using `kasane_core::plugin_prelude` and regis
 ## Conventions
 
 - **Commit messages**: English, conventional commits (`feat(scope):`, `fix:`, `refactor:`, `perf:`, `docs:`)
-- **Documentation**: `docs/` directory (requirements, architecture, ADRs, roadmap) — currently in Japanese, being migrated to English
+- **Documentation**: `docs/` directory (requirements, architecture, ADRs, roadmap) — in English
 - **Rust edition**: 2024
 - **Dev environment**: Nix flake + direnv (provides Rust toolchain, GUI deps, pre-commit hooks)
 - **Performance**: ~49 μs CPU per frame at 80×24 (~21 μs with line-dirty optimization). TUI backend I/O: ~58 μs at 80×24 (ADR-015 draw_grid). Benchmarks tracked in CI with 115% alert threshold

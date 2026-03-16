@@ -27,34 +27,8 @@ impl Guest for CursorLinePlugin {
         vec![]
     }
 
-    fn contribute_line(line: u32) -> Option<LineDecoration> {
-        let active = ACTIVE_LINE.get();
-        if line as i32 == active {
-            Some(LineDecoration {
-                left_gutter: None,
-                right_gutter: None,
-                background: Some(Face {
-                    fg: Color::DefaultColor,
-                    bg: Color::Rgb(RgbColor {
-                        r: 40,
-                        g: 40,
-                        b: 50,
-                    }),
-                    underline: Color::DefaultColor,
-                    attributes: 0,
-                }),
-            })
-        } else {
-            None
-        }
-    }
-
     fn state_hash() -> u64 {
         ACTIVE_LINE.get() as u64
-    }
-
-    fn slot_deps(_slot: u8) -> u16 {
-        0
     }
 
     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
