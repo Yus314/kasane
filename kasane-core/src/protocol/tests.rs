@@ -104,6 +104,38 @@ fn test_parse_draw_with_rgb_faces() {
 }
 
 #[test]
+fn test_color_rgba_strips_alpha() {
+    let c: Color = serde_json::from_str(r#""rgba:46465080""#).unwrap();
+    assert_eq!(
+        c,
+        Color::Rgb {
+            r: 0x46,
+            g: 0x46,
+            b: 0x50
+        }
+    );
+}
+
+#[test]
+fn test_color_rgba_fully_opaque() {
+    let c: Color = serde_json::from_str(r#""rgba:ff00abff""#).unwrap();
+    assert_eq!(
+        c,
+        Color::Rgb {
+            r: 255,
+            g: 0,
+            b: 171
+        }
+    );
+}
+
+#[test]
+fn test_color_rgba_invalid_length() {
+    let result: Result<Color, _> = serde_json::from_str(r#""rgba:ff00ab""#);
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_color_invalid() {
     let result: Result<Color, _> = serde_json::from_str(r#""nope""#);
     assert!(result.is_err());
@@ -469,6 +501,30 @@ fn test_color_roundtrip() {
         let json = serde_json::to_string(&c).unwrap();
         let parsed: Color = serde_json::from_str(&json).unwrap();
         assert_eq!(c, parsed);
+    }
+}
+
+#[test]
+fn test_parse_draw_with_rgba_selection_face() {
+    // Simulates third-party themes (e.g. anhsirk0/kakoune-themes) that use
+    // rgba:RRGGBBAA for PrimarySelection/SecondarySelection backgrounds.
+    let json = r#"{"jsonrpc":"2.0","method":"draw","params":[[
+        [{"face":{"fg":"rgb:abb2bf","bg":"rgba:46465080","underline":"default","attributes":[]},"contents":"hello"}]
+    ],{"line":0,"column":0},{"fg":"rgb:abb2bf","bg":"default","underline":"default","attributes":[]},{"fg":"rgb:5c6370","bg":"default","underline":"default","attributes":[]},0]}"#;
+    let mut buf = json.as_bytes().to_vec();
+    let req = parse_request(&mut buf).unwrap();
+    match req {
+        KakouneRequest::Draw { lines, .. } => {
+            assert_eq!(
+                lines[0][0].face.bg,
+                Color::Rgb {
+                    r: 0x46,
+                    g: 0x46,
+                    b: 0x50
+                }
+            );
+        }
+        _ => panic!("expected Draw"),
     }
 }
 

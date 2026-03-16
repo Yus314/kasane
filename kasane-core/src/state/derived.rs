@@ -7,44 +7,129 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::protocol::{Atom, Attributes, Coord, CursorMode, Face, Line};
+use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, Line};
 use crate::render::CursorStyle;
 
-/// Heuristic: scan atoms for `FINAL_FG + REVERSE` attribute pattern to detect
-/// all cursor positions (primary + secondary).
+/// Detect all cursor positions (primary + secondary) from draw atoms.
 ///
 /// Returns `(cursor_count, secondary_cursors)` where `secondary_cursors`
 /// excludes the primary cursor at `primary_cursor_pos`.
 ///
-/// This relies on Kakoune's internal rendering of multi-cursor selections
-/// (not part of the protocol specification).
+/// Uses two strategies:
+/// 1. **Attribute heuristic**: scan for `FINAL_FG + REVERSE` (Kakoune's default
+///    PrimaryCursor face uses `+rfg`).
+/// 2. **Face-matching fallback**: if (1) finds nothing, identify the face at
+///    `primary_cursor_pos` and scan for atoms with the same foreground color
+///    (covers third-party themes that omit `+rfg` from cursor faces).
 pub fn detect_cursors(lines: &[Line], primary_cursor_pos: Coord) -> (usize, Vec<Coord>) {
-    let mut all_cursors: Vec<Coord> = Vec::new();
-    for (line_idx, line) in lines.iter().enumerate() {
-        let mut col: u32 = 0;
-        for atom in line.iter() {
-            let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
-                && atom.face.attributes.contains(Attributes::REVERSE);
-            if is_cursor {
-                all_cursors.push(Coord {
-                    line: line_idx as i32,
-                    column: col as i32,
-                });
-            }
-            for grapheme in atom.contents.as_str().graphemes(true) {
-                if grapheme.starts_with(|c: char| c.is_control()) {
-                    continue;
-                }
-                col += UnicodeWidthStr::width(grapheme) as u32;
-            }
-        }
+    let all_cursors = detect_cursors_by_attributes(lines);
+    if !all_cursors.is_empty() {
+        let cursor_count = all_cursors.len();
+        let secondary_cursors = all_cursors
+            .into_iter()
+            .filter(|c| *c != primary_cursor_pos)
+            .collect();
+        return (cursor_count, secondary_cursors);
     }
+
+    // Fallback: use the face at primary_cursor_pos as a template to find
+    // secondary cursors.  Third-party themes typically set PrimaryCursor and
+    // SecondaryCursor with the same fg but different bg; matching on fg
+    // catches both.
+    let all_cursors = detect_cursors_by_face(lines, primary_cursor_pos);
     let cursor_count = all_cursors.len();
     let secondary_cursors = all_cursors
         .into_iter()
         .filter(|c| *c != primary_cursor_pos)
         .collect();
     (cursor_count, secondary_cursors)
+}
+
+/// Scan atoms for the traditional `FINAL_FG + REVERSE` attribute pattern.
+fn detect_cursors_by_attributes(lines: &[Line]) -> Vec<Coord> {
+    let mut cursors = Vec::new();
+    for (line_idx, line) in lines.iter().enumerate() {
+        let mut col: u32 = 0;
+        for atom in line.iter() {
+            let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
+                && atom.face.attributes.contains(Attributes::REVERSE);
+            if is_cursor {
+                cursors.push(Coord {
+                    line: line_idx as i32,
+                    column: col as i32,
+                });
+            }
+            col += atom_display_width(atom);
+        }
+    }
+    cursors
+}
+
+/// Find the face at a given coordinate, then scan for atoms with matching fg.
+fn detect_cursors_by_face(lines: &[Line], primary_pos: Coord) -> Vec<Coord> {
+    let primary_face = match face_at_coord(lines, primary_pos) {
+        Some(f) => f,
+        None => return vec![],
+    };
+
+    // Only use fallback if the primary cursor has a distinctive face
+    // (explicit fg — not Default).
+    if primary_face.fg == Color::Default {
+        return vec![primary_pos];
+    }
+
+    let mut cursors = Vec::new();
+    for (line_idx, line) in lines.iter().enumerate() {
+        let mut col: u32 = 0;
+        for atom in line.iter() {
+            if atom.face.fg == primary_face.fg && atom.face.bg != Color::Default {
+                cursors.push(Coord {
+                    line: line_idx as i32,
+                    column: col as i32,
+                });
+            }
+            col += atom_display_width(atom);
+        }
+    }
+
+    // If matching found too many positions (>64), the heuristic is unreliable;
+    // fall back to just the primary cursor.
+    if cursors.len() > 64 {
+        return vec![primary_pos];
+    }
+
+    if cursors.is_empty() {
+        vec![primary_pos]
+    } else {
+        cursors
+    }
+}
+
+/// Look up the face of the atom at a given (line, column) coordinate.
+fn face_at_coord(lines: &[Line], pos: Coord) -> Option<Face> {
+    let line = lines.get(pos.line as usize)?;
+    let target_col = pos.column as u32;
+    let mut col: u32 = 0;
+    for atom in line.iter() {
+        let width = atom_display_width(atom);
+        if col <= target_col && target_col < col + width.max(1) {
+            return Some(atom.face);
+        }
+        col += width;
+    }
+    None
+}
+
+/// Compute the display width of an atom's contents.
+fn atom_display_width(atom: &Atom) -> u32 {
+    let mut width: u32 = 0;
+    for grapheme in atom.contents.as_str().graphemes(true) {
+        if grapheme.starts_with(|c: char| c.is_control()) {
+            continue;
+        }
+        width += UnicodeWidthStr::width(grapheme) as u32;
+    }
+    width
 }
 
 /// Compute per-line dirty flags by comparing old and new line data.
@@ -195,6 +280,81 @@ mod tests {
         let (count, secondary) = detect_cursors(&lines, primary);
         assert_eq!(count, 1);
         assert!(secondary.is_empty());
+    }
+
+    // --- detect_cursors face-matching fallback tests ---
+
+    /// Helper: create an atom with an explicit fg+bg face (no REVERSE/FINAL_FG),
+    /// mimicking third-party themes like anhsirk0/kakoune-themes.
+    fn make_themed_cursor_atom(text: &str, fg: Color, bg: Color) -> Atom {
+        Atom {
+            face: Face {
+                fg,
+                bg,
+                ..Face::default()
+            },
+            contents: text.into(),
+        }
+    }
+
+    #[test]
+    fn detect_cursors_fallback_single_primary() {
+        // Theme: PrimaryCursor = dark,purple (no +rfg)
+        let dark = Color::Rgb {
+            r: 0x1e,
+            g: 0x21,
+            b: 0x27,
+        };
+        let purple = Color::Rgb {
+            r: 0xc6,
+            g: 0x78,
+            b: 0xdd,
+        };
+        let lines = vec![vec![
+            make_atom("hel"),
+            make_themed_cursor_atom("l", dark, purple),
+            make_atom("o"),
+        ]];
+        let primary = Coord { line: 0, column: 3 };
+        let (count, secondary) = detect_cursors(&lines, primary);
+        assert_eq!(count, 1);
+        assert!(secondary.is_empty());
+    }
+
+    #[test]
+    fn detect_cursors_fallback_with_secondary() {
+        // PrimaryCursor = dark,purple; SecondaryCursor = dark,blue
+        let dark = Color::Rgb {
+            r: 0x1e,
+            g: 0x21,
+            b: 0x27,
+        };
+        let purple = Color::Rgb {
+            r: 0xc6,
+            g: 0x78,
+            b: 0xdd,
+        };
+        let blue = Color::Rgb {
+            r: 0x61,
+            g: 0xaf,
+            b: 0xef,
+        };
+        let lines = vec![
+            vec![
+                make_themed_cursor_atom("h", dark, purple),
+                make_atom("ello"),
+            ],
+            vec![
+                make_atom("wor"),
+                make_themed_cursor_atom("l", dark, blue),
+                make_atom("d"),
+            ],
+        ];
+        let primary = Coord { line: 0, column: 0 };
+        let (count, secondary) = detect_cursors(&lines, primary);
+        assert_eq!(count, 2);
+        assert_eq!(secondary.len(), 1);
+        assert_eq!(secondary[0], Coord { line: 1, column: 3 });
     }
 
     // --- compute_lines_dirty tests ---

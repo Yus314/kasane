@@ -142,6 +142,19 @@ fn parse_color(s: &str) -> Option<Color> {
     if s == "default" {
         return Some(Color::Default);
     }
+    // Kakoune sends "rgba:RRGGBBAA" for colors with alpha (e.g. selection faces
+    // in third-party themes).  Terminal emulators don't support alpha, so we
+    // strip the alpha channel and treat the color as opaque RGB.
+    if let Some(hex) = s.strip_prefix("rgba:") {
+        if hex.len() == 8 {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            // alpha (&hex[6..8]) intentionally ignored
+            return Some(Color::Rgb { r, g, b });
+        }
+        return None;
+    }
     // Kakoune sends "rgb:RRGGBB", also accept "#RRGGBB" for compatibility
     let hex = s.strip_prefix("rgb:").or_else(|| s.strip_prefix('#'));
     if let Some(hex) = hex {
