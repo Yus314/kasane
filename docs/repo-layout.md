@@ -19,6 +19,7 @@ kasane/
 ├── kasane/
 ├── kasane-wasm/
 ├── kasane-plugin-sdk/
+├── kasane-plugin-sdk-macros/
 ├── kasane-wasm-bench/
 ├── examples/
 │   ├── line-numbers/        # Native plugin example
@@ -27,7 +28,8 @@ kasane/
 │       ├── color-preview/
 │       ├── sel-badge/
 │       ├── fuzzy-finder/
-│       └── prompt-highlight/
+│       ├── prompt-highlight/
+│       └── session-ui/
 └── tools/
     └── wasm-test/           # WASM integration test binary
 ```
@@ -43,6 +45,7 @@ kasane/
 | `kasane` | Main binary, CLI, process management, backend selection, `kasane plugin` subcommand |
 | `kasane-wasm` | WASM plugin runtime, WIT host adapter |
 | `kasane-plugin-sdk` | SDK for WASM guests |
+| `kasane-plugin-sdk-macros` | Proc macros for WASM SDK (`define_plugin!`) |
 | `kasane-wasm-bench` | WASM benchmark harness |
 
 ## 3. Source Tree Guide
@@ -224,6 +227,8 @@ kasane/src/
     ├── build.rs
     ├── install.rs
     ├── list.rs
+    ├── doctor.rs
+    ├── dev.rs
     └── templates.rs
 ```
 
@@ -233,7 +238,7 @@ kasane/src/
 | `main.rs` | Default binary |
 | `cli.rs` | CLI arguments and `PluginSubcommand` parser |
 | `process.rs` | Kakoune child process management |
-| `plugin_cmd/` | `kasane plugin` subcommand handlers (new, build, install, list) and embedded templates |
+| `plugin_cmd/` | `kasane plugin` subcommand handlers (new, build, install, list, doctor, dev) and embedded templates |
 
 ### 3.6 `kasane-wasm/`
 

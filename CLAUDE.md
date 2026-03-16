@@ -43,8 +43,9 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-macros/` | Proc macros — `#[kasane::plugin]` and `#[kasane::component]` |
 | `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, pre-built example plugins (`bundled/`) |
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros |
+| `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
-| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, prompt-highlight |
+| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, prompt-highlight, session-ui |
 | `examples/line-numbers/` | Native plugin example — direct `PluginBackend` trait implementation |
 | `tools/wasm-test/` | WASM integration test binary |
 

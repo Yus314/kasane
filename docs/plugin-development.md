@@ -17,6 +17,7 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 | `annotate_line()` | Cursor line highlight, indent guides |
 | `contribute_overlay_v2()` | Color picker, tooltips, diagnostic popups |
 | `transform_element()` | Status bar customization, menu layout changes |
+| `display_directives()` | Code folding, line hiding, virtual text insertion |
 | `handle_key()` + `handle_mouse()` | Interactive pickers, dialogs |
 
 > Native plugins can also use `Surface` for sidebars and dedicated panels. See [Appendix A](#appendix-a-alternative-native-plugin).
@@ -31,6 +32,8 @@ The fastest way to create a new plugin project is with `kasane plugin new`:
 kasane plugin new my-plugin                         # Default (contribution template)
 kasane plugin new my-highlighter --template annotation   # Line annotation template
 kasane plugin new my-transform --template transform      # Element transform template
+kasane plugin new my-overlay --template overlay           # Interactive overlay template
+kasane plugin new my-runner --template process            # Process launcher template
 ```
 
 This generates a ready-to-build project with `Cargo.toml`, `src/lib.rs`, and `.gitignore`. You also need the `wasm32-wasip2` target (the command will remind you if it's missing):
@@ -94,29 +97,13 @@ impl Guest for SelBadgePlugin {
         CURSOR_COUNT.get() as u64
     }
 
-    fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
-        kasane_plugin_sdk::route_slot_ids!(region, {
-            STATUS_RIGHT => {
-                let count = CURSOR_COUNT.get();
-                if count > 1 {
-                    let text = format!(" {} sel ", count);
-                    let el = element_builder::create_text(&text, default_face());
-                    Some(Contribution {
-                        element: el,
-                        priority: 0,
-                        size_hint: ContribSizeHint::Auto,
-                    })
-                } else {
-                    None
-                }
-            },
-        })
-    }
-
-    fn contribute_deps(region: SlotId) -> u16 {
-        kasane_plugin_sdk::route_slot_id_deps!(region, {
-            STATUS_RIGHT => dirty::BUFFER,
-        })
+    kasane_plugin_sdk::slots! {
+        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+            let count = CURSOR_COUNT.get();
+            (count > 1).then(|| {
+                auto_contribution(text(&format!(" {} sel ", count), default_face()))
+            })
+        },
     }
 }
 
@@ -128,23 +115,72 @@ export!(SelBadgePlugin);
 - **`generate!()`** emits WIT bindings and auto-imports common types (`Guest`, `host_state`, `element_builder`, `types::*`) plus SDK helpers (`default_face()`, `rgb()`, `face_bg()`, etc.).
 - **`#[plugin]`** fills in default implementations for all `Guest` methods you don't write. Without it, you would need to add `default_*!()` macro stubs for every unused method.
 - **`on_state_changed()`** is called when editor state changes. Cache data you need; the `dirty_flags` bitmask tells you what changed.
-- **`contribute_to()`** injects an element at a named slot. Use `route_slot_ids!` to match slot regions.
-- **`contribute_deps()`** declares which dirty flags affect your contribution (enables caching). The default is `ALL` (always recalculate).
+- **`slots!{}`** declares slot contributions with dependency tracking. Each entry maps a `SlotId` to a closure that returns `Option<Contribution>`, with dirty flag dependencies for caching. For manual routing, `route_slot_ids!` is also available.
 - **`state_hash()`** returns a value that changes when your plugin's output would change. The framework uses this to skip redundant work.
+
+### Plugin Profiles
+
+| Profile | Implement | Template | Example |
+|---|---|---|---|
+| Status widget | `get_id`, `on_state_changed`, `state_hash`, `slots!{}` | `contribution` | sel-badge |
+| Line annotator | `get_id`, `on_state_changed`, `state_hash`, `annotate_line`, `annotate_deps` | `annotation` | cursor-line |
+| Element transformer | `get_id`, `on_state_changed`, `state_hash`, `transform_element`, `transform_deps` | `transform` | prompt-highlight |
+| Display transform | `get_id`, `on_state_changed`, `state_hash`, `display_directives`, `display_directives_deps` | — | — |
+| Interactive overlay | `get_id`, `handle_key`, `state_hash`, `contribute_overlay_v2` | `overlay` | session-ui |
+| Process launcher | Above + `on_io_event`, `requested_capabilities` | `process` | fuzzy-finder |
+
+### `define_plugin!` — All-in-One Macro
+
+For simple plugins, `define_plugin!` combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro:
+
+```rust
+kasane_plugin_sdk::define_plugin! {
+    id: "sel_badge",
+
+    state {
+        cursor_count: u32 = 0,
+    },
+
+    on_state_changed(dirty) {
+        if dirty & dirty::BUFFER != 0 {
+            state.cursor_count = host_state::get_cursor_count();
+        }
+    },
+
+    slots {
+        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+            let count = state.cursor_count;
+            (count > 1).then(|| {
+                auto_contribution(text(&format!(" {} sel ", count), default_face()))
+            })
+        },
+    },
+}
+```
+
+This expands to all four boilerplate steps (`generate!()` + `state!` + `#[plugin] impl Guest` + `export!()`). All sections are optional — omitted methods get default implementations.
+
+Available sections: `id`, `state`, `on_init`, `on_state_changed`, `slots`, `annotate`, `annotate_deps`, `transform`, `transform_deps`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
+
+> The explicit `generate!()` + `#[plugin]` + `export!()` pattern shown in the [Full Example](#full-example-sel-badge) above remains fully supported and gives you more control over state management.
 
 ### Build & Deploy
 
 ```bash
 kasane plugin build              # Build for wasm32-wasip2
 kasane plugin install            # Build, validate, and install to plugins directory
+kasane plugin dev [path]         # Build, install, and watch for changes (hot-reload)
 ```
 
 `kasane plugin install` copies the `.wasm` to `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`). The plugin loads automatically on the next `kasane` launch.
 
-To see installed plugins:
+`kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
+
+To see installed plugins or diagnose environment issues:
 
 ```bash
-kasane plugin list
+kasane plugin list               # List installed plugins
+kasane plugin doctor             # Check toolchain, SDK version, and plugin health
 ```
 
 <details>

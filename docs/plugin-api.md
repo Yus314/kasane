@@ -582,10 +582,11 @@ WASM plugins are sandboxed by default. The host constructs WASM instances withou
 | `WORKSPACE_OBSERVER` | `on_workspace_changed()` |
 | `PAINT_HOOK` | `paint_hooks()` |
 | `IO_HANDLER` | `on_io_event()` |
+| `DISPLAY_TRANSFORM` | `display_directives()` |
 
 The default for native plugins is `all()`, and the WASM adapter is configured from WIT call results.
 
-`PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, and `PAINT_HOOK` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
+`PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, `PAINT_HOOK`, and `DISPLAY_TRANSFORM` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
 
 ### 4.2 State hash and dependency tracking
 
@@ -595,6 +596,7 @@ Plugin contribution results are primarily cached through the following mechanism
 - `contribute_deps(region)`: `DirtyFlags` that the specified region depends on
 - `transform_deps(target)`: `DirtyFlags` that the transform depends on
 - `annotate_deps()`: `DirtyFlags` that line annotation depends on
+- `display_directives_deps()`: `DirtyFlags` that display directives depend on
 
 ```rust
 // WASM
