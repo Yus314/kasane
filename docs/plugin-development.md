@@ -25,6 +25,23 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 
 ### Project Setup
 
+The fastest way to create a new plugin project is with `kasane plugin new`:
+
+```bash
+kasane plugin new my-plugin                         # Default (contribution template)
+kasane plugin new my-highlighter --template annotation   # Line annotation template
+kasane plugin new my-transform --template transform      # Element transform template
+```
+
+This generates a ready-to-build project with `Cargo.toml`, `src/lib.rs`, and `.gitignore`. You also need the `wasm32-wasip2` target (the command will remind you if it's missing):
+
+```bash
+rustup target add wasm32-wasip2
+```
+
+<details>
+<summary>Manual setup (without <code>kasane plugin new</code>)</summary>
+
 ```toml
 # Cargo.toml
 [package]
@@ -40,11 +57,7 @@ kasane-plugin-sdk = "0.1"
 wit-bindgen = "0.41"
 ```
 
-You also need the `wasm32-wasip2` target:
-
-```bash
-rustup target add wasm32-wasip2
-```
+</details>
 
 ### Full Example: sel-badge
 
@@ -122,11 +135,27 @@ export!(SelBadgePlugin);
 ### Build & Deploy
 
 ```bash
+kasane plugin build              # Build for wasm32-wasip2
+kasane plugin install            # Build, validate, and install to plugins directory
+```
+
+`kasane plugin install` copies the `.wasm` to `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`). The plugin loads automatically on the next `kasane` launch.
+
+To see installed plugins:
+
+```bash
+kasane plugin list
+```
+
+<details>
+<summary>Manual build &amp; deploy (without <code>kasane plugin</code>)</summary>
+
+```bash
 cargo build --target wasm32-wasip2 --release
 cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 ```
 
-The plugin loads automatically on the next `kasane` launch.
+</details>
 
 ### Transform Example: prompt-highlight
 

@@ -2084,6 +2084,7 @@ dependencies = [
  "kasane-gui",
  "kasane-tui",
  "kasane-wasm",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-appender",

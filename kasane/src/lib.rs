@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod plugin_cmd;
 pub mod process;
 pub mod process_manager;
 
@@ -70,6 +71,12 @@ pub fn run(register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static) 
         }
         cli::CliAction::DelegateToKak(args) => {
             process::exec_kak(&args);
+        }
+        cli::CliAction::Plugin(subcmd) => {
+            if let Err(e) = plugin_cmd::execute(subcmd) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
         }
         cli::CliAction::RunKasane {
             session,

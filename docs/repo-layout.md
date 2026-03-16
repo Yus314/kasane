@@ -40,7 +40,7 @@ kasane/
 | `kasane-tui` | crossterm-based TUI backend |
 | `kasane-gui` | winit + wgpu + glyphon-based GUI backend |
 | `kasane-macros` | Proc macros such as `#[kasane::plugin]` and `#[kasane::component]` |
-| `kasane` | Main binary, CLI, process management, backend selection |
+| `kasane` | Main binary, CLI, process management, backend selection, `kasane plugin` subcommand |
 | `kasane-wasm` | WASM plugin runtime, WIT host adapter |
 | `kasane-plugin-sdk` | SDK for WASM guests |
 | `kasane-wasm-bench` | WASM benchmark harness |
@@ -216,15 +216,24 @@ kasane/src/
 ├── lib.rs
 ├── main.rs
 ├── cli.rs
-└── process.rs
+├── process.rs
+├── process_manager.rs
+└── plugin_cmd/
+    ├── mod.rs
+    ├── new.rs
+    ├── build.rs
+    ├── install.rs
+    ├── list.rs
+    └── templates.rs
 ```
 
 | Path | Contents |
 |---|---|
 | `lib.rs` | `kasane::run()` |
 | `main.rs` | Default binary |
-| `cli.rs` | CLI arguments |
+| `cli.rs` | CLI arguments and `PluginSubcommand` parser |
 | `process.rs` | Kakoune child process management |
+| `plugin_cmd/` | `kasane plugin` subcommand handlers (new, build, install, list) and embedded templates |
 
 ### 3.6 `kasane-wasm/`
 
@@ -277,6 +286,7 @@ kasane-wasm/
 | Proc macro deps validation | `kasane-macros/src/component.rs` and `analysis.rs` |
 | Changes to plugin WIT / host API | `kasane-wasm/wit/plugin.wit`, `kasane-wasm/src/host.rs`, `kasane-plugin-sdk/src/lib.rs` |
 | Changes to CLI or startup paths | `kasane/src/cli.rs`, `kasane/src/process.rs`, `kasane/src/lib.rs` |
+| Changes to `kasane plugin` subcommand or templates | `kasane/src/plugin_cmd/` |
 | Changes to example plugins | `examples/wasm/`, `examples/line-numbers/` |
 
 ## 5. Related Documents

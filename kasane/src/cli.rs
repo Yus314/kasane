@@ -18,6 +18,30 @@ pub enum CliAction {
         ui_mode: Option<UiMode>,
         kak_args: Vec<String>,
     },
+    Plugin(PluginSubcommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginSubcommand {
+    New {
+        name: String,
+        template: PluginTemplate,
+    },
+    Build {
+        path: Option<String>,
+    },
+    Install {
+        path: Option<String>,
+    },
+    List,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PluginTemplate {
+    Annotation,
+    #[default]
+    Contribution,
+    Transform,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -25,6 +49,10 @@ pub enum CliError {
     UnknownUiMode(String),
     MissingUiArg,
     ConflictingFlags { kasane_flag: &'static str },
+    PluginMissingSubcommand,
+    PluginUnknownSubcommand(String),
+    PluginMissingName,
+    PluginUnknownTemplate(String),
 }
 
 impl std::fmt::Display for CliError {
@@ -38,6 +66,27 @@ impl std::fmt::Display for CliError {
                 write!(
                     f,
                     "cannot combine kasane flag {kasane_flag} with non-UI kak flags"
+                )
+            }
+            CliError::PluginMissingSubcommand => {
+                write!(
+                    f,
+                    "missing subcommand. Usage: kasane plugin <new|build|install|list>"
+                )
+            }
+            CliError::PluginUnknownSubcommand(s) => {
+                write!(
+                    f,
+                    "unknown plugin subcommand: {s}. Use new, build, install, or list."
+                )
+            }
+            CliError::PluginMissingName => {
+                write!(f, "missing plugin name. Usage: kasane plugin new <name>")
+            }
+            CliError::PluginUnknownTemplate(t) => {
+                write!(
+                    f,
+                    "unknown template: {t}. Use contribution, annotation, or transform."
                 )
             }
         }
@@ -79,6 +128,10 @@ pub fn parse_cli_args(args: &[String]) -> Result<CliAction, CliError> {
                     },
                     None => return Err(CliError::MissingUiArg),
                 }
+            }
+            "plugin" if kak_args.is_empty() && !has_kasane_flags && !has_non_ui_flags => {
+                let subcmd = parse_plugin_args(&mut iter)?;
+                return Ok(CliAction::Plugin(subcmd));
             }
             "--" => {
                 pass_through = true;
@@ -137,6 +190,40 @@ pub fn parse_cli_args(args: &[String]) -> Result<CliAction, CliError> {
     })
 }
 
+fn parse_plugin_args<'a>(
+    iter: &mut impl Iterator<Item = &'a String>,
+) -> Result<PluginSubcommand, CliError> {
+    let sub = iter.next().ok_or(CliError::PluginMissingSubcommand)?;
+    match sub.as_str() {
+        "new" => {
+            let name = iter.next().ok_or(CliError::PluginMissingName)?.clone();
+            let mut template = PluginTemplate::default();
+            if let Some(flag) = iter.next()
+                && flag == "--template"
+            {
+                let t = iter
+                    .next()
+                    .ok_or(CliError::PluginUnknownTemplate(String::new()))?;
+                template = match t.as_str() {
+                    "annotation" | "annotate" => PluginTemplate::Annotation,
+                    "contribution" | "contribute" => PluginTemplate::Contribution,
+                    "transform" => PluginTemplate::Transform,
+                    _ => return Err(CliError::PluginUnknownTemplate(t.clone())),
+                };
+            }
+            Ok(PluginSubcommand::New { name, template })
+        }
+        "build" => Ok(PluginSubcommand::Build {
+            path: iter.next().cloned(),
+        }),
+        "install" => Ok(PluginSubcommand::Install {
+            path: iter.next().cloned(),
+        }),
+        "list" => Ok(PluginSubcommand::List),
+        other => Err(CliError::PluginUnknownSubcommand(other.to_string())),
+    }
+}
+
 pub fn print_help() {
     println!(
         "\
@@ -148,6 +235,12 @@ Kasane options:
   --ui <tui|gui>   Select UI backend (default: config.toml [ui] backend)
   --version        Show kasane and kak versions
   --help           Show this help message
+
+Subcommands:
+  plugin new <name> [--template T]  Create a new plugin project (T: contribution, annotation, transform)
+  plugin build [<path>]             Build plugin for wasm32-wasip2
+  plugin install [<path>]           Build, validate, and install plugin
+  plugin list                       Show installed plugins
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.
@@ -392,6 +485,94 @@ mod tests {
         assert_eq!(
             parse_cli_args(&args(&["--ui"])),
             Err(CliError::MissingUiArg)
+        );
+    }
+
+    #[test]
+    fn test_plugin_new_default_template() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new", "my-widget"])),
+            Ok(CliAction::Plugin(PluginSubcommand::New {
+                name: "my-widget".to_string(),
+                template: PluginTemplate::Contribution,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_new_annotation_template() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new", "x", "--template", "annotation"])),
+            Ok(CliAction::Plugin(PluginSubcommand::New {
+                name: "x".to_string(),
+                template: PluginTemplate::Annotation,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_build_no_path() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "build"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Build { path: None }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_build_with_path() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "build", "./foo"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Build {
+                path: Some("./foo".to_string()),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_install() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "install"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Install { path: None }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_list() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "list"])),
+            Ok(CliAction::Plugin(PluginSubcommand::List))
+        );
+    }
+
+    #[test]
+    fn test_plugin_missing_subcommand() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin"])),
+            Err(CliError::PluginMissingSubcommand)
+        );
+    }
+
+    #[test]
+    fn test_plugin_unknown_subcommand() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "foo"])),
+            Err(CliError::PluginUnknownSubcommand("foo".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_plugin_missing_name() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new"])),
+            Err(CliError::PluginMissingName)
+        );
+    }
+
+    #[test]
+    fn test_plugin_unknown_template() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "new", "x", "--template", "bad"])),
+            Err(CliError::PluginUnknownTemplate("bad".to_string()))
         );
     }
 }
