@@ -598,6 +598,7 @@ impl PluginBackend for WasmPlugin {
                             element,
                             anchor,
                             z_index: wit_oc.z_index,
+                            plugin_id: PluginId(String::new()),
                         }
                     }))
             })

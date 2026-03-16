@@ -3,6 +3,38 @@
 //!
 //! This is the "compiled path" from ADR-010 Stage 4, analogous to Svelte
 //! generating `element.textContent = count` instead of full vDOM diffing.
+//!
+//! # Correctness Framework
+//!
+//! Each patch models the display as a Store comonad `Store(Position, RenderedCell)`:
+//! a patch is valid when it modifies exactly the cells affected by the dirty state
+//! change, and leaves all other cells unchanged.
+//!
+//! ## Patch design checklist
+//!
+//! 1. **Identify dirty flags**: Which `DirtyFlags` bits does this patch handle?
+//! 2. **Enumerate affected cells**: Which grid cells change when those flags fire?
+//! 3. **Prove no other cells change**: Show that the state change cannot affect
+//!    cells outside the enumerated set.
+//! 4. **Verify `plugins_changed` guard**: `try_apply_grid_patch` refuses all
+//!    patches when any plugin state changed, since plugin contributions could
+//!    affect the same cells.
+//!
+//! ## Per-patch correctness
+//!
+//! - **`StatusBarPatch`** (dirty == STATUS): Only the status bar row is affected.
+//!   STATUS changes update `status_line` and `status_mode_line`, which are
+//!   rendered exclusively into the status row. No other rows read these fields.
+//!
+//! - **`MenuSelectionPatch`** (dirty == MENU_SELECTION): Only the old and new
+//!   selected menu item rows change face. MENU_SELECTION means items/structure
+//!   are unchanged — only the selection index moved. Affected cells: the two
+//!   item rows (old + new selected) within the menu overlay rect.
+//!
+//! - **`CursorPatch`** (dirty == empty, cursor moved): Only 2 cells change —
+//!   the old cursor position (restored to default/secondary face) and the new
+//!   cursor position (marked dirty for the cursor face pass). Empty dirty flags
+//!   guarantee no state-driven content changes anywhere.
 
 use crate::layout::Rect;
 use crate::render::LayoutCache;

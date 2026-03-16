@@ -147,6 +147,8 @@ pub struct OverlayContribution {
     pub element: Element,
     pub anchor: OverlayAnchor,
     pub z_index: i16,
+    /// Plugin that contributed this overlay (for deterministic tie-breaking).
+    pub plugin_id: PluginId,
 }
 
 /// Aggregated annotation result from all plugins.

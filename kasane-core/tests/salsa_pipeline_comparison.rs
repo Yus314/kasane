@@ -589,3 +589,122 @@ fn compare_with_plugins_and_menu() {
 
     assert_grids_equal(&salsa, &legacy, "plugins with menu");
 }
+
+// ---------------------------------------------------------------------------
+// Menu + info overlay combination tests
+// ---------------------------------------------------------------------------
+
+fn make_info_state(anchor_line: i32, anchor_col: i32, style: InfoStyle) -> InfoState {
+    InfoState {
+        title: vec![make_atom("Info")],
+        content: vec![
+            vec![make_atom("Info line 1")],
+            vec![make_atom("Info line 2")],
+        ],
+        anchor: Coord {
+            line: anchor_line,
+            column: anchor_col,
+        },
+        face: Face::default(),
+        style,
+        identity: InfoIdentity {
+            style,
+            anchor_line: anchor_line as u32,
+        },
+        scroll_offset: 0,
+    }
+}
+
+fn make_menu_state() -> MenuState {
+    MenuState::new(
+        vec![
+            vec![make_atom("item_one")],
+            vec![make_atom("item_two")],
+            vec![make_atom("item_three")],
+        ],
+        MenuParams {
+            anchor: Coord { line: 1, column: 5 },
+            selected_item_face: Face::default(),
+            menu_face: Face::default(),
+            style: MenuStyle::Inline,
+            screen_w: 80,
+            screen_h: 23,
+            max_height: 10,
+        },
+    )
+}
+
+#[test]
+fn compare_menu_and_info_simultaneous() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello world")]];
+    state.menu = Some(make_menu_state());
+    state.infos.push(make_info_state(5, 10, InfoStyle::Modal));
+    let registry = PluginRegistry::new();
+    let (db, handles) = setup_salsa(&state);
+
+    let legacy = render_legacy(&state, &registry);
+    let salsa = render_salsa(&state, &registry, &db, &handles);
+
+    assert_grids_equal(&salsa, &legacy, "menu and info simultaneous");
+}
+
+#[test]
+fn compare_menu_appears_while_info_visible() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello world")]];
+    state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
+
+    let registry = PluginRegistry::new();
+    let (mut db, handles) = setup_salsa(&state);
+
+    // Render with only info visible
+    let legacy_info_only = render_legacy(&state, &registry);
+    let salsa_info_only = render_salsa(&state, &registry, &db, &handles);
+    assert_grids_equal(
+        &salsa_info_only,
+        &legacy_info_only,
+        "info only (before menu)",
+    );
+
+    // Now add a menu and re-render
+    state.menu = Some(make_menu_state());
+    sync_inputs_from_state(
+        &mut db,
+        &state,
+        DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION,
+        &handles,
+    );
+
+    let legacy_both = render_legacy(&state, &registry);
+    let salsa_both = render_salsa(&state, &registry, &db, &handles);
+    assert_grids_equal(&salsa_both, &legacy_both, "menu appears while info visible");
+}
+
+#[test]
+fn compare_menu_disappears_while_info_visible() {
+    let mut state = test_state_80x24();
+    state.lines = vec![vec![make_atom("hello world")]];
+    state.menu = Some(make_menu_state());
+    state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
+
+    let registry = PluginRegistry::new();
+    let (mut db, handles) = setup_salsa(&state);
+
+    // Render with both menu and info
+    let legacy_both = render_legacy(&state, &registry);
+    let salsa_both = render_salsa(&state, &registry, &db, &handles);
+    assert_grids_equal(&salsa_both, &legacy_both, "menu + info (before removal)");
+
+    // Remove the menu
+    state.menu = None;
+    sync_inputs_from_state(&mut db, &state, DirtyFlags::MENU_STRUCTURE, &handles);
+
+    let legacy_info_only = render_legacy(&state, &registry);
+    let salsa_info_only = render_salsa(&state, &registry, &db, &handles);
+    assert_grids_equal(
+        &salsa_info_only,
+        &legacy_info_only,
+        "menu disappears while info visible",
+    );
+}

@@ -392,7 +392,7 @@ impl PluginRegistry {
                 })
             })
             .collect();
-        contributions.sort_by_key(|c| c.contribution.priority);
+        contributions.sort_by_key(|c| (c.contribution.priority, c.contributor.clone()));
         contributions
     }
 
@@ -410,23 +410,23 @@ impl PluginRegistry {
     ) -> Element {
         let mut element = default_element_fn();
 
-        // Collect (index, priority) for TRANSFORMER plugins
-        let mut chain: Vec<(usize, i16)> = Vec::new();
-        for (i, _plugin) in self.plugins.iter().enumerate() {
+        // Collect (index, priority, plugin_id) for TRANSFORMER plugins
+        let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
+        for (i, plugin) in self.plugins.iter().enumerate() {
             if self.capabilities[i].contains(PluginCapabilities::TRANSFORMER) {
-                let prio = self.plugins[i].transform_priority();
-                chain.push((i, prio));
+                let prio = plugin.transform_priority();
+                chain.push((i, prio, plugin.id()));
             }
         }
-        // Sort by priority descending (high = inner = applied first)
-        chain.sort_by_key(|&(_, prio)| std::cmp::Reverse(prio));
+        // Sort by priority descending (high = inner = applied first), then by plugin_id
+        chain.sort_by_key(|(_, prio, id)| (std::cmp::Reverse(*prio), id.clone()));
 
-        for (pos, &(i, _)) in chain.iter().enumerate() {
+        for (pos, (i, _, _)) in chain.iter().enumerate() {
             let ctx = TransformContext {
                 is_default: true,
                 chain_position: pos,
             };
-            element = self.plugins[i].transform(&target, element, state, &ctx);
+            element = self.plugins[*i].transform(&target, element, state, &ctx);
         }
 
         element
@@ -452,9 +452,9 @@ impl PluginRegistry {
         let mut backgrounds: Vec<Option<crate::protocol::Face>> = vec![None; line_count];
 
         for (line, bg_slot) in backgrounds.iter_mut().enumerate().take(line_count) {
-            let mut left_parts: Vec<(i16, Element)> = Vec::new();
-            let mut right_parts: Vec<(i16, Element)> = Vec::new();
-            let mut bg_layers: Vec<BackgroundLayer> = Vec::new();
+            let mut left_parts: Vec<(i16, PluginId, Element)> = Vec::new();
+            let mut right_parts: Vec<(i16, PluginId, Element)> = Vec::new();
+            let mut bg_layers: Vec<(BackgroundLayer, PluginId)> = Vec::new();
 
             for (i, plugin) in self.plugins.iter().enumerate() {
                 if !self.capabilities[i].contains(PluginCapabilities::ANNOTATOR) {
@@ -462,31 +462,32 @@ impl PluginRegistry {
                 }
                 if let Some(ann) = plugin.annotate_line_with_ctx(line, state, ctx) {
                     let prio = ann.priority;
+                    let pid = plugin.id();
                     if let Some(el) = ann.left_gutter {
-                        left_parts.push((prio, el));
+                        left_parts.push((prio, pid.clone(), el));
                         has_left = true;
                     }
                     if let Some(el) = ann.right_gutter {
-                        right_parts.push((prio, el));
+                        right_parts.push((prio, pid.clone(), el));
                         has_right = true;
                     }
                     if let Some(bg) = ann.background {
-                        bg_layers.push(bg);
+                        bg_layers.push((bg, pid));
                     }
                 }
             }
 
-            // Sort gutter elements by priority (ascending: lower values first)
-            left_parts.sort_by_key(|(prio, _)| *prio);
-            right_parts.sort_by_key(|(prio, _)| *prio);
+            // Sort gutter elements by priority then plugin_id (deterministic tie-breaking)
+            left_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
+            right_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
 
             let left_cell = match left_parts.len() {
                 0 => Element::text(" ", crate::protocol::Face::default()),
-                1 => left_parts.pop().unwrap().1,
+                1 => left_parts.pop().unwrap().2,
                 _ => Element::row(
                     left_parts
                         .into_iter()
-                        .map(|(_, el)| FlexChild::fixed(el))
+                        .map(|(_, _, el)| FlexChild::fixed(el))
                         .collect(),
                 ),
             };
@@ -494,19 +495,19 @@ impl PluginRegistry {
 
             let right_cell = match right_parts.len() {
                 0 => Element::text(" ", crate::protocol::Face::default()),
-                1 => right_parts.pop().unwrap().1,
+                1 => right_parts.pop().unwrap().2,
                 _ => Element::row(
                     right_parts
                         .into_iter()
-                        .map(|(_, el)| FlexChild::fixed(el))
+                        .map(|(_, _, el)| FlexChild::fixed(el))
                         .collect(),
                 ),
             };
             right_rows.push(FlexChild::fixed(right_cell));
 
             if !bg_layers.is_empty() {
-                bg_layers.sort_by_key(|l| l.z_order);
-                *bg_slot = Some(bg_layers.last().unwrap().face);
+                bg_layers.sort_by_key(|(l, id)| (l.z_order, id.clone()));
+                *bg_slot = Some(bg_layers.last().unwrap().0.face);
                 has_bg = true;
             }
         }
@@ -537,12 +538,13 @@ impl PluginRegistry {
             let caps = self.capabilities[i];
             if (caps.contains(PluginCapabilities::CONTRIBUTOR)
                 || caps.contains(PluginCapabilities::OVERLAY))
-                && let Some(oc) = plugin.contribute_overlay_with_ctx(state, ctx)
+                && let Some(mut oc) = plugin.contribute_overlay_with_ctx(state, ctx)
             {
+                oc.plugin_id = plugin.id();
                 contributions.push(oc);
             }
         }
-        contributions.sort_by_key(|c| c.z_index);
+        contributions.sort_by_key(|c| (c.z_index, c.plugin_id.clone()));
         contributions
     }
 

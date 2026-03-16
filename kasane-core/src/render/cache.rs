@@ -87,15 +87,17 @@ impl ViewCache {
         // These masks match the DEPS constants in view/mod.rs:
         //   BUILD_BASE_DEPS = BUFFER_CONTENT | STATUS | OPTIONS
         //   BUILD_MENU_SECTION_DEPS = MENU_STRUCTURE | MENU_SELECTION | OPTIONS
-        //   BUILD_INFO_SECTION_DEPS = INFO | OPTIONS
+        //   BUILD_INFO_SECTION_DEPS = INFO | OPTIONS | MENU_STRUCTURE
         self.base.invalidate(
             dirty,
             DirtyFlags::BUFFER_CONTENT | DirtyFlags::STATUS | DirtyFlags::OPTIONS,
         );
         self.menu_overlay
             .invalidate(dirty, DirtyFlags::MENU | DirtyFlags::OPTIONS);
-        self.info_overlays
-            .invalidate(dirty, DirtyFlags::INFO | DirtyFlags::OPTIONS);
+        self.info_overlays.invalidate(
+            dirty,
+            DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE,
+        );
     }
 
     /// Invalidate cached sections using dynamic deps from plugin contributions.

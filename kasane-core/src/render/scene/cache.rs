@@ -38,7 +38,7 @@ impl SceneCache {
         if dirty.intersects(DirtyFlags::MENU | DirtyFlags::OPTIONS) {
             self.menu_commands = None;
         }
-        if dirty.intersects(DirtyFlags::INFO | DirtyFlags::OPTIONS) {
+        if dirty.intersects(DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE) {
             self.info_commands = None;
         }
     }

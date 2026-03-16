@@ -60,7 +60,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PluginId(pub String);
 
 /// Open slot identifier that supports both well-known and custom plugin-defined slots.

@@ -29,8 +29,9 @@ pub(crate) const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_tru
         | DirtyFlags::MENU_SELECTION.bits()
         | DirtyFlags::OPTIONS.bits(),
 );
-pub(crate) const BUILD_INFO_SECTION_DEPS: DirtyFlags =
-    DirtyFlags::from_bits_truncate(DirtyFlags::INFO.bits() | DirtyFlags::OPTIONS.bits());
+pub(crate) const BUILD_INFO_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
+    DirtyFlags::INFO.bits() | DirtyFlags::OPTIONS.bits() | DirtyFlags::MENU_STRUCTURE.bits(),
+);
 
 #[cfg(test)]
 pub(crate) fn effective_surface_section_deps(
@@ -273,7 +274,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 }
 
 /// Build info overlay section with collision avoidance.
-#[crate::kasane_component(deps(INFO), stable(cursor_pos))]
+#[crate::kasane_component(deps(INFO, MENU_STRUCTURE), stable(cursor_pos))]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
