@@ -34,10 +34,12 @@ jobs:
       - name: Clippy (with GUI)
         run: nix develop --command cargo clippy --features gui -- -D warnings
 
-      - name: WIT sync check
+      - name: WIT symlink check
         run: |
-          diff kasane-wasm/wit/plugin.wit kasane-plugin-sdk/wit/plugin.wit
-          diff kasane-wasm/wit/plugin.wit kasane-plugin-sdk-macros/wit/plugin.wit
+          test -L kasane-plugin-sdk/wit/plugin.wit
+          test -L kasane-plugin-sdk-macros/wit/plugin.wit
+          test "$(readlink kasane-plugin-sdk/wit/plugin.wit)" = "../../kasane-wasm/wit/plugin.wit"
+          test "$(readlink kasane-plugin-sdk-macros/wit/plugin.wit)" = "../../kasane-wasm/wit/plugin.wit"
 
       - name: Format check
         run: nix develop --command cargo fmt --check
