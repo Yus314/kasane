@@ -1,5 +1,5 @@
 [package]
-name = "kasane-wasm-line-numbers"
+name = "kasane-wasm-prompt-highlight"
 version = "0.1.0"
 edition = "2024"
 

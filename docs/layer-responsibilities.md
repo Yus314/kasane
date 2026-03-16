@@ -103,7 +103,7 @@ Proof artifacts are not limited to distributable samples; WASM fixtures, `exampl
 
 | Shared Extension Point | Proof Artifact | Status |
 |------------------------|----------------|--------|
-| `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (gutter swatch), line-numbers (line numbers) | Proven |
+| `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (gutter swatch) | Proven |
 | `contribute_to(SlotId::STATUS_RIGHT)` | sel-badge (selection count badge) | Proven |
 | `annotate_line_with_ctx()` | cursor_line (line background highlight), color_preview (gutter swatch) | Proven |
 | `contribute_overlay_with_ctx()` | color_preview (color picker) | Proven |
@@ -114,6 +114,7 @@ Proof artifacts are not limited to distributable samples; WASM fixtures, `exampl
 | `contribute_to(SlotId::BUFFER_RIGHT)` | — | Unproven (full version deferred due to upstream blocker) |
 | `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
 | `transform(TransformTarget::Buffer)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform(TransformTarget::StatusBar)` | prompt-highlight (status bar wrap in prompt mode) | Proven |
 | `cursor_style_override()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
 | `contribute_to(SlotId::Named(...))` | `surface_probe` hosted surface E2E in `kasane-wasm/src/tests.rs` | Proven |
 | `OverlayAnchor::Absolute` | `fuzzy_finder` overlay test in `kasane-wasm/src/tests.rs` | Proven |

@@ -23,7 +23,7 @@ mod color_preview;
 mod cursor_line;
 mod discovery;
 mod fuzzy_finder;
-mod line_numbers;
+mod prompt_highlight;
 mod surface_probe;
 
 fn load_cursor_line_plugin() -> crate::WasmPlugin {
@@ -34,9 +34,9 @@ fn load_cursor_line_plugin() -> crate::WasmPlugin {
         .expect("failed to load plugin")
 }
 
-fn load_line_numbers_plugin() -> crate::WasmPlugin {
+fn load_prompt_highlight_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
-    let bytes = crate::load_wasm_fixture("line-numbers.wasm").expect("failed to load fixture");
+    let bytes = crate::load_wasm_fixture("prompt-highlight.wasm").expect("failed to load fixture");
     loader
         .load(&bytes, &crate::WasiCapabilityConfig::default())
         .expect("failed to load plugin")

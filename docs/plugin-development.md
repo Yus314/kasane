@@ -137,6 +137,90 @@ cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
 
 The plugin loads automatically on the next `kasane` launch.
 
+### Transform Example: prompt-highlight
+
+This plugin demonstrates `transform_element()` — the mechanism for wrapping or
+replacing existing UI elements. It highlights the status bar when the editor
+enters prompt mode (`:`, `/`, etc.).
+
+```rust
+// examples/wasm/prompt-highlight/src/lib.rs
+kasane_plugin_sdk::generate!("../../../kasane-plugin-sdk/wit");
+
+use std::cell::Cell;
+
+use exports::kasane::plugin::plugin_api::Guest;
+use kasane::plugin::element_builder;
+use kasane::plugin::host_state;
+use kasane::plugin::types::*;
+use kasane_plugin_sdk::{dirty, plugin};
+
+const MODE_BUFFER: u8 = 0;
+const MODE_PROMPT: u8 = 1;
+
+thread_local! {
+    static CURSOR_MODE: Cell<u8> = const { Cell::new(MODE_BUFFER) };
+}
+
+struct PromptHighlightPlugin;
+
+#[plugin]
+impl Guest for PromptHighlightPlugin {
+    fn get_id() -> String {
+        "prompt_highlight".to_string()
+    }
+
+    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
+        if dirty_flags & dirty::STATUS != 0 {
+            CURSOR_MODE.set(host_state::get_cursor_mode());
+        }
+        vec![]
+    }
+
+    fn state_hash() -> u64 {
+        CURSOR_MODE.get() as u64
+    }
+
+    fn transform_element(
+        target: TransformTarget,
+        element: ElementHandle,
+        _ctx: TransformContext,
+    ) -> ElementHandle {
+        if !matches!(target, TransformTarget::StatusBarT) {
+            return element; // passthrough for non-status targets
+        }
+        if CURSOR_MODE.get() != MODE_PROMPT {
+            return element; // passthrough in buffer mode
+        }
+        // Wrap status bar in highlighted container
+        let face = Face {
+            fg: Color::Named(NamedColor::Black),
+            bg: Color::Named(NamedColor::Yellow),
+            underline: Color::DefaultColor,
+            attributes: 0,
+        };
+        let padding = Edges { top: 0, right: 0, bottom: 0, left: 0 };
+        element_builder::create_container_styled(element, None, false, padding, face, None)
+    }
+
+    fn transform_deps(target: TransformTarget) -> u16 {
+        match target {
+            TransformTarget::StatusBarT => dirty::STATUS,
+            _ => 0,
+        }
+    }
+}
+
+export!(PromptHighlightPlugin);
+```
+
+**Key points:**
+
+- **`transform_element()`** receives an opaque `ElementHandle` for the target element. Return it unchanged for passthrough, or wrap it with `create_container_styled()`.
+- **`TransformTarget`** selects which UI component to transform (e.g., `StatusBarT`, `Buffer`, `MenuT`). Ignore targets your plugin doesn't handle.
+- **`transform_deps()`** declares per-target dirty flag dependencies for caching.
+- **`transform_priority()`** (defaulted to `0` by `#[plugin]`) controls ordering in the transform chain. Higher priority = applied first (inner).
+
 ## Testing
 
 Unit tests can be written using `PluginRegistry` directly.
@@ -214,7 +298,7 @@ Constraint: WASI capabilities are available from `on_init()` onward. They are no
 |---|---|---|
 | cursor-line | `examples/wasm/cursor-line/` | `annotate_line()`, `state_hash()` |
 | sel-badge | `examples/wasm/sel-badge/` | `contribute_to()` (`STATUS_RIGHT`) |
-| line-numbers | `examples/wasm/line-numbers/` | `contribute_to()` (`BUFFER_LEFT`) |
+| prompt-highlight | `examples/wasm/prompt-highlight/` | `transform_element()` (`StatusBarT`), `transform_deps()` |
 | color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |

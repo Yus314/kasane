@@ -27,7 +27,7 @@ kasane/
 │       ├── color-preview/
 │       ├── sel-badge/
 │       ├── fuzzy-finder/
-│       └── line-numbers/
+│       └── prompt-highlight/
 └── tools/
     └── wasm-test/           # WASM integration test binary
 ```

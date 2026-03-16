@@ -108,7 +108,7 @@ For specific use cases, see [requirements.md](./requirements.md#4-validation-tar
 | P-001 | Foundation | `Slot::Overlay` + `Decorator(Buffer)` | ○ Partially proven (`color_preview`) | 4b |
 | P-002 | Foundation | `OverlayAnchor::Absolute` | ○ Infrastructure implemented (plugin proof pending) | 4b |
 | P-003 | Foundation | Drawing order and clip in `Stack` | ✓ Phase 1 | 1 |
-| P-010 | Foundation + Protocol constraint | `Slot::BufferLeft/Right`. `BUFFER_LEFT` partially proven with `line_numbers` / `color_preview`. `BUFFER_RIGHT` unproven | ○ Partially proven | 4b |
+| P-010 | Foundation + Protocol constraint | `Slot::BufferLeft/Right`. `BUFFER_LEFT` partially proven with `color_preview`. `BUFFER_RIGHT` unproven | ○ Partially proven | 4b |
 | P-011 | Foundation | Contribution API for auxiliary regions. Left gutter / line background proven with `color_preview`, `cursor_line` | ○ Partially proven | 4b |
 | P-012 | Foundation + Protocol constraint | Full mapping to document-wide position partially depends on upstream | - In progress | [Upstream dep.](./upstream-dependencies.md) |
 | P-020 | Foundation | Hit-testing with `Interactive Element` | ○ Partially proven (`color_preview`) | 4b |

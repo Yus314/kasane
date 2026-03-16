@@ -18,7 +18,7 @@ fn discover_loads_fixtures_directory() {
     let mut registry = PluginRegistry::new();
     crate::discover_and_register(&config, &mut registry);
 
-    // Should have loaded both cursor-line.wasm and line-numbers.wasm
+    // Should have loaded cursor-line.wasm, prompt-highlight.wasm, etc.
     assert!(registry.plugin_count() >= 2, "expected at least 2 plugins");
 }
 
