@@ -1,6 +1,7 @@
 pub mod bg_pipeline;
 pub mod border_pipeline;
 pub mod cell_renderer;
+pub mod decoration_pipeline;
 pub mod metrics;
 pub(crate) mod pipeline_common;
 pub mod scene_renderer;

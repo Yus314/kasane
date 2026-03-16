@@ -87,7 +87,7 @@ For responsibility boundaries, see [layer-responsibilities.md](./layer-responsib
 |----|------------------|-------|--------|
 | R-050 | Renderer | Software rendering | ✓ Phase 4a |
 | R-051 | Renderer | Focus tracking | ✓ Phase 4a |
-| R-053 | Renderer | Protocol parser and TUI backend partially supported. GUI backend needs to follow | ○ Partial |
+| R-053 | Renderer | Protocol parser, TUI backend, and GUI backend all supported. GUI uses DecorationPipeline (solid/curly/double underline + strikethrough) | ✓ Phase G |
 
 ### 3.6 UI Options / Clipboard / Scroll / Standard UI Style
 

@@ -32,7 +32,6 @@ for the division of responsibilities between the shared API and native escape ha
 |---|---|---|---|
 | Session / Surface parity | Active | Automatic generation of session-bound surfaces | Surface groups are automatically generated per active / inactive session, and surfaces consistently follow session switching |
 | Multi-session UI parity | Active | Minimal UI for session switcher or session list | Multiple sessions can be switched in a user-visible manner, and the existence of non-active sessions is apparent from the UI |
-| GUI fidelity | Active | Faithful rendering for R-053 | Underline variants, underline color, and strikethrough are rendered in the GUI with appearance equivalent to the protocol |
 | Display transformation / display unit model | Active | First slice of P-030 through P-043 | Minimal implementation and proof of display transformation / navigation policy are in place |
 
 ### 2.2 Next
@@ -101,18 +100,7 @@ Proof / completion criteria:
 - Active session can be switched from the UI
 - Creation-order promotion on close is observable in the UI
 
-### 3.3 GUI fidelity
-
-Remaining work:
-
-- R-053: Faithful rendering of underline variants, underline color, and strikethrough
-
-Next deliverable:
-
-- Pass the necessary style information through the current glyph / scene path
-- Add proof / screenshot tests or rendering tests on the GUI side
-
-### 3.4 Display transformation / display unit model
+### 3.3 Display transformation / display unit model
 
 Remaining work:
 
@@ -125,7 +113,7 @@ Next deliverable:
 
 - Select the smallest single slice from the above and introduce it with a proof artifact
 
-### 3.5 WASM runtime operations
+### 3.4 WASM runtime operations
 
 Remaining work:
 
@@ -137,7 +125,7 @@ Next deliverable:
 
 - Decide on either manifest or settings API as the first implementation
 
-### 3.6 Native escape hatch redesign
+### 3.5 Native escape hatch redesign
 
 Remaining work:
 
@@ -148,7 +136,7 @@ Next deliverable:
 
 - Finalize the redesign direction for `PaintHook` and put in place the minimal skeleton of the migration target API
 
-### 3.7 Core event / degraded behavior
+### 3.6 Core event / degraded behavior
 
 Remaining work:
 
@@ -167,7 +155,7 @@ Next deliverable:
 | Phase 1 | MVP (TUI core features + declarative UI foundation) | ✓ Complete | Element + TEA + basic slots |
 | Phase 2 | Enhanced floating windows + plugin foundation | ✓ Complete | Some items moved to subsequent workstreams |
 | Phase 3 | Input, clipboard, and scroll enhancements | ✓ Complete | Basic input features on the TUI side are complete |
-| Phase G | GUI backend | ✓ Complete | Foundation is complete. Faithful rendering follow-up tracked as a workstream |
+| Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete |
 | Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Remaining operational issues consolidated into `WASM runtime operations` |
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
 | Phase 5 | Surface / Workspace / display restructuring foundation | Open | Session/surface parity and display transformation are ongoing |

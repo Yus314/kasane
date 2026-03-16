@@ -11,8 +11,11 @@ use winit::dpi::PhysicalSize;
 
 use kasane_core::element::BorderLineStyle;
 
+use kasane_core::protocol::Attributes;
+
 use super::bg_pipeline::BgPipeline;
 use super::border_pipeline::BorderPipeline;
+use super::decoration_pipeline::{self, DecorationPipeline};
 use super::{CURSOR_BAR_WIDTH, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT, CellMetrics};
 use crate::colors::ColorResolver;
 
@@ -27,6 +30,7 @@ pub struct SceneRenderer {
     shadow: BorderPipeline,
     bg: BgPipeline,
     border: BorderPipeline,
+    decoration: DecorationPipeline,
     metrics: CellMetrics,
 
     // Reusable text buffers (growable pool)
@@ -83,6 +87,7 @@ impl SceneRenderer {
         let shadow = BorderPipeline::new(gpu, surface_format);
         let bg = BgPipeline::new(gpu, surface_format);
         let border = BorderPipeline::new(gpu, surface_format);
+        let decoration = DecorationPipeline::new(gpu, surface_format);
 
         SceneRenderer {
             font_system,
@@ -93,6 +98,7 @@ impl SceneRenderer {
             shadow,
             bg,
             border,
+            decoration,
             metrics,
             text_buffers: Vec::with_capacity(128),
             text_positions: Vec::with_capacity(128),
@@ -215,6 +221,7 @@ impl SceneRenderer {
             self.shadow.uniform_buffer(),
             self.bg.uniform_buffer(),
             self.border.uniform_buffer(),
+            self.decoration.uniform_buffer(),
         ] {
             gpu.queue.write_buffer(buffer, 0, screen_size_data);
         }
@@ -254,6 +261,7 @@ impl SceneRenderer {
             self.shadow.instances.clear();
             self.bg.instances.clear();
             self.border.instances.clear();
+            self.decoration.instances.clear();
             let layer_text_start = self.text_buffer_count;
 
             // Process this layer's DrawCommands
@@ -275,6 +283,9 @@ impl SceneRenderer {
 
             let border_count = self.border.instances.len() / 14;
             self.border.ensure_buffer(gpu, border_count);
+
+            let deco_count = self.decoration.instances.len() / 10;
+            self.decoration.ensure_buffer(gpu, deco_count);
 
             // Build TextAreas for this layer's text buffers only
             let layer_text_end = self.text_buffer_count;
@@ -344,6 +355,7 @@ impl SceneRenderer {
                 self.text_renderer
                     .render(&self.text_atlas, &self.viewport, &mut render_pass)
                     .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                self.decoration.upload_and_draw(gpu, &mut render_pass);
             }
 
             gpu.queue.submit(std::iter::once(encoder.finish()));
@@ -573,6 +585,75 @@ impl SceneRenderer {
         }
     }
 
+    /// Emit decoration instances for a face's text attributes.
+    fn emit_decorations(
+        &mut self,
+        x: f32,
+        py: f32,
+        w: f32,
+        face: &kasane_core::protocol::Face,
+        fg: [f32; 4],
+        color_resolver: &ColorResolver,
+    ) {
+        let attrs = face.attributes;
+        if !attrs.intersects(
+            Attributes::UNDERLINE
+                | Attributes::CURLY_UNDERLINE
+                | Attributes::DOUBLE_UNDERLINE
+                | Attributes::STRIKETHROUGH,
+        ) {
+            return;
+        }
+
+        let baseline = self.metrics.baseline;
+        let cell_h = self.metrics.cell_height;
+        let thickness = (cell_h * 0.06).max(1.0);
+
+        // Underline color: use face.underline if set, otherwise fallback to fg
+        let ul_color = if face.underline != kasane_core::protocol::Color::Default {
+            color_resolver.resolve(face.underline, true)
+        } else {
+            fg
+        };
+
+        if attrs.contains(Attributes::UNDERLINE) {
+            let y = py + baseline + thickness;
+            self.decoration.push(
+                x,
+                y,
+                w,
+                thickness,
+                ul_color,
+                decoration_pipeline::DECO_SOLID,
+            );
+        }
+        if attrs.contains(Attributes::CURLY_UNDERLINE) {
+            // Curly needs more height for the wave amplitude
+            let wave_h = (cell_h * 0.2).max(4.0);
+            let y = py + baseline + thickness - wave_h * 0.25;
+            self.decoration
+                .push(x, y, w, wave_h, ul_color, decoration_pipeline::DECO_CURLY);
+        }
+        if attrs.contains(Attributes::DOUBLE_UNDERLINE) {
+            let double_h = (cell_h * 0.15).max(4.0);
+            let y = py + baseline + thickness - double_h * 0.1;
+            self.decoration.push(
+                x,
+                y,
+                w,
+                double_h,
+                ul_color,
+                decoration_pipeline::DECO_DOUBLE,
+            );
+        }
+        if attrs.contains(Attributes::STRIKETHROUGH) {
+            // Strikethrough at approximately the x-height center
+            let y = py + baseline * 0.55;
+            self.decoration
+                .push(x, y, w, thickness, fg, decoration_pipeline::DECO_SOLID);
+        }
+    }
+
     /// Process DrawAtoms: build atom-level spans for ligature support.
     ///
     /// Adjacent atoms with the same foreground color are merged into a single
@@ -606,6 +687,12 @@ impl SceneRenderer {
             if actual_w > 0.0 && atom.face.bg != kasane_core::protocol::Color::Default {
                 let bg = color_resolver.resolve(atom.face.bg, false);
                 self.bg.push_rect(x, py, actual_w, cell_h, bg);
+            }
+
+            // Text decorations (underline, strikethrough, etc.)
+            if actual_w > 0.0 {
+                let fg = color_resolver.resolve(atom.face.fg, true);
+                self.emit_decorations(x, py, actual_w, &atom.face, fg, color_resolver);
             }
 
             // Text span — merge with previous span if same fg color
@@ -682,6 +769,11 @@ impl SceneRenderer {
         }
 
         let fg = color_resolver.resolve(face.fg, true);
+
+        // Text decorations
+        if actual_w > 0.0 {
+            self.emit_decorations(px, py, actual_w, face, fg, color_resolver);
+        }
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_positions.push((px, py));
         let default_attrs = super::text_helpers::default_attrs(&self.font_family);
