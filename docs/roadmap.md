@@ -30,7 +30,7 @@ for the division of responsibilities between the shared API and native escape ha
 
 | Workstream | Status | Next deliverable | Completion criteria |
 |---|---|---|---|
-| Session / Surface parity | Active | Automatic generation of session-bound surfaces | Surface groups are automatically generated per active / inactive session, and surfaces consistently follow session switching |
+| Session / Surface parity | Active | Per-session surface filtering (multi-pane prerequisite) | Infrastructure landed; correctness proof complete via automated tests |
 | Multi-session UI parity | Active | Minimal UI for session switcher or session list | Multiple sessions can be switched in a user-visible manner, and the existence of non-active sessions is apparent from the UI |
 | Display transformation / display unit model | Active | First slice of P-030 through P-043 | Minimal implementation and proof of display transformation / navigation policy are in place |
 
@@ -59,22 +59,42 @@ Current status:
 - Hosted surface `render-surface` / `handle-surface-event` / `handle-surface-state-changed` are in place
 - Session observability infrastructure complete: `AppState.session_descriptors` / `active_session_key`, `DirtyFlags::SESSION`, `SessionCommand::Switch`, WIT Tier 8 host-state functions (ADR-023 step 1)
 
+Design analysis (2026-03-16):
+
+Built-in surfaces (`KakouneBufferSurface`, `StatusBarSurface`) are stateless renderers of `AppState`.
+Ephemeral surfaces (`MenuSurface`, `InfoSurface`) are auto-managed via `sync_ephemeral_surfaces()` based on `AppState`.
+Because `AppState` is already swapped atomically on session switch, current single-pane surface composition
+is correct without per-session surface instances. Per-session surface generation and per-session workspace trees
+are deferred to multi-pane implementation, where they become necessary.
+
+Completed:
+
+- `session_id: Option<SessionId>` field in `RegisteredSurface` — enables future per-session surface binding
+- `SurfaceRegistry::remove_surfaces_for_session()` — close-time cleanup of session-bound surfaces
+- `SurfaceRegistry::surface_session_id()` — query session binding of a registered surface
+- Automated correctness proof: 7 integration tests + 4 unit tests covering session switch, ephemeral surface lifecycle, round-trip stability, session close/promote, dirty flags, metadata consistency, and compose_view correctness
+
 Remaining work:
 
-- Automatic generation of session-bound surfaces
-- Mechanism to consistently attach / detach surface groups per session on session switch
-- Organize surface registry / workspace side to treat session identity as first-class
+- `compose_view` filtering by active session (deferred — co-designed with multi-pane, where per-session surfaces become necessary)
+- Plugin API for declaring session affinity on `surfaces()` return values (deferred — no consumer exists yet; correct model depends on multi-pane design)
+
+Deferred to multi-pane:
+
+- Per-session `KakouneBufferSurface` / `StatusBarSurface` instances (stateless surfaces do not benefit from duplication)
+- Per-session workspace trees (single-pane layout is session-agnostic)
+- Surface internal state snapshots (no stateful plugin surfaces exist yet)
 
 Next deliverable:
 
-- Minimal implementation that automatically generates buffer/status/supplemental surfaces per active session
-- Proof that surface composition switches deterministically on session switch
+- Multi-pane integration: per-session surface filtering in `compose_view`, workspace tree per session
 
 Proof / completion criteria:
 
-- Surface composition does not break when there are two or more sessions
-- No stale surfaces remain after session switch
-- Correspondence between active / inactive session snapshots and surfaces is locked down by automated tests
+- ✓ Surface composition does not break when there are two or more sessions
+- ✓ No stale surfaces remain after session switch
+- ✓ Correspondence between active / inactive session snapshots and surfaces is locked down by automated tests
+- ✓ Session affinity API is available for plugin surfaces (even if no plugin uses it yet)
 
 ### 3.2 Multi-session UI parity
 

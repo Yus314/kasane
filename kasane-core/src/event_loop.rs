@@ -33,8 +33,11 @@ pub fn setup_plugin_surfaces(
         let mut registration_error = None;
         for surface in surface_set.surfaces {
             let surface_id = surface.id();
-            match surface_registry.try_register_for_owner(surface, Some(surface_set.owner.clone()))
-            {
+            match surface_registry.try_register_for_owner(
+                surface,
+                Some(surface_set.owner.clone()),
+                None,
+            ) {
                 Ok(()) => registered_ids.push(surface_id),
                 Err(err) => {
                     registration_error = Some(err);
