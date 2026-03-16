@@ -227,7 +227,13 @@ where
                 command_source: None,
             }
         }
-        Event::Input(input_event) => {
+        Event::Input(ref input_event) => {
+            tracing::trace!(?input_event, "process_event: Input");
+            let input_event = if let Event::Input(ie) = event {
+                ie
+            } else {
+                unreachable!()
+            };
             let total = Rect {
                 x: 0,
                 y: 0,
@@ -298,14 +304,34 @@ where
             }
         }
         Event::KakouneDied(session_id) => {
-            return kasane_core::event_loop::handle_session_death(
+            if kasane_core::event_loop::handle_session_death(
                 session_id,
                 ctx.session_manager,
                 ctx.session_states,
                 ctx.state,
                 ctx.dirty,
                 ctx.initial_resize_sent,
-            );
+            ) {
+                return true;
+            }
+            // handle_session_death may have reset initial_resize_sent when
+            // switching to the next active session.  Send the resize now so
+            // the new session is unblocked.
+            if !*ctx.initial_resize_sent {
+                kasane_core::io::send_initial_resize(
+                    ctx.session_manager
+                        .active_writer_mut()
+                        .expect("missing active session writer"),
+                    ctx.initial_resize_sent,
+                    ctx.state.rows,
+                    ctx.state.cols,
+                );
+            }
+            // Notify plugins of session change so cached state is updated.
+            for plugin in ctx.registry.plugins_mut() {
+                plugin.on_state_changed(ctx.state, DirtyFlags::SESSION);
+            }
+            return false;
         }
     };
 

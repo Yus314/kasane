@@ -425,6 +425,21 @@ where
                         event_loop.exit();
                         return;
                     }
+                    // handle_session_death may have reset initial_resize_sent.
+                    if !self.initial_resize_sent {
+                        kasane_core::io::send_initial_resize(
+                            self.session_manager
+                                .active_writer_mut()
+                                .expect("missing active session writer"),
+                            &mut self.initial_resize_sent,
+                            self.state.rows,
+                            self.state.cols,
+                        );
+                    }
+                    // Notify plugins of session change so cached state is updated.
+                    for plugin in self.registry.plugins_mut() {
+                        plugin.on_state_changed(&self.state, DirtyFlags::SESSION);
+                    }
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);
                     continue;

@@ -24,6 +24,7 @@ mod cursor_line;
 mod discovery;
 mod fuzzy_finder;
 mod prompt_highlight;
+mod session_ui;
 mod surface_probe;
 
 fn load_cursor_line_plugin() -> crate::WasmPlugin {
@@ -37,6 +38,14 @@ fn load_cursor_line_plugin() -> crate::WasmPlugin {
 fn load_prompt_highlight_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("prompt-highlight.wasm").expect("failed to load fixture");
+    loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .expect("failed to load plugin")
+}
+
+fn load_session_ui_plugin() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("session-ui.wasm").expect("failed to load fixture");
     loader
         .load(&bytes, &crate::WasiCapabilityConfig::default())
         .expect("failed to load plugin")

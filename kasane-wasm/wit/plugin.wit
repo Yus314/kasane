@@ -432,6 +432,8 @@ interface types {
     record session-descriptor {
         key: string,
         session-name: option<string>,
+        buffer-name: option<string>,
+        mode-line: option<string>,
     }
 }
 

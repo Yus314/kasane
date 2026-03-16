@@ -31,7 +31,7 @@ for the division of responsibilities between the shared API and native escape ha
 | Workstream | Status | Next deliverable | Completion criteria |
 |---|---|---|---|
 | Session / Surface parity | Active | Per-session surface filtering (multi-pane prerequisite) | Infrastructure landed; correctness proof complete via automated tests |
-| Multi-session UI parity | Active | Minimal UI for session switcher or session list | Multiple sessions can be switched in a user-visible manner, and the existence of non-active sessions is apparent from the UI |
+| Multi-session UI parity | **Complete** | Session-ui example plugin with status bar + switcher overlay | Multiple sessions can be switched in a user-visible manner, and the existence of non-active sessions is apparent from the UI |
 | Display transformation / display unit model | Active | First slice of P-030 through P-043 | Minimal implementation and proof of display transformation / navigation policy are in place |
 
 ### 2.2 Next
@@ -98,29 +98,24 @@ Proof / completion criteria:
 
 ### 3.2 Multi-session UI parity
 
-Current status:
+Current status: **Complete**
 
-- Runtime can hold multiple sessions
-- State snapshots of inactive sessions are retained
-- Rendering target is still only the single active session
-- Session observability and control are available to plugins: session descriptors in `AppState`, `DirtyFlags::SESSION` for lifecycle notifications, `SessionCommand::Switch` for session activation, WIT Tier 8 for WASM plugins
+Delivered:
 
-Remaining work:
+- `SessionDescriptor` enriched with `buffer_name` and `mode_line` from per-session `AppState` snapshots
+- WIT `session-descriptor` record extended with `buffer-name` and `mode-line` fields
+- `on_state_changed(SESSION)` notification after deferred session commands (Spawn/Close/Switch)
+- `send_initial_resize` recovery after session commands to prevent input suppression
+- Session key deduplication in `spawn_session_core` to avoid Kakoune process orphaning
+- Example plugin `examples/wasm/session-ui/`: status bar indicator + Ctrl+T session switcher overlay
+- 14 WASM fixture tests in `kasane-wasm/src/tests/session_ui.rs`
 
-- Bundled WASM plugin providing session list / session switcher UI
-- User-visible active session display (e.g., status bar indicator via slot contribution)
-- UI feedback for session close / promote
+Proof / completion criteria (all met):
 
-Next deliverable:
-
-- Bundled session UI plugin showing session list and active state
-- Command path to switch sessions from the UI
-
-Proof / completion criteria:
-
-- Multiple sessions are identifiable in the UI
-- Active session can be switched from the UI
-- Creation-order promotion on close is observable in the UI
+- Multiple sessions are identifiable in the UI (status bar shows `[count:key]`)
+- Active session can be switched from the UI (Ctrl+T → select → Enter)
+- Creation-order promotion on close is observable in the UI (switcher reflects remaining sessions)
+- Session create (`n`), close (`d`), and switch (`Enter`) all work from within the switcher
 
 ### 3.3 Display transformation / display unit model
 

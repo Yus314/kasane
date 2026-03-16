@@ -156,11 +156,37 @@ pub fn spawn_session_core<R, W, C>(
     initial_resize_sent: &mut bool,
     spawn_fn: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
 ) -> Option<(SessionId, R)> {
-    let Ok((reader, writer, child)) = spawn_fn(spec) else {
+    // Deduplicate the session key before spawning the process to avoid
+    // orphaning a Kakoune process when insert() rejects a duplicate key.
+    let spec = if session_manager.session_id_by_key(&spec.key).is_some() {
+        let base = &spec.key;
+        let mut deduped = None;
+        for i in 2..=100 {
+            let candidate = format!("{base}-{i}");
+            if session_manager.session_id_by_key(&candidate).is_none() {
+                deduped = Some(SessionSpec::new(
+                    candidate,
+                    spec.session.clone(),
+                    spec.args.clone(),
+                ));
+                break;
+            }
+        }
+        match deduped {
+            Some(s) => s,
+            None => {
+                tracing::error!(key = spec.key, "failed to find unique session key");
+                return None;
+            }
+        }
+    } else {
+        spec.clone()
+    };
+    let Ok((reader, writer, child)) = spawn_fn(&spec) else {
         tracing::error!("failed to spawn session {}", spec.key);
         return None;
     };
-    let Ok(session_id) = session_manager.insert(spec.clone(), reader, writer, child) else {
+    let Ok(session_id) = session_manager.insert(spec, reader, writer, child) else {
         tracing::error!("failed to register spawned session");
         return None;
     };
@@ -467,40 +493,83 @@ pub fn handle_deferred_commands(
                     ctx.process_dispatcher.kill(plugin_id, job_id);
                 }
             }
-            DeferredCommand::Session(cmd) => match cmd {
-                crate::session::SessionCommand::Spawn {
-                    key,
-                    session,
-                    args,
-                    activate,
-                } => {
-                    ctx.session_host.spawn_session(
-                        SessionSpec::with_fallback_key(key, session, args),
+            DeferredCommand::Session(cmd) => {
+                match cmd {
+                    crate::session::SessionCommand::Spawn {
+                        key,
+                        session,
+                        args,
                         activate,
-                        ctx.state,
-                        ctx.dirty,
+                    } => {
+                        ctx.session_host.spawn_session(
+                            SessionSpec::with_fallback_key(key, session, args),
+                            activate,
+                            ctx.state,
+                            ctx.dirty,
+                            ctx.initial_resize_sent,
+                        );
+                    }
+                    crate::session::SessionCommand::Close { key } => {
+                        if ctx.session_host.close_session(
+                            key.as_deref(),
+                            ctx.state,
+                            ctx.dirty,
+                            ctx.initial_resize_sent,
+                        ) {
+                            return true;
+                        }
+                    }
+                    crate::session::SessionCommand::Switch { key } => {
+                        ctx.session_host.switch_session(
+                            &key,
+                            ctx.state,
+                            ctx.dirty,
+                            ctx.initial_resize_sent,
+                        );
+                    }
+                }
+                // A session command may have set initial_resize_sent=false.
+                // Send the resize immediately so the new session is unblocked
+                // and subsequent input events are not suppressed.
+                if !*ctx.initial_resize_sent {
+                    crate::io::send_initial_resize(
+                        ctx.session_host.active_writer(),
                         ctx.initial_resize_sent,
+                        ctx.state.rows,
+                        ctx.state.cols,
                     );
                 }
-                crate::session::SessionCommand::Close { key } => {
-                    if ctx.session_host.close_session(
-                        key.as_deref(),
-                        ctx.state,
-                        ctx.dirty,
-                        ctx.initial_resize_sent,
+                // Notify plugins of SESSION change so they update cached state
+                // (e.g. session_count). Without this, plugins hold stale values
+                // until the next Kakoune Draw triggers on_state_changed.
+                let mut notify_commands = Vec::new();
+                for plugin in ctx.registry.plugins_mut() {
+                    notify_commands.extend(plugin.on_state_changed(ctx.state, DirtyFlags::SESSION));
+                }
+                if !notify_commands.is_empty() {
+                    let extra_flags = extract_redraw_flags(&mut notify_commands);
+                    *ctx.dirty |= extra_flags;
+                    let (normal, nested_deferred) = extract_deferred_commands(notify_commands);
+                    if matches!(
+                        execute_commands(
+                            normal,
+                            ctx.session_host.active_writer(),
+                            ctx.clipboard_get
+                        ),
+                        CommandResult::Quit
                     ) {
                         return true;
                     }
+                    // Filter out nested Session commands to prevent recursion.
+                    let nested_non_session: Vec<_> = nested_deferred
+                        .into_iter()
+                        .filter(|d| !matches!(d, DeferredCommand::Session(_)))
+                        .collect();
+                    if handle_deferred_commands(nested_non_session, ctx, command_source_plugin) {
+                        return true;
+                    }
                 }
-                crate::session::SessionCommand::Switch { key } => {
-                    ctx.session_host.switch_session(
-                        &key,
-                        ctx.state,
-                        ctx.dirty,
-                        ctx.initial_resize_sent,
-                    );
-                }
-            },
+            }
         }
     }
     false

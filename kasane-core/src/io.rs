@@ -13,7 +13,12 @@ pub fn send_request(writer: &mut (impl Write + ?Sized), req: &KasaneRequest) {
 /// Send the initial resize request to Kakoune (once only).
 ///
 /// Sets `*sent = true` after the first call so subsequent calls are no-ops.
-pub fn send_initial_resize(writer: &mut impl Write, sent: &mut bool, rows: u16, cols: u16) {
+pub fn send_initial_resize(
+    writer: &mut (impl Write + ?Sized),
+    sent: &mut bool,
+    rows: u16,
+    cols: u16,
+) {
     if *sent {
         return;
     }
