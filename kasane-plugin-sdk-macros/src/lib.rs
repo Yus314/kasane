@@ -6,7 +6,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ImplItem, ItemImpl};
+use syn::{ImplItem, ItemImpl, parse_macro_input};
 
 /// Attribute macro that fills in default implementations for all
 /// unimplemented `Guest` trait methods.
@@ -143,7 +143,10 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         ($name:expr, $tokens:expr) => {
             if !existing.contains($name) {
                 defaults.push(syn::parse2($tokens).unwrap_or_else(|e| {
-                    panic!("kasane_wasm_plugin: failed to parse default for `{}`: {}", $name, e)
+                    panic!(
+                        "kasane_wasm_plugin: failed to parse default for `{}`: {}",
+                        $name, e
+                    )
                 }));
             }
         };
@@ -355,10 +358,7 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     // --- Caching ---
 
-    add_default!(
-        "state_hash",
-        quote! { fn state_hash() -> u64 { 0 } }
-    );
+    add_default!("state_hash", quote! { fn state_hash() -> u64 { 0 } });
 
     add_default!(
         "slot_deps",
@@ -368,7 +368,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "contribute_deps",
-        quote! { fn contribute_deps(_region: SlotId) -> u16 { 0 } }
+        // dirty::ALL = 0x17F (excludes PLUGIN_STATE) — safe default
+        quote! { fn contribute_deps(_region: SlotId) -> u16 { 0x17F } }
     );
 
     add_default!(
@@ -434,9 +435,14 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 /// Two forms:
 /// - `kasane_plugin_sdk::generate!()` — uses embedded WIT (crates.io consumers)
 /// - `kasane_plugin_sdk::generate!("path/to/wit")` — uses file path (monorepo dev)
+///
+/// In addition to the WIT bindings, this macro emits:
+/// - Auto `use` statements for common WIT types (`Guest`, `types::*`, etc.)
+/// - Face/Color helper functions (`default_face()`, `face_bg()`, `rgb()`, etc.)
+/// - Overlay positioning helpers (`centered_overlay()`)
 #[proc_macro]
 pub fn kasane_generate(input: TokenStream) -> TokenStream {
-    if input.is_empty() {
+    let wit_bindings = if input.is_empty() {
         let wit_content = include_str!("../wit/plugin.wit");
         quote! {
             wit_bindgen::generate!({
@@ -444,7 +450,6 @@ pub fn kasane_generate(input: TokenStream) -> TokenStream {
                 inline: #wit_content,
             });
         }
-        .into()
     } else {
         let path = parse_macro_input!(input as syn::LitStr);
         quote! {
@@ -453,6 +458,120 @@ pub fn kasane_generate(input: TokenStream) -> TokenStream {
                 path: #path,
             });
         }
-        .into()
+    };
+
+    let sdk_helpers = generate_sdk_helpers();
+
+    quote! {
+        #wit_bindings
+        #sdk_helpers
+    }
+    .into()
+}
+
+/// Generate SDK helper code emitted alongside WIT bindings.
+///
+/// This code lives in the user's crate so it can reference WIT-generated types
+/// (Face, Color, RgbColor, etc.) which are not accessible from the SDK crate.
+fn generate_sdk_helpers() -> proc_macro2::TokenStream {
+    quote! {
+        /// SDK-generated prelude and helper functions.
+        ///
+        /// Items are re-exported via glob import so that explicit user imports
+        /// shadow them without conflict (standard Rust prelude pattern).
+        #[doc(hidden)]
+        #[allow(dead_code)]
+        mod __kasane_sdk {
+            pub use super::exports::kasane::plugin::plugin_api::Guest;
+            pub use super::kasane::plugin::host_state;
+            pub use super::kasane::plugin::element_builder;
+            pub use super::kasane::plugin::types::*;
+
+            use super::kasane::plugin::types::*;
+
+            /// Create a default face (all colors default, no attributes).
+            pub fn default_face() -> Face {
+                Face {
+                    fg: Color::DefaultColor,
+                    bg: Color::DefaultColor,
+                    underline: Color::DefaultColor,
+                    attributes: 0,
+                }
+            }
+
+            /// Create a face with only the foreground color set.
+            pub fn face_fg(color: Color) -> Face {
+                Face {
+                    fg: color,
+                    bg: Color::DefaultColor,
+                    underline: Color::DefaultColor,
+                    attributes: 0,
+                }
+            }
+
+            /// Create a face with only the background color set.
+            pub fn face_bg(color: Color) -> Face {
+                Face {
+                    fg: Color::DefaultColor,
+                    bg: color,
+                    underline: Color::DefaultColor,
+                    attributes: 0,
+                }
+            }
+
+            /// Create a face with foreground and background colors.
+            pub fn face(fg: Color, bg: Color) -> Face {
+                Face {
+                    fg,
+                    bg,
+                    underline: Color::DefaultColor,
+                    attributes: 0,
+                }
+            }
+
+            /// Create a face with all fields specified.
+            pub fn face_full(fg: Color, bg: Color, underline: Color, attrs: u16) -> Face {
+                Face {
+                    fg,
+                    bg,
+                    underline,
+                    attributes: attrs,
+                }
+            }
+
+            /// Create an RGB color.
+            pub fn rgb(r: u8, g: u8, b: u8) -> Color {
+                Color::Rgb(RgbColor { r, g, b })
+            }
+
+            /// Create a named color.
+            pub fn named(n: NamedColor) -> Color {
+                Color::Named(n)
+            }
+
+            /// Compute a centered overlay `AbsoluteAnchor` given screen dimensions,
+            /// desired size as percentages, and minimum dimensions.
+            pub fn centered_overlay(
+                screen_cols: u16,
+                screen_rows: u16,
+                w_pct: u32,
+                h_pct: u32,
+                min_w: u16,
+                min_h: u16,
+            ) -> AbsoluteAnchor {
+                let w = (screen_cols as u32 * w_pct / 100)
+                    .max(min_w as u32)
+                    .min(screen_cols as u32) as u16;
+                let h = (screen_rows as u32 * h_pct / 100)
+                    .max(min_h as u32)
+                    .min(screen_rows as u32) as u16;
+                let x = (screen_cols.saturating_sub(w)) / 2;
+                let y = (screen_rows.saturating_sub(h)) / 2;
+                AbsoluteAnchor { x, y, w, h }
+            }
+        }
+
+        #[allow(unused_imports)]
+        use __kasane_sdk::*;
     }
 }

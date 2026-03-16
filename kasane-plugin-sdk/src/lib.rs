@@ -6,14 +6,9 @@
 //! # Quick Start
 //!
 //! ```ignore
-//! use kasane_plugin_sdk::plugin;
-//!
 //! kasane_plugin_sdk::generate!();
 //!
-//! use exports::kasane::plugin::plugin_api::Guest;
-//! use kasane::plugin::types::*;
-//! use kasane::plugin::host_state;
-//! use kasane_plugin_sdk::dirty;
+//! use kasane_plugin_sdk::{dirty, plugin};
 //!
 //! struct MyPlugin;
 //!
@@ -24,8 +19,8 @@
 //!     fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
 //!         kasane_plugin_sdk::route_slot_ids!(region, {
 //!             BUFFER_LEFT => {
-//!                 // ... build elements via element_builder ...
-//!                 None
+//!                 let el = element_builder::create_text("★", default_face());
+//!                 Some(Contribution { element: el, priority: 0, size_hint: ContribSizeHint::Auto })
 //!             },
 //!         })
 //!     }
@@ -41,6 +36,10 @@
 //!
 //! export!(MyPlugin);
 //! ```
+//!
+//! `generate!()` emits WIT bindings and auto-imports common types (`Guest`,
+//! `host_state`, `element_builder`, `types::*`) plus helper functions
+//! (`default_face()`, `rgb()`, `face_bg()`, `centered_overlay()`, etc.).
 //!
 //! All `Guest` methods not listed in the `impl` block are automatically filled
 //! with SDK defaults by the `#[plugin]` attribute macro.
@@ -174,6 +173,56 @@ pub mod modifiers {
     pub const CTRL: u8 = 0b0000_0001;
     pub const ALT: u8 = 0b0000_0010;
     pub const SHIFT: u8 = 0b0000_0100;
+}
+
+/// Key escaping helpers for building Kakoune keystroke sequences.
+///
+/// Kakoune's `SendKeys` command accepts a list of individual key strings.
+/// Special characters must be escaped (e.g., space → `<space>`, `<` → `<lt>`).
+pub mod keys {
+    /// Push each character of `text` as an escaped key string.
+    ///
+    /// Special characters are converted to their Kakoune key names:
+    /// - space → `<space>`
+    /// - `<` → `<lt>`, `>` → `<gt>`
+    /// - `-` → `<minus>`, `%` → `<percent>`
+    pub fn push_literal(keys: &mut Vec<String>, text: &str) {
+        for ch in text.chars() {
+            match ch {
+                ' ' => keys.push("<space>".into()),
+                '<' => keys.push("<lt>".into()),
+                '>' => keys.push("<gt>".into()),
+                '-' => keys.push("<minus>".into()),
+                '%' => keys.push("<percent>".into()),
+                c => keys.push(c.to_string()),
+            }
+        }
+    }
+
+    /// Build a key sequence that escapes to normal mode, runs a Kakoune command,
+    /// and presses return: `<esc>:cmd<ret>`.
+    pub fn command(cmd: &str) -> Vec<String> {
+        let mut keys = vec!["<esc>".to_string(), ":".to_string()];
+        push_literal(&mut keys, cmd);
+        keys.push("<ret>".to_string());
+        keys
+    }
+}
+
+/// Attribute bitflags matching `kasane_core::protocol::color::Attributes`.
+///
+/// These are the user-facing text attributes (underline, bold, italic, etc.).
+/// Use in the `attributes` field of a WIT `Face` struct.
+pub mod attributes {
+    pub const UNDERLINE: u16 = 1 << 0;
+    pub const CURLY_UNDERLINE: u16 = 1 << 1;
+    pub const DOUBLE_UNDERLINE: u16 = 1 << 2;
+    pub const REVERSE: u16 = 1 << 3;
+    pub const BLINK: u16 = 1 << 4;
+    pub const BOLD: u16 = 1 << 5;
+    pub const DIM: u16 = 1 << 6;
+    pub const ITALIC: u16 = 1 << 7;
+    pub const STRIKETHROUGH: u16 = 1 << 8;
 }
 
 /// Bundled WIT interface definition (for reference/testing; not usable with proc macros).
@@ -474,12 +523,12 @@ macro_rules! default_overlay_v2 {
     };
 }
 
-/// Default contribute-deps stub (returns 0).
+/// Default contribute-deps stub (returns ALL).
 #[macro_export]
 macro_rules! default_contribute_deps {
     () => {
         fn contribute_deps(_region: SlotId) -> u16 {
-            0
+            $crate::dirty::ALL
         }
     };
 }
@@ -686,6 +735,65 @@ macro_rules! default_io_event {
     };
 }
 
+/// Declare thread-local plugin state with a generation counter.
+///
+/// Generates a struct with the specified fields plus a `generation: u64` field,
+/// a `Default` implementation using the provided default values,
+/// a `bump_generation()` method, and a `thread_local!` static `STATE`.
+///
+/// # Example
+///
+/// ```ignore
+/// kasane_plugin_sdk::state! {
+///     struct PluginState {
+///         cursor_count: u32 = 0,
+///         active: bool = false,
+///     }
+/// }
+/// // Generates:
+/// // - struct PluginState { cursor_count: u32, active: bool, generation: u64 }
+/// // - impl Default for PluginState { ... }  (with cursor_count: 0, active: false, generation: 0)
+/// // - impl PluginState { fn bump_generation(&mut self) { ... } }
+/// // - thread_local! { static STATE: RefCell<PluginState> = ... }
+/// ```
+///
+/// Access the state via `STATE.with(|s| { let state = s.borrow(); ... })`.
+/// The `generation` field is for use in `state_hash()` — call `bump_generation()`
+/// whenever the plugin's visible output would change.
+#[macro_export]
+macro_rules! state {
+    (
+        struct $name:ident {
+            $( $field:ident : $ty:ty = $default:expr ),* $(,)?
+        }
+    ) => {
+        #[derive(Debug)]
+        struct $name {
+            $( $field: $ty, )*
+            generation: u64,
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    $( $field: $default, )*
+                    generation: 0,
+                }
+            }
+        }
+
+        impl $name {
+            fn bump_generation(&mut self) {
+                self.generation = self.generation.wrapping_add(1);
+            }
+        }
+
+        ::std::thread_local! {
+            static STATE: ::std::cell::RefCell<$name> = ::std::cell::RefCell::new(<$name>::default());
+        }
+    };
+}
+
 /// Route slot-based dispatch. Returns `None` for unmatched slots.
 ///
 /// # Example
@@ -772,7 +880,12 @@ mod tests {
     fn dirty_flags_all_covers_all_bits() {
         assert_eq!(
             dirty::ALL,
-            dirty::BUFFER | dirty::STATUS | dirty::MENU | dirty::INFO | dirty::OPTIONS | dirty::SESSION
+            dirty::BUFFER
+                | dirty::STATUS
+                | dirty::MENU
+                | dirty::INFO
+                | dirty::OPTIONS
+                | dirty::SESSION
         );
     }
 
@@ -797,5 +910,46 @@ mod tests {
         assert_eq!(modifiers::CTRL, 0x01);
         assert_eq!(modifiers::ALT, 0x02);
         assert_eq!(modifiers::SHIFT, 0x04);
+    }
+
+    #[test]
+    fn attribute_constants_match_core() {
+        // Must match kasane_core::protocol::color::Attributes bitflags
+        assert_eq!(attributes::UNDERLINE, 1 << 0);
+        assert_eq!(attributes::CURLY_UNDERLINE, 1 << 1);
+        assert_eq!(attributes::DOUBLE_UNDERLINE, 1 << 2);
+        assert_eq!(attributes::REVERSE, 1 << 3);
+        assert_eq!(attributes::BLINK, 1 << 4);
+        assert_eq!(attributes::BOLD, 1 << 5);
+        assert_eq!(attributes::DIM, 1 << 6);
+        assert_eq!(attributes::ITALIC, 1 << 7);
+        assert_eq!(attributes::STRIKETHROUGH, 1 << 8);
+    }
+
+    #[test]
+    fn keys_push_literal_basic() {
+        let mut k = Vec::new();
+        keys::push_literal(&mut k, "abc");
+        assert_eq!(k, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn keys_push_literal_special_chars() {
+        let mut k = Vec::new();
+        keys::push_literal(&mut k, "a b<->%");
+        assert_eq!(
+            k,
+            vec!["a", "<space>", "b", "<lt>", "<minus>", "<gt>", "<percent>"]
+        );
+    }
+
+    #[test]
+    fn keys_command_builds_esc_colon_cmd_ret() {
+        let k = keys::command("edit foo.rs");
+        assert_eq!(k[0], "<esc>");
+        assert_eq!(k[1], ":");
+        // "edit foo.rs" → "e","d","i","t","<space>","f","o","o",".","r","s"
+        assert_eq!(k.last().unwrap(), "<ret>");
+        assert!(k.contains(&"<space>".to_string()));
     }
 }
