@@ -461,6 +461,60 @@ fn convert_command_plugin_message() {
     }
 }
 
+// --- From impl roundtrip tests ---
+
+#[test]
+fn coord_native_to_wit_roundtrip() {
+    let native = kasane_core::protocol::Coord {
+        line: 42,
+        column: 7,
+    };
+    let wit_c: wit::Coord = native.into();
+    let back: kasane_core::protocol::Coord = wit_c.into();
+    assert_eq!(native, back);
+}
+
+#[test]
+fn coord_wit_to_native_roundtrip() {
+    let wit_c = wit::Coord {
+        line: -1,
+        column: 99,
+    };
+    let native: kasane_core::protocol::Coord = wit_c.into();
+    let back: wit::Coord = native.into();
+    assert_eq!(wit_c.line, back.line);
+    assert_eq!(wit_c.column, back.column);
+}
+
+#[test]
+fn rect_native_to_wit_roundtrip() {
+    let native = Rect {
+        x: 5,
+        y: 10,
+        w: 80,
+        h: 24,
+    };
+    let wit_r: wit::Rect = native.into();
+    let back: Rect = wit_r.into();
+    assert_eq!(native, back);
+}
+
+#[test]
+fn rect_wit_to_native_roundtrip() {
+    let wit_r = wit::Rect {
+        x: 0,
+        y: 0,
+        w: 120,
+        h: 40,
+    };
+    let native: Rect = wit_r.into();
+    let back: wit::Rect = native.into();
+    assert_eq!(wit_r.x, back.x);
+    assert_eq!(wit_r.y, back.y);
+    assert_eq!(wit_r.w, back.w);
+    assert_eq!(wit_r.h, back.h);
+}
+
 // --- Phase P-2: IoEvent conversion tests ---
 
 #[test]

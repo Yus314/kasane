@@ -140,5 +140,51 @@ pub(crate) fn rect_to_wit(rect: &Rect) -> wit::Rect {
     }
 }
 
+// ---------------------------------------------------------------------------
+// From impls for Coord / Rect (enables `.into()` at call sites)
+// ---------------------------------------------------------------------------
+
+use kasane_core::protocol::Coord;
+
+impl From<Coord> for wit::Coord {
+    fn from(c: Coord) -> Self {
+        wit::Coord {
+            line: c.line,
+            column: c.column,
+        }
+    }
+}
+
+impl From<wit::Coord> for Coord {
+    fn from(c: wit::Coord) -> Self {
+        Coord {
+            line: c.line,
+            column: c.column,
+        }
+    }
+}
+
+impl From<Rect> for wit::Rect {
+    fn from(r: Rect) -> Self {
+        wit::Rect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+        }
+    }
+}
+
+impl From<wit::Rect> for Rect {
+    fn from(r: wit::Rect) -> Self {
+        Rect {
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

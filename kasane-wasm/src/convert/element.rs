@@ -1,8 +1,7 @@
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::config::MenuPosition;
 use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
-use kasane_core::layout::Rect;
-use kasane_core::protocol::{Coord, InfoStyle, MenuStyle};
+use kasane_core::protocol::{InfoStyle, MenuStyle};
 
 pub(crate) fn wit_overlay_anchor_to_overlay_anchor(wa: &wit::OverlayAnchor) -> OverlayAnchor {
     match wa {
@@ -13,21 +12,9 @@ pub(crate) fn wit_overlay_anchor_to_overlay_anchor(wa: &wit::OverlayAnchor) -> O
             h: a.h,
         },
         wit::OverlayAnchor::AnchorPoint(ap) => OverlayAnchor::AnchorPoint {
-            coord: Coord {
-                line: ap.coord.line,
-                column: ap.coord.column,
-            },
+            coord: ap.coord.into(),
             prefer_above: ap.prefer_above,
-            avoid: ap
-                .avoid
-                .iter()
-                .map(|r| Rect {
-                    x: r.x,
-                    y: r.y,
-                    w: r.w,
-                    h: r.h,
-                })
-                .collect(),
+            avoid: ap.avoid.iter().map(|r| (*r).into()).collect(),
         },
     }
 }

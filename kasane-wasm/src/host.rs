@@ -230,10 +230,7 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     ) -> Option<bindings::kasane::plugin::types::Coord> {
         self.secondary_cursors
             .get(index as usize)
-            .map(|c| bindings::kasane::plugin::types::Coord {
-                line: c.line,
-                column: c.column,
-            })
+            .map(|c| (*c).into())
     }
 
     // --- v0.4.0 Tier 5: Config ---
@@ -266,19 +263,12 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_info_anchor(&mut self, index: u32) -> Option<bindings::kasane::plugin::types::Coord> {
         self.infos
             .get(index as usize)
-            .map(|info| bindings::kasane::plugin::types::Coord {
-                line: info.anchor.line,
-                column: info.anchor.column,
-            })
+            .map(|info| info.anchor.into())
     }
 
     // --- v0.4.0 Tier 7: Menu details ---
     fn get_menu_anchor(&mut self) -> Option<bindings::kasane::plugin::types::Coord> {
-        self.menu_anchor
-            .map(|c| bindings::kasane::plugin::types::Coord {
-                line: c.line,
-                column: c.column,
-            })
+        self.menu_anchor.map(|c| c.into())
     }
     fn get_menu_style(&mut self) -> Option<String> {
         self.menu_style.clone()
