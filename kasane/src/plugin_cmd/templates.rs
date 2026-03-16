@@ -73,9 +73,7 @@ fn hello_template(id: &str) -> String {
         r#"kasane_plugin_sdk::define_plugin! {{
     id: "{id}",
     slots {{
-        STATUS_RIGHT(0) => |_ctx| {{
-            Some(auto_contribution(plain(" Hello from {id}! ")))
-        }},
+        STATUS_RIGHT => plain(" Hello from {id}! "),
     }},
 }}
 "#
@@ -88,20 +86,14 @@ fn contribution_template(id: &str) -> String {
     id: "{id}",
 
     state {{
+        #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
         cursor_count: u32 = 0,
-    }},
-
-    on_state_changed(flags) {{
-        if flags & dirty::BUFFER != 0 {{
-            state.cursor_count = host_state::get_cursor_count();
-        }}
     }},
 
     slots {{
         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {{
-            let count = STATE.with(|s| s.borrow().cursor_count);
-            (count > 1).then(|| {{
-                auto_contribution(text(&format!(" {{}} sel ", count), default_face()))
+            (state.cursor_count > 1).then(|| {{
+                auto_contribution(text(&format!(" {{}} sel ", state.cursor_count), default_face()))
             }})
         }},
     }},
@@ -116,13 +108,8 @@ fn annotation_template(id: &str) -> String {
     id: "{id}",
 
     state {{
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
         active_line: i32 = -1,
-    }},
-
-    on_state_changed(flags) {{
-        if flags & dirty::BUFFER != 0 {{
-            state.active_line = host_state::get_cursor_line();
-        }}
     }},
 
     annotate(line, _ctx) {{
@@ -141,13 +128,8 @@ fn transform_template(id: &str) -> String {
     id: "{id}",
 
     state {{
+        #[bind(host_state::get_cursor_mode(), on: dirty::STATUS)]
         cursor_mode: u8 = 0,
-    }},
-
-    on_state_changed(flags) {{
-        if flags & dirty::STATUS != 0 {{
-            state.cursor_mode = host_state::get_cursor_mode();
-        }}
     }},
 
     transform(target, element, _ctx) {{
@@ -191,8 +173,7 @@ fn overlay_template(id: &str) -> String {
             if is_ctrl(&event, "o") {{
                 state.open = true;
                 state.selected = 0;
-                state.bump_generation();
-                return Some(vec![Command::RequestRedraw(dirty::ALL)]);
+                return Some(redraw());
             }}
             return None;
         }}
@@ -200,27 +181,23 @@ fn overlay_template(id: &str) -> String {
         match &event.key {{
             KeyCode::Escape => {{
                 state.open = false;
-                state.bump_generation();
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                Some(redraw())
             }}
             KeyCode::Up => {{
                 if state.selected > 0 {{
                     state.selected -= 1;
-                    state.bump_generation();
                 }}
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                Some(redraw())
             }}
             KeyCode::Down => {{
                 if state.selected < 2 {{
                     state.selected += 1;
-                    state.bump_generation();
                 }}
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                Some(redraw())
             }}
             KeyCode::Enter => {{
                 state.open = false;
-                state.bump_generation();
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                Some(redraw())
             }}
             _ => Some(vec![]),
         }}
@@ -279,7 +256,6 @@ fn process_template(id: &str) -> String {
             if is_ctrl_shift(&event, "P") {{
                 state.active = true;
                 state.output.clear();
-                state.bump_generation();
                 return Some(vec![
                     Command::SpawnProcess(SpawnProcessConfig {{
                         job_id: 1,
@@ -296,7 +272,6 @@ fn process_template(id: &str) -> String {
         match &event.key {{
             KeyCode::Escape => {{
                 state.active = false;
-                state.bump_generation();
                 Some(vec![
                     Command::KillProcess(1),
                     Command::RequestRedraw(dirty::ALL),
@@ -316,12 +291,10 @@ fn process_template(id: &str) -> String {
                             state.output.push(line.to_string());
                         }}
                     }}
-                    state.bump_generation();
-                    vec![Command::RequestRedraw(dirty::ALL)]
+                    redraw()
                 }}
                 ProcessEventKind::Exited(_) => {{
-                    state.bump_generation();
-                    vec![Command::RequestRedraw(dirty::ALL)]
+                    redraw()
                 }}
                 _ => vec![],
             }},
@@ -411,7 +384,7 @@ mod tests {
         assert!(src.contains("define_plugin!"));
         assert!(src.contains("\"test_plug\""));
         assert!(src.contains("slots"));
-        assert!(src.contains("on_state_changed"));
+        assert!(src.contains("#[bind("));
     }
 
     #[test]

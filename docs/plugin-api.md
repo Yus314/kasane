@@ -695,6 +695,8 @@ kasane_plugin_sdk::state! {
 // Access: STATE.with(|s| { let state = s.borrow(); ... })
 ```
 
+In `define_plugin!`, the `state {}` section supports `#[bind(expr, on: flags)]` attributes on fields to auto-generate sync code in `on_state_changed()`. Mutable contexts (`handle_key`, `overlay`, `on_io_event`, etc.) use a `StateMutGuard` that auto-calls `bump_generation()` on drop, so manual calls are no longer required. The `on_state_changed` body auto-appends `vec![]`; use `on_state_changed_commands` when you need to return commands explicitly.
+
 ### Auto Imports
 
 `generate!()` also provides glob-imported auto-imports for common WIT types. Explicit `use` statements in existing code shadow these without conflict:

@@ -5,15 +5,13 @@
 //!
 //! # Quick Start
 //!
-//! The simplest plugin is 4 lines with [`define_plugin!`]:
+//! The simplest plugin is 3 lines with [`define_plugin!`]:
 //!
 //! ```ignore
 //! kasane_plugin_sdk::define_plugin! {
 //!     id: "my_plugin",
 //!     slots {
-//!         STATUS_RIGHT(0) => |_ctx| {
-//!             Some(auto_contribution(plain(" Hello! ")))
-//!         },
+//!         STATUS_RIGHT => plain(" Hello! "),
 //!     },
 //! }
 //! ```
@@ -21,32 +19,32 @@
 //! `define_plugin!` combines WIT bindings, state declaration, `#[plugin]`,
 //! and `export!()` into a single macro. It auto-imports `dirty`, `modifiers`,
 //! `keys`, and `attributes` modules, plus SDK helpers like `plain()`,
-//! `colored()`, `is_ctrl()`, `status_badge()`, and `hex()`.
+//! `colored()`, `is_ctrl()`, `status_badge()`, `redraw()`, and `hex()`.
 //!
 //! ## With State
+//!
+//! Use `#[bind(expr, on: flags)]` to auto-sync state from host:
 //!
 //! ```ignore
 //! kasane_plugin_sdk::define_plugin! {
 //!     id: "sel_badge",
 //!
 //!     state {
+//!         #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
 //!         cursor_count: u32 = 0,
-//!     },
-//!
-//!     on_state_changed(flags) {
-//!         if flags & dirty::BUFFER != 0 {
-//!             state.cursor_count = host_state::get_cursor_count();
-//!         }
 //!     },
 //!
 //!     slots {
 //!         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-//!             let count = STATE.with(|s| s.borrow().cursor_count);
-//!             status_badge(count > 1, &format!(" {} sel ", count))
+//!             status_badge(state.cursor_count > 1, &format!(" {} sel ", state.cursor_count))
 //!         },
 //!     },
 //! }
 //! ```
+//!
+//! Inside `slots` closures, `state.field` is available directly (read-only).
+//! In `handle_key`, `overlay`, `on_io_event`, etc., `state` is mutable and
+//! `bump_generation()` is called automatically when the guard drops.
 //!
 //! # Explicit Pattern
 //!

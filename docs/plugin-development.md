@@ -24,7 +24,7 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 
 ## Quick Start
 
-### Hello World (4 lines)
+### Hello World (3 lines)
 
 ```bash
 kasane plugin new my-hello --template hello
@@ -37,21 +37,21 @@ This creates a minimal plugin:
 kasane_plugin_sdk::define_plugin! {
     id: "my_hello",
     slots {
-        STATUS_RIGHT(0) => |_ctx| {
-            Some(auto_contribution(plain(" Hello from my_hello! ")))
-        },
+        STATUS_RIGHT => plain(" Hello from my_hello! "),
     },
 }
 ```
+
+The simple slot form `SLOT => expr` auto-wraps the expression in `auto_contribution()`. For full control, use the closure form `SLOT(deps) => |ctx| { ... }`.
 
 ### Progressive Learning Path
 
 | Level | Template | What you learn | Key concepts |
 |---|---|---|---|
-| 1 | `hello` | Minimal plugin, slot contribution | `define_plugin!`, `plain()`, `auto_contribution()` |
-| 2 | `contribution` | State, dirty flags, state caching | `state {}`, `on_state_changed()`, `dirty::BUFFER` |
+| 1 | `hello` | Minimal plugin, slot contribution | `define_plugin!`, `plain()`, simple slot form |
+| 2 | `contribution` | State, dirty flags, state caching | `state {}`, `#[bind]`, `dirty::BUFFER` |
 | 3 | `annotation` | Per-line decoration | `annotate()`, `annotate_deps` |
-| 4 | `overlay` | Interactive UI, key handling | `handle_key()`, `overlay()`, `is_ctrl()` |
+| 4 | `overlay` | Interactive UI, key handling | `handle_key()`, `overlay()`, `redraw()` |
 | 5 | `process` | External processes, I/O events | `capabilities`, `on_io_event()`, `is_ctrl_shift()` |
 
 ### Project Setup
@@ -101,20 +101,13 @@ kasane_plugin_sdk::define_plugin! {
     id: "sel_badge",
 
     state {
+        #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
         cursor_count: u32 = 0,
-    },
-
-    on_state_changed(flags) {
-        if flags & dirty::BUFFER != 0 {
-            state.cursor_count = host_state::get_cursor_count();
-        }
     },
 
     slots {
         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-            // Inside slots closures, use STATE.with() for state access
-            let count = STATE.with(|s| s.borrow().cursor_count);
-            status_badge(count > 1, &format!(" {} sel ", count))
+            status_badge(state.cursor_count > 1, &format!(" {} sel ", state.cursor_count))
         },
     },
 }
@@ -123,10 +116,11 @@ kasane_plugin_sdk::define_plugin! {
 **Key points:**
 
 - **`define_plugin!`** combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro. All sections are optional except `id`.
-- **`on_state_changed()`** is called when editor state changes. Cache data you need; the `flags` bitmask tells you what changed. Inside this section, `state.field` accesses work directly.
-- **`slots {}`** declares slot contributions with dependency tracking. **Important:** Inside `slots` closures, use `STATE.with(|s| s.borrow().field)` for state access (the macro does not auto-wrap slots).
+- **`#[bind(expr, on: flags)]`** on state fields auto-generates sync code in `on_state_changed()`. The expression is evaluated when the specified dirty flags are set.
+- **`slots {}`** declares slot contributions with dependency tracking. Inside `slots` closures, `state.field` is available directly (read-only).
 - **`status_badge()`** is a helper that returns `Some(auto_contribution(plain(label)))` when the condition is true.
 - The `dirty` and `modifiers` modules are auto-imported by `define_plugin!`.
+- In mutable contexts (`handle_key`, `overlay`, `on_io_event`, etc.), `bump_generation()` is called automatically when the state guard drops.
 
 ### SDK Helpers Reference
 
@@ -139,6 +133,9 @@ kasane_plugin_sdk::define_plugin! {
 | `is_ctrl_shift(event, key)` | `&KeyEvent, &str → bool` | Checks Ctrl+Shift+key (no Alt) |
 | `status_badge(cond, label)` | `bool, &str → Option<Contribution>` | Conditional status bar badge |
 | `hex(s)` | `&str → Color` | Parse `"#rrggbb"` / `"#rgb"` to `Color::Rgb` |
+| `redraw()` | `→ Vec<Command>` | `vec![Command::RequestRedraw(dirty::ALL)]` |
+| `redraw_flags(flags)` | `u16 → Vec<Command>` | `vec![Command::RequestRedraw(flags)]` |
+| `send_command(cmd)` | `&str → Command` | Build `SendKeys` for a Kakoune command |
 
 These are available in all plugin code (emitted by `generate!()` / `define_plugin!`).
 
@@ -146,14 +143,14 @@ These are available in all plugin code (emitted by `generate!()` / `define_plugi
 
 | Profile | Sections | Template | Example |
 |---|---|---|---|
-| Status widget | `state`, `on_state_changed`, `slots` | `contribution` | sel-badge |
-| Line annotator | `state`, `on_state_changed`, `annotate`, `annotate_deps` | `annotation` | cursor-line |
-| Element transformer | `state`, `on_state_changed`, `transform`, `transform_deps` | `transform` | prompt-highlight |
+| Status widget | `state` (`#[bind]`), `slots` | `contribution` | sel-badge |
+| Line annotator | `state` (`#[bind]`), `annotate`, `annotate_deps` | `annotation` | cursor-line |
+| Element transformer | `state` (`#[bind]`), `transform`, `transform_deps` | `transform` | prompt-highlight |
 | Display transform | `state`, `on_state_changed`, `display_directives`, `display_directives_deps` | — | — |
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
 | Process launcher | Above + `on_io_event`, `capabilities` | `process` | fuzzy-finder |
 
-Available `define_plugin!` sections: `id`, `state`, `on_init`, `on_state_changed`, `slots`, `annotate`, `annotate_deps`, `transform`, `transform_deps`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
+Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init`, `on_state_changed`, `on_state_changed_commands`, `slots`, `annotate`, `annotate_deps`, `transform`, `transform_deps`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
 
 ### Build & Deploy
 
@@ -197,13 +194,8 @@ kasane_plugin_sdk::define_plugin! {
     id: "prompt_highlight",
 
     state {
+        #[bind(host_state::get_cursor_mode(), on: dirty::STATUS)]
         cursor_mode: u8 = 0,
-    },
-
-    on_state_changed(flags) {
-        if flags & dirty::STATUS != 0 {
-            state.cursor_mode = host_state::get_cursor_mode();
-        }
     },
 
     transform(target, element, _ctx) {
@@ -316,7 +308,8 @@ Plugins can observe and control sessions using the Tier 8 host-state API and `Se
 ```rust
 use kasane::plugin::host_state;
 
-fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
+// In define_plugin!, on_state_changed auto-appends vec![]
+on_state_changed(dirty_flags) {
     if dirty_flags & dirty::SESSION != 0 {
         let count = host_state::get_session_count();
         let active_key = host_state::get_active_session_key();
@@ -328,7 +321,6 @@ fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
             }
         }
     }
-    vec![]
 }
 ```
 
@@ -356,7 +348,7 @@ if host_state::get_session_count() > 1 {
 
 - Use `contribute_deps(STATUS_RIGHT) → dirty::SESSION` so the status bar indicator updates on session changes
 - Use `contribute_overlay_v2()` for a floating session list triggered by a keybinding
-- Track `generation` counter for `state_hash()` — bump it on switcher open/close/navigate and on session state changes
+- `state_hash()` is auto-managed via the generation counter — `bump_generation()` is called automatically in mutable contexts
 
 See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 
@@ -529,7 +521,7 @@ Register via `registry.register_backend(Box::new(..))`. See the `PluginBackend` 
 | Performance | WASM boundary crossing cost | Direct function calls | Direct function calls |
 | API access | `host-state` + `element-builder` | Direct `&AppState` + `&State` | Direct `&AppState` reference |
 | Distribution | `.wasm` file placement | Custom binary | Custom binary |
-| Developer experience | `define_plugin!` (4-line hello world) | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
+| Developer experience | `define_plugin!` (3-line hello world) | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
 | `Surface` / `PaintHook` | Not supported ([details](./wasm-constraints.md)) | Not supported (use `PluginBackend`) | Supported |
 | State model | Mutable (guest linear memory) | Externalized (framework-owned, pure functions) | Mutable (`&mut self`) |
 | Cache invalidation | Manual `state_hash()` | Automatic (`PartialEq` comparison) | Manual `state_hash()` |

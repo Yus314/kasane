@@ -676,6 +676,23 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
+            // ----- Command shortcuts -----
+
+            /// Request a full redraw (all dirty flags).
+            pub fn redraw() -> Vec<Command> {
+                vec![Command::RequestRedraw(0x17F)]
+            }
+
+            /// Request a redraw with specific dirty flags.
+            pub fn redraw_flags(flags: u16) -> Vec<Command> {
+                vec![Command::RequestRedraw(flags)]
+            }
+
+            /// Build a `Command::SendKeys` that runs a Kakoune command.
+            pub fn send_command(cmd: &str) -> Command {
+                Command::SendKeys(kasane_plugin_sdk::keys::command(cmd))
+            }
+
             // ----- Edges shortcuts -----
 
             /// Create edges with explicit values.
@@ -813,22 +830,13 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 ///     id: "sel_badge",
 ///
 ///     state {
+///         #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
 ///         cursor_count: u32 = 0,
-///     },
-///
-///     on_state_changed(flags) {
-///         if flags & dirty::BUFFER != 0 {
-///             state.cursor_count = host_state::get_cursor_count();
-///         }
 ///     },
 ///
 ///     slots {
 ///         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
-///             // Note: inside slots closures, use STATE.with() for state access
-///             let count = STATE.with(|s| s.borrow().cursor_count);
-///             (count > 1).then(|| {
-///                 auto_contribution(text(&format!(" {} sel ", count), default_face()))
-///             })
+///             status_badge(state.cursor_count > 1, &format!(" {} sel ", state.cursor_count))
 ///         },
 ///     },
 /// }
@@ -838,9 +846,12 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 ///
 /// - `id: "plugin_id"` — plugin identifier (required)
 /// - `state { field: Type = default, ... }` — plugin state with generation counter
+///   - Fields support `#[bind(expr, on: flags)]` for auto-sync from host state
 /// - `on_init() { ... }` → `fn on_init()`
-/// - `on_state_changed(dirty) { ... }` → `fn on_state_changed()`
-/// - `slots { SLOT(deps) => |ctx| { ... }, ... }` → `slots!` macro expansion
+/// - `on_state_changed(dirty) { ... }` → `fn on_state_changed()` (auto `vec![]`)
+/// - `on_state_changed_commands(dirty) { ... }` → same, but body must return `Vec<Command>`
+/// - `slots { SLOT => expr, ... }` — simple form (auto-wraps in `auto_contribution()`)
+/// - `slots { SLOT(deps) => |ctx| { ... }, ... }` — full form with state access via `state.field`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
 /// - `annotate_deps: expr` → `fn annotate_deps()`
 /// - `transform(target, element, ctx) { ... }` → `fn transform_element()`
@@ -924,6 +935,30 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                     ::std::cell::RefCell::new(<__KasanePluginState>::default());
             }
 
+            /// RAII guard that auto-bumps generation on drop if state was mutated
+            /// but bump_generation() was not called manually.
+            struct __KasaneStateMutGuard<'a> {
+                inner: ::std::cell::RefMut<'a, __KasanePluginState>,
+                old_generation: u64,
+            }
+
+            impl ::std::ops::Deref for __KasaneStateMutGuard<'_> {
+                type Target = __KasanePluginState;
+                fn deref(&self) -> &Self::Target { &self.inner }
+            }
+
+            impl ::std::ops::DerefMut for __KasaneStateMutGuard<'_> {
+                fn deref_mut(&mut self) -> &mut Self::Target { &mut self.inner }
+            }
+
+            impl Drop for __KasaneStateMutGuard<'_> {
+                fn drop(&mut self) {
+                    if self.inner.generation == self.old_generation {
+                        self.inner.generation = self.inner.generation.wrapping_add(1);
+                    }
+                }
+            }
+
             #[doc(hidden)]
             #[allow(dead_code)]
             fn __kasane_auto_state_hash() -> u64 {
@@ -949,12 +984,16 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
 
     let has_state = def.state.is_some();
 
-    // Helper: wrap body with STATE.with_borrow_mut if state is present
+    // Helper: wrap body with STATE.with + StateMutGuard if state is present (mutable access)
     let wrap_state = |body: &proc_macro2::TokenStream| -> proc_macro2::TokenStream {
         if has_state {
             quote! {
                 STATE.with(|__s| {
-                    let mut state = __s.borrow_mut();
+                    let __old_gen = __s.borrow().generation;
+                    let mut state = __KasaneStateMutGuard {
+                        inner: __s.borrow_mut(),
+                        old_generation: __old_gen,
+                    };
                     #body
                 })
             }
@@ -970,21 +1009,82 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let on_state_changed_method = if let Some(ref osc) = def.on_state_changed {
-        let param = &osc.param;
-        let body = &osc.body;
+    // Generate auto-binding code from #[bind] attributes
+    let auto_bindings: Vec<proc_macro2::TokenStream> = if let Some(ref state_def) = def.state {
+        state_def
+            .fields
+            .iter()
+            .filter_map(|f| {
+                f.bind.as_ref().map(|b| {
+                    let name = &f.name;
+                    let expr = &b.expr;
+                    let flag = &b.dirty_flag;
+                    quote! {
+                        if __flags & #flag != 0 {
+                            state.#name = #expr;
+                        }
+                    }
+                })
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let has_bindings = !auto_bindings.is_empty();
+    let has_osc = def.on_state_changed.is_some();
+    let has_osc_commands = def.on_state_changed_commands.is_some();
+
+    let on_state_changed_method = if has_osc || has_osc_commands || has_bindings {
+        let param_name = def
+            .on_state_changed
+            .as_ref()
+            .map(|osc| osc.param.clone())
+            .or_else(|| {
+                def.on_state_changed_commands
+                    .as_ref()
+                    .map(|osc| osc.param.clone())
+            })
+            .unwrap_or_else(|| syn::Ident::new("__flags", proc_macro2::Span::call_site()));
+
+        let sync_body = def
+            .on_state_changed
+            .as_ref()
+            .map(|osc| osc.body.clone())
+            .unwrap_or_default();
+
+        let commands_body = def
+            .on_state_changed_commands
+            .as_ref()
+            .map(|osc| {
+                let body = &osc.body;
+                quote! { return #body; }
+            })
+            .unwrap_or_default();
+
         let wrapped = if has_state {
             quote! {
                 STATE.with(|__s| {
-                    let mut state = __s.borrow_mut();
-                    #body
+                    let __old_gen = __s.borrow().generation;
+                    let mut state = __KasaneStateMutGuard {
+                        inner: __s.borrow_mut(),
+                        old_generation: __old_gen,
+                    };
+                    #( #auto_bindings )*
+                    { #sync_body }
+                    #commands_body
+                    vec![]
                 })
             }
         } else {
-            body.clone()
+            quote! {
+                { #sync_body }
+                #commands_body
+                vec![]
+            }
         };
         quote! {
-            fn on_state_changed(#param: u16) -> Vec<Command> {
+            fn on_state_changed(#param_name: u16) -> Vec<Command> {
                 #wrapped
             }
         }
@@ -993,10 +1093,68 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     };
 
     let slots_method = if let Some(ref slots) = def.slots {
-        let tokens = slots;
+        let slot_arms: Vec<_> = slots
+            .iter()
+            .map(|entry| {
+                let pattern = slot_name_to_pattern(&entry.name);
+                let body = &entry.body;
+
+                let wrapped_body = if entry.has_closure {
+                    // Full form: body returns Option<Contribution>
+                    let ctx_param = entry.ctx_param.as_ref().unwrap();
+                    if has_state {
+                        quote! {
+                            STATE.with(|__s| {
+                                let state = __s.borrow();
+                                let #ctx_param = &__ctx;
+                                #body
+                            })
+                        }
+                    } else {
+                        quote! { let #ctx_param = &__ctx; #body }
+                    }
+                } else {
+                    // Simple form: body is an ElementHandle expression, auto-wrap
+                    if has_state {
+                        quote! {
+                            STATE.with(|__s| {
+                                let state = __s.borrow();
+                                Some(auto_contribution(#body))
+                            })
+                        }
+                    } else {
+                        quote! { Some(auto_contribution(#body)) }
+                    }
+                };
+
+                quote! { #pattern => { #wrapped_body } }
+            })
+            .collect();
+
+        let deps_arms: Vec<_> = slots
+            .iter()
+            .map(|entry| {
+                let pattern = slot_name_to_deps_pattern(&entry.name);
+                let deps = entry
+                    .deps
+                    .clone()
+                    .unwrap_or_else(|| quote! { 0x17F });
+                quote! { #pattern => { #deps } }
+            })
+            .collect();
+
         quote! {
-            kasane_plugin_sdk::slots! {
-                #tokens
+            fn contribute_to(__region: SlotId, __ctx: ContributeContext) -> Option<Contribution> {
+                match &__region {
+                    #( #slot_arms, )*
+                    _ => None,
+                }
+            }
+            fn contribute_deps(__region: SlotId) -> u16 {
+                match &__region {
+                    #( #deps_arms, )*
+                    _ => 0,
+                }
             }
         }
     } else {
@@ -1164,7 +1322,8 @@ struct PluginDef {
     state: Option<StateDef>,
     on_init: Option<proc_macro2::TokenStream>,
     on_state_changed: Option<OnStateChanged>,
-    slots: Option<proc_macro2::TokenStream>,
+    on_state_changed_commands: Option<OnStateChanged>,
+    slots: Option<Vec<SlotEntry>>,
     annotate: Option<AnnotateDef>,
     annotate_deps: Option<proc_macro2::TokenStream>,
     transform: Option<TransformDef>,
@@ -1185,6 +1344,25 @@ struct StateField {
     name: syn::Ident,
     ty: syn::Type,
     default: syn::Expr,
+    bind: Option<BindDef>,
+}
+
+struct BindDef {
+    expr: proc_macro2::TokenStream,
+    dirty_flag: proc_macro2::TokenStream,
+}
+
+enum SlotName {
+    WellKnown(syn::Ident),
+    Named(syn::LitStr),
+}
+
+struct SlotEntry {
+    name: SlotName,
+    deps: Option<proc_macro2::TokenStream>,
+    has_closure: bool,
+    ctx_param: Option<syn::Ident>,
+    body: proc_macro2::TokenStream,
 }
 
 struct OnStateChanged {
@@ -1228,6 +1406,7 @@ impl syn::parse::Parse for PluginDef {
             state: None,
             on_init: None,
             on_state_changed: None,
+            on_state_changed_commands: None,
             slots: None,
             annotate: None,
             annotate_deps: None,
@@ -1258,6 +1437,37 @@ impl syn::parse::Parse for PluginDef {
                     syn::braced!(content in input);
                     let mut fields = Vec::new();
                     while !content.is_empty() {
+                        // Parse optional #[bind(expr, on: flag)] attribute
+                        let bind = if content.peek(syn::Token![#]) {
+                            content.parse::<syn::Token![#]>()?;
+                            let attr_content;
+                            syn::bracketed!(attr_content in content);
+                            let attr_name: syn::Ident = attr_content.parse()?;
+                            if attr_name != "bind" {
+                                return Err(syn::Error::new(
+                                    attr_name.span(),
+                                    "only #[bind(...)] is supported on state fields",
+                                ));
+                            }
+                            let bind_args;
+                            syn::parenthesized!(bind_args in attr_content);
+                            // Parse: expr, on: flag_expr
+                            let expr = parse_bind_expr(&bind_args)?;
+                            bind_args.parse::<syn::Token![,]>()?;
+                            let on_kw: syn::Ident = bind_args.parse()?;
+                            if on_kw != "on" {
+                                return Err(syn::Error::new(
+                                    on_kw.span(),
+                                    "expected `on:` in #[bind(expr, on: flags)]",
+                                ));
+                            }
+                            bind_args.parse::<syn::Token![:]>()?;
+                            let dirty_flag: proc_macro2::TokenStream = bind_args.parse()?;
+                            Some(BindDef { expr, dirty_flag })
+                        } else {
+                            None
+                        };
+
                         let name: syn::Ident = content.parse()?;
                         content.parse::<syn::Token![:]>()?;
                         let ty: syn::Type = content.parse()?;
@@ -1266,7 +1476,7 @@ impl syn::parse::Parse for PluginDef {
                         if !content.is_empty() {
                             content.parse::<syn::Token![,]>()?;
                         }
-                        fields.push(StateField { name, ty, default });
+                        fields.push(StateField { name, ty, default, bind });
                     }
                     def.state = Some(StateDef { fields });
                 }
@@ -1289,10 +1499,22 @@ impl syn::parse::Parse for PluginDef {
                         body: body.parse()?,
                     });
                 }
+                "on_state_changed_commands" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_state_changed_commands = Some(OnStateChanged {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
                 "slots" => {
                     let body;
                     syn::braced!(body in input);
-                    def.slots = Some(body.parse()?);
+                    let entries = parse_slot_entries(&body)?;
+                    def.slots = Some(entries);
                 }
                 "annotate" => {
                     let params;
@@ -1432,4 +1654,131 @@ fn parse_until_comma_or_end(
         tokens.push(tt);
     }
     Ok(tokens.into_iter().collect())
+}
+
+/// Parse the expression part of `#[bind(expr, on: flag)]` — everything before `, on:`.
+fn parse_bind_expr(input: syn::parse::ParseStream) -> syn::Result<proc_macro2::TokenStream> {
+    let mut tokens = Vec::new();
+    // Collect tokens until we see `, on` (comma followed by `on` ident)
+    loop {
+        if input.is_empty() {
+            return Err(input.error("expected `, on: flags` in #[bind(expr, on: flags)]"));
+        }
+        // Peek ahead: if next is `,` and then `on`, stop
+        if input.peek(syn::Token![,]) {
+            let fork = input.fork();
+            let _ = fork.parse::<syn::Token![,]>();
+            if fork.peek(syn::Ident) {
+                let ident: syn::Ident = fork.parse()?;
+                if ident == "on" {
+                    break;
+                }
+            }
+        }
+        let tt: proc_macro2::TokenTree = input.parse()?;
+        tokens.push(tt);
+    }
+    Ok(tokens.into_iter().collect())
+}
+
+/// Parse slot entries from the `slots { ... }` block.
+fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEntry>> {
+    let mut entries = Vec::new();
+    while !input.is_empty() {
+        // 1. Slot name: IDENT or named("...")
+        let name = {
+            let ident: syn::Ident = input.parse()?;
+            if ident == "named" {
+                let args;
+                syn::parenthesized!(args in input);
+                let lit: syn::LitStr = args.parse()?;
+                SlotName::Named(lit)
+            } else {
+                SlotName::WellKnown(ident)
+            }
+        };
+
+        // 2. Optional (deps) — if next token is `(`
+        let deps = if input.peek(syn::token::Paren) {
+            let args;
+            syn::parenthesized!(args in input);
+            let ts: proc_macro2::TokenStream = args.parse()?;
+            Some(ts)
+        } else {
+            None
+        };
+
+        // 3. `=>`
+        input.parse::<syn::Token![=>]>()?;
+
+        // 4. Closure `|ctx| { body }` or simple expression
+        if input.peek(syn::Token![|]) {
+            // Full closure form
+            input.parse::<syn::Token![|]>()?;
+            let ctx_param: syn::Ident = input.parse()?;
+            input.parse::<syn::Token![|]>()?;
+            let body;
+            syn::braced!(body in input);
+            let body_tokens: proc_macro2::TokenStream = body.parse()?;
+            entries.push(SlotEntry {
+                name,
+                deps,
+                has_closure: true,
+                ctx_param: Some(ctx_param),
+                body: body_tokens,
+            });
+        } else {
+            // Simple expression form — read until `,` or end
+            let mut tokens = Vec::new();
+            while !input.is_empty() && !input.peek(syn::Token![,]) {
+                let tt: proc_macro2::TokenTree = input.parse()?;
+                tokens.push(tt);
+            }
+            let body_tokens: proc_macro2::TokenStream = tokens.into_iter().collect();
+            entries.push(SlotEntry {
+                name,
+                deps,
+                has_closure: false,
+                ctx_param: None,
+                body: body_tokens,
+            });
+        }
+
+        // 5. Trailing comma
+        if !input.is_empty() {
+            let _ = input.parse::<syn::Token![,]>();
+        }
+    }
+    Ok(entries)
+}
+
+/// Convert a SlotName to a match pattern for `SlotId`.
+fn slot_name_to_pattern(name: &SlotName) -> proc_macro2::TokenStream {
+    match name {
+        SlotName::WellKnown(ident) => {
+            let variant = match ident.to_string().as_str() {
+                "BUFFER_LEFT" => quote! { BufferLeft },
+                "BUFFER_RIGHT" => quote! { BufferRight },
+                "ABOVE_BUFFER" => quote! { AboveBuffer },
+                "BELOW_BUFFER" => quote! { BelowBuffer },
+                "ABOVE_STATUS" => quote! { AboveStatus },
+                "STATUS_LEFT" => quote! { StatusLeft },
+                "STATUS_RIGHT" => quote! { StatusRight },
+                "OVERLAY" => quote! { Overlay },
+                other => {
+                    let msg = format!("unknown well-known slot: `{other}`");
+                    return quote! { compile_error!(#msg) };
+                }
+            };
+            quote! { SlotId::WellKnown(WellKnownSlot::#variant) }
+        }
+        SlotName::Named(lit) => {
+            quote! { SlotId::Named(ref __n) if __n == #lit }
+        }
+    }
+}
+
+/// Convert a SlotName to a match pattern for deps (same as contribute, but for deps matching).
+fn slot_name_to_deps_pattern(name: &SlotName) -> proc_macro2::TokenStream {
+    slot_name_to_pattern(name)
 }

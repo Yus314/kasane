@@ -19,15 +19,13 @@ This generates a minimal plugin (`src/lib.rs`):
 kasane_plugin_sdk::define_plugin! {
     id: "my_plugin",
     slots {
-        STATUS_RIGHT(0) => |_ctx| {
-            Some(auto_contribution(plain(" Hello! ")))
-        },
+        STATUS_RIGHT => plain(" Hello! "),
     },
 }
 ```
 
 `define_plugin!` combines WIT bindings, state, `#[plugin]`, and `export!()` into one macro.
-SDK helpers (`plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, etc.) are auto-imported.
+SDK helpers (`plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `redraw()`, `hex()`, etc.) are auto-imported.
 
 For full control, use the explicit pattern: `generate!()` + `#[plugin]` + `export!()`.
 See the [Plugin Development Guide](https://github.com/Yus314/kasane/blob/master/docs/plugin-development.md) for details.
