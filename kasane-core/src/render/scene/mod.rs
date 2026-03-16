@@ -5,7 +5,7 @@ pub use cache::SceneCache;
 use unicode_width::UnicodeWidthStr;
 
 use super::theme::Theme;
-use crate::element::{BorderConfig, BorderLineStyle, Element};
+use crate::element::{BorderLineStyle, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::resolve_face;
@@ -121,15 +121,8 @@ pub enum DrawCommand {
 }
 
 // ---------------------------------------------------------------------------
-// scene_paint
+// scene_paint — delegates to walk::walk_paint<ScenePaintVisitor>
 // ---------------------------------------------------------------------------
-
-struct SceneContext<'a> {
-    state: &'a AppState,
-    theme: &'a Theme,
-    cell_size: CellSize,
-    cursor_style: super::CursorStyle,
-}
 
 /// Walk the element tree and produce GPU draw commands.
 pub fn scene_paint(
@@ -140,15 +133,7 @@ pub fn scene_paint(
     cell_size: CellSize,
     cursor_style: super::CursorStyle,
 ) -> Vec<DrawCommand> {
-    let mut commands = Vec::with_capacity(256);
-    let ctx = SceneContext {
-        state,
-        theme,
-        cell_size,
-        cursor_style,
-    };
-    scene_paint_inner(&ctx, element, layout, &mut commands);
-    commands
+    super::walk::walk_paint_scene(element, layout, state, theme, cell_size, cursor_style)
 }
 
 /// Paint a single element subtree into a command buffer.
@@ -161,321 +146,7 @@ pub fn scene_paint_section(
     cell_size: CellSize,
     cursor_style: super::CursorStyle,
 ) -> Vec<DrawCommand> {
-    let mut commands = Vec::with_capacity(64);
-    let ctx = SceneContext {
-        state,
-        theme,
-        cell_size,
-        cursor_style,
-    };
-    scene_paint_inner(&ctx, element, layout, &mut commands);
-    commands
-}
-
-fn scene_paint_inner(
-    ctx: &SceneContext,
-    element: &Element,
-    layout: &LayoutResult,
-    out: &mut Vec<DrawCommand>,
-) {
-    let area = layout.area;
-
-    match element {
-        Element::Text(text, style) => {
-            let face = ctx.theme.resolve(style, &ctx.state.default_face);
-            let pr = to_pixel_rect(&area, ctx.cell_size);
-            out.push(DrawCommand::DrawText {
-                pos: PixelPos { x: pr.x, y: pr.y },
-                text: text.clone(),
-                face,
-                max_width: pr.w,
-            });
-        }
-        Element::StyledLine(atoms) => {
-            let pr = to_pixel_rect(&area, ctx.cell_size);
-            let resolved = resolve_atoms(atoms, None);
-            out.push(DrawCommand::DrawAtoms {
-                pos: PixelPos { x: pr.x, y: pr.y },
-                atoms: resolved,
-                max_width: pr.w,
-            });
-        }
-        Element::BufferRef {
-            line_range,
-            line_backgrounds,
-        } => {
-            scene_paint_buffer_ref(
-                ctx,
-                &area,
-                line_range.clone(),
-                line_backgrounds.as_deref(),
-                out,
-            );
-        }
-        Element::Empty => {}
-        Element::SlotPlaceholder { .. } => {
-            debug_assert!(false, "unresolved SlotPlaceholder reached scene paint");
-        }
-        Element::Flex { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i) {
-                    scene_paint_inner(ctx, &child.element, child_layout, out);
-                }
-            }
-        }
-        Element::ResolvedSlot { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i) {
-                    scene_paint_inner(ctx, &child.element, child_layout, out);
-                }
-            }
-        }
-        Element::Grid { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                if let Some(child_layout) = layout.children.get(i) {
-                    scene_paint_inner(ctx, child, child_layout, out);
-                }
-            }
-        }
-        Element::Stack { base, overlays } => {
-            if let Some(base_layout) = layout.children.first() {
-                scene_paint_inner(ctx, base, base_layout, out);
-            }
-            for (i, overlay) in overlays.iter().enumerate() {
-                if let Some(overlay_layout) = layout.children.get(i + 1) {
-                    out.push(DrawCommand::BeginOverlay);
-                    scene_paint_inner(ctx, &overlay.element, overlay_layout, out);
-                }
-            }
-        }
-        Element::Container {
-            child,
-            border,
-            shadow,
-            padding: _,
-            style: el_style,
-            title,
-        } => {
-            let face = ctx.theme.resolve(el_style, &ctx.state.default_face);
-            let container_style = ContainerStyle {
-                border,
-                shadow: *shadow,
-                face: &face,
-                title: title.as_deref(),
-            };
-            scene_paint_container(ctx, &area, child, &container_style, layout, out);
-        }
-        Element::Interactive { child, .. } => {
-            if let Some(child_layout) = layout.children.first() {
-                scene_paint_inner(ctx, child, child_layout, out);
-            }
-        }
-        Element::Scrollable {
-            child,
-            offset: _,
-            direction: _,
-        } => {
-            let pr = to_pixel_rect(&area, ctx.cell_size);
-            out.push(DrawCommand::PushClip(pr));
-            if let Some(child_layout) = layout.children.first() {
-                scene_paint_inner(ctx, child, child_layout, out);
-            }
-            out.push(DrawCommand::PopClip);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Element-specific paint helpers
-// ---------------------------------------------------------------------------
-
-fn scene_paint_buffer_ref(
-    ctx: &SceneContext,
-    area: &Rect,
-    line_range: std::ops::Range<usize>,
-    line_backgrounds: Option<&[Option<Face>]>,
-    out: &mut Vec<DrawCommand>,
-) {
-    let cs = ctx.cell_size;
-
-    for y_offset in 0..area.h {
-        let line_idx = line_range.start + y_offset as usize;
-        let py = (area.y + y_offset) as f32 * cs.height;
-        let px = area.x as f32 * cs.width;
-        let row_w = area.w as f32 * cs.width;
-
-        if let Some(line) = ctx.state.lines.get(line_idx) {
-            // Background fill for the row (with optional per-line override)
-            let base_face = line_backgrounds
-                .and_then(|bgs| bgs.get(line_idx).copied().flatten())
-                .unwrap_or(ctx.state.default_face);
-            out.push(DrawCommand::FillRect {
-                rect: PixelRect {
-                    x: px,
-                    y: py,
-                    w: row_w,
-                    h: cs.height,
-                },
-                face: base_face,
-                elevated: false,
-            });
-            // Atoms — clear PrimaryCursor face at the cursor cell in
-            // non-block cursor modes so the thin bar/underline is visible.
-            let mut resolved = resolve_atoms(line, Some(&base_face));
-            if !matches!(
-                ctx.cursor_style,
-                super::CursorStyle::Block | super::CursorStyle::Outline
-            ) && ctx.state.cursor_mode == crate::protocol::CursorMode::Buffer
-                && line_idx == ctx.state.cursor_pos.line as usize
-            {
-                clear_cursor_atom(
-                    &mut resolved,
-                    ctx.state.cursor_pos.column as u16,
-                    &base_face,
-                );
-            }
-            // Differentiate secondary cursor faces
-            for coord in &ctx.state.secondary_cursors {
-                if coord.line as usize == line_idx {
-                    dim_cursor_atom(
-                        &mut resolved,
-                        coord.column as u16,
-                        &base_face,
-                        ctx.state.secondary_blend_ratio,
-                    );
-                }
-            }
-            out.push(DrawCommand::DrawAtoms {
-                pos: PixelPos { x: px, y: py },
-                atoms: resolved,
-                max_width: row_w,
-            });
-        } else {
-            // Padding row
-            out.push(DrawCommand::FillRect {
-                rect: PixelRect {
-                    x: px,
-                    y: py,
-                    w: row_w,
-                    h: cs.height,
-                },
-                face: ctx.state.padding_face,
-                elevated: false,
-            });
-            let mut pad_face = ctx.state.padding_face;
-            if pad_face.fg == pad_face.bg {
-                pad_face.fg = ctx.state.default_face.fg;
-            }
-            out.push(DrawCommand::DrawPaddingRow {
-                pos: PixelPos { x: px, y: py },
-                width: row_w,
-                ch: ctx.state.padding_char.clone(),
-                face: pad_face,
-            });
-        }
-    }
-}
-
-/// Visual properties of a Container element, grouped for scene painting.
-struct ContainerStyle<'a> {
-    border: &'a Option<BorderConfig>,
-    shadow: bool,
-    face: &'a Face,
-    title: Option<&'a [Atom]>,
-}
-
-fn scene_paint_container(
-    ctx: &SceneContext,
-    area: &Rect,
-    child: &Element,
-    style: &ContainerStyle,
-    layout: &LayoutResult,
-    out: &mut Vec<DrawCommand>,
-) {
-    let pr = to_pixel_rect(area, ctx.cell_size);
-
-    // For bordered containers, position the border tight around the content
-    // area rather than at the outer container edge.  In TUI the border
-    // characters (╭─╮) sit at the same cell row as text, so the frame hugs
-    // the content.  GPU borders are thin pixel lines, so we derive the
-    // border rect from the child layout area with a small margin to match
-    // the TUI visual appearance.
-    let border_rect = if style.border.is_some() {
-        if let Some(child_layout) = layout.children.first() {
-            let cr = to_pixel_rect(&child_layout.area, ctx.cell_size);
-            let margin = ctx.cell_size.height * 0.15;
-            // Extra top margin when a title is present so the title text
-            // on the border line doesn't crowd the first content line.
-            let top_margin = if style.title.is_some() {
-                ctx.cell_size.height * 0.5
-            } else {
-                margin
-            };
-            PixelRect {
-                x: cr.x - margin,
-                y: cr.y - top_margin,
-                w: cr.w + margin * 2.0,
-                h: cr.h + top_margin + margin,
-            }
-        } else {
-            pr.clone()
-        }
-    } else {
-        pr.clone()
-    };
-
-    // Drop shadow: a subtle shadow on the right/bottom edges to make the
-    // popup appear to float above the content.
-    if style.shadow {
-        let cw = ctx.cell_size.width;
-        out.push(DrawCommand::DrawShadow {
-            rect: border_rect.clone(),
-            offset: (cw * 0.25, cw * 0.3),
-            blur_radius: cw * 0.7,
-            color: [0.0, 0.0, 0.0, 0.35],
-        });
-    }
-
-    // Background fill — always covers the full container area so the popup
-    // hides the content underneath.  Floating containers (shadow=true) use
-    // `elevated` so the GPU renderer can lighten the background color.
-    out.push(DrawCommand::FillRect {
-        rect: pr.clone(),
-        face: *style.face,
-        elevated: style.shadow,
-    });
-
-    // Border — drawn tight around the content area
-    if let Some(border_config) = style.border {
-        let border_face = border_config
-            .face
-            .as_ref()
-            .map(|s| ctx.theme.resolve(s, style.face))
-            .unwrap_or(*style.face);
-
-        out.push(DrawCommand::DrawBorder {
-            rect: border_rect.clone(),
-            line_style: border_config.line_style.clone(),
-            face: border_face,
-            fill_face: None,
-        });
-
-        // Title
-        if let Some(title_atoms) = style.title {
-            let resolved_title = resolve_atoms(title_atoms, Some(&border_face));
-            out.push(DrawCommand::DrawBorderTitle {
-                rect: border_rect,
-                title: resolved_title,
-                border_face,
-                elevated: style.shadow,
-            });
-        }
-    }
-
-    // Child
-    if let Some(child_layout) = layout.children.first() {
-        scene_paint_inner(ctx, child, child_layout, out);
-    }
+    super::walk::walk_paint_scene_section(element, layout, state, theme, cell_size, cursor_style)
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +154,7 @@ fn scene_paint_container(
 // ---------------------------------------------------------------------------
 
 /// Convert a cell-coordinate Rect to a PixelRect.
-fn to_pixel_rect(rect: &Rect, cs: CellSize) -> PixelRect {
+pub(crate) fn to_pixel_rect(rect: &Rect, cs: CellSize) -> PixelRect {
     PixelRect {
         x: rect.x as f32 * cs.width,
         y: rect.y as f32 * cs.height,
@@ -493,7 +164,7 @@ fn to_pixel_rect(rect: &Rect, cs: CellSize) -> PixelRect {
 }
 
 /// Resolve atom faces against an optional base face.
-fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<ResolvedAtom> {
+pub(crate) fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<ResolvedAtom> {
     atoms
         .iter()
         .map(|atom| {
@@ -511,7 +182,7 @@ fn resolve_atoms(atoms: &[Atom], base_face: Option<&Face>) -> Vec<ResolvedAtom> 
 
 /// Apply secondary cursor face to the atom at the given column.
 /// Uses the same scan logic as clear_cursor_atom but applies a dimmed face.
-fn dim_cursor_atom(
+pub(crate) fn dim_cursor_atom(
     atoms: &mut [ResolvedAtom],
     cursor_col: u16,
     base_face: &Face,
@@ -531,7 +202,7 @@ fn dim_cursor_atom(
 
 /// Clear the PrimaryCursor face from the atom at the given column so that
 /// non-block cursor shapes (bar, underline) are visible.
-fn clear_cursor_atom(atoms: &mut [ResolvedAtom], cursor_col: u16, base_face: &Face) {
+pub(crate) fn clear_cursor_atom(atoms: &mut [ResolvedAtom], cursor_col: u16, base_face: &Face) {
     let mut col: u16 = 0;
     for atom in atoms.iter_mut() {
         let w = line_display_width_str(&atom.contents) as u16;

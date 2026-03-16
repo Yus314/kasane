@@ -11,6 +11,7 @@ pub mod scene;
 pub(crate) mod test_helpers;
 pub(crate) mod theme;
 pub mod view;
+pub(crate) mod walk;
 
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]

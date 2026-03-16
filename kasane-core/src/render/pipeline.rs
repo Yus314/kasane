@@ -6,7 +6,8 @@ use super::cursor::{
 use super::grid::CellGrid;
 use super::scene::{self, DrawCommand, SceneCache};
 use super::theme::Theme;
-use super::{RenderResult, paint, patch, view};
+use super::walk;
+use super::{RenderResult, patch, view};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
@@ -222,7 +223,8 @@ pub(crate) fn render_cached_core(
     // are clean, skip full grid.clear() and only clear non-buffer sections.
     // paint_buffer_ref() skips clean lines, reusing previous frame content.
     selective_clear(grid, state, dirty);
-    paint::paint(&element, &layout_result, grid, state);
+    let theme = Theme::default_theme();
+    walk::walk_paint_grid(&element, &layout_result, grid, state, &theme);
 
     // Apply plugin paint hooks after standard paint
     if !paint_hooks.is_empty() {
@@ -300,7 +302,8 @@ pub(crate) fn render_sectioned_core(
             h: 1,
         };
         grid.clear_region(&status_rect, &state.status_default_face);
-        paint::paint(&element, &layout_result, grid, state);
+        let theme = Theme::default_theme();
+        walk::walk_paint_grid(&element, &layout_result, grid, state, &theme);
 
         let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
         let style = cursor_style(state, registry);
@@ -329,7 +332,8 @@ pub(crate) fn render_sectioned_core(
             let layout_result = flex::place(&element, root_area, state);
 
             grid.clear_region(&menu_rect, &state.default_face);
-            paint::paint(&element, &layout_result, grid, state);
+            let theme = Theme::default_theme();
+            walk::walk_paint_grid(&element, &layout_result, grid, state, &theme);
 
             layout_cache.root_area = Some(root_area);
             layout_cache.base_layout = Some(layout_result.clone());
@@ -496,7 +500,7 @@ pub(crate) fn scene_render_core<'a>(
 
     // Base section
     if scene_cache.base_commands.is_none() {
-        let cmds = scene::scene_paint_section(
+        let cmds = walk::walk_paint_scene_section(
             &sections.base,
             &base_layout,
             state,
@@ -511,7 +515,7 @@ pub(crate) fn scene_render_core<'a>(
     if scene_cache.menu_commands.is_none() {
         let cmds = if let Some(ref overlay) = sections.menu_overlay {
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
-            scene::scene_paint_section(
+            walk::walk_paint_scene_section(
                 &overlay.element,
                 &overlay_layout,
                 state,
@@ -535,7 +539,7 @@ pub(crate) fn scene_render_core<'a>(
         {
             cmds.push(DrawCommand::BeginOverlay);
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
-            let overlay_cmds = scene::scene_paint_section(
+            let overlay_cmds = walk::walk_paint_scene_section(
                 &overlay.element,
                 &overlay_layout,
                 state,
