@@ -1,3 +1,5 @@
+//! Input conversion from frontend key/mouse events to Kakoune protocol input.
+
 pub mod builtin;
 pub use builtin::BuiltinInputPlugin;
 

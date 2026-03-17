@@ -1,5 +1,9 @@
 package kasane:plugin@0.7.0;
 
+// When changing this interface, update the following files in sync:
+//   - kasane-wasm/src/host.rs        (host-side implementations)
+//   - kasane-plugin-sdk/src/lib.rs   (guest-side bindings and helpers)
+
 interface types {
     enum named-color {
         black,

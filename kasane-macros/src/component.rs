@@ -1,3 +1,5 @@
+//! `#[kasane_component]` macro: deps validation, allow lists, compile-time field analysis.
+
 use std::collections::HashSet;
 
 use proc_macro2::TokenStream;

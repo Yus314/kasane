@@ -1,3 +1,5 @@
+//! Session management: `SessionManager`, session state store, lifecycle.
+
 use std::collections::HashMap;
 
 use crate::state::AppState;

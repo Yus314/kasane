@@ -1,3 +1,5 @@
+//! TUI event loop: polls crossterm and Kakoune, dispatches to core update/view/render.
+
 use std::io::Write;
 
 use anyhow::Result;

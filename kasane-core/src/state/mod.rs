@@ -1,3 +1,5 @@
+//! Application state: `AppState`, `apply()`, `update()`, dirty generation tracking.
+
 mod apply;
 pub mod derived;
 mod info;

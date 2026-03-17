@@ -1,3 +1,8 @@
+//! GPU renderer core: wgpu pipelines, cell rendering, scene composition.
+//!
+//! Changes here should be coordinated with `kasane-core/src/render/scene/` which
+//! defines the `DrawCommand` and scene cache layer consumed by this renderer.
+
 pub mod bg_pipeline;
 pub mod border_pipeline;
 pub mod cell_renderer;

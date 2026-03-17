@@ -1,3 +1,5 @@
+//! Host function implementations for guest-to-host calls defined in the WIT interface.
+
 use kasane_core::element::{
     BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay, Style,
 };

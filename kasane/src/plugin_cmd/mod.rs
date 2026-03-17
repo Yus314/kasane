@@ -1,3 +1,5 @@
+//! `kasane plugin` subcommand handlers: new, build, install, list, doctor, dev.
+
 mod build;
 mod dev;
 mod doctor;

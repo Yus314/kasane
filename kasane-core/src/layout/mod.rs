@@ -1,3 +1,5 @@
+//! Layout engine: measure/place, overlay positioning, hit testing.
+
 pub mod flex;
 pub(crate) mod grid;
 mod hit_map;

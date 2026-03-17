@@ -23,7 +23,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Troubleshooting](troubleshooting.md)
 
 **Understand internals:**
-[Architecture](architecture.md) → [Repo Layout](repo-layout.md) → [Semantics](semantics.md)
+[Architecture](architecture.md) → [Semantics](semantics.md)
 
 **Design decisions:**
 [Vision](vision.md) → [Decisions](decisions.md) → [Layer Responsibilities](layer-responsibilities.md)
@@ -45,7 +45,6 @@ Authoritative specifications, responsibilities, and usage guides.
 - [plugin-api.md](plugin-api.md) — plugin API reference
 - [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path
 - [config.md](config.md) — configuration reference
-- [repo-layout.md](repo-layout.md) — source tree and crate responsibilities
 - [performance.md](performance.md) — performance principles, benchmarks, and optimization status
 
 ### User-facing

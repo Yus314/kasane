@@ -1,3 +1,5 @@
+//! Kasane library: `kasane::run()` entry point, plugin registration, backend selection.
+
 pub mod cli;
 pub mod plugin_cmd;
 pub mod process;

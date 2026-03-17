@@ -1,7 +1,7 @@
 # Architecture Design Document
 
 This document describes Kasane's system boundaries, runtime composition, and separation of responsibilities.
-For a detailed workspace tree, see [repo-layout.md](./repo-layout.md). For state and rendering semantics, see [semantics.md](./semantics.md).
+For state and rendering semantics, see [semantics.md](./semantics.md).
 
 ## System Overview
 
@@ -162,7 +162,6 @@ For semantic details, see the `Display Policy State` and `Display Transformation
 
 ## Related Documents
 
-- [repo-layout.md](./repo-layout.md): Detailed workspace and source tree
 - [semantics.md](./semantics.md): State, rendering, invalidation, and equivalence
 - [plugin-api.md](./plugin-api.md): API reference for plugin authors
 - [plugin-development.md](./plugin-development.md): Quick start guide

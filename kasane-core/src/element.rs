@@ -1,3 +1,5 @@
+//! The core `Element` type for declarative UI.
+
 use std::ops::Range;
 
 use compact_str::CompactString;

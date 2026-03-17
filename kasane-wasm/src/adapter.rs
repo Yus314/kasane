@@ -1,3 +1,5 @@
+//! WASM adapter: bridges wasmtime Component Model guests to the `PluginBackend` trait.
+
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

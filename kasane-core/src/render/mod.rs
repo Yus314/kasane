@@ -1,3 +1,5 @@
+//! Rendering pipeline: view construction, paint, cache, pipeline orchestration, scene.
+
 pub mod cache;
 pub mod cursor;
 mod grid;

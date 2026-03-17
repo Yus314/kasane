@@ -1,3 +1,5 @@
+//! Crossterm event conversion to kasane-core input types.
+
 use crossterm::event::{
     Event, KeyCode, KeyEvent as CtKeyEvent, KeyEventKind, KeyModifiers,
     MouseButton as CtMouseButton, MouseEvent as CtMouseEvent, MouseEventKind as CtMouseEventKind,

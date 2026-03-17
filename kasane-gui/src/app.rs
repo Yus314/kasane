@@ -1,3 +1,5 @@
+//! Winit application loop: handles window events, GPU frame rendering, and input.
+
 use std::io::Write;
 use std::sync::Arc;
 

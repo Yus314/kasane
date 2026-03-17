@@ -1,3 +1,5 @@
+//! CLI argument parsing: `CliAction`, `UiMode`, `PluginSubcommand`.
+
 pub const NON_UI_FLAGS: &[&str] = &["-l", "-f", "-p", "-d", "-clear", "-version", "-help"];
 pub const NON_UI_FLAGS_WITH_ARG: &[&str] = &["-f", "-p"];
 pub const KAK_FLAGS_WITH_ARG: &[&str] = &["-e", "-E", "-i", "-debug"];

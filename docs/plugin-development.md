@@ -587,5 +587,4 @@ Key differences from `define_plugin!`:
 
 - [plugin-api.md](./plugin-api.md) — API reference
 - [semantics.md](./semantics.md) — Composition order and correctness conditions
-- [repo-layout.md](./repo-layout.md) — Code locations
 - [index.md](./index.md) — Entry point for all docs

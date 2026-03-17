@@ -1,3 +1,5 @@
+//! Shared AST analysis: `StateFieldVisitor`, `FIELD_FLAG_MAP`, field-to-flag mapping.
+
 use std::collections::HashSet;
 
 use proc_macro2::{TokenStream, TokenTree};

@@ -1,3 +1,5 @@
+//! Animations: cursor movement easing, smooth scroll, blink cycle.
+
 use std::time::Instant;
 
 /// Duration of cursor move animation (ease-out).

@@ -1,3 +1,5 @@
+//! Plugin infrastructure: `Plugin` trait, `PluginBackend` trait, registry, context, command, I/O.
+
 pub mod bridge;
 mod command;
 mod context;

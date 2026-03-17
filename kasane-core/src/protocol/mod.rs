@@ -1,3 +1,5 @@
+//! JSON-RPC parser and Kakoune protocol message types.
+
 mod color;
 mod message;
 mod parse;

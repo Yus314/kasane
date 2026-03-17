@@ -1,3 +1,8 @@
+//! TUI implementation of `RenderBackend` using crossterm.
+//!
+//! Changes here should be coordinated with `kasane-core/src/render/` which defines
+//! the pipeline, `CellGrid`, and `CellDiff` types consumed by this backend.
+
 use std::io::{Stdout, Write};
 
 use crossterm::{

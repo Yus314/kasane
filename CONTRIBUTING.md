@@ -46,7 +46,7 @@ cargo fmt --check                        # Format check
 
 ## Project Structure
 
-See [docs/repo-layout.md](docs/repo-layout.md) for the workspace structure. For architecture and design decisions, see [docs/index.md](docs/index.md).
+See the Workspace Structure table in [CLAUDE.md](CLAUDE.md) for crate responsibilities. Module-level `//!` doc comments in each source file describe its contents. For architecture and design decisions, see [docs/index.md](docs/index.md).
 
 ## Reporting Issues
 

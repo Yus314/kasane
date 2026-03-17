@@ -1,3 +1,5 @@
+//! Kakoune child process management: spawning, I/O piping, exit code propagation.
+
 use std::cell::Cell;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};

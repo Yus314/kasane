@@ -1,3 +1,5 @@
+//! Code generation for `#[kasane_plugin]` — produces `PluginBackend` implementations.
+
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Attribute, Error, Expr, ExprPath, Ident, Item, ItemMod, Lit, parse2};
