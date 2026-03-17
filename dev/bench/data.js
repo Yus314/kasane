@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773728412739,
+  "lastUpdate": 1773728975480,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -30209,6 +30209,138 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 2247,
             "range": "± 44",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "d771c53592d85e2ddcb2b407134d5cab87820568",
+          "message": "feat(salsa): deepen Salsa integration — ViewCache-free rendering path\n\nImplements Phases 1–4 of the Salsa integration plan:\n\nPhase 1: DirtyFlags correctness foundation\n- #[derive(DirtyTracked)] macro enforces compile-time FIELD_FLAG_MAP\n  completeness (every AppState field must have #[dirty(FLAG)] or\n  #[dirty(free)])\n- Property-based tests (proptest) verify apply() flag correctness\n- Command cascade depth limit (MAX_COMMAND_CASCADE_DEPTH=8) prevents\n  infinite plugin message loops\n\nPhase 2: DisplayMap Salsa化\n- DisplayDirectivesInput + display_map_query tracked fn\n- sync_display_directives() feeds plugin directives into Salsa inputs\n- collect_display_directives() on PluginRegistry\n\nPhase 3: Plugin contributions → Salsa inputs, ViewCache removal\n- SlotContributionsInput, AnnotationResultInput, PluginOverlaysInput\n- sync_plugin_contributions() extracts plugin state into Salsa inputs\n- SalsaViewSource reads from Salsa inputs (no ViewCache needed)\n- ViewSource trait simplified: prepare(&mut self) + view_sections(&mut self)\n- PluginViewSource holds internal &mut ViewCache for legacy/test path\n- TUI/GUI event loops updated with full sync chain\n- rebuild_hit_map creates internal ViewCache\n\nPhase 4: DirtyFlags role clarification\n- Confirmed BUILD_*_DEPS only used by legacy PluginViewSource path\n- Documented 5 remaining DirtyFlags roles in doc comment\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-17T15:16:30+09:00",
+          "tree_id": "5f70aef533ba51891d300c57b16286781076fcef",
+          "url": "https://github.com/Yus314/kasane/commit/d771c53592d85e2ddcb2b407134d5cab87820568"
+        },
+        "date": 1773728974758,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 123003,
+            "range": "± 698",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 702097,
+            "range": "± 1790",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 1736,
+            "range": "± 37",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 117411,
+            "range": "± 536",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 40558,
+            "range": "± 66",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 216546,
+            "range": "± 871",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 12490,
+            "range": "± 87",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 39573,
+            "range": "± 148",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 117109,
+            "range": "± 247",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 39595,
+            "range": "± 61",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4230590,
+            "range": "± 11754",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 18046366,
+            "range": "± 36771",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1881420,
+            "range": "± 8027",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 21266919,
+            "range": "± 43822",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 4750,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 57882,
+            "range": "± 202",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 410,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 2488,
+            "range": "± 5",
             "unit": "ns/iter"
           }
         ]
