@@ -5,25 +5,29 @@
 
 Extensible Kakoune frontend. Drop in, then grow.
 
-Your kakrc works unchanged. Kasane adds a GPU backend, independent
-rendering, and a plugin system spanning the full UI — all optional,
-always compatible.
+Your kakrc works unchanged. Kasane sits between you and Kakoune,
+providing independent rendering, a GPU backend, and a plugin system
+that opens the full UI to extension — all optional, always compatible.
 
 <p align="center">
   <img src="docs/assets/demo.gif" alt="Kasane demo" width="800"><br>
   <sub>GPU backend · Cursor line highlight and fuzzy finder are example WASM plugins</sub>
 </p>
 
-## Status
+## Out of the Box
 
-Kasane is stable as a Kakoune frontend — `alias kak=kasane` and use it
-daily. The plugin API is still evolving; expect breaking changes if
-you write plugins.
+Day-to-day editing feels the same — but small annoyances quietly
+disappear. An independent rendering pipeline handles flicker, Unicode
+edge cases, and clipboard integration directly, without terminal
+multiplexer or window manager dependencies. Zero perceptible overhead.
+
+Opt in to smooth scrolling, themes, border styles, and search dropdown.
+See [What's Different](docs/whats-different.md) for the full list.
 
 ## Quick Start
 
 ```bash
-# Install (requires Rust toolchain and Kakoune)
+# Requires Rust toolchain and Kakoune (2024.12.09+)
 cargo install --path kasane
 
 # Use it
@@ -33,34 +37,39 @@ kasane file.txt
 alias kak=kasane  # add to .bashrc / .zshrc
 ```
 
-## Installation
-
-Requires [Rust](https://rustup.rs/) (stable) and [Kakoune](https://kakoune.org/) (2024.12.09 or later).
-
-```bash
-git clone https://github.com/Yus314/kasane.git
-cd kasane
-cargo install --path kasane               # TUI only
-cargo install --path kasane --features gui # With GPU backend
-```
-
 Nix: `nix run github:Yus314/kasane`
 
-See [Getting Started](docs/getting-started.md) for detailed setup instructions.
+GPU backend: `cargo install --path kasane --features gui`, then
+`kasane --ui gui`.
 
-## What's Different
+See [Getting Started](docs/getting-started.md) for detailed setup.
 
-Out of the box, Kasane provides:
+## For Plugin Authors
 
-- **Flicker-free rendering** — double-buffered with synchronized updates
-- **CJK & emoji** — independent Unicode width calculation
-- **System clipboard** — direct integration (no xclip/xsel needed)
-- **True 24-bit color** — no palette approximation
-- **Mouse drag scrolling** — works immediately
+Kakoune's `-ui json` protocol decouples the editor from its renderer,
+opening the door to rich UI extension. Kasane builds on this foundation
+with a plugin system spanning the full UI.
 
-Opt-in via configuration: smooth scrolling, themes, border styles, and search dropdown. A [WASM plugin system](docs/using-plugins.md) lets you build fuzzy finders, line decorations, overlay pickers, and more — several [example plugins](examples/wasm/) are included.
+Every layer of the UI is open to extension — floating overlays, per-line
+decorations, gutter annotations, display transforms like code folding
+and virtual text. What terminal rendering constrains, plugins can freely
+shape. The framework handles state management, caching, and lifecycle,
+so plugin code focuses on what to render.
 
-See [What's Different](docs/whats-different.md) for the full list.
+Plugins are distributed as single `.wasm` files, auto-discovered at
+startup. Each runs sandboxed, composes with others without conflict, and
+imposes no overhead on the rendering pipeline thanks to automatic
+caching. Any language that compiles to WebAssembly works.
+
+The repository includes [example plugins](examples/wasm/) demonstrating
+the available extension points. See [Plugin Development](docs/plugin-development.md)
+and [Plugin API](docs/plugin-api.md).
+
+## Status
+
+Kasane is stable as a Kakoune frontend — `alias kak=kasane` and use it
+daily. The plugin API is still evolving; expect breaking changes if
+you write plugins.
 
 ## Usage
 
@@ -83,27 +92,14 @@ Configuration: `~/.config/kasane/config.toml` — see [docs/config.md](docs/conf
 ## Going Further
 
 - [Getting Started](docs/getting-started.md) — installation and first run
-- [What's Different](docs/whats-different.md) — discover improvements
+- [What's Different](docs/whats-different.md) — full feature comparison
 - [Configuration](docs/config.md) — customize behavior
-- [Using Plugins](docs/using-plugins.md) — extend with plugins
+- [Using Plugins](docs/using-plugins.md) — install and manage plugins
+- [Plugin Development](docs/plugin-development.md) — write your own plugins
+- [Plugin API](docs/plugin-api.md) — API reference
 - [GPU Backend](docs/gpu-backend.md) — try GPU rendering
-- [Compatibility](docs/compatibility.md) — version requirements and known differences
-
-## For Plugin Authors
-
-Kasane's plugin system supports WASM and native plugins. Plugins are
-distributed as single `.wasm` files, auto-discovered at startup. Each
-plugin runs sandboxed, composes with others without conflict, and adds
-no overhead to the rendering pipeline thanks to automatic caching.
-
-The repository includes [example plugins](examples/wasm/) demonstrating
-the available extension points. See [Plugin Development](docs/plugin-development.md)
-and [Plugin API](docs/plugin-api.md). The plugin API is unstable —
-expect breaking changes.
-
-## Documentation
-
-See [docs/index.md](docs/index.md) for the full documentation index.
+- [Compatibility](docs/compatibility.md) — version requirements
+- [Vision](docs/vision.md) — project philosophy and direction
 
 ## Contributing
 
