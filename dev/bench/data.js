@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773697869792,
+  "lastUpdate": 1773722368617,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -25649,6 +25649,576 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 2242,
             "range": "± 22",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "c50f1cbbac35c4db35fb9b9c120d60f21de85b9e",
+          "message": "docs: remove kakoune-issues-investigation.md (demand evidence absorbed into existing docs)\n\nThe document served as founding-era demand evidence linking Kakoune\nissues to Kasane features. Its content has been fully absorbed:\npriority rankings into roadmap planning, feature positioning into\nwhats-different/plugin-api/requirements, and competitor survey into\nkakoune-protocol-constraints Appendix A.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-17T13:12:26+09:00",
+          "tree_id": "86cbf39fb14d6c1dbd0ccb7e416d6c66ef60efa3",
+          "url": "https://github.com/Yus314/kasane/commit/c50f1cbbac35c4db35fb9b9c120d60f21de85b9e"
+        },
+        "date": 1773722368065,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 5365,
+            "range": "± 93",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 10726,
+            "range": "± 514",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 1106,
+            "range": "± 31",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 26597,
+            "range": "± 84",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 90214,
+            "range": "± 1838",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 31064,
+            "range": "± 774",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 39280,
+            "range": "± 49",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 11433,
+            "range": "± 30",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 28496,
+            "range": "± 47",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 11315,
+            "range": "± 246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 2938,
+            "range": "± 14",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 18311,
+            "range": "± 266",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 49412,
+            "range": "± 442",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 52550,
+            "range": "± 374",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 62082,
+            "range": "± 521",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 62259,
+            "range": "± 653",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 62815,
+            "range": "± 631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 46676,
+            "range": "± 688",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 48434,
+            "range": "± 1102",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 52512,
+            "range": "± 12546",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 64483,
+            "range": "± 659",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 579141,
+            "range": "± 10492",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 3160707,
+            "range": "± 96281",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 3068,
+            "range": "± 50",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 58740,
+            "range": "± 1458",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 26739,
+            "range": "± 737",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 112835,
+            "range": "± 322",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 607055,
+            "range": "± 7141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 1111,
+            "range": "± 1869",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5819,
+            "range": "± 213",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 48268,
+            "range": "± 174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 188270,
+            "range": "± 982",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 341074,
+            "range": "± 4516",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3675506,
+            "range": "± 76404",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 7343811,
+            "range": "± 63844",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 11428,
+            "range": "± 33",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 68001,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 134724,
+            "range": "± 1110",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_cold",
+            "value": 11743,
+            "range": "± 81",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "view_cache/menu_select_warm",
+            "value": 6147,
+            "range": "± 48",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 25171,
+            "range": "± 707",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 8234,
+            "range": "± 29",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 19178,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 33705,
+            "range": "± 120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 46014,
+            "range": "± 109",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_status_update",
+            "value": 6112,
+            "range": "± 26",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_menu_select",
+            "value": 6651,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "patch_cursor_move",
+            "value": 929,
+            "range": "± 20",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 13577,
+            "range": "± 1394",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 11579,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 26580,
+            "range": "± 123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 18391,
+            "range": "± 16399",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/23_lines",
+            "value": 2197,
+            "range": "± 32",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/59_lines",
+            "value": 5454,
+            "range": "± 358",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/79_lines",
+            "value": 7324,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/realistic_23",
+            "value": 1528,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_cursor_only",
+            "value": 240,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/status",
+            "value": 215,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/menu/100_items",
+            "value": 4464,
+            "range": "± 11",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/80x24",
+            "value": 3230,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/300x80",
+            "value": 8503,
+            "range": "± 16",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/salsa",
+            "value": 45033,
+            "range": "± 2329",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/legacy",
+            "value": 39099,
+            "range": "± 1055",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/salsa",
+            "value": 42242,
+            "range": "± 812",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/legacy",
+            "value": 44712,
+            "range": "± 301",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/salsa",
+            "value": 48956,
+            "range": "± 3826",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/legacy",
+            "value": 42854,
+            "range": "± 1434",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_patched/status_update",
+            "value": 1588,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/cold",
+            "value": 29881,
+            "range": "± 639",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/warm",
+            "value": 6653,
+            "range": "± 16",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/80x24",
+            "value": 46362,
+            "range": "± 2559",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/200x60",
+            "value": 148072,
+            "range": "± 13641",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/300x80",
+            "value": 246237,
+            "range": "± 27847",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/80x24",
+            "value": 121986,
+            "range": "± 302",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw/200x60",
+            "value": 699294,
+            "range": "± 2420",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/incremental_1line",
+            "value": 1744,
+            "range": "± 42",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "backend_draw/full_redraw_realistic/80x24",
+            "value": 116800,
+            "range": "± 5142",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/80x24",
+            "value": 40582,
+            "range": "± 125",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw/200x60",
+            "value": 218446,
+            "range": "± 3545",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/incremental_1line",
+            "value": 12713,
+            "range": "± 46",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_grid/full_redraw_realistic/80x24",
+            "value": 40082,
+            "range": "± 178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_old",
+            "value": 116965,
+            "range": "± 1383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "sgr_bytes/draw_grid_new",
+            "value": 39955,
+            "range": "± 120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4157344,
+            "range": "± 33626",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17783106,
+            "range": "± 41933",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1870332,
+            "range": "± 3069",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 21092184,
+            "range": "± 60794",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 4761,
+            "range": "± 50",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 50285,
+            "range": "± 593",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 402,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 2312,
+            "range": "± 17",
             "unit": "ns/iter"
           }
         ]
