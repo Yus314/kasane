@@ -5,7 +5,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 ## By Reader
 
 **Use Kasane:**
-[Getting Started](getting-started.md) → [Compatibility](compatibility.md) → [Configuration](config.md)
+[Getting Started](getting-started.md) → [Configuration](config.md)
 
 **What's different from Kakoune?**
 [What's Different](whats-different.md)
@@ -45,7 +45,6 @@ Authoritative specifications, responsibilities, and usage guides.
 - [plugin-api.md](plugin-api.md) — plugin API reference
 - [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path
 - [config.md](config.md) — configuration reference
-- [json-ui-protocol.md](json-ui-protocol.md) — JSON UI protocol specification
 - [repo-layout.md](repo-layout.md) — source tree and crate responsibilities
 - [performance.md](performance.md) — performance policy and interpretation
 
@@ -56,7 +55,6 @@ Guides for users and plugin authors.
 - [getting-started.md](getting-started.md) — installation and first run
 - [whats-different.md](whats-different.md) — features and improvements
 - [using-plugins.md](using-plugins.md) — enabling and managing plugins
-- [compatibility.md](compatibility.md) — version requirements and known differences
 - [troubleshooting.md](troubleshooting.md) — common issues and solutions
 - [vision.md](vision.md) — project goals and direction
 

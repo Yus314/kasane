@@ -62,7 +62,7 @@ For the semantic details of this flow, see [semantics.md](./semantics.md).
 - Kasane -> Kakoune: Input messages such as `keys`, `resize`, `mouse_press`
 - Startup: Kakoune is launched as a child process via `kak -ui json`, with stdin/stdout connected
 
-For protocol details, see [json-ui-protocol.md](./json-ui-protocol.md).
+For protocol constraint analysis, see [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md).
 
 ## Abstraction Boundaries
 

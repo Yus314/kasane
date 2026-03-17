@@ -71,4 +71,3 @@ An item is moved back to [roadmap.md](./roadmap.md) when the following condition
 
 - [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — Constraint analysis
 - [roadmap.md](./roadmap.md) — Kasane-side incomplete items
-- [json-ui-protocol.md](./json-ui-protocol.md) — Protocol reference specification

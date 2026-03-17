@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- [Kakoune](https://kakoune.org/) 2024.12.09 or later (see [Compatibility](compatibility.md) for details)
+- [Kakoune](https://kakoune.org/) 2024.12.09 or later
 - [Rust](https://rustup.rs/) stable toolchain (for building from source)
 
 ## Installation
@@ -78,4 +78,4 @@ See [config.md](config.md) for the full configuration reference.
 
 - [What's Different](whats-different.md) — discover improvements available in Kasane
 - [Using Plugins](using-plugins.md) — extend Kasane with plugins
-- [Compatibility](compatibility.md) — version requirements and known differences
+- [Troubleshooting](troubleshooting.md) — common issues and solutions

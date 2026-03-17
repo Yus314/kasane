@@ -9,9 +9,8 @@ This document systematically analyzes the constraints that the Kakoune JSON UI p
 
 **Related documents:**
 - [Requirements §7 Known Constraints](./requirements.md#7-known-constraints) — Concise list of constraints
-- [JSON UI Protocol Specification](./json-ui-protocol.md) — Technical specification of the protocol
-- [Technical Decision Records](./decisions.md) — Design decisions driven by constraints
 - [Upstream Dependencies](./upstream-dependencies.md) — Current upstream status and reintegration conditions
+- [Technical Decision Records](./decisions.md) — Design decisions driven by constraints
 - [Implementation Roadmap](./roadmap.md) — Kasane-side tracking and implementation order
 
 ---
@@ -291,17 +290,16 @@ Complete list of upstream Issues/PRs referenced in this document.
 | [#2019](https://github.com/mawww/kakoune/issues/2019) | JSON UI limitations summary | §2, §4.3, §5.1, §6.1 |
 | [#5428](https://github.com/mawww/kakoune/issues/5428) | Status line context | §4.3 |
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | Incremental draw notifications | §5.3 |
-| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom type distinction | [upstream-dependencies.md](./upstream-dependencies.md), [json-ui-protocol.md](./json-ui-protocol.md) |
+| [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom type distinction | [upstream-dependencies.md](./upstream-dependencies.md) |
 | [#1516](https://github.com/mawww/kakoune/issues/1516) | Simultaneous display of multiple info boxes | §4.4 |
 | [#3935](https://github.com/mawww/kakoune/issues/3935) | Built-in clipboard integration | §6.1 |
 | [#3598](https://github.com/mawww/kakoune/issues/3598) | CJK character completion candidate display corruption | §5.1 |
 | [#4257](https://github.com/mawww/kakoune/issues/4257) | macOS emoji issue | §5.1 |
 | [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Add Face names to JSON UI | §4.1, [upstream-dependencies.md](./upstream-dependencies.md) |
-| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | Add DisplaySetup to draw | §4.1, [json-ui-protocol.md](./json-ui-protocol.md) |
+| [PR #4737](https://github.com/mawww/kakoune/pull/4737) | Add DisplaySetup to draw | §4.1 |
 
 ## Related Documents
 
 - [upstream-dependencies.md](./upstream-dependencies.md) — Current upstream status and reintegration conditions
-- [json-ui-protocol.md](./json-ui-protocol.md) — Protocol reference specification
 - [requirements.md](./requirements.md) — Authoritative source for core requirements / extension infrastructure / constraints
 - [roadmap.md](./roadmap.md) — Kasane-side tracking
