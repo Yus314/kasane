@@ -1266,10 +1266,9 @@ mod salsa_benches {
                     || {
                         let (db, handles) = init_salsa(&state);
                         let grid = CellGrid::new(state.cols, state.rows);
-                        let cache = ViewCache::new();
-                        (db, handles, grid, cache)
+                        (db, handles, grid)
                     },
-                    |(db, handles, mut grid, mut cache)| {
+                    |(db, handles, mut grid)| {
                         render_pipeline_salsa_cached(
                             &db,
                             &handles,
@@ -1277,7 +1276,6 @@ mod salsa_benches {
                             &registry,
                             &mut grid,
                             DirtyFlags::ALL,
-                            &mut cache,
                             &paint_hooks,
                         );
                     },
@@ -1314,7 +1312,6 @@ mod salsa_benches {
             group.bench_function("menu_select_warm/salsa", |b| {
                 let (db, handles) = init_salsa(&state);
                 let mut grid = CellGrid::new(state.cols, state.rows);
-                let mut cache = ViewCache::new();
                 render_pipeline_salsa_cached(
                     &db,
                     &handles,
@@ -1322,7 +1319,6 @@ mod salsa_benches {
                     &registry,
                     &mut grid,
                     DirtyFlags::ALL,
-                    &mut cache,
                     &paint_hooks,
                 );
                 grid.swap_with_dirty();
@@ -1335,7 +1331,6 @@ mod salsa_benches {
                         &registry,
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
-                        &mut cache,
                         &paint_hooks,
                     );
                 });
@@ -1376,7 +1371,6 @@ mod salsa_benches {
                     || {
                         let (mut db, handles) = init_salsa(&state);
                         let mut grid = CellGrid::new(state.cols, state.rows);
-                        let mut cache = ViewCache::new();
                         render_pipeline_salsa_cached(
                             &db,
                             &handles,
@@ -1384,14 +1378,13 @@ mod salsa_benches {
                             &registry,
                             &mut grid,
                             DirtyFlags::ALL,
-                            &mut cache,
                             &paint_hooks,
                         );
                         grid.swap_with_dirty();
                         sync_inputs_from_state(&mut db, &edited, DirtyFlags::BUFFER, &handles);
-                        (db, handles, grid, cache)
+                        (db, handles, grid)
                     },
-                    |(db, handles, mut grid, mut cache)| {
+                    |(db, handles, mut grid)| {
                         render_pipeline_salsa_cached(
                             &db,
                             &handles,
@@ -1399,7 +1392,6 @@ mod salsa_benches {
                             &registry,
                             &mut grid,
                             DirtyFlags::BUFFER,
-                            &mut cache,
                             &paint_hooks,
                         );
                     },
@@ -1452,7 +1444,6 @@ mod salsa_benches {
         {
             let (db, handles) = init_salsa(&state);
             let mut grid = CellGrid::new(state.cols, state.rows);
-            let mut cache = ViewCache::new();
             let mut layout_cache = LayoutCache::new();
             let patch_refs: Vec<&dyn kasane_core::render::PaintPatch> =
                 patches.iter().map(|p| p.as_ref()).collect();
@@ -1464,7 +1455,6 @@ mod salsa_benches {
                 &registry,
                 &mut grid,
                 DirtyFlags::ALL,
-                &mut cache,
                 &mut layout_cache,
                 &patch_refs,
                 &paint_hooks,
@@ -1483,7 +1473,6 @@ mod salsa_benches {
                         &registry,
                         &mut grid,
                         DirtyFlags::STATUS,
-                        &mut cache,
                         &mut layout_cache,
                         &status_patches,
                         &paint_hooks,
@@ -1511,11 +1500,10 @@ mod salsa_benches {
             b.iter_batched(
                 || {
                     let (db, handles) = init_salsa(&state);
-                    let cache = ViewCache::new();
                     let scene_cache = SceneCache::new();
-                    (db, handles, cache, scene_cache)
+                    (db, handles, scene_cache)
                 },
-                |(db, handles, mut cache, mut scene_cache)| {
+                |(db, handles, mut scene_cache)| {
                     scene_render_pipeline_salsa_cached(
                         &db,
                         &handles,
@@ -1523,7 +1511,6 @@ mod salsa_benches {
                         &registry,
                         cell_size,
                         DirtyFlags::ALL,
-                        &mut cache,
                         &mut scene_cache,
                     );
                 },
@@ -1534,7 +1521,6 @@ mod salsa_benches {
         // Warm
         {
             let (db, handles) = init_salsa(&state);
-            let mut cache = ViewCache::new();
             let mut scene_cache = SceneCache::new();
             scene_render_pipeline_salsa_cached(
                 &db,
@@ -1543,7 +1529,6 @@ mod salsa_benches {
                 &registry,
                 cell_size,
                 DirtyFlags::ALL,
-                &mut cache,
                 &mut scene_cache,
             );
 
@@ -1556,7 +1541,6 @@ mod salsa_benches {
                         &registry,
                         cell_size,
                         DirtyFlags::MENU_SELECTION,
-                        &mut cache,
                         &mut scene_cache,
                     );
                 });
@@ -1583,10 +1567,9 @@ mod salsa_benches {
                     || {
                         let (db, handles) = init_salsa(&state);
                         let grid = CellGrid::new(cols, rows);
-                        let cache = ViewCache::new();
-                        (db, handles, grid, cache)
+                        (db, handles, grid)
                     },
-                    |(db, handles, mut grid, mut cache)| {
+                    |(db, handles, mut grid)| {
                         render_pipeline_salsa_cached(
                             &db,
                             &handles,
@@ -1594,7 +1577,6 @@ mod salsa_benches {
                             &registry,
                             &mut grid,
                             DirtyFlags::ALL,
-                            &mut cache,
                             &paint_hooks,
                         );
                     },
