@@ -423,7 +423,85 @@ Furthermore, Rust's ownership model naturally aligns with TEA (`&State` for view
 
 All 4 stages completed: (1) DirtyFlags-based view memoization, (2) verified dependency tracking via `#[kasane::component(deps(...))]`, (3) SceneCache for DrawCommand-level caching, (4) compiled PaintPatch with StatusBarPatch / MenuSelectionPatch / CursorPatch.
 
-For detailed implementation status and benchmark results, see [performance.md — Compiler-Driven Optimization](./performance.md#compiler-driven-optimization-adr-010--implementation-status).
+### Implementation Status
+
+#### Stage 1: DirtyFlags-Based View Memoization — Implemented
+
+| Metric | Value |
+|---|---|
+| view() cost | 5.0 us (0 plugins) / 10.4 us (10 plugins) |
+| Implementation | ViewCache, ComponentCache\<T\>, DirtyFlags u16, MENU→MENU_STRUCTURE+MENU_SELECTION split |
+| Result | view() sections skipped entirely when corresponding DirtyFlags are clear |
+
+#### Stage 2: Verified Dependency Tracking — Implemented
+
+| Metric | Value |
+|---|---|
+| Implementation | `#[kasane::component(deps(FLAG, ...))]` proc macro, AST-based field access analysis, FIELD_FLAG_MAP |
+| Compile-time check | Accesses to state fields not covered by declared deps cause compile error |
+| Escape hatch | `allow(field, ...)` for intentional dependency gaps |
+
+#### Stage 3: SceneCache (DrawCommand-Level Caching) — Implemented
+
+| Metric | Value |
+|---|---|
+| Implementation | Per-section DrawCommand caching (base, menu, info) |
+| Invalidation | Mirrors ViewCache: BUFFER\|STATUS\|OPTIONS→base, MENU→menu, INFO→info |
+| GPU benefit | Cursor-only frames reuse cached scene (0 us pipeline work) |
+| Cold/Warm ratio | 22.8 μs cold → 7.0 μs warm (3.3x speedup) |
+
+#### Stage 4: Compiled Paint Patches — Implemented
+
+| Metric | Value |
+|---|---|
+| StatusBarPatch | STATUS-only dirty → repaint ~80 cells: **6.17 μs** (vs 57 μs full) |
+| MenuSelectionPatch | MENU_SELECTION-only dirty → swap face on ~10 cells: **6.80 μs** |
+| CursorPatch | Cursor moved, no dirty flags → swap face on 2 cells: **1.01 μs** |
+| LayoutCache | base_layout, status_row, root_area cached with per-section invalidation |
+
+#### Overall Result
+
+All four stages are operational. The pipeline automatically selects the minimal repaint path:
+
+1. **PaintPatch** (2-80 cells) → **sectioned repaint** (~1 section) → **full pipeline** (fallback)
+
+### Component Macro Details
+
+The `#[kasane::component]` macro follows Svelte's "let the compiler do the work" philosophy, progressively generating optimized code from declarative `view()` functions:
+
+**Stage 1: Input Memoization** — Retains previous input parameter values and skips Element construction when all inputs are identical:
+
+```rust
+#[kasane::component]
+fn file_tree(entries: &[Entry], selected: usize) -> Element { ... }
+// → If entries and selected are unchanged, returns cached Element
+```
+
+**Stage 2: Static Layout Cache** — The proc macro detects structurally static parts and calculates layout only once.
+
+**Stage 3: Fine-Grained Update Code Generation** — The proc macro statically analyzes each Element's input parameter dependencies at the AST level and generates code that directly updates only the changed cells in CellGrid.
+
+**Two-Layer Rendering Model:**
+
+```
+              +---------------------+
+              |  Declarative API    |  ← Plugin authors work here
+              |  (Element, view())  |
+              +------+--------------+
+                     |
+         +-----------+----------+
+         v                      v
+  Compiled path          Interpreter path
+  (proc macro gen)       (generic Element tree)
+         |                      |
+  Static structure →     Element → layout()
+    direct CellGrid        → paint() → CellGrid
+    update
+```
+
+- **Compiled path**: Parts that `#[kasane::component]` can statically analyze. Updates CellGrid directly, bypassing the Element tree.
+- **Interpreter path**: Parts where plugins dynamically provide Elements via `Plugin::contribute()`. Uses the full pipeline.
+- **Fallback**: Code without `#[kasane::component]` runs through the interpreter path. Optimization is opt-in; correctness is always guaranteed by the interpreter path.
 
 **Stage 5: Compiled rendering for plugins (design analysis)**
 
@@ -843,7 +921,82 @@ All 4 stages implemented: (P4) container fill → `clear_region()`, (P1) zero-al
 
 Key results: TUI backend 2.4–3x faster, diff allocation eliminated (196 KB → 0), common editing pattern 57% CPU reduction.
 
-For detailed benchmark tables, see [performance.md — ADR-015](./performance.md#rendering-pipeline-optimization-adr-015--implementation-status).
+### Implementation Status
+
+#### Stage P4: Container Fill Bulk Optimization — Implemented
+
+Replaced per-cell `put_char(" ")` loop in `paint_container` with `clear_region()`. Eliminates per-cell bounds checking, wide-char cleanup branches, and CompactString construction. ~0.5–2 μs savings per container paint.
+
+#### Stage P1: Zero-Allocation Diff Path — Implemented
+
+| Method | Description | Allocation |
+|---|---|---|
+| `diff_into(&mut buf)` | Reuses caller-provided `Vec<CellDiff>` | 0 (warm buffer) |
+| `iter_diffs()` | Zero-copy iterator yielding `(u16, u16, &Cell)` | 0 |
+| `is_first_frame()` | Returns `self.previous.is_empty()` | N/A |
+
+#### Stage P3: Line-Dirty Coverage Expansion — Implemented
+
+Extended line-dirty optimization from `dirty == DirtyFlags::BUFFER` (exact match) to `dirty.contains(DirtyFlags::BUFFER)`. The common case of `BUFFER|STATUS` (Draw + DrawStatus in same batch) now benefits from per-line dirty tracking via `selective_clear()`.
+
+| Scenario | Before | After | Savings |
+|---|---|---|---|
+| BUFFER\|STATUS, 1 line changed | ~57 μs (full pipeline) | ~17 μs | −70% |
+
+#### Stage P2: Direct-Grid Backend Draw + Incremental SGR — Implemented
+
+`draw_grid()` on `RenderBackend` trait iterates `grid.iter_diffs()` directly, with two optimizations:
+1. **Cursor auto-advance**: Skip `MoveTo` for consecutive cells on the same row (terminal auto-advances after Print)
+2. **Incremental SGR**: `emit_sgr_diff()` compares faces field-by-field, emitting only changed attributes/colors
+
+| Benchmark | Legacy `draw()` | Optimized `draw_grid()` | Speedup |
+|---|---|---|---|
+| Full redraw 80×24 | 138 μs | 44.5 μs | 3.1x |
+| Full redraw 200×60 | 782 μs | 228 μs | 3.4x |
+
+#### Overall ADR-015 Impact
+
+- **TUI backend I/O**: 3.1–3.4x faster escape sequence generation
+- **Per-frame allocation**: 196 KB → 0 (diff phase)
+- **Common editing pattern** (BUFFER|STATUS, 1 line): ~70% CPU pipeline reduction
+- **Container paint**: ~0.5–2 μs savings per container
+
+### Resolved Bottlenecks
+
+#### Buffer Line Cloning — Resolved
+
+Element tree uses owned types, which would require cloning all buffer lines every frame.
+
+**Resolution: BufferRef pattern (implemented)**. `Element::BufferRef { line_range }` eliminates clone cost.
+
+#### Container Fill Loop — Resolved
+
+`paint.rs` previously performed O(w*h) `put_char(" ")` calls for container background fill.
+
+**Resolution (P4):** Replaced with `clear_region()` bulk operation, eliminating per-cell overhead.
+
+#### diff() Allocation Dominance — Resolved
+
+diff() previously allocated 196 KB per frame (71% of total) due to CellDiff owning cloned Cell data.
+
+**Resolution (P1+P2):** `diff_into()` reuses a caller-provided buffer. `iter_diffs()` provides zero-copy iteration. The TUI event loop now uses `draw_grid()` directly, eliminating all CellDiff allocation.
+
+#### grid.diff() Exceeds Target — Accepted
+
+diff() at 12.2 us (incremental) exceeds the original 10 us target. Cell comparison involves CompactString (24B) + Face (16B) + u8 per cell. The `dirty_rows` optimization helps but the per-cell comparison cost is inherently higher than estimated.
+
+### 240Hz Analysis
+
+The CPU pipeline uses <2% of the 4.17 ms budget at 80×24, making 240fps achievable for the GPU backend with animation path separation:
+
+```
+Content frame:    parse → apply → view → place → paint → diff → draw  (~57 μs + I/O)
+Animation frame:  ──────────── skip ────────────── → scroll offset → GPU draw
+```
+
+TUI is not meaningful at 240fps (terminal emulators refresh at 60-120Hz). GUI (wgpu) has 4-8x CPU headroom. Per-frame diff allocation has been eliminated by `iter_diffs()` zero-copy path. Salsa integration further improves large-screen headroom by 30-36%.
+
+For current benchmark data, see [performance.md](./performance.md).
 
 ## ADR-016: Pipeline Equivalence Testing — Trace-Equivalence Axiom
 

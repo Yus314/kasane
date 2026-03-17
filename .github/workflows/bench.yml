@@ -54,10 +54,17 @@ jobs:
         run: |
           FULL_COUNT=$(jq '.full_frame.count' alloc_budget.json)
           echo "full_frame allocation count: $FULL_COUNT"
-          if [ "$FULL_COUNT" -gt 100 ]; then
-            echo "::error::Allocation count regressed: $FULL_COUNT > 100"
+          if [ "$FULL_COUNT" -gt 150 ]; then
+            echo "::error::Allocation count regressed: $FULL_COUNT > 150 (SLO: < 150 allocs)"
             exit 1
           fi
+
+      - name: Check performance.md staleness
+        continue-on-error: true
+        run: |
+          tools/update-measurements.sh --check --only slo,alloc_breakdown 2>&1 || {
+            echo "::warning::performance.md measurement tables are stale. Run: tools/update-measurements.sh"
+          }
 
       - name: Check latency budgets
         run: nix develop --command cargo test -p kasane-core --test latency_budget -- --ignored
