@@ -455,7 +455,9 @@ fn test_draw_no_cursors() {
         widget_columns: 0,
     });
 
-    assert_eq!(state.cursor_count, 0);
+    // cursor_pos is always provided by Kakoune, so at least the primary
+    // cursor is assumed to exist even when no atom carries cursor attributes.
+    assert_eq!(state.cursor_count, 1);
     assert!(state.secondary_cursors.is_empty());
 }
 
