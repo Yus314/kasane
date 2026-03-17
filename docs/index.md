@@ -79,4 +79,3 @@ History, analysis, and background.
 ### Supporting Reference
 
 - [profiling.md](profiling.md) — measurement procedures
-- [glossary.md](glossary.md) — terminology reference
