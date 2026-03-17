@@ -595,7 +595,7 @@ Plugins can observe session state and control session switching:
 - **Session lifecycle notification**: `DirtyFlags::SESSION` is set when sessions are created, closed, switched, or when a session dies. Plugins react via `contribute_deps` / `on_state_changed`.
 - **Session switch command**: `SessionCommand::Switch { key }` (native) or `command::switch-session(key)` (WIT) requests activation of a specific session by key.
 
-See [layer-responsibilities.md](./layer-responsibilities.md) for the boundary rationale and [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the decision record.
+See [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the boundary rationale and decision record.
 
 WASM plugins are sandboxed by default. The host constructs WASM instances without granting capabilities via `WasiCtxBuilder`, so access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `Capability::Process`, which can be denied via `deny_capabilities` in `config.toml`.
 

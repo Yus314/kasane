@@ -29,7 +29,6 @@ What is defined here is "what Kasane means." Benchmark values, implementation pr
 - [plugin-development.md](./plugin-development.md): Guide for plugin authors
 - [performance.md](./performance.md): Performance principles, benchmarks, and optimization status
 - [decisions.md](./decisions.md): History of design decisions
-- [layer-responsibilities.md](./layer-responsibilities.md): Responsibility boundaries between upstream/core/plugins
 - [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md): Analysis of upstream protocol constraints
 
 ## 2. Fundamental Model

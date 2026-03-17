@@ -76,7 +76,26 @@ The core is responsible for "what to display, where, and under which display pol
 | Core (`kasane-core`) | Faithful rendering of the protocol + frontend-native capabilities | Does a single correct implementation exist? |
 | Plugin | Features where policy may vary | Everything else |
 
-For detailed decision criteria, see [layer-responsibilities.md](./layer-responsibilities.md).
+Decision flowchart:
+
+```
+Want to add feature F
+  │
+  ▼
+1. Does it require a protocol change?
+  │  Yes → Upstream (record in upstream-dependencies.md)
+  │  No ↓
+  ▼
+2. Does a single correct implementation exist?
+  │  Yes → Core (kasane-core)
+  │  No ↓
+  ▼
+3. Plugin
+  │  Otherwise → External plugin (WASM or native)
+  │  Insufficient API? → Plugin trait / WIT extension comes first
+```
+
+For the full decision record, see [ADR-012](./decisions.md#adr-012-layer-responsibility-model).
 
 ### Declarative UI Layer Responsibilities
 

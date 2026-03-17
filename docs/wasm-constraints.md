@@ -264,4 +264,3 @@ The WIT interface is language-neutral by design — any language compiling to th
 - [plugin-development.md](./plugin-development.md) — development guide and quick start
 - [plugin-api.md](./plugin-api.md) — API reference and extension point details
 - [roadmap.md](./roadmap.md) — implementation phases and next deliverables
-- [layer-responsibilities.md](./layer-responsibilities.md) — upstream / core / plugin boundary decisions

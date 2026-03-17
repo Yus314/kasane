@@ -40,7 +40,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Event propagation | Current | **Central dispatch + InteractiveId** | Keys centralized, mouse uses hit test |
 | Compiler-driven optimization | Current | **deps verification + ViewCache / SceneCache / PaintPatch** | Automatic patch generation for generic plugins not yet implemented |
 | CLI design | Current | **kak drop-in replacement** | Non-UI flags delegated via exec |
-| Three-layer responsibilities | Current | **Upstream / Core / Plugin** | Criteria in [layer-responsibilities.md](./layer-responsibilities.md) |
+| Three-layer responsibilities | Current | **Upstream / Core / Plugin** | Criteria in [ADR-012](#adr-012-layer-responsibility-model) |
 | WASM plugin runtime | Current | **Component Model (wasmtime)** | Detailed performance figures in [ADR-013](#adr-013-wasm-plugin-runtime--component-model-adoption) and [performance.md](./performance.md) |
 | Pipeline equivalence testing | Current | **Trace-Equivalence axiom + proptest** | Current harness generates DirtyFlags at coarse granularity |
 | SurfaceId-based invalidation | Proposed | **Per-surface dirty / cache design** | For multi-pane, not yet implemented |
@@ -661,13 +661,11 @@ kasane --ui gui -- -e "echo hello" # → kak -ui json -e "echo hello" (GUI launc
 **Status:** Decided (revised from four layers to three)
 
 **Context:**
-During Phase 4a/4b item classification, a systematic criterion for determining which layer a feature belongs to was needed. The existing "resolution layer" (now in [layer-responsibilities.md](./layer-responsibilities.md)) was a classification of implementation mechanisms (HOW) and insufficient as a criterion for responsibility boundaries (WHERE).
+During Phase 4a/4b item classification, a systematic criterion for determining which layer a feature belongs to was needed. The existing "resolution layer" was a classification of implementation mechanisms (HOW) and insufficient as a criterion for responsibility boundaries (WHERE).
 
 Originally four layers (upstream / core / built-in plugin / external plugin), but since built-in plugins (`kasane-core/src/plugins/`) were migrated to WASM bundles and removed, the distinction between built-in and external became unnecessary. Revised to a three-layer model.
 
 **Decision:** Adopt the three-layer responsibility model.
-
-See [layer-responsibilities.md](./layer-responsibilities.md) for detailed design.
 
 ### 12-1: Three-Layer Definitions
 
@@ -708,6 +706,28 @@ Heuristic workarounds for information absent from the protocol are not construct
 - Some features are unavailable while waiting for upstream changes
 - Existing heuristics (FINAL_FG+REVERSE, etc.) are reliable and practical, so maintained as exceptions
 - New heuristics are evaluated individually for reliability
+
+### 12-5: Phase 4 Shared Plugin API Validation (Completed)
+
+Proof artifacts for extension points reachable from WASM:
+
+| Shared Extension Point | Proof Artifact | Status |
+|------------------------|----------------|--------|
+| `contribute_to(SlotId::BUFFER_LEFT)` | color_preview (gutter swatch) | Proven |
+| `contribute_to(SlotId::STATUS_RIGHT)` | sel-badge (selection count badge) | Proven |
+| `annotate_line_with_ctx()` | cursor_line (line background highlight), color_preview (gutter swatch) | Proven |
+| `contribute_overlay_with_ctx()` | color_preview (color picker) | Proven |
+| `handle_mouse()` | color_preview (color value editing) | Proven |
+| `handle_key()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform_menu_item()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `contribute_to(SlotId::OVERLAY)` | Internal use (info/menu) | Implemented (external plugin proof pending) |
+| `contribute_to(SlotId::BUFFER_RIGHT)` | — | Unproven (full version deferred due to upstream blocker) |
+| `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform(TransformTarget::Buffer)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform(TransformTarget::StatusBar)` | prompt-highlight (status bar wrap in prompt mode) | Proven |
+| `cursor_style_override()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `contribute_to(SlotId::Named(...))` | `surface_probe` hosted surface E2E in `kasane-wasm/src/tests.rs` | Proven |
+| `OverlayAnchor::Absolute` | `fuzzy_finder` overlay test in `kasane-wasm/src/tests.rs` | Proven |
 
 ## ADR-013: WASM Plugin Runtime — Component Model Adoption
 
@@ -1395,5 +1415,4 @@ This separation means the default session UI can ship as a bundled WASM plugin, 
 
 - [semantics.md](./semantics.md) — Authoritative specification
 - [architecture.md](./architecture.md) — System boundaries and responsibilities
-- [layer-responsibilities.md](./layer-responsibilities.md) — Layer decision criteria
 - [index.md](./index.md) — Entry point for all docs

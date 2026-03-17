@@ -19,8 +19,7 @@ The following are NOT the responsibility of this document.
 - Detailed history of completed phases
 
 For detailed design rationale, see [decisions.md](./decisions.md); for current semantics, see [semantics.md](./semantics.md);
-for the division of responsibilities between the shared API and native escape hatches, see
-[layer-responsibilities.md](./layer-responsibilities.md); for the current specification from a plugin's perspective, see
+for the current specification from a plugin's perspective, see
 [plugin-api.md](./plugin-api.md); for performance numbers and implementation status, see
 [performance.md](./performance.md).
 
@@ -204,7 +203,6 @@ This document is updated when:
 ## 7. Related Documents
 
 - [upstream-dependencies.md](./upstream-dependencies.md) — Upstream blockers
-- [layer-responsibilities.md](./layer-responsibilities.md) — Organization of shared API validation and native escape hatches
 - [plugin-api.md](./plugin-api.md) — Current API from a plugin's perspective
 - [plugin-development.md](./plugin-development.md) — Practical guide for plugin authoring
 - [performance.md](./performance.md) — Performance implementation progress

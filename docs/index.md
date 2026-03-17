@@ -26,7 +26,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Architecture](architecture.md) → [Semantics](semantics.md)
 
 **Design decisions:**
-[Vision](vision.md) → [Decisions](decisions.md) → [Layer Responsibilities](layer-responsibilities.md)
+[Vision](vision.md) → [Decisions](decisions.md)
 
 **Project status:**
 [Roadmap](roadmap.md)
@@ -40,7 +40,6 @@ Authoritative specifications, responsibilities, and usage guides.
 - [requirements.md](requirements.md) — core and extension requirements
 - [semantics.md](semantics.md) — current semantics authority
 - [architecture.md](architecture.md) — system boundaries and responsibilities
-- [layer-responsibilities.md](layer-responsibilities.md) — upstream / core / plugin responsibilities
 - [plugin-development.md](plugin-development.md) — plugin development guide
 - [plugin-api.md](plugin-api.md) — plugin API reference
 - [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path
