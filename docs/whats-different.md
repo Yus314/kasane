@@ -92,4 +92,8 @@ Kasane includes a GPU rendering backend built on wgpu and glyphon:
 kasane --ui gui file.txt
 ```
 
-The GPU backend provides system font rendering, smooth animations, and native window management. See [GPU Backend](gpu-backend.md) for setup and configuration.
+- **System font rendering** — use any monospace font installed on your system, with fallback chains for CJK and emoji
+- **Smooth animations** — cursor blinking, scroll animations at native refresh rate
+- **Native window management** — resizable window, fullscreen toggle (F11), maximize
+
+See [config.md](config.md#gui-backend) for setup and configuration.

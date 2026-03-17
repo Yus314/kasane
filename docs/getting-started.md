@@ -78,5 +78,4 @@ See [config.md](config.md) for the full configuration reference.
 
 - [What's Different](whats-different.md) — discover improvements available in Kasane
 - [Using Plugins](using-plugins.md) — extend Kasane with plugins
-- [GPU Backend](gpu-backend.md) — try GPU rendering
 - [Compatibility](compatibility.md) — version requirements and known differences

@@ -17,7 +17,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Plugin Development](plugin-development.md) → [Plugin API](plugin-api.md) → [WASM Constraints](wasm-constraints.md)
 
 **Use GPU backend:**
-[GPU Backend](gpu-backend.md)
+[What's Different](whats-different.md#opt-in-gpu-backend) → [Configuration](config.md#gui-backend)
 
 **Troubleshooting:**
 [Troubleshooting](troubleshooting.md)
@@ -56,7 +56,6 @@ Guides for users and plugin authors.
 - [getting-started.md](getting-started.md) — installation and first run
 - [whats-different.md](whats-different.md) — features and improvements
 - [using-plugins.md](using-plugins.md) — enabling and managing plugins
-- [gpu-backend.md](gpu-backend.md) — GPU rendering setup
 - [compatibility.md](compatibility.md) — version requirements and known differences
 - [troubleshooting.md](troubleshooting.md) — common issues and solutions
 - [vision.md](vision.md) — project goals and direction

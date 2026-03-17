@@ -189,7 +189,7 @@ Attributes are specified after `+`. Multiple attributes can be combined (e.g., `
 
 ## GUI Backend
 
-The following sections only apply when using `--ui gui` or `backend = "gui"`. They are ignored by the TUI backend.
+The following sections only apply when using `--ui gui` or `backend = "gui"`. They are ignored by the TUI backend. Requires building with `--features gui` and GPU drivers supporting Vulkan, Metal, or DX12 (handled automatically by wgpu).
 
 ### `[window]`
 

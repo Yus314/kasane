@@ -97,7 +97,6 @@ Configuration: `~/.config/kasane/config.toml` — see [docs/config.md](docs/conf
 - [Using Plugins](docs/using-plugins.md) — install and manage plugins
 - [Plugin Development](docs/plugin-development.md) — write your own plugins
 - [Plugin API](docs/plugin-api.md) — API reference
-- [GPU Backend](docs/gpu-backend.md) — try GPU rendering
 - [Compatibility](docs/compatibility.md) — version requirements
 - [Vision](docs/vision.md) — project philosophy and direction
 

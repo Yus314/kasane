@@ -39,6 +39,10 @@ Kasane uses [crossterm](https://github.com/crossterm-rs/crossterm) for terminal 
 | macOS Terminal.app | Works |
 | Windows Terminal (WSL) | Works |
 
+## GPU Backend
+
+The GPU backend (`--ui gui`) requires a local display server (X11, Wayland, or equivalent). It is not available over SSH.
+
 ## Known Differences
 
 These are intentional improvements, not compatibility issues. See [What's Different](whats-different.md) for the full list.
