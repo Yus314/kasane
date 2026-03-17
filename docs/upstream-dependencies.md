@@ -13,7 +13,6 @@ This document covers only:
 - When items can be reintegrated into the roadmap
 
 For detailed constraint analysis, see [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md).
-For requirement mappings, see [requirements-traceability.md](./requirements-traceability.md).
 For implementation order, see [roadmap.md](./roadmap.md).
 
 ## 2. Current Snapshot
@@ -66,11 +65,10 @@ An item is moved back to [roadmap.md](./roadmap.md) when the following condition
 1. The required upstream PR / protocol change has been merged, or upstream behavior has been sufficiently confirmed
 2. Kasane-side parser / state / render can incorporate the new information
 3. Local heuristic workarounds can be removed or degraded
-4. The status in [requirements-traceability.md](./requirements-traceability.md) and [roadmap.md](./roadmap.md) is updated
+4. The status in [roadmap.md](./roadmap.md) is updated
 
 ## 7. Related Documents
 
 - [kakoune-protocol-constraints.md](./kakoune-protocol-constraints.md) — Constraint analysis
 - [roadmap.md](./roadmap.md) — Kasane-side incomplete items
-- [requirements-traceability.md](./requirements-traceability.md) — Requirement mappings
 - [json-ui-protocol.md](./json-ui-protocol.md) — Protocol reference specification

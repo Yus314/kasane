@@ -1,7 +1,7 @@
 # Kasane - Requirements Specification
 
 This document is the authoritative source for the requirements that Kasane must satisfy.
-For tracking of implementation status, phases, and upstream dependencies, see [requirements-traceability.md](./requirements-traceability.md).
+For tracking of implementation status and phases, see [roadmap.md](./roadmap.md); for upstream dependencies, see [upstream-dependencies.md](./upstream-dependencies.md).
 
 ## 1. Project Overview
 
@@ -23,7 +23,6 @@ For tracking of implementation status, phases, and upstream dependencies, see [r
 - A pure JSON UI frontend (no dependency on specific plugins)
 
 **Supplementary Documents:**
-- [Requirements Traceability](./requirements-traceability.md) — Resolution layer, status, phase, and upstream dependencies
 - [Current Semantics](./semantics.md) — State, rendering, redraw policy, and extensibility norms
 - [Implementation Roadmap](./roadmap.md) — Implementation order and upcoming phases
 - [Upstream Dependencies](./upstream-dependencies.md) — Upstream blockers and reintegration conditions
@@ -351,7 +350,7 @@ This chapter presents items among Kasane's targeted capabilities that currently 
 
 ## 8. Related Documents
 
-- [requirements-traceability.md](./requirements-traceability.md) — Status, phase, and upstream dependency tracking
+- [roadmap.md](./roadmap.md) — Implementation status and phases
 - [semantics.md](./semantics.md) — Current semantics
 - [roadmap.md](./roadmap.md) — Implementation order and outstanding items
 - [upstream-dependencies.md](./upstream-dependencies.md) — Upstream blockers

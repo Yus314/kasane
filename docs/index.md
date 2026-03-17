@@ -29,7 +29,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Vision](vision.md) → [Decisions](decisions.md) → [Layer Responsibilities](layer-responsibilities.md)
 
 **Project status:**
-[Roadmap](roadmap.md) → [Requirements Traceability](requirements-traceability.md)
+[Roadmap](roadmap.md)
 
 ## Document Classification
 
@@ -65,7 +65,6 @@ Guides for users and plugin authors.
 
 State, progress, and blockers.
 
-- [requirements-traceability.md](requirements-traceability.md) — requirements state and phase
 - [roadmap.md](roadmap.md) — implementation phases and incomplete items
 - [upstream-dependencies.md](upstream-dependencies.md) — upstream dependencies and reintegration conditions
 - [performance-benchmarks.md](performance-benchmarks.md) — performance measurements and optimization status

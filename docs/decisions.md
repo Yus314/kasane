@@ -661,7 +661,7 @@ kasane --ui gui -- -e "echo hello" # → kak -ui json -e "echo hello" (GUI launc
 **Status:** Decided (revised from four layers to three)
 
 **Context:**
-During Phase 4a/4b item classification, a systematic criterion for determining which layer a feature belongs to was needed. The existing "resolution layer" (now moved to [requirements-traceability.md](./requirements-traceability.md)) was a classification of implementation mechanisms (HOW) and insufficient as a criterion for responsibility boundaries (WHERE).
+During Phase 4a/4b item classification, a systematic criterion for determining which layer a feature belongs to was needed. The existing "resolution layer" (now in [layer-responsibilities.md](./layer-responsibilities.md)) was a classification of implementation mechanisms (HOW) and insufficient as a criterion for responsibility boundaries (WHERE).
 
 Originally four layers (upstream / core / built-in plugin / external plugin), but since built-in plugins (`kasane-core/src/plugins/`) were migrated to WASM bundles and removed, the distinction between built-in and external became unnecessary. Revised to a three-layer model.
 
@@ -1196,7 +1196,7 @@ Reflecting the decisions of 19-1 and 19-2, the Phase P sub-phases are restructur
 - Moved P-c earlier as P-1 (can be implemented independently of process execution)
 - Added P-3 (proof-of-concept phase)
 
-**Implementation status:** All sub-phases (P-1, P-2, P-3) are done. For detailed implementation status, see [requirements-traceability.md](./requirements-traceability.md).
+**Implementation status:** All sub-phases (P-1, P-2, P-3) are done. For implementation status, see [roadmap.md](./roadmap.md).
 
 ## ADR-020: Salsa Incremental Computation — Stage 1/2 Split
 

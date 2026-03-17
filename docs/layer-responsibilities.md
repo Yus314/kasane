@@ -1,13 +1,12 @@
 # Layer Responsibility Model
 
 This document defines the criteria for determining whether a new feature belongs to upstream, core, or plugins.
-For the classification of implementation mechanisms, refer to the resolution layer in [requirements-traceability.md](./requirements-traceability.md).
 
 ## Overview
 
 This document establishes the criteria for determining "which layer a feature belongs to" when adding new features to Kasane.
 
-The "resolution layer" in [requirements-traceability.md](./requirements-traceability.md) is a classification of **implementation mechanisms** (HOW: renderer/configuration/infrastructure/protocol constraints), defining "by what mechanism to resolve it." This model is a classification of **responsibility boundaries** (WHERE: upstream/core/plugin), defining "which layer is responsible." Both axes are necessary for feature classification.
+The complementary "resolution layer" is a classification of **implementation mechanisms** (HOW: renderer/configuration/infrastructure/protocol constraints), defining "by what mechanism to resolve it." This model is a classification of **responsibility boundaries** (WHERE: upstream/core/plugin), defining "which layer is responsible." Both axes are necessary for feature classification.
 
 **Related documents:**
 - [architecture.md](./architecture.md) — Abstraction boundaries
@@ -181,9 +180,18 @@ This boundary follows the principle of "mechanism, not policy": core provides th
 
 ---
 
-## Correspondence with Existing "Resolution Layer"
+## Resolution Layer (HOW) — Complementary Classification
 
-Relationship with the resolution layer in [requirements-traceability.md](./requirements-traceability.md):
+The resolution layer classifies each requirement by **implementation mechanism**:
+
+| Resolution Layer | Description | Impact on Foundation Design |
+|---|---|---|
+| **Renderer** | Automatically resolved by the base implementation of the rendering engine and input handling | No foundation mechanism needed. Resolved simply by correct implementation |
+| **Config** | Resolved through configuration via `config.toml` / `ui_options` | Builds a configuration interface on top of foundation mechanisms |
+| **Foundation** | Resolved by Kasane's UI foundation and extension mechanisms | Plugin authors can also use the same mechanisms |
+| **Protocol constraint** | Cannot be fully resolved due to Kakoune protocol limitations | Heuristic workarounds. Tracks contributions to upstream |
+
+Correspondence with the three-layer model:
 
 | | Resolution Layer (HOW) | Three-Layer Model (WHERE) |
 |---|---|---|
@@ -198,7 +206,6 @@ Both axes are necessary for feature classification:
 
 ## Related Documents
 
-- [requirements-traceability.md](./requirements-traceability.md) — Resolution layer (HOW) tracking
 - [semantics.md](./semantics.md) — Current semantics
 - [architecture.md](./architecture.md) — System boundaries
 - [upstream-dependencies.md](./upstream-dependencies.md) — Upstream dependency tracking

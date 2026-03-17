@@ -203,7 +203,6 @@ This document is updated when:
 
 ## 7. Related Documents
 
-- [requirements-traceability.md](./requirements-traceability.md) — Status per requirement
 - [upstream-dependencies.md](./upstream-dependencies.md) — Upstream blockers
 - [layer-responsibilities.md](./layer-responsibilities.md) — Organization of shared API validation and native escape hatches
 - [plugin-api.md](./plugin-api.md) — Current API from a plugin's perspective
