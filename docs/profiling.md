@@ -1,7 +1,7 @@
 # Profiling Guide
 
 This document is the procedural guide for measuring and profiling Kasane.
-For performance principles see [performance.md](./performance.md), and for benchmark results see [performance-benchmarks.md](./performance-benchmarks.md).
+For performance principles and benchmark results, see [performance.md](./performance.md).
 
 ## Criterion Benchmarks
 
@@ -325,7 +325,6 @@ Historical benchmark results are stored on the `gh-pages` branch at `dev/bench/`
 
 ## See also
 
-- [performance.md](./performance.md) — performance principles
-- [performance-benchmarks.md](./performance-benchmarks.md) — current benchmark results
+- [performance.md](./performance.md) — performance principles and benchmark results
 - [semantics.md](./semantics.md) — correctness constraints for measured optimizations
 - [index.md](./index.md) — docs entry point

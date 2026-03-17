@@ -46,7 +46,7 @@ Authoritative specifications, responsibilities, and usage guides.
 - [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path
 - [config.md](config.md) — configuration reference
 - [repo-layout.md](repo-layout.md) — source tree and crate responsibilities
-- [performance.md](performance.md) — performance policy and interpretation
+- [performance.md](performance.md) — performance principles, benchmarks, and optimization status
 
 ### User-facing
 
@@ -64,7 +64,6 @@ State, progress, and blockers.
 
 - [roadmap.md](roadmap.md) — implementation phases and incomplete items
 - [upstream-dependencies.md](upstream-dependencies.md) — upstream dependencies and reintegration conditions
-- [performance-benchmarks.md](performance-benchmarks.md) — performance measurements and optimization status
 
 ### Historical / Research
 

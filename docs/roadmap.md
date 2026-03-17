@@ -22,7 +22,7 @@ For detailed design rationale, see [decisions.md](./decisions.md); for current s
 for the division of responsibilities between the shared API and native escape hatches, see
 [layer-responsibilities.md](./layer-responsibilities.md); for the current specification from a plugin's perspective, see
 [plugin-api.md](./plugin-api.md); for performance numbers and implementation status, see
-[performance-benchmarks.md](./performance-benchmarks.md).
+[performance.md](./performance.md).
 
 ## 2. Current Priorities
 
@@ -207,4 +207,4 @@ This document is updated when:
 - [layer-responsibilities.md](./layer-responsibilities.md) — Organization of shared API validation and native escape hatches
 - [plugin-api.md](./plugin-api.md) — Current API from a plugin's perspective
 - [plugin-development.md](./plugin-development.md) — Practical guide for plugin authoring
-- [performance-benchmarks.md](./performance-benchmarks.md) — Performance implementation progress
+- [performance.md](./performance.md) — Performance implementation progress

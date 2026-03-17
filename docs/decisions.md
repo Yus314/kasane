@@ -41,7 +41,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Compiler-driven optimization | Current | **deps verification + ViewCache / SceneCache / PaintPatch** | Automatic patch generation for generic plugins not yet implemented |
 | CLI design | Current | **kak drop-in replacement** | Non-UI flags delegated via exec |
 | Three-layer responsibilities | Current | **Upstream / Core / Plugin** | Criteria in [layer-responsibilities.md](./layer-responsibilities.md) |
-| WASM plugin runtime | Current | **Component Model (wasmtime)** | Detailed performance figures in [ADR-013](#adr-013-wasm-plugin-runtime--component-model-adoption) and [performance-benchmarks.md](./performance-benchmarks.md) |
+| WASM plugin runtime | Current | **Component Model (wasmtime)** | Detailed performance figures in [ADR-013](#adr-013-wasm-plugin-runtime--component-model-adoption) and [performance.md](./performance.md) |
 | Pipeline equivalence testing | Current | **Trace-Equivalence axiom + proptest** | Current harness generates DirtyFlags at coarse granularity |
 | SurfaceId-based invalidation | Proposed | **Per-surface dirty / cache design** | For multi-pane, not yet implemented |
 | Plugin I/O infrastructure | Current | **Hybrid model (WASI direct + host-mediated)** | Design foundation for Phase P. Details in [ADR-019](#adr-019-plugin-io-infrastructure--hybrid-model) |
@@ -423,7 +423,7 @@ Furthermore, Rust's ownership model naturally aligns with TEA (`&State` for view
 
 All 4 stages completed: (1) DirtyFlags-based view memoization, (2) verified dependency tracking via `#[kasane::component(deps(...))]`, (3) SceneCache for DrawCommand-level caching, (4) compiled PaintPatch with StatusBarPatch / MenuSelectionPatch / CursorPatch.
 
-For detailed implementation status and benchmark results, see [performance-benchmarks.md — Compiler-Driven Optimization](./performance-benchmarks.md#compiler-driven-optimization-adr-010--implementation-status).
+For detailed implementation status and benchmark results, see [performance.md — Compiler-Driven Optimization](./performance.md#compiler-driven-optimization-adr-010--implementation-status).
 
 **Stage 5: Compiled rendering for plugins (design analysis)**
 
@@ -729,13 +729,13 @@ A 4-stage gate approach was used. All gates passed (Gate 3 conditionally — rat
 - **Gate 3 (Component Model overhead):** ~500 ns fixed overhead from canonical ABI. 4.1x–23.7x ratio vs raw module, but absolute values < 7 μs. Conditional pass.
 - **Gate 4 (Realistic simulation):** ~1.8 μs/plugin (linear), 5 plugins = 8.91 μs (18.2% of frame budget). Pass.
 
-For detailed benchmark tables, see [performance-benchmarks.md — WASM Plugin Benchmarks](./performance-benchmarks.md#wasm-plugin-benchmarks).
+For detailed benchmark tables, see [performance.md — WASM Plugin Benchmarks](./performance.md#wasm-plugin-benchmarks).
 
 ### 13-2: Frame Budget Analysis
 
 5 plugins consume 18.2% of the ~49 μs frame budget; 10 plugins consume 36.7%. L1 cache (DirtyFlags) completely skips WASM calls on frames with no state change (cache hit: 0.26 ns).
 
-For detailed budget breakdown, see [performance-benchmarks.md — WASM Plugin Benchmarks](./performance-benchmarks.md#realistic-plugin-simulation).
+For detailed budget breakdown, see [performance.md — WASM Plugin Benchmarks](./performance.md#realistic-plugin-simulation).
 
 ### 13-3: Decision
 
@@ -823,7 +823,7 @@ All 4 stages implemented: (P4) container fill → `clear_region()`, (P1) zero-al
 
 Key results: TUI backend 2.4–3x faster, diff allocation eliminated (196 KB → 0), common editing pattern 57% CPU reduction.
 
-For detailed benchmark tables, see [performance-benchmarks.md — ADR-015](./performance-benchmarks.md#rendering-pipeline-optimization-adr-015--implementation-status).
+For detailed benchmark tables, see [performance.md — ADR-015](./performance.md#rendering-pipeline-optimization-adr-015--implementation-status).
 
 ## ADR-016: Pipeline Equivalence Testing — Trace-Equivalence Axiom
 
