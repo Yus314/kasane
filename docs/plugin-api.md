@@ -167,10 +167,6 @@ fn contribute_to(&self, region: &SlotId, state: &AppState, _ctx: &ContributeCont
         size_hint: ContribSizeHint::Auto,
     })
 }
-
-fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-    DirtyFlags::BUFFER_CONTENT
-}
 ```
 
 **WASM:**
@@ -214,10 +210,6 @@ fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateC
     } else {
         None
     }
-}
-
-fn annotate_deps(&self) -> DirtyFlags {
-    DirtyFlags::BUFFER_CONTENT
 }
 ```
 
@@ -271,10 +263,6 @@ fn transform(&self, target: &TransformTarget, element: Element, state: &AppState
 }
 
 fn transform_priority(&self) -> i16 { 100 }
-
-fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
-    DirtyFlags::BUFFER_CONTENT
-}
 ```
 
 **WASM:**
@@ -319,10 +307,6 @@ fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<Display
         content: "  ⚠ TODO — address before merge".into(),
         face: Face { fg: Color::Named(NamedColor::Yellow), ..Face::default() },
     }]
-}
-
-fn display_directives_deps(&self) -> DirtyFlags {
-    DirtyFlags::PLUGIN_STATE | DirtyFlags::BUFFER_CONTENT
 }
 ```
 
@@ -586,7 +570,7 @@ In WASM, these are represented as `command` variants. `Pane`, `Workspace`, and `
 Plugins can observe session state and control session switching:
 
 - **Session query**: `AppState.session_descriptors` provides the list of sessions (`SessionDescriptor { key, session_name, buffer_name, mode_line }`), and `AppState.active_session_key` identifies the current session. `buffer_name` is extracted from `status_content` atoms and `mode_line` from `status_mode_line` atoms of the session's `AppState` snapshot. In WASM, Tier 8 host-state functions `get-session-count`, `get-session(index)`, and `get-active-session-key` provide equivalent access.
-- **Session lifecycle notification**: `DirtyFlags::SESSION` is set when sessions are created, closed, switched, or when a session dies. Plugins react via `contribute_deps` / `on_state_changed`.
+- **Session lifecycle notification**: `DirtyFlags::SESSION` is set when sessions are created, closed, switched, or when a session dies. Plugins react via `on_state_changed`.
 - **Session switch command**: `SessionCommand::Switch { key }` (native) or `command::switch-session(key)` (WIT) requests activation of a specific session by key.
 
 See [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the boundary rationale and decision record.
@@ -620,27 +604,22 @@ The default for native plugins is `all()`, and the WASM adapter is configured fr
 
 `PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, `PAINT_HOOK`, and `DISPLAY_TRANSFORM` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
 
-### 4.2 State hash and dependency tracking
+### 4.2 State hash and caching
 
-Plugin contribution results are primarily cached through the following mechanisms:
+Plugin contribution caching is handled by Salsa incremental computation. The framework tracks dependencies automatically, so plugins do not need to declare `*_deps()` methods.
 
-- `state_hash()`: Hash of the plugin's internal state
-- `contribute_deps(region)`: `DirtyFlags` that the specified region depends on
-- `transform_deps(target)`: `DirtyFlags` that the transform depends on
-- `annotate_deps()`: `DirtyFlags` that line annotation depends on
-- `display_directives_deps()`: `DirtyFlags` that display directives depend on
+The remaining plugin-side caching mechanism is `state_hash()`:
 
 ```rust
 // WASM
 fn state_hash() -> u64 {
     MY_STATE.get() as u64
 }
-
 ```
 
-`PluginBackend` implementors provide `state_hash()` for L1 cache invalidation.
+`PluginBackend` implementors provide `state_hash()` to signal state changes.
 
-`Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter for L1 cache invalidation.
+`Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter.
 
 ### 4.3 PaintHook
 

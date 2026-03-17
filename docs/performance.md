@@ -40,11 +40,11 @@ Ordered by tier. Within each tier, original numbering is preserved for cross-ref
 ## Degradation Model
 
 ```
-frame_cost(w, h, n) ≈ base_cpu(w,h) + salsa_sync(dirty) + plugin_overhead(n) + backend_io(changed)
+frame_cost(w, h, n) ≈ base_cpu(w,h) + salsa_sync(w,h) + plugin_overhead(n) + backend_io(changed)
 ```
 
 - `base_cpu(80,24)` ≈ 57 μs, sub-linear with area
-- `salsa_sync` ≈ 0.2–7 μs (depends on DirtyFlags)
+- `salsa_sync` ≈ 0.2–7 μs (unconditional; cost depends on viewport size)
 - `plugin_overhead` ≈ 1.8 μs × n (WASM CM)
 - `backend_io` ≈ 44–228 μs (TUI, terminal I/O dominated)
 
@@ -60,10 +60,10 @@ Event batch processing (try_recv drains all pending)
 state.apply()           -- O(lines * atoms) for Draw; includes detect_cursors, compute_lines_dirty
   |
   v
-sync_salsa_inputs()     -- Salsa incremental sync (slot contributions, annotations, overlays)
+sync_inputs_from_state() -- Salsa incremental sync (unconditional)
   |
   v
-view(&state, &registry) -- Element tree construction (with ViewCache memoization)
+view(&state, &registry) -- Element tree construction (Salsa incremental memoization)
   |
   v
 place(&element, area)   -- Layout calculation (flexbox + grid + overlay)
@@ -112,8 +112,7 @@ Note: paint-only cost is derived from the `paint/80x24` benchmark (which include
 | SIMD JSON | protocol.rs | High-speed JSON parsing via simd_json |
 | BufferRef | Element tree | Buffer lines referenced, not cloned. Zero-copy in view() |
 | dirty_rows | CellGrid | Row-level dirty tracking skips unchanged rows in diff() |
-| Salsa incremental | sync_salsa_inputs | Incremental recomputation of plugin contributions and overlays |
-| PaintPatch | render pipeline | CursorPatch (1 μs), StatusBarPatch (6 μs) bypass full pipeline |
+| Salsa incremental | render pipeline | Incremental recomputation of view, layout, plugin contributions, and overlays |
 | detect_cursors two-strategy | state.apply | Attribute heuristic (fast path) + face-matching fallback |
 
 ## Declarative Pipeline Overhead
@@ -380,21 +379,20 @@ Salsa's value emerges in **warm-cache scenarios**: menu selection (the most inte
 
 At larger screen sizes, Salsa's incremental computation provides significant speedup over the legacy pipeline by avoiding redundant recomputation of unchanged element subtrees and layout regions.
 
-### Salsa Patched Path
+### Salsa Scene Path
 
 <!-- BENCH:salsa_patched -->
 | Benchmark | Measured | Notes |
 |---|---|---|
-| `salsa_patched/status_update` | 1.5 us | Status-only PaintPatch via Salsa |
-| `salsa_scene/cold` | 26.4 us | Scene cache cold start |
-| `salsa_scene/warm` | 5.1 us | Scene cache warm (cached DrawCommands) |
+| `salsa_scene/cold` | 26.4 us | Scene cold start |
+| `salsa_scene/warm` | 5.1 us | Scene warm (Salsa-cached DrawCommands) |
 <!-- /BENCH:salsa_patched -->
 
-## Cache and Patch Benchmarks
+## Salsa Cache Benchmarks
 
-Measured with `cargo bench --bench rendering_pipeline -- cache\|section\|patch`.
+Measured with `cargo bench --bench rendering_pipeline -- cache\|section`.
 
-### View and Scene Caching
+### Salsa View and Scene Caching
 
 <!-- BENCH:cache_view_scene -->
 | Benchmark | Measured | Notes |
@@ -405,18 +403,6 @@ Measured with `cargo bench --bench rendering_pipeline -- cache\|section\|patch`.
 | `scene_cache_warm` | 7.0 us | Warm: cached DrawCommands |
 | `scene_cache_menu_select` | 17.3 us | Menu section rebuild only |
 <!-- /BENCH:cache_view_scene -->
-
-### Section and Patch Paint
-
-<!-- BENCH:section_patch -->
-| Benchmark | Measured | vs full_frame | Notes |
-|---|---|---|---|
-| `section_paint_status_only` | **37.2 us** | **63.4%** | STATUS-only sectioned repaint |
-| `section_paint_menu_select` | **50.7 us** | **86.3%** | MENU_SELECTION sectioned repaint |
-| `patch_status_update` | **6.0 us** | **10.2%** | StatusBarPatch: ~80 cells |
-| `patch_menu_select` | **6.7 us** | **11.4%** | MenuSelectionPatch: ~10 cells |
-| `patch_cursor_move` | **1.0 us** | **1.7%** | CursorPatch: 2 cells |
-<!-- /BENCH:section_patch -->
 
 ### Line-Dirty Optimization
 
@@ -467,7 +453,7 @@ For resolved bottlenecks (Buffer Line Cloning, Container Fill Loop, diff() Alloc
 
 ## Optimization Status
 
-For implementation details of the compiler-driven optimization (ViewCache, SceneCache, PaintPatch, verified dependency tracking), see [ADR-010 in decisions.md](./decisions.md#adr-010-compiler-driven-optimization--svelte-like-two-layer-rendering).
+For historical context on the compiler-driven optimization (superseded by Salsa incremental computation), see [ADR-010 in decisions.md](./decisions.md#adr-010-compiler-driven-optimization--svelte-like-two-layer-rendering).
 
 For rendering pipeline improvements (zero-alloc diff, draw_grid, line-dirty expansion, container fill optimization), see [ADR-015 in decisions.md](./decisions.md#adr-015-rendering-pipeline-performance-improvements).
 
