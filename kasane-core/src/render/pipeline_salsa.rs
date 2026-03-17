@@ -14,9 +14,8 @@
 //! into Salsa inputs each frame.
 
 use super::RenderResult;
-use super::cache::LayoutCache;
 use super::grid::CellGrid;
-use super::pipeline::{ViewSource, render_cached_core, render_sectioned_core, scene_render_core};
+use super::pipeline::{ViewSource, render_cached_core, scene_render_core};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use crate::element::{Element, FlexChild, Style};
@@ -284,30 +283,6 @@ pub fn render_pipeline_salsa_cached(
 ) -> RenderResult {
     let mut source = SalsaViewSource::new(db, handles);
     render_cached_core(&mut source, state, registry, grid, dirty, paint_hooks)
-}
-
-/// Salsa-backed section-aware rendering pipeline (TUI).
-#[allow(clippy::too_many_arguments)]
-pub fn render_pipeline_salsa_sectioned(
-    db: &KasaneDatabase,
-    handles: &SalsaInputHandles,
-    state: &AppState,
-    registry: &PluginRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    layout_cache: &mut LayoutCache,
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    let mut source = SalsaViewSource::new(db, handles);
-    render_sectioned_core(
-        &mut source,
-        state,
-        registry,
-        grid,
-        dirty,
-        layout_cache,
-        paint_hooks,
-    )
 }
 
 /// Salsa-backed scene rendering pipeline (GPU).
