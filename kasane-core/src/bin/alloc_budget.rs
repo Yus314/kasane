@@ -56,7 +56,7 @@ fn main() {
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
     use kasane_core::plugin::PluginRegistry;
-    use kasane_core::protocol::{Atom, Color, Face, NamedColor, parse_request};
+    use kasane_core::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
     use kasane_core::render::view;
@@ -191,10 +191,11 @@ fn main() {
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
+    let cursor_pos = Coord::default();
     let json_msg = serde_json::to_vec(&serde_json::json!({
         "jsonrpc": "2.0",
         "method": "draw",
-        "params": [draw_lines, default_face, default_face]
+        "params": [draw_lines, cursor_pos, default_face, default_face, 0]
     }))
     .unwrap();
 

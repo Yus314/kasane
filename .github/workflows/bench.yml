@@ -38,14 +38,26 @@ jobs:
       - name: Run GUI CPU benchmarks
         run: nix develop --command cargo bench -p kasane-gui --bench cpu_rendering -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
 
+      - name: Run WASM benchmarks
+        run: nix develop --command cargo bench -p kasane-wasm-bench -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
+
       - name: Run iai-callgrind benchmarks
-        run: nix develop --command env PATH="$HOME/.cargo/bin:$PATH" IAI_CALLGRIND_RUNNER="$HOME/.cargo/bin/iai-callgrind-runner" cargo bench --bench iai_pipeline
+        run: nix develop --command env PATH="$HOME/.cargo/bin:$PATH" IAI_CALLGRIND_RUNNER="$HOME/.cargo/bin/iai-callgrind-runner" cargo bench --bench iai_pipeline 2>&1 | tee iai_results.txt
 
       - name: Run allocation budget
         run: |
           nix develop --command cargo run -p kasane-core --bin alloc_budget --features bench-alloc | tee alloc_budget.json
           echo "Allocation budget:"
           cat alloc_budget.json
+
+      - name: Check allocation budget
+        run: |
+          FULL_COUNT=$(jq '.full_frame.count' alloc_budget.json)
+          echo "full_frame allocation count: $FULL_COUNT"
+          if [ "$FULL_COUNT" -gt 100 ]; then
+            echo "::error::Allocation count regressed: $FULL_COUNT > 100"
+            exit 1
+          fi
 
       - name: Check latency budgets
         run: nix develop --command cargo test -p kasane-core --test latency_budget -- --ignored
@@ -62,3 +74,11 @@ jobs:
           auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           benchmark-data-dir-path: dev/bench
+
+      - name: Upload iai-callgrind results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iai-callgrind-results
+          path: iai_results.txt
+          retention-days: 90

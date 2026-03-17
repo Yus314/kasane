@@ -237,3 +237,62 @@ fn state_apply_under_200us() {
         "state_apply (draw 23 lines) median {med}μs exceeds 200μs budget"
     );
 }
+
+#[test]
+#[ignore]
+fn salsa_full_frame_under_2ms() {
+    use kasane_core::render::render_pipeline_salsa_cached;
+    use kasane_core::salsa_db::KasaneDatabase;
+    use kasane_core::salsa_sync::{
+        SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
+        sync_plugin_contributions, sync_plugin_epoch,
+    };
+    use kasane_core::state::DirtyFlags;
+
+    let state = typical_state(23);
+    let registry = PluginRegistry::new();
+    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut db = KasaneDatabase::default();
+    let handles = SalsaInputHandles::new(&mut db);
+    let dirty = DirtyFlags::ALL;
+
+    // Warmup
+    for _ in 0..20 {
+        sync_inputs_from_state(&mut db, &state, dirty, &handles);
+        let pe = sync_plugin_epoch(&mut db, &registry, &handles);
+        sync_display_directives(&mut db, &state, &registry, &handles, dirty, pe);
+        sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, pe);
+        let _result =
+            render_pipeline_salsa_cached(&db, &handles, &state, &registry, &mut grid, dirty, &[]);
+        let _ = grid.diff();
+        grid.swap();
+    }
+
+    let durations: Vec<u128> = (0..RUNS)
+        .map(|_| {
+            let start = Instant::now();
+            sync_inputs_from_state(&mut db, &state, dirty, &handles);
+            let pe = sync_plugin_epoch(&mut db, &registry, &handles);
+            sync_display_directives(&mut db, &state, &registry, &handles, dirty, pe);
+            sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, pe);
+            let _result = render_pipeline_salsa_cached(
+                &db,
+                &handles,
+                &state,
+                &registry,
+                &mut grid,
+                dirty,
+                &[],
+            );
+            let _ = grid.diff();
+            grid.swap();
+            start.elapsed().as_micros()
+        })
+        .collect();
+
+    let med = median_us(durations);
+    assert!(
+        med < 2000,
+        "salsa_full_frame median {med}μs exceeds 2ms budget"
+    );
+}
