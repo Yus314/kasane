@@ -1,4 +1,3 @@
-mod analysis;
 mod component;
 mod dirty_tracked;
 mod plugin;
@@ -23,14 +22,10 @@ pub fn kasane_plugin(_attr: TokenStream, input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Validate a pure component function with optional DirtyFlags dependency annotation.
+/// Validate a pure component function.
 ///
-/// Usage:
-/// - `#[kasane_component]` — bare validation only
-/// - `#[kasane_component(deps(BUFFER, STATUS))]` — validate + document dependencies
-///
-/// Valid flag names: `BUFFER`, `STATUS`, `MENU_STRUCTURE`, `MENU_SELECTION`, `MENU`,
-/// `INFO`, `OPTIONS`, `ALL`.
+/// Checks that the function has a return type and no `&mut` parameters.
+/// Any attribute arguments are accepted but ignored (for backward compatibility).
 #[proc_macro_attribute]
 pub fn kasane_component(attr: TokenStream, input: TokenStream) -> TokenStream {
     component::expand_kasane_component(attr.into(), input.into())
