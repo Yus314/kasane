@@ -4,3 +4,5 @@ result
 .pre-commit-config.yaml
 .claude/
 check_links.sh
+fifo-trace.log
+alloc_budget.json
