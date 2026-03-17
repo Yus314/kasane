@@ -116,13 +116,6 @@ pub(crate) trait ErasedPlugin: Send {
         state: &dyn PluginState,
         app: &AppState,
     ) -> Vec<DisplayDirective>;
-
-    // Dependency declarations
-    fn contribute_deps_erased(&self, region: &SlotId) -> DirtyFlags;
-    fn transform_deps_erased(&self, target: &TransformTarget) -> DirtyFlags;
-    fn annotate_deps_erased(&self) -> DirtyFlags;
-    fn overlay_deps_erased(&self) -> DirtyFlags;
-    fn display_directives_deps_erased(&self) -> DirtyFlags;
 }
 
 impl<P: Plugin> ErasedPlugin for P {
@@ -300,22 +293,6 @@ impl<P: Plugin> ErasedPlugin for P {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
         self.display_directives(typed, app)
     }
-
-    fn contribute_deps_erased(&self, region: &SlotId) -> DirtyFlags {
-        self.contribute_deps(region)
-    }
-    fn transform_deps_erased(&self, target: &TransformTarget) -> DirtyFlags {
-        self.transform_deps(target)
-    }
-    fn annotate_deps_erased(&self) -> DirtyFlags {
-        self.annotate_deps()
-    }
-    fn overlay_deps_erased(&self) -> DirtyFlags {
-        self.overlay_deps()
-    }
-    fn display_directives_deps_erased(&self) -> DirtyFlags {
-        self.display_directives_deps()
-    }
 }
 
 /// Adapts a `Plugin` to the internal `PluginBackend` trait.
@@ -454,10 +431,6 @@ impl PluginBackend for PluginBridge {
             .contribute_to_erased(&*self.state, region, state, ctx)
     }
 
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        self.inner.contribute_deps_erased(region)
-    }
-
     fn transform(
         &self,
         target: &TransformTarget,
@@ -467,10 +440,6 @@ impl PluginBackend for PluginBridge {
     ) -> Element {
         self.inner
             .transform_erased(&*self.state, target, element, state, ctx)
-    }
-
-    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
-        self.inner.transform_deps_erased(target)
     }
 
     fn annotate_line_with_ctx(
@@ -483,16 +452,8 @@ impl PluginBackend for PluginBridge {
             .annotate_line_erased(&*self.state, line, state, ctx)
     }
 
-    fn annotate_deps(&self) -> DirtyFlags {
-        self.inner.annotate_deps_erased()
-    }
-
     fn display_directives(&self, state: &AppState) -> Vec<DisplayDirective> {
         self.inner.display_directives_erased(&*self.state, state)
-    }
-
-    fn display_directives_deps(&self) -> DirtyFlags {
-        self.inner.display_directives_deps_erased()
     }
 
     fn contribute_overlay_with_ctx(
@@ -502,10 +463,6 @@ impl PluginBackend for PluginBridge {
     ) -> Option<OverlayContribution> {
         self.inner
             .contribute_overlay_erased(&*self.state, state, ctx)
-    }
-
-    fn overlay_deps(&self) -> DirtyFlags {
-        self.inner.overlay_deps_erased()
     }
 
     fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
@@ -612,12 +569,6 @@ mod tests {
         assert!(bridge.annotate_line_with_ctx(3, &app, &ctx).is_some());
         assert!(bridge.annotate_line_with_ctx(0, &app, &ctx).is_none());
         assert!(bridge.annotate_line_with_ctx(5, &app, &ctx).is_none());
-    }
-
-    #[test]
-    fn bridge_deps_delegated() {
-        let bridge = PluginBridge::new(CursorLinePure);
-        assert_eq!(bridge.annotate_deps(), DirtyFlags::BUFFER);
     }
 
     // ---- Registry integration tests ----

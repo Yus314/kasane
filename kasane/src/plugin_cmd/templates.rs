@@ -116,8 +116,6 @@ fn annotation_template(id: &str) -> String {
     annotate(line, _ctx) {{
         (line as i32 == state.active_line).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
     }},
-
-    annotate_deps: dirty::BUFFER,
 }}
 "#
     )
@@ -144,13 +142,6 @@ fn transform_template(id: &str) -> String {
         container(element)
             .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
             .build()
-    }},
-
-    transform_deps(target) {{
-        match target {{
-            TransformTarget::StatusBarT => dirty::STATUS,
-            _ => 0,
-        }}
     }},
 
     transform_priority: 0,
@@ -394,7 +385,6 @@ mod tests {
         assert!(src.contains("define_plugin!"));
         assert!(src.contains("\"test_plug\""));
         assert!(src.contains("annotate"));
-        assert!(src.contains("annotate_deps"));
     }
 
     #[test]
@@ -403,7 +393,6 @@ mod tests {
         assert!(src.contains("define_plugin!"));
         assert!(src.contains("\"test_plug\""));
         assert!(src.contains("transform"));
-        assert!(src.contains("transform_deps"));
     }
 
     #[test]

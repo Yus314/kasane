@@ -35,7 +35,6 @@ use syn::{ImplItem, ItemImpl, parse_macro_input};
 ///         None
 ///     }
 ///
-///     fn annotate_deps() -> u16 { dirty::BUFFER }
 ///     fn state_hash() -> u64 { ACTIVE_LINE.get() as u64 }
 /// }
 /// ```
@@ -101,7 +100,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
             "on_shutdown".into(),
             "on_state_changed".into(),
         ],
-        "default_cache" => vec!["state_hash".into(), "slot_deps".into()],
+        "default_cache" => vec!["state_hash".into()],
         "default_input" => vec![
             "handle_mouse".into(),
             "handle_key".into(),
@@ -116,16 +115,13 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         }
         "default_contribute" => vec!["contribute".into()],
         "default_contribute_to" => vec!["contribute_to".into()],
-        "default_contribute_deps" => vec!["contribute_deps".into()],
         "default_line" => vec!["contribute_line".into()],
         "default_overlay" => vec!["contribute_overlay".into()],
         "default_overlay_v2" => vec!["contribute_overlay_v2".into()],
         "default_annotate" => vec!["annotate_line".into()],
-        "default_annotate_deps" => vec!["annotate_deps".into()],
         "default_named_slot" => vec!["contribute_named".into()],
         "default_transform" => vec!["transform_element".into()],
         "default_transform_priority" => vec!["transform_priority".into()],
-        "default_transform_deps" => vec!["transform_deps".into()],
         "default_menu_transform" => vec!["transform_menu_item".into()],
         "default_replace" => vec!["replace".into()],
         "default_decorate" => vec!["decorate".into()],
@@ -134,7 +130,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_update" => vec!["update".into()],
         "default_capabilities" => vec!["requested_capabilities".into()],
         "default_io_event" => vec!["on_io_event".into()],
-        "slots" => vec!["contribute_to".into(), "contribute_deps".into()],
+        "slots" => vec!["contribute_to".into()],
         _ => vec![],
     }
 }
@@ -367,30 +363,6 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         quote! { fn state_hash() -> u64 { __kasane_auto_state_hash() } }
     );
 
-    add_default!(
-        "slot_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
-        quote! { fn slot_deps(_slot: u8) -> u16 { 0x17F } }
-    );
-
-    add_default!(
-        "contribute_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE) — safe default
-        quote! { fn contribute_deps(_region: SlotId) -> u16 { 0x17F } }
-    );
-
-    add_default!(
-        "transform_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
-        quote! { fn transform_deps(_target: TransformTarget) -> u16 { 0x17F } }
-    );
-
-    add_default!(
-        "annotate_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
-        quote! { fn annotate_deps() -> u16 { 0x17F } }
-    );
-
     // --- Cursor ---
 
     add_default!(
@@ -417,21 +389,6 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     add_default!(
         "on_io_event",
         quote! { fn on_io_event(_event: IoEvent) -> Vec<Command> { vec![] } }
-    );
-
-    // Static assertion: SDK ALL must match our hardcoded default.
-    // If this fails, update the three 0x17F literals above.
-    #[allow(clippy::eq_op, clippy::assertions_on_constants)]
-    const _: () = assert!(
-        0x17F
-            == ((1 << 0)
-                | (1 << 1)
-                | (1 << 2)
-                | (1 << 3)
-                | (1 << 4)
-                | (1 << 5)
-                | (1 << 6)
-                | (1 << 8))
     );
 
     defaults
@@ -853,9 +810,7 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `slots { SLOT => expr, ... }` — simple form (auto-wraps in `auto_contribution()`)
 /// - `slots { SLOT(deps) => |ctx| { ... }, ... }` — full form with state access via `state.field`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
-/// - `annotate_deps: expr` → `fn annotate_deps()`
 /// - `transform(target, element, ctx) { ... }` → `fn transform_element()`
-/// - `transform_deps(target) { ... }` → `fn transform_deps()`
 /// - `transform_priority: expr` → `fn transform_priority()`
 /// - `overlay(ctx) { ... }` → `fn contribute_overlay_v2()`
 /// - `handle_key(event) { ... }` → `fn handle_key()`
@@ -1131,29 +1086,11 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             })
             .collect();
 
-        let deps_arms: Vec<_> = slots
-            .iter()
-            .map(|entry| {
-                let pattern = slot_name_to_deps_pattern(&entry.name);
-                let deps = entry
-                    .deps
-                    .clone()
-                    .unwrap_or_else(|| quote! { 0x17F });
-                quote! { #pattern => { #deps } }
-            })
-            .collect();
-
         quote! {
             fn contribute_to(__region: SlotId, __ctx: ContributeContext) -> Option<Contribution> {
                 match &__region {
                     #( #slot_arms, )*
                     _ => None,
-                }
-            }
-            fn contribute_deps(__region: SlotId) -> u16 {
-                match &__region {
-                    #( #deps_arms, )*
-                    _ => 0,
                 }
             }
         }
@@ -1175,12 +1112,6 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let annotate_deps_method = if let Some(ref deps) = def.annotate_deps {
-        quote! { fn annotate_deps() -> u16 { #deps } }
-    } else {
-        quote! {}
-    };
-
     let transform_method = if let Some(ref tr) = def.transform {
         let target_param = &tr.target_param;
         let element_param = &tr.element_param;
@@ -1194,18 +1125,6 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                 #ctx_param: TransformContext,
             ) -> ElementHandle {
                 #wrapped
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    let transform_deps_method = if let Some(ref td) = def.transform_deps {
-        let target_param = &td.param;
-        let body = &td.body;
-        quote! {
-            fn transform_deps(#target_param: TransformTarget) -> u16 {
-                #body
             }
         }
     } else {
@@ -1300,9 +1219,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             #on_state_changed_method
             #slots_method
             #annotate_method
-            #annotate_deps_method
             #transform_method
-            #transform_deps_method
             #transform_priority_method
             #overlay_method
             #handle_key_method
@@ -1325,9 +1242,7 @@ struct PluginDef {
     on_state_changed_commands: Option<OnStateChanged>,
     slots: Option<Vec<SlotEntry>>,
     annotate: Option<AnnotateDef>,
-    annotate_deps: Option<proc_macro2::TokenStream>,
     transform: Option<TransformDef>,
-    transform_deps: Option<TransformDepsDef>,
     transform_priority: Option<proc_macro2::TokenStream>,
     overlay: Option<ParamBodyDef>,
     handle_key: Option<ParamBodyDef>,
@@ -1359,7 +1274,6 @@ enum SlotName {
 
 struct SlotEntry {
     name: SlotName,
-    deps: Option<proc_macro2::TokenStream>,
     has_closure: bool,
     ctx_param: Option<syn::Ident>,
     body: proc_macro2::TokenStream,
@@ -1380,11 +1294,6 @@ struct TransformDef {
     target_param: syn::Ident,
     element_param: syn::Ident,
     ctx_param: syn::Ident,
-    body: proc_macro2::TokenStream,
-}
-
-struct TransformDepsDef {
-    param: syn::Ident,
     body: proc_macro2::TokenStream,
 }
 
@@ -1409,9 +1318,7 @@ impl syn::parse::Parse for PluginDef {
             on_state_changed_commands: None,
             slots: None,
             annotate: None,
-            annotate_deps: None,
             transform: None,
-            transform_deps: None,
             transform_priority: None,
             overlay: None,
             handle_key: None,
@@ -1530,10 +1437,6 @@ impl syn::parse::Parse for PluginDef {
                         body: body.parse()?,
                     });
                 }
-                "annotate_deps" => {
-                    input.parse::<syn::Token![:]>()?;
-                    def.annotate_deps = Some(parse_until_comma_or_end(input)?);
-                }
                 "transform" => {
                     let params;
                     syn::parenthesized!(params in input);
@@ -1548,17 +1451,6 @@ impl syn::parse::Parse for PluginDef {
                         target_param,
                         element_param,
                         ctx_param,
-                        body: body.parse()?,
-                    });
-                }
-                "transform_deps" => {
-                    let params;
-                    syn::parenthesized!(params in input);
-                    let param: syn::Ident = params.parse()?;
-                    let body;
-                    syn::braced!(body in input);
-                    def.transform_deps = Some(TransformDepsDef {
-                        param,
                         body: body.parse()?,
                     });
                 }
@@ -1698,15 +1590,12 @@ fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEnt
             }
         };
 
-        // 2. Optional (deps) — if next token is `(`
-        let deps = if input.peek(syn::token::Paren) {
+        // 2. Optional (deps) — if next token is `(`, consume and ignore (deps removed)
+        if input.peek(syn::token::Paren) {
             let args;
             syn::parenthesized!(args in input);
-            let ts: proc_macro2::TokenStream = args.parse()?;
-            Some(ts)
-        } else {
-            None
-        };
+            let _: proc_macro2::TokenStream = args.parse()?;
+        }
 
         // 3. `=>`
         input.parse::<syn::Token![=>]>()?;
@@ -1722,7 +1611,6 @@ fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEnt
             let body_tokens: proc_macro2::TokenStream = body.parse()?;
             entries.push(SlotEntry {
                 name,
-                deps,
                 has_closure: true,
                 ctx_param: Some(ctx_param),
                 body: body_tokens,
@@ -1737,7 +1625,6 @@ fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEnt
             let body_tokens: proc_macro2::TokenStream = tokens.into_iter().collect();
             entries.push(SlotEntry {
                 name,
-                deps,
                 has_closure: false,
                 ctx_param: None,
                 body: body_tokens,
@@ -1776,9 +1663,4 @@ fn slot_name_to_pattern(name: &SlotName) -> proc_macro2::TokenStream {
             quote! { SlotId::Named(ref __n) if __n == #lit }
         }
     }
-}
-
-/// Convert a SlotName to a match pattern for deps (same as contribute, but for deps matching).
-fn slot_name_to_deps_pattern(name: &SlotName) -> proc_macro2::TokenStream {
-    slot_name_to_pattern(name)
 }

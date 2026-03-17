@@ -117,14 +117,6 @@ impl PluginBackend for SurfaceProbeContributor {
             size_hint: ContribSizeHint::Auto,
         })
     }
-
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        if region.as_str() == "surface_probe.sidebar.top" {
-            DirtyFlags::BUFFER
-        } else {
-            DirtyFlags::empty()
-        }
-    }
 }
 
 fn make_state_with_lines(lines: &[&str]) -> AppState {

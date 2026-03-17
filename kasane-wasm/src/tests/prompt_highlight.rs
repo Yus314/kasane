@@ -96,13 +96,6 @@ fn state_hash_changes_with_mode() {
 }
 
 #[test]
-fn transform_deps_status_bar() {
-    let plugin = load_prompt_highlight_plugin();
-    let deps = plugin.transform_deps(&TransformTarget::StatusBar);
-    assert!(deps.intersects(DirtyFlags::STATUS));
-}
-
-#[test]
 fn transform_priority_default() {
     let plugin = load_prompt_highlight_plugin();
     assert_eq!(plugin.transform_priority(), 0);

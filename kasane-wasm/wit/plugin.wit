@@ -602,9 +602,6 @@ interface plugin-api {
     /// Plugin state hash for view caching (L1).
     state-hash: func() -> u64;
 
-    /// DirtyFlags dependencies for a given slot index (L3).
-    slot-deps: func(slot: u8) -> u16;
-
     // --- Input handling ---
 
     /// Handle a mouse event on an interactive element owned by this plugin.
@@ -676,15 +673,6 @@ interface plugin-api {
 
     /// Contribute an overlay with collision-avoidance context.
     contribute-overlay-v2: func(ctx: overlay-context) -> option<overlay-contribution>;
-
-    /// DirtyFlags dependencies for contribute-to.
-    contribute-deps: func(region: slot-id) -> u16;
-
-    /// DirtyFlags dependencies for transform on a given target.
-    transform-deps: func(target: transform-target) -> u16;
-
-    /// DirtyFlags dependencies for annotate-line.
-    annotate-deps: func() -> u16;
 
     // --- v0.5.0: WASI capability declaration ---
 

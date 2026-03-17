@@ -187,12 +187,6 @@ fn contribute_to(region: SlotId, _ctx: ContributeContext) -> Option<Contribution
         },
     })
 }
-
-fn contribute_deps(region: SlotId) -> u16 {
-    kasane_plugin_sdk::route_slot_id_deps!(region, {
-        BUFFER_LEFT => dirty::BUFFER,
-    })
-}
 ```
 
 `ContributeContext` provides layout-aware constraints. The main fields are `min_width` / `max_width` / `min_height` / `max_height`, where `None` represents unbounded. `Contribution` consists of `element`, `priority` (composition order), and `size_hint` (`Auto` / `Fixed(u16)` / `Flex(f32)`).
@@ -642,17 +636,11 @@ fn state_hash() -> u64 {
     MY_STATE.get() as u64
 }
 
-fn contribute_deps(region: SlotId) -> u16 {
-    kasane_plugin_sdk::route_slot_id_deps!(region, {
-        BUFFER_LEFT => dirty::BUFFER,
-        STATUS_RIGHT => dirty::STATUS,
-    })
-}
 ```
 
-`PluginBackend` implementors provide `state_hash()` and dependency tracking methods directly.
+`PluginBackend` implementors provide `state_hash()` for L1 cache invalidation.
 
-`Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter for L1 cache invalidation. Dependency tracking methods (`contribute_deps`, `transform_deps`, `annotate_deps`, `overlay_deps`) work identically for both models.
+`Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter for L1 cache invalidation.
 
 ### 4.3 PaintHook
 

@@ -230,31 +230,9 @@ pub trait Plugin: Send + 'static {
         0
     }
 
-    // --- Dependency declarations ---
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
     fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
         let _ = (state, app);
         vec![]
-    }
-
-    fn display_directives_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn overlay_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
     }
 }
 
@@ -330,10 +308,6 @@ pub(in crate::plugin) mod tests {
                 None
             }
         }
-
-        fn annotate_deps(&self) -> DirtyFlags {
-            DirtyFlags::BUFFER
-        }
     }
 
     // ---- ColorPreviewPure test double (complex state) ----
@@ -406,10 +380,6 @@ pub(in crate::plugin) mod tests {
             } else {
                 None
             }
-        }
-
-        fn annotate_deps(&self) -> DirtyFlags {
-            DirtyFlags::BUFFER
         }
     }
 

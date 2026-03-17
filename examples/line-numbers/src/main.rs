@@ -47,9 +47,6 @@ impl Plugin for LineNumbersPlugin {
         })
     }
 
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
-    }
 }
 
 fn main() {

@@ -38,32 +38,10 @@ impl PluginSlotCache {
     }
 }
 
-/// Effective DirtyFlags dependencies for each view section,
-/// computed by unioning core deps with plugin contribution/transform/annotation deps.
-#[derive(Debug, Clone, Copy)]
-pub struct EffectiveSectionDeps {
-    pub base: DirtyFlags,
-    pub menu: DirtyFlags,
-    pub info: DirtyFlags,
-}
-
 pub struct PluginSurfaceSet {
     pub owner: PluginId,
     pub surfaces: Vec<Box<dyn crate::surface::Surface>>,
     pub legacy_workspace_request: Option<Placement>,
-}
-
-impl Default for EffectiveSectionDeps {
-    fn default() -> Self {
-        EffectiveSectionDeps {
-            base: DirtyFlags::BUFFER_CONTENT
-                | DirtyFlags::STATUS
-                | DirtyFlags::OPTIONS
-                | DirtyFlags::PLUGIN_STATE,
-            menu: DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION | DirtyFlags::OPTIONS,
-            info: DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE,
-        }
-    }
 }
 
 pub struct PluginRegistry {
@@ -72,7 +50,6 @@ pub struct PluginRegistry {
     hit_map: HitMap,
     slot_cache: RefCell<PluginSlotCache>,
     any_plugin_state_changed: bool,
-    section_deps: EffectiveSectionDeps,
 }
 
 impl PluginRegistry {
@@ -83,7 +60,6 @@ impl PluginRegistry {
             hit_map: HitMap::new(),
             slot_cache: RefCell::new(PluginSlotCache::new()),
             any_plugin_state_changed: false,
-            section_deps: EffectiveSectionDeps::default(),
         }
     }
 
@@ -119,7 +95,6 @@ impl PluginRegistry {
                 .entries
                 .push(PluginCacheEntry::default());
         }
-        self.recompute_section_deps();
     }
 
     pub fn remove_plugin(&mut self, id: &PluginId) -> bool {
@@ -127,111 +102,15 @@ impl PluginRegistry {
             self.plugins.remove(pos);
             self.capabilities.remove(pos);
             self.slot_cache.get_mut().entries.remove(pos);
-            self.recompute_section_deps();
             true
         } else {
             false
         }
     }
 
-    /// Union of all contribute_deps across all plugins and all base slots.
-    ///
-    /// Used by `sync_plugin_contributions()` to decide when slot contributions
-    /// need re-collection.
-    pub fn contribute_deps_union(&self) -> DirtyFlags {
-        let base_slots = [
-            &SlotId::BUFFER_LEFT,
-            &SlotId::BUFFER_RIGHT,
-            &SlotId::ABOVE_BUFFER,
-            &SlotId::BELOW_BUFFER,
-            &SlotId::ABOVE_STATUS,
-            &SlotId::STATUS_LEFT,
-            &SlotId::STATUS_RIGHT,
-        ];
-        let mut deps = DirtyFlags::empty();
-        for slot in &base_slots {
-            deps |= self.contribute_deps(slot);
-        }
-        deps
-    }
-
-    /// Aggregate DirtyFlags dependencies for contributions targeting a slot.
-    pub fn contribute_deps(&self, slot: &SlotId) -> DirtyFlags {
-        self.plugins
-            .iter()
-            .fold(DirtyFlags::empty(), |deps, plugin| {
-                deps | plugin.contribute_deps(slot)
-            })
-    }
-
-    /// Aggregate DirtyFlags dependencies for buffer line annotations.
-    pub fn annotate_deps(&self) -> DirtyFlags {
-        self.plugins
-            .iter()
-            .fold(DirtyFlags::empty(), |deps, plugin| {
-                deps | plugin.annotate_deps()
-            })
-    }
-
-    /// Aggregate DirtyFlags dependencies for transforms targeting a render section.
-    pub fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
-        self.plugins
-            .iter()
-            .fold(DirtyFlags::empty(), |deps, plugin| {
-                deps | plugin.transform_deps(target)
-            })
-    }
-
-    /// Recompute effective section deps by unioning core deps with all
-    /// plugin contribution/transform/annotation deps.
-    fn recompute_section_deps(&mut self) {
-        let mut base = DirtyFlags::BUFFER_CONTENT
-            | DirtyFlags::STATUS
-            | DirtyFlags::OPTIONS
-            | DirtyFlags::PLUGIN_STATE;
-        let mut menu =
-            DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION | DirtyFlags::OPTIONS;
-        let mut info = DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE;
-
-        // Base slots
-        let base_slots = [
-            &SlotId::BUFFER_LEFT,
-            &SlotId::BUFFER_RIGHT,
-            &SlotId::ABOVE_BUFFER,
-            &SlotId::BELOW_BUFFER,
-            &SlotId::ABOVE_STATUS,
-            &SlotId::STATUS_LEFT,
-            &SlotId::STATUS_RIGHT,
-        ];
-
-        for slot in &base_slots {
-            base |= self.contribute_deps(slot);
-        }
-        base |= self.annotate_deps();
-        base |= self.display_directives_deps();
-        base |= self.transform_deps(&TransformTarget::Buffer);
-        base |= self.transform_deps(&TransformTarget::StatusBar);
-
-        menu |= self.transform_deps(&TransformTarget::Menu);
-        menu |= self.transform_deps(&TransformTarget::MenuPrompt);
-        menu |= self.transform_deps(&TransformTarget::MenuInline);
-        menu |= self.transform_deps(&TransformTarget::MenuSearch);
-
-        info |= self.transform_deps(&TransformTarget::Info);
-        info |= self.transform_deps(&TransformTarget::InfoPrompt);
-        info |= self.transform_deps(&TransformTarget::InfoModal);
-
-        self.section_deps = EffectiveSectionDeps { base, menu, info };
-    }
-
-    /// Get the effective section deps (includes plugin contributions).
-    pub fn section_deps(&self) -> &EffectiveSectionDeps {
-        &self.section_deps
-    }
-
     /// Invalidate cache entries based on dirty flags and state hash changes.
     /// Call once per frame before rendering (during the mutable phase).
-    pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
+    pub fn prepare_plugin_cache(&mut self, _dirty: DirtyFlags) {
         let cache = self.slot_cache.get_mut();
         self.any_plugin_state_changed = false;
 
@@ -249,14 +128,7 @@ impl PluginRegistry {
                 entry.last_state_hash = current_hash;
                 entry.contributions.clear();
                 self.any_plugin_state_changed = true;
-                continue;
             }
-
-            // L3: contribution cache dirty flag intersection
-            entry.contributions.retain(|region, _| {
-                let deps = plugin.contribute_deps(region);
-                !dirty.intersects(deps)
-            });
         }
     }
 
@@ -635,15 +507,6 @@ impl PluginRegistry {
             }
         }
         all_directives
-    }
-
-    /// Aggregate DirtyFlags dependencies for display directives.
-    pub fn display_directives_deps(&self) -> DirtyFlags {
-        self.plugins
-            .iter()
-            .fold(DirtyFlags::empty(), |deps, plugin| {
-                deps | plugin.display_directives_deps()
-            })
     }
 
     /// Collect overlay contributions with collision-avoidance context.

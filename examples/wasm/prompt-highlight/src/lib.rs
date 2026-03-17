@@ -59,13 +59,6 @@ impl Guest for PromptHighlightPlugin {
     fn transform_priority() -> i16 {
         0
     }
-
-    fn transform_deps(target: TransformTarget) -> u16 {
-        match target {
-            TransformTarget::StatusBarT => dirty::STATUS,
-            _ => 0,
-        }
-    }
 }
 
 export!(PromptHighlightPlugin);

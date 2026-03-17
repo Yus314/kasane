@@ -309,10 +309,6 @@ impl PluginBackend for BufferLeftPlugin {
             None
         }
     }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
-    }
 }
 
 /// Plugin that contributes to STATUS_RIGHT.
@@ -343,10 +339,6 @@ impl PluginBackend for StatusRightPlugin {
             None
         }
     }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::OPTIONS
-    }
 }
 
 /// Plugin that wraps the buffer element with a banner line.
@@ -376,10 +368,6 @@ impl PluginBackend for BufferTransformPlugin {
         } else {
             element
         }
-    }
-
-    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
-        DirtyFlags::empty()
     }
 }
 
@@ -419,10 +407,6 @@ impl PluginBackend for LineHighlightPlugin {
             None
         }
     }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
-    }
 }
 
 /// Plugin that contributes a left gutter element per line.
@@ -450,10 +434,6 @@ impl PluginBackend for GutterPlugin {
             background: None,
             priority: 0,
         })
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
     }
 }
 

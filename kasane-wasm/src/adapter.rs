@@ -449,23 +449,6 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        let wit_region = convert::slot_id_to_wit(region);
-        self.shared.with_runtime(|runtime| {
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            match plugin_api.call_contribute_deps(&mut runtime.store, &wit_region) {
-                Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.contribute_deps failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    DirtyFlags::ALL
-                }
-            }
-        })
-    }
-
     fn transform(
         &self,
         target: &TransformTarget,
@@ -514,23 +497,6 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
-        self.shared.with_runtime(|runtime| {
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            let wit_target = convert::transform_target_to_wit(target);
-            match plugin_api.call_transform_deps(&mut runtime.store, wit_target) {
-                Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.transform_deps failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    DirtyFlags::ALL
-                }
-            }
-        })
-    }
-
     fn annotate_line_with_ctx(
         &self,
         line: usize,
@@ -562,22 +528,6 @@ impl PluginBackend for WasmPlugin {
                         priority: wit_ann.priority,
                     }
                 }))
-        })
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        self.shared.with_runtime(|runtime| {
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            match plugin_api.call_annotate_deps(&mut runtime.store) {
-                Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.annotate_deps failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    DirtyFlags::ALL
-                }
-            }
         })
     }
 

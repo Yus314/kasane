@@ -119,9 +119,7 @@ pub mod slot_name {
 /// DirtyFlags bit values matching `kasane_core::state::DirtyFlags`.
 ///
 /// Each flag indicates what part of the editor state changed. Use these
-/// in `on_state_changed()` to selectively update cached data, and in
-/// `contribute_deps()` / `annotate_deps()` / `transform_deps()` to
-/// declare which changes affect your plugin's output.
+/// in `on_state_changed()` to selectively update cached data.
 pub mod dirty {
     /// Buffer line contents changed (Kakoune `draw` command).
     pub const BUFFER_CONTENT: u16 = 1 << 0;
@@ -334,15 +332,12 @@ macro_rules! default_line {
     };
 }
 
-/// Default caching stubs (state_hash returns 0, slot_deps returns ALL).
+/// Default caching stubs (state_hash returns 0).
 #[macro_export]
 macro_rules! default_cache {
     () => {
         fn state_hash() -> u64 {
             0
-        }
-        fn slot_deps(_slot: u8) -> u16 {
-            $crate::dirty::ALL
         }
     };
 }
@@ -510,17 +505,7 @@ macro_rules! default_overlay_v2 {
     };
 }
 
-/// Default contribute-deps stub (returns ALL).
-#[macro_export]
-macro_rules! default_contribute_deps {
-    () => {
-        fn contribute_deps(_region: SlotId) -> u16 {
-            $crate::dirty::ALL
-        }
-    };
-}
-
-/// Build a first-class slot identifier for `contribute_to()` / `contribute_deps()`.
+/// Build a first-class slot identifier for `contribute_to()`.
 ///
 /// # Example
 /// ```ignore
@@ -616,88 +601,6 @@ macro_rules! __route_slot_ids_impl {
         match $slot {
             SlotId::WellKnown(WellKnownSlot::Overlay) => $body,
             _ => $crate::__route_slot_ids_impl!($slot, { $($rest)* }),
-        }
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __route_slot_id_deps_impl {
-    ($slot:expr, { }) => {
-        0
-    };
-    ($slot:expr, { named($name:expr) => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::Named(name) if name == $name => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { BUFFER_LEFT => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::BufferLeft) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { BUFFER_RIGHT => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::BufferRight) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { ABOVE_BUFFER => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::AboveBuffer) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { BELOW_BUFFER => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::BelowBuffer) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { ABOVE_STATUS => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::AboveStatus) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { STATUS_LEFT => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::StatusLeft) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { STATUS_RIGHT => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::StatusRight) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-    ($slot:expr, { OVERLAY => $deps:expr, $($rest:tt)* }) => {
-        match $slot {
-            SlotId::WellKnown(WellKnownSlot::Overlay) => $deps,
-            _ => $crate::__route_slot_id_deps_impl!($slot, { $($rest)* }),
-        }
-    };
-}
-
-/// Default transform-deps stub (returns ALL).
-#[macro_export]
-macro_rules! default_transform_deps {
-    () => {
-        fn transform_deps(_target: TransformTarget) -> u16 {
-            $crate::dirty::ALL
-        }
-    };
-}
-
-/// Default annotate-deps stub (returns ALL).
-#[macro_export]
-macro_rules! default_annotate_deps {
-    () => {
-        fn annotate_deps() -> u16 {
-            $crate::dirty::ALL
         }
     };
 }
@@ -811,26 +714,6 @@ macro_rules! route_slots {
     };
 }
 
-/// Route slot_deps dispatch. Returns `0` for unmatched slots.
-///
-/// # Example
-/// ```ignore
-/// fn slot_deps(slot: u8) -> u16 {
-///     kasane_plugin_sdk::route_slot_deps!(slot, {
-///         slot::BUFFER_LEFT => dirty::BUFFER,
-///     })
-/// }
-/// ```
-#[macro_export]
-macro_rules! route_slot_deps {
-    ($slot:expr, { $($variant:pat => $deps:expr),* $(,)? }) => {
-        match $slot {
-            $($variant => $deps,)*
-            _ => 0,
-        }
-    };
-}
-
 /// Route first-class slot-id dispatch. Returns `None` for unmatched slots.
 ///
 /// # Example
@@ -849,15 +732,6 @@ macro_rules! route_slot_ids {
     ($slot:expr, { $($rest:tt)* }) => {{
         let __slot = &$slot;
         $crate::__route_slot_ids_impl!(__slot, { $($rest)* })
-    }};
-}
-
-/// Route first-class slot-id deps dispatch. Returns `0` for unmatched slots.
-#[macro_export]
-macro_rules! route_slot_id_deps {
-    ($slot:expr, { $($rest:tt)* }) => {{
-        let __slot = &$slot;
-        $crate::__route_slot_id_deps_impl!(__slot, { $($rest)* })
     }};
 }
 
@@ -1064,20 +938,20 @@ pub mod job {
     }
 }
 
-/// Unified slot contribution + dependency declaration.
+/// Unified slot contribution declaration.
 ///
-/// Generates both `contribute_to` and `contribute_deps` methods from a single
-/// declaration block. Use inside a `#[plugin] impl Guest` block.
+/// Generates a `contribute_to` method from a single declaration block.
+/// Use inside a `#[plugin] impl Guest` block.
 ///
 /// # Example
 /// ```ignore
 /// #[plugin]
 /// impl Guest for MyPlugin {
 ///     kasane_plugin_sdk::slots! {
-///         STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+///         STATUS_RIGHT => |_ctx| {
 ///             Some(auto_contribution(text("hello", default_face())))
 ///         },
-///         named("my.slot")(dirty::ALL) => |ctx| {
+///         named("my.slot") => |ctx| {
 ///             None
 ///         },
 ///     }
@@ -1085,12 +959,9 @@ pub mod job {
 /// ```
 #[macro_export]
 macro_rules! slots {
-    ( $( $slot_def:tt ($deps:expr) => |$ctx:ident| $body:block ),* $(,)? ) => {
+    ( $( $slot_def:tt => |$ctx:ident| $body:block ),* $(,)? ) => {
         fn contribute_to(__region: SlotId, __ctx: ContributeContext) -> Option<Contribution> {
             $crate::__slots_contribute_impl!(__region, __ctx, $( $slot_def => |$ctx| $body ),*)
-        }
-        fn contribute_deps(__region: SlotId) -> u16 {
-            $crate::__slots_deps_impl!(__region, $( $slot_def => $deps ),*)
         }
     };
 }
@@ -1158,45 +1029,6 @@ macro_rules! __slots_contribute_impl {
             SlotId::WellKnown(WellKnownSlot::Overlay) => { let $ctx = &$ctx_val; $body }
             _ => $crate::__slots_contribute_impl!($region, $ctx_val, $( $($rest)* )? )
         }
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __slots_deps_impl {
-    // terminal
-    ($region:expr, ) => { 0 };
-    // named slot
-    ($region:expr, named($name:expr) => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region {
-            SlotId::Named(name) if name == $name => $deps,
-            _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? )
-        }
-    };
-    // well-known variants
-    ($region:expr, BUFFER_LEFT => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::BufferLeft) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, BUFFER_RIGHT => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::BufferRight) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, ABOVE_BUFFER => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::AboveBuffer) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, BELOW_BUFFER => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::BelowBuffer) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, ABOVE_STATUS => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::AboveStatus) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, STATUS_LEFT => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::StatusLeft) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, STATUS_RIGHT => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::StatusRight) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
-    };
-    ($region:expr, OVERLAY => $deps:expr $( , $($rest:tt)* )? ) => {
-        match &$region { SlotId::WellKnown(WellKnownSlot::Overlay) => $deps, _ => $crate::__slots_deps_impl!($region, $( $($rest)* )? ) }
     };
 }
 

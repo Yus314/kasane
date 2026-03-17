@@ -34,7 +34,7 @@ pub use context::{
 };
 
 // Re-export registry module
-pub use registry::{EffectiveSectionDeps, PluginRegistry, PluginSurfaceSet};
+pub use registry::{PluginRegistry, PluginSurfaceSet};
 
 // Re-export display types for plugin API
 pub use crate::display::{DisplayDirective, DisplayMapRef};

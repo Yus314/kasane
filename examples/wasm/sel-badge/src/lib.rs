@@ -28,7 +28,7 @@ impl Guest for SelBadgePlugin {
     }
 
     kasane_plugin_sdk::slots! {
-        STATUS_RIGHT(dirty::BUFFER) => |_ctx| {
+        STATUS_RIGHT => |_ctx| {
             let count = CURSOR_COUNT.get();
             (count > 1).then(|| {
                 auto_contribution(text(&format!(" {} sel ", count), default_face()))
