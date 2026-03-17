@@ -274,14 +274,13 @@ fn test_line_dirty_buffer_and_status() {
 
     let registry = PluginRegistry::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut cache = ViewCache::new();
 
     // Frame 1: full render (first frame — swap_with_dirty falls back to swap)
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    render_pipeline(&state, &registry, &mut grid);
     grid.swap_with_dirty();
 
     // Frame 2: identical content — populates both current and previous properly
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    render_pipeline(&state, &registry, &mut grid);
     grid.swap_with_dirty();
     // Now swap_with_dirty preserved current (it has content from frame 2)
 
@@ -295,7 +294,7 @@ fn test_line_dirty_buffer_and_status() {
         &registry,
         &mut grid,
         DirtyFlags::BUFFER | DirtyFlags::STATUS,
-        &mut cache,
+        &mut ViewCache::new(),
     );
 
     // Verify: line 0 should still have old content (clean row preserved)
@@ -335,21 +334,26 @@ fn test_line_dirty_buffer_only_regression() {
 
     let registry = PluginRegistry::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut cache = ViewCache::new();
 
     // Frame 1: full render (first frame)
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    render_pipeline(&state, &registry, &mut grid);
     grid.swap_with_dirty();
 
     // Frame 2: identical — establishes current with valid content
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    render_pipeline(&state, &registry, &mut grid);
     grid.swap_with_dirty();
 
     // Frame 3: change only line 2, BUFFER dirty only
     state.lines[2] = make_line("EDIT2");
     state.lines_dirty = vec![false, false, true, false];
 
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::BUFFER, &mut cache);
+    render_pipeline_cached(
+        &state,
+        &registry,
+        &mut grid,
+        DirtyFlags::BUFFER,
+        &mut ViewCache::new(),
+    );
 
     // Clean lines preserved
     assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");

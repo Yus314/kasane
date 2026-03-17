@@ -10,9 +10,9 @@ use crate::layout::Rect;
 use crate::layout::flex::place;
 use crate::plugin::{Command, PluginRegistry};
 use crate::protocol::{Atom, Color, Face, Line, NamedColor};
-use crate::render::pipeline::render_pipeline_cached;
+use crate::render::pipeline::render_pipeline;
 use crate::render::view;
-use crate::render::{CellGrid, ViewCache, paint};
+use crate::render::{CellGrid, paint};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::*;
 
@@ -80,16 +80,11 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRegistry) -> Cell
     grid
 }
 
-/// Render to a fresh CellGrid using the cached pipeline with given dirty flags.
-pub fn render_to_grid(
-    state: &AppState,
-    registry: &PluginRegistry,
-    dirty: DirtyFlags,
-    cache: &mut ViewCache,
-) -> CellGrid {
+/// Render to a fresh CellGrid using the non-cached pipeline.
+pub fn render_to_grid(state: &AppState, registry: &PluginRegistry) -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
-    render_pipeline_cached(state, registry, &mut grid, dirty, cache);
+    render_pipeline(state, registry, &mut grid);
     grid
 }
 
