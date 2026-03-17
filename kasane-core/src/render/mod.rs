@@ -18,13 +18,10 @@ pub(crate) mod walk;
 #[allow(clippy::field_reassign_with_default)]
 mod tests;
 
-pub use cache::{LayoutCache, ViewCache};
+pub use cache::LayoutCache;
 pub use cursor::*;
 pub use grid::{Cell, CellDiff, CellGrid};
-pub use pipeline::{
-    render_pipeline, render_pipeline_cached, render_pipeline_sectioned, scene_render_pipeline,
-    scene_render_pipeline_scene_cached,
-};
+pub use pipeline::{render_pipeline, render_pipeline_cached, scene_render_pipeline};
 pub use pipeline_salsa::{
     render_pipeline_salsa_cached, render_pipeline_salsa_sectioned,
     scene_render_pipeline_salsa_cached,

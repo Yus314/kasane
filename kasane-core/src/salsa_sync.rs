@@ -196,8 +196,7 @@ pub fn sync_inputs_from_state(
 ///
 /// Call this after `prepare_plugin_cache()`, `sync_plugin_epoch()`, and
 /// `sync_display_directives()`. Collects plugin contributions and stores
-/// them as Salsa inputs, replacing the ViewCache's role in memoizing
-/// plugin output.
+/// them as Salsa inputs for memoization.
 pub fn sync_plugin_contributions(
     db: &mut KasaneDatabase,
     state: &AppState,

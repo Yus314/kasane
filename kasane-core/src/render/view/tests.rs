@@ -1,17 +1,12 @@
 use super::*;
 use std::collections::HashSet;
 
-use crate::element::{Direction, OverlayAnchor, ResolvedSlotInstanceId};
-use crate::plugin::{
-    ContributeContext, Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId,
-    PluginRegistry, SlotId, TransformTarget,
-};
+use crate::element::{Direction, OverlayAnchor};
+use crate::plugin::{LineAnnotation, PluginBackend, PluginId, PluginRegistry, SlotId};
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
-use crate::state::{AppState, DirtyFlags};
+use crate::state::AppState;
 use crate::surface::{
-    EventContext, OwnerValidationError, OwnerValidationErrorKind, ResolvedSlotContentKind,
-    ResolvedSlotRecord, SizeHint, SlotDeclaration, SlotKind, Surface, SurfaceEvent, SurfaceId,
-    SurfaceRegistry, ViewContext, buffer::KakouneBufferSurface, status::StatusBarSurface,
+    SurfaceId, SurfaceRegistry, buffer::KakouneBufferSurface, status::StatusBarSurface,
 };
 use crate::test_utils::make_line;
 
@@ -580,7 +575,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
 }
 
 #[test]
-fn test_surface_view_sections_cached_preserves_surface_reports() {
+fn test_surface_view_sections_preserves_surface_reports() {
     let mut state = AppState::default();
     state.lines = vec![make_line("buffer")];
     state.status_line = make_line("status");
@@ -591,8 +586,13 @@ fn test_surface_view_sections_cached_preserves_surface_reports() {
     surface_registry.register(Box::new(KakouneBufferSurface::new()));
     surface_registry.register(Box::new(StatusBarSurface::new()));
 
-    let mut cache = crate::render::cache::ViewCache::new();
-    let sections = surface_view_sections_cached(&state, &registry, &surface_registry, &mut cache);
+    let root_area = crate::layout::Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let sections = surface_registry.compose_view_sections(&state, &registry, root_area);
 
     let keys: HashSet<&str> = sections
         .surface_reports
@@ -601,215 +601,8 @@ fn test_surface_view_sections_cached_preserves_surface_reports() {
         .collect();
     assert!(keys.contains("kasane.buffer"));
     assert!(keys.contains("kasane.status"));
-
-    let cached_reports = cache
-        .base
-        .value
-        .as_ref()
-        .map(|cached| {
-            cached
-                .surface_reports
-                .iter()
-                .map(|report| report.surface_key.as_str())
-                .collect::<HashSet<_>>()
-        })
-        .unwrap();
-    assert!(cached_reports.contains("kasane.buffer"));
-    assert!(cached_reports.contains("kasane.status"));
     assert_eq!(
         surface_registry.surface_id_by_key("kasane.buffer"),
         Some(SurfaceId::BUFFER)
     );
-}
-
-struct SurfaceDepsPlugin;
-
-impl PluginBackend for SurfaceDepsPlugin {
-    fn id(&self) -> PluginId {
-        PluginId("surface_deps".into())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-            | PluginCapabilities::TRANSFORMER
-            | PluginCapabilities::ANNOTATOR
-    }
-
-    fn contribute_to(
-        &self,
-        _region: &SlotId,
-        _state: &AppState,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        None
-    }
-
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        match region.as_str() {
-            "kasane.buffer.left" => DirtyFlags::BUFFER_CURSOR,
-            "test.surface.slot" => DirtyFlags::MENU_SELECTION,
-            "kasane.buffer.overlay" => DirtyFlags::INFO,
-            _ => DirtyFlags::empty(),
-        }
-    }
-
-    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
-        match target {
-            TransformTarget::Buffer => DirtyFlags::MENU_STRUCTURE,
-            TransformTarget::StatusBar => DirtyFlags::INFO,
-            _ => DirtyFlags::empty(),
-        }
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::MENU_SELECTION
-    }
-}
-
-struct TestSurface {
-    id: SurfaceId,
-    key: &'static str,
-    slots: Vec<SlotDeclaration>,
-}
-
-impl TestSurface {
-    fn new(id: SurfaceId, key: &'static str, slots: Vec<SlotDeclaration>) -> Self {
-        Self { id, key, slots }
-    }
-}
-
-impl Surface for TestSurface {
-    fn id(&self) -> SurfaceId {
-        self.id
-    }
-
-    fn surface_key(&self) -> compact_str::CompactString {
-        self.key.into()
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        SizeHint::fill()
-    }
-
-    fn view(&self, _ctx: &ViewContext<'_>) -> Element {
-        Element::Empty
-    }
-
-    fn handle_event(
-        &mut self,
-        _event: SurfaceEvent,
-        _ctx: &EventContext<'_>,
-    ) -> Vec<crate::plugin::Command> {
-        vec![]
-    }
-
-    fn declared_slots(&self) -> &[SlotDeclaration] {
-        &self.slots
-    }
-}
-
-#[test]
-fn test_effective_surface_section_deps_uses_present_slots_and_active_surface_transforms() {
-    let mut registry = PluginRegistry::new();
-    registry.register_backend(Box::new(SurfaceDepsPlugin));
-
-    let mut surface_registry = SurfaceRegistry::new();
-    surface_registry.register(Box::new(KakouneBufferSurface::new()));
-    surface_registry.register(Box::new(StatusBarSurface::new()));
-
-    let cached = crate::surface::SurfaceComposeResult {
-        base: Some(Element::Empty),
-        surface_reports: vec![
-            crate::surface::SurfaceRenderReport {
-                surface_key: "kasane.buffer".into(),
-                slot_records: vec![ResolvedSlotRecord {
-                    surface_key: "kasane.buffer".into(),
-                    slot_name: "kasane.buffer.left".into(),
-                    instance_id: ResolvedSlotInstanceId(1),
-                    direction: Direction::Row,
-                    gap: 0,
-                    contribution_count: 1,
-                    content_kind: ResolvedSlotContentKind::Single,
-                    area: None,
-                }],
-                absent_declared_slots: vec![],
-                owner_errors: vec![],
-                contributor_issues: vec![],
-            },
-            crate::surface::SurfaceRenderReport {
-                surface_key: "kasane.status".into(),
-                slot_records: vec![],
-                absent_declared_slots: vec![],
-                owner_errors: vec![],
-                contributor_issues: vec![],
-            },
-        ],
-    };
-
-    let deps = effective_surface_section_deps(Some(&cached), &registry, &surface_registry);
-
-    assert!(deps.base.contains(BUILD_BASE_DEPS));
-    assert!(deps.base.contains(DirtyFlags::BUFFER_CURSOR));
-    assert!(deps.base.contains(DirtyFlags::MENU_STRUCTURE));
-    assert!(deps.base.contains(DirtyFlags::MENU_SELECTION));
-    assert!(deps.base.contains(DirtyFlags::INFO));
-    assert_eq!(deps.menu, registry.section_deps().menu);
-    assert_eq!(deps.info, registry.section_deps().info);
-}
-
-#[test]
-fn test_effective_surface_section_deps_falls_back_to_declared_slots_for_owner_failures() {
-    let mut registry = PluginRegistry::new();
-    registry.register_backend(Box::new(SurfaceDepsPlugin));
-
-    let mut surface_registry = SurfaceRegistry::new();
-    surface_registry.register(Box::new(TestSurface::new(
-        SurfaceId(SurfaceId::PLUGIN_BASE),
-        "test.surface",
-        vec![SlotDeclaration::new(
-            "test.surface.slot",
-            SlotKind::LeftRail,
-        )],
-    )));
-    surface_registry.register(Box::new(KakouneBufferSurface::new()));
-
-    let cached = crate::surface::SurfaceComposeResult {
-        base: Some(Element::Empty),
-        surface_reports: vec![
-            crate::surface::SurfaceRenderReport {
-                surface_key: "test.surface".into(),
-                slot_records: vec![],
-                absent_declared_slots: vec!["test.surface.slot".into()],
-                owner_errors: vec![OwnerValidationError {
-                    surface_key: "test.surface".into(),
-                    kind: OwnerValidationErrorKind::UnresolvedSlotPlaceholder,
-                    detail: "broken placeholder".into(),
-                }],
-                contributor_issues: vec![],
-            },
-            crate::surface::SurfaceRenderReport {
-                surface_key: "kasane.buffer".into(),
-                slot_records: vec![],
-                absent_declared_slots: vec![
-                    "kasane.buffer.left".into(),
-                    "kasane.buffer.right".into(),
-                    "kasane.buffer.above".into(),
-                    "kasane.buffer.below".into(),
-                    "kasane.buffer.overlay".into(),
-                ],
-                owner_errors: vec![OwnerValidationError {
-                    surface_key: "kasane.buffer".into(),
-                    kind: OwnerValidationErrorKind::UnresolvedSlotPlaceholder,
-                    detail: "broken buffer".into(),
-                }],
-                contributor_issues: vec![],
-            },
-        ],
-    };
-
-    let deps = effective_surface_section_deps(Some(&cached), &registry, &surface_registry);
-
-    assert!(deps.base.contains(DirtyFlags::MENU_SELECTION));
-    assert!(deps.base.contains(DirtyFlags::INFO));
-    assert!(deps.base.contains(DirtyFlags::MENU_STRUCTURE));
 }

@@ -117,9 +117,13 @@ fn integrates_with_surface_registry_and_resolver() {
         .expect("hosted surface should register");
 
     let state = AppState::default();
-    let mut cache = ViewCache::new();
-    let mut sections =
-        surface_view_sections_cached(&state, &registry, &surface_registry, &mut cache);
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let mut sections = surface_registry.compose_view_sections(&state, &registry, root_area);
 
     assert_eq!(sections.surface_reports.len(), 1);
     let report = &sections.surface_reports[0];

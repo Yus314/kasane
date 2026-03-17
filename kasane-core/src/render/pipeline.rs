@@ -1,5 +1,4 @@
 use super::cache::LayoutCache;
-pub(crate) use super::cache::ViewCache;
 use super::cursor::{
     apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style,
     find_buffer_x_offset,
@@ -25,8 +24,8 @@ use crate::state::{AppState, DirtyFlags};
 /// Trait that abstracts the source of `ViewSections` for the rendering pipeline.
 ///
 /// Two implementations exist:
-/// - `PluginViewSource`: builds sections from `PluginRegistry` alone (legacy/test path, internal ViewCache)
-/// - `SalsaViewSource`: reads from Salsa inputs (no ViewCache needed)
+/// - `DirectViewSource`: builds sections from `PluginRegistry` without caching
+/// - `SalsaViewSource`: reads from Salsa tracked functions (production path)
 pub(crate) trait ViewSource {
     /// Prepare for a new frame: invalidate internal caches if needed.
     fn prepare(&mut self, dirty: DirtyFlags, registry: &PluginRegistry);
@@ -35,20 +34,16 @@ pub(crate) trait ViewSource {
     fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections;
 }
 
-/// Builds view sections using only the PluginRegistry (no workspace surfaces).
-/// Holds an internal ViewCache for memoization.
-struct PluginViewSource<'a> {
-    cache: &'a mut ViewCache,
-}
+/// Builds view sections directly from PluginRegistry without any memoization.
+pub(crate) struct DirectViewSource;
 
-impl ViewSource for PluginViewSource<'_> {
-    fn prepare(&mut self, dirty: DirtyFlags, registry: &PluginRegistry) {
-        self.cache
-            .invalidate_with_deps(dirty, registry.section_deps());
+impl ViewSource for DirectViewSource {
+    fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginRegistry) {
+        // No cache to invalidate
     }
 
     fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections {
-        view::view_sections_cached(state, registry, self.cache)
+        view::view_sections(state, registry)
     }
 }
 
@@ -443,105 +438,45 @@ pub(crate) fn scene_render_core<'a>(
 }
 
 // ---------------------------------------------------------------------------
-// Public API: backward-compatible wrappers
+// Public API
 // ---------------------------------------------------------------------------
 
-/// GUI scene rendering pipeline (backward-compatible).
+/// GUI scene rendering pipeline.
 pub fn scene_render_pipeline(
     state: &AppState,
     registry: &PluginRegistry,
     cell_size: scene::CellSize,
 ) -> (Vec<DrawCommand>, RenderResult) {
-    scene_render_pipeline_cached(
+    let mut scene_cache = SceneCache::new();
+    let mut source = DirectViewSource;
+    let (commands, result) = scene_render_core(
+        &mut source,
         state,
         registry,
         cell_size,
         DirtyFlags::ALL,
-        &mut ViewCache::new(),
-    )
-}
-
-/// GUI scene rendering pipeline (cached variant — ViewCache only).
-pub(crate) fn scene_render_pipeline_cached(
-    state: &AppState,
-    registry: &PluginRegistry,
-    cell_size: scene::CellSize,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-) -> (Vec<DrawCommand>, RenderResult) {
-    let mut scene_cache = SceneCache::new();
-    let (commands, result) = scene_render_pipeline_scene_cached(
-        state,
-        registry,
-        cell_size,
-        dirty,
-        view_cache,
         &mut scene_cache,
     );
     (commands.to_vec(), result)
 }
 
-/// GUI scene rendering pipeline with DrawCommand-level caching.
-pub fn scene_render_pipeline_scene_cached<'a>(
-    state: &AppState,
-    registry: &PluginRegistry,
-    cell_size: scene::CellSize,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-    scene_cache: &'a mut SceneCache,
-) -> (&'a [DrawCommand], RenderResult) {
-    let mut source = PluginViewSource { cache: view_cache };
-    scene_render_core(&mut source, state, registry, cell_size, dirty, scene_cache)
-}
-
-/// Declarative rendering pipeline (backward-compatible).
+/// Declarative rendering pipeline.
 pub fn render_pipeline(
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
 ) -> RenderResult {
-    render_pipeline_cached(
-        state,
-        registry,
-        grid,
-        DirtyFlags::ALL,
-        &mut ViewCache::new(),
-    )
+    let mut source = DirectViewSource;
+    render_cached_core(&mut source, state, registry, grid, DirtyFlags::ALL, &[])
 }
 
-/// Declarative rendering pipeline (cached variant).
+/// Declarative rendering pipeline with explicit dirty flags for incremental rendering.
 pub fn render_pipeline_cached(
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    cache: &mut ViewCache,
 ) -> RenderResult {
-    render_pipeline_cached_with_hooks(state, registry, grid, dirty, cache, &[])
-}
-
-/// Declarative rendering pipeline (cached variant with paint hooks).
-pub(crate) fn render_pipeline_cached_with_hooks(
-    state: &AppState,
-    registry: &PluginRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    cache: &mut ViewCache,
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    let mut source = PluginViewSource { cache };
-    render_cached_core(&mut source, state, registry, grid, dirty, paint_hooks)
-}
-
-/// Section-aware rendering pipeline (S1).
-pub fn render_pipeline_sectioned(
-    state: &AppState,
-    registry: &PluginRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-    layout_cache: &mut LayoutCache,
-) -> RenderResult {
-    let mut source = PluginViewSource { cache: view_cache };
-    render_sectioned_core(&mut source, state, registry, grid, dirty, layout_cache, &[])
+    let mut source = DirectViewSource;
+    render_cached_core(&mut source, state, registry, grid, dirty, &[])
 }

@@ -133,9 +133,8 @@ fn test_scene_cache_dims_change_clears_all() {
 }
 
 #[test]
-fn test_scene_cache_output_matches_uncached() {
+fn test_scene_render_pipeline_deterministic() {
     use super::super::scene_render_pipeline;
-    use super::super::scene_render_pipeline_scene_cached;
 
     let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
@@ -148,138 +147,19 @@ fn test_scene_cache_output_matches_uncached() {
         height: 20.0,
     };
 
-    // Uncached (reference)
-    let (expected, _) = scene_render_pipeline(&state, &registry, cs);
-
-    // Cached (cold — DirtyFlags::ALL)
-    let mut view_cache = ViewCache::new();
-    let mut scene_cache = SceneCache::new();
-    let (actual, _) = scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut scene_cache,
-    );
+    // Two calls to scene_render_pipeline should produce identical output
+    let (first, _) = scene_render_pipeline(&state, &registry, cs);
+    let (second, _) = scene_render_pipeline(&state, &registry, cs);
 
     assert_eq!(
-        expected,
-        actual.to_vec(),
-        "scene_cached output must match uncached for same state"
-    );
-}
-
-#[test]
-fn test_scene_cache_warm_matches_cold() {
-    use super::super::scene_render_pipeline_scene_cached;
-
-    let mut state = test_state_80x24();
-    state.status_default_face = state.default_face;
-    state.lines = vec![make_line("hello"), make_line("world")];
-    state.status_line = make_line("status");
-
-    let registry = PluginRegistry::new();
-    let cs = scene::CellSize {
-        width: 10.0,
-        height: 20.0,
-    };
-
-    // Cold render
-    let mut view_cache = ViewCache::new();
-    let mut scene_cache = SceneCache::new();
-    let (cold, _) = scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut scene_cache,
-    );
-    let cold = cold.to_vec();
-
-    // Warm render (empty dirty)
-    let (warm, _) = scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::empty(),
-        &mut view_cache,
-        &mut scene_cache,
-    );
-
-    assert_eq!(
-        cold,
-        warm.to_vec(),
-        "warm cache must produce identical commands to cold cache"
-    );
-}
-
-#[test]
-fn test_scene_cache_menu_select_preserves_base() {
-    use super::super::scene_render_pipeline_scene_cached;
-
-    let mut state = test_state_80x24();
-    state.status_default_face = state.default_face;
-    state.lines = vec![make_line("hello")];
-    state.status_line = make_line("status");
-
-    // Show menu
-    state.apply(crate::protocol::KakouneRequest::MenuShow {
-        items: vec![make_line("item1"), make_line("item2"), make_line("item3")],
-        anchor: Coord { line: 1, column: 0 },
-        selected_item_face: Face::default(),
-        menu_face: Face::default(),
-        style: MenuStyle::Inline,
-    });
-
-    let registry = PluginRegistry::new();
-    let cs = scene::CellSize {
-        width: 10.0,
-        height: 20.0,
-    };
-
-    // Initial render
-    let mut view_cache = ViewCache::new();
-    let mut scene_cache = SceneCache::new();
-    scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut scene_cache,
-    );
-
-    // Verify base is cached
-    assert!(
-        scene_cache.base_commands.is_some(),
-        "base should be cached after initial render"
-    );
-
-    // Select item
-    state.apply(crate::protocol::KakouneRequest::MenuSelect { selected: 1 });
-
-    // Render with MENU_SELECTION only
-    scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::MENU_SELECTION,
-        &mut view_cache,
-        &mut scene_cache,
-    );
-
-    assert!(
-        scene_cache.base_commands.is_some(),
-        "base should remain cached on MENU_SELECTION"
+        first, second,
+        "scene_render_pipeline must produce deterministic output for same state"
     );
 }
 
 #[test]
 fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     use super::super::scene_render_pipeline;
-    use super::super::scene_render_pipeline_scene_cached;
 
     let mut state = test_state_80x24();
     state.status_default_face = state.default_face;
@@ -310,37 +190,23 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         height: 20.0,
     };
 
-    // Uncached
-    let (uncached, _) = scene_render_pipeline(&state, &registry, cs);
-    let uncached_overlay_count = uncached
+    // Verify scene_render_pipeline produces deterministic overlay output
+    let (first, _) = scene_render_pipeline(&state, &registry, cs);
+    let (second, _) = scene_render_pipeline(&state, &registry, cs);
+
+    let overlay_count = first
         .iter()
         .filter(|c| matches!(c, DrawCommand::BeginOverlay))
         .count();
 
-    // Cached
-    let mut view_cache = ViewCache::new();
-    let mut scene_cache = SceneCache::new();
-    let (cached, _) = scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut scene_cache,
-    );
-    let cached_overlay_count = cached
-        .iter()
-        .filter(|c| matches!(c, DrawCommand::BeginOverlay))
-        .count();
-
-    // Both should have the same number of BeginOverlay markers
-    assert_eq!(
-        uncached_overlay_count, cached_overlay_count,
-        "BeginOverlay count must match: uncached={uncached_overlay_count}, cached={cached_overlay_count}"
-    );
     // Menu + info = at least 2 overlays
     assert!(
-        cached_overlay_count >= 2,
-        "expected at least 2 overlays (menu + info), got {cached_overlay_count}"
+        overlay_count >= 2,
+        "expected at least 2 overlays (menu + info), got {overlay_count}"
+    );
+
+    assert_eq!(
+        first, second,
+        "scene_render_pipeline must produce deterministic output with overlays"
     );
 }

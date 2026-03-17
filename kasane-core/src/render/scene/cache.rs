@@ -2,7 +2,7 @@ use super::{CellSize, DrawCommand};
 use crate::state::DirtyFlags;
 
 /// Cache for memoized `DrawCommand` lists per view section.
-/// Mirrors `ViewCache` invalidation: each DirtyFlag clears only its section.
+/// Each DirtyFlag clears only its corresponding section.
 #[derive(Debug, Default)]
 pub struct SceneCache {
     pub(in crate::render) base_commands: Option<Vec<DrawCommand>>,

@@ -510,11 +510,10 @@ fn long_line_truncated_at_screen_width() {
 
 /// Helper: render with line-dirty optimization using render_pipeline_cached.
 fn render_with_dirty(state: &AppState, dirty: DirtyFlags, grid: &mut CellGrid) {
-    use kasane_core::render::{ViewCache, render_pipeline_cached};
+    use kasane_core::render::render_pipeline_cached;
 
     let registry = PluginRegistry::new();
-    let mut cache = ViewCache::new();
-    render_pipeline_cached(state, &registry, grid, dirty, &mut cache);
+    render_pipeline_cached(state, &registry, grid, dirty);
 }
 
 #[test]
@@ -640,7 +639,7 @@ fn test_line_dirty_full_repaint_on_overlay() {
 // ---------------------------------------------------------------------------
 
 /// Verify that the Salsa pipeline produces identical CellGrid output
-/// as the legacy view_cached()-based pipeline.
+/// as the legacy view()-based pipeline.
 #[test]
 fn test_salsa_pipeline_equivalence_empty_state() {
     use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};

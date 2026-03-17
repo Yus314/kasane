@@ -9,7 +9,7 @@
 //! 2. Plugin contributions (slots, annotations, overlays) read from Salsa inputs
 //! 3. Plugin transforms are applied on top (using PluginRegistry)
 //!
-//! No ViewCache is needed — Salsa handles memoization of pure elements,
+//! Salsa handles memoization of pure elements,
 //! and `sync_plugin_contributions()` pre-computes plugin contributions
 //! into Salsa inputs each frame.
 
@@ -268,7 +268,7 @@ fn compose_base_from_salsa(
 }
 
 // ---------------------------------------------------------------------------
-// Public API: Salsa-backed pipeline wrappers (no ViewCache parameter)
+// Public API: Salsa-backed pipeline wrappers
 // ---------------------------------------------------------------------------
 
 /// Salsa-backed cached rendering pipeline (TUI).

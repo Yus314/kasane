@@ -6,14 +6,10 @@ use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRegistry;
 use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
-use kasane_core::render::LayoutCache;
-use kasane_core::render::SceneCache;
-use kasane_core::render::ViewCache;
 use kasane_core::render::paint;
 use kasane_core::render::render_pipeline_cached;
-use kasane_core::render::render_pipeline_sectioned;
 use kasane_core::render::scene::CellSize;
-use kasane_core::render::scene_render_pipeline_scene_cached;
+use kasane_core::render::scene_render_pipeline;
 use kasane_core::render::view;
 use kasane_core::state::DirtyFlags;
 
@@ -237,10 +233,9 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
 
     // Prepare warm grid (2 frames to get past swap fallback)
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut cache = ViewCache::new();
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap_with_dirty();
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL, &mut cache);
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap_with_dirty();
 
     // Now simulate editing 1 line with BUFFER|STATUS dirty
@@ -257,20 +252,18 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
             || {
                 // Setup: create a warm grid each iteration
                 let mut g = CellGrid::new(state.cols, state.rows);
-                let mut c = ViewCache::new();
-                render_pipeline_cached(&state, &registry, &mut g, DirtyFlags::ALL, &mut c);
+                render_pipeline_cached(&state, &registry, &mut g, DirtyFlags::ALL);
                 g.swap_with_dirty();
-                render_pipeline_cached(&state, &registry, &mut g, DirtyFlags::ALL, &mut c);
+                render_pipeline_cached(&state, &registry, &mut g, DirtyFlags::ALL);
                 g.swap_with_dirty();
-                (g, c)
+                g
             },
-            |(mut g, mut c)| {
+            |mut g| {
                 render_pipeline_cached(
                     &edited,
                     &registry,
                     &mut g,
                     DirtyFlags::BUFFER | DirtyFlags::STATUS,
-                    &mut c,
                 );
             },
             BatchSize::SmallInput,
@@ -697,7 +690,7 @@ fn bench_scaling(c: &mut Criterion) {
 // View cache benchmarks
 // ---------------------------------------------------------------------------
 
-/// Bench: SceneCache cold (full pipeline, DirtyFlags::ALL)
+/// Bench: Scene pipeline cold (full pipeline)
 fn bench_scene_cache_cold(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRegistry::new();
@@ -708,22 +701,13 @@ fn bench_scene_cache_cold(c: &mut Criterion) {
 
     c.bench_function("scene_cache_cold", |b| {
         b.iter(|| {
-            let mut view_cache = ViewCache::new();
-            let mut scene_cache = SceneCache::new();
-            let (cmds, result) = scene_render_pipeline_scene_cached(
-                &state,
-                &registry,
-                cs,
-                DirtyFlags::ALL,
-                &mut view_cache,
-                &mut scene_cache,
-            );
+            let (cmds, result) = scene_render_pipeline(&state, &registry, cs);
             criterion::black_box((cmds.len(), result));
         });
     });
 }
 
-/// Bench: SceneCache warm (all cached, near-zero work)
+/// Bench: Scene pipeline (same state, measures steady-state cost)
 fn bench_scene_cache_warm(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRegistry::new();
@@ -732,34 +716,15 @@ fn bench_scene_cache_warm(c: &mut Criterion) {
         height: 20.0,
     };
 
-    // Pre-populate caches
-    let mut view_cache = ViewCache::new();
-    let mut scene_cache = SceneCache::new();
-    scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut scene_cache,
-    );
-
     c.bench_function("scene_cache_warm", |b| {
         b.iter(|| {
-            let (cmds, result) = scene_render_pipeline_scene_cached(
-                &state,
-                &registry,
-                cs,
-                DirtyFlags::empty(),
-                &mut view_cache,
-                &mut scene_cache,
-            );
+            let (cmds, result) = scene_render_pipeline(&state, &registry, cs);
             criterion::black_box((cmds.len(), result));
         });
     });
 }
 
-/// Bench: SceneCache with MENU_SELECTION only (base + info cached)
+/// Bench: Scene pipeline with menu (measures full pipeline cost with menu state)
 fn bench_scene_cache_menu_select(c: &mut Criterion) {
     let state = state_with_menu(50);
     let registry = PluginRegistry::new();
@@ -768,59 +733,36 @@ fn bench_scene_cache_menu_select(c: &mut Criterion) {
         height: 20.0,
     };
 
-    // Pre-populate caches
-    let mut view_cache = ViewCache::new();
-    let mut scene_cache = SceneCache::new();
-    scene_render_pipeline_scene_cached(
-        &state,
-        &registry,
-        cs,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut scene_cache,
-    );
-
     c.bench_function("scene_cache_menu_select", |b| {
         b.iter(|| {
-            let (cmds, result) = scene_render_pipeline_scene_cached(
-                &state,
-                &registry,
-                cs,
-                DirtyFlags::MENU_SELECTION,
-                &mut view_cache,
-                &mut scene_cache,
-            );
+            let (cmds, result) = scene_render_pipeline(&state, &registry, cs);
             criterion::black_box((cmds.len(), result));
         });
     });
 }
 
-/// Bench: ViewCache warm vs cold on menu selection change
-fn bench_view_cache(c: &mut Criterion) {
-    let mut group = c.benchmark_group("view_cache");
+/// Bench: render_pipeline_cached with ALL vs specific dirty flags
+fn bench_cached_pipeline_dirty_flags(c: &mut Criterion) {
+    let mut group = c.benchmark_group("cached_pipeline_dirty_flags");
 
     let state = state_with_menu(50);
     let registry = PluginRegistry::new();
 
-    // Cold: fresh cache (baseline — equivalent to uncached view)
-    group.bench_function("menu_select_cold", |b| {
+    // ALL dirty (full pipeline)
+    group.bench_function("all_dirty", |b| {
+        let mut grid = CellGrid::new(state.cols, state.rows);
         b.iter(|| {
-            let mut cache = ViewCache::new();
-            cache.invalidate(DirtyFlags::ALL);
-            view::view_cached(&state, &registry, &mut cache)
+            render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
         });
     });
 
-    // Warm: base is cached, only MENU_SELECTION is dirty
-    group.bench_function("menu_select_warm", |b| {
-        // Pre-populate cache
-        let mut cache = ViewCache::new();
-        cache.invalidate(DirtyFlags::ALL);
-        let _ = view::view_cached(&state, &registry, &mut cache);
-
+    // MENU_SELECTION only
+    group.bench_function("menu_select_only", |b| {
+        let mut grid = CellGrid::new(state.cols, state.rows);
+        render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
+        grid.swap_with_dirty();
         b.iter(|| {
-            cache.invalidate(DirtyFlags::MENU_SELECTION);
-            view::view_cached(&state, &registry, &mut cache)
+            render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::MENU_SELECTION);
         });
     });
 
@@ -831,69 +773,33 @@ fn bench_view_cache(c: &mut Criterion) {
 // Section-level paint benchmarks (S1)
 // ---------------------------------------------------------------------------
 
-/// Bench: Sectioned pipeline — STATUS only dirty (should repaint only status row)
+/// Bench: Cached pipeline — STATUS only dirty
 fn bench_section_paint_status_only(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRegistry::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
-    let mut layout_cache = LayoutCache::new();
 
-    // Initial full render to populate caches
-    render_pipeline_sectioned(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut layout_cache,
-    );
+    // Initial full render
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     c.bench_function("section_paint_status_only", |b| {
-        b.iter(|| {
-            render_pipeline_sectioned(
-                &state,
-                &registry,
-                &mut grid,
-                DirtyFlags::STATUS,
-                &mut view_cache,
-                &mut layout_cache,
-            )
-        });
+        b.iter(|| render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::STATUS));
     });
 }
 
-/// Bench: Sectioned pipeline — MENU_SELECTION only dirty
+/// Bench: Cached pipeline — MENU_SELECTION only dirty
 fn bench_section_paint_menu_select(c: &mut Criterion) {
     let state = state_with_menu(50);
     let registry = PluginRegistry::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
-    let mut layout_cache = LayoutCache::new();
 
     // Initial full render
-    render_pipeline_sectioned(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut layout_cache,
-    );
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     c.bench_function("section_paint_menu_select", |b| {
-        b.iter(|| {
-            render_pipeline_sectioned(
-                &state,
-                &registry,
-                &mut grid,
-                DirtyFlags::MENU_SELECTION,
-                &mut view_cache,
-                &mut layout_cache,
-            )
-        });
+        b.iter(|| render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::MENU_SELECTION));
     });
 }
 
@@ -906,16 +812,9 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRegistry::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
 
     // Initial full render
-    render_pipeline_cached(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-    );
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     // "After" state: edit line 10
@@ -933,13 +832,7 @@ fn bench_line_dirty_single_edit(c: &mut Criterion) {
 
     c.bench_function("line_dirty_single_edit", |b| {
         b.iter(|| {
-            render_pipeline_cached(
-                &state_after,
-                &registry,
-                &mut grid,
-                DirtyFlags::BUFFER,
-                &mut view_cache,
-            );
+            render_pipeline_cached(&state_after, &registry, &mut grid, DirtyFlags::BUFFER);
             let diffs = grid.diff();
             grid.swap_with_dirty();
             diffs.len()
@@ -952,16 +845,9 @@ fn bench_line_dirty_all_changed(c: &mut Criterion) {
     let state = typical_state(23);
     let registry = PluginRegistry::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
 
     // Initial full render
-    render_pipeline_cached(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-    );
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::ALL);
     grid.swap();
 
     // All lines changed
@@ -971,13 +857,7 @@ fn bench_line_dirty_all_changed(c: &mut Criterion) {
 
     c.bench_function("line_dirty_all_changed", |b| {
         b.iter(|| {
-            render_pipeline_cached(
-                &state_after,
-                &registry,
-                &mut grid,
-                DirtyFlags::BUFFER,
-                &mut view_cache,
-            );
+            render_pipeline_cached(&state_after, &registry, &mut grid, DirtyFlags::BUFFER);
             let diffs = grid.diff();
             grid.swap_with_dirty();
             diffs.len()
@@ -1008,7 +888,6 @@ mod salsa_benches {
     use kasane_core::plugin::PluginRegistry;
     use kasane_core::render::CellGrid;
     use kasane_core::render::SceneCache;
-    use kasane_core::render::ViewCache;
     use kasane_core::render::render_pipeline_salsa_cached;
     use kasane_core::render::scene::CellSize;
     use kasane_core::render::scene_render_pipeline_salsa_cached;
@@ -1153,18 +1032,13 @@ mod salsa_benches {
 
             group.bench_function("full_cold/legacy", |b| {
                 b.iter_batched(
-                    || {
-                        let grid = CellGrid::new(state.cols, state.rows);
-                        let cache = ViewCache::new();
-                        (grid, cache)
-                    },
-                    |(mut grid, mut cache)| {
+                    || CellGrid::new(state.cols, state.rows),
+                    |mut grid| {
                         kasane_core::render::render_pipeline_cached(
                             &state,
                             &registry,
                             &mut grid,
                             DirtyFlags::ALL,
-                            &mut cache,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1172,7 +1046,7 @@ mod salsa_benches {
             });
         }
 
-        // Warm cache hit (MENU_SELECTION only — ViewCache hit, Salsa not called)
+        // Warm cache hit (MENU_SELECTION only)
         {
             let state = state_with_menu(50);
             let registry = PluginRegistry::new();
@@ -1206,13 +1080,11 @@ mod salsa_benches {
 
             group.bench_function("menu_select_warm/legacy", |b| {
                 let mut grid = CellGrid::new(state.cols, state.rows);
-                let mut cache = ViewCache::new();
                 kasane_core::render::render_pipeline_cached(
                     &state,
                     &registry,
                     &mut grid,
                     DirtyFlags::ALL,
-                    &mut cache,
                 );
                 grid.swap_with_dirty();
 
@@ -1222,7 +1094,6 @@ mod salsa_benches {
                         &registry,
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
-                        &mut cache,
                     );
                 });
             });
@@ -1271,24 +1142,21 @@ mod salsa_benches {
                 b.iter_batched(
                     || {
                         let mut grid = CellGrid::new(state.cols, state.rows);
-                        let mut cache = ViewCache::new();
                         kasane_core::render::render_pipeline_cached(
                             &state,
                             &registry,
                             &mut grid,
                             DirtyFlags::ALL,
-                            &mut cache,
                         );
                         grid.swap_with_dirty();
-                        (grid, cache)
+                        grid
                     },
-                    |(mut grid, mut cache)| {
+                    |mut grid| {
                         kasane_core::render::render_pipeline_cached(
                             &edited,
                             &registry,
                             &mut grid,
                             DirtyFlags::BUFFER,
-                            &mut cache,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1646,7 +1514,7 @@ criterion_group!(
 
 criterion_group!(
     cache,
-    bench_view_cache,
+    bench_cached_pipeline_dirty_flags,
     bench_scene_cache_cold,
     bench_scene_cache_warm,
     bench_scene_cache_menu_select,

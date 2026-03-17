@@ -35,8 +35,8 @@ bitflags! {
     ///    `contribute_deps_union()` / `annotate_deps()` / `transform_deps()` to skip
     ///    re-collection when irrelevant flags are set.
     /// 3. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
-    /// 5. **Legacy ViewCache invalidation** — `PluginViewSource` (test/hit-map path) uses
-    ///    `EffectiveSectionDeps` to invalidate cached view subtrees.
+    /// 5. **Section deps** — `EffectiveSectionDeps` in PluginRegistry unions plugin deps
+    ///    with core section deps for Salsa-aware invalidation.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirtyFlags: u16 {
         /// Buffer content changed (lines, faces, widget_columns, etc.).

@@ -7,8 +7,6 @@ use kasane_core::plugin::{
     OverlayContext, PluginBackend, PluginId, PluginRegistry, ProcessEvent, SlotId,
 };
 use kasane_core::protocol::Color;
-use kasane_core::render::cache::ViewCache;
-use kasane_core::render::view::surface_view_sections_cached;
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::{
     ResolvedSlotContentKind, SlotKind, SurfaceEvent, SurfacePlacementRequest, SurfaceRegistry,

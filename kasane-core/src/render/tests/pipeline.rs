@@ -294,7 +294,6 @@ fn test_line_dirty_buffer_and_status() {
         &registry,
         &mut grid,
         DirtyFlags::BUFFER | DirtyFlags::STATUS,
-        &mut ViewCache::new(),
     );
 
     // Verify: line 0 should still have old content (clean row preserved)
@@ -347,13 +346,7 @@ fn test_line_dirty_buffer_only_regression() {
     state.lines[2] = make_line("EDIT2");
     state.lines_dirty = vec![false, false, true, false];
 
-    render_pipeline_cached(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::BUFFER,
-        &mut ViewCache::new(),
-    );
+    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::BUFFER);
 
     // Clean lines preserved
     assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");

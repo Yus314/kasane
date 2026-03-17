@@ -8,98 +8,46 @@ use crate::display::DisplayMapRef;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, PluginRegistry, TransformTarget};
-#[cfg(test)]
-use crate::plugin::{EffectiveSectionDeps, SlotId};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
-use crate::render::cache::{ViewCache, cache_dirty_snapshot};
 use crate::state::AppState;
 use crate::surface::{SurfaceComposeResult, SurfaceRenderReport};
 
-use crate::state::DirtyFlags;
-
-// DirtyFlags dependency masks for each component function.
-// These match the deps() annotations on the #[kasane_component] attributes.
-pub(crate) const BUILD_BASE_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
-    DirtyFlags::BUFFER_CONTENT.bits()
-        | DirtyFlags::STATUS.bits()
-        | DirtyFlags::OPTIONS.bits()
-        | DirtyFlags::PLUGIN_STATE.bits(),
-);
-pub(crate) const BUILD_MENU_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
-    DirtyFlags::MENU_STRUCTURE.bits()
-        | DirtyFlags::MENU_SELECTION.bits()
-        | DirtyFlags::OPTIONS.bits(),
-);
-pub(crate) const BUILD_INFO_SECTION_DEPS: DirtyFlags = DirtyFlags::from_bits_truncate(
-    DirtyFlags::INFO.bits() | DirtyFlags::OPTIONS.bits() | DirtyFlags::MENU_STRUCTURE.bits(),
-);
-
-#[cfg(test)]
-pub(crate) fn effective_surface_section_deps(
-    cached_base: Option<&SurfaceComposeResult>,
-    registry: &PluginRegistry,
-    surface_registry: &crate::surface::SurfaceRegistry,
-) -> EffectiveSectionDeps {
-    let mut deps = *registry.section_deps();
-    deps.base = surface_base_deps(cached_base, registry, surface_registry);
-    deps
-}
-
-#[cfg(test)]
-fn surface_base_deps(
-    cached_base: Option<&SurfaceComposeResult>,
-    registry: &PluginRegistry,
-    surface_registry: &crate::surface::SurfaceRegistry,
-) -> DirtyFlags {
-    let mut base = BUILD_BASE_DEPS;
-    let Some(cached_base) = cached_base else {
-        return base;
-    };
-
-    let mut buffer_active = false;
-    let mut status_active = false;
-
-    for report in &cached_base.surface_reports {
-        match report.surface_key.as_str() {
-            "kasane.buffer" => buffer_active = true,
-            "kasane.status" => status_active = true,
-            _ => {}
-        }
-
-        if report.owner_errors.is_empty() {
-            for record in &report.slot_records {
-                base |= registry.contribute_deps(&SlotId::new(record.slot_name.clone()));
-            }
-            continue;
-        }
-
-        if let Some(surface_id) = surface_registry.surface_id_by_key(report.surface_key.as_str())
-            && let Some(descriptor) = surface_registry.descriptor(surface_id)
-        {
-            for slot in &descriptor.declared_slots {
-                base |= registry.contribute_deps(&SlotId::new(slot.name.clone()));
-            }
-        } else {
-            for record in &report.slot_records {
-                base |= registry.contribute_deps(&SlotId::new(record.slot_name.clone()));
-            }
-        }
-    }
-
-    if buffer_active {
-        base |= registry.annotate_deps();
-        base |= registry.transform_deps(&TransformTarget::Buffer);
-    }
-    if status_active {
-        base |= registry.transform_deps(&TransformTarget::StatusBar);
-    }
-
-    base
-}
-
-/// Build the full Element tree from application state (backward-compatible).
+/// Build the full Element tree from application state.
 pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
-    view_cached(state, registry, &mut ViewCache::new())
+    view_sections(state, registry).into_element()
+}
+
+/// Build decomposed view sections without caching.
+pub(crate) fn view_sections(state: &AppState, registry: &PluginRegistry) -> ViewSections {
+    crate::perf::perf_span!("view_sections");
+
+    let base = legacy_surface_compose_result(state, registry);
+    let display_map = registry.collect_display_map(state);
+    let menu_overlay = build_menu_section(state, registry);
+    let info_overlays = build_info_section(state, registry);
+    let overlay_ctx = crate::plugin::OverlayContext {
+        screen_cols: state.cols,
+        screen_rows: state.rows,
+        menu_rect: None,
+        existing_overlays: vec![],
+    };
+    let plugin_overlays: Vec<crate::element::Overlay> = registry
+        .collect_overlays_with_ctx(state, &overlay_ctx)
+        .into_iter()
+        .map(|oc| crate::element::Overlay {
+            element: oc.element,
+            anchor: oc.anchor,
+        })
+        .collect();
+
+    ViewSections {
+        base: base.base.unwrap_or(Element::Empty),
+        menu_overlay,
+        info_overlays,
+        plugin_overlays,
+        surface_reports: base.surface_reports,
+        display_map,
+    }
 }
 
 /// Decomposed view sections for per-section caching.
@@ -129,108 +77,6 @@ impl ViewSections {
             Element::stack(self.base, overlays)
         }
     }
-}
-
-/// Build the view sections with subtree memoization via ViewCache.
-///
-/// Uses `ComponentCache::get_or_insert` with the DEPS constants generated
-/// by `#[kasane_component]` to automatically skip recomputation when the
-/// relevant DirtyFlags are not set.
-pub(crate) fn view_sections_cached(
-    state: &AppState,
-    registry: &PluginRegistry,
-    cache: &mut ViewCache,
-) -> ViewSections {
-    crate::perf::perf_span!("view_sections");
-
-    let base = cache.base.get_or_insert(
-        cache_dirty_snapshot(&cache.base, BUILD_BASE_DEPS),
-        BUILD_BASE_DEPS,
-        || legacy_surface_compose_result(state, registry),
-    );
-
-    build_sections_with_base(base, state, registry, cache)
-}
-
-/// Build the view sections using SurfaceRegistry as the element source.
-///
-/// Uses the same ViewCache infrastructure as `view_sections_cached`, but the
-/// base element comes from `SurfaceRegistry::compose_base_result()` instead of
-/// the legacy inline base builder. This enables workspace-aware layouts while
-/// preserving all caching optimizations.
-pub fn surface_view_sections_cached(
-    state: &AppState,
-    registry: &PluginRegistry,
-    surface_registry: &crate::surface::SurfaceRegistry,
-    cache: &mut ViewCache,
-) -> ViewSections {
-    crate::perf::perf_span!("surface_view_sections");
-
-    let root_area = crate::layout::Rect {
-        x: 0,
-        y: 0,
-        w: state.cols,
-        h: state.rows,
-    };
-
-    let base = cache.base.get_or_insert(
-        cache_dirty_snapshot(&cache.base, BUILD_BASE_DEPS),
-        BUILD_BASE_DEPS,
-        || surface_registry.compose_base_result(state, registry, root_area),
-    );
-
-    build_sections_with_base(base, state, registry, cache)
-}
-
-/// Shared helper: build menu, info, and plugin overlay sections around a given base.
-fn build_sections_with_base(
-    base_result: SurfaceComposeResult,
-    state: &AppState,
-    registry: &PluginRegistry,
-    cache: &mut ViewCache,
-) -> ViewSections {
-    let display_map = registry.collect_display_map(state);
-    let menu_overlay = cache.menu_overlay.get_or_insert(
-        cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
-        BUILD_MENU_SECTION_DEPS,
-        || build_menu_section(state, registry),
-    );
-
-    let info_overlays = cache.info_overlays.get_or_insert(
-        cache_dirty_snapshot(&cache.info_overlays, BUILD_INFO_SECTION_DEPS),
-        BUILD_INFO_SECTION_DEPS,
-        || build_info_section(state, registry),
-    );
-
-    let overlay_ctx = crate::plugin::OverlayContext {
-        screen_cols: state.cols,
-        screen_rows: state.rows,
-        menu_rect: None,
-        existing_overlays: vec![],
-    };
-    let plugin_overlays: Vec<Overlay> = registry
-        .collect_overlays_with_ctx(state, &overlay_ctx)
-        .into_iter()
-        .map(|oc| Overlay {
-            element: oc.element,
-            anchor: oc.anchor,
-        })
-        .collect();
-
-    ViewSections {
-        base: base_result.base.unwrap_or(Element::Empty),
-        menu_overlay,
-        info_overlays,
-        plugin_overlays,
-        surface_reports: base_result.surface_reports,
-        display_map,
-    }
-}
-
-/// Build the full Element tree with subtree memoization via ViewCache.
-pub fn view_cached(state: &AppState, registry: &PluginRegistry, cache: &mut ViewCache) -> Element {
-    crate::perf::perf_span!("view");
-    view_sections_cached(state, registry, cache).into_element()
 }
 
 fn legacy_surface_compose_result(

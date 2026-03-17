@@ -38,7 +38,7 @@ impl PluginSlotCache {
     }
 }
 
-/// Effective DirtyFlags dependencies for each ViewCache section,
+/// Effective DirtyFlags dependencies for each view section,
 /// computed by unioning core deps with plugin contribution/transform/annotation deps.
 #[derive(Debug, Clone, Copy)]
 pub struct EffectiveSectionDeps {
@@ -55,13 +55,13 @@ pub struct PluginSurfaceSet {
 
 impl Default for EffectiveSectionDeps {
     fn default() -> Self {
-        use crate::render::view::{
-            BUILD_BASE_DEPS, BUILD_INFO_SECTION_DEPS, BUILD_MENU_SECTION_DEPS,
-        };
         EffectiveSectionDeps {
-            base: BUILD_BASE_DEPS,
-            menu: BUILD_MENU_SECTION_DEPS,
-            info: BUILD_INFO_SECTION_DEPS,
+            base: DirtyFlags::BUFFER_CONTENT
+                | DirtyFlags::STATUS
+                | DirtyFlags::OPTIONS
+                | DirtyFlags::PLUGIN_STATE,
+            menu: DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION | DirtyFlags::OPTIONS,
+            info: DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE,
         }
     }
 }
@@ -185,13 +185,13 @@ impl PluginRegistry {
     /// Recompute effective section deps by unioning core deps with all
     /// plugin contribution/transform/annotation deps.
     fn recompute_section_deps(&mut self) {
-        use crate::render::view::{
-            BUILD_BASE_DEPS, BUILD_INFO_SECTION_DEPS, BUILD_MENU_SECTION_DEPS,
-        };
-
-        let mut base = BUILD_BASE_DEPS;
-        let mut menu = BUILD_MENU_SECTION_DEPS;
-        let mut info = BUILD_INFO_SECTION_DEPS;
+        let mut base = DirtyFlags::BUFFER_CONTENT
+            | DirtyFlags::STATUS
+            | DirtyFlags::OPTIONS
+            | DirtyFlags::PLUGIN_STATE;
+        let mut menu =
+            DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION | DirtyFlags::OPTIONS;
+        let mut info = DirtyFlags::INFO | DirtyFlags::OPTIONS | DirtyFlags::MENU_STRUCTURE;
 
         // Base slots
         let base_slots = [

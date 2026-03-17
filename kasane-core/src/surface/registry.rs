@@ -388,7 +388,7 @@ impl SurfaceRegistry {
 
     /// Compose the full UI: workspace content + status bar + overlays.
     ///
-    /// This is the surface-based base composition path used by `view_cached()`. It:
+    /// This is the surface-based base composition path used by `view()`. It:
     /// 1. Renders the workspace tree content (buffer panes) via Surface::view()
     /// 2. Adds the StatusBarSurface output (top or bottom based on `status_at_top`)
     /// 3. Uses the existing view layer for overlay positioning (menu, info, plugin)
@@ -490,8 +490,7 @@ impl SurfaceRegistry {
     /// Returns the same structure as `view::ViewSections`:
     /// - `base`: workspace content + status bar
     /// - `menu_overlay`, `info_overlays`, `plugin_overlays`: overlay sections
-    #[allow(dead_code)]
-    pub(crate) fn compose_view_sections(
+    pub fn compose_view_sections(
         &self,
         state: &AppState,
         plugin_registry: &PluginRegistry,
