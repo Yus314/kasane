@@ -76,7 +76,6 @@ History, analysis, and background.
 
 - [decisions.md](decisions.md) — ADR and design decision history
 - [kakoune-protocol-constraints.md](kakoune-protocol-constraints.md) — protocol constraint analysis
-- [kakoune-issues-investigation.md](kakoune-issues-investigation.md) — Kakoune-side issue investigation
 
 ### Supporting Reference
 

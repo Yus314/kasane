@@ -9,7 +9,6 @@ This document systematically analyzes the constraints that the Kakoune JSON UI p
 
 **Related documents:**
 - [Requirements §7 Known Constraints](./requirements.md#7-known-constraints) — Concise list of constraints
-- [Kakoune Issue Investigation Report](./kakoune-issues-investigation.md) — Overview of solvable issues
 - [JSON UI Protocol Specification](./json-ui-protocol.md) — Technical specification of the protocol
 - [Technical Decision Records](./decisions.md) — Design decisions driven by constraints
 - [Upstream Dependencies](./upstream-dependencies.md) — Current upstream status and reintegration conditions
