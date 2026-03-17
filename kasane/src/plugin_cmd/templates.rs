@@ -13,6 +13,7 @@ pub fn plugin_id_from_name(name: &str) -> String {
 /// Convert a kebab-case plugin name to a PascalCase struct name with `Plugin` suffix.
 ///
 /// `my-widget` -> `MyWidgetPlugin`
+#[cfg(test)]
 pub fn struct_name_from_name(name: &str) -> String {
     let pascal: String = name
         .split('-')

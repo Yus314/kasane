@@ -9,6 +9,18 @@ use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;
 
+/// Width of the scrollbar column (1 cell).
+const SCROLLBAR_WIDTH: u16 = 1;
+
+/// Width of the "< " prefix indicator in prompt-style menus.
+const PREFIX_WIDTH: usize = 2;
+
+/// Width reserved for the " >" suffix indicator in prompt-style menus.
+const SUFFIX_RESERVE: usize = 2;
+
+/// Maximum height for the search dropdown menu.
+const MAX_DROPDOWN_HEIGHT: u16 = 10;
+
 #[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION, OPTIONS))]
 pub(crate) fn build_menu_overlay(
     menu: &MenuState,
@@ -206,8 +218,8 @@ fn build_menu_inline(
     state: &AppState,
     registry: &PluginRegistry,
 ) -> Option<Overlay> {
-    let win_w = (menu.effective_content_width(state.cols) + 1).min(state.cols);
-    let content_w = win_w.saturating_sub(1);
+    let win_w = (menu.effective_content_width(state.cols) + SCROLLBAR_WIDTH).min(state.cols);
+    let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
     let screen_h = state.available_height();
     let placement = menu_placement(state);
 
@@ -223,6 +235,7 @@ fn build_menu_inline(
         return None;
     }
 
+    // Cap candidate column at 40% of screen width to leave room for docstrings.
     let candidate_col_w = menu
         .columns_split
         .as_ref()
@@ -343,11 +356,11 @@ fn build_menu_search(
     }
 
     // Items with gaps
-    let mut x = if has_prefix { 2 } else { 0 };
+    let mut x = if has_prefix { PREFIX_WIDTH } else { 0 };
     for idx in first..menu.items.len() {
         let item_w = line_display_width(&menu.items[idx]);
         let has_more = idx + 1 < menu.items.len();
-        let suffix_reserve = if has_more { 2 } else { 0 };
+        let suffix_reserve = if has_more { SUFFIX_RESERVE } else { 0 };
 
         if x + item_w + suffix_reserve > screen_w && x > 0 {
             if has_more {
@@ -413,10 +426,10 @@ fn build_menu_search_dropdown(
 ) -> Option<Overlay> {
     let screen_h = state.available_height();
     let status_row = state.available_height();
-    let max_h = 10u16.min(screen_h.saturating_sub(1));
+    let max_h = MAX_DROPDOWN_HEIGHT.min(screen_h.saturating_sub(1));
     let win_h = (menu.items.len() as u16).min(max_h).max(1);
-    let win_w = (menu.max_item_width + 1).min(state.cols);
-    let content_w = win_w.saturating_sub(1);
+    let win_w = (menu.max_item_width + SCROLLBAR_WIDTH).min(state.cols);
+    let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
 
     // Place above the status bar
     let y = status_row.saturating_sub(win_h);

@@ -90,7 +90,7 @@ fn test_focus_direction_right_uses_visible_geometry() {
     let right = ws.split_focused(SplitDirection::Vertical, 0.5);
 
     let moved = ws.focus_direction(
-        crate::pane::FocusDirection::Right,
+        FocusDirection::Right,
         Rect {
             x: 0,
             y: 0,
@@ -109,7 +109,7 @@ fn test_focus_direction_down_prefers_lower_neighbor() {
     let bottom = ws.split_focused(SplitDirection::Horizontal, 0.5);
 
     let moved = ws.focus_direction(
-        crate::pane::FocusDirection::Down,
+        FocusDirection::Down,
         Rect {
             x: 0,
             y: 0,
@@ -136,15 +136,12 @@ fn test_focus_direction_next_cycles_visible_surfaces() {
     };
 
     assert_eq!(
-        ws.focus_direction(crate::pane::FocusDirection::Next, total),
+        ws.focus_direction(FocusDirection::Next, total),
         Some(second)
     );
+    assert_eq!(ws.focus_direction(FocusDirection::Next, total), Some(third));
     assert_eq!(
-        ws.focus_direction(crate::pane::FocusDirection::Next, total),
-        Some(third)
-    );
-    assert_eq!(
-        ws.focus_direction(crate::pane::FocusDirection::Prev, total),
+        ws.focus_direction(FocusDirection::Prev, total),
         Some(second)
     );
     assert_eq!(ws.focused(), second);
@@ -175,7 +172,7 @@ fn test_dispatch_workspace_command_with_total_handles_focus_direction() {
     dirty = DirtyFlags::empty();
     dispatch_workspace_command_with_total(
         &mut reg,
-        WorkspaceCommand::FocusDirection(crate::pane::FocusDirection::Right),
+        WorkspaceCommand::FocusDirection(FocusDirection::Right),
         &mut dirty,
         Some(Rect {
             x: 0,

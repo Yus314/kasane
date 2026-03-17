@@ -2,7 +2,6 @@ use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
-use crate::pane::{PaneId, PanePermissions};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
@@ -101,33 +100,6 @@ pub trait PluginBackend: Any {
     /// Default: ALL (always recompute).
     fn overlay_deps(&self) -> DirtyFlags {
         DirtyFlags::ALL
-    }
-
-    // --- Pane lifecycle hooks (Phase 5) ---
-
-    /// Called when a new pane is created.
-    fn on_pane_created(&mut self, _pane_id: PaneId, _state: &AppState) {}
-
-    /// Called when a pane is closed.
-    fn on_pane_closed(&mut self, _pane_id: PaneId) {}
-
-    /// Called when focus changes between panes.
-    fn on_focus_changed(&mut self, _from: Option<PaneId>, _to: PaneId, _state: &AppState) {}
-
-    /// Render plugin-owned pane content. Return `None` if this plugin does not
-    /// own the given pane.
-    fn render_pane(&self, _pane_id: PaneId, _cols: u16, _rows: u16) -> Option<Element> {
-        None
-    }
-
-    /// Handle a key event for a plugin-owned pane.
-    fn handle_pane_key(&mut self, _pane_id: PaneId, _key: &KeyEvent) -> Option<Vec<Command>> {
-        None
-    }
-
-    /// Pane permission flags for this plugin. Default: none.
-    fn pane_permissions(&self) -> PanePermissions {
-        PanePermissions::empty()
     }
 
     // --- Surface system hooks (Phase S) ---

@@ -418,9 +418,6 @@ pub fn handle_deferred_commands(
             DeferredCommand::SetConfig { key, value } => {
                 crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
             }
-            DeferredCommand::Pane(_) => {
-                // Pane commands will be handled in Phase 5a-1
-            }
             DeferredCommand::Workspace(ws_cmd) => {
                 crate::workspace::dispatch_workspace_command_with_total(
                     ctx.surface_registry,

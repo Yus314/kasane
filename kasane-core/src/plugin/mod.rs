@@ -53,8 +53,6 @@ bitflags! {
         const MENU_TRANSFORM     = 1 << 5;
         const CURSOR_STYLE       = 1 << 6;
         const INPUT_HANDLER      = 1 << 7;
-        const PANE_LIFECYCLE     = 1 << 9;
-        const PANE_RENDERER      = 1 << 10;
         const SURFACE_PROVIDER   = 1 << 11;
         const WORKSPACE_OBSERVER = 1 << 12;
         const PAINT_HOOK         = 1 << 13;

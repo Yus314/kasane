@@ -1,10 +1,8 @@
 //! Workspace: generalized layout tree for Surface regions.
 //!
-//! Replaces and extends the pane system (`pane.rs`) by using [`SurfaceId`]
+//! Replaces and extends the pane system by using [`SurfaceId`]
 //! instead of `PaneId` as the leaf identifier. This allows both core
 //! components and plugin-owned surfaces to participate in the layout tree.
-//!
-//! The pane module remains for backward compatibility (type aliases).
 
 mod node;
 pub use node::*;
@@ -14,6 +12,17 @@ use std::collections::HashMap;
 use crate::layout::{Rect, SplitDirection};
 use crate::state::DirtyFlags;
 use crate::surface::{SurfaceId, SurfaceRegistry};
+
+/// Direction for focus navigation between surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusDirection {
+    Next,
+    Prev,
+    Left,
+    Right,
+    Up,
+    Down,
+}
 
 /// Position for docking a surface in a well-known area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,7 +70,7 @@ pub enum WorkspaceCommand {
     /// Focus a specific surface.
     Focus(SurfaceId),
     /// Move focus in a direction.
-    FocusDirection(crate::pane::FocusDirection),
+    FocusDirection(FocusDirection),
     /// Resize the focused split divider by delta (-1.0..1.0).
     Resize { delta: f32 },
     /// Swap two surfaces.
@@ -512,26 +521,22 @@ impl Workspace {
     }
 
     /// Move focus based on visible workspace geometry.
-    pub fn focus_direction(
-        &mut self,
-        direction: crate::pane::FocusDirection,
-        total: Rect,
-    ) -> Option<SurfaceId> {
+    pub fn focus_direction(&mut self, direction: FocusDirection, total: Rect) -> Option<SurfaceId> {
         let visible = self.visible_surfaces(total);
         if visible.is_empty() {
             return None;
         }
 
         match direction {
-            crate::pane::FocusDirection::Next | crate::pane::FocusDirection::Prev => {
+            FocusDirection::Next | FocusDirection::Prev => {
                 let len = visible.len();
                 let current_index = visible
                     .iter()
                     .position(|(surface_id, _)| *surface_id == self.focused)
                     .unwrap_or(0);
                 let next_index = match direction {
-                    crate::pane::FocusDirection::Next => (current_index + 1) % len,
-                    crate::pane::FocusDirection::Prev => {
+                    FocusDirection::Next => (current_index + 1) % len,
+                    FocusDirection::Prev => {
                         if current_index == 0 {
                             len - 1
                         } else {
@@ -553,10 +558,10 @@ impl Workspace {
                     }
                 }
             }
-            crate::pane::FocusDirection::Left
-            | crate::pane::FocusDirection::Right
-            | crate::pane::FocusDirection::Up
-            | crate::pane::FocusDirection::Down => {
+            FocusDirection::Left
+            | FocusDirection::Right
+            | FocusDirection::Up
+            | FocusDirection::Down => {
                 let current_rect = visible.iter().find_map(|(surface_id, rect)| {
                     (*surface_id == self.focused).then_some(*rect)
                 })?;
@@ -671,7 +676,7 @@ impl Workspace {
 }
 
 fn focus_direction_score(
-    direction: crate::pane::FocusDirection,
+    direction: FocusDirection,
     current: Rect,
     candidate: Rect,
 ) -> Option<(u16, u8, u16, u16)> {
@@ -693,7 +698,7 @@ fn focus_direction_score(
     let vertical_gap = range_gap(current_top, current_bottom, candidate_top, candidate_bottom);
 
     match direction {
-        crate::pane::FocusDirection::Left => {
+        FocusDirection::Left => {
             if candidate_center_x >= current_center_x {
                 return None;
             }
@@ -707,7 +712,7 @@ fn focus_direction_score(
                 horizontal_gap,
             ))
         }
-        crate::pane::FocusDirection::Right => {
+        FocusDirection::Right => {
             if candidate_center_x <= current_center_x {
                 return None;
             }
@@ -721,7 +726,7 @@ fn focus_direction_score(
                 horizontal_gap,
             ))
         }
-        crate::pane::FocusDirection::Up => {
+        FocusDirection::Up => {
             if candidate_center_y >= current_center_y {
                 return None;
             }
@@ -735,7 +740,7 @@ fn focus_direction_score(
                 vertical_gap,
             ))
         }
-        crate::pane::FocusDirection::Down => {
+        FocusDirection::Down => {
             if candidate_center_y <= current_center_y {
                 return None;
             }
@@ -749,7 +754,7 @@ fn focus_direction_score(
                 vertical_gap,
             ))
         }
-        crate::pane::FocusDirection::Next | crate::pane::FocusDirection::Prev => None,
+        FocusDirection::Next | FocusDirection::Prev => None,
     }
 }
 

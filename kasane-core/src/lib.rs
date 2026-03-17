@@ -5,7 +5,6 @@ pub mod event_loop;
 pub mod input;
 pub mod io;
 pub mod layout;
-pub mod pane;
 mod perf;
 pub mod plugin;
 pub mod plugin_prelude;

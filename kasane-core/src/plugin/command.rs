@@ -2,7 +2,6 @@ use std::any::Any;
 use std::io::Write;
 use std::time::Duration;
 
-use crate::pane::PaneCommand;
 use crate::protocol::{Face, KasaneRequest};
 use crate::session::SessionCommand;
 use crate::state::DirtyFlags;
@@ -62,8 +61,6 @@ pub enum Command {
         key: String,
         value: String,
     },
-    /// Pane management command (split, close, focus, etc.).
-    Pane(PaneCommand),
     /// Workspace layout command (add/remove surface, focus, split, float, etc.).
     Workspace(WorkspaceCommand),
     /// Register custom theme tokens with default faces.
@@ -107,7 +104,6 @@ pub enum DeferredCommand {
         key: String,
         value: String,
     },
-    Pane(PaneCommand),
     Workspace(WorkspaceCommand),
     RegisterThemeTokens(Vec<(String, Face)>),
     SpawnProcess {
@@ -151,7 +147,6 @@ pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<D
             Command::SetConfig { key, value } => {
                 deferred.push(DeferredCommand::SetConfig { key, value })
             }
-            Command::Pane(cmd) => deferred.push(DeferredCommand::Pane(cmd)),
             Command::Workspace(cmd) => deferred.push(DeferredCommand::Workspace(cmd)),
             Command::RegisterThemeTokens(tokens) => {
                 deferred.push(DeferredCommand::RegisterThemeTokens(tokens))
@@ -219,7 +214,6 @@ pub fn execute_commands(
             Command::ScheduleTimer { .. }
             | Command::PluginMessage { .. }
             | Command::SetConfig { .. }
-            | Command::Pane(_)
             | Command::Workspace(_)
             | Command::RegisterThemeTokens(_)
             | Command::SpawnProcess { .. }

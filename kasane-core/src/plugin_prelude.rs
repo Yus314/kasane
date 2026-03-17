@@ -24,19 +24,16 @@ pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor};
 // State
 pub use crate::state::{AppState, DirtyFlags};
 
-// Pane types
-pub use crate::pane::{
-    FocusDirection, NewPaneContent, PaneCommand, PaneContext, PaneId, PanePermissions,
-    SplitDirection,
-};
-
 // Input
 pub use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 
+// Layout
+pub use crate::layout::SplitDirection;
+
 // Workspace
 pub use crate::workspace::{
-    DockPosition, FloatingEntry, Placement, Workspace, WorkspaceCommand, WorkspaceNode,
-    WorkspaceQuery,
+    DockPosition, FloatingEntry, FocusDirection, Placement, Workspace, WorkspaceCommand,
+    WorkspaceNode, WorkspaceQuery,
 };
 
 // Surface

@@ -17,12 +17,10 @@ pub fn run(fix: bool) -> Result<()> {
     println!();
     if all_ok {
         println!("All checks passed.");
+    } else if !fix {
+        println!("Some checks failed. Fix manually or: kasane plugin doctor --fix");
     } else {
-        if !fix {
-            println!("Some checks failed. Fix manually or: kasane plugin doctor --fix");
-        } else {
-            println!("Some checks could not be fixed. See above for details.");
-        }
+        println!("Some checks could not be fixed. See above for details.");
     }
 
     Ok(())
@@ -109,25 +107,23 @@ fn check_plugins_directory(fix: bool) -> bool {
             println!("NOT WRITABLE ({})", plugins_dir.display());
             false
         }
-    } else {
-        if fix {
-            print!("    creating {} ... ", plugins_dir.display());
-            match std::fs::create_dir_all(&plugins_dir) {
-                Ok(()) => {
-                    println!("ok");
-                    true
-                }
-                Err(e) => {
-                    println!("FAILED ({e})");
-                    false
-                }
+    } else if fix {
+        print!("    creating {} ... ", plugins_dir.display());
+        match std::fs::create_dir_all(&plugins_dir) {
+            Ok(()) => {
+                println!("ok");
+                true
             }
-        } else {
-            println!("MISSING ({})", plugins_dir.display());
-            println!("    hint: Will be created on first `kasane plugin install`");
-            println!("    or: kasane plugin doctor --fix");
-            true
+            Err(e) => {
+                println!("FAILED ({e})");
+                false
+            }
         }
+    } else {
+        println!("MISSING ({})", plugins_dir.display());
+        println!("    hint: Will be created on first `kasane plugin install`");
+        println!("    or: kasane plugin doctor --fix");
+        true
     }
 }
 

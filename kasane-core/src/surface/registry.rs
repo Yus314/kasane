@@ -573,8 +573,8 @@ impl SurfaceRegistry {
                     crate::element::Style::Token(crate::element::StyleToken::SPLIT_DIVIDER),
                 );
                 let elem_direction = match direction {
-                    crate::pane::SplitDirection::Vertical => crate::element::Direction::Row,
-                    crate::pane::SplitDirection::Horizontal => crate::element::Direction::Column,
+                    crate::layout::SplitDirection::Vertical => crate::element::Direction::Row,
+                    crate::layout::SplitDirection::Horizontal => crate::element::Direction::Column,
                 };
                 let (first_elem, mut first_reports) =
                     self.compose_node_with_reports(first, state, plugin_registry, rects);
