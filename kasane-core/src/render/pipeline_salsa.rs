@@ -272,7 +272,7 @@ fn compose_base_from_salsa(
 
 /// Salsa-backed cached rendering pipeline (TUI).
 #[allow(clippy::too_many_arguments)]
-pub fn render_pipeline_salsa_cached(
+pub fn render_pipeline_cached(
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
     state: &AppState,
@@ -287,7 +287,7 @@ pub fn render_pipeline_salsa_cached(
 
 /// Salsa-backed scene rendering pipeline (GPU).
 #[allow(clippy::too_many_arguments)]
-pub fn scene_render_pipeline_salsa_cached<'a>(
+pub fn scene_render_pipeline_cached<'a>(
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
     state: &AppState,

@@ -21,7 +21,7 @@ use kasane_core::plugin::{
     execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::scene_render_pipeline_salsa_cached;
+use kasane_core::render::scene_render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend, RenderResult, SceneCache};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
@@ -670,7 +670,7 @@ where
                 &self.salsa_handles,
             );
 
-            let (commands, result) = scene_render_pipeline_salsa_cached(
+            let (commands, result) = scene_render_pipeline_cached(
                 &self.salsa_db,
                 &self.salsa_handles,
                 &self.state,

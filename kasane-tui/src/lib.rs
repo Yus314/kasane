@@ -17,7 +17,7 @@ use kasane_core::config::Config;
 use kasane_core::plugin::{
     CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
 };
-use kasane_core::render::render_pipeline_salsa_cached;
+use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
@@ -355,7 +355,7 @@ where
 
             backend.begin_frame()?;
 
-            let result = render_pipeline_salsa_cached(
+            let result = render_pipeline_cached(
                 &salsa_db,
                 &salsa_handles,
                 &state,

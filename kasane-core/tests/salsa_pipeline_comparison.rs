@@ -11,7 +11,7 @@ use kasane_core::plugin::{
     TransformContext, TransformTarget,
 };
 use kasane_core::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
-use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_salsa_cached};
+use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
@@ -44,7 +44,7 @@ fn render_salsa(
 ) -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
-    render_pipeline_salsa_cached(
+    render_pipeline_cached(
         db,
         handles,
         state,
