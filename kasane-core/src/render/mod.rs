@@ -5,7 +5,6 @@ pub mod cursor;
 mod grid;
 pub mod markup;
 pub mod paint;
-pub mod patch;
 pub mod pipeline;
 mod pipeline_salsa;
 pub mod scene;
@@ -22,13 +21,12 @@ mod tests;
 pub use cache::{LayoutCache, ViewCache};
 pub use cursor::*;
 pub use grid::{Cell, CellDiff, CellGrid};
-pub use patch::{CursorPatch, MenuSelectionPatch, PaintPatch, StatusBarPatch};
 pub use pipeline::{
-    render_pipeline, render_pipeline_cached, render_pipeline_patched, render_pipeline_sectioned,
-    scene_render_pipeline, scene_render_pipeline_scene_cached,
+    render_pipeline, render_pipeline_cached, render_pipeline_sectioned, scene_render_pipeline,
+    scene_render_pipeline_scene_cached,
 };
 pub use pipeline_salsa::{
-    render_pipeline_salsa_cached, render_pipeline_salsa_patched, render_pipeline_salsa_sectioned,
+    render_pipeline_salsa_cached, render_pipeline_salsa_sectioned,
     scene_render_pipeline_salsa_cached,
 };
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};

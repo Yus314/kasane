@@ -651,30 +651,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn test_menu_selection_patch_disabled_for_split() {
-        use crate::render::patch::{MenuSelectionPatch, PaintPatch};
-        use crate::state::DirtyFlags;
-
-        let mut state = crate::render::test_helpers::test_state_80x24();
-        let items = vec![
-            make_completion_item("foo", "   ", "{string}"),
-            make_completion_item("bar", "   ", "{int}"),
-        ];
-        state.apply(crate::protocol::KakouneRequest::MenuShow {
-            items,
-            anchor: Coord { line: 5, column: 0 },
-            selected_item_face: Face::default(),
-            menu_face: Face::default(),
-            style: MenuStyle::Inline,
-        });
-
-        let patch = MenuSelectionPatch {
-            prev_selected: Some(0),
-        };
-        // columns_split is Some → patch should be disabled
-        assert!(state.menu.as_ref().unwrap().columns_split.is_some());
-        assert!(!patch.can_apply(DirtyFlags::MENU_SELECTION, &state));
-    }
 }

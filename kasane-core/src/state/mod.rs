@@ -34,9 +34,7 @@ bitflags! {
     /// 2. **Plugin contribution gating** — `sync_plugin_contributions()` uses
     ///    `contribute_deps_union()` / `annotate_deps()` / `transform_deps()` to skip
     ///    re-collection when irrelevant flags are set.
-    /// 3. **PaintPatch fast paths** — `StatusBarPatch` fires on `dirty == STATUS`,
-    ///    `MenuSelectionPatch` on `dirty == MENU_SELECTION`, `CursorPatch` on empty dirty.
-    /// 4. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
+    /// 3. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
     /// 5. **Legacy ViewCache invalidation** — `PluginViewSource` (test/hit-map path) uses
     ///    `EffectiveSectionDeps` to invalidate cached view subtrees.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

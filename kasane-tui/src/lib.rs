@@ -17,10 +17,8 @@ use kasane_core::config::Config;
 use kasane_core::plugin::{
     CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
 };
-use kasane_core::render::render_pipeline_salsa_patched;
-use kasane_core::render::{
-    CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
-};
+use kasane_core::render::render_pipeline_salsa_cached;
+use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
@@ -186,18 +184,6 @@ where
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
-    let mut layout_cache = LayoutCache::new();
-
-    // Paint patches for fast-path rendering
-    let status_patch = StatusBarPatch;
-    let mut menu_patch = MenuSelectionPatch {
-        prev_selected: None,
-    };
-    let mut cursor_patch = CursorPatch {
-        prev_cursor_x: 0,
-        prev_cursor_y: 0,
-        display_map: None,
-    };
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
@@ -382,18 +368,14 @@ where
             );
 
             backend.begin_frame()?;
-            let patches: &[&dyn kasane_core::render::PaintPatch] =
-                &[&status_patch, &menu_patch, &cursor_patch];
 
-            let result = render_pipeline_salsa_patched(
+            let result = render_pipeline_salsa_cached(
                 &salsa_db,
                 &salsa_handles,
                 &state,
                 &registry,
                 &mut grid,
                 dirty,
-                &mut layout_cache,
-                patches,
                 &paint_hooks,
             );
             backend.draw_grid(&grid)?;
@@ -411,11 +393,6 @@ where
                     "fifo_frame"
                 );
             }
-
-            // Update patch state for next frame
-            cursor_patch.prev_cursor_x = result.cursor_x;
-            cursor_patch.prev_cursor_y = result.cursor_y;
-            menu_patch.prev_selected = state.menu.as_ref().and_then(|m| m.selected);
 
             // Rebuild HitMap from cached view tree for plugin mouse routing.
             // NOTE: Events within the same batch share the previous frame's HitMap.

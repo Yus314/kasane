@@ -13,14 +13,12 @@
 //! and `sync_plugin_contributions()` pre-computes plugin contributions
 //! into Salsa inputs each frame.
 
+use super::RenderResult;
 use super::cache::LayoutCache;
 use super::grid::CellGrid;
-use super::pipeline::{
-    ViewSource, render_cached_core, render_patched_core, render_sectioned_core, scene_render_core,
-};
+use super::pipeline::{ViewSource, render_cached_core, render_sectioned_core, scene_render_core};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
-use super::{RenderResult, patch};
 use crate::element::{Element, FlexChild, Style};
 use crate::plugin::{PaintHook, PluginRegistry, TransformTarget};
 use crate::protocol::MenuStyle;
@@ -308,32 +306,6 @@ pub fn render_pipeline_salsa_sectioned(
         grid,
         dirty,
         layout_cache,
-        paint_hooks,
-    )
-}
-
-/// Salsa-backed patched rendering pipeline (TUI).
-#[allow(clippy::too_many_arguments)]
-pub fn render_pipeline_salsa_patched(
-    db: &KasaneDatabase,
-    handles: &SalsaInputHandles,
-    state: &AppState,
-    registry: &PluginRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    layout_cache: &mut LayoutCache,
-    patches: &[&dyn patch::PaintPatch],
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    let mut source = SalsaViewSource::new(db, handles);
-    render_patched_core(
-        &mut source,
-        state,
-        registry,
-        grid,
-        dirty,
-        layout_cache,
-        patches,
         paint_hooks,
     )
 }

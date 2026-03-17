@@ -8,11 +8,9 @@ use kasane_core::protocol::{Color, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
 use kasane_core::render::LayoutCache;
 use kasane_core::render::SceneCache;
-use kasane_core::render::StatusBarPatch;
 use kasane_core::render::ViewCache;
 use kasane_core::render::paint;
 use kasane_core::render::render_pipeline_cached;
-use kasane_core::render::render_pipeline_patched;
 use kasane_core::render::render_pipeline_sectioned;
 use kasane_core::render::scene::CellSize;
 use kasane_core::render::scene_render_pipeline_scene_cached;
@@ -900,134 +898,6 @@ fn bench_section_paint_menu_select(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// Patch benchmarks (S3)
-// ---------------------------------------------------------------------------
-
-/// Bench: Patched pipeline — STATUS update via StatusBarPatch
-fn bench_patch_status_update(c: &mut Criterion) {
-    let state = typical_state(23);
-    let registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
-    let mut layout_cache = LayoutCache::new();
-
-    // Initial full render
-    render_pipeline_patched(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut layout_cache,
-        &[],
-    );
-    grid.swap();
-
-    let status_patch = StatusBarPatch;
-    let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&status_patch];
-
-    c.bench_function("patch_status_update", |b| {
-        b.iter(|| {
-            render_pipeline_patched(
-                &state,
-                &registry,
-                &mut grid,
-                DirtyFlags::STATUS,
-                &mut view_cache,
-                &mut layout_cache,
-                &patches,
-            )
-        });
-    });
-}
-
-/// Bench: Patched pipeline — menu selection via MenuSelectionPatch
-fn bench_patch_menu_select(c: &mut Criterion) {
-    let state = state_with_menu(50);
-    let registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
-    let mut layout_cache = LayoutCache::new();
-
-    // Initial full render
-    render_pipeline_patched(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut layout_cache,
-        &[],
-    );
-    grid.swap();
-
-    let menu_patch = kasane_core::render::MenuSelectionPatch {
-        prev_selected: Some(0),
-    };
-    let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&menu_patch];
-
-    c.bench_function("patch_menu_select", |b| {
-        b.iter(|| {
-            render_pipeline_patched(
-                &state,
-                &registry,
-                &mut grid,
-                DirtyFlags::MENU_SELECTION,
-                &mut view_cache,
-                &mut layout_cache,
-                &patches,
-            )
-        });
-    });
-}
-
-/// Bench: Patched pipeline — cursor move via CursorPatch
-fn bench_patch_cursor_move(c: &mut Criterion) {
-    let mut state = typical_state(23);
-    state.cursor_pos = kasane_core::protocol::Coord {
-        line: 5,
-        column: 10,
-    };
-    let registry = PluginRegistry::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut view_cache = ViewCache::new();
-    let mut layout_cache = LayoutCache::new();
-
-    // Initial full render
-    render_pipeline_patched(
-        &state,
-        &registry,
-        &mut grid,
-        DirtyFlags::ALL,
-        &mut view_cache,
-        &mut layout_cache,
-        &[],
-    );
-    grid.swap();
-
-    let cursor_patch = kasane_core::render::CursorPatch {
-        prev_cursor_x: 0,
-        prev_cursor_y: 0,
-        display_map: None,
-    };
-    let patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&cursor_patch];
-
-    c.bench_function("patch_cursor_move", |b| {
-        b.iter(|| {
-            render_pipeline_patched(
-                &state,
-                &registry,
-                &mut grid,
-                DirtyFlags::empty(),
-                &mut view_cache,
-                &mut layout_cache,
-                &patches,
-            )
-        });
-    });
-}
-
-// ---------------------------------------------------------------------------
 // Line-level dirty tracking benchmarks
 // ---------------------------------------------------------------------------
 
@@ -1137,13 +1007,11 @@ mod salsa_benches {
     use criterion::{BatchSize, BenchmarkId, Criterion};
     use kasane_core::plugin::PluginRegistry;
     use kasane_core::render::CellGrid;
-    use kasane_core::render::LayoutCache;
     use kasane_core::render::SceneCache;
-    use kasane_core::render::StatusBarPatch;
     use kasane_core::render::ViewCache;
+    use kasane_core::render::render_pipeline_salsa_cached;
     use kasane_core::render::scene::CellSize;
     use kasane_core::render::scene_render_pipeline_salsa_cached;
-    use kasane_core::render::{render_pipeline_salsa_cached, render_pipeline_salsa_patched};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
     use kasane_core::state::DirtyFlags;
@@ -1425,59 +1293,6 @@ mod salsa_benches {
                     },
                     BatchSize::SmallInput,
                 );
-            });
-        }
-
-        group.finish();
-    }
-
-    /// Bench: Salsa patched pipeline (the actual TUI hot path).
-    pub fn bench_salsa_patched(c: &mut Criterion) {
-        let mut group = c.benchmark_group("salsa_patched");
-
-        let state = typical_state(23);
-        let registry = PluginRegistry::new();
-        let patches: Vec<Box<dyn kasane_core::render::PaintPatch>> = vec![];
-        let paint_hooks: Vec<Box<dyn kasane_core::plugin::PaintHook>> = vec![];
-
-        // Patched pipeline — STATUS only
-        {
-            let (db, handles) = init_salsa(&state);
-            let mut grid = CellGrid::new(state.cols, state.rows);
-            let mut layout_cache = LayoutCache::new();
-            let patch_refs: Vec<&dyn kasane_core::render::PaintPatch> =
-                patches.iter().map(|p| p.as_ref()).collect();
-
-            render_pipeline_salsa_patched(
-                &db,
-                &handles,
-                &state,
-                &registry,
-                &mut grid,
-                DirtyFlags::ALL,
-                &mut layout_cache,
-                &patch_refs,
-                &paint_hooks,
-            );
-            grid.swap_with_dirty();
-
-            let status_patch = StatusBarPatch;
-            let status_patches: Vec<&dyn kasane_core::render::PaintPatch> = vec![&status_patch];
-
-            group.bench_function("status_update", |b| {
-                b.iter(|| {
-                    render_pipeline_salsa_patched(
-                        &db,
-                        &handles,
-                        &state,
-                        &registry,
-                        &mut grid,
-                        DirtyFlags::STATUS,
-                        &mut layout_cache,
-                        &status_patches,
-                        &paint_hooks,
-                    );
-                });
             });
         }
 
@@ -1844,13 +1659,6 @@ criterion_group!(
 );
 
 criterion_group!(
-    patched,
-    bench_patch_status_update,
-    bench_patch_menu_select,
-    bench_patch_cursor_move,
-);
-
-criterion_group!(
     line_dirty,
     bench_line_dirty_single_edit,
     bench_line_dirty_all_changed,
@@ -1863,7 +1671,6 @@ criterion_group!(salsa_sync, salsa_benches::bench_sync_inputs,);
 criterion_group!(
     salsa_pipeline,
     salsa_benches::bench_salsa_vs_legacy,
-    salsa_benches::bench_salsa_patched,
     salsa_benches::bench_salsa_scene,
     salsa_benches::bench_salsa_scaling,
 );
@@ -1875,7 +1682,6 @@ criterion_main!(
     extended,
     cache,
     sectioned,
-    patched,
     line_dirty,
     salsa_sync,
     salsa_pipeline,
@@ -1891,7 +1697,6 @@ criterion_main!(
     extended,
     cache,
     sectioned,
-    patched,
     line_dirty,
     alloc_benches,
     salsa_sync,

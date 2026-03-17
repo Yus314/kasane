@@ -8,7 +8,7 @@ use super::grid::CellGrid;
 use super::scene::{self, DrawCommand, SceneCache};
 use super::theme::Theme;
 use super::walk;
-use super::{RenderResult, patch, view};
+use super::{RenderResult, view};
 use crate::display::{DisplayMap, DisplayMapRef};
 use crate::layout::Rect;
 use crate::layout::flex;
@@ -142,38 +142,6 @@ fn compute_render_result(
 /// returning None when the map is identity (optimization).
 fn dm_ref(dm: &DisplayMapRef) -> Option<&DisplayMap> {
     if dm.is_identity() { None } else { Some(dm) }
-}
-
-/// Debug assertion: check that two grids produce equivalent content.
-#[cfg(debug_assertions)]
-fn debug_assert_grid_equivalent(patched: &CellGrid, reference: &CellGrid, _state: &AppState) {
-    assert_eq!(
-        patched.width(),
-        reference.width(),
-        "grid width mismatch in patch correctness check"
-    );
-    assert_eq!(
-        patched.height(),
-        reference.height(),
-        "grid height mismatch in patch correctness check"
-    );
-    for y in 0..patched.height() {
-        for x in 0..patched.width() {
-            let p = patched.get(x, y);
-            let r = reference.get(x, y);
-            if let (Some(p), Some(r)) = (p, r) {
-                debug_assert_eq!(
-                    p.grapheme, r.grapheme,
-                    "patch correctness: grapheme mismatch at ({x}, {y}): patch={:?} ref={:?}",
-                    p.grapheme, r.grapheme
-                );
-                debug_assert_eq!(
-                    p.face, r.face,
-                    "patch correctness: face mismatch at ({x}, {y})"
-                );
-            }
-        }
-    }
 }
 
 fn backfill_surface_report_areas(
@@ -371,74 +339,6 @@ pub(crate) fn render_sectioned_core(
     layout_cache.base_layout = Some(layout_result);
 
     result
-}
-
-/// Core patched rendering pipeline, generic over the view section source.
-///
-/// Tries compiled paint patches first (direct cell writes), then falls through
-/// to section-level paint, then to the full cached pipeline.
-///
-/// In debug builds, after applying a patch, runs the full interpreter pipeline
-/// and asserts CellGrid equivalence (correctness invariant).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn render_patched_core(
-    source: &mut impl ViewSource,
-    state: &AppState,
-    registry: &PluginRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    layout_cache: &mut LayoutCache,
-    patches: &[&dyn patch::PaintPatch],
-    paint_hooks: &[Box<dyn PaintHook>],
-) -> RenderResult {
-    crate::perf::perf_span!("render_pipeline_patched");
-
-    // Try each patch
-    let plugins_changed = registry.any_plugin_state_changed();
-    if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache, plugins_changed) {
-        // Compute buffer_x_offset and display_map from cached layout if available
-        let sections = source.view_sections(state, registry);
-        let display_map = std::sync::Arc::clone(&sections.display_map);
-        let dm = dm_ref(&display_map);
-        let buffer_x_offset = if let Some(ref base_layout) = layout_cache.base_layout {
-            let element = sections.into_element();
-            find_buffer_x_offset(&element, base_layout)
-        } else {
-            0
-        };
-        let style = cursor_style(state, registry);
-        clear_block_cursor_face(state, grid, style, buffer_x_offset, dm);
-        let (cx, cy) = cursor_position(state, grid, buffer_x_offset, dm);
-
-        let result = RenderResult {
-            cursor_x: cx,
-            cursor_y: cy,
-            cursor_style: style,
-        };
-
-        // Debug correctness check: verify patch output matches full pipeline
-        #[cfg(debug_assertions)]
-        {
-            let mut ref_grid = CellGrid::new(grid.width(), grid.height());
-            render_cached_core(source, state, registry, &mut ref_grid, DirtyFlags::ALL, &[]);
-            debug_assert_grid_equivalent(grid, &ref_grid, state);
-        }
-
-        // Prepare source for future renders (invalidate internal caches if any)
-        source.prepare(dirty, registry);
-        return result;
-    }
-
-    // Fall through to section-level paint
-    render_sectioned_core(
-        source,
-        state,
-        registry,
-        grid,
-        dirty,
-        layout_cache,
-        paint_hooks,
-    )
 }
 
 /// Core scene rendering pipeline, generic over the view section source.
@@ -644,27 +544,4 @@ pub fn render_pipeline_sectioned(
 ) -> RenderResult {
     let mut source = PluginViewSource { cache: view_cache };
     render_sectioned_core(&mut source, state, registry, grid, dirty, layout_cache, &[])
-}
-
-/// Patched rendering pipeline (S3).
-pub fn render_pipeline_patched(
-    state: &AppState,
-    registry: &PluginRegistry,
-    grid: &mut CellGrid,
-    dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
-    layout_cache: &mut LayoutCache,
-    patches: &[&dyn patch::PaintPatch],
-) -> RenderResult {
-    let mut source = PluginViewSource { cache: view_cache };
-    render_patched_core(
-        &mut source,
-        state,
-        registry,
-        grid,
-        dirty,
-        layout_cache,
-        patches,
-        &[],
-    )
 }
