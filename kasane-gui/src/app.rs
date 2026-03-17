@@ -258,7 +258,7 @@ where
         let (salsa_db, salsa_handles) = {
             let mut db = KasaneDatabase::default();
             let handles = SalsaInputHandles::new(&mut db);
-            sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+            sync_inputs_from_state(&mut db, &state, &handles);
             (db, handles)
         };
 
@@ -654,29 +654,20 @@ where
             self.registry.prepare_plugin_cache(self.dirty);
 
             // Sync Salsa inputs from updated state
-            sync_inputs_from_state(
-                &mut self.salsa_db,
-                &self.state,
-                self.dirty,
-                &self.salsa_handles,
-            );
-            let epoch_changed =
+            sync_inputs_from_state(&mut self.salsa_db, &self.state, &self.salsa_handles);
+            let _epoch_changed =
                 sync_plugin_epoch(&mut self.salsa_db, &self.registry, &self.salsa_handles);
             sync_display_directives(
                 &mut self.salsa_db,
                 &self.state,
                 &self.registry,
                 &self.salsa_handles,
-                self.dirty,
-                epoch_changed,
             );
             sync_plugin_contributions(
                 &mut self.salsa_db,
                 &self.state,
                 &self.registry,
                 &self.salsa_handles,
-                self.dirty,
-                epoch_changed,
             );
 
             let (commands, result) = scene_render_pipeline_salsa_cached(

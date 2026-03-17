@@ -901,7 +901,7 @@ mod salsa_benches {
     fn init_salsa(state: &kasane_core::state::AppState) -> (KasaneDatabase, SalsaInputHandles) {
         let mut db = KasaneDatabase::default();
         let handles = SalsaInputHandles::new(&mut db);
-        sync_inputs_from_state(&mut db, state, DirtyFlags::ALL, &handles);
+        sync_inputs_from_state(&mut db, state, &handles);
         (db, handles)
     }
 
@@ -916,7 +916,7 @@ mod salsa_benches {
 
             group.bench_function(BenchmarkId::new("buffer_content", label), |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CONTENT, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -928,7 +928,7 @@ mod salsa_benches {
 
             group.bench_function("buffer_content/realistic_23", |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CONTENT, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -940,7 +940,7 @@ mod salsa_benches {
 
             group.bench_function("buffer_cursor_only", |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CURSOR, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -952,7 +952,7 @@ mod salsa_benches {
 
             group.bench_function("status", |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::STATUS, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -964,7 +964,7 @@ mod salsa_benches {
 
             group.bench_function("menu/100_items", |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::MENU_STRUCTURE, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -976,7 +976,7 @@ mod salsa_benches {
 
             group.bench_function("all_flags/80x24", |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -990,7 +990,7 @@ mod salsa_benches {
 
             group.bench_function("all_flags/300x80", |b| {
                 b.iter(|| {
-                    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+                    sync_inputs_from_state(&mut db, &state, &handles);
                 });
             });
         }
@@ -1120,7 +1120,7 @@ mod salsa_benches {
                             &paint_hooks,
                         );
                         grid.swap_with_dirty();
-                        sync_inputs_from_state(&mut db, &edited, DirtyFlags::BUFFER, &handles);
+                        sync_inputs_from_state(&mut db, &edited, &handles);
                         (db, handles, grid)
                     },
                     |(db, handles, mut grid)| {

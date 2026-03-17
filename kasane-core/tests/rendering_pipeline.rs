@@ -660,24 +660,10 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     // Salsa pipeline
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
-    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(
-        &mut db,
-        &state,
-        &registry,
-        &handles,
-        DirtyFlags::ALL,
-        epoch_changed,
-    );
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry,
-        &handles,
-        DirtyFlags::ALL,
-        epoch_changed,
-    );
+    sync_inputs_from_state(&mut db, &state, &handles);
+    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let salsa_result = render_pipeline_salsa_cached(
@@ -746,24 +732,10 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     // Salsa pipeline
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
-    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(
-        &mut db,
-        &state,
-        &registry,
-        &handles,
-        DirtyFlags::ALL,
-        epoch_changed,
-    );
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry,
-        &handles,
-        DirtyFlags::ALL,
-        epoch_changed,
-    );
+    sync_inputs_from_state(&mut db, &state, &handles);
+    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let _salsa_result = render_pipeline_salsa_cached(

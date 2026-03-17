@@ -258,10 +258,10 @@ fn salsa_full_frame_under_2ms() {
 
     // Warmup
     for _ in 0..20 {
-        sync_inputs_from_state(&mut db, &state, dirty, &handles);
-        let pe = sync_plugin_epoch(&mut db, &registry, &handles);
-        sync_display_directives(&mut db, &state, &registry, &handles, dirty, pe);
-        sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, pe);
+        sync_inputs_from_state(&mut db, &state, &handles);
+        let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
+        sync_display_directives(&mut db, &state, &registry, &handles);
+        sync_plugin_contributions(&mut db, &state, &registry, &handles);
         let _result =
             render_pipeline_salsa_cached(&db, &handles, &state, &registry, &mut grid, dirty, &[]);
         let _ = grid.diff();
@@ -271,10 +271,10 @@ fn salsa_full_frame_under_2ms() {
     let durations: Vec<u128> = (0..RUNS)
         .map(|_| {
             let start = Instant::now();
-            sync_inputs_from_state(&mut db, &state, dirty, &handles);
-            let pe = sync_plugin_epoch(&mut db, &registry, &handles);
-            sync_display_directives(&mut db, &state, &registry, &handles, dirty, pe);
-            sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, pe);
+            sync_inputs_from_state(&mut db, &state, &handles);
+            let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
+            sync_display_directives(&mut db, &state, &registry, &handles);
+            sync_plugin_contributions(&mut db, &state, &registry, &handles);
             let _result = render_pipeline_salsa_cached(
                 &db,
                 &handles,

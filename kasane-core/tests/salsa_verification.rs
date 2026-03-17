@@ -10,7 +10,7 @@ use kasane_core::render::CursorStyle;
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_queries;
 use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state, sync_plugin_epoch};
-use kasane_core::state::{AppState, DirtyFlags};
+use kasane_core::state::AppState;
 
 fn make_atom(text: &str) -> Atom {
     Atom {
@@ -29,7 +29,7 @@ fn available_height_basic() {
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
     state.rows = 24;
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let h = salsa_queries::available_height(&db, handles.config);
     assert_eq!(h, 23);
@@ -40,7 +40,7 @@ fn is_prompt_mode_buffer() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let state = AppState::default(); // cursor_mode = Buffer
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     assert!(!salsa_queries::is_prompt_mode(&db, handles.cursor));
 }
@@ -51,7 +51,7 @@ fn is_prompt_mode_prompt() {
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
     state.cursor_mode = CursorMode::Prompt;
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     assert!(salsa_queries::is_prompt_mode(&db, handles.cursor));
 }
@@ -62,7 +62,7 @@ fn cursor_style_normal_mode() {
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
     state.status_mode_line = vec![make_atom("normal")];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let style =
         salsa_queries::cursor_style_query(&db, handles.config, handles.cursor, handles.status);
@@ -75,7 +75,7 @@ fn cursor_style_insert_mode() {
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
     state.status_mode_line = vec![make_atom("insert")];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let style =
         salsa_queries::cursor_style_query(&db, handles.config, handles.cursor, handles.status);
@@ -88,7 +88,7 @@ fn cursor_style_unfocused() {
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
     state.focused = false;
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let style =
         salsa_queries::cursor_style_query(&db, handles.config, handles.cursor, handles.status);
@@ -109,7 +109,7 @@ fn sync_buffer_only_when_dirty() {
     state.cursor_pos = Coord { line: 0, column: 3 };
 
     // Sync with BUFFER flag
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
     assert_eq!(handles.buffer.lines(&db).len(), 1);
     assert_eq!(handles.buffer.cursor_pos(&db), Coord { line: 0, column: 3 });
 
@@ -126,7 +126,7 @@ fn sync_status_only_when_dirty() {
     state.status_line = vec![make_atom(":edit foo")];
     state.status_mode_line = vec![make_atom("normal")];
 
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::STATUS, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
     assert_eq!(handles.status.status_line(&db).len(), 1);
 
     // Buffer should still be default
@@ -155,7 +155,7 @@ fn sync_menu_snapshot() {
         },
     ));
 
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::MENU, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
     let menu = handles.menu.menu(&db);
     assert!(menu.is_some());
     assert_eq!(menu.as_ref().unwrap().items.len(), 2);
@@ -186,7 +186,7 @@ fn sync_info_snapshots() {
         scroll_offset: 0,
     });
 
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::INFO, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
     let infos = handles.info.infos(&db);
     assert_eq!(infos.len(), 1);
     assert_eq!(infos[0].style, InfoStyle::Prompt);
@@ -206,12 +206,12 @@ fn early_cutoff_same_values() {
     state.status_mode_line = vec![make_atom("normal")];
 
     // First sync + query
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
     let style1 =
         salsa_queries::cursor_style_query(&db, handles.config, handles.cursor, handles.status);
 
     // Second sync with same values — Salsa should reuse cached result
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
     let style2 =
         salsa_queries::cursor_style_query(&db, handles.config, handles.cursor, handles.status);
 
@@ -229,11 +229,11 @@ fn selective_dirty_preserves_unrelated_inputs() {
     state.status_line = vec![make_atom("status")];
 
     // Sync everything first
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     // Now change only buffer, sync with BUFFER flag only
     state.lines = vec![vec![make_atom("world")]];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     // Buffer should reflect new value
     assert_eq!(handles.buffer.lines(&db)[0][0].contents.as_str(), "world");

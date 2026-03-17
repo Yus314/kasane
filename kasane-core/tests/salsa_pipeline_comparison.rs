@@ -63,24 +63,10 @@ fn setup_salsa_with_plugins(
 ) -> (KasaneDatabase, SalsaInputHandles) {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
-    sync_inputs_from_state(&mut db, state, DirtyFlags::ALL, &handles);
-    let epoch_changed = sync_plugin_epoch(&mut db, registry, &handles);
-    sync_display_directives(
-        &mut db,
-        state,
-        registry,
-        &handles,
-        DirtyFlags::ALL,
-        epoch_changed,
-    );
-    sync_plugin_contributions(
-        &mut db,
-        state,
-        registry,
-        &handles,
-        DirtyFlags::ALL,
-        epoch_changed,
-    );
+    sync_inputs_from_state(&mut db, state, &handles);
+    let _epoch_changed = sync_plugin_epoch(&mut db, registry, &handles);
+    sync_display_directives(&mut db, state, registry, &handles);
+    sync_plugin_contributions(&mut db, state, registry, &handles);
     (db, handles)
 }
 
@@ -274,24 +260,10 @@ fn compare_memoization_consistency() {
 
     // Change only buffer, re-sync, render again
     state.lines = vec![vec![make_atom("world")]];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CONTENT, &handles);
-    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(
-        &mut db,
-        &state,
-        &registry,
-        &handles,
-        DirtyFlags::BUFFER_CONTENT,
-        epoch_changed,
-    );
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry,
-        &handles,
-        DirtyFlags::BUFFER_CONTENT,
-        epoch_changed,
-    );
+    sync_inputs_from_state(&mut db, &state, &handles);
+    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let legacy2 = render_legacy(&state, &registry);
     let salsa2 = render_salsa(&state, &registry, &db, &handles);
@@ -710,11 +682,10 @@ fn compare_menu_appears_while_info_visible() {
 
     // Now add a menu and re-render
     state.menu = Some(make_menu_state());
-    let dirty = DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION;
-    sync_inputs_from_state(&mut db, &state, dirty, &handles);
-    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles, dirty, epoch_changed);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, epoch_changed);
+    sync_inputs_from_state(&mut db, &state, &handles);
+    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let legacy_both = render_legacy(&state, &registry);
     let salsa_both = render_salsa(&state, &registry, &db, &handles);
@@ -738,11 +709,10 @@ fn compare_menu_disappears_while_info_visible() {
 
     // Remove the menu
     state.menu = None;
-    let dirty = DirtyFlags::MENU_STRUCTURE;
-    sync_inputs_from_state(&mut db, &state, dirty, &handles);
-    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles, dirty, epoch_changed);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, epoch_changed);
+    sync_inputs_from_state(&mut db, &state, &handles);
+    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let legacy_info_only = render_legacy(&state, &registry);
     let salsa_info_only = render_salsa(&state, &registry, &db, &handles);

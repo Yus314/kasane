@@ -10,7 +10,7 @@ use kasane_core::protocol::{Atom, Coord, Face, InfoStyle, MenuStyle};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
 use kasane_core::salsa_views;
-use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
+use kasane_core::state::{AppState, InfoIdentity, InfoState, MenuParams, MenuState};
 
 fn make_atom(text: &str) -> Atom {
     Atom {
@@ -30,7 +30,7 @@ fn pure_status_element_basic() {
     let mut state = AppState::default();
     state.status_line = vec![make_atom(":edit foo.rs")];
     state.status_mode_line = vec![make_atom("normal")];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let element = salsa_views::pure_status_element(&db, handles.status);
 
@@ -53,7 +53,7 @@ fn pure_status_element_empty_mode() {
     let mut state = AppState::default();
     state.status_line = vec![make_atom(":edit foo.rs")];
     // No mode line → only 1 child
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let element = salsa_views::pure_status_element(&db, handles.status);
     match &element {
@@ -74,7 +74,7 @@ fn pure_status_memoization() {
     let mut state = AppState::default();
     state.status_line = vec![make_atom("status")];
     state.status_mode_line = vec![make_atom("normal")];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let e1 = salsa_views::pure_status_element(&db, handles.status);
     // Query again without changing inputs — should return cached result
@@ -93,7 +93,7 @@ fn pure_buffer_element_basic() {
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
     state.rows = 24;
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let element = salsa_views::pure_buffer_element(&db, handles.config);
     match &element {
@@ -121,7 +121,7 @@ fn pure_menu_overlay_none_when_empty() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let state = AppState::default(); // no menu
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlay = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
     assert!(overlay.is_none());
@@ -153,7 +153,7 @@ fn pure_menu_overlay_inline() {
             max_height: 10,
         },
     ));
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlay = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
     assert!(overlay.is_some(), "inline menu should produce overlay");
@@ -186,7 +186,7 @@ fn pure_menu_overlay_prompt() {
             max_height: 10,
         },
     ));
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlay = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
     assert!(overlay.is_some(), "prompt menu should produce overlay");
@@ -211,7 +211,7 @@ fn pure_menu_overlay_search() {
             max_height: 10,
         },
     ));
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlay = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
     assert!(overlay.is_some(), "search menu should produce overlay");
@@ -231,7 +231,7 @@ fn pure_info_overlays_empty() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let state = AppState::default(); // no infos
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlays = salsa_views::pure_info_overlays(
         &db,
@@ -265,7 +265,7 @@ fn pure_info_overlays_single_modal() {
         },
         scroll_offset: 0,
     });
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlays = salsa_views::pure_info_overlays(
         &db,
@@ -310,7 +310,7 @@ fn pure_info_overlays_multiple() {
             scroll_offset: 0,
         });
     }
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlays = salsa_views::pure_info_overlays(
         &db,
@@ -347,7 +347,7 @@ fn pure_info_overlays_prompt_style() {
         },
         scroll_offset: 0,
     });
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let overlays = salsa_views::pure_info_overlays(
         &db,
@@ -382,13 +382,13 @@ fn menu_memoization_across_buffer_changes() {
             max_height: 10,
         },
     ));
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let m1 = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
 
     // Change buffer content only — menu should use cached result
     state.lines = vec![vec![make_atom("hello world")]];
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CONTENT, &handles);
+    sync_inputs_from_state(&mut db, &state, &handles);
 
     let m2 = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
     assert_eq!(
