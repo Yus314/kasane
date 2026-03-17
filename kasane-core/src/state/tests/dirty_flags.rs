@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
@@ -327,4 +329,103 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert!(state.ui_options.is_empty());
     assert_eq!(state.drag, crate::state::DragState::None);
     assert!(state.scroll_animation.is_none());
+}
+
+// --- DirtyTracked derive consistency tests ---
+
+#[test]
+fn test_field_dirty_map_matches_macro_analysis() {
+    // Build a HashMap from the derive-generated FIELD_DIRTY_MAP
+    let derive_map: HashMap<&str, HashSet<&str>> = AppState::FIELD_DIRTY_MAP
+        .iter()
+        .map(|(field, flags)| (*field, flags.iter().copied().collect::<HashSet<_>>()))
+        .collect();
+
+    // Build a HashMap from the proc-macro's FIELD_FLAG_MAP
+    // (imported from kasane_macros::analysis via the FIELD_FLAG_MAP constant embedded in analysis.rs)
+    // Since we can't directly reference the proc macro's internal constant, we duplicate it here
+    // and the test ensures both stay in sync.
+    let macro_map: &[(&str, &[&str])] = &[
+        ("lines", &["BUFFER_CONTENT"]),
+        ("lines_dirty", &["BUFFER_CONTENT"]),
+        ("default_face", &["BUFFER_CONTENT"]),
+        ("padding_face", &["BUFFER_CONTENT"]),
+        ("widget_columns", &["BUFFER_CONTENT"]),
+        ("cursor_mode", &["BUFFER_CURSOR"]),
+        ("cursor_pos", &["BUFFER_CURSOR"]),
+        ("cursor_count", &["BUFFER_CURSOR"]),
+        ("secondary_cursors", &["BUFFER_CURSOR"]),
+        ("status_prompt", &["STATUS"]),
+        ("status_content", &["STATUS"]),
+        ("status_content_cursor_pos", &["STATUS"]),
+        ("status_line", &["STATUS"]),
+        ("status_mode_line", &["STATUS"]),
+        ("status_default_face", &["STATUS"]),
+        ("menu", &["MENU_STRUCTURE", "MENU_SELECTION"]),
+        ("infos", &["INFO"]),
+        ("ui_options", &["OPTIONS"]),
+        ("shadow_enabled", &["OPTIONS"]),
+        ("padding_char", &["OPTIONS"]),
+        ("menu_max_height", &["OPTIONS"]),
+        ("menu_position", &["OPTIONS"]),
+        ("search_dropdown", &["OPTIONS"]),
+        ("status_at_top", &["OPTIONS"]),
+        ("scrollbar_thumb", &["MENU_STRUCTURE"]),
+        ("scrollbar_track", &["MENU_STRUCTURE"]),
+        ("assistant_art", &["OPTIONS"]),
+        ("plugin_config", &["OPTIONS"]),
+        ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
+        ("session_descriptors", &["SESSION"]),
+        ("active_session_key", &["SESSION"]),
+    ];
+
+    let macro_hashmap: HashMap<&str, HashSet<&str>> = macro_map
+        .iter()
+        .map(|(field, flags)| (*field, flags.iter().copied().collect::<HashSet<_>>()))
+        .collect();
+
+    // Both maps should have identical entries
+    assert_eq!(
+        derive_map.len(),
+        macro_hashmap.len(),
+        "field count mismatch: derive={}, macro={}. \
+         derive_only={:?}, macro_only={:?}",
+        derive_map.len(),
+        macro_hashmap.len(),
+        derive_map
+            .keys()
+            .filter(|k| !macro_hashmap.contains_key(*k))
+            .collect::<Vec<_>>(),
+        macro_hashmap
+            .keys()
+            .filter(|k| !derive_map.contains_key(*k))
+            .collect::<Vec<_>>(),
+    );
+
+    for (field, macro_flags) in &macro_hashmap {
+        let derive_flags = derive_map.get(field).unwrap_or_else(|| {
+            panic!("field `{field}` in macro FIELD_FLAG_MAP but not in derive FIELD_DIRTY_MAP")
+        });
+        assert_eq!(
+            derive_flags, macro_flags,
+            "flag mismatch for field `{field}`: derive={derive_flags:?}, macro={macro_flags:?}"
+        );
+    }
+}
+
+#[test]
+fn test_free_read_fields_match() {
+    let expected_free: HashSet<&str> = [
+        "cols",
+        "rows",
+        "focused",
+        "drag",
+        "smooth_scroll",
+        "scroll_animation",
+    ]
+    .iter()
+    .copied()
+    .collect();
+    let actual_free: HashSet<&str> = AppState::FREE_READ_FIELDS.iter().copied().collect();
+    assert_eq!(actual_free, expected_free);
 }

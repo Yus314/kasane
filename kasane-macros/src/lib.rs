@@ -1,5 +1,6 @@
 mod analysis;
 mod component;
+mod dirty_tracked;
 mod plugin;
 
 use proc_macro::TokenStream;
@@ -33,6 +34,19 @@ pub fn kasane_plugin(_attr: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn kasane_component(attr: TokenStream, input: TokenStream) -> TokenStream {
     component::expand_kasane_component(attr.into(), input.into())
+        .unwrap_or_else(|e| e.to_compile_error())
+        .into()
+}
+
+/// Derive macro that enforces compile-time field → DirtyFlags mapping.
+///
+/// Every field must have a `#[dirty(FLAG)]` or `#[dirty(free)]` annotation.
+/// Missing annotations produce a compile error.
+///
+/// Generates `AppState::FIELD_DIRTY_MAP` and `AppState::FREE_READ_FIELDS` constants.
+#[proc_macro_derive(DirtyTracked, attributes(dirty))]
+pub fn derive_dirty_tracked(input: TokenStream) -> TokenStream {
+    dirty_tracked::expand_dirty_tracked(input.into())
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }

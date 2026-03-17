@@ -1,4 +1,5 @@
-use super::cache::{LayoutCache, ViewCache};
+use super::cache::LayoutCache;
+pub(crate) use super::cache::ViewCache;
 use super::cursor::{
     apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style,
     find_buffer_x_offset,
@@ -24,44 +25,30 @@ use crate::state::{AppState, DirtyFlags};
 /// Trait that abstracts the source of `ViewSections` for the rendering pipeline.
 ///
 /// Two implementations exist:
-/// - `PluginViewSource`: builds sections from `PluginRegistry` alone (legacy/test path)
-/// - `SurfaceViewSource`: builds sections from `SurfaceRegistry` (workspace-aware path)
+/// - `PluginViewSource`: builds sections from `PluginRegistry` alone (legacy/test path, internal ViewCache)
+/// - `SalsaViewSource`: reads from Salsa inputs (no ViewCache needed)
 pub(crate) trait ViewSource {
-    fn invalidate_view_cache(
-        &self,
-        dirty: DirtyFlags,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    );
+    /// Prepare for a new frame: invalidate internal caches if needed.
+    fn prepare(&mut self, dirty: DirtyFlags, registry: &PluginRegistry);
 
-    fn view_sections(
-        &self,
-        state: &AppState,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) -> view::ViewSections;
+    /// Build the decomposed view sections.
+    fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections;
 }
 
 /// Builds view sections using only the PluginRegistry (no workspace surfaces).
-struct PluginViewSource;
+/// Holds an internal ViewCache for memoization.
+struct PluginViewSource<'a> {
+    cache: &'a mut ViewCache,
+}
 
-impl ViewSource for PluginViewSource {
-    fn invalidate_view_cache(
-        &self,
-        dirty: DirtyFlags,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) {
-        cache.invalidate_with_deps(dirty, registry.section_deps());
+impl ViewSource for PluginViewSource<'_> {
+    fn prepare(&mut self, dirty: DirtyFlags, registry: &PluginRegistry) {
+        self.cache
+            .invalidate_with_deps(dirty, registry.section_deps());
     }
 
-    fn view_sections(
-        &self,
-        state: &AppState,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) -> view::ViewSections {
-        view::view_sections_cached(state, registry, cache)
+    fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections {
+        view::view_sections_cached(state, registry, self.cache)
     }
 }
 
@@ -209,18 +196,17 @@ fn backfill_surface_report_areas(
 
 /// Core cached rendering pipeline, generic over the view section source.
 pub(crate) fn render_cached_core(
-    source: &impl ViewSource,
+    source: &mut impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    cache: &mut ViewCache,
     paint_hooks: &[Box<dyn PaintHook>],
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
-    source.invalidate_view_cache(dirty, registry, cache);
-    let mut sections = source.view_sections(state, registry, cache);
+    source.prepare(dirty, registry);
+    let mut sections = source.view_sections(state, registry);
     let display_map = std::sync::Arc::clone(&sections.display_map);
     let dm = dm_ref(&display_map);
     let root_area = Rect {
@@ -269,12 +255,11 @@ pub(crate) fn render_cached_core(
 /// or the layout cache is cold.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_sectioned_core(
-    source: &impl ViewSource,
+    source: &mut impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
     layout_cache: &mut LayoutCache,
     paint_hooks: &[Box<dyn PaintHook>],
 ) -> RenderResult {
@@ -299,8 +284,8 @@ pub(crate) fn render_sectioned_core(
             }
         });
 
-        source.invalidate_view_cache(dirty, registry, view_cache);
-        let mut sections = source.view_sections(state, registry, view_cache);
+        source.prepare(dirty, registry);
+        let mut sections = source.view_sections(state, registry);
         let display_map = std::sync::Arc::clone(&sections.display_map);
         let dm = dm_ref(&display_map);
         let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
@@ -334,8 +319,8 @@ pub(crate) fn render_sectioned_core(
 
     // Only MENU_SELECTION dirty: repaint just the menu overlay area
     if dirty == DirtyFlags::MENU_SELECTION && state.menu.is_some() {
-        source.invalidate_view_cache(dirty, registry, view_cache);
-        let mut sections = source.view_sections(state, registry, view_cache);
+        source.prepare(dirty, registry);
+        let mut sections = source.view_sections(state, registry);
         let display_map = std::sync::Arc::clone(&sections.display_map);
         let dm = dm_ref(&display_map);
 
@@ -369,18 +354,10 @@ pub(crate) fn render_sectioned_core(
     }
 
     // Fallback: full pipeline
-    let result = render_cached_core(
-        source,
-        state,
-        registry,
-        grid,
-        dirty,
-        view_cache,
-        paint_hooks,
-    );
+    let result = render_cached_core(source, state, registry, grid, dirty, paint_hooks);
 
     // Update layout cache from the full render
-    let mut sections = source.view_sections(state, registry, view_cache);
+    let mut sections = source.view_sections(state, registry);
     let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
     let element = sections.into_element();
     let layout_result = flex::place(&element, root_area, state);
@@ -405,12 +382,11 @@ pub(crate) fn render_sectioned_core(
 /// and asserts CellGrid equivalence (correctness invariant).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_patched_core(
-    source: &impl ViewSource,
+    source: &mut impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
     layout_cache: &mut LayoutCache,
     patches: &[&dyn patch::PaintPatch],
     paint_hooks: &[Box<dyn PaintHook>],
@@ -421,7 +397,7 @@ pub(crate) fn render_patched_core(
     let plugins_changed = registry.any_plugin_state_changed();
     if patch::try_apply_grid_patch(patches, grid, state, dirty, layout_cache, plugins_changed) {
         // Compute buffer_x_offset and display_map from cached layout if available
-        let sections = source.view_sections(state, registry, view_cache);
+        let sections = source.view_sections(state, registry);
         let display_map = std::sync::Arc::clone(&sections.display_map);
         let dm = dm_ref(&display_map);
         let buffer_x_offset = if let Some(ref base_layout) = layout_cache.base_layout {
@@ -444,21 +420,12 @@ pub(crate) fn render_patched_core(
         #[cfg(debug_assertions)]
         {
             let mut ref_grid = CellGrid::new(grid.width(), grid.height());
-            let mut ref_cache = ViewCache::new();
-            render_cached_core(
-                source,
-                state,
-                registry,
-                &mut ref_grid,
-                DirtyFlags::ALL,
-                &mut ref_cache,
-                &[],
-            );
+            render_cached_core(source, state, registry, &mut ref_grid, DirtyFlags::ALL, &[]);
             debug_assert_grid_equivalent(grid, &ref_grid, state);
         }
 
-        // Still invalidate view cache for future renders
-        source.invalidate_view_cache(dirty, registry, view_cache);
+        // Prepare source for future renders (invalidate internal caches if any)
+        source.prepare(dirty, registry);
         return result;
     }
 
@@ -469,7 +436,6 @@ pub(crate) fn render_patched_core(
         registry,
         grid,
         dirty,
-        view_cache,
         layout_cache,
         paint_hooks,
     )
@@ -480,22 +446,21 @@ pub(crate) fn render_patched_core(
 /// Returns a slice into the SceneCache's composed buffer and the RenderResult.
 /// Per-section invalidation: only dirty sections are re-rendered.
 pub(crate) fn scene_render_core<'a>(
-    source: &impl ViewSource,
+    source: &mut impl ViewSource,
     state: &AppState,
     registry: &PluginRegistry,
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
     scene_cache: &'a mut SceneCache,
 ) -> (&'a [DrawCommand], RenderResult) {
     crate::perf::perf_span!("scene_render_pipeline");
 
-    // Invalidate both caches
-    source.invalidate_view_cache(dirty, registry, view_cache);
+    // Invalidate caches
+    source.prepare(dirty, registry);
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
-    // Get view sections (uses ViewCache) — needed for buffer_x_offset even on fast path
-    let mut sections = source.view_sections(state, registry, view_cache);
+    // Get view sections — needed for buffer_x_offset even on fast path
+    let mut sections = source.view_sections(state, registry);
 
     let root_area = Rect {
         x: 0,
@@ -625,15 +590,8 @@ pub fn scene_render_pipeline_scene_cached<'a>(
     view_cache: &mut ViewCache,
     scene_cache: &'a mut SceneCache,
 ) -> (&'a [DrawCommand], RenderResult) {
-    scene_render_core(
-        &PluginViewSource,
-        state,
-        registry,
-        cell_size,
-        dirty,
-        view_cache,
-        scene_cache,
-    )
+    let mut source = PluginViewSource { cache: view_cache };
+    scene_render_core(&mut source, state, registry, cell_size, dirty, scene_cache)
 }
 
 /// Declarative rendering pipeline (backward-compatible).
@@ -671,15 +629,8 @@ pub(crate) fn render_pipeline_cached_with_hooks(
     cache: &mut ViewCache,
     paint_hooks: &[Box<dyn PaintHook>],
 ) -> RenderResult {
-    render_cached_core(
-        &PluginViewSource,
-        state,
-        registry,
-        grid,
-        dirty,
-        cache,
-        paint_hooks,
-    )
+    let mut source = PluginViewSource { cache };
+    render_cached_core(&mut source, state, registry, grid, dirty, paint_hooks)
 }
 
 /// Section-aware rendering pipeline (S1).
@@ -691,16 +642,8 @@ pub fn render_pipeline_sectioned(
     view_cache: &mut ViewCache,
     layout_cache: &mut LayoutCache,
 ) -> RenderResult {
-    render_sectioned_core(
-        &PluginViewSource,
-        state,
-        registry,
-        grid,
-        dirty,
-        view_cache,
-        layout_cache,
-        &[],
-    )
+    let mut source = PluginViewSource { cache: view_cache };
+    render_sectioned_core(&mut source, state, registry, grid, dirty, layout_cache, &[])
 }
 
 /// Patched rendering pipeline (S3).
@@ -713,13 +656,13 @@ pub fn render_pipeline_patched(
     layout_cache: &mut LayoutCache,
     patches: &[&dyn patch::PaintPatch],
 ) -> RenderResult {
+    let mut source = PluginViewSource { cache: view_cache };
     render_patched_core(
-        &PluginViewSource,
+        &mut source,
         state,
         registry,
         grid,
         dirty,
-        view_cache,
         layout_cache,
         patches,
         &[],

@@ -1,41 +1,44 @@
 //! SalsaViewSource: ViewSource implementation backed by Salsa tracked functions.
 //!
 //! Uses Salsa-memoized pure element generation (Stage 1) combined with
-//! imperative plugin contribution/transform application (Stage 2).
+//! plugin contributions read from Salsa inputs (Stage 2) and imperative
+//! transform application (Stage 3).
 //!
 //! The flow per section:
 //! 1. Salsa tracked function produces the core element (auto-memoized)
-//! 2. Plugin transforms are applied on top (using PluginRegistry)
-//! 3. ViewCache caches the combined result
+//! 2. Plugin contributions (slots, annotations, overlays) read from Salsa inputs
+//! 3. Plugin transforms are applied on top (using PluginRegistry)
 //!
-//! This is the sole rendering pipeline, replacing the legacy SurfaceViewSource path.
+//! No ViewCache is needed — Salsa handles memoization of pure elements,
+//! and `sync_plugin_contributions()` pre-computes plugin contributions
+//! into Salsa inputs each frame.
 
-use super::cache::{LayoutCache, ViewCache, cache_dirty_snapshot};
+use super::cache::LayoutCache;
 use super::grid::CellGrid;
 use super::pipeline::{
     ViewSource, render_cached_core, render_patched_core, render_sectioned_core, scene_render_core,
 };
 use super::scene::{self, DrawCommand, SceneCache};
-use super::view::{self, BUILD_INFO_SECTION_DEPS, BUILD_MENU_SECTION_DEPS};
+use super::view;
 use super::{RenderResult, patch};
-use crate::element::{Element, FlexChild, Overlay, Style};
-use crate::plugin::{
-    AnnotateContext, ContribSizeHint, ContributeContext, Contribution, PaintHook, PluginRegistry,
-    SlotId, TransformTarget,
-};
+use crate::element::{Element, FlexChild, Style};
+use crate::plugin::{PaintHook, PluginRegistry, TransformTarget};
 use crate::protocol::MenuStyle;
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
 use crate::salsa_views;
 use crate::state::{AppState, DirtyFlags};
-use crate::surface::SurfaceComposeResult;
 
-/// ViewSource that uses Salsa tracked functions for core element generation.
+/// ViewSource that uses Salsa tracked functions for core element generation
+/// and reads plugin contributions from Salsa inputs.
 ///
 /// Stage 1 (pure, Salsa-memoized): `pure_status_element`, `pure_buffer_element`,
 /// `pure_menu_overlay`, `pure_info_overlays`.
 ///
-/// Stage 2 (imperative): plugin slot fills, annotations, transforms, overlays.
+/// Stage 2 (Salsa inputs): slot contributions, annotations, overlays
+/// (set by `sync_plugin_contributions()` each frame).
+///
+/// Stage 3 (imperative): plugin transforms applied via `PluginRegistry`.
 pub(crate) struct SalsaViewSource<'a> {
     db: &'a KasaneDatabase,
     handles: &'a SalsaInputHandles,
@@ -48,205 +51,124 @@ impl<'a> SalsaViewSource<'a> {
 }
 
 impl ViewSource for SalsaViewSource<'_> {
-    fn invalidate_view_cache(
-        &self,
-        dirty: DirtyFlags,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) {
-        // ViewCache still caches the combined (pure + plugins) result.
-        // Invalidation follows existing DirtyFlags + plugin deps logic.
-        cache.invalidate_with_deps(dirty, registry.section_deps());
+    fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginRegistry) {
+        // No-op: Salsa handles invalidation automatically.
+        // Plugin contributions are synced by sync_plugin_contributions() before rendering.
     }
 
-    fn view_sections(
-        &self,
-        state: &AppState,
-        registry: &PluginRegistry,
-        cache: &mut ViewCache,
-    ) -> view::ViewSections {
+    fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections {
         crate::perf::perf_span!("salsa_view_sections");
 
         let db = self.db;
         let h = self.handles;
 
-        // --- Base section (buffer + status) ---
-        // DirtyFlags for base: BUFFER_CONTENT | STATUS | OPTIONS
-        let base_deps = view::BUILD_BASE_DEPS;
-        let base = cache.base.get_or_insert(
-            cache_dirty_snapshot(&cache.base, base_deps),
-            base_deps,
-            || {
-                // Stage 1: get pure elements from Salsa
-                let status_el = salsa_views::pure_status_element(db, h.status);
-                let buffer_el = salsa_views::pure_buffer_element(db, h.config);
-
-                // Stage 2: apply plugin contributions
-                let base_el = compose_base_with_plugins(buffer_el, status_el, state, registry);
-
-                SurfaceComposeResult {
-                    base: Some(base_el),
-                    surface_reports: vec![],
-                }
-            },
+        // --- Base section (buffer + status + slots + annotations) ---
+        let status_el = salsa_views::pure_status_element(db, h.status);
+        let buffer_el = salsa_views::pure_buffer_element(db, h.config);
+        let display_map_ref = salsa_views::display_map_query(db, h.display_directives);
+        let base_el = compose_base_from_salsa(
+            buffer_el,
+            status_el,
+            state,
+            registry,
+            &display_map_ref,
+            db,
+            h,
         );
 
         // --- Menu overlay ---
-        let menu_overlay = cache.menu_overlay.get_or_insert(
-            cache_dirty_snapshot(&cache.menu_overlay, BUILD_MENU_SECTION_DEPS),
-            BUILD_MENU_SECTION_DEPS,
-            || {
-                // Stage 1: get pure menu from Salsa
-                let pure = salsa_views::pure_menu_overlay(db, h.menu, h.config);
+        let menu_overlay = {
+            let pure = salsa_views::pure_menu_overlay(db, h.menu, h.config);
+            pure.map(|mut overlay| {
+                let menu_state = state.menu.as_ref();
+                let transform_target = menu_state.map(|m| match m.style {
+                    MenuStyle::Prompt => TransformTarget::MenuPrompt,
+                    MenuStyle::Inline => TransformTarget::MenuInline,
+                    MenuStyle::Search => TransformTarget::MenuSearch,
+                });
 
-                // Stage 2: apply plugin transforms
-                pure.map(|mut overlay| {
-                    let menu_state = state.menu.as_ref();
-                    let transform_target = menu_state.map(|m| match m.style {
-                        MenuStyle::Prompt => TransformTarget::MenuPrompt,
-                        MenuStyle::Inline => TransformTarget::MenuInline,
-                        MenuStyle::Search => TransformTarget::MenuSearch,
-                    });
-
-                    overlay.element = registry.apply_transform_chain(
-                        TransformTarget::Menu,
-                        || overlay.element.clone(),
-                        state,
-                    );
-                    if let Some(target) = transform_target {
-                        overlay.element = registry.apply_transform_chain(
-                            target,
-                            || overlay.element.clone(),
-                            state,
-                        );
-                    }
-                    overlay
-                })
-            },
-        );
+                overlay.element = registry.apply_transform_chain(
+                    TransformTarget::Menu,
+                    || overlay.element.clone(),
+                    state,
+                );
+                if let Some(target) = transform_target {
+                    overlay.element =
+                        registry.apply_transform_chain(target, || overlay.element.clone(), state);
+                }
+                overlay
+            })
+        };
 
         // --- Info overlays ---
-        let info_overlays = cache.info_overlays.get_or_insert(
-            cache_dirty_snapshot(&cache.info_overlays, BUILD_INFO_SECTION_DEPS),
-            BUILD_INFO_SECTION_DEPS,
-            || {
-                // Stage 1: get pure info overlays from Salsa
-                let pure = salsa_views::pure_info_overlays(db, h.info, h.menu, h.buffer, h.config);
+        let info_overlays = {
+            let pure = salsa_views::pure_info_overlays(db, h.info, h.menu, h.buffer, h.config);
+            pure.into_iter()
+                .map(|mut overlay| {
+                    let (inner, interactive_id) = match overlay.element {
+                        Element::Interactive { child, id } => (*child, Some(id)),
+                        other => (other, None),
+                    };
 
-                // Stage 2: apply plugin transforms to each overlay
-                pure.into_iter()
-                    .map(|mut overlay| {
-                        // Unwrap Interactive to get the inner element for transforms
-                        let (inner, interactive_id) = match overlay.element {
-                            Element::Interactive { child, id } => (*child, Some(id)),
-                            other => (other, None),
+                    let mut el = registry.apply_transform_chain(
+                        TransformTarget::Info,
+                        || inner.clone(),
+                        state,
+                    );
+
+                    if let Some(id) = interactive_id {
+                        el = Element::Interactive {
+                            child: Box::new(el),
+                            id,
                         };
+                    }
 
-                        let mut el = registry.apply_transform_chain(
-                            TransformTarget::Info,
-                            || inner.clone(),
-                            state,
-                        );
-
-                        // Re-wrap with Interactive if it was present
-                        if let Some(id) = interactive_id {
-                            el = Element::Interactive {
-                                child: Box::new(el),
-                                id,
-                            };
-                        }
-
-                        overlay.element = el;
-                        overlay
-                    })
-                    .collect()
-            },
-        );
-
-        // --- Plugin overlays (fully imperative, no Salsa involvement) ---
-        let overlay_ctx = crate::plugin::OverlayContext {
-            screen_cols: state.cols,
-            screen_rows: state.rows,
-            menu_rect: None,
-            existing_overlays: vec![],
+                    overlay.element = el;
+                    overlay
+                })
+                .collect()
         };
-        let plugin_overlays: Vec<Overlay> = registry
-            .collect_overlays_with_ctx(state, &overlay_ctx)
-            .into_iter()
-            .map(|oc| Overlay {
-                element: oc.element,
-                anchor: oc.anchor,
-            })
-            .collect();
 
-        let display_map = registry.collect_display_map(state);
+        // --- Plugin overlays from Salsa input ---
+        let plugin_overlays = h.plugin_overlays.overlays(db).clone();
+
+        let display_map = salsa_views::display_map_query(db, h.display_directives);
         view::ViewSections {
-            base: base.base.unwrap_or(Element::Empty),
+            base: base_el,
             menu_overlay,
             info_overlays,
             plugin_overlays,
-            surface_reports: base.surface_reports,
+            surface_reports: vec![],
             display_map,
         }
     }
 }
 
-/// Convert a plugin `Contribution` to a `FlexChild` based on its size hint.
-fn contribution_to_flex_child(c: Contribution) -> FlexChild {
-    match c.size_hint {
-        ContribSizeHint::Auto => FlexChild::fixed(c.element),
-        ContribSizeHint::Fixed(n) => FlexChild {
-            element: c.element,
-            flex: 0.0,
-            min_size: Some(n),
-            max_size: Some(n),
-        },
-        ContribSizeHint::Flex(flex) => FlexChild::flexible(c.element, flex),
-    }
-}
-
-/// Collect slot contributions and convert to FlexChildren.
-fn collect_slot_children(
-    slot: &SlotId,
-    state: &AppState,
-    registry: &PluginRegistry,
-    ctx: &ContributeContext,
-) -> Vec<FlexChild> {
-    registry
-        .collect_contributions(slot, state, ctx)
-        .into_iter()
-        .map(contribution_to_flex_child)
-        .collect()
-}
-
-/// Compose buffer + status elements into the base Element tree, applying
-/// plugin contributions (annotations, transforms, slot fills).
-fn compose_base_with_plugins(
+/// Compose buffer + status elements into the base Element tree, reading
+/// plugin contributions (slot fills, annotations) from Salsa inputs and
+/// applying transforms imperatively via the registry.
+fn compose_base_from_salsa(
     buffer_el: Element,
     status_el: Element,
     state: &AppState,
     registry: &PluginRegistry,
+    display_map: &crate::display::DisplayMapRef,
+    db: &KasaneDatabase,
+    handles: &SalsaInputHandles,
 ) -> Element {
     use std::sync::Arc;
 
-    let ctx = ContributeContext::new(state, None);
-
-    // Collect display map before annotations (annotations may use it)
     let buffer_rows = state.available_height() as usize;
-    let display_map = registry.collect_display_map(state);
     let dm_for_element = if display_map.is_identity() {
         None
     } else {
-        Some(Arc::clone(&display_map))
+        Some(Arc::clone(display_map))
     };
 
-    // Apply plugin annotations (line backgrounds, gutters)
-    let annotate_ctx = AnnotateContext {
-        line_width: state.cols,
-        gutter_width: 0,
-        display_map: Some(Arc::clone(&display_map)),
-    };
-    let annotations = registry.collect_annotations(state, &annotate_ctx);
+    // Read annotations from Salsa input (set by sync_plugin_contributions)
+    let line_backgrounds = handles.annotations.line_backgrounds(db).clone();
+    let left_gutter = handles.annotations.left_gutter(db).clone();
+    let right_gutter = handles.annotations.right_gutter(db).clone();
 
     // When a non-identity DisplayMap is active, line_range must reflect
     // the display line count (which is fewer than buffer lines after fold).
@@ -257,35 +179,35 @@ fn compose_base_with_plugins(
     };
 
     // Incorporate line backgrounds and display_map into buffer element
-    let buffer_with_bg = if annotations.line_backgrounds.is_some() || dm_for_element.is_some() {
+    let buffer_with_bg = if line_backgrounds.is_some() || dm_for_element.is_some() {
         Element::BufferRef {
             line_range: 0..effective_rows,
-            line_backgrounds: annotations.line_backgrounds,
+            line_backgrounds,
             display_map: dm_for_element,
         }
     } else {
         buffer_el
     };
 
-    // Apply buffer transform chain
+    // Apply buffer transform chain (imperative)
     let transformed_buffer =
         registry.apply_transform_chain(TransformTarget::Buffer, || buffer_with_bg, state);
 
-    // Collect buffer slot contributions
-    let buffer_left = collect_slot_children(&SlotId::BUFFER_LEFT, state, registry, &ctx);
-    let buffer_right = collect_slot_children(&SlotId::BUFFER_RIGHT, state, registry, &ctx);
-    let above_buffer = collect_slot_children(&SlotId::ABOVE_BUFFER, state, registry, &ctx);
-    let below_buffer = collect_slot_children(&SlotId::BELOW_BUFFER, state, registry, &ctx);
+    // Read buffer slot contributions from Salsa input
+    let buffer_left = handles.slot_contributions.buffer_left(db).clone();
+    let buffer_right = handles.slot_contributions.buffer_right(db).clone();
+    let above_buffer = handles.slot_contributions.above_buffer(db).clone();
+    let below_buffer = handles.slot_contributions.below_buffer(db).clone();
 
     // Build buffer row: [left_gutter] [slot:left] [buffer] [slot:right] [right_gutter]
     let mut row_children = Vec::new();
-    if let Some(left_gutter) = annotations.left_gutter {
+    if let Some(left_gutter) = left_gutter {
         row_children.push(FlexChild::fixed(left_gutter));
     }
     row_children.extend(buffer_left);
     row_children.push(FlexChild::flexible(transformed_buffer, 1.0));
     row_children.extend(buffer_right);
-    if let Some(right_gutter) = annotations.right_gutter {
+    if let Some(right_gutter) = right_gutter {
         row_children.push(FlexChild::fixed(right_gutter));
     }
     let buffer_row = Element::row(row_children);
@@ -301,14 +223,14 @@ fn compose_base_with_plugins(
         Element::column(children)
     };
 
-    // Apply status transform chain
+    // Apply status transform chain (imperative)
     let transformed_status =
         registry.apply_transform_chain(TransformTarget::StatusBar, || status_el, state);
 
-    // Collect status slot contributions
-    let status_left = collect_slot_children(&SlotId::STATUS_LEFT, state, registry, &ctx);
-    let status_right = collect_slot_children(&SlotId::STATUS_RIGHT, state, registry, &ctx);
-    let above_status = collect_slot_children(&SlotId::ABOVE_STATUS, state, registry, &ctx);
+    // Read status slot contributions from Salsa input
+    let status_left = handles.slot_contributions.status_left(db).clone();
+    let status_right = handles.slot_contributions.status_right(db).clone();
+    let above_status = handles.slot_contributions.above_status(db).clone();
 
     // Build status row: [slot:left] [status_core] [slot:right]
     let status_inner = if status_left.is_empty() && status_right.is_empty() {
@@ -348,7 +270,7 @@ fn compose_base_with_plugins(
 }
 
 // ---------------------------------------------------------------------------
-// Public API: Salsa-backed pipeline wrappers
+// Public API: Salsa-backed pipeline wrappers (no ViewCache parameter)
 // ---------------------------------------------------------------------------
 
 /// Salsa-backed cached rendering pipeline (TUI).
@@ -360,11 +282,10 @@ pub fn render_pipeline_salsa_cached(
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    cache: &mut ViewCache,
     paint_hooks: &[Box<dyn PaintHook>],
 ) -> RenderResult {
-    let source = SalsaViewSource::new(db, handles);
-    render_cached_core(&source, state, registry, grid, dirty, cache, paint_hooks)
+    let mut source = SalsaViewSource::new(db, handles);
+    render_cached_core(&mut source, state, registry, grid, dirty, paint_hooks)
 }
 
 /// Salsa-backed section-aware rendering pipeline (TUI).
@@ -376,18 +297,16 @@ pub fn render_pipeline_salsa_sectioned(
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
     layout_cache: &mut LayoutCache,
     paint_hooks: &[Box<dyn PaintHook>],
 ) -> RenderResult {
-    let source = SalsaViewSource::new(db, handles);
+    let mut source = SalsaViewSource::new(db, handles);
     render_sectioned_core(
-        &source,
+        &mut source,
         state,
         registry,
         grid,
         dirty,
-        view_cache,
         layout_cache,
         paint_hooks,
     )
@@ -402,19 +321,17 @@ pub fn render_pipeline_salsa_patched(
     registry: &PluginRegistry,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
     layout_cache: &mut LayoutCache,
     patches: &[&dyn patch::PaintPatch],
     paint_hooks: &[Box<dyn PaintHook>],
 ) -> RenderResult {
-    let source = SalsaViewSource::new(db, handles);
+    let mut source = SalsaViewSource::new(db, handles);
     render_patched_core(
-        &source,
+        &mut source,
         state,
         registry,
         grid,
         dirty,
-        view_cache,
         layout_cache,
         patches,
         paint_hooks,
@@ -430,17 +347,8 @@ pub fn scene_render_pipeline_salsa_cached<'a>(
     registry: &PluginRegistry,
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
-    view_cache: &mut ViewCache,
     scene_cache: &'a mut SceneCache,
 ) -> (&'a [DrawCommand], RenderResult) {
-    let source = SalsaViewSource::new(db, handles);
-    scene_render_core(
-        &source,
-        state,
-        registry,
-        cell_size,
-        dirty,
-        view_cache,
-        scene_cache,
-    )
+    let mut source = SalsaViewSource::new(db, handles);
+    scene_render_core(&mut source, state, registry, cell_size, dirty, scene_cache)
 }

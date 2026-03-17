@@ -134,6 +134,27 @@ impl PluginRegistry {
         }
     }
 
+    /// Union of all contribute_deps across all plugins and all base slots.
+    ///
+    /// Used by `sync_plugin_contributions()` to decide when slot contributions
+    /// need re-collection.
+    pub fn contribute_deps_union(&self) -> DirtyFlags {
+        let base_slots = [
+            &SlotId::BUFFER_LEFT,
+            &SlotId::BUFFER_RIGHT,
+            &SlotId::ABOVE_BUFFER,
+            &SlotId::BELOW_BUFFER,
+            &SlotId::ABOVE_STATUS,
+            &SlotId::STATUS_LEFT,
+            &SlotId::STATUS_RIGHT,
+        ];
+        let mut deps = DirtyFlags::empty();
+        for slot in &base_slots {
+            deps |= self.contribute_deps(slot);
+        }
+        deps
+    }
+
     /// Aggregate DirtyFlags dependencies for contributions targeting a slot.
     pub fn contribute_deps(&self, slot: &SlotId) -> DirtyFlags {
         self.plugins
@@ -589,6 +610,31 @@ impl PluginRegistry {
         let line_count = state.visible_line_range().len();
         let dm = DisplayMap::build(line_count, &all_directives);
         Arc::new(dm)
+    }
+
+    /// Collect raw display directives from all plugins (without building a DisplayMap).
+    ///
+    /// Used by `sync_display_directives()` to feed directives into Salsa inputs,
+    /// where the `display_map_query` tracked function builds the actual `DisplayMap`.
+    pub fn collect_display_directives(
+        &self,
+        state: &AppState,
+    ) -> Vec<crate::display::DisplayDirective> {
+        if !self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM) {
+            return Vec::new();
+        }
+
+        let mut all_directives = Vec::new();
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
+                continue;
+            }
+            let directives = plugin.display_directives(state);
+            if !directives.is_empty() {
+                all_directives.extend(directives);
+            }
+        }
+        all_directives
     }
 
     /// Aggregate DirtyFlags dependencies for display directives.

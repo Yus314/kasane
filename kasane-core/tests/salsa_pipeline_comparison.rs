@@ -15,7 +15,10 @@ use kasane_core::render::{
     CellGrid, ViewCache, render_pipeline_cached, render_pipeline_salsa_cached,
 };
 use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+    sync_plugin_epoch,
+};
 use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 use kasane_core::test_support::{assert_grids_equal, test_state_80x24};
 
@@ -44,7 +47,6 @@ fn render_salsa(
 ) -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
-    let mut cache = ViewCache::new();
     render_pipeline_salsa_cached(
         db,
         handles,
@@ -52,18 +54,43 @@ fn render_salsa(
         registry,
         &mut grid,
         DirtyFlags::ALL,
-        &mut cache,
         &[],
     );
     grid
 }
 
-/// Set up Salsa database and sync state.
-fn setup_salsa(state: &AppState) -> (KasaneDatabase, SalsaInputHandles) {
+/// Set up Salsa database and sync all inputs including plugin contributions.
+fn setup_salsa_with_plugins(
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> (KasaneDatabase, SalsaInputHandles) {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, DirtyFlags::ALL, &handles);
+    let epoch_changed = sync_plugin_epoch(&mut db, registry, &handles);
+    sync_display_directives(
+        &mut db,
+        state,
+        registry,
+        &handles,
+        DirtyFlags::ALL,
+        epoch_changed,
+    );
+    sync_plugin_contributions(
+        &mut db,
+        state,
+        registry,
+        &handles,
+        DirtyFlags::ALL,
+        epoch_changed,
+    );
     (db, handles)
+}
+
+/// Set up Salsa database and sync state (no plugins).
+fn setup_salsa(state: &AppState) -> (KasaneDatabase, SalsaInputHandles) {
+    let registry = PluginRegistry::new();
+    setup_salsa_with_plugins(state, &registry)
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +278,23 @@ fn compare_memoization_consistency() {
     // Change only buffer, re-sync, render again
     state.lines = vec![vec![make_atom("world")]];
     sync_inputs_from_state(&mut db, &state, DirtyFlags::BUFFER_CONTENT, &handles);
+    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(
+        &mut db,
+        &state,
+        &registry,
+        &handles,
+        DirtyFlags::BUFFER_CONTENT,
+        epoch_changed,
+    );
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry,
+        &handles,
+        DirtyFlags::BUFFER_CONTENT,
+        epoch_changed,
+    );
 
     let legacy2 = render_legacy(&state, &registry);
     let salsa2 = render_salsa(&state, &registry, &db, &handles);
@@ -456,7 +500,7 @@ fn compare_with_buffer_left_plugin() {
     registry.register_backend(Box::new(BufferLeftPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -473,7 +517,7 @@ fn compare_with_status_right_plugin() {
     registry.register_backend(Box::new(StatusRightPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -489,7 +533,7 @@ fn compare_with_buffer_transform_plugin() {
     registry.register_backend(Box::new(BufferTransformPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -508,7 +552,7 @@ fn compare_with_line_highlight_plugin() {
     registry.register_backend(Box::new(LineHighlightPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -528,7 +572,7 @@ fn compare_with_gutter_plugin() {
     registry.register_backend(Box::new(GutterPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -553,7 +597,7 @@ fn compare_with_multiple_plugins() {
     registry.register_backend(Box::new(LineHighlightPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -582,7 +626,7 @@ fn compare_with_plugins_and_menu() {
     registry.register_backend(Box::new(StatusRightPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
-    let (db, handles) = setup_salsa(&state);
+    let (db, handles) = setup_salsa_with_plugins(&state, &registry);
 
     let legacy = render_legacy(&state, &registry);
     let salsa = render_salsa(&state, &registry, &db, &handles);
@@ -669,12 +713,11 @@ fn compare_menu_appears_while_info_visible() {
 
     // Now add a menu and re-render
     state.menu = Some(make_menu_state());
-    sync_inputs_from_state(
-        &mut db,
-        &state,
-        DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION,
-        &handles,
-    );
+    let dirty = DirtyFlags::MENU_STRUCTURE | DirtyFlags::MENU_SELECTION;
+    sync_inputs_from_state(&mut db, &state, dirty, &handles);
+    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles, dirty, epoch_changed);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, epoch_changed);
 
     let legacy_both = render_legacy(&state, &registry);
     let salsa_both = render_salsa(&state, &registry, &db, &handles);
@@ -698,7 +741,11 @@ fn compare_menu_disappears_while_info_visible() {
 
     // Remove the menu
     state.menu = None;
-    sync_inputs_from_state(&mut db, &state, DirtyFlags::MENU_STRUCTURE, &handles);
+    let dirty = DirtyFlags::MENU_STRUCTURE;
+    sync_inputs_from_state(&mut db, &state, dirty, &handles);
+    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry, &handles, dirty, epoch_changed);
+    sync_plugin_contributions(&mut db, &state, &registry, &handles, dirty, epoch_changed);
 
     let legacy_info_only = render_legacy(&state, &registry);
     let salsa_info_only = render_salsa(&state, &registry, &db, &handles);

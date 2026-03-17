@@ -643,10 +643,12 @@ fn test_line_dirty_full_repaint_on_overlay() {
 /// as the legacy view_cached()-based pipeline.
 #[test]
 fn test_salsa_pipeline_equivalence_empty_state() {
-    use kasane_core::render::ViewCache;
     use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};
     use kasane_core::salsa_db::KasaneDatabase;
-    use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
+    use kasane_core::salsa_sync::{
+        SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
+        sync_plugin_contributions, sync_plugin_epoch,
+    };
     use kasane_core::state::DirtyFlags;
 
     let state = setup_state(vec![make_line("hello world"), make_line("second line")]);
@@ -660,9 +662,25 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(
+        &mut db,
+        &state,
+        &registry,
+        &handles,
+        DirtyFlags::ALL,
+        epoch_changed,
+    );
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry,
+        &handles,
+        DirtyFlags::ALL,
+        epoch_changed,
+    );
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
-    let mut cache = ViewCache::new();
     let salsa_result = render_pipeline_salsa_cached(
         &db,
         &handles,
@@ -670,7 +688,6 @@ fn test_salsa_pipeline_equivalence_empty_state() {
         &registry,
         &mut salsa_grid,
         DirtyFlags::ALL,
-        &mut cache,
         &[],
     );
 
@@ -704,10 +721,12 @@ fn test_salsa_pipeline_equivalence_empty_state() {
 /// Verify Salsa pipeline equivalence with menu overlay.
 #[test]
 fn test_salsa_pipeline_equivalence_with_menu() {
-    use kasane_core::render::ViewCache;
     use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};
     use kasane_core::salsa_db::KasaneDatabase;
-    use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
+    use kasane_core::salsa_sync::{
+        SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
+        sync_plugin_contributions, sync_plugin_epoch,
+    };
     use kasane_core::state::DirtyFlags;
 
     let mut state = setup_state(vec![make_line("hello"), make_line("world")]);
@@ -729,9 +748,25 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, DirtyFlags::ALL, &handles);
+    let epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+    sync_display_directives(
+        &mut db,
+        &state,
+        &registry,
+        &handles,
+        DirtyFlags::ALL,
+        epoch_changed,
+    );
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry,
+        &handles,
+        DirtyFlags::ALL,
+        epoch_changed,
+    );
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
-    let mut cache = ViewCache::new();
     let _salsa_result = render_pipeline_salsa_cached(
         &db,
         &handles,
@@ -739,7 +774,6 @@ fn test_salsa_pipeline_equivalence_with_menu() {
         &registry,
         &mut salsa_grid,
         DirtyFlags::ALL,
-        &mut cache,
         &[],
     );
 

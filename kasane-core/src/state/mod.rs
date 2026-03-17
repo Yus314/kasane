@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
+use crate::DirtyTracked;
 use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
 use crate::protocol::{Coord, CursorMode, Face, KasaneRequest, Line};
@@ -22,6 +23,20 @@ pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item}
 pub use update::{Msg, update};
 
 bitflags! {
+    /// Tracks which parts of `AppState` changed during a frame.
+    ///
+    /// ## Roles
+    ///
+    /// 1. **Salsa sync hints** — `sync_inputs_from_state()` checks flags to decide which
+    ///    Salsa inputs need updating.
+    /// 2. **Plugin contribution gating** — `sync_plugin_contributions()` uses
+    ///    `contribute_deps_union()` / `annotate_deps()` / `transform_deps()` to skip
+    ///    re-collection when irrelevant flags are set.
+    /// 3. **PaintPatch fast paths** — `StatusBarPatch` fires on `dirty == STATUS`,
+    ///    `MenuSelectionPatch` on `dirty == MENU_SELECTION`, `CursorPatch` on empty dirty.
+    /// 4. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
+    /// 5. **Legacy ViewCache invalidation** — `PluginViewSource` (test/hit-map path) uses
+    ///    `EffectiveSectionDeps` to invalidate cached view subtrees.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirtyFlags: u16 {
         /// Buffer content changed (lines, faces, widget_columns, etc.).
@@ -86,73 +101,114 @@ pub struct ScrollAnimation {
 ///   the protocol specification. These fields rely on assumptions about how Kakoune renders
 ///   certain UI elements (e.g., cursor face attributes) and may break if Kakoune changes its
 ///   rendering behavior in future versions.
-#[derive(Debug, Clone)]
+///
+/// Every field carries a `#[dirty(...)]` annotation that maps it to DirtyFlags.
+/// The `DirtyTracked` derive enforces this at compile time: adding a field without
+/// `#[dirty(FLAG)]` or `#[dirty(free)]` is a compile error.
+#[derive(Debug, Clone, DirtyTracked)]
 pub struct AppState {
     // -- Protocol State (from Kakoune JSON-RPC) --
     /// Observed: buffer lines from `draw`.
+    #[dirty(BUFFER_CONTENT)]
     pub lines: Vec<Line>,
     /// Observed: default face from `draw`.
+    #[dirty(BUFFER_CONTENT)]
     pub default_face: Face,
     /// Observed: padding face from `draw`.
+    #[dirty(BUFFER_CONTENT)]
     pub padding_face: Face,
     /// Derived: per-line dirty flags computed by diffing old vs new `lines`.
+    #[dirty(BUFFER_CONTENT)]
     pub lines_dirty: Vec<bool>,
     /// Derived: inferred from `status_content_cursor_pos >= 0` (Buffer vs Prompt).
+    #[dirty(BUFFER_CURSOR)]
     pub cursor_mode: CursorMode,
     /// Observed: cursor position from `draw` (`cursor_pos` field).
+    #[dirty(BUFFER_CURSOR)]
     pub cursor_pos: Coord,
     /// Observed: status prompt atoms from `draw_status`.
+    #[dirty(STATUS)]
     pub status_prompt: Line,
     /// Observed: status content atoms from `draw_status`.
+    #[dirty(STATUS)]
     pub status_content: Line,
     /// Observed: cursor position within status content from `draw_status`.
+    #[dirty(STATUS)]
     pub status_content_cursor_pos: i32,
     /// Derived: concatenation of `status_prompt` + `status_content` for rendering.
+    #[dirty(STATUS)]
     pub status_line: Line,
     /// Observed: mode line atoms from `draw_status`.
+    #[dirty(STATUS)]
     pub status_mode_line: Line,
     /// Observed: default face for the status bar from `draw_status`.
+    #[dirty(STATUS)]
     pub status_default_face: Face,
     /// Observed: number of widget columns from `draw`.
+    #[dirty(BUFFER_CONTENT)]
     pub widget_columns: u16,
     /// Observed: completion menu state from `menu_show` / `menu_select` / `menu_hide`.
+    #[dirty(MENU_STRUCTURE, MENU_SELECTION)]
     pub menu: Option<MenuState>,
     /// Observed: info popup state from `info_show` / `info_hide`.
+    #[dirty(INFO)]
     pub infos: Vec<InfoState>,
     /// Observed: UI options from `set_ui_options`.
+    #[dirty(OPTIONS)]
     pub ui_options: HashMap<String, String>,
     /// Heuristic: total cursor count (primary + secondary), detected via FINAL_FG + REVERSE
     /// attribute pattern in `draw` atoms. Not part of the protocol specification.
+    #[dirty(BUFFER_CURSOR)]
     pub cursor_count: usize,
     /// Heuristic: positions of secondary cursors (all cursors except primary).
     /// Extracted from `draw` atoms whose face has FINAL_FG + REVERSE attributes, then
     /// filtered to exclude the primary `cursor_pos`. This relies on Kakoune's internal
     /// rendering of multi-cursor selections and may change in future versions.
+    #[dirty(BUFFER_CURSOR)]
     pub secondary_cursors: Vec<Coord>,
 
     // -- Frontend Config (from user config / SetConfig commands) --
+    #[dirty(OPTIONS)]
     pub shadow_enabled: bool,
+    #[dirty(OPTIONS)]
     pub padding_char: String,
+    #[dirty(OPTIONS)]
     pub menu_max_height: u16,
+    #[dirty(OPTIONS)]
     pub menu_position: MenuPosition,
+    #[dirty(OPTIONS)]
     pub search_dropdown: bool,
+    #[dirty(OPTIONS)]
     pub status_at_top: bool,
+    #[dirty(MENU_STRUCTURE)]
     pub scrollbar_thumb: String,
+    #[dirty(MENU_STRUCTURE)]
     pub scrollbar_track: String,
+    #[dirty(OPTIONS)]
     pub assistant_art: Option<Vec<String>>,
+    #[dirty(OPTIONS)]
     pub plugin_config: HashMap<String, String>,
+    #[dirty(BUFFER_CONTENT)]
     pub secondary_blend_ratio: f32,
+    #[dirty(free)]
     pub smooth_scroll: bool,
 
     // -- Session metadata (from SessionManager, preserved across session switches) --
+    #[dirty(SESSION)]
     pub session_descriptors: Vec<SessionDescriptor>,
+    #[dirty(SESSION)]
     pub active_session_key: Option<String>,
 
     // -- Runtime / Ephemeral (not part of protocol or config) --
+    #[dirty(free)]
     pub focused: bool,
+    #[dirty(free)]
     pub drag: DragState,
+    #[dirty(free)]
     pub scroll_animation: Option<ScrollAnimation>,
+    #[dirty(free)]
     pub cols: u16,
+    #[dirty(free)]
     pub rows: u16,
 }
 

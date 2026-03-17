@@ -24,5 +24,6 @@ pub mod test_support;
 pub(crate) mod test_utils;
 pub mod workspace;
 
+pub use kasane_macros::DirtyTracked;
 pub use kasane_macros::kasane_component;
 pub use kasane_macros::kasane_plugin;

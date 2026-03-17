@@ -20,10 +20,12 @@ use kasane_core::plugin::{
 use kasane_core::render::render_pipeline_salsa_patched;
 use kasane_core::render::{
     CellGrid, CursorPatch, LayoutCache, MenuSelectionPatch, RenderBackend, StatusBarPatch,
-    ViewCache,
 };
 use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state, sync_plugin_epoch};
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+    sync_plugin_epoch,
+};
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, tick_scroll_animation};
 use kasane_core::surface::SurfaceRegistry;
@@ -184,7 +186,6 @@ where
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
-    let mut view_cache = ViewCache::new();
     let mut layout_cache = LayoutCache::new();
 
     // Paint patches for fast-path rendering
@@ -362,7 +363,23 @@ where
 
             // Sync Salsa inputs from updated state
             sync_inputs_from_state(&mut salsa_db, &state, dirty, &salsa_handles);
-            sync_plugin_epoch(&mut salsa_db, &registry, &salsa_handles);
+            let epoch_changed = sync_plugin_epoch(&mut salsa_db, &registry, &salsa_handles);
+            sync_display_directives(
+                &mut salsa_db,
+                &state,
+                &registry,
+                &salsa_handles,
+                dirty,
+                epoch_changed,
+            );
+            sync_plugin_contributions(
+                &mut salsa_db,
+                &state,
+                &registry,
+                &salsa_handles,
+                dirty,
+                epoch_changed,
+            );
 
             backend.begin_frame()?;
             let patches: &[&dyn kasane_core::render::PaintPatch] =
@@ -375,7 +392,6 @@ where
                 &registry,
                 &mut grid,
                 dirty,
-                &mut view_cache,
                 &mut layout_cache,
                 patches,
                 &paint_hooks,
@@ -406,12 +422,7 @@ where
             // This is an accepted tradeoff — the performance cost of mid-batch
             // HitMap rebuild outweighs the marginal correctness improvement
             // (at most 16ms of stale routing).
-            kasane_core::event_loop::rebuild_hit_map(
-                &state,
-                &mut registry,
-                &surface_registry,
-                &mut view_cache,
-            );
+            kasane_core::event_loop::rebuild_hit_map(&state, &mut registry, &surface_registry);
         }
     }
 

@@ -283,13 +283,13 @@ pub fn rebuild_hit_map(
     state: &AppState,
     registry: &mut PluginRegistry,
     surface_registry: &SurfaceRegistry,
-    view_cache: &mut crate::render::ViewCache,
 ) {
+    let mut view_cache = crate::render::ViewCache::new();
     let element = crate::render::view::surface_view_sections_cached(
         state,
         registry,
         surface_registry,
-        view_cache,
+        &mut view_cache,
     )
     .into_element();
     let root_area = Rect {
@@ -384,6 +384,12 @@ pub struct DeferredContext<'a> {
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
 }
 
+/// Maximum recursion depth for cascading deferred commands.
+///
+/// Prevents infinite loops when plugins produce deferred commands that trigger
+/// further deferred commands (e.g., PluginMessage → PluginMessage chains).
+const MAX_COMMAND_CASCADE_DEPTH: usize = 8;
+
 /// Handle deferred commands (timers, inter-plugin messages, config overrides).
 ///
 /// Returns `true` if a `Quit` command was encountered.
@@ -392,6 +398,24 @@ pub fn handle_deferred_commands(
     ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
 ) -> bool {
+    handle_deferred_commands_inner(deferred, ctx, command_source_plugin, 0)
+}
+
+fn handle_deferred_commands_inner(
+    deferred: Vec<DeferredCommand>,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_COMMAND_CASCADE_DEPTH {
+        tracing::warn!(
+            depth,
+            "command cascade depth limit reached, dropping {} deferred commands",
+            deferred.len()
+        );
+        return false;
+    }
+
     for cmd in deferred {
         match cmd {
             DeferredCommand::PluginMessage { target, payload } => {
@@ -404,7 +428,7 @@ pub fn handle_deferred_commands(
                 ) {
                     return true;
                 }
-                if handle_deferred_commands(nested_deferred, ctx, Some(&target)) {
+                if handle_deferred_commands_inner(nested_deferred, ctx, Some(&target), depth + 1) {
                     return true;
                 }
             }
@@ -469,7 +493,12 @@ pub fn handle_deferred_commands(
                         ) {
                             return true;
                         }
-                        if handle_deferred_commands(nested_deferred, ctx, Some(plugin_id)) {
+                        if handle_deferred_commands_inner(
+                            nested_deferred,
+                            ctx,
+                            Some(plugin_id),
+                            depth + 1,
+                        ) {
                             return true;
                         }
                     }
@@ -562,7 +591,12 @@ pub fn handle_deferred_commands(
                         .into_iter()
                         .filter(|d| !matches!(d, DeferredCommand::Session(_)))
                         .collect();
-                    if handle_deferred_commands(nested_non_session, ctx, command_source_plugin) {
+                    if handle_deferred_commands_inner(
+                        nested_non_session,
+                        ctx,
+                        command_source_plugin,
+                        depth + 1,
+                    ) {
                         return true;
                     }
                 }

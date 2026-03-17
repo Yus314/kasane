@@ -20,9 +20,12 @@ use kasane_core::plugin::{
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_salsa_cached;
-use kasane_core::render::{CellGrid, RenderBackend, RenderResult, SceneCache, ViewCache};
+use kasane_core::render::{CellGrid, RenderBackend, RenderResult, SceneCache};
 use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state, sync_plugin_epoch};
+use kasane_core::salsa_sync::{
+    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
+    sync_plugin_epoch,
+};
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
 use kasane_core::surface::SurfaceRegistry;
@@ -182,8 +185,7 @@ where
     color_resolver: Option<ColorResolver>,
     scroll_amount: i32,
 
-    // View cache + scene cache
-    view_cache: ViewCache,
+    // Scene cache
     scene_cache: SceneCache,
 
     // Cursor animation
@@ -279,7 +281,6 @@ where
             scroll_amount,
             config,
             color_resolver: None,
-            view_cache: ViewCache::new(),
             scene_cache: SceneCache::new(),
             cursor_animation: CursorAnimation::new(),
             cursor_dirty: false,
@@ -657,7 +658,24 @@ where
                 self.dirty,
                 &self.salsa_handles,
             );
-            sync_plugin_epoch(&mut self.salsa_db, &self.registry, &self.salsa_handles);
+            let epoch_changed =
+                sync_plugin_epoch(&mut self.salsa_db, &self.registry, &self.salsa_handles);
+            sync_display_directives(
+                &mut self.salsa_db,
+                &self.state,
+                &self.registry,
+                &self.salsa_handles,
+                self.dirty,
+                epoch_changed,
+            );
+            sync_plugin_contributions(
+                &mut self.salsa_db,
+                &self.state,
+                &self.registry,
+                &self.salsa_handles,
+                self.dirty,
+                epoch_changed,
+            );
 
             let (commands, result) = scene_render_pipeline_salsa_cached(
                 &self.salsa_db,
@@ -666,7 +684,6 @@ where
                 &self.registry,
                 cell_size,
                 self.dirty,
-                &mut self.view_cache,
                 &mut self.scene_cache,
             );
             self.last_render_result = Some(result);
@@ -691,7 +708,6 @@ where
                 &self.state,
                 &mut self.registry,
                 &self.surface_registry,
-                &mut self.view_cache,
             );
         } else if let Some(result) = self.last_render_result {
             // Cursor-only frame: reuse cached scene commands

@@ -81,3 +81,63 @@ pub struct ConfigInput {
 pub struct PluginEpochInput {
     pub epoch: u64,
 }
+
+/// Plugin slot contributions snapshot.
+///
+/// Stores the FlexChild vectors for each slot, collected from plugins
+/// during the sync phase. A generation counter triggers Salsa revision
+/// bumps when contributions change.
+#[salsa::input]
+pub struct SlotContributionsInput {
+    pub generation: u64,
+    #[returns(ref)]
+    pub buffer_left: Vec<crate::element::FlexChild>,
+    #[returns(ref)]
+    pub buffer_right: Vec<crate::element::FlexChild>,
+    #[returns(ref)]
+    pub above_buffer: Vec<crate::element::FlexChild>,
+    #[returns(ref)]
+    pub below_buffer: Vec<crate::element::FlexChild>,
+    #[returns(ref)]
+    pub status_left: Vec<crate::element::FlexChild>,
+    #[returns(ref)]
+    pub status_right: Vec<crate::element::FlexChild>,
+    #[returns(ref)]
+    pub above_status: Vec<crate::element::FlexChild>,
+}
+
+/// Plugin line annotation results.
+///
+/// Stores gutter elements and line backgrounds from plugin annotations,
+/// collected during the sync phase.
+#[salsa::input]
+pub struct AnnotationResultInput {
+    pub generation: u64,
+    #[returns(ref)]
+    pub line_backgrounds: Option<Vec<Option<crate::protocol::Face>>>,
+    #[returns(ref)]
+    pub left_gutter: Option<crate::element::Element>,
+    #[returns(ref)]
+    pub right_gutter: Option<crate::element::Element>,
+}
+
+/// Plugin overlay contributions.
+///
+/// Stores overlay elements collected from plugins during the sync phase.
+#[salsa::input]
+pub struct PluginOverlaysInput {
+    pub generation: u64,
+    #[returns(ref)]
+    pub overlays: Vec<crate::element::Overlay>,
+}
+
+/// Display transformation directives from plugins.
+///
+/// Contains the raw directives and buffer line count needed to build a `DisplayMap`.
+/// Set by `sync_display_directives()` when `BUFFER_CONTENT` or plugin epoch changes.
+#[salsa::input]
+pub struct DisplayDirectivesInput {
+    #[returns(ref)]
+    pub directives: Vec<crate::display::DisplayDirective>,
+    pub buffer_line_count: usize,
+}
