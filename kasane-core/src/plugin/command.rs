@@ -3,6 +3,7 @@ use std::io::Write;
 use std::time::Duration;
 
 use crate::protocol::{Face, KasaneRequest};
+use crate::scroll::ScrollPlan;
 use crate::session::SessionCommand;
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceCommand;
@@ -42,6 +43,7 @@ pub trait PaintHook: Send {
 
 pub enum Command {
     SendToKakoune(KasaneRequest),
+    QueueScrollPlan(ScrollPlan),
     Paste,
     Quit,
     RequestRedraw(DirtyFlags),
@@ -87,6 +89,19 @@ pub enum Command {
     KillProcess {
         job_id: u64,
     },
+}
+
+/// Separate host-owned scroll plans from regular commands.
+pub fn extract_scroll_plans(commands: Vec<Command>) -> (Vec<Command>, Vec<ScrollPlan>) {
+    let mut normal = Vec::new();
+    let mut plans = Vec::new();
+    for cmd in commands {
+        match cmd {
+            Command::QueueScrollPlan(plan) => plans.push(plan),
+            other => normal.push(other),
+        }
+    }
+    (normal, plans)
 }
 
 /// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
@@ -200,6 +215,7 @@ pub fn execute_commands(
             Command::SendToKakoune(req) => {
                 crate::io::send_request(kak_writer, &req);
             }
+            Command::QueueScrollPlan(_) => {}
             Command::Paste => {
                 if let Some(text) = clipboard_get() {
                     let keys = paste_text_to_keys(&text);

@@ -24,8 +24,9 @@ use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
     sync_plugin_epoch,
 };
+use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, tick_scroll_animation};
+use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
 
@@ -227,6 +228,8 @@ where
 
     // Timer scheduler for plugin timer events
     let timer = TuiTimerScheduler(tx.clone());
+    let mut scroll_runtime = ScrollRuntime::default();
+    let mut scroll_runtime_session = session_manager.active_session_id();
 
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
@@ -236,7 +239,7 @@ where
 
     // Main event loop
     loop {
-        let timeout = if state.scroll_animation.is_some() {
+        let timeout = if scroll_runtime.has_active_plan() {
             std::time::Duration::from_millis(16) // ~60fps for smooth scroll
         } else {
             std::time::Duration::from_secs(60) // effectively infinite
@@ -245,10 +248,13 @@ where
         let first = match rx.recv_timeout(timeout) {
             Ok(e) => e,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                if let Some(cmd) = tick_scroll_animation(&mut state)
+                scroll_runtime.set_initial_resize_complete(initial_resize_sent);
+                if let Some(resolved) = scroll_runtime.tick()
                     && matches!(
                         execute_commands(
-                            vec![cmd],
+                            vec![kasane_core::plugin::Command::SendToKakoune(
+                                resolved.to_kakoune_request(),
+                            )],
                             session_manager
                                 .active_writer_mut()
                                 .expect("missing active session writer"),
@@ -289,6 +295,8 @@ where
                 initial_resize_sent: &mut initial_resize_sent,
                 dirty: &mut dirty,
                 timer: &timer,
+                scroll_runtime: &mut scroll_runtime,
+                scroll_runtime_session: &mut scroll_runtime_session,
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_reloader: &plugin_reloader,
             };

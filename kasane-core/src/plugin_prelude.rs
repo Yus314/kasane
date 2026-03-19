@@ -21,6 +21,12 @@ pub use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnch
 // Protocol types
 pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor};
 
+// Scroll policy types
+pub use crate::scroll::{
+    DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollConsumption, ScrollCurve,
+    ScrollGranularity, ScrollOwner, ScrollPlan, ScrollPolicyResult,
+};
+
 // State
 pub use crate::state::{AppState, DirtyFlags};
 

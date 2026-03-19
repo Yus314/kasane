@@ -46,7 +46,7 @@ Scroll behavior settings.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `lines_per_scroll` | integer | `3` | Lines per mouse wheel / scroll event |
-| `smooth` | bool | `false` | Smooth scrolling animation |
+| `smooth` | bool | `false` | Enable the bundled smooth scroll policy |
 | `inertia` | bool | `false` | Momentum/inertia scrolling (reserved, not yet implemented) |
 
 ```toml
@@ -54,6 +54,12 @@ Scroll behavior settings.
 lines_per_scroll = 5
 smooth = true
 ```
+
+Runtime/plugin note:
+
+- The canonical runtime key for the bundled smooth scroll policy is `smooth-scroll.enabled`.
+- `SetConfig { key: "smooth_scroll", ... }` is still accepted as a deprecated alias and is normalized internally.
+- The TOML file continues to use `[scroll].smooth`; it seeds `smooth-scroll.enabled` during startup.
 
 ## `[log]`
 

@@ -285,7 +285,7 @@ fn resize_updates_grid() {
     let mut grid = CellGrid::new(state.cols, state.rows);
     let mut registry = PluginRegistry::new();
 
-    let (flags, _cmds, _) = update(
+    let result = update(
         &mut state,
         Msg::Resize {
             cols: 120,
@@ -294,6 +294,7 @@ fn resize_updates_grid() {
         &mut registry,
         3,
     );
+    let flags = result.flags;
     // Caller must resize grid after update() returns ALL
     grid.resize(state.cols, state.rows);
     grid.invalidate_all();
@@ -434,7 +435,8 @@ fn update_kakoune_draw_message() {
         padding_face: Face::default(),
         widget_columns: 0,
     };
-    let (flags, cmds, _) = update(&mut state, Msg::Kakoune(req), &mut registry, 3);
+    let result = update(&mut state, Msg::Kakoune(req), &mut registry, 3);
+    let (flags, cmds) = (result.flags, result.commands);
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(cmds.is_empty(), "draw should not produce commands");
 
@@ -447,13 +449,13 @@ fn update_focus_changes() {
     let mut state = setup_state(vec![make_line("text")]);
     let mut registry = PluginRegistry::new();
 
-    let (flags, _, _) = update(&mut state, Msg::FocusLost, &mut registry, 3);
+    let result = update(&mut state, Msg::FocusLost, &mut registry, 3);
     assert!(!state.focused);
-    assert!(flags.contains(DirtyFlags::ALL));
+    assert!(result.flags.contains(DirtyFlags::ALL));
 
-    let (flags, _, _) = update(&mut state, Msg::FocusGained, &mut registry, 3);
+    let result = update(&mut state, Msg::FocusGained, &mut registry, 3);
     assert!(state.focused);
-    assert!(flags.contains(DirtyFlags::ALL));
+    assert!(result.flags.contains(DirtyFlags::ALL));
 }
 
 // ===========================================================================

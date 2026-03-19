@@ -18,7 +18,7 @@ use compact_str::CompactString;
 // Re-export command module
 pub use command::{
     Command, CommandResult, DeferredCommand, PaintHook, execute_commands,
-    extract_deferred_commands, extract_redraw_flags,
+    extract_deferred_commands, extract_redraw_flags, extract_scroll_plans,
 };
 
 // Re-export io module types
@@ -63,6 +63,7 @@ bitflags! {
         const ANNOTATOR          = 1 << 16;
         const IO_HANDLER         = 1 << 17;
         const DISPLAY_TRANSFORM  = 1 << 18;
+        const SCROLL_POLICY      = 1 << 19;
     }
 }
 

@@ -12,10 +12,11 @@ use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    ProcessEventSink, execute_commands, extract_deferred_commands,
+    ProcessEventSink, execute_commands, extract_deferred_commands, extract_scroll_plans,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
+use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 use kasane_core::surface::SurfaceRegistry;
@@ -192,6 +193,8 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub initial_resize_sent: &'a mut bool,
     pub dirty: &'a mut DirtyFlags,
     pub timer: &'a TuiTimerScheduler,
+    pub scroll_runtime: &'a mut ScrollRuntime,
+    pub scroll_runtime_session: &'a mut Option<SessionId>,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_reloader: &'a Option<crate::PluginReloader>,
 }
@@ -388,6 +391,14 @@ where
         ctx.grid.invalidate_all();
     }
     *ctx.dirty |= result.flags;
+    let active_session = ctx.session_manager.active_session_id();
+    if *ctx.scroll_runtime_session != active_session {
+        ctx.scroll_runtime.advance_generation();
+        ctx.scroll_runtime.suspend();
+        *ctx.scroll_runtime_session = active_session;
+    }
+    ctx.scroll_runtime
+        .set_initial_resize_complete(*ctx.initial_resize_sent);
 
     // Suppress commands to Kakoune until initialization is complete.
     if is_input && !*ctx.initial_resize_sent {
@@ -396,7 +407,11 @@ where
         return false;
     }
 
-    let (normal, deferred) = extract_deferred_commands(result.commands);
+    let (commands, plans) = extract_scroll_plans(result.commands);
+    for plan in plans {
+        ctx.scroll_runtime.enqueue(plan);
+    }
+    let (normal, deferred) = extract_deferred_commands(commands);
     if matches!(
         execute_commands(
             normal,

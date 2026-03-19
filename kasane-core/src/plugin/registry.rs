@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::display::{DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild, InteractiveId};
 use crate::layout::HitMap;
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::Placement;
 
@@ -254,6 +255,23 @@ impl PluginRegistry {
             }
             if let Some(style) = plugin.cursor_style_override(state) {
                 return Some(style);
+            }
+        }
+        None
+    }
+
+    /// Query plugins for a default buffer scroll policy. Returns the first non-None.
+    pub fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<(PluginId, ScrollPolicyResult)> {
+        for (i, plugin) in self.plugins.iter_mut().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::SCROLL_POLICY) {
+                continue;
+            }
+            if let Some(result) = plugin.handle_default_scroll(candidate, state) {
+                return Some((plugin.id(), result));
             }
         }
         None

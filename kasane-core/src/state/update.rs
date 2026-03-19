@@ -2,8 +2,9 @@ use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{Command, PluginId, PluginRegistry, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
+use crate::scroll::LegacyScrollDispatch;
 
-use super::{AppState, DirtyFlags, DragState, MouseButton, ScrollAnimation};
+use super::{AppState, DirtyFlags, DragState};
 
 /// Messages that drive the application state machine.
 pub enum Msg {
@@ -119,75 +120,27 @@ pub fn update(
                 tracing::debug!(col = mouse.column, line = mouse.line, kind = ?mouse.kind, "hit_test: no match");
             }
 
-            // Selection-during-scroll: when dragging with left button and scrolling,
-            // send scroll + mouse_move to extend selection (R-046)
-            if let DragState::Active {
-                button: MouseButton::Left,
-                ..
-            } = &state.drag
-                && matches!(
-                    mouse.kind,
-                    input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
-                )
-            {
-                // Check info scroll first
-                if handle_info_scroll(state, &mouse, registry) {
+            match crate::scroll::dispatch_legacy_mouse_scroll(
+                state,
+                &mouse,
+                registry,
+                scroll_amount,
+            ) {
+                LegacyScrollDispatch::ConsumedInfo => {
                     return (DirtyFlags::INFO, vec![], None);
                 }
-                if let Some(scroll_req) = input::mouse_to_kakoune(&mouse, scroll_amount, None) {
-                    let edge_line = match mouse.kind {
-                        input::MouseEventKind::ScrollUp => 0,
-                        _ => state.rows.saturating_sub(2) as u32,
-                    };
-                    let move_req = KasaneRequest::MouseMove {
-                        line: edge_line,
-                        column: mouse.column,
-                    };
+                LegacyScrollDispatch::Requests(requests) => {
+                    let commands = requests.into_iter().map(Command::SendToKakoune).collect();
+                    return (DirtyFlags::empty(), commands, None);
+                }
+                LegacyScrollDispatch::Plan(plan) => {
                     return (
                         DirtyFlags::empty(),
-                        vec![
-                            Command::SendToKakoune(scroll_req),
-                            Command::SendToKakoune(move_req),
-                        ],
+                        vec![Command::QueueScrollPlan(plan)],
                         None,
                     );
                 }
-            }
-
-            // Check if mouse scroll targets an info popup
-            if matches!(
-                mouse.kind,
-                input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
-            ) && handle_info_scroll(state, &mouse, registry)
-            {
-                return (DirtyFlags::INFO, vec![], None);
-            }
-
-            // Smooth scrolling: set up animation instead of immediate scroll
-            if state.smooth_scroll
-                && matches!(
-                    mouse.kind,
-                    input::MouseEventKind::ScrollUp | input::MouseEventKind::ScrollDown
-                )
-            {
-                let amount = match mouse.kind {
-                    input::MouseEventKind::ScrollUp => -scroll_amount,
-                    _ => scroll_amount,
-                };
-                if let Some(ref mut anim) = state.scroll_animation {
-                    // Accumulate into existing animation
-                    anim.remaining += amount;
-                    anim.line = mouse.line;
-                    anim.column = mouse.column;
-                } else {
-                    state.scroll_animation = Some(ScrollAnimation {
-                        remaining: amount,
-                        step: 1,
-                        line: mouse.line,
-                        column: mouse.column,
-                    });
-                }
-                return (DirtyFlags::empty(), vec![], None);
+                LegacyScrollDispatch::NotHandled => {}
             }
 
             let cmds = if let Some(req) = input::mouse_to_kakoune(&mouse, scroll_amount, None) {
@@ -216,51 +169,4 @@ pub fn update(
             (DirtyFlags::ALL, vec![], None)
         }
     }
-}
-
-/// Check if a scroll event hits an info popup and adjust its scroll_offset.
-/// Uses the HitMap from the previous frame to identify which info popup
-/// the mouse is over, avoiding duplicated layout computation.
-/// Returns true if the scroll was consumed by an info popup.
-fn handle_info_scroll(
-    state: &mut AppState,
-    mouse: &input::MouseEvent,
-    registry: &PluginRegistry,
-) -> bool {
-    use crate::element::InteractiveId;
-
-    let (id, rect) = match registry.hit_test_with_rect(mouse.column as u16, mouse.line as u16) {
-        Some(hit) => hit,
-        None => return false,
-    };
-
-    // Check if the hit is on an info popup (InteractiveId in INFO_BASE range)
-    if id.0 < InteractiveId::INFO_BASE {
-        return false;
-    }
-    let index = (id.0 - InteractiveId::INFO_BASE) as usize;
-    let info = match state.infos.get_mut(index) {
-        Some(info) => info,
-        None => return false,
-    };
-
-    // Compute content height for scroll bounds using the rect from HitMap
-    let content_h = info
-        .content
-        .iter()
-        .map(|line| crate::layout::word_wrap_line_height(line, rect.w.saturating_sub(4).max(1)))
-        .sum::<u16>();
-    let visible_h = rect.h.saturating_sub(2).max(1); // subtract borders
-
-    match mouse.kind {
-        input::MouseEventKind::ScrollUp => {
-            info.scroll_offset = info.scroll_offset.saturating_sub(3);
-        }
-        input::MouseEventKind::ScrollDown => {
-            let max_offset = content_h.saturating_sub(visible_h);
-            info.scroll_offset = (info.scroll_offset + 3).min(max_offset);
-        }
-        _ => {}
-    }
-    true
 }

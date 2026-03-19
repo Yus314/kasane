@@ -60,6 +60,25 @@ fn test_extract_deferred_empty() {
 }
 
 #[test]
+fn test_extract_scroll_plans_separates_host_runtime_plans() {
+    let commands = vec![
+        Command::QueueScrollPlan(crate::scroll::ScrollPlan::new(
+            9,
+            10,
+            5,
+            16,
+            crate::scroll::ScrollCurve::Linear,
+            crate::scroll::ScrollAccumulationMode::Add,
+        )),
+        Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+    ];
+    let (normal, plans) = extract_scroll_plans(commands);
+    assert_eq!(normal.len(), 1);
+    assert_eq!(plans.len(), 1);
+    assert!(matches!(normal[0], Command::SendToKakoune(_)));
+}
+
+#[test]
 fn test_set_config_stores_in_ui_options() {
     // SetConfig applied via ui_options (integration would be in event loop)
     let mut state = AppState::default();

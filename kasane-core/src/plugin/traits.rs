@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
@@ -50,6 +51,13 @@ pub trait PluginBackend: Any {
         _id: InteractiveId,
         _state: &AppState,
     ) -> Option<Vec<Command>> {
+        None
+    }
+    fn handle_default_scroll(
+        &mut self,
+        _candidate: DefaultScrollCandidate,
+        _state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
         None
     }
 

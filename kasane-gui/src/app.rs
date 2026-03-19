@@ -18,7 +18,7 @@ use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     Command, CommandResult, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    execute_commands, extract_deferred_commands, extract_redraw_flags,
+    execute_commands, extract_deferred_commands, extract_redraw_flags, extract_scroll_plans,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -28,8 +28,9 @@ use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
     sync_plugin_epoch,
 };
+use kasane_core::scroll::{ScrollPlan, ScrollRuntime};
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
 
@@ -186,6 +187,8 @@ where
     config: Config,
     color_resolver: Option<ColorResolver>,
     scroll_amount: i32,
+    scroll_runtime: ScrollRuntime,
+    scroll_runtime_session: Option<kasane_core::session::SessionId>,
 
     // Scene cache
     scene_cache: SceneCache,
@@ -261,6 +264,7 @@ where
             sync_inputs_from_state(&mut db, &state, &handles);
             (db, handles)
         };
+        let scroll_runtime_session = session_manager.active_session_id();
 
         App {
             window: None,
@@ -281,6 +285,8 @@ where
             cursor_pos: None,
             mouse_button_held: None,
             scroll_amount,
+            scroll_runtime: ScrollRuntime::default(),
+            scroll_runtime_session,
             config,
             color_resolver: None,
             scene_cache: SceneCache::new(),
@@ -513,6 +519,7 @@ where
         for entry in &mut surface_command_groups {
             flags |= extract_redraw_flags(&mut entry.commands);
         }
+        let (commands, plans) = extract_scroll_plans(commands);
         if flags.contains(DirtyFlags::ALL) {
             self.grid.resize(self.state.cols, self.state.rows);
             self.grid.invalidate_all();
@@ -521,6 +528,7 @@ where
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
         if self.initial_resize_sent {
+            self.enqueue_scroll_plans(plans);
             if self.exec_commands_from(commands, source.as_ref()) {
                 event_loop.exit();
                 return;
@@ -530,8 +538,29 @@ where
                 return;
             }
         }
+        self.sync_scroll_runtime();
         self.session_states
             .sync_active_from_manager(&self.session_manager, &self.state);
+    }
+
+    fn sync_scroll_runtime(&mut self) {
+        let active_session = self.session_manager.active_session_id();
+        if self.scroll_runtime_session != active_session {
+            self.scroll_runtime.advance_generation();
+            self.scroll_runtime.suspend();
+            self.scroll_runtime_session = active_session;
+        }
+        self.scroll_runtime
+            .set_initial_resize_complete(self.initial_resize_sent);
+    }
+
+    fn enqueue_scroll_plans(&mut self, plans: Vec<ScrollPlan>) {
+        if !self.initial_resize_sent {
+            return;
+        }
+        for plan in plans {
+            self.scroll_runtime.enqueue(plan);
+        }
     }
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
@@ -857,11 +886,12 @@ where
             tracing::debug!(batch_count = pending_count, "event batch drained");
         }
         self.process_pending_events(event_loop);
+        self.sync_scroll_runtime();
 
-        // Smooth scroll animation tick
-        if let Some(cmd) = tick_scroll_animation(&mut self.state) {
+        // Host-owned smooth scroll runtime tick
+        if let Some(resolved) = self.scroll_runtime.tick() {
             kasane_core::plugin::execute_commands(
-                vec![cmd],
+                vec![Command::SendToKakoune(resolved.to_kakoune_request())],
                 self.session_manager
                     .active_writer_mut()
                     .expect("missing active session writer"),

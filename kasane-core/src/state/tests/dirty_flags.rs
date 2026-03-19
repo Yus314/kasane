@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
+use crate::scroll::{SMOOTH_SCROLL_CONFIG_KEY, set_smooth_scroll_enabled, smooth_scroll_enabled};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
 
@@ -49,6 +50,38 @@ fn test_menu_hide_returns_both_menu_flags() {
     assert!(flags.contains(DirtyFlags::MENU_STRUCTURE));
     assert!(flags.contains(DirtyFlags::MENU_SELECTION));
     assert!(flags.contains(DirtyFlags::BUFFER_CONTENT));
+}
+
+#[test]
+fn test_apply_set_config_smooth_scroll_alias_updates_plugin_config() {
+    let mut state = AppState::default();
+    let mut dirty = DirtyFlags::empty();
+
+    crate::state::apply_set_config(&mut state, &mut dirty, "smooth_scroll", "true");
+
+    assert!(dirty.contains(DirtyFlags::OPTIONS));
+    assert!(smooth_scroll_enabled(&state));
+    assert_eq!(
+        state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
+        Some(&"true".to_string())
+    );
+    assert!(!state.plugin_config.contains_key("smooth_scroll"));
+}
+
+#[test]
+fn test_apply_set_config_canonical_smooth_scroll_updates_plugin_config() {
+    let mut state = AppState::default();
+    let mut dirty = DirtyFlags::empty();
+
+    crate::state::apply_set_config(&mut state, &mut dirty, SMOOTH_SCROLL_CONFIG_KEY, "true");
+    crate::state::apply_set_config(&mut state, &mut dirty, SMOOTH_SCROLL_CONFIG_KEY, "false");
+
+    assert!(dirty.contains(DirtyFlags::OPTIONS));
+    assert!(!smooth_scroll_enabled(&state));
+    assert_eq!(
+        state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
+        Some(&"false".to_string())
+    );
 }
 
 #[test]
@@ -281,7 +314,7 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     state.assistant_art = Some(vec!["art".into()]);
     state.plugin_config.insert("key".into(), "value".into());
     state.secondary_blend_ratio = 0.8;
-    state.smooth_scroll = true;
+    set_smooth_scroll_enabled(&mut state.plugin_config, true);
     state.session_descriptors = vec![SessionDescriptor {
         key: "work".into(),
         session_name: Some("proj".into()),
@@ -315,7 +348,11 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert_eq!(state.assistant_art.as_ref().unwrap()[0], "art");
     assert_eq!(state.plugin_config.get("key").unwrap(), "value");
     assert_eq!(state.secondary_blend_ratio, 0.8);
-    assert!(state.smooth_scroll);
+    assert!(smooth_scroll_enabled(&state));
+    assert_eq!(
+        state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
+        Some(&"true".to_string())
+    );
     assert_eq!(state.session_descriptors.len(), 1);
     assert_eq!(state.active_session_key.as_deref(), Some("work"));
 
@@ -328,7 +365,6 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert!(state.infos.is_empty());
     assert!(state.ui_options.is_empty());
     assert_eq!(state.drag, crate::state::DragState::None);
-    assert!(state.scroll_animation.is_none());
 }
 
 // --- DirtyTracked derive consistency tests ---
@@ -415,17 +451,10 @@ fn test_field_dirty_map_matches_macro_analysis() {
 
 #[test]
 fn test_free_read_fields_match() {
-    let expected_free: HashSet<&str> = [
-        "cols",
-        "rows",
-        "focused",
-        "drag",
-        "smooth_scroll",
-        "scroll_animation",
-    ]
-    .iter()
-    .copied()
-    .collect();
+    let expected_free: HashSet<&str> = ["cols", "rows", "focused", "drag"]
+        .iter()
+        .copied()
+        .collect();
     let actual_free: HashSet<&str> = AppState::FREE_READ_FIELDS.iter().copied().collect();
     assert_eq!(actual_free, expected_free);
 }
