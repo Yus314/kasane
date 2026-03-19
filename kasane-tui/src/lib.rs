@@ -36,6 +36,7 @@ use event_handler::{
     spawn_session_reader,
 };
 use input::convert_event;
+use kasane_core::event_loop::{DeferredContext, handle_command_batch};
 
 /// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {
@@ -157,35 +158,6 @@ where
     // do not get a chance to produce side effects.
     kasane_core::event_loop::setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
 
-    let init_commands = registry.init_all(&state);
-    if matches!(
-        execute_commands(
-            init_commands,
-            session_manager
-                .active_writer_mut()
-                .map_err(|err| anyhow!("failed to access primary session writer: {err:?}"))?,
-            &mut || backend.clipboard_get(),
-        ),
-        CommandResult::Quit
-    ) {
-        backend.cleanup();
-        return Ok(());
-    }
-
-    // Collect paint hooks from plugins
-    let paint_hooks = registry.collect_paint_hooks();
-
-    // Salsa database
-    let (mut salsa_db, salsa_handles) = {
-        let mut db = KasaneDatabase::default();
-        let handles = SalsaInputHandles::new(&mut db);
-        sync_inputs_from_state(&mut db, &state, &handles);
-        (db, handles)
-    };
-
-    // Cell grid
-    let mut grid = CellGrid::new(cols, rows);
-
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
     // initialization (before the Client sets the m_on_key callback),
@@ -234,6 +206,48 @@ where
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
     let mut process_dispatcher = create_process_dispatcher(process_sink);
+
+    let mut init_commands = registry.init_all(&state);
+    let mut init_dirty = kasane_core::plugin::extract_redraw_flags(&mut init_commands);
+    let quit_on_init = {
+        let mut session_host = event_handler::TuiSessionRuntime {
+            session_manager: &mut session_manager,
+            session_states: &mut session_states,
+            tx: tx.clone(),
+            spawn_session,
+        };
+        let mut deferred_ctx = DeferredContext {
+            state: &mut state,
+            registry: &mut registry,
+            surface_registry: &mut surface_registry,
+            clipboard_get: &mut || backend.clipboard_get(),
+            dirty: &mut init_dirty,
+            timer: &timer,
+            session_host: &mut session_host,
+            initial_resize_sent: &mut initial_resize_sent,
+            process_dispatcher: &mut *process_dispatcher,
+            scroll_plan_sink: &mut scroll_runtime,
+        };
+        handle_command_batch(init_commands, &mut deferred_ctx, None)
+    };
+    if quit_on_init {
+        backend.cleanup();
+        return Ok(());
+    }
+
+    // Collect paint hooks from plugins
+    let paint_hooks = registry.collect_paint_hooks();
+
+    // Salsa database
+    let (mut salsa_db, salsa_handles) = {
+        let mut db = KasaneDatabase::default();
+        let handles = SalsaInputHandles::new(&mut db);
+        sync_inputs_from_state(&mut db, &state, &handles);
+        (db, handles)
+    };
+
+    // Cell grid
+    let mut grid = CellGrid::new(cols, rows);
 
     let scroll_amount = config.scroll.lines_per_scroll;
 

@@ -5,14 +5,13 @@ use std::io::Write;
 use anyhow::Result;
 
 use kasane_core::event_loop::{
-    DeferredContext, EventResult, TimerScheduler, handle_deferred_commands,
+    DeferredContext, EventResult, TimerScheduler, handle_command_batch,
     handle_sourced_surface_commands, handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    ProcessEventSink, execute_commands, extract_deferred_commands, extract_scroll_plans,
+    IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent, ProcessEventSink,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -407,23 +406,6 @@ where
         return false;
     }
 
-    let (commands, plans) = extract_scroll_plans(result.commands);
-    for plan in plans {
-        ctx.scroll_runtime.enqueue(plan);
-    }
-    let (normal, deferred) = extract_deferred_commands(commands);
-    if matches!(
-        execute_commands(
-            normal,
-            ctx.session_manager
-                .active_writer_mut()
-                .expect("missing active session writer"),
-            &mut || ctx.backend.clipboard_get(),
-        ),
-        CommandResult::Quit
-    ) {
-        return true;
-    }
     let should_quit = {
         let mut session_host = TuiSessionRuntime {
             session_manager: ctx.session_manager,
@@ -441,8 +423,13 @@ where
             session_host: &mut session_host,
             initial_resize_sent: ctx.initial_resize_sent,
             process_dispatcher: ctx.process_dispatcher,
+            scroll_plan_sink: ctx.scroll_runtime,
         };
-        if handle_deferred_commands(deferred, &mut deferred_ctx, result.command_source.as_ref()) {
+        if handle_command_batch(
+            result.commands,
+            &mut deferred_ctx,
+            result.command_source.as_ref(),
+        ) {
             return true;
         }
         handle_sourced_surface_commands(result.surface_commands, &mut deferred_ctx)

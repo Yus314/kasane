@@ -12,7 +12,9 @@ use crate::layout::Rect;
 use crate::plugin::{
     Command, CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry, ProcessDispatcher,
     ProcessEvent, execute_commands, extract_deferred_commands, extract_redraw_flags,
+    extract_scroll_plans,
 };
+use crate::scroll::{ScrollPlan, ScrollRuntime};
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
@@ -361,6 +363,23 @@ pub trait SessionHost: SessionRuntime {
     fn active_writer(&mut self) -> &mut dyn Write;
 }
 
+/// Host-owned sink for deferred scroll plan execution.
+pub trait ScrollPlanSink {
+    fn enqueue_scroll_plan(&mut self, plan: ScrollPlan);
+}
+
+impl ScrollPlanSink for ScrollRuntime {
+    fn enqueue_scroll_plan(&mut self, plan: ScrollPlan) {
+        self.enqueue(plan);
+    }
+}
+
+impl ScrollPlanSink for Vec<ScrollPlan> {
+    fn enqueue_scroll_plan(&mut self, plan: ScrollPlan) {
+        self.push(plan);
+    }
+}
+
 /// Shared mutable context for deferred command handling.
 ///
 /// Groups the many `&mut` parameters that `handle_deferred_commands` and
@@ -375,6 +394,7 @@ pub struct DeferredContext<'a> {
     pub session_host: &'a mut dyn SessionHost,
     pub initial_resize_sent: &'a mut bool,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+    pub scroll_plan_sink: &'a mut dyn ScrollPlanSink,
 }
 
 /// Maximum recursion depth for cascading deferred commands.
@@ -392,6 +412,42 @@ pub fn handle_deferred_commands(
     command_source_plugin: Option<&PluginId>,
 ) -> bool {
     handle_deferred_commands_inner(deferred, ctx, command_source_plugin, 0)
+}
+
+/// Execute a command batch, extracting host-owned scroll plans and cascading deferred effects.
+pub fn handle_command_batch(
+    commands: Vec<Command>,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+) -> bool {
+    handle_command_batch_inner(commands, ctx, command_source_plugin, 0)
+}
+
+fn prepare_command_batch(
+    commands: Vec<Command>,
+    scroll_plan_sink: &mut dyn ScrollPlanSink,
+) -> (Vec<Command>, Vec<DeferredCommand>) {
+    let (commands, plans) = extract_scroll_plans(commands);
+    for plan in plans {
+        scroll_plan_sink.enqueue_scroll_plan(plan);
+    }
+    extract_deferred_commands(commands)
+}
+
+fn handle_command_batch_inner(
+    commands: Vec<Command>,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> bool {
+    let (normal, deferred) = prepare_command_batch(commands, ctx.scroll_plan_sink);
+    if matches!(
+        execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
+        CommandResult::Quit
+    ) {
+        return true;
+    }
+    handle_deferred_commands_inner(deferred, ctx, command_source_plugin, depth)
 }
 
 fn handle_deferred_commands_inner(
@@ -414,14 +470,7 @@ fn handle_deferred_commands_inner(
             DeferredCommand::PluginMessage { target, payload } => {
                 let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
                 *ctx.dirty |= flags;
-                let (normal, nested_deferred) = extract_deferred_commands(commands);
-                if matches!(
-                    execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
-                    CommandResult::Quit
-                ) {
-                    return true;
-                }
-                if handle_deferred_commands_inner(nested_deferred, ctx, Some(&target), depth + 1) {
+                if handle_command_batch_inner(commands, ctx, Some(&target), depth + 1) {
                     return true;
                 }
             }
@@ -475,23 +524,7 @@ fn handle_deferred_commands_inner(
                             ctx.registry
                                 .deliver_io_event(plugin_id, &fail_event, ctx.state);
                         *ctx.dirty |= flags;
-                        let (normal, nested_deferred) = extract_deferred_commands(fail_cmds);
-                        if matches!(
-                            execute_commands(
-                                normal,
-                                ctx.session_host.active_writer(),
-                                ctx.clipboard_get
-                            ),
-                            CommandResult::Quit
-                        ) {
-                            return true;
-                        }
-                        if handle_deferred_commands_inner(
-                            nested_deferred,
-                            ctx,
-                            Some(plugin_id),
-                            depth + 1,
-                        ) {
+                        if handle_command_batch_inner(fail_cmds, ctx, Some(plugin_id), depth + 1) {
                             return true;
                         }
                     }
@@ -568,7 +601,8 @@ fn handle_deferred_commands_inner(
                 if !notify_commands.is_empty() {
                     let extra_flags = extract_redraw_flags(&mut notify_commands);
                     *ctx.dirty |= extra_flags;
-                    let (normal, nested_deferred) = extract_deferred_commands(notify_commands);
+                    let (normal, nested_deferred) =
+                        prepare_command_batch(notify_commands, ctx.scroll_plan_sink);
                     if matches!(
                         execute_commands(
                             normal,
@@ -607,14 +641,7 @@ pub fn handle_sourced_surface_commands(
     ctx: &mut DeferredContext<'_>,
 ) -> bool {
     for entry in command_groups {
-        let (normal, deferred) = extract_deferred_commands(entry.commands);
-        if matches!(
-            execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
-            CommandResult::Quit
-        ) {
-            return true;
-        }
-        if handle_deferred_commands(deferred, ctx, entry.source_plugin.as_ref()) {
+        if handle_command_batch(entry.commands, ctx, entry.source_plugin.as_ref()) {
             return true;
         }
     }
@@ -640,7 +667,8 @@ pub fn handle_workspace_divider_input(
 mod tests {
     use super::*;
 
-    use crate::plugin::{Command, PluginBackend, StdinMode};
+    use crate::plugin::{Command, Plugin, PluginBackend, PluginId, StdinMode};
+    use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
     struct TestPlugin {
         id: PluginId,
@@ -743,6 +771,35 @@ mod tests {
         fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
     }
 
+    struct QueuePlanPlugin;
+
+    impl Plugin for QueuePlanPlugin {
+        type State = ();
+
+        fn id(&self) -> PluginId {
+            PluginId("queue-plan".to_string())
+        }
+
+        fn update(
+            &self,
+            state: &Self::State,
+            _msg: Box<dyn Any>,
+            _app: &AppState,
+        ) -> (Self::State, Vec<Command>) {
+            (
+                *state,
+                vec![Command::QueueScrollPlan(ScrollPlan::new(
+                    3,
+                    4,
+                    5,
+                    16,
+                    ScrollCurve::Linear,
+                    ScrollAccumulationMode::Add,
+                ))],
+            )
+        }
+    }
+
     #[test]
     fn sourced_surface_commands_preserve_plugin_for_spawn_process() {
         let plugin_id = PluginId("surface-owner".to_string());
@@ -759,6 +816,7 @@ mod tests {
         let mut sessions = NoopSessionRuntime::default();
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
 
         let quit = handle_sourced_surface_commands(
             vec![SourcedSurfaceCommands {
@@ -780,6 +838,7 @@ mod tests {
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
                 process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
             },
         );
 
@@ -790,6 +849,89 @@ mod tests {
         assert_eq!(dispatcher.spawned[0].2, "fd");
         assert_eq!(dispatcher.spawned[0].3, vec!["foo".to_string()]);
         assert_eq!(dispatcher.spawned[0].4, StdinMode::Null);
+    }
+
+    #[test]
+    fn deferred_plugin_message_enqueues_scroll_plans() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register(QueuePlanPlugin);
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = true;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
+
+        let quit = handle_deferred_commands(
+            vec![DeferredCommand::PluginMessage {
+                target: PluginId("queue-plan".to_string()),
+                payload: Box::new(()),
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
+            },
+            None,
+        );
+
+        assert!(!quit);
+        assert_eq!(scroll_plans.len(), 1);
+        assert_eq!(scroll_plans[0].total_amount, 3);
+        assert_eq!(scroll_plans[0].anchor(), (4, 5));
+    }
+
+    #[test]
+    fn sourced_surface_commands_enqueue_scroll_plans() {
+        let mut registry = PluginRegistry::new();
+        let mut state = AppState::default();
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = true;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
+
+        let quit = handle_sourced_surface_commands(
+            vec![SourcedSurfaceCommands {
+                source_plugin: None,
+                commands: vec![Command::QueueScrollPlan(ScrollPlan::new(
+                    -2,
+                    9,
+                    7,
+                    16,
+                    ScrollCurve::Linear,
+                    ScrollAccumulationMode::Add,
+                ))],
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
+            },
+        );
+
+        assert!(!quit);
+        assert_eq!(scroll_plans.len(), 1);
+        assert_eq!(scroll_plans[0].total_amount, -2);
+        assert_eq!(scroll_plans[0].anchor(), (9, 7));
     }
 
     #[derive(Default)]
@@ -851,6 +993,7 @@ mod tests {
         let mut sessions = RecordingSessionHost::default();
         let mut initial_resize_sent = true;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
 
         let quit = handle_deferred_commands(
             vec![DeferredCommand::Session(
@@ -871,6 +1014,7 @@ mod tests {
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
                 process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
             },
             None,
         );
@@ -893,6 +1037,7 @@ mod tests {
         let mut sessions = RecordingSessionHost::default();
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
 
         let quit = handle_deferred_commands(
             vec![DeferredCommand::Session(
@@ -910,6 +1055,7 @@ mod tests {
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
                 process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
             },
             None,
         );
@@ -931,6 +1077,7 @@ mod tests {
         };
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
 
         let quit = handle_deferred_commands(
             vec![DeferredCommand::Session(
@@ -946,6 +1093,7 @@ mod tests {
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
                 process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
             },
             None,
         );
@@ -964,6 +1112,7 @@ mod tests {
         let mut sessions = RecordingSessionHost::default();
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut scroll_plans = Vec::new();
 
         let quit = handle_deferred_commands(
             vec![DeferredCommand::Session(
@@ -981,6 +1130,7 @@ mod tests {
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
                 process_dispatcher: &mut dispatcher,
+                scroll_plan_sink: &mut scroll_plans,
             },
             None,
         );

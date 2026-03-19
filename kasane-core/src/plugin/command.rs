@@ -215,7 +215,15 @@ pub fn execute_commands(
             Command::SendToKakoune(req) => {
                 crate::io::send_request(kak_writer, &req);
             }
-            Command::QueueScrollPlan(_) => {}
+            Command::QueueScrollPlan(_) => {
+                debug_assert!(
+                    false,
+                    "QueueScrollPlan must be extracted before execute_commands"
+                );
+                tracing::error!(
+                    "QueueScrollPlan reached execute_commands without host runtime extraction"
+                );
+            }
             Command::Paste => {
                 if let Some(text) = clipboard_get() {
                     let keys = paste_text_to_keys(&text);

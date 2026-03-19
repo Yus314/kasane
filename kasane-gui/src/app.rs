@@ -11,14 +11,13 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    DeferredContext, TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
+    DeferredContext, TimerScheduler, handle_command_batch, handle_sourced_surface_commands,
     handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    Command, CommandResult, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    execute_commands, extract_deferred_commands, extract_redraw_flags, extract_scroll_plans,
+    Command, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -28,7 +27,7 @@ use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
     sync_plugin_epoch,
 };
-use kasane_core::scroll::{ScrollPlan, ScrollRuntime};
+use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update};
 use kasane_core::surface::SurfaceRegistry;
@@ -519,7 +518,6 @@ where
         for entry in &mut surface_command_groups {
             flags |= extract_redraw_flags(&mut entry.commands);
         }
-        let (commands, plans) = extract_scroll_plans(commands);
         if flags.contains(DirtyFlags::ALL) {
             self.grid.resize(self.state.cols, self.state.rows);
             self.grid.invalidate_all();
@@ -528,7 +526,6 @@ where
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
         if self.initial_resize_sent {
-            self.enqueue_scroll_plans(plans);
             if self.exec_commands_from(commands, source.as_ref()) {
                 event_loop.exit();
                 return;
@@ -554,15 +551,6 @@ where
             .set_initial_resize_complete(self.initial_resize_sent);
     }
 
-    fn enqueue_scroll_plans(&mut self, plans: Vec<ScrollPlan>) {
-        if !self.initial_resize_sent {
-            return;
-        }
-        for plan in plans {
-            self.scroll_runtime.enqueue(plan);
-        }
-    }
-
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
     fn exec_commands(&mut self, commands: Vec<Command>) -> bool {
         self.exec_commands_from(commands, None)
@@ -574,20 +562,7 @@ where
         commands: Vec<Command>,
         source_plugin: Option<&kasane_core::plugin::PluginId>,
     ) -> bool {
-        let (normal, deferred) = extract_deferred_commands(commands);
-        if matches!(
-            execute_commands(
-                normal,
-                self.session_manager
-                    .active_writer_mut()
-                    .expect("missing active session writer"),
-                &mut || { self.backend.as_mut().and_then(|b| b.clipboard_get()) },
-            ),
-            CommandResult::Quit
-        ) {
-            return true;
-        }
-        self.with_deferred_context(|ctx| handle_deferred_commands(deferred, ctx, source_plugin))
+        self.with_deferred_context(|ctx| handle_command_batch(commands, ctx, source_plugin))
     }
 
     fn exec_surface_command_groups(
@@ -619,6 +594,7 @@ where
             session_host: &mut session_runtime,
             initial_resize_sent: &mut self.initial_resize_sent,
             process_dispatcher: &mut *self.process_dispatcher,
+            scroll_plan_sink: &mut self.scroll_runtime,
         };
         f(&mut ctx)
     }
