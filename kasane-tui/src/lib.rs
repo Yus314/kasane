@@ -36,7 +36,6 @@ use event_handler::{
     spawn_session_reader,
 };
 use input::convert_event;
-use kasane_core::event_loop::{DeferredContext, handle_command_batch};
 
 /// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {
@@ -207,32 +206,7 @@ where
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
     let mut process_dispatcher = create_process_dispatcher(process_sink);
 
-    let mut init_commands = registry.init_all(&state);
-    let mut init_dirty = kasane_core::plugin::extract_redraw_flags(&mut init_commands);
-    let quit_on_init = {
-        let mut session_host = event_handler::TuiSessionRuntime {
-            session_manager: &mut session_manager,
-            session_states: &mut session_states,
-            tx: tx.clone(),
-            spawn_session,
-        };
-        let mut deferred_ctx = DeferredContext {
-            state: &mut state,
-            registry: &mut registry,
-            surface_registry: &mut surface_registry,
-            clipboard_get: &mut || backend.clipboard_get(),
-            dirty: &mut init_dirty,
-            timer: &timer,
-            session_host: &mut session_host,
-            initial_resize_sent: &mut initial_resize_sent,
-            process_dispatcher: &mut *process_dispatcher,
-        };
-        handle_command_batch(init_commands, &mut deferred_ctx, None)
-    };
-    if quit_on_init {
-        backend.cleanup();
-        return Ok(());
-    }
+    let mut pending_init_commands = registry.init_all(&state);
 
     // Collect paint hooks from plugins
     let paint_hooks = registry.collect_paint_hooks();
@@ -310,6 +284,7 @@ where
                 timer: &timer,
                 scroll_runtime: &mut scroll_runtime,
                 scroll_runtime_session: &mut scroll_runtime_session,
+                pending_init_commands: &mut pending_init_commands,
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_reloader: &plugin_reloader,
             };

@@ -11,8 +11,8 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    DeferredContext, TimerScheduler, handle_command_batch, handle_sourced_surface_commands,
-    handle_workspace_divider_input, surface_event_from_input,
+    DeferredContext, TimerScheduler, flush_pending_init_commands, handle_command_batch,
+    handle_sourced_surface_commands, handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -589,9 +589,12 @@ where
             return false;
         }
 
-        let mut commands = std::mem::take(&mut self.pending_init_commands);
-        self.dirty |= extract_redraw_flags(&mut commands);
-        self.exec_commands(commands)
+        let mut pending_init_commands = std::mem::take(&mut self.pending_init_commands);
+        let should_quit = self.with_deferred_context(|ctx| {
+            flush_pending_init_commands(&mut pending_init_commands, ctx)
+        });
+        self.pending_init_commands = pending_init_commands;
+        should_quit
     }
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.

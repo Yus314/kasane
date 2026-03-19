@@ -619,6 +619,19 @@ pub fn handle_sourced_surface_commands(
     false
 }
 
+/// Execute plugin `on_init()` commands once the backend has completed initial resize.
+pub fn flush_pending_init_commands(
+    pending_init_commands: &mut Vec<Command>,
+    ctx: &mut DeferredContext<'_>,
+) -> bool {
+    if pending_init_commands.is_empty() {
+        return false;
+    }
+
+    *ctx.dirty |= extract_redraw_flags(pending_init_commands);
+    handle_command_batch(std::mem::take(pending_init_commands), ctx, None)
+}
+
 /// Consume an input event that targets a workspace split divider.
 ///
 /// Divider drag is handled before normal input routing so divider presses do
