@@ -8,7 +8,10 @@ pub(crate) mod input;
 pub(crate) use command::*;
 pub(crate) use context::*;
 pub(crate) use element::*;
-pub(crate) use input::{io_event_to_wit, key_event_to_wit, mouse_event_to_wit};
+pub(crate) use input::{
+    default_scroll_candidate_to_wit, io_event_to_wit, key_event_to_wit, mouse_event_to_wit,
+    wit_scroll_policy_result_to_result,
+};
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::layout::Rect;

@@ -7,6 +7,7 @@ use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::state::{Plugin, PluginState};
@@ -60,6 +61,12 @@ pub(crate) trait ErasedPlugin: Send {
         id: InteractiveId,
         app: &AppState,
     ) -> Option<Vec<Command>>;
+    fn handle_default_scroll_erased(
+        &self,
+        state: &mut dyn PluginState,
+        candidate: DefaultScrollCandidate,
+        app: &AppState,
+    ) -> Option<ScrollPolicyResult>;
     fn update_erased(
         &self,
         state: &mut dyn PluginState,
@@ -205,6 +212,20 @@ impl<P: Plugin> ErasedPlugin for P {
             .map(|(new_state, cmds)| {
                 *typed = new_state;
                 cmds
+            })
+    }
+
+    fn handle_default_scroll_erased(
+        &self,
+        state: &mut dyn PluginState,
+        candidate: DefaultScrollCandidate,
+        app: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+        self.handle_default_scroll(typed, candidate, app)
+            .map(|(new_state, result)| {
+                *typed = new_state;
+                result
             })
     }
 
@@ -413,6 +434,18 @@ impl PluginBackend for PluginBridge {
         result
     }
 
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        let result = self
+            .inner
+            .handle_default_scroll_erased(&mut *self.state, candidate, state);
+        self.check_state_change();
+        result
+    }
+
     fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
         let cmds = self.inner.update_erased(&mut *self.state, msg, state);
         self.check_state_change();
@@ -508,6 +541,7 @@ mod tests {
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
     use crate::plugin::{AnnotateContext, PluginCapabilities, PluginId, PluginRegistry};
+    use crate::scroll::{ResolvedScroll, ScrollPolicyResult};
     use crate::state::AppState;
 
     // ---- PluginBridge tests ----
@@ -569,6 +603,61 @@ mod tests {
         assert!(bridge.annotate_line_with_ctx(3, &app, &ctx).is_some());
         assert!(bridge.annotate_line_with_ctx(0, &app, &ctx).is_none());
         assert!(bridge.annotate_line_with_ctx(5, &app, &ctx).is_none());
+    }
+
+    #[test]
+    fn bridge_handles_default_scroll_and_tracks_state_changes() {
+        #[derive(Default)]
+        struct ScrollPure;
+
+        impl Plugin for ScrollPure {
+            type State = CursorLineState;
+
+            fn id(&self) -> PluginId {
+                PluginId("test.scroll-pure".into())
+            }
+
+            fn capabilities(&self) -> PluginCapabilities {
+                PluginCapabilities::SCROLL_POLICY
+            }
+
+            fn handle_default_scroll(
+                &self,
+                state: &Self::State,
+                candidate: DefaultScrollCandidate,
+                _app: &AppState,
+            ) -> Option<(Self::State, ScrollPolicyResult)> {
+                let mut next = state.clone();
+                next.active_line = candidate.screen_line as i32;
+                Some((
+                    next,
+                    ScrollPolicyResult::Immediate(ResolvedScroll::new(
+                        candidate.resolved.amount,
+                        candidate.resolved.line,
+                        candidate.resolved.column,
+                    )),
+                ))
+            }
+        }
+
+        let mut bridge = PluginBridge::new(ScrollPure);
+        let state = AppState::default();
+        let candidate = DefaultScrollCandidate::new(
+            10,
+            5,
+            crate::input::Modifiers::empty(),
+            crate::scroll::ScrollGranularity::Line,
+            3,
+            ResolvedScroll::new(3, 10, 5),
+        );
+
+        let result = bridge.handle_default_scroll(candidate, &state);
+
+        assert_eq!(
+            result,
+            Some(ScrollPolicyResult::Immediate(ResolvedScroll::new(3, 10, 5)))
+        );
+        assert_eq!(bridge.state_hash(), 1);
     }
 
     // ---- Registry integration tests ----

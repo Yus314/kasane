@@ -13,6 +13,7 @@ use kasane_core::plugin::{
     PluginId, SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
+use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::{
     EventContext, SizeHint, SlotDeclaration, Surface, SurfaceEvent, SurfaceId,
@@ -345,6 +346,38 @@ impl PluginBackend for WasmPlugin {
             Ok(api
                 .call_handle_mouse(&mut rt.store, wit_event, id.0)
                 .map(|opt| opt.map(|cmds| convert::wit_commands_to_commands(&cmds)))?)
+        })
+    }
+
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        self.shared.with_runtime(|runtime| {
+            host::sync_from_app_state(runtime.store.data_mut(), state);
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            let wit_candidate = convert::default_scroll_candidate_to_wit(&candidate);
+            let result =
+                match plugin_api.call_handle_default_scroll(&mut runtime.store, wit_candidate) {
+                    Ok(Some(result)) => Some(convert::wit_scroll_policy_result_to_result(&result)),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.handle_default_scroll failed: {e}",
+                            self.shared.plugin_id.0
+                        );
+                        return None;
+                    }
+                };
+
+            if result.is_some()
+                && let Ok(h) = plugin_api.call_state_hash(&mut runtime.store)
+            {
+                self.shared.set_state_hash(h);
+            }
+
+            result
         })
     }
 

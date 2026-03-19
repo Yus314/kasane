@@ -1,6 +1,10 @@
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::plugin::{IoEvent, ProcessEvent};
+use kasane_core::scroll::{
+    DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
+    ScrollPlan, ScrollPolicyResult,
+};
 
 pub(crate) fn io_event_to_wit(event: &IoEvent) -> wit::IoEvent {
     match event {
@@ -62,6 +66,34 @@ pub(crate) fn key_event_to_wit(event: &KeyEvent) -> wit::KeyEvent {
     }
 }
 
+pub(crate) fn default_scroll_candidate_to_wit(
+    candidate: &DefaultScrollCandidate,
+) -> wit::DefaultScrollCandidate {
+    wit::DefaultScrollCandidate {
+        screen_line: candidate.screen_line,
+        screen_column: candidate.screen_column,
+        modifiers: candidate.modifiers.bits(),
+        granularity: scroll_granularity_to_wit(candidate.granularity),
+        raw_amount: candidate.raw_amount,
+        resolved: resolved_scroll_to_wit(candidate.resolved),
+    }
+}
+
+pub(crate) fn wit_scroll_policy_result_to_result(
+    result: &wit::ScrollPolicyResult,
+) -> ScrollPolicyResult {
+    match result {
+        wit::ScrollPolicyResult::Pass => ScrollPolicyResult::Pass,
+        wit::ScrollPolicyResult::Suppress => ScrollPolicyResult::Suppress,
+        wit::ScrollPolicyResult::Immediate(resolved) => {
+            ScrollPolicyResult::Immediate(wit_resolved_scroll_to_resolved_scroll(resolved))
+        }
+        wit::ScrollPolicyResult::Plan(plan) => {
+            ScrollPolicyResult::Plan(wit_scroll_plan_to_scroll_plan(plan))
+        }
+    }
+}
+
 fn key_to_wit(key: &Key) -> wit::KeyCode {
     match key {
         Key::Char(c) => wit::KeyCode::Character(c.to_string()),
@@ -79,5 +111,52 @@ fn key_to_wit(key: &Key) -> wit::KeyCode {
         Key::PageUp => wit::KeyCode::PageUp,
         Key::PageDown => wit::KeyCode::PageDown,
         Key::F(n) => wit::KeyCode::FKey(*n),
+    }
+}
+
+fn scroll_granularity_to_wit(granularity: ScrollGranularity) -> wit::ScrollGranularity {
+    match granularity {
+        ScrollGranularity::Line => wit::ScrollGranularity::Line,
+        ScrollGranularity::Page => wit::ScrollGranularity::Page,
+        ScrollGranularity::Pixel => wit::ScrollGranularity::Pixel,
+    }
+}
+
+fn resolved_scroll_to_wit(resolved: ResolvedScroll) -> wit::ResolvedScroll {
+    wit::ResolvedScroll {
+        amount: resolved.amount,
+        line: resolved.line,
+        column: resolved.column,
+    }
+}
+
+fn wit_resolved_scroll_to_resolved_scroll(resolved: &wit::ResolvedScroll) -> ResolvedScroll {
+    ResolvedScroll::new(resolved.amount, resolved.line, resolved.column)
+}
+
+fn wit_scroll_plan_to_scroll_plan(plan: &wit::ScrollPlan) -> ScrollPlan {
+    ScrollPlan::new(
+        plan.total_amount,
+        plan.line,
+        plan.column,
+        plan.frame_interval_ms,
+        wit_scroll_curve_to_scroll_curve(plan.curve),
+        wit_scroll_accumulation_to_scroll_accumulation(plan.accumulation),
+    )
+}
+
+fn wit_scroll_curve_to_scroll_curve(curve: wit::ScrollCurve) -> ScrollCurve {
+    match curve {
+        wit::ScrollCurve::Instant => ScrollCurve::Instant,
+        wit::ScrollCurve::Linear => ScrollCurve::Linear,
+    }
+}
+
+fn wit_scroll_accumulation_to_scroll_accumulation(
+    mode: wit::ScrollAccumulationMode,
+) -> ScrollAccumulationMode {
+    match mode {
+        wit::ScrollAccumulationMode::Add => ScrollAccumulationMode::Add,
+        wit::ScrollAccumulationMode::Replace => ScrollAccumulationMode::Replace,
     }
 }

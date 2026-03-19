@@ -10,6 +10,7 @@ use dyn_clone::DynClone;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
@@ -146,6 +147,16 @@ pub trait Plugin: Send + 'static {
         app: &AppState,
     ) -> Option<(Self::State, Vec<Command>)> {
         let _ = (state, event, id, app);
+        None
+    }
+
+    fn handle_default_scroll(
+        &self,
+        state: &Self::State,
+        candidate: DefaultScrollCandidate,
+        app: &AppState,
+    ) -> Option<(Self::State, ScrollPolicyResult)> {
+        let _ = (state, candidate, app);
         None
     }
 

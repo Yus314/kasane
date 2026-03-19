@@ -124,6 +124,53 @@ interface types {
         modifiers: modifier-flags,
     }
 
+    enum scroll-granularity {
+        line,
+        page,
+        pixel,
+    }
+
+    record resolved-scroll {
+        amount: s32,
+        line: u32,
+        column: u32,
+    }
+
+    record default-scroll-candidate {
+        screen-line: u32,
+        screen-column: u32,
+        modifiers: modifier-flags,
+        granularity: scroll-granularity,
+        raw-amount: s32,
+        resolved: resolved-scroll,
+    }
+
+    enum scroll-accumulation-mode {
+        add,
+        replace,
+    }
+
+    enum scroll-curve {
+        instant,
+        linear,
+    }
+
+    record scroll-plan {
+        total-amount: s32,
+        line: u32,
+        column: u32,
+        frame-interval-ms: u16,
+        curve: scroll-curve,
+        accumulation: scroll-accumulation-mode,
+    }
+
+    variant scroll-policy-result {
+        pass,
+        suppress,
+        immediate(resolved-scroll),
+        plan(scroll-plan),
+    }
+
     variant key-code {
         character(string),
         backspace,
@@ -568,7 +615,7 @@ interface plugin-api {
                slot-id, contribute-context, contribution, transform-target, transform-context,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
                capability, io-event, surface-view-context, surface-event-context, surface-event,
-               surface-descriptor};
+               surface-descriptor, default-scroll-candidate, scroll-policy-result};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -611,6 +658,10 @@ interface plugin-api {
     /// Handle a key event (first-wins among plugins).
     /// Return Some(commands) to consume the event, None to pass through.
     handle-key: func(event: key-event) -> option<list<command>>;
+
+    /// Handle a default buffer scroll candidate before core fallback applies.
+    /// Return None to pass through to the next plugin or fallback.
+    handle-default-scroll: func(candidate: default-scroll-candidate) -> option<scroll-policy-result>;
 
     /// Observe a key event (notification only, cannot consume).
     observe-key: func(event: key-event);

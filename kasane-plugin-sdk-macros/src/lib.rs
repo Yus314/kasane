@@ -104,6 +104,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_input" => vec![
             "handle_mouse".into(),
             "handle_key".into(),
+            "handle_default_scroll".into(),
             "observe_key".into(),
             "observe_mouse".into(),
         ],
@@ -341,6 +342,17 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         "handle_key",
         quote! {
             fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
+                None
+            }
+        }
+    );
+
+    add_default!(
+        "handle_default_scroll",
+        quote! {
+            fn handle_default_scroll(
+                _candidate: DefaultScrollCandidate
+            ) -> Option<ScrollPolicyResult> {
                 None
             }
         }
@@ -1177,6 +1189,21 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    let handle_default_scroll_method = if let Some(ref hs) = def.handle_default_scroll {
+        let candidate_param = &hs.param;
+        let body = &hs.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn handle_default_scroll(
+                #candidate_param: DefaultScrollCandidate
+            ) -> Option<ScrollPolicyResult> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let capabilities_method = if let Some(ref caps) = def.capabilities {
         quote! {
             fn requested_capabilities() -> Vec<Capability> {
@@ -1224,6 +1251,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             #overlay_method
             #handle_key_method
             #handle_mouse_method
+            #handle_default_scroll_method
             #capabilities_method
             #on_io_event_method
         }
@@ -1247,6 +1275,7 @@ struct PluginDef {
     overlay: Option<ParamBodyDef>,
     handle_key: Option<ParamBodyDef>,
     handle_mouse: Option<HandleMouseDef>,
+    handle_default_scroll: Option<ParamBodyDef>,
     capabilities: Option<proc_macro2::TokenStream>,
     on_io_event: Option<ParamBodyDef>,
 }
@@ -1323,6 +1352,7 @@ impl syn::parse::Parse for PluginDef {
             overlay: None,
             handle_key: None,
             handle_mouse: None,
+            handle_default_scroll: None,
             capabilities: None,
             on_io_event: None,
         };
@@ -1491,6 +1521,17 @@ impl syn::parse::Parse for PluginDef {
                     def.handle_mouse = Some(HandleMouseDef {
                         event_param,
                         id_param,
+                        body: body.parse()?,
+                    });
+                }
+                "handle_default_scroll" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.handle_default_scroll = Some(ParamBodyDef {
+                        param,
                         body: body.parse()?,
                     });
                 }

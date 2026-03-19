@@ -352,7 +352,8 @@ macro_rules! default_contribute {
     };
 }
 
-/// Default input handling stubs (handle_mouse, handle_key, observe_key, observe_mouse).
+/// Default input handling stubs
+/// (`handle_mouse`, `handle_key`, `handle_default_scroll`, `observe_key`, `observe_mouse`).
 #[macro_export]
 macro_rules! default_input {
     () => {
@@ -360,6 +361,11 @@ macro_rules! default_input {
             None
         }
         fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
+            None
+        }
+        fn handle_default_scroll(
+            _candidate: DefaultScrollCandidate,
+        ) -> Option<ScrollPolicyResult> {
             None
         }
         fn observe_key(_event: KeyEvent) {}
