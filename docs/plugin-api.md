@@ -518,6 +518,20 @@ The processing order for key input is as follows:
 
 Mouse input is passed to `handle_mouse(event, id, state)` after `observe_mouse()`, followed by `InteractiveId` hit testing.
 
+Default wheel scrolling has a separate policy hook. After core classifies a wheel
+event as a **default buffer scroll candidate**, it queries plugins with
+`SCROLL_POLICY` via `handle_default_scroll(candidate)` in registration order.
+The first plugin to return `Some(result)` wins:
+
+- `None`: pass to the next scroll-policy plugin
+- `Some(Pass)`: stop the plugin chain and use core fallback scroll behavior
+- `Some(Suppress)`: consume the candidate without emitting a scroll request
+- `Some(Immediate(resolved))`: emit a single resolved scroll request immediately
+- `Some(Plan(plan))`: hand a declarative scroll plan to the host runtime
+
+This hook only applies to default buffer scroll candidates. Core-owned paths
+such as info-popup scrolling and drag-scroll routing do not go through it.
+
 ### 3.4.1 Display Units and Interaction Policy
 
 The `DisplayMap` provides the first concrete implementation of source mapping and interaction policy for display lines:
@@ -546,7 +560,7 @@ Hook functions issue side-effect requests by returning `Vec<Command>`.
 | `RequestRedraw(flags)` | Request a redraw |
 | `ScheduleTimer { delay, target, payload }` | Send a message to target after a delay |
 | `PluginMessage { target, payload }` | Send a message to another plugin |
-| `SetConfig { key, value }` | Change a runtime configuration |
+| `SetConfig { key, value }` | Change a runtime configuration. For bundled smooth scrolling, use `smooth-scroll.enabled` |
 | `SpawnProcess { job_id, program, args, stdin_mode }` | Spawn an external process (Phase P-2) |
 | `Session(SessionCommand)` | Create or close a Kakoune session managed by the host runtime |
 | `WriteToProcess { job_id, data }` | Write to the stdin of a spawned process |
@@ -592,6 +606,7 @@ WASM plugins are sandboxed by default. The host constructs WASM instances withou
 | `MENU_TRANSFORM` | `transform_menu_item()` |
 | `CURSOR_STYLE` | `cursor_style_override()` |
 | `INPUT_HANDLER` | `handle_key()` / `handle_mouse()` |
+| `SCROLL_POLICY` | `handle_default_scroll()` |
 | `PANE_LIFECYCLE` | Pane lifecycle hooks |
 | `PANE_RENDERER` | `render_pane()` |
 | `SURFACE_PROVIDER` | `surfaces()` |

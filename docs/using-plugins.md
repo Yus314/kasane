@@ -15,6 +15,7 @@ The plugin API is extensible — plugins can:
 - Show floating overlays (pickers, tooltips)
 - Transform existing elements (status bar customization)
 - Handle keyboard and mouse input
+- Override default wheel scroll policy
 
 ## Included Example Plugins
 
@@ -26,6 +27,7 @@ Kasane includes several example plugins that demonstrate the plugin system's ext
 | Color Preview | `color_preview` | Line annotation + overlay + mouse input |
 | Selection Badge | `sel_badge` | Slot contribution (`contribute_to`) |
 | Fuzzy Finder | `fuzzy_finder` | Overlay + key input + external process I/O |
+| Smooth Scroll | `smooth_scroll` | Default wheel scroll policy (`handle_default_scroll`) |
 
 A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
 
@@ -36,7 +38,7 @@ Example plugins are included in the binary but not loaded by default. Add plugin
 ```toml
 # ~/.config/kasane/config.toml
 [plugins]
-enabled = ["cursor_line", "color_preview"]
+enabled = ["cursor_line", "color_preview", "smooth_scroll"]
 ```
 
 ## Installing External Plugins

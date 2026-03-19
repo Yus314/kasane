@@ -19,6 +19,7 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 | `transform_element()` | Status bar customization, menu layout changes |
 | `display_directives()` | Code folding, line hiding, virtual text insertion |
 | `handle_key()` + `handle_mouse()` | Interactive pickers, dialogs |
+| `handle_default_scroll()` | Wheel policy, smooth scrolling |
 
 > Native plugins can also use `Surface` for sidebars and dedicated panels. See [Appendix A](#appendix-a-alternative-native-plugin).
 
@@ -149,8 +150,9 @@ These are available in all plugin code (emitted by `generate!()` / `define_plugi
 | Display transform | `state`, `on_state_changed`, `display_directives` | — | virtual-text-demo (native) |
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
 | Process launcher | Above + `on_io_event`, `capabilities` | `process` | fuzzy-finder |
+| Scroll policy | `handle_default_scroll` | — | smooth-scroll |
 
-Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init`, `on_state_changed`, `on_state_changed_commands`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
+Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init`, `on_state_changed`, `on_state_changed_commands`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `on_io_event`.
 
 ### Build & Deploy
 
@@ -219,6 +221,60 @@ kasane_plugin_sdk::define_plugin! {
 - **`transform(target, element, ctx)`** receives an opaque `ElementHandle` for the target element. Return it unchanged for passthrough, or wrap it with `container().build()`.
 - **`TransformTarget`** selects which UI component to transform (e.g., `StatusBarT`, `Buffer`, `MenuT`). Ignore targets your plugin doesn't handle.
 - **`transform_priority`** (default `0`) controls ordering in the transform chain. Higher priority = applied first (inner).
+
+### Scroll Policy Example: smooth-scroll
+
+This plugin demonstrates `handle_default_scroll()` — a policy hook that runs
+after core has classified the event as a default buffer scroll candidate, but
+before fallback scroll behavior is applied.
+
+```rust
+kasane_plugin_sdk::generate!();
+
+use kasane_plugin_sdk::plugin;
+
+struct SmoothScrollPlugin;
+
+#[plugin]
+impl Guest for SmoothScrollPlugin {
+    fn get_id() -> String {
+        "smooth_scroll".to_string()
+    }
+
+    fn state_hash() -> u64 {
+        0
+    }
+
+    fn handle_default_scroll(candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
+        let enabled = host_state::get_config_string("smooth-scroll.enabled")
+            .or_else(|| host_state::get_config_string("smooth_scroll"))
+            .and_then(|raw| raw.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        if !enabled {
+            return None;
+        }
+
+        Some(ScrollPolicyResult::Plan(ScrollPlan {
+            total_amount: candidate.resolved.amount,
+            line: candidate.resolved.line,
+            column: candidate.resolved.column,
+            frame_interval_ms: 16,
+            curve: ScrollCurve::Linear,
+            accumulation: ScrollAccumulationMode::Add,
+        }))
+    }
+}
+
+export!(SmoothScrollPlugin);
+```
+
+**Key points:**
+
+- **`handle_default_scroll(candidate)`** only runs for default buffer scroll candidates. It does not override info popups, drag-scroll routing, or other core-owned scroll paths.
+- **Return `ScrollPolicyResult::Plan(...)`** to let the host runtime execute time-based scrolling. The plugin does not tick frames itself.
+- **Return `None`** to let the next scroll-policy plugin decide. For exact `None` / `Pass` / `Suppress` / `Immediate` semantics, see [`plugin-api.md`](./plugin-api.md#34-input-handling).
+- The bundled example lives at [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/).
 
 ## Testing
 
@@ -354,6 +410,7 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 | color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
+| smooth-scroll | `examples/wasm/smooth-scroll/` | `handle_default_scroll()`, `ScrollPolicyResult::Plan` |
 | line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |
 | virtual-text-demo (native) | `examples/virtual-text-demo/` | `Plugin` trait, `display_directives()`, `contribute_to()`, `handle_key()`, virtual text insertion |
 
