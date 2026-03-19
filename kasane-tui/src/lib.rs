@@ -226,11 +226,9 @@ where
 
     // Main event loop
     loop {
-        let timeout = if scroll_runtime.has_active_plan() {
-            std::time::Duration::from_millis(16) // ~60fps for smooth scroll
-        } else {
-            std::time::Duration::from_secs(60) // effectively infinite
-        };
+        let timeout = scroll_runtime
+            .active_frame_interval()
+            .unwrap_or_else(|| std::time::Duration::from_secs(60));
 
         let first = match rx.recv_timeout(timeout) {
             Ok(e) => e,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
@@ -937,6 +937,12 @@ where
             && let Some(ref window) = self.window
         {
             window.request_redraw();
+        }
+
+        if let Some(delay) = self.scroll_runtime.active_frame_interval() {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + delay));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
 }

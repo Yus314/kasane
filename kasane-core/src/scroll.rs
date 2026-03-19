@@ -378,6 +378,7 @@ pub struct ActiveScrollPlan {
     pub remaining_amount: i32,
     pub line: u32,
     pub column: u32,
+    pub frame_interval_ms: u16,
     pub generation: u64,
     pub curve: ScrollCurve,
     pub accumulation: ScrollAccumulationMode,
@@ -401,6 +402,7 @@ impl ScrollRuntime {
                 active.remaining_amount += plan.total_amount;
                 active.line = plan.line;
                 active.column = plan.column;
+                active.frame_interval_ms = plan.frame_interval_ms.max(1);
                 active.curve = plan.curve;
                 active.accumulation = plan.accumulation;
             }
@@ -409,6 +411,7 @@ impl ScrollRuntime {
                     remaining_amount: plan.total_amount,
                     line: plan.line,
                     column: plan.column,
+                    frame_interval_ms: plan.frame_interval_ms.max(1),
                     generation: self.generation,
                     curve: plan.curve,
                     accumulation: plan.accumulation,
@@ -435,6 +438,11 @@ impl ScrollRuntime {
 
     pub const fn has_active_plan(&self) -> bool {
         self.active_plan.is_some()
+    }
+
+    pub fn active_frame_interval(&self) -> Option<std::time::Duration> {
+        self.active_plan
+            .map(|plan| std::time::Duration::from_millis(u64::from(plan.frame_interval_ms.max(1))))
     }
 
     pub fn suspend(&mut self) {

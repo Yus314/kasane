@@ -125,3 +125,21 @@ fn runtime_never_overshoots_total_delta() {
     );
     assert!(third.requests().is_empty());
 }
+
+#[test]
+fn runtime_exposes_active_plan_interval() {
+    let mut harness = NewHarness::new(state_80x24(), registry_empty());
+    harness.runtime.enqueue(ScrollPlan::new(
+        4,
+        12,
+        8,
+        33,
+        ScrollCurve::Linear,
+        ScrollAccumulationMode::Add,
+    ));
+
+    assert_eq!(
+        harness.runtime.active_frame_interval(),
+        Some(std::time::Duration::from_millis(33))
+    );
+}
