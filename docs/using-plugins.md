@@ -64,6 +64,11 @@ Kasane automatically discovers and loads `.wasm` files from this directory on st
 auto_discover = false
 ```
 
+Current Kasane releases expect WASM plugins built against
+`kasane:plugin@0.8.0`. If you are upgrading from a build that used
+`0.7.x`, rebuild and reinstall those plugins before startup; older
+artifacts will not load.
+
 ### Disabling Plugins
 
 Discovered plugins can be disabled by ID:
