@@ -11,7 +11,7 @@ use crate::scroll::{
 };
 use crate::state::AppState;
 
-/// Built-in plugin for default key bindings and bundled scroll policy.
+/// Built-in plugin for default key bindings and the production scroll policy fallback.
 ///
 /// Registered last in the plugin chain so all other plugins get
 /// first-wins priority on these keys and on default scroll policy decisions.
@@ -68,6 +68,7 @@ impl PluginBackend for BuiltinInputPlugin {
 mod tests {
     use super::*;
     use crate::input::Modifiers;
+    use crate::scroll::resolve_default_scroll_policy;
 
     #[test]
     fn test_builtin_handles_pageup() {
@@ -241,6 +242,65 @@ mod tests {
             Some(ScrollPolicyResult::Plan(legacy_smooth_scroll_plan(
                 candidate
             )))
+        );
+    }
+
+    #[test]
+    fn test_builtin_is_default_scroll_policy_owner_when_unclaimed() {
+        let mut state = AppState::default();
+        crate::scroll::set_smooth_scroll_enabled(&mut state.plugin_config, true);
+        let candidate = DefaultScrollCandidate::new(
+            10,
+            5,
+            Modifiers::empty(),
+            crate::scroll::ScrollGranularity::Line,
+            3,
+            crate::scroll::ResolvedScroll::new(3, 10, 5),
+        );
+        let mut registry = crate::plugin::PluginRegistry::new();
+        registry.register_backend(Box::new(BuiltinInputPlugin));
+
+        assert_eq!(
+            resolve_default_scroll_policy(&mut registry, &state, candidate),
+            ScrollPolicyResult::Plan(legacy_smooth_scroll_plan(candidate))
+        );
+    }
+
+    #[test]
+    fn test_user_scroll_policy_overrides_builtin_production_default() {
+        struct OverrideScrollPlugin;
+
+        impl PluginBackend for OverrideScrollPlugin {
+            fn id(&self) -> PluginId {
+                PluginId("override.scroll".into())
+            }
+
+            fn handle_default_scroll(
+                &mut self,
+                _candidate: DefaultScrollCandidate,
+                _state: &AppState,
+            ) -> Option<ScrollPolicyResult> {
+                Some(ScrollPolicyResult::Suppress)
+            }
+        }
+
+        let mut state = AppState::default();
+        crate::scroll::set_smooth_scroll_enabled(&mut state.plugin_config, true);
+        let candidate = DefaultScrollCandidate::new(
+            10,
+            5,
+            Modifiers::empty(),
+            crate::scroll::ScrollGranularity::Line,
+            3,
+            crate::scroll::ResolvedScroll::new(3, 10, 5),
+        );
+        let mut registry = crate::plugin::PluginRegistry::new();
+        registry.register_backend(Box::new(OverrideScrollPlugin));
+        registry.register_backend(Box::new(BuiltinInputPlugin));
+
+        assert_eq!(
+            resolve_default_scroll_policy(&mut registry, &state, candidate),
+            ScrollPolicyResult::Suppress
         );
     }
 }
