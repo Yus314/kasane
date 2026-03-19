@@ -174,6 +174,7 @@ where
 
     // Event state
     pending_events: Vec<GuiEvent>,
+    pending_init_commands: Vec<Command>,
     dirty: DirtyFlags,
     initial_resize_sent: bool,
 
@@ -254,8 +255,7 @@ where
             &state,
         );
 
-        let _init_commands = registry.init_all(&state);
-        // init_commands will be executed once initial_resize_sent is true
+        let pending_init_commands = registry.init_all(&state);
 
         let (salsa_db, salsa_handles) = {
             let mut db = KasaneDatabase::default();
@@ -278,6 +278,7 @@ where
             session_states,
             session_spawner,
             pending_events: Vec::new(),
+            pending_init_commands,
             dirty: DirtyFlags::ALL,
             initial_resize_sent: false,
             current_modifiers: winit::keyboard::ModifiersState::empty(),
@@ -387,6 +388,10 @@ where
                         self.state.rows,
                         self.state.cols,
                     );
+                    if self.flush_pending_init_commands() {
+                        event_loop.exit();
+                        return;
+                    }
                     let (flags, commands, _source) = update(
                         &mut self.state,
                         Msg::Kakoune(req),
@@ -443,6 +448,10 @@ where
                             self.state.rows,
                             self.state.cols,
                         );
+                        if self.flush_pending_init_commands() {
+                            event_loop.exit();
+                            return;
+                        }
                     }
                     // Notify plugins of session change so cached state is updated.
                     for plugin in self.registry.plugins_mut() {
@@ -549,6 +558,16 @@ where
         }
         self.scroll_runtime
             .set_initial_resize_complete(self.initial_resize_sent);
+    }
+
+    fn flush_pending_init_commands(&mut self) -> bool {
+        if !self.initial_resize_sent || self.pending_init_commands.is_empty() {
+            return false;
+        }
+
+        let mut commands = std::mem::take(&mut self.pending_init_commands);
+        self.dirty |= extract_redraw_flags(&mut commands);
+        self.exec_commands(commands)
     }
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
