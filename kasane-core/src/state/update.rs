@@ -2,7 +2,7 @@ use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{Command, PluginId, PluginRegistry, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
-use crate::scroll::LegacyScrollDispatch;
+use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
 use super::{AppState, DirtyFlags, DragState};
 
@@ -36,12 +36,19 @@ impl From<InputEvent> for Msg {
 /// (when a plugin's `handle_key` / `handle_mouse` won the first-wins chain).
 /// This is needed so that process-related deferred commands (`SpawnProcess`, etc.)
 /// can be routed to the correct plugin by `handle_deferred_commands`.
+pub struct UpdateResult {
+    pub flags: DirtyFlags,
+    pub commands: Vec<Command>,
+    pub scroll_plans: Vec<ScrollPlan>,
+    pub source_plugin: Option<PluginId>,
+}
+
 pub fn update(
     state: &mut AppState,
     msg: Msg,
     registry: &mut PluginRegistry,
     scroll_amount: i32,
-) -> (DirtyFlags, Vec<Command>, Option<PluginId>) {
+) -> UpdateResult {
     match msg {
         Msg::Kakoune(req) => {
             let req_kind = match &req {
@@ -60,7 +67,12 @@ pub fn update(
                 }
             }
             let extra_flags = extract_redraw_flags(&mut commands);
-            (flags | extra_flags, commands, None)
+            UpdateResult {
+                flags: flags | extra_flags,
+                commands,
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
         }
         Msg::Key(key) => {
             // 1. Notify all plugins (observe only, cannot consume)
@@ -74,14 +86,24 @@ pub fn update(
                 if let Some(mut commands) = plugin.handle_key(&key, state) {
                     let source = plugin.id();
                     let flags = extract_redraw_flags(&mut commands);
-                    return (flags, commands, Some(source));
+                    return UpdateResult {
+                        flags,
+                        commands,
+                        scroll_plans: vec![],
+                        source_plugin: Some(source),
+                    };
                 }
             }
 
             // 3. Forward to Kakoune
             let kak_key = input::key_to_kakoune(&key);
             let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
-            (DirtyFlags::empty(), vec![cmd], None)
+            UpdateResult {
+                flags: DirtyFlags::empty(),
+                commands: vec![cmd],
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
         }
         Msg::Mouse(mouse) => {
             // Update drag state
@@ -112,7 +134,12 @@ pub fn update(
                         let source = plugin.id();
                         tracing::debug!(count = commands.len(), "handle_mouse returned commands");
                         let flags = extract_redraw_flags(&mut commands);
-                        return (flags, commands, Some(source));
+                        return UpdateResult {
+                            flags,
+                            commands,
+                            scroll_plans: vec![],
+                            source_plugin: Some(source),
+                        };
                     }
                 }
                 tracing::debug!(id = ?id, "no plugin handled mouse");
@@ -127,18 +154,29 @@ pub fn update(
                 scroll_amount,
             ) {
                 LegacyScrollDispatch::ConsumedInfo => {
-                    return (DirtyFlags::INFO, vec![], None);
+                    return UpdateResult {
+                        flags: DirtyFlags::INFO,
+                        commands: vec![],
+                        scroll_plans: vec![],
+                        source_plugin: None,
+                    };
                 }
                 LegacyScrollDispatch::Requests(requests) => {
                     let commands = requests.into_iter().map(Command::SendToKakoune).collect();
-                    return (DirtyFlags::empty(), commands, None);
+                    return UpdateResult {
+                        flags: DirtyFlags::empty(),
+                        commands,
+                        scroll_plans: vec![],
+                        source_plugin: None,
+                    };
                 }
                 LegacyScrollDispatch::Plan(plan) => {
-                    return (
-                        DirtyFlags::empty(),
-                        vec![Command::QueueScrollPlan(plan)],
-                        None,
-                    );
+                    return UpdateResult {
+                        flags: DirtyFlags::empty(),
+                        commands: vec![],
+                        scroll_plans: vec![plan],
+                        source_plugin: None,
+                    };
                 }
                 LegacyScrollDispatch::NotHandled => {}
             }
@@ -148,9 +186,19 @@ pub fn update(
             } else {
                 vec![]
             };
-            (DirtyFlags::empty(), cmds, None)
+            UpdateResult {
+                flags: DirtyFlags::empty(),
+                commands: cmds,
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
         }
-        Msg::Paste => (DirtyFlags::empty(), vec![Command::Paste], None),
+        Msg::Paste => UpdateResult {
+            flags: DirtyFlags::empty(),
+            commands: vec![Command::Paste],
+            scroll_plans: vec![],
+            source_plugin: None,
+        },
         Msg::Resize { cols, rows } => {
             state.cols = cols;
             state.rows = rows;
@@ -158,15 +206,30 @@ pub fn update(
                 rows: state.available_height(),
                 cols,
             });
-            (DirtyFlags::ALL, vec![cmd], None)
+            UpdateResult {
+                flags: DirtyFlags::ALL,
+                commands: vec![cmd],
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
         }
         Msg::FocusGained => {
             state.focused = true;
-            (DirtyFlags::ALL, vec![], None)
+            UpdateResult {
+                flags: DirtyFlags::ALL,
+                commands: vec![],
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
         }
         Msg::FocusLost => {
             state.focused = false;
-            (DirtyFlags::ALL, vec![], None)
+            UpdateResult {
+                flags: DirtyFlags::ALL,
+                commands: vec![],
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
         }
     }
 }

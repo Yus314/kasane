@@ -25,7 +25,7 @@ use crate::session::SessionDescriptor;
 
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
-pub use update::{Msg, update};
+pub use update::{Msg, UpdateResult, update};
 
 bitflags! {
     /// Tracks which parts of `AppState` changed during a frame.

@@ -29,7 +29,7 @@ use kasane_core::salsa_sync::{
 };
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
 
@@ -392,7 +392,12 @@ where
                         event_loop.exit();
                         return;
                     }
-                    let (flags, commands, _source) = update(
+                    let UpdateResult {
+                        flags,
+                        commands,
+                        scroll_plans,
+                        source_plugin: _source,
+                    } = update(
                         &mut self.state,
                         Msg::Kakoune(req),
                         &mut self.registry,
@@ -415,6 +420,7 @@ where
                         self.grid.invalidate_all();
                     }
                     self.dirty |= flags;
+                    self.enqueue_scroll_plans(scroll_plans);
                     if self.exec_commands(commands) {
                         event_loop.exit();
                         return;
@@ -507,23 +513,34 @@ where
             w: self.state.cols,
             h: self.state.rows,
         };
-        let (mut flags, commands, source, mut surface_command_groups) = if let Some(dirty) =
-            handle_workspace_divider_input(&input, &mut self.surface_registry, total)
-        {
-            (dirty, vec![], None, vec![])
-        } else {
-            let surface_event = surface_event_from_input(&input);
-            let msg = Msg::from(input);
-            let (flags, commands, source) =
-                update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
-            let surface_command_groups = surface_event
-                .map(|event| {
-                    self.surface_registry
-                        .route_event_with_sources(event, &self.state, total)
-                })
-                .unwrap_or_default();
-            (flags, commands, source, surface_command_groups)
-        };
+        let (mut flags, commands, source, mut surface_command_groups, scroll_plans) =
+            if let Some(dirty) =
+                handle_workspace_divider_input(&input, &mut self.surface_registry, total)
+            {
+                (dirty, vec![], None, vec![], vec![])
+            } else {
+                let surface_event = surface_event_from_input(&input);
+                let msg = Msg::from(input);
+                let UpdateResult {
+                    flags,
+                    commands,
+                    scroll_plans,
+                    source_plugin,
+                } = update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
+                let surface_command_groups = surface_event
+                    .map(|event| {
+                        self.surface_registry
+                            .route_event_with_sources(event, &self.state, total)
+                    })
+                    .unwrap_or_default();
+                (
+                    flags,
+                    commands,
+                    source_plugin,
+                    surface_command_groups,
+                    scroll_plans,
+                )
+            };
         for entry in &mut surface_command_groups {
             flags |= extract_redraw_flags(&mut entry.commands);
         }
@@ -535,6 +552,7 @@ where
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
         if self.initial_resize_sent {
+            self.enqueue_scroll_plans(scroll_plans);
             if self.exec_commands_from(commands, source.as_ref()) {
                 event_loop.exit();
                 return;
@@ -558,6 +576,12 @@ where
         }
         self.scroll_runtime
             .set_initial_resize_complete(self.initial_resize_sent);
+    }
+
+    fn enqueue_scroll_plans(&mut self, scroll_plans: Vec<kasane_core::scroll::ScrollPlan>) {
+        for plan in scroll_plans {
+            self.scroll_runtime.enqueue(plan);
+        }
     }
 
     fn flush_pending_init_commands(&mut self) -> bool {
@@ -613,7 +637,6 @@ where
             session_host: &mut session_runtime,
             initial_resize_sent: &mut self.initial_resize_sent,
             process_dispatcher: &mut *self.process_dispatcher,
-            scroll_plan_sink: &mut self.scroll_runtime,
         };
         f(&mut ctx)
     }

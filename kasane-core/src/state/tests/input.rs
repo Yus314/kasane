@@ -63,7 +63,7 @@ fn test_drag_state_drag_keeps_active() {
         column: 7,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands, _) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let commands = update(&mut state, Msg::Mouse(mouse), &mut registry, 3).commands;
     // Drag sends MouseMove
     assert_eq!(commands.len(), 1);
     match &commands[0] {
@@ -93,7 +93,7 @@ fn test_selection_scroll_generates_two_commands() {
         column: 5,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands, _) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let commands = update(&mut state, Msg::Mouse(mouse), &mut registry, 3).commands;
     assert_eq!(commands.len(), 2, "scroll + mouse_move expected");
     // First: Scroll
     match &commands[0] {
@@ -129,7 +129,7 @@ fn test_selection_scroll_up_edge() {
         column: 5,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands, _) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let commands = update(&mut state, Msg::Mouse(mouse), &mut registry, 3).commands;
     assert_eq!(commands.len(), 2);
     match &commands[1] {
         Command::SendToKakoune(KasaneRequest::MouseMove { line, .. }) => {
@@ -144,7 +144,9 @@ fn test_paste_produces_paste_command() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
 
-    let (flags, commands, _) = update(&mut state, Msg::Paste, &mut registry, 3);
+    let result = update(&mut state, Msg::Paste, &mut registry, 3);
+    let flags = result.flags;
+    let commands = result.commands;
     assert!(flags.is_empty());
     assert_eq!(commands.len(), 1);
     assert!(matches!(commands[0], Command::Paste));
@@ -165,7 +167,7 @@ fn test_pageup_intercept() {
         key: crate::input::Key::PageUp,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(KasaneRequest::Scroll {
@@ -196,7 +198,7 @@ fn test_pagedown_intercept() {
         key: crate::input::Key::PageDown,
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(KasaneRequest::Scroll { amount, .. }) => {
@@ -216,7 +218,7 @@ fn test_pageup_with_modifier_not_intercepted() {
         key: crate::input::Key::PageUp,
         modifiers: crate::input::Modifiers::CTRL,
     };
-    let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
     // With modifier, PageUp should be forwarded as key, not intercepted
     assert_eq!(commands.len(), 1);
     match &commands[0] {

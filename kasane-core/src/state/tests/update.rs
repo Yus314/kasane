@@ -19,7 +19,9 @@ fn test_update_key_forwards_to_kakoune() {
         key: crate::input::Key::Char('a'),
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (flags, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let result = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let flags = result.flags;
+    let commands = result.commands;
     assert!(flags.is_empty());
     assert_eq!(commands.len(), 1);
     match &commands[0] {
@@ -38,7 +40,7 @@ fn test_update_kakoune_draw() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
 
-    let (flags, commands, _) = update(
+    let result = update(
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
@@ -50,6 +52,8 @@ fn test_update_kakoune_draw() {
         &mut registry,
         3,
     );
+    let flags = result.flags;
+    let commands = result.commands;
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(commands.is_empty());
     assert_eq!(state.lines.len(), 1);
@@ -60,7 +64,7 @@ fn test_update_focus_lost() {
     let mut state = AppState::default();
     let mut registry = PluginRegistry::new();
 
-    let (flags, _, _) = update(&mut state, Msg::FocusLost, &mut registry, 3);
+    let flags = update(&mut state, Msg::FocusLost, &mut registry, 3).flags;
     assert_eq!(flags, DirtyFlags::ALL);
     assert!(!state.focused);
 }
@@ -71,7 +75,7 @@ fn test_update_focus_gained() {
     state.focused = false;
     let mut registry = PluginRegistry::new();
 
-    let (flags, _, _) = update(&mut state, Msg::FocusGained, &mut registry, 3);
+    let flags = update(&mut state, Msg::FocusGained, &mut registry, 3).flags;
     assert_eq!(flags, DirtyFlags::ALL);
     assert!(state.focused);
 }
@@ -102,7 +106,9 @@ fn test_update_plugin_handles_key() {
         key: crate::input::Key::Char('a'),
         modifiers: crate::input::Modifiers::empty(),
     };
-    let (flags, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let result = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let flags = result.flags;
+    let commands = result.commands;
     assert!(flags.is_empty());
     assert_eq!(commands.len(), 1);
     match &commands[0] {
@@ -160,7 +166,9 @@ fn test_update_mouse_routes_to_plugin() {
         column: 7,
         modifiers: Modifiers::empty(),
     };
-    let (flags, commands, _) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let result = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let flags = result.flags;
+    let commands = result.commands;
     // Plugin handled the mouse event and returned RequestRedraw(INFO)
     assert!(flags.contains(DirtyFlags::INFO));
     assert!(commands.is_empty()); // RequestRedraw was extracted
@@ -180,7 +188,9 @@ fn test_update_mouse_miss_forwards_to_kakoune() {
         column: 10,
         modifiers: Modifiers::empty(),
     };
-    let (flags, commands, _) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let result = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let flags = result.flags;
+    let commands = result.commands;
     assert!(flags.is_empty());
     // Should have been forwarded to Kakoune as a mouse press
     assert_eq!(commands.len(), 1);
@@ -211,7 +221,7 @@ fn test_observe_key_called_for_all_plugins() {
         key: Key::Char('x'),
         modifiers: Modifiers::empty(),
     };
-    let (_, _, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let _ = update(&mut state, Msg::Key(key), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
 }
 
@@ -249,7 +259,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
         key: Key::Char('x'),
         modifiers: Modifiers::empty(),
     };
-    let (_, _, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let _ = update(&mut state, Msg::Key(key), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
 }
 
@@ -279,7 +289,7 @@ fn test_plugin_can_override_pageup() {
         key: Key::PageUp,
         modifiers: Modifiers::empty(),
     };
-    let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -316,7 +326,7 @@ fn test_observe_mouse_called_without_hit_test() {
         column: 10,
         modifiers: Modifiers::empty(),
     };
-    let (_, _, _) = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let _ = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
 }
 
@@ -341,7 +351,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(StateWatcher(called.clone())));
 
-    let (flags, _, _) = update(
+    let flags = update(
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
@@ -352,7 +362,8 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         }),
         &mut registry,
         3,
-    );
+    )
+    .flags;
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(called.load(Ordering::Relaxed));
 }

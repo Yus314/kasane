@@ -156,7 +156,7 @@ mod tests {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+        let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
         assert_eq!(commands.len(), 1);
         match &commands[0] {
             Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -188,7 +188,7 @@ mod tests {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let (_, commands, _) = update(&mut state, Msg::Key(key), &mut registry, 3);
+        let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
         assert_eq!(commands.len(), 1);
         // BuiltinInputPlugin should handle it as a Scroll command
         assert!(matches!(

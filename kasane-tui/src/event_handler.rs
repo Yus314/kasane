@@ -17,7 +17,7 @@ use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 
 use crate::backend::TuiBackend;
@@ -226,21 +226,27 @@ where
                 ctx.state.rows,
                 ctx.state.cols,
             );
-            let (f, c, _source) = update(
+            let UpdateResult {
+                flags,
+                commands,
+                scroll_plans,
+                source_plugin: _source,
+            } = update(
                 ctx.state,
                 Msg::Kakoune(req),
                 ctx.registry,
                 ctx.scroll_amount,
             );
-            let surface_commands = if f.is_empty() {
+            let surface_commands = if flags.is_empty() {
                 vec![]
             } else {
                 ctx.surface_registry
-                    .on_state_changed_with_sources(ctx.state, f)
+                    .on_state_changed_with_sources(ctx.state, flags)
             };
             EventResult {
-                flags: f,
-                commands: c,
+                flags,
+                commands,
+                scroll_plans,
                 surface_commands,
                 command_source: None,
             }
@@ -264,12 +270,18 @@ where
                 EventResult {
                     flags: divider_dirty,
                     commands: vec![],
+                    scroll_plans: vec![],
                     surface_commands: vec![],
                     command_source: None,
                 }
             } else {
                 let surface_event = surface_event_from_input(&input_event);
-                let (f, c, source) = update(
+                let UpdateResult {
+                    flags,
+                    commands,
+                    scroll_plans,
+                    source_plugin,
+                } = update(
                     ctx.state,
                     Msg::from(input_event),
                     ctx.registry,
@@ -282,10 +294,11 @@ where
                     })
                     .unwrap_or_default();
                 EventResult {
-                    flags: f,
-                    commands: c,
+                    flags,
+                    commands,
+                    scroll_plans,
                     surface_commands,
-                    command_source: source,
+                    command_source: source_plugin,
                 }
             }
         }
@@ -294,6 +307,7 @@ where
             EventResult {
                 flags,
                 commands,
+                scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
             }
@@ -317,6 +331,7 @@ where
             EventResult {
                 flags,
                 commands,
+                scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: Some(plugin_id),
             }
@@ -330,6 +345,7 @@ where
             EventResult {
                 flags: DirtyFlags::all(),
                 commands: vec![],
+                scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
             }
@@ -406,6 +422,10 @@ where
         return false;
     }
 
+    for plan in result.scroll_plans {
+        ctx.scroll_runtime.enqueue(plan);
+    }
+
     let should_quit = {
         let mut session_host = TuiSessionRuntime {
             session_manager: ctx.session_manager,
@@ -423,7 +443,6 @@ where
             session_host: &mut session_host,
             initial_resize_sent: ctx.initial_resize_sent,
             process_dispatcher: ctx.process_dispatcher,
-            scroll_plan_sink: ctx.scroll_runtime,
         };
         if handle_command_batch(
             result.commands,

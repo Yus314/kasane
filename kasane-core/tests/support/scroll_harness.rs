@@ -1,12 +1,12 @@
 use kasane_core::input::InputEvent;
-use kasane_core::plugin::{Command, PluginId, PluginRegistry, extract_scroll_plans};
+use kasane_core::plugin::{Command, PluginId, PluginRegistry};
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::scroll::{
     ScrollPolicyResult, ScrollRuntime, consume_info_scroll, default_scroll_candidate,
     fallback_scroll_policy, is_scroll_event, resolve_default_scroll_policy,
     selection_scroll_edge_line,
 };
-use kasane_core::state::{AppState, DirtyFlags, DragState, Msg, update};
+use kasane_core::state::{AppState, DirtyFlags, DragState, Msg, UpdateResult, update};
 
 pub struct StepOutcome {
     pub dirty: DirtyFlags,
@@ -71,13 +71,20 @@ impl LegacyHarness {
     }
 
     pub fn dispatch_input(&mut self, input: InputEvent) -> StepOutcome {
-        let (dirty, commands, owner) = update(
+        let UpdateResult {
+            flags: dirty,
+            commands,
+            scroll_plans,
+            source_plugin: owner,
+        } = update(
             &mut self.state,
             Msg::from(input),
             &mut self.registry,
             self.scroll_amount,
         );
-        let commands = self.extract_commands(commands);
+        for plan in scroll_plans {
+            self.runtime.enqueue(plan);
+        }
         StepOutcome {
             dirty,
             commands,
@@ -119,14 +126,6 @@ impl LegacyHarness {
             final_state: self.state.clone(),
         }
     }
-
-    fn extract_commands(&mut self, commands: Vec<Command>) -> Vec<Command> {
-        let (commands, plans) = extract_scroll_plans(commands);
-        for plan in plans {
-            self.runtime.enqueue(plan);
-        }
-        commands
-    }
 }
 
 #[allow(dead_code)]
@@ -161,14 +160,18 @@ impl NewHarness {
             return outcome;
         }
 
-        let (dirty, commands, owner) = update(
+        let UpdateResult {
+            flags: dirty,
+            commands,
+            scroll_plans,
+            source_plugin: owner,
+        } = update(
             &mut self.state,
             Msg::from(input),
             &mut self.registry,
             self.scroll_amount,
         );
-        let (commands, plans) = extract_scroll_plans(commands);
-        for plan in plans {
+        for plan in scroll_plans {
             self.runtime.enqueue(plan);
         }
         StepOutcome {

@@ -18,7 +18,7 @@ use compact_str::CompactString;
 // Re-export command module
 pub use command::{
     Command, CommandResult, DeferredCommand, PaintHook, execute_commands,
-    extract_deferred_commands, extract_redraw_flags, extract_scroll_plans,
+    extract_deferred_commands, extract_redraw_flags,
 };
 
 // Re-export io module types

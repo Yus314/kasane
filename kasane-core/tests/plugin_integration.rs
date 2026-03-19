@@ -71,7 +71,9 @@ fn handle_key_first_wins() {
         key: Key::Char('s'),
         modifiers: Modifiers::CTRL,
     };
-    let (flags, cmds, _) = update(&mut state, Msg::Key(ctrl_s), &mut registry, 3);
+    let result = update(&mut state, Msg::Key(ctrl_s), &mut registry, 3);
+    let flags = result.flags;
+    let cmds = result.commands;
 
     // Plugin returns RequestRedraw(ALL) → extracted into flags
     assert!(
@@ -90,7 +92,7 @@ fn handle_key_first_wins() {
         key: Key::Char('a'),
         modifiers: Modifiers::empty(),
     };
-    let (_flags, cmds, _) = update(&mut state, Msg::Key(key_a), &mut registry, 3);
+    let cmds = update(&mut state, Msg::Key(key_a), &mut registry, 3).commands;
 
     let has_send = cmds.iter().any(|c| matches!(c, Command::SendToKakoune(_)));
     assert!(

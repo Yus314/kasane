@@ -226,7 +226,6 @@ where
             session_host: &mut session_host,
             initial_resize_sent: &mut initial_resize_sent,
             process_dispatcher: &mut *process_dispatcher,
-            scroll_plan_sink: &mut scroll_runtime,
         };
         handle_command_batch(init_commands, &mut deferred_ctx, None)
     };
