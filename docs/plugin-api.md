@@ -560,7 +560,7 @@ Hook functions issue side-effect requests by returning `Vec<Command>`.
 | `RequestRedraw(flags)` | Request a redraw |
 | `ScheduleTimer { delay, target, payload }` | Send a message to target after a delay |
 | `PluginMessage { target, payload }` | Send a message to another plugin |
-| `SetConfig { key, value }` | Change a runtime configuration. For bundled smooth scrolling, use `smooth-scroll.enabled` |
+| `SetConfig { key, value }` | Change a runtime configuration. For smooth scroll policy plugins, use `smooth-scroll.enabled` |
 | `SpawnProcess { job_id, program, args, stdin_mode }` | Spawn an external process (Phase P-2) |
 | `Session(SessionCommand)` | Create or close a Kakoune session managed by the host runtime |
 | `WriteToProcess { job_id, data }` | Write to the stdin of a spawned process |
