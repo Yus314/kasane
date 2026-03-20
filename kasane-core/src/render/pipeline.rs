@@ -1,6 +1,6 @@
 use super::cursor::{
     apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style,
-    find_buffer_x_offset,
+    find_buffer_origin_in_rect, find_buffer_x_offset, neutralize_unfocused_cursors,
 };
 use super::grid::CellGrid;
 use super::scene::{self, DrawCommand, SceneCache};
@@ -102,6 +102,7 @@ fn compute_render_result(
     registry: &PluginRegistry,
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
+    buffer_y_offset: u16,
 ) -> RenderResult {
     let style = cursor_style(state, registry);
     let (cx, cy) = match state.cursor_mode {
@@ -111,7 +112,8 @@ fn compute_render_result(
                 .filter(|dm| !dm.is_identity())
                 .and_then(|dm| dm.buffer_to_display(state.cursor_pos.line as usize))
                 .map(|y| y as u16)
-                .unwrap_or(state.cursor_pos.line as u16);
+                .unwrap_or(state.cursor_pos.line as u16)
+                + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -177,6 +179,8 @@ pub(crate) fn render_cached_core(
         w: state.cols,
         h: state.rows,
     };
+    let focused_pane_rect = sections.focused_pane_rect;
+    let sections_focused_pane_state = sections.focused_pane_state.take();
     let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
     let element = sections.into_element();
     let layout_result = flex::place(&element, root_area, state);
@@ -193,14 +197,33 @@ pub(crate) fn render_cached_core(
         apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
     }
 
-    let buffer_x_offset = find_buffer_x_offset(&element, &layout_result);
+    let (buffer_x_offset, buffer_y_offset) = match focused_pane_rect {
+        Some(ref focus_rect) => find_buffer_origin_in_rect(&element, &layout_result, focus_rect)
+            .unwrap_or((find_buffer_x_offset(&element, &layout_result), 0)),
+        None => (find_buffer_x_offset(&element, &layout_result), 0),
+    };
+
+    // Use focused pane state for cursor operations in multi-pane mode
+    let cursor_state = sections_focused_pane_state.as_deref().unwrap_or(state);
+
+    // In multi-pane mode, remove cursor highlighting from unfocused panes
+    if let Some(ref focus_rect) = focused_pane_rect {
+        neutralize_unfocused_cursors(cursor_state, &element, &layout_result, grid, focus_rect, dm);
+    }
 
     // Differentiate secondary cursor faces before clearing primary cursor
-    apply_secondary_cursor_faces(state, grid, buffer_x_offset, dm);
+    apply_secondary_cursor_faces(cursor_state, grid, buffer_x_offset, dm, buffer_y_offset);
 
-    let style = cursor_style(state, registry);
-    clear_block_cursor_face(state, grid, style, buffer_x_offset, dm);
-    let (cx, cy) = cursor_position(state, grid, buffer_x_offset, dm);
+    let style = cursor_style(cursor_state, registry);
+    clear_block_cursor_face(
+        cursor_state,
+        grid,
+        style,
+        buffer_x_offset,
+        dm,
+        buffer_y_offset,
+    );
+    let (cx, cy) = cursor_position(cursor_state, grid, buffer_x_offset, dm, buffer_y_offset);
 
     RenderResult {
         cursor_x: cx,
@@ -240,9 +263,20 @@ pub(crate) fn scene_render_core<'a>(
     // Compute buffer_x_offset from the base layout
     let display_map = std::sync::Arc::clone(&sections.display_map);
     let dm = dm_ref(&display_map);
+    let focused_pane_rect = sections.focused_pane_rect;
+    let focused_pane_state = sections.focused_pane_state.take();
     let base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
-    let buffer_x_offset = find_buffer_x_offset(&sections.base, &base_layout);
-    let result = compute_render_result(state, registry, buffer_x_offset, dm);
+    let (buffer_x_offset, buffer_y_offset) = match focused_pane_rect {
+        Some(ref focus_rect) => {
+            find_buffer_origin_in_rect(&sections.base, &base_layout, focus_rect)
+                .unwrap_or((find_buffer_x_offset(&sections.base, &base_layout), 0))
+        }
+        None => (find_buffer_x_offset(&sections.base, &base_layout), 0),
+    };
+    // Use focused pane state for cursor computation in multi-pane mode
+    let cursor_state = focused_pane_state.as_deref().unwrap_or(state);
+    let result =
+        compute_render_result(cursor_state, registry, buffer_x_offset, dm, buffer_y_offset);
 
     // Fast path: all sections cached
     if scene_cache.is_fully_cached() {

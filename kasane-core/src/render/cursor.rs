@@ -59,6 +59,139 @@ pub fn find_buffer_x_offset(element: &Element, layout: &LayoutResult) -> u16 {
     }
 }
 
+/// Find the absolute (x, y) origin of the BufferRef element within a given focus rectangle.
+/// Used in multi-pane layout to locate the buffer origin in the focused pane.
+pub fn find_buffer_origin_in_rect(
+    element: &Element,
+    layout: &LayoutResult,
+    focus_rect: &crate::layout::Rect,
+) -> Option<(u16, u16)> {
+    match element {
+        Element::BufferRef { .. } => {
+            let a = &layout.area;
+            if a.x >= focus_rect.x
+                && a.y >= focus_rect.y
+                && a.x < focus_rect.x + focus_rect.w
+                && a.y < focus_rect.y + focus_rect.h
+            {
+                Some((a.x, a.y))
+            } else {
+                None
+            }
+        }
+        Element::Flex { children, .. } | Element::ResolvedSlot { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i)
+                    && let Some(pos) =
+                        find_buffer_origin_in_rect(&child.element, child_layout, focus_rect)
+                {
+                    return Some(pos);
+                }
+            }
+            None
+        }
+        Element::Container { child, .. } | Element::Interactive { child, .. } => layout
+            .children
+            .first()
+            .and_then(|cl| find_buffer_origin_in_rect(child, cl, focus_rect)),
+        Element::Stack { base, .. } => layout
+            .children
+            .first()
+            .and_then(|cl| find_buffer_origin_in_rect(base, cl, focus_rect)),
+        _ => None,
+    }
+}
+
+/// Collect all BufferRef element origins `(x, y)` in the layout tree.
+fn collect_buffer_origins(element: &Element, layout: &LayoutResult, origins: &mut Vec<(u16, u16)>) {
+    match element {
+        Element::BufferRef { .. } => {
+            origins.push((layout.area.x, layout.area.y));
+        }
+        Element::Flex { children, .. } | Element::ResolvedSlot { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                if let Some(child_layout) = layout.children.get(i) {
+                    collect_buffer_origins(&child.element, child_layout, origins);
+                }
+            }
+        }
+        Element::Container { child, .. } | Element::Interactive { child, .. } => {
+            if let Some(cl) = layout.children.first() {
+                collect_buffer_origins(child, cl, origins);
+            }
+        }
+        Element::Stack { base, .. } => {
+            if let Some(cl) = layout.children.first() {
+                collect_buffer_origins(base, cl, origins);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Reset cursor highlighting in BufferRef areas outside the focused pane.
+///
+/// Both panes paint from the same `state.lines` which has cursor faces baked in
+/// by Kakoune. This function finds BufferRef origins that fall outside the
+/// focused pane rectangle and resets the cursor cell faces to `default_face`.
+pub fn neutralize_unfocused_cursors(
+    state: &AppState,
+    element: &Element,
+    layout: &LayoutResult,
+    grid: &mut CellGrid,
+    focus_rect: &crate::layout::Rect,
+    display_map: Option<&DisplayMap>,
+) {
+    let mut origins = Vec::new();
+    collect_buffer_origins(element, layout, &mut origins);
+
+    for (ox, oy) in origins {
+        // Skip origins inside the focused pane
+        if ox >= focus_rect.x
+            && oy >= focus_rect.y
+            && ox < focus_rect.x + focus_rect.w
+            && oy < focus_rect.y + focus_rect.h
+        {
+            continue;
+        }
+
+        // Primary cursor
+        let cx = state.cursor_pos.column as u16 + ox;
+        let cy = display_map
+            .and_then(|dm| {
+                if dm.is_identity() {
+                    None
+                } else {
+                    dm.buffer_to_display(state.cursor_pos.line as usize)
+                        .map(|y| y as u16)
+                }
+            })
+            .unwrap_or(state.cursor_pos.line as u16)
+            + oy;
+        if let Some(cell) = grid.get_mut(cx, cy) {
+            cell.face = state.default_face;
+        }
+
+        // Secondary cursors
+        for coord in &state.secondary_cursors {
+            let sx = coord.column as u16 + ox;
+            let sy = display_map
+                .and_then(|dm| {
+                    if dm.is_identity() {
+                        None
+                    } else {
+                        dm.buffer_to_display(coord.line as usize).map(|y| y as u16)
+                    }
+                })
+                .unwrap_or(coord.line as u16)
+                + oy;
+            if let Some(cell) = grid.get_mut(sx, sy) {
+                cell.face = state.default_face;
+            }
+        }
+    }
+}
+
 /// Compute the terminal cursor position from the application state.
 /// `buffer_x_offset` accounts for left gutter columns.
 /// `display_map` transforms buffer line to display line when active.
@@ -68,6 +201,7 @@ pub fn cursor_position(
     grid: &CellGrid,
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
+    buffer_y_offset: u16,
 ) -> (u16, u16) {
     match state.cursor_mode {
         CursorMode::Buffer => {
@@ -81,7 +215,8 @@ pub fn cursor_position(
                             .map(|y| y as u16)
                     }
                 })
-                .unwrap_or(state.cursor_pos.line as u16);
+                .unwrap_or(state.cursor_pos.line as u16)
+                + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -125,6 +260,7 @@ pub fn clear_block_cursor_face(
     style: CursorStyle,
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
+    buffer_y_offset: u16,
 ) {
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
@@ -141,7 +277,8 @@ pub fn clear_block_cursor_face(
                             .map(|y| y as u16)
                     }
                 })
-                .unwrap_or(state.cursor_pos.line as u16);
+                .unwrap_or(state.cursor_pos.line as u16)
+                + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
@@ -228,6 +365,7 @@ pub fn apply_secondary_cursor_faces(
     grid: &mut CellGrid,
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
+    buffer_y_offset: u16,
 ) {
     for coord in &state.secondary_cursors {
         let x = coord.column as u16 + buffer_x_offset;
@@ -239,7 +377,8 @@ pub fn apply_secondary_cursor_faces(
                     dm.buffer_to_display(coord.line as usize).map(|y| y as u16)
                 }
             })
-            .unwrap_or(coord.line as u16);
+            .unwrap_or(coord.line as u16)
+            + buffer_y_offset;
         if let Some(cell) = grid.get_mut(x, y) {
             cell.face = make_secondary_cursor_face(
                 &cell.face,

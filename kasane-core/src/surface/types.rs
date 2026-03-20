@@ -83,8 +83,17 @@ impl Default for SizeHint {
 
 /// Context provided to a Surface when building its view.
 pub struct ViewContext<'a> {
-    /// Read-only application state.
+    /// Pane-specific application state (buffer, cursor, mode, status).
+    ///
+    /// In multi-client mode, each pane has its own AppState from its
+    /// independent Kakoune client connection. In single-pane mode this
+    /// is the same as `global_state`.
     pub state: &'a AppState,
+    /// Global application state (always the focused pane's / primary state).
+    ///
+    /// Use this for screen dimensions, configuration, and other global settings.
+    /// In single-pane mode this is identical to `state`.
+    pub global_state: &'a AppState,
     /// The rectangular area allocated to this surface.
     pub rect: Rect,
     /// Whether this surface currently has focus.

@@ -47,6 +47,8 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginRegistry) -> View
         plugin_overlays,
         surface_reports: base.surface_reports,
         display_map,
+        focused_pane_rect: None,
+        focused_pane_state: None,
     }
 }
 
@@ -59,6 +61,11 @@ pub struct ViewSections {
     pub surface_reports: Vec<SurfaceRenderReport>,
     /// The active DisplayMap for the current frame (identity if no transforms).
     pub display_map: DisplayMapRef,
+    /// Multi-pane: focused pane rectangle. None = single pane.
+    pub focused_pane_rect: Option<crate::layout::Rect>,
+    /// Multi-pane: focused pane's AppState. When Some, cursor functions use this
+    /// instead of the primary state.
+    pub focused_pane_state: Option<Box<AppState>>,
 }
 
 impl ViewSections {
@@ -88,6 +95,7 @@ fn legacy_surface_compose_result(
     surface_registry.register(Box::new(crate::surface::status::StatusBarSurface::new()));
     surface_registry.compose_base_result(
         state,
+        None,
         registry,
         crate::layout::Rect {
             x: 0,
@@ -228,13 +236,16 @@ pub(crate) fn build_status_surface_abstract(
     ])
 }
 
-struct BufferCoreParts {
-    left_gutter: Option<Element>,
-    buffer: Element,
-    right_gutter: Option<Element>,
+pub(crate) struct BufferCoreParts {
+    pub(crate) left_gutter: Option<Element>,
+    pub(crate) buffer: Element,
+    pub(crate) right_gutter: Option<Element>,
 }
 
-fn build_buffer_core_parts(state: &AppState, registry: &PluginRegistry) -> BufferCoreParts {
+pub(crate) fn build_buffer_core_parts(
+    state: &AppState,
+    registry: &PluginRegistry,
+) -> BufferCoreParts {
     use std::sync::Arc;
 
     let buffer_rows = state.available_height() as usize;
@@ -265,6 +276,7 @@ fn build_buffer_core_parts(state: &AppState, registry: &PluginRegistry) -> Buffe
             line_range: 0..effective_rows,
             line_backgrounds,
             display_map: dm_for_element,
+            state: None,
         }
     } else {
         Element::buffer_ref(0..buffer_rows)

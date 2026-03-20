@@ -323,6 +323,17 @@ impl FlexChild {
     }
 }
 
+/// Embedded state for multi-pane BufferRef rendering.
+/// When present, `paint_buffer_ref` uses this instead of the walk context state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BufferRefState {
+    pub lines: Vec<Vec<crate::protocol::Atom>>,
+    pub lines_dirty: Vec<bool>,
+    pub default_face: Face,
+    pub padding_face: Face,
+    pub padding_char: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Element {
     Text(String, Style),
@@ -386,6 +397,9 @@ pub enum Element {
         line_backgrounds: Option<Vec<Option<Face>>>,
         /// Display transformation map (None = identity, no transformations).
         display_map: Option<DisplayMapRef>,
+        /// Pane-specific state for multi-pane rendering. When `Some`, `paint_buffer_ref`
+        /// reads lines/faces from here instead of the walk context's primary AppState.
+        state: Option<Box<BufferRefState>>,
     },
 }
 
@@ -431,6 +445,7 @@ impl Element {
             line_range,
             line_backgrounds: None,
             display_map: None,
+            state: None,
         }
     }
 

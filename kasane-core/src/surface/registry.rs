@@ -11,6 +11,7 @@ use crate::workspace::{
     Placement, Workspace, WorkspaceCommand, WorkspaceDivider, WorkspaceDividerId,
 };
 
+use super::pane_map::PaneStates;
 use super::resolve::{self, SurfaceComposeResult, SurfaceRenderOutcome, SurfaceRenderReport};
 use super::{
     EventContext, SlotDeclaration, SourcedSurfaceCommands, Surface, SurfaceDescriptor,
@@ -366,12 +367,17 @@ impl SurfaceRegistry {
         &self,
         entry: &RegisteredSurface,
         state: &AppState,
+        pane_states: Option<&PaneStates<'_>>,
         plugin_registry: &PluginRegistry,
         rect: Rect,
         focused: bool,
     ) -> SurfaceRenderOutcome {
+        let pane_state = pane_states
+            .and_then(|ps| ps.state_for_surface(entry.descriptor.surface_id))
+            .unwrap_or(state);
         let ctx = ViewContext {
-            state,
+            state: pane_state,
+            global_state: state,
             rect,
             focused,
             registry: plugin_registry,
@@ -401,7 +407,7 @@ impl SurfaceRegistry {
         plugin_registry: &PluginRegistry,
         total: Rect,
     ) -> Element {
-        self.compose_base_result(state, plugin_registry, total)
+        self.compose_base_result(state, None, plugin_registry, total)
             .base
             .unwrap_or(Element::Empty)
     }
@@ -424,7 +430,7 @@ impl SurfaceRegistry {
     ) -> Element {
         use crate::render::view;
         let base = self
-            .compose_base_result(state, plugin_registry, total)
+            .compose_base_result(state, None, plugin_registry, total)
             .base
             .unwrap_or(Element::Empty);
 
@@ -464,21 +470,42 @@ impl SurfaceRegistry {
     pub(crate) fn compose_base_result(
         &self,
         state: &AppState,
+        pane_states: Option<&PaneStates<'_>>,
         plugin_registry: &PluginRegistry,
         total: Rect,
     ) -> SurfaceComposeResult {
         use crate::element::FlexChild;
         let rects = self.workspace.compute_rects(total);
-        let (workspace_content, mut surface_reports) =
-            self.compose_node_with_reports(self.workspace.root(), state, plugin_registry, &rects);
+        let (workspace_content, mut surface_reports) = self.compose_node_with_reports(
+            self.workspace.root(),
+            state,
+            pane_states,
+            plugin_registry,
+            &rects,
+        );
 
+        // In multi-pane mode, the status bar should reflect the focused pane's
+        // content (prompt, mode line, etc.), not the primary session's.
+        let focused = self.workspace.focused();
+        let status_state = pane_states
+            .and_then(|ps| ps.state_for_surface_or_focused(SurfaceId::STATUS, focused))
+            .unwrap_or(state);
         let status_bar = self.surfaces.get(&SurfaceId::STATUS).map(|entry| {
-            let outcome = self.render_surface_outcome(
-                entry,
+            let ctx = ViewContext {
+                state: status_state,
+                global_state: state,
+                rect: total,
+                focused: focused == SurfaceId::STATUS,
+                registry: plugin_registry,
+                surface_id: entry.descriptor.surface_id,
+            };
+            let abstract_root = entry.surface.view(&ctx);
+            let outcome = resolve::resolve_surface_tree(
+                &entry.descriptor,
+                abstract_root,
                 state,
                 plugin_registry,
                 total,
-                self.workspace.focused() == SurfaceId::STATUS,
             );
             surface_reports.push(outcome.report);
             outcome.tree.map(|tree| tree.root).unwrap_or(Element::Empty)
@@ -513,12 +540,13 @@ impl SurfaceRegistry {
     pub fn compose_view_sections(
         &self,
         state: &AppState,
+        pane_states: Option<&PaneStates<'_>>,
         plugin_registry: &PluginRegistry,
         total: Rect,
     ) -> crate::render::view::ViewSections {
         use crate::render::view;
 
-        let base_result = self.compose_base_result(state, plugin_registry, total);
+        let base_result = self.compose_base_result(state, pane_states, plugin_registry, total);
         let menu_overlay = view::build_menu_section_standalone(state, plugin_registry);
         let info_overlays = view::build_info_section_standalone(state, plugin_registry);
         let overlay_ctx = crate::plugin::OverlayContext {
@@ -537,6 +565,11 @@ impl SurfaceRegistry {
             .collect();
 
         let display_map = plugin_registry.collect_display_map(state);
+        let focused = self.workspace.focused();
+        let focused_pane_rect = self.workspace.compute_rects(total).get(&focused).copied();
+        let focused_pane_state = pane_states
+            .and_then(|ps| ps.state_for_surface(focused))
+            .map(|s| Box::new(s.clone()));
         view::ViewSections {
             base: base_result.base.unwrap_or(Element::Empty),
             menu_overlay,
@@ -544,6 +577,8 @@ impl SurfaceRegistry {
             plugin_overlays,
             surface_reports: base_result.surface_reports,
             display_map,
+            focused_pane_rect,
+            focused_pane_state,
         }
     }
 
@@ -551,6 +586,7 @@ impl SurfaceRegistry {
         &self,
         node: &crate::workspace::WorkspaceNode,
         state: &AppState,
+        pane_states: Option<&PaneStates<'_>>,
         plugin_registry: &PluginRegistry,
         rects: &HashMap<SurfaceId, Rect>,
     ) -> (Element, Vec<SurfaceRenderReport>) {
@@ -569,6 +605,7 @@ impl SurfaceRegistry {
                     let outcome = self.render_surface_outcome(
                         entry,
                         state,
+                        pane_states,
                         plugin_registry,
                         rect,
                         self.workspace.focused() == *surface_id,
@@ -595,10 +632,20 @@ impl SurfaceRegistry {
                     crate::layout::SplitDirection::Vertical => crate::element::Direction::Row,
                     crate::layout::SplitDirection::Horizontal => crate::element::Direction::Column,
                 };
-                let (first_elem, mut first_reports) =
-                    self.compose_node_with_reports(first, state, plugin_registry, rects);
-                let (second_elem, second_reports) =
-                    self.compose_node_with_reports(second, state, plugin_registry, rects);
+                let (first_elem, mut first_reports) = self.compose_node_with_reports(
+                    first,
+                    state,
+                    pane_states,
+                    plugin_registry,
+                    rects,
+                );
+                let (second_elem, second_reports) = self.compose_node_with_reports(
+                    second,
+                    state,
+                    pane_states,
+                    plugin_registry,
+                    rects,
+                );
                 first_reports.extend(second_reports);
                 (
                     Element::Flex {
@@ -622,18 +669,34 @@ impl SurfaceRegistry {
             }
             WorkspaceNode::Tabs { tabs, active, .. } => {
                 if let Some(active_tab) = tabs.get(*active) {
-                    self.compose_node_with_reports(active_tab, state, plugin_registry, rects)
+                    self.compose_node_with_reports(
+                        active_tab,
+                        state,
+                        pane_states,
+                        plugin_registry,
+                        rects,
+                    )
                 } else {
                     (Element::Empty, vec![])
                 }
             }
             WorkspaceNode::Float { base, floating } => {
-                let (base_elem, mut surface_reports) =
-                    self.compose_node_with_reports(base, state, plugin_registry, rects);
+                let (base_elem, mut surface_reports) = self.compose_node_with_reports(
+                    base,
+                    state,
+                    pane_states,
+                    plugin_registry,
+                    rects,
+                );
                 let mut overlays = Vec::new();
                 for entry in floating {
-                    let (overlay_elem, overlay_reports) =
-                        self.compose_node_with_reports(&entry.node, state, plugin_registry, rects);
+                    let (overlay_elem, overlay_reports) = self.compose_node_with_reports(
+                        &entry.node,
+                        state,
+                        pane_states,
+                        plugin_registry,
+                        rects,
+                    );
                     surface_reports.extend(overlay_reports);
                     overlays.push(crate::element::Overlay {
                         element: overlay_elem,

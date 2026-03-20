@@ -4,7 +4,7 @@
 //! the status bar or overlays. Those are handled by separate surfaces
 //! (StatusBarSurface, MenuSurface, InfoSurface).
 
-use crate::element::Element;
+use crate::element::{BufferRefState, Element, FlexChild};
 use crate::plugin::Command;
 use crate::state::{AppState, DirtyFlags};
 use compact_str::CompactString;
@@ -76,5 +76,85 @@ impl Surface for KakouneBufferSurface {
 
     fn declared_slots(&self) -> &[SlotDeclaration] {
         &self.slots
+    }
+}
+
+/// Client buffer surface for multi-pane split views.
+///
+/// Each instance is backed by an independent Kakoune client connection.
+/// Has a distinct SurfaceId and no declared slots — builds buffer content
+/// directly via `build_buffer_core_parts()` to avoid SlotPlaceholder
+/// resolution errors.
+///
+/// When rendered with a pane-specific `AppState` via `PaneStates`, each
+/// instance displays its own buffer, cursor, mode, and status independently.
+pub struct ClientBufferSurface {
+    surface_id: SurfaceId,
+}
+
+/// Backward-compatible alias for `ClientBufferSurface`.
+pub type MirrorBufferSurface = ClientBufferSurface;
+
+impl ClientBufferSurface {
+    pub fn new(surface_id: SurfaceId) -> Self {
+        ClientBufferSurface { surface_id }
+    }
+}
+
+/// Embed pane-specific AppState data into a BufferRef element for multi-pane rendering.
+fn embed_buffer_state(element: Element, state: &AppState) -> Element {
+    match element {
+        Element::BufferRef {
+            line_range,
+            line_backgrounds,
+            display_map,
+            ..
+        } => Element::BufferRef {
+            line_range,
+            line_backgrounds,
+            display_map,
+            state: Some(Box::new(BufferRefState {
+                lines: state.lines.clone(),
+                lines_dirty: state.lines_dirty.clone(),
+                default_face: state.default_face,
+                padding_face: state.padding_face,
+                padding_char: state.padding_char.clone(),
+            })),
+        },
+        // If a transform wrapped the BufferRef, pass through unchanged
+        other => other,
+    }
+}
+
+impl Surface for ClientBufferSurface {
+    fn id(&self) -> SurfaceId {
+        self.surface_id
+    }
+
+    fn surface_key(&self) -> CompactString {
+        CompactString::new(format!("kasane.buffer.client.{}", self.surface_id.0))
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        SizeHint::fill()
+    }
+
+    fn view(&self, ctx: &ViewContext<'_>) -> Element {
+        let parts = crate::render::view::build_buffer_core_parts(ctx.state, ctx.registry);
+        // Embed pane state into BufferRef for multi-pane rendering
+        let buffer = embed_buffer_state(parts.buffer, ctx.state);
+        let mut row_children = Vec::new();
+        if let Some(left_gutter) = parts.left_gutter {
+            row_children.push(FlexChild::fixed(left_gutter));
+        }
+        row_children.push(FlexChild::flexible(buffer, 1.0));
+        if let Some(right_gutter) = parts.right_gutter {
+            row_children.push(FlexChild::fixed(right_gutter));
+        }
+        Element::row(row_children)
+    }
+
+    fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
+        vec![]
     }
 }

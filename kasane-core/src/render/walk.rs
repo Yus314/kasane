@@ -16,7 +16,7 @@ use super::scene::{
 };
 use super::theme::Theme;
 use crate::display::DisplayMap;
-use crate::element::{BorderConfig, Element};
+use crate::element::{BorderConfig, BufferRefState, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::{Atom, Face};
@@ -58,6 +58,7 @@ pub(crate) trait PaintVisitor {
         area: Rect,
         line_range: Range<usize>,
         state: &AppState,
+        buffer_state: Option<&BufferRefState>,
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
     );
@@ -103,7 +104,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             line_range,
             line_backgrounds,
             display_map,
-            ..
+            state: buffer_state,
         } => {
             let dm = display_map
                 .as_ref()
@@ -113,6 +114,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 area,
                 line_range.clone(),
                 state,
+                buffer_state.as_deref(),
                 line_backgrounds.as_deref(),
                 dm,
             );
@@ -232,6 +234,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         area: Rect,
         line_range: Range<usize>,
         state: &AppState,
+        buffer_state: Option<&BufferRefState>,
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
     ) {
@@ -240,6 +243,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
             &area,
             line_range,
             state,
+            buffer_state,
             line_backgrounds,
             display_map,
         );
@@ -335,10 +339,21 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         area: Rect,
         line_range: Range<usize>,
         state: &AppState,
+        buffer_state: Option<&BufferRefState>,
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
     ) {
         let cs = self.cell_size;
+        let lines = buffer_state.map(|s| &s.lines).unwrap_or(&state.lines);
+        let default_face = buffer_state
+            .map(|s| s.default_face)
+            .unwrap_or(state.default_face);
+        let padding_face = buffer_state
+            .map(|s| s.padding_face)
+            .unwrap_or(state.padding_face);
+        let padding_char = buffer_state
+            .map(|s| s.padding_char.as_str())
+            .unwrap_or(&state.padding_char);
 
         for y_offset in 0..area.h {
             let display_line = line_range.start + y_offset as usize;
@@ -389,11 +404,11 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 None => continue, // virtual text with no buffer source
             };
 
-            if let Some(line) = state.lines.get(line_idx) {
+            if let Some(line) = lines.get(line_idx) {
                 // Background fill for the row (with optional per-line override)
                 let base_face = line_backgrounds
                     .and_then(|bgs| bgs.get(line_idx).copied().flatten())
-                    .unwrap_or(state.default_face);
+                    .unwrap_or(default_face);
                 self.out.push(DrawCommand::FillRect {
                     rect: PixelRect {
                         x: px,
@@ -438,17 +453,17 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                         w: row_w,
                         h: cs.height,
                     },
-                    face: state.padding_face,
+                    face: padding_face,
                     elevated: false,
                 });
-                let mut pad_face = state.padding_face;
+                let mut pad_face = padding_face;
                 if pad_face.fg == pad_face.bg {
-                    pad_face.fg = state.default_face.fg;
+                    pad_face.fg = default_face.fg;
                 }
                 self.out.push(DrawCommand::DrawPaddingRow {
                     pos: PixelPos { x: px, y: py },
                     width: row_w,
-                    ch: state.padding_char.clone(),
+                    ch: padding_char.to_string(),
                     face: pad_face,
                 });
             }

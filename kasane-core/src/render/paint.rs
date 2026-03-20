@@ -54,10 +54,25 @@ pub(crate) fn paint_buffer_ref(
     area: &Rect,
     line_range: std::ops::Range<usize>,
     state: &AppState,
+    buffer_state: Option<&crate::element::BufferRefState>,
     line_backgrounds: Option<&[Option<Face>]>,
     display_map: Option<&crate::display::DisplayMap>,
 ) {
-    let has_line_dirty = !state.lines_dirty.is_empty();
+    let lines = buffer_state.map(|s| &s.lines).unwrap_or(&state.lines);
+    let lines_dirty = buffer_state
+        .map(|s| &s.lines_dirty)
+        .unwrap_or(&state.lines_dirty);
+    let default_face = buffer_state
+        .map(|s| s.default_face)
+        .unwrap_or(state.default_face);
+    let padding_face = buffer_state
+        .map(|s| s.padding_face)
+        .unwrap_or(state.padding_face);
+    let padding_char = buffer_state
+        .map(|s| s.padding_char.as_str())
+        .unwrap_or(&state.padding_char);
+
+    let has_line_dirty = !lines_dirty.is_empty();
     for y_offset in 0..area.h {
         let display_line = line_range.start + y_offset as usize;
         let y = area.y + y_offset;
@@ -85,9 +100,9 @@ pub(crate) fn paint_buffer_ref(
         // would be incorrectly skipped after a grid.clear().
         if has_line_dirty && synthetic.is_none() {
             let is_dirty = if let Some(dm) = display_map {
-                dm.is_display_line_dirty(display_line, &state.lines_dirty)
+                dm.is_display_line_dirty(display_line, lines_dirty)
             } else {
-                state.lines_dirty.get(display_line).copied().unwrap_or(true)
+                lines_dirty.get(display_line).copied().unwrap_or(true)
             };
             if !is_dirty {
                 continue;
@@ -110,21 +125,21 @@ pub(crate) fn paint_buffer_ref(
             None => continue,
         };
 
-        if let Some(line) = state.lines.get(line_idx) {
+        if let Some(line) = lines.get(line_idx) {
             // Use plugin background override if available, otherwise default_face
             let base_face = line_backgrounds
                 .and_then(|bgs| bgs.get(line_idx).copied().flatten())
-                .unwrap_or(state.default_face);
+                .unwrap_or(default_face);
             grid.fill_region(y, area.x, area.w, &base_face);
             grid.put_line_with_base(y, area.x, line, area.w, Some(&base_face));
         } else {
             // Padding row
-            grid.fill_region(y, area.x, area.w, &state.padding_face);
-            let mut pad_face = state.padding_face;
+            grid.fill_region(y, area.x, area.w, &padding_face);
+            let mut pad_face = padding_face;
             if pad_face.fg == pad_face.bg {
-                pad_face.fg = state.default_face.fg;
+                pad_face.fg = default_face.fg;
             }
-            grid.put_char(area.x, y, &state.padding_char, &pad_face);
+            grid.put_char(area.x, y, padding_char, &pad_face);
         }
     }
 }
