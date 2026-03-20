@@ -1110,11 +1110,19 @@ where
 
         // Host-owned smooth scroll runtime tick
         if let Some(resolved) = self.scroll_runtime.tick() {
-            kasane_core::plugin::execute_commands(
-                vec![Command::SendToKakoune(resolved.to_kakoune_request())],
-                self.session_manager
+            let focused_surface = self.surface_registry.workspace().focused();
+            let focused_sid = self.pane_map.session_for_surface(focused_surface);
+            let writer = match focused_sid.and_then(|sid| self.session_manager.writer_mut(sid).ok())
+            {
+                Some(w) => w,
+                None => self
+                    .session_manager
                     .active_writer_mut()
                     .expect("missing active session writer"),
+            };
+            kasane_core::plugin::execute_commands(
+                vec![Command::SendToKakoune(resolved.to_kakoune_request())],
+                writer,
                 &mut || None, // GUI doesn't have clipboard_get in this context
             );
             if let Some(ref window) = self.window {

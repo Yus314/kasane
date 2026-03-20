@@ -240,21 +240,28 @@ where
             Ok(e) => e,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 scroll_runtime.set_initial_resize_complete(initial_resize_sent);
-                if let Some(resolved) = scroll_runtime.tick()
-                    && matches!(
+                if let Some(resolved) = scroll_runtime.tick() {
+                    let focused_surface = surface_registry.workspace().focused();
+                    let focused_sid = pane_map.session_for_surface(focused_surface);
+                    let writer =
+                        match focused_sid.and_then(|sid| session_manager.writer_mut(sid).ok()) {
+                            Some(w) => w,
+                            None => session_manager
+                                .active_writer_mut()
+                                .expect("missing active session writer"),
+                        };
+                    if matches!(
                         execute_commands(
                             vec![kasane_core::plugin::Command::SendToKakoune(
                                 resolved.to_kakoune_request(),
                             )],
-                            session_manager
-                                .active_writer_mut()
-                                .expect("missing active session writer"),
+                            writer,
                             &mut || backend.clipboard_get(),
                         ),
                         CommandResult::Quit
-                    )
-                {
-                    break;
+                    ) {
+                        break;
+                    }
                 }
                 session_states.sync_active_from_manager(&session_manager, &state);
                 continue;

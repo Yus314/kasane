@@ -624,6 +624,24 @@ pub struct DeferredContext<'a> {
 /// further deferred commands (e.g., PluginMessage → PluginMessage chains).
 const MAX_COMMAND_CASCADE_DEPTH: usize = 8;
 
+/// Resolve the writer for the focused pane, falling back to `active_writer()`.
+///
+/// This is a macro rather than a function because it needs split borrows on
+/// `DeferredContext` fields (`surface_registry`, `pane_map`, `session_host`).
+macro_rules! focused_writer {
+    ($ctx:expr) => {{
+        let focused_surface = $ctx.surface_registry.workspace().focused();
+        let focused_session = $ctx.pane_map.session_for_surface(focused_surface);
+        match focused_session {
+            Some(sid) => match $ctx.session_host.writer_for_session(sid) {
+                Some(w) => w,
+                None => $ctx.session_host.active_writer(),
+            },
+            None => $ctx.session_host.active_writer(),
+        }
+    }};
+}
+
 /// Handle deferred commands (timers, inter-plugin messages, config overrides).
 ///
 /// Returns `true` if a `Quit` command was encountered.
@@ -653,17 +671,7 @@ fn handle_command_batch_inner(
     let (normal, deferred) = extract_deferred_commands(commands);
 
     // Route commands to the focused pane's Kakoune client when in multi-pane mode.
-    let focused_session = {
-        let focused_surface = ctx.surface_registry.workspace().focused();
-        ctx.pane_map.session_for_surface(focused_surface)
-    };
-    let writer: &mut dyn Write = match focused_session {
-        Some(sid) => match ctx.session_host.writer_for_session(sid) {
-            Some(w) => w,
-            None => ctx.session_host.active_writer(),
-        },
-        None => ctx.session_host.active_writer(),
-    };
+    let writer = focused_writer!(ctx);
     if matches!(
         execute_commands(normal, writer, ctx.clipboard_get),
         CommandResult::Quit
@@ -709,12 +717,12 @@ fn handle_deferred_commands_inner(
                 crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
             }
             DeferredCommand::Workspace(ws_cmd) => {
-                // Auto-register MirrorBufferSurface for unknown surface IDs
+                // Auto-register ClientBufferSurface for unknown surface IDs
                 if let crate::workspace::WorkspaceCommand::AddSurface { surface_id, .. } = &ws_cmd
                     && ctx.surface_registry.get(*surface_id).is_none()
                 {
                     let _ = ctx.surface_registry.try_register(Box::new(
-                        crate::surface::buffer::MirrorBufferSurface::new(*surface_id),
+                        crate::surface::buffer::ClientBufferSurface::new(*surface_id),
                     ));
                 }
                 crate::workspace::dispatch_workspace_command_with_total(
@@ -971,7 +979,7 @@ fn apply_runtime_batch_without_session_deferred(
 
     let (normal, nested_deferred) = extract_deferred_commands(commands);
     if matches!(
-        execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
+        execute_commands(normal, focused_writer!(ctx), ctx.clipboard_get),
         CommandResult::Quit
     ) {
         return true;
@@ -1013,7 +1021,7 @@ pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bo
                 if matches!(
                     execute_commands(
                         vec![Command::SendToKakoune(request)],
-                        ctx.session_host.active_writer(),
+                        focused_writer!(ctx),
                         ctx.clipboard_get,
                     ),
                     CommandResult::Quit
@@ -1025,7 +1033,7 @@ pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bo
                 if matches!(
                     execute_commands(
                         vec![Command::Paste],
-                        ctx.session_host.active_writer(),
+                        focused_writer!(ctx),
                         ctx.clipboard_get,
                     ),
                     CommandResult::Quit
