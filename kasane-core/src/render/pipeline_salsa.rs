@@ -401,3 +401,54 @@ fn offset_overlay_anchor(anchor: &mut crate::element::OverlayAnchor, dx: u16, dy
         crate::element::OverlayAnchor::Fill => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::element::OverlayAnchor;
+    use crate::protocol::Coord;
+
+    #[test]
+    fn offset_absolute_anchor() {
+        let mut anchor = OverlayAnchor::Absolute {
+            x: 5,
+            y: 3,
+            w: 10,
+            h: 4,
+        };
+        offset_overlay_anchor(&mut anchor, 20, 10);
+        assert!(matches!(
+            anchor,
+            OverlayAnchor::Absolute {
+                x: 25,
+                y: 13,
+                w: 10,
+                h: 4
+            }
+        ));
+    }
+
+    #[test]
+    fn offset_anchor_point() {
+        let mut anchor = OverlayAnchor::AnchorPoint {
+            coord: Coord { line: 2, column: 8 },
+            prefer_above: false,
+            avoid: vec![],
+        };
+        offset_overlay_anchor(&mut anchor, 15, 7);
+        match &anchor {
+            OverlayAnchor::AnchorPoint { coord, .. } => {
+                assert_eq!(coord.column, 23);
+                assert_eq!(coord.line, 9);
+            }
+            _ => panic!("expected AnchorPoint"),
+        }
+    }
+
+    #[test]
+    fn offset_fill_is_noop() {
+        let mut anchor = OverlayAnchor::Fill;
+        offset_overlay_anchor(&mut anchor, 10, 10);
+        assert!(matches!(anchor, OverlayAnchor::Fill));
+    }
+}

@@ -93,6 +93,7 @@ pub struct ClientBufferSurface {
 }
 
 /// Backward-compatible alias for `ClientBufferSurface`.
+#[deprecated(note = "use `ClientBufferSurface` directly")]
 pub type MirrorBufferSurface = ClientBufferSurface;
 
 impl ClientBufferSurface {
