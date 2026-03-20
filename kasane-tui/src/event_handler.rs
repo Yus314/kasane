@@ -16,6 +16,7 @@ use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     IoEvent, PaintHook, PluginDiagnostic, PluginId, PluginManager, PluginRegistry,
     ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch, extract_redraw_flags,
+    report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -71,14 +72,16 @@ impl PaintHookState {
             changed_owners.insert(delta.id.clone(), ());
         }
         for diagnostic in diagnostics {
-            changed_owners.insert(diagnostic.plugin_id.clone(), ());
+            if let Some(plugin_id) = diagnostic.plugin_id() {
+                changed_owners.insert(plugin_id.clone(), ());
+            }
         }
 
         for plugin_id in changed_owners.keys() {
             grouped.remove(plugin_id);
         }
         for plugin_id in changed_owners.keys() {
-            if diagnostics.iter().any(|d| d.plugin_id == *plugin_id)
+            if diagnostics.iter().any(|d| d.plugin_id() == Some(plugin_id))
                 || !registry.contains_plugin(plugin_id)
             {
                 continue;
@@ -534,6 +537,7 @@ where
                 result.deltas.as_slice(),
             )
         })?;
+    report_plugin_diagnostics(&reload.diagnostics);
 
     let mut flags = DirtyFlags::all();
     apply_bootstrap_effects(reload.bootstrap, &mut flags);

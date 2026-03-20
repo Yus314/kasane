@@ -1,0 +1,17 @@
+[package]
+name = "kasane-wasm-instantiate-trap"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+kasane-plugin-sdk = { path = "../../../kasane-plugin-sdk" }
+wit-bindgen = "0.41"
+
+[profile.release]
+opt-level = "s"
+lto = true

@@ -3,6 +3,7 @@
 pub mod bridge;
 mod command;
 mod context;
+mod diagnostics;
 mod effects;
 pub mod io;
 mod manager;
@@ -23,17 +24,18 @@ pub use command::{
     Command, CommandResult, DeferredCommand, PaintHook, execute_commands,
     extract_deferred_commands, extract_redraw_flags,
 };
+pub use diagnostics::{
+    PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticSeverity, PluginDiagnosticTarget,
+    ProviderArtifactStage, report_plugin_diagnostics,
+};
 pub use effects::{
     BootstrapEffects, InitBatch, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
     SessionReadyEffects,
 };
-pub use manager::{
-    AppliedWinnerDelta, PluginApplyResult, PluginDiagnostic, PluginDiagnosticKind, PluginManager,
-    ResolvedPluginSnapshot,
-};
+pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{
-    CompositePluginProvider, PluginDescriptor, PluginFactory, PluginProvider, PluginRank,
-    PluginRevision, PluginSource, StaticPluginProvider, builtin_plugin, host_plugin,
+    CompositePluginProvider, PluginCollect, PluginDescriptor, PluginFactory, PluginProvider,
+    PluginRank, PluginRevision, PluginSource, StaticPluginProvider, builtin_plugin, host_plugin,
     host_plugin_with_provider, plugin_factory,
 };
 

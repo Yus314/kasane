@@ -20,8 +20,9 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use kasane_core::plugin::{
-    PluginBackend, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRank,
-    PluginRevision, PluginSource, plugin_factory,
+    PluginBackend, PluginCollect, PluginDescriptor, PluginDiagnostic, PluginFactory, PluginId,
+    PluginProvider, PluginRank, PluginRevision, PluginSource, ProviderArtifactStage,
+    plugin_factory,
 };
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine};
@@ -59,12 +60,31 @@ impl WasmPluginLoader {
     /// its ID and requested capabilities. Then a proper WASI context is built
     /// based on the plugin's requests and user configuration, and swapped in
     /// before returning.
+    pub fn load_staged(
+        &self,
+        wasm_bytes: &[u8],
+        wasi_config: &WasiCapabilityConfig,
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
+        let component = Component::new(&self.engine, wasm_bytes)
+            .map_err(|err| (ProviderArtifactStage::Load, err.into()))?;
+        self.instantiate_component(component, wasi_config)
+            .map_err(|err| (ProviderArtifactStage::Instantiate, err))
+    }
+
     pub fn load(
         &self,
         wasm_bytes: &[u8],
         wasi_config: &WasiCapabilityConfig,
     ) -> anyhow::Result<WasmPlugin> {
-        let component = Component::new(&self.engine, wasm_bytes)?;
+        self.load_staged(wasm_bytes, wasi_config)
+            .map_err(|(_, err)| err)
+    }
+
+    fn instantiate_component(
+        &self,
+        component: Component,
+        wasi_config: &WasiCapabilityConfig,
+    ) -> anyhow::Result<WasmPlugin> {
         let host_state = host::HostState::default();
         let mut store = wasmtime::Store::new(&self.engine, host_state);
         let instance = bindings::KasanePlugin::instantiate(&mut store, &component, &self.linker)?;
@@ -204,10 +224,21 @@ impl WasmPluginProvider {
 }
 
 impl PluginProvider for WasmPluginProvider {
-    fn collect(&self) -> anyhow::Result<Vec<Arc<dyn PluginFactory>>> {
-        let loader = WasmPluginLoader::new()?;
+    fn collect(&self) -> anyhow::Result<PluginCollect> {
+        let loader = match WasmPluginLoader::new() {
+            Ok(loader) => loader,
+            Err(err) => {
+                return Ok(PluginCollect {
+                    factories: vec![],
+                    diagnostics: vec![PluginDiagnostic::provider_collect_failed(
+                        self.name(),
+                        err.to_string(),
+                    )],
+                });
+            }
+        };
         let wasi_config = WasiCapabilityConfig::from_plugins_config(&self.plugins_config);
-        let mut resolved = Vec::new();
+        let mut resolved = PluginCollect::default();
         resolve_bundled_plugins_with_factories(
             &self.plugins_config,
             &loader,
@@ -223,6 +254,8 @@ impl PluginProvider for WasmPluginProvider {
         Ok(resolved)
     }
 }
+
+const WASM_PROVIDER_NAME: &str = "kasane_wasm::WasmPluginProvider";
 
 fn filesystem_fingerprint(path: &Path, wasm_len: u64) -> WasmPluginFingerprint {
     let modified_ns = std::fs::metadata(path)
@@ -338,7 +371,7 @@ fn resolve_bundled_plugins_with_factories(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
-    resolved: &mut Vec<Arc<dyn PluginFactory>>,
+    resolved: &mut PluginCollect,
 ) {
     let bundled = [
         ("cursor_line", BUNDLED_CURSOR_LINE),
@@ -353,7 +386,7 @@ fn resolve_bundled_plugins_with_factories(
         {
             continue;
         }
-        match loader.load(bytes, wasi_config) {
+        match loader.load_staged(bytes, wasi_config) {
             Ok(plugin) => {
                 let descriptor = descriptor_from_wasm_revision(
                     plugin.id(),
@@ -363,12 +396,19 @@ fn resolve_bundled_plugins_with_factories(
                     },
                 );
                 upsert_resolved_factory(
-                    resolved,
+                    &mut resolved.factories,
                     wasm_factory(descriptor, bytes.to_vec(), wasi_config.clone()),
                 );
             }
-            Err(e) => {
-                tracing::error!("failed to load bundled WASM plugin {name}: {e}");
+            Err((stage, err)) => {
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_artifact_failed(
+                        WASM_PROVIDER_NAME,
+                        format!("bundled:{name}"),
+                        stage,
+                        err.to_string(),
+                    ));
             }
         }
     }
@@ -452,7 +492,7 @@ fn resolve_filesystem_plugins_with_factories(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
-    resolved: &mut Vec<Arc<dyn PluginFactory>>,
+    resolved: &mut PluginCollect,
 ) {
     if !plugins_config.auto_discover {
         return;
@@ -463,10 +503,15 @@ fn resolve_filesystem_plugins_with_factories(
         Ok(entries) => entries,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(
-                    "failed to read plugins directory {}: {e}",
-                    plugins_dir.display()
-                );
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_collect_failed(
+                        WASM_PROVIDER_NAME,
+                        format!(
+                            "failed to read plugins directory {}: {e}",
+                            plugins_dir.display()
+                        ),
+                    ));
             }
             return;
         }
@@ -490,12 +535,19 @@ fn resolve_filesystem_plugins_with_factories(
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
             Err(e) => {
-                tracing::error!("failed to read WASM plugin {file_name}: {e}");
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_artifact_failed(
+                        WASM_PROVIDER_NAME,
+                        file_name.as_ref(),
+                        ProviderArtifactStage::Read,
+                        e.to_string(),
+                    ));
                 continue;
             }
         };
 
-        match loader.load(&bytes, wasi_config) {
+        match loader.load_staged(&bytes, wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
                 if plugins_config.disabled.contains(&id.0) {
@@ -511,12 +563,19 @@ fn resolve_filesystem_plugins_with_factories(
                     },
                 );
                 upsert_resolved_factory(
-                    resolved,
+                    &mut resolved.factories,
                     wasm_factory(descriptor, bytes, wasi_config.clone()),
                 );
             }
-            Err(e) => {
-                tracing::error!("failed to load WASM plugin {file_name}: {e}");
+            Err((stage, err)) => {
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_artifact_failed(
+                        WASM_PROVIDER_NAME,
+                        file_name.as_ref(),
+                        stage,
+                        err.to_string(),
+                    ));
             }
         }
     }

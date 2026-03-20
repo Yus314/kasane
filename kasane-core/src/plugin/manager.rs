@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use crate::state::AppState;
 
+use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
 use super::{
     BootstrapEffects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRegistry,
 };
@@ -28,6 +29,7 @@ struct ResolvedWinner {
 
 struct ResolvedCatalog {
     winners: BTreeMap<PluginId, ResolvedWinner>,
+    diagnostics: Vec<PluginDiagnostic>,
 }
 
 impl ResolvedCatalog {
@@ -71,6 +73,7 @@ impl AppliedWinnerDelta {
 pub struct PluginApplyResult {
     pub bootstrap: BootstrapEffects,
     pub deltas: Vec<AppliedWinnerDelta>,
+    pub diagnostics: Vec<PluginDiagnostic>,
 }
 
 impl PluginApplyResult {
@@ -102,6 +105,7 @@ struct PluginApplyPlan {
     removals: Vec<PlannedPluginRemoval>,
     upserts: Vec<PlannedPluginUpsert>,
     next_snapshot: ResolvedPluginSnapshot,
+    catalog_diagnostics: Vec<PluginDiagnostic>,
 }
 
 enum PluginApplyMode<'a> {
@@ -119,19 +123,24 @@ impl PendingPluginCommit {
         &self.result
     }
 
-    pub fn filter_disabled_plugins(mut self, disabled_plugins: &[PluginId]) -> Self {
-        for plugin_id in disabled_plugins {
-            self.next_snapshot.winners.remove(plugin_id);
+    pub fn apply_diagnostics(mut self, mut diagnostics: Vec<PluginDiagnostic>) -> Self {
+        for diagnostic in &mut diagnostics {
+            let Some(plugin_id) = diagnostic.plugin_id().cloned() else {
+                continue;
+            };
+            self.next_snapshot.winners.remove(&plugin_id);
 
             let Some(index) = self
                 .result
                 .deltas
                 .iter()
-                .position(|delta| &delta.id == plugin_id)
+                .position(|delta| delta.id == plugin_id)
             else {
                 continue;
             };
             let delta = &mut self.result.deltas[index];
+            diagnostic.previous = delta.old.clone();
+            diagnostic.attempted = delta.new.clone();
             match (&delta.old, &delta.new) {
                 (None, Some(_)) => {
                     self.result.deltas.remove(index);
@@ -142,6 +151,7 @@ impl PendingPluginCommit {
                 _ => {}
             }
         }
+        self.result.diagnostics.extend(diagnostics);
         self
     }
 }
@@ -175,6 +185,7 @@ impl PluginManager {
                 })
                 .collect(),
             next_snapshot,
+            catalog_diagnostics: catalog.diagnostics,
         })
     }
 
@@ -214,6 +225,7 @@ impl PluginManager {
             removals,
             upserts,
             next_snapshot: new_snapshot,
+            catalog_diagnostics: catalog.diagnostics,
         })
     }
 
@@ -223,9 +235,15 @@ impl PluginManager {
         plan: PluginApplyPlan,
         mode: PluginApplyMode<'_>,
     ) -> Result<PendingPluginCommit> {
+        let PluginApplyPlan {
+            removals,
+            upserts,
+            mut next_snapshot,
+            ..
+        } = plan;
         let mut result = PluginApplyResult::default();
 
-        for removal in plan.removals {
+        for removal in removals {
             if registry.unload_plugin(&removal.id) {
                 result.deltas.push(AppliedWinnerDelta {
                     id: removal.id,
@@ -235,13 +253,35 @@ impl PluginManager {
             }
         }
 
-        for upsert in plan.upserts {
+        for upsert in upserts {
+            let plugin = match upsert.factory.create() {
+                Ok(plugin) => plugin,
+                Err(err) => {
+                    result.diagnostics.push(PluginDiagnostic {
+                        target: PluginDiagnosticTarget::Plugin(upsert.id.clone()),
+                        kind: PluginDiagnosticKind::InstantiationFailed,
+                        message: err.to_string(),
+                        previous: upsert.old.clone(),
+                        attempted: Some(upsert.new.clone()),
+                    });
+                    match &upsert.old {
+                        Some(old) => {
+                            result.deltas.retain(|delta| delta.id != upsert.id);
+                            next_snapshot.winners.insert(upsert.id.clone(), old.clone());
+                        }
+                        None => {
+                            next_snapshot.winners.remove(&upsert.id);
+                        }
+                    }
+                    continue;
+                }
+            };
             match mode {
                 PluginApplyMode::Initial => {
-                    registry.register_backend(upsert.factory.create()?);
+                    registry.register_backend(plugin);
                 }
                 PluginApplyMode::Reload(state) => {
-                    let batch = registry.reload_plugin_batch(upsert.factory.create()?, state);
+                    let batch = registry.reload_plugin_batch(plugin, state);
                     result.bootstrap.merge(batch.effects);
                 }
             }
@@ -254,7 +294,7 @@ impl PluginManager {
 
         Ok(PendingPluginCommit {
             result,
-            next_snapshot: plan.next_snapshot,
+            next_snapshot,
         })
     }
 
@@ -276,9 +316,12 @@ impl PluginManager {
         F: FnOnce(&PluginApplyResult, &mut PluginRegistry) -> Vec<PluginDiagnostic>,
     {
         let plan = self.plan_initial()?;
+        let catalog_diagnostics = plan.catalog_diagnostics.clone();
         let pending = self.apply_plan(registry, plan, PluginApplyMode::Initial)?;
         let diagnostics = collect_diagnostics(pending.result(), registry);
-        Ok(self.commit(pending.apply_diagnostics(diagnostics)))
+        let mut result = self.commit(pending.apply_diagnostics(diagnostics));
+        result.diagnostics.extend(catalog_diagnostics);
+        Ok(result)
     }
 
     pub fn reload<F>(
@@ -291,15 +334,30 @@ impl PluginManager {
         F: FnOnce(&PluginApplyResult, &mut PluginRegistry) -> Vec<PluginDiagnostic>,
     {
         let plan = self.plan_reload()?;
+        let catalog_diagnostics = plan.catalog_diagnostics.clone();
         let pending = self.apply_plan(registry, plan, PluginApplyMode::Reload(state))?;
         let diagnostics = collect_diagnostics(pending.result(), registry);
-        Ok(self.commit(pending.apply_diagnostics(diagnostics)))
+        let mut result = self.commit(pending.apply_diagnostics(diagnostics));
+        result.diagnostics.extend(catalog_diagnostics);
+        Ok(result)
     }
 
     fn collect_and_resolve(&self) -> Result<ResolvedCatalog> {
         let mut winners: BTreeMap<PluginId, ResolvedWinner> = BTreeMap::new();
+        let mut diagnostics = Vec::new();
         for provider in &self.providers {
-            for factory in provider.collect()? {
+            let collect = match provider.collect() {
+                Ok(collect) => collect,
+                Err(err) => {
+                    diagnostics.push(PluginDiagnostic::provider_collect_failed(
+                        provider.name(),
+                        err.to_string(),
+                    ));
+                    continue;
+                }
+            };
+            diagnostics.extend(collect.diagnostics);
+            for factory in collect.factories {
                 let descriptor = factory.descriptor().clone();
                 match winners.get(&descriptor.id) {
                     Some(existing)
@@ -317,7 +375,10 @@ impl PluginManager {
                 }
             }
         }
-        Ok(ResolvedCatalog { winners })
+        Ok(ResolvedCatalog {
+            winners,
+            diagnostics,
+        })
     }
 }
 
@@ -331,7 +392,12 @@ fn compare_descriptors(lhs: &PluginDescriptor, rhs: &PluginDescriptor) -> Orderi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::{PluginRank, PluginRevision, PluginSource};
+    use crate::plugin::{
+        PluginBackend, PluginCollect, PluginRank, PluginRevision, PluginSource, plugin_factory,
+    };
+    use crate::surface::SurfaceRegistrationError;
+    use anyhow::anyhow;
+    use std::sync::{Arc, Mutex};
 
     fn host_descriptor(id: &str, revision: &str) -> PluginDescriptor {
         PluginDescriptor {
@@ -341,6 +407,67 @@ mod tests {
             },
             revision: PluginRevision(revision.to_string()),
             rank: PluginRank::HOST,
+        }
+    }
+
+    struct DemoPlugin;
+
+    impl PluginBackend for DemoPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("demo".to_string())
+        }
+    }
+
+    struct FailingProvider;
+
+    impl PluginProvider for FailingProvider {
+        fn name(&self) -> &'static str {
+            "failing-provider"
+        }
+
+        fn collect(&self) -> Result<PluginCollect> {
+            Err(anyhow!("provider collect exploded"))
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum FactoryVariant {
+        Ok,
+        Err,
+    }
+
+    #[derive(Clone)]
+    struct DemoFactoryProvider {
+        variant: Arc<Mutex<FactoryVariant>>,
+        revision: Arc<Mutex<&'static str>>,
+    }
+
+    impl DemoFactoryProvider {
+        fn new(initial: FactoryVariant, revision: &'static str) -> Self {
+            Self {
+                variant: Arc::new(Mutex::new(initial)),
+                revision: Arc::new(Mutex::new(revision)),
+            }
+        }
+
+        fn set_state(&self, variant: FactoryVariant, revision: &'static str) {
+            *self.variant.lock().expect("poisoned factory variant") = variant;
+            *self.revision.lock().expect("poisoned factory revision") = revision;
+        }
+    }
+
+    impl PluginProvider for DemoFactoryProvider {
+        fn collect(&self) -> Result<PluginCollect> {
+            let variant = *self.variant.lock().expect("poisoned factory variant");
+            let revision = *self.revision.lock().expect("poisoned factory revision");
+            let descriptor = host_descriptor("demo", revision);
+            Ok(PluginCollect {
+                factories: vec![plugin_factory(descriptor, move || match variant {
+                    FactoryVariant::Ok => Ok(Box::new(DemoPlugin)),
+                    FactoryVariant::Err => Err(anyhow!("factory exploded")),
+                })],
+                diagnostics: vec![],
+            })
         }
     }
 
@@ -356,6 +483,7 @@ mod tests {
                     old: None,
                     new: Some(descriptor.clone()),
                 }],
+                diagnostics: vec![],
             },
             next_snapshot: ResolvedPluginSnapshot {
                 winners: BTreeMap::from([(plugin_id.clone(), descriptor)]),
@@ -363,10 +491,23 @@ mod tests {
         };
 
         let mut manager = PluginManager::new(vec![]);
-        let result =
-            manager.commit(pending.filter_disabled_plugins(std::slice::from_ref(&plugin_id)));
+        let result = manager.commit(pending.apply_diagnostics(vec![
+            PluginDiagnostic::surface_registration_failed(
+                plugin_id.clone(),
+                SurfaceRegistrationError::DuplicateSurfaceKey {
+                    surface_key: "duplicate".into(),
+                },
+            ),
+        ]));
 
         assert!(result.deltas.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.diagnostics[0].plugin_id(), Some(&plugin_id));
+        assert!(result.diagnostics[0].previous.is_none());
+        assert_eq!(
+            result.diagnostics[0].attempted.as_ref(),
+            Some(&host_descriptor("demo", "r1"))
+        );
         assert!(manager.snapshot().winner(&plugin_id).is_none());
     }
 
@@ -383,19 +524,36 @@ mod tests {
                     old: Some(old_descriptor.clone()),
                     new: Some(new_descriptor.clone()),
                 }],
+                diagnostics: vec![],
             },
             next_snapshot: ResolvedPluginSnapshot {
-                winners: BTreeMap::from([(plugin_id.clone(), new_descriptor)]),
+                winners: BTreeMap::from([(plugin_id.clone(), new_descriptor.clone())]),
             },
         };
 
         let mut manager = PluginManager::new(vec![]);
-        let result =
-            manager.commit(pending.filter_disabled_plugins(std::slice::from_ref(&plugin_id)));
+        let result = manager.commit(pending.apply_diagnostics(vec![
+            PluginDiagnostic::surface_registration_failed(
+                plugin_id.clone(),
+                SurfaceRegistrationError::DuplicateSurfaceKey {
+                    surface_key: "duplicate".into(),
+                },
+            ),
+        ]));
 
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_removed());
         assert_eq!(result.deltas[0].old.as_ref(), Some(&old_descriptor));
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.diagnostics[0].plugin_id(), Some(&plugin_id));
+        assert_eq!(
+            result.diagnostics[0].previous.as_ref(),
+            Some(&old_descriptor)
+        );
+        assert_eq!(
+            result.diagnostics[0].attempted.as_ref(),
+            Some(&new_descriptor)
+        );
         assert!(manager.snapshot().winner(&plugin_id).is_none());
     }
 
@@ -420,6 +578,123 @@ mod tests {
         assert_eq!(
             manager.snapshot().winner(&PluginId("demo".to_string())),
             Some(&descriptor)
+        );
+    }
+
+    #[test]
+    fn initialize_reports_instantiation_failure_and_skips_snapshot() {
+        let provider = DemoFactoryProvider::new(FactoryVariant::Err, "r1");
+        let mut manager = PluginManager::new(vec![Box::new(provider)]);
+        let mut registry = PluginRegistry::new();
+
+        let result = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
+
+        assert!(result.deltas.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(
+            result.diagnostics[0].plugin_id(),
+            Some(&PluginId("demo".to_string()))
+        );
+        assert!(matches!(
+            result.diagnostics[0].kind,
+            PluginDiagnosticKind::InstantiationFailed
+        ));
+        assert!(result.diagnostics[0].previous.is_none());
+        assert_eq!(
+            result.diagnostics[0]
+                .attempted
+                .as_ref()
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("r1")
+        );
+        assert!(!registry.contains_plugin(&PluginId("demo".to_string())));
+        assert!(
+            manager
+                .snapshot()
+                .winner(&PluginId("demo".to_string()))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn reload_reports_instantiation_failure_and_keeps_old_winner() {
+        let provider = DemoFactoryProvider::new(FactoryVariant::Ok, "r1");
+        let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
+        let mut registry = PluginRegistry::new();
+
+        let initial = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
+        assert!(initial.diagnostics.is_empty());
+        assert_eq!(
+            manager
+                .snapshot()
+                .winner(&PluginId("demo".to_string()))
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("r1")
+        );
+
+        provider.set_state(FactoryVariant::Err, "r2");
+        let result = manager
+            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .unwrap();
+
+        assert!(result.deltas.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(matches!(
+            result.diagnostics[0].kind,
+            PluginDiagnosticKind::InstantiationFailed
+        ));
+        assert_eq!(
+            result.diagnostics[0]
+                .previous
+                .as_ref()
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("r1")
+        );
+        assert_eq!(
+            result.diagnostics[0]
+                .attempted
+                .as_ref()
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("r2")
+        );
+        assert!(registry.contains_plugin(&PluginId("demo".to_string())));
+        assert_eq!(
+            manager
+                .snapshot()
+                .winner(&PluginId("demo".to_string()))
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("r1")
+        );
+    }
+
+    #[test]
+    fn initialize_reports_provider_collect_failure_but_keeps_other_winners() {
+        let good_provider = DemoFactoryProvider::new(FactoryVariant::Ok, "r1");
+        let mut manager =
+            PluginManager::new(vec![Box::new(FailingProvider), Box::new(good_provider)]);
+        let mut registry = PluginRegistry::new();
+
+        let result = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(matches!(
+            result.diagnostics[0].kind,
+            PluginDiagnosticKind::ProviderCollectFailed
+        ));
+        assert_eq!(
+            result.diagnostics[0].provider_name(),
+            Some("failing-provider")
+        );
+        assert!(result.diagnostics[0].plugin_id().is_none());
+        assert_eq!(result.deltas.len(), 1);
+        assert!(result.deltas[0].is_added());
+        assert!(registry.contains_plugin(&PluginId("demo".to_string())));
+        assert_eq!(
+            manager
+                .snapshot()
+                .winner(&PluginId("demo".to_string()))
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("r1")
         );
     }
 }

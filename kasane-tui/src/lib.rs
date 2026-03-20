@@ -20,7 +20,7 @@ use kasane_core::event_loop::{
 };
 use kasane_core::plugin::{
     CommandResult, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEventSink,
-    execute_commands,
+    execute_commands, report_plugin_diagnostics,
 };
 use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -142,9 +142,10 @@ where
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
     // do not get a chance to produce side effects.
-    let _ = plugin_manager.initialize(&mut registry, |_, registry| {
+    let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
         kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
     })?;
+    report_plugin_diagnostics(&initial_plugins.diagnostics);
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During

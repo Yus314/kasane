@@ -21,7 +21,7 @@ use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     Command, IoEvent, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    extract_redraw_flags,
+    extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -246,9 +246,10 @@ where
 
         // Collect plugin-owned surfaces before plugin init so invalid surface
         // contracts do not get a chance to produce side effects.
-        let _ = plugin_manager.initialize(&mut registry, |_, registry| {
+        let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
             kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
         })?;
+        report_plugin_diagnostics(&initial_plugins.diagnostics);
 
         let init_batch = registry.init_all_batch(&state);
         let mut initial_dirty = DirtyFlags::ALL;

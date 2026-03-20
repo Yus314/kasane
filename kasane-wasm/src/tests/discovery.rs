@@ -1,7 +1,52 @@
+use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::{WasmPluginOrigin, WasmPluginRevision};
+use kasane_core::plugin::{PluginDiagnosticKind, PluginProvider, ProviderArtifactStage};
+
+struct TempPluginDir {
+    path: PathBuf,
+}
+
+impl TempPluginDir {
+    fn new() -> Self {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "kasane-wasm-provider-discovery-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).expect("failed to create temp plugin dir");
+        Self { path }
+    }
+
+    fn copy_fixture(&self, fixture_name: &str) {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(fixture_name);
+        let dst = self.path.join(fixture_name);
+        fs::copy(src, dst).expect("failed to copy fixture");
+    }
+
+    fn write_invalid_wasm(&self, file_name: &str) {
+        fs::write(self.path.join(file_name), b"not a wasm component")
+            .expect("failed to write invalid wasm");
+    }
+
+    fn create_wasm_dir(&self, file_name: &str) {
+        fs::create_dir(self.path.join(file_name)).expect("failed to create wasm directory");
+    }
+}
+
+impl Drop for TempPluginDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
 
 #[test]
 fn resolve_wasm_plugins_loads_fixtures_directory() {
@@ -111,6 +156,103 @@ fn resolve_wasm_plugins_prefers_filesystem_over_bundled_for_same_id() {
             origin: WasmPluginOrigin::Filesystem(path),
             ..
         }) if path.ends_with("cursor-line.wasm")
+    ));
+}
+
+#[test]
+fn wasm_provider_collect_reports_artifact_load_failures_without_dropping_valid_plugins() {
+    let dir = TempPluginDir::new();
+    dir.copy_fixture("cursor-line.wasm");
+    dir.write_invalid_wasm("broken.wasm");
+
+    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+        auto_discover: true,
+        path: Some(dir.path.to_string_lossy().into_owned()),
+        disabled: vec![],
+        ..Default::default()
+    });
+
+    let collected = provider.collect().unwrap();
+
+    assert!(
+        collected
+            .factories
+            .iter()
+            .any(|factory| factory.descriptor().id == PluginId("cursor_line".to_string()))
+    );
+    assert_eq!(collected.diagnostics.len(), 1);
+    assert!(matches!(
+        collected.diagnostics[0].kind,
+        PluginDiagnosticKind::ProviderArtifactFailed {
+            ref artifact,
+            stage: ProviderArtifactStage::Load,
+        } if artifact == "broken.wasm"
+    ));
+    assert_eq!(
+        collected.diagnostics[0].provider_name(),
+        Some("kasane_wasm::WasmPluginProvider")
+    );
+}
+
+#[test]
+fn wasm_provider_collect_reports_artifact_read_failures_without_dropping_valid_plugins() {
+    let dir = TempPluginDir::new();
+    dir.copy_fixture("cursor-line.wasm");
+    dir.create_wasm_dir("unreadable.wasm");
+
+    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+        auto_discover: true,
+        path: Some(dir.path.to_string_lossy().into_owned()),
+        disabled: vec![],
+        ..Default::default()
+    });
+
+    let collected = provider.collect().unwrap();
+
+    assert!(
+        collected
+            .factories
+            .iter()
+            .any(|factory| factory.descriptor().id == PluginId("cursor_line".to_string()))
+    );
+    assert_eq!(collected.diagnostics.len(), 1);
+    assert!(matches!(
+        collected.diagnostics[0].kind,
+        PluginDiagnosticKind::ProviderArtifactFailed {
+            ref artifact,
+            stage: ProviderArtifactStage::Read,
+        } if artifact == "unreadable.wasm"
+    ));
+}
+
+#[test]
+fn wasm_provider_collect_reports_artifact_instantiate_failures_without_dropping_valid_plugins() {
+    let dir = TempPluginDir::new();
+    dir.copy_fixture("cursor-line.wasm");
+    dir.copy_fixture("instantiate-trap.wasm");
+
+    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+        auto_discover: true,
+        path: Some(dir.path.to_string_lossy().into_owned()),
+        disabled: vec![],
+        ..Default::default()
+    });
+
+    let collected = provider.collect().unwrap();
+
+    assert!(
+        collected
+            .factories
+            .iter()
+            .any(|factory| factory.descriptor().id == PluginId("cursor_line".to_string()))
+    );
+    assert_eq!(collected.diagnostics.len(), 1);
+    assert!(matches!(
+        collected.diagnostics[0].kind,
+        PluginDiagnosticKind::ProviderArtifactFailed {
+            ref artifact,
+            stage: ProviderArtifactStage::Instantiate,
+        } if artifact == "instantiate-trap.wasm"
     ));
 }
 

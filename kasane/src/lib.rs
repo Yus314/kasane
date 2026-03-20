@@ -227,11 +227,12 @@ mod tests {
     use kasane_core::layout::SplitDirection;
     use kasane_core::plugin::{PaintHook, PluginBackend, PluginCapabilities, SessionReadyEffects};
     use kasane_core::plugin::{
-        PluginDescriptor, PluginId, PluginManager, PluginProvider, PluginRank, PluginRegistry,
-        PluginRevision, PluginSource, StaticPluginProvider, host_plugin, plugin_factory,
+        PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
+        PluginProvider, PluginRank, PluginRegistry, PluginRevision, PluginSource,
+        StaticPluginProvider, host_plugin, plugin_factory,
     };
     use kasane_core::state::{AppState, DirtyFlags};
-    use kasane_core::surface::{Surface, SurfaceId, SurfaceRegistry};
+    use kasane_core::surface::{Surface, SurfaceId, SurfaceRegistrationError, SurfaceRegistry};
     use kasane_core::test_support::TestSurfaceBuilder;
     use kasane_core::workspace::Placement;
 
@@ -423,7 +424,7 @@ mod tests {
     }
 
     impl PluginProvider for ReloadChainProvider {
-        fn collect(&self) -> AnyResult<Vec<Arc<dyn kasane_core::plugin::PluginFactory>>> {
+        fn collect(&self) -> AnyResult<PluginCollect> {
             let variant = *self.variant.lock().expect("poisoned reload variant");
             let descriptor = PluginDescriptor {
                 id: PluginId("reload_owner".to_string()),
@@ -433,9 +434,78 @@ mod tests {
                 revision: PluginRevision(variant.revision().to_string()),
                 rank: PluginRank::HOST,
             };
-            Ok(vec![plugin_factory(descriptor, move || {
-                Ok(Box::new(ReloadChainPlugin { variant }))
-            })])
+            Ok(PluginCollect {
+                factories: vec![plugin_factory(descriptor, move || {
+                    Ok(Box::new(ReloadChainPlugin { variant }))
+                })],
+                diagnostics: vec![],
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum DiagnosticVariant {
+        Valid,
+        Invalid,
+    }
+
+    struct DiagnosticSurfacePlugin {
+        variant: DiagnosticVariant,
+    }
+
+    impl PluginBackend for DiagnosticSurfacePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("diagnostic_owner".to_string())
+        }
+
+        fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
+            match self.variant {
+                DiagnosticVariant::Valid => vec![TestSurfaceBuilder::new(SurfaceId(201)).build()],
+                DiagnosticVariant::Invalid => {
+                    vec![TestSurfaceBuilder::new(SurfaceId::BUFFER).build()]
+                }
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct DiagnosticProvider {
+        variant: Arc<std::sync::Mutex<DiagnosticVariant>>,
+    }
+
+    impl DiagnosticProvider {
+        fn new(initial: DiagnosticVariant) -> Self {
+            Self {
+                variant: Arc::new(std::sync::Mutex::new(initial)),
+            }
+        }
+
+        fn set_variant(&self, variant: DiagnosticVariant) {
+            *self.variant.lock().expect("poisoned diagnostic variant") = variant;
+        }
+    }
+
+    impl PluginProvider for DiagnosticProvider {
+        fn collect(&self) -> AnyResult<PluginCollect> {
+            let variant = *self.variant.lock().expect("poisoned diagnostic variant");
+            let revision = match variant {
+                DiagnosticVariant::Valid => "valid",
+                DiagnosticVariant::Invalid => "invalid",
+            };
+            let descriptor = PluginDescriptor {
+                id: PluginId("diagnostic_owner".to_string()),
+                source: PluginSource::Host {
+                    provider: "diagnostic-test".to_string(),
+                },
+                revision: PluginRevision(revision.to_string()),
+                rank: PluginRank::HOST,
+            };
+            Ok(PluginCollect {
+                factories: vec![plugin_factory(descriptor, move || {
+                    Ok(Box::new(DiagnosticSurfacePlugin { variant }))
+                })],
+                diagnostics: vec![],
+            })
         }
     }
 
@@ -642,5 +712,121 @@ mod tests {
             &state,
         );
         assert_eq!(ready_batch.effects.redraw, ReloadVariant::V2.ready_redraw());
+    }
+
+    #[test]
+    fn initialize_reports_surface_activation_diagnostic() {
+        let state = AppState::default();
+        let mut manager = PluginManager::new(vec![Box::new(DiagnosticProvider::new(
+            DiagnosticVariant::Invalid,
+        ))]);
+        let mut registry = PluginRegistry::new();
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+
+        let result = manager
+            .initialize(&mut registry, |_, registry| {
+                setup_plugin_surfaces(registry, &mut surface_registry, &state)
+            })
+            .unwrap();
+
+        assert!(result.deltas.is_empty());
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(
+            result.diagnostics[0].plugin_id(),
+            Some(&PluginId("diagnostic_owner".to_string()))
+        );
+        assert!(matches!(
+            result.diagnostics[0].kind,
+            PluginDiagnosticKind::SurfaceRegistrationFailed {
+                reason: SurfaceRegistrationError::DuplicateSurfaceId { .. }
+            }
+        ));
+        assert!(result.diagnostics[0].previous.is_none());
+        assert_eq!(
+            result.diagnostics[0]
+                .attempted
+                .as_ref()
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("invalid")
+        );
+        assert!(
+            manager
+                .snapshot()
+                .winner(&PluginId("diagnostic_owner".to_string()))
+                .is_none()
+        );
+        assert!(!registry.contains_plugin(&PluginId("diagnostic_owner".to_string())));
+    }
+
+    #[test]
+    fn reload_reports_surface_activation_diagnostic_and_removes_winner() {
+        let state = AppState::default();
+        let provider = DiagnosticProvider::new(DiagnosticVariant::Valid);
+        let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
+        let mut registry = PluginRegistry::new();
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+
+        let initial = manager
+            .initialize(&mut registry, |_, registry| {
+                let diagnostics = setup_plugin_surfaces(registry, &mut surface_registry, &state);
+                assert!(diagnostics.is_empty());
+                diagnostics
+            })
+            .unwrap();
+        assert!(initial.diagnostics.is_empty());
+        assert!(surface_registry.get(SurfaceId(201)).is_some());
+
+        provider.set_variant(DiagnosticVariant::Invalid);
+
+        let result = manager
+            .reload(&mut registry, &state, |result, registry| {
+                reconcile_plugin_surfaces(registry, &mut surface_registry, &state, &result.deltas)
+            })
+            .unwrap();
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(
+            result.diagnostics[0].plugin_id(),
+            Some(&PluginId("diagnostic_owner".to_string()))
+        );
+        assert!(matches!(
+            result.diagnostics[0].kind,
+            PluginDiagnosticKind::SurfaceRegistrationFailed {
+                reason: SurfaceRegistrationError::DuplicateSurfaceId { .. }
+            }
+        ));
+        assert_eq!(
+            result.diagnostics[0]
+                .previous
+                .as_ref()
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("valid")
+        );
+        assert_eq!(
+            result.diagnostics[0]
+                .attempted
+                .as_ref()
+                .map(|descriptor| descriptor.revision.0.as_str()),
+            Some("invalid")
+        );
+        assert_eq!(result.deltas.len(), 1);
+        assert!(result.deltas[0].is_removed());
+        assert!(
+            manager
+                .snapshot()
+                .winner(&PluginId("diagnostic_owner".to_string()))
+                .is_none()
+        );
+        assert!(!registry.contains_plugin(&PluginId("diagnostic_owner".to_string())));
+        assert!(surface_registry.get(SurfaceId(201)).is_none());
+        assert!(
+            !surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .contains(&SurfaceId(201))
+        );
     }
 }
