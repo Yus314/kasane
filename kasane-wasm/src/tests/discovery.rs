@@ -1,6 +1,118 @@
 use std::path::PathBuf;
 
 use super::*;
+use crate::{WasmPluginOrigin, WasmPluginRevision};
+
+#[test]
+fn resolve_wasm_plugins_loads_fixtures_directory() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec![],
+        ..Default::default()
+    };
+
+    let resolved = crate::resolve_wasm_plugins(&config).unwrap();
+    let snapshot = resolved.snapshot();
+
+    assert_eq!(resolved.len(), 8);
+    let cursor_line = PluginId("cursor_line".to_string());
+    assert!(snapshot.contains(&cursor_line));
+    assert!(matches!(
+        snapshot.revision(&cursor_line),
+        Some(WasmPluginRevision {
+            origin: WasmPluginOrigin::Filesystem(path),
+            ..
+        }) if path.ends_with("cursor-line.wasm")
+    ));
+}
+
+#[test]
+fn resolve_wasm_plugins_skips_disabled_plugins() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        disabled: vec!["cursor_line".to_string()],
+        ..Default::default()
+    };
+
+    let resolved = crate::resolve_wasm_plugins(&config).unwrap();
+    let snapshot = resolved.snapshot();
+
+    assert_eq!(resolved.len(), 7);
+    assert!(!snapshot.contains(&PluginId("cursor_line".to_string())));
+}
+
+#[test]
+fn resolve_wasm_plugins_includes_enabled_bundled_plugins() {
+    let config = PluginsConfig {
+        auto_discover: false,
+        path: None,
+        enabled: vec![
+            "cursor_line".into(),
+            "color_preview".into(),
+            "sel_badge".into(),
+            "fuzzy_finder".into(),
+        ],
+        disabled: vec![],
+        ..Default::default()
+    };
+
+    let resolved = crate::resolve_wasm_plugins(&config).unwrap();
+    let snapshot = resolved.snapshot();
+
+    assert_eq!(resolved.len(), 4);
+    assert!(matches!(
+        snapshot.revision(&PluginId("cursor_line".to_string())),
+        Some(WasmPluginRevision {
+            origin: WasmPluginOrigin::Bundled("cursor_line"),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn resolve_wasm_plugins_prefers_filesystem_over_bundled_for_same_id() {
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        enabled: vec![
+            "cursor_line".into(),
+            "color_preview".into(),
+            "sel_badge".into(),
+            "fuzzy_finder".into(),
+        ],
+        disabled: vec![],
+        ..Default::default()
+    };
+
+    let resolved = crate::resolve_wasm_plugins(&config).unwrap();
+    let snapshot = resolved.snapshot();
+
+    assert_eq!(resolved.len(), 8);
+    assert!(matches!(
+        snapshot.revision(&PluginId("cursor_line".to_string())),
+        Some(WasmPluginRevision {
+            origin: WasmPluginOrigin::Filesystem(path),
+            ..
+        }) if path.ends_with("cursor-line.wasm")
+    ));
+}
 
 #[test]
 fn discover_loads_fixtures_directory() {

@@ -14,7 +14,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use kasane_core::config::Config;
-use kasane_core::plugin::{PluginRegistry, ProcessDispatcher, ProcessEventSink};
+use kasane_core::plugin::{
+    PluginFactory, PluginManager, PluginProvider, ProcessDispatcher, ProcessEventSink,
+    StaticPluginProvider, builtin_plugin,
+};
 use kasane_core::session::{SessionManager, SessionSpec};
 
 use cli::UiMode;
@@ -51,8 +54,8 @@ fn setup_logging(config: &Config) -> Option<tracing_appender::non_blocking::Work
     Some(guard)
 }
 
-/// Run kasane with custom plugins registered alongside built-in ones.
-pub fn run(register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static) {
+/// Run kasane with plugins collected from a provider.
+pub fn run(provider: impl PluginProvider + 'static) {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     let action = match cli::parse_cli_args(&args) {
@@ -85,7 +88,7 @@ pub fn run(register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static) 
             ui_mode,
             kak_args,
         } => {
-            if let Err(e) = run_inner(session, ui_mode, kak_args, register_plugins) {
+            if let Err(e) = run_inner(session, ui_mode, kak_args, provider) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
@@ -93,11 +96,23 @@ pub fn run(register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static) 
     }
 }
 
+/// Run kasane with a fixed set of host plugin factories.
+pub fn run_with_factories(factories: impl IntoIterator<Item = Arc<dyn PluginFactory>>) {
+    run(StaticPluginProvider::new(factories));
+}
+
+/// Run kasane without additional host plugins.
+pub fn run_without_plugins() {
+    run(StaticPluginProvider::new(
+        Vec::<Arc<dyn PluginFactory>>::new(),
+    ));
+}
+
 fn run_inner(
     session: Option<String>,
     ui_mode: Option<UiMode>,
     kak_args: Vec<String>,
-    register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static,
+    provider: impl PluginProvider + 'static,
 ) -> Result<()> {
     let config = Config::load();
     let _guard = setup_logging(&config);
@@ -114,8 +129,7 @@ fn run_inner(
         },
     };
 
-    // Wrap user-provided plugin registration to also discover WASM plugins
-    let wrapped_register = wrap_with_wasm_discovery(config.plugins.clone(), register_plugins);
+    let plugin_manager = build_plugin_manager(config.plugins.clone(), provider);
 
     // Build tokio runtime for async process management (Phase P-2).
     // The runtime must outlive run_tui/run_gui which are blocking calls.
@@ -137,31 +151,26 @@ fn run_inner(
         .insert(primary_session, reader, writer, child)
         .expect("primary session key should be unique");
 
-    // Build plugin reloader for hot-reload support
-    let plugin_reloader = make_plugin_reloader(config.plugins.clone());
-
     let result = match resolved_ui {
         UiMode::Tui => kasane_tui::run_tui(
             config,
             session_manager,
             process::spawn_kakoune_for_spec,
-            wrapped_register,
             make_dispatcher,
-            plugin_reloader,
+            plugin_manager,
         ),
         #[cfg(feature = "gui")]
         UiMode::Gui => kasane_gui::run_gui(
             config,
             session_manager,
             process::spawn_kakoune_for_spec,
-            wrapped_register,
             make_dispatcher,
+            plugin_manager,
         ),
         #[cfg(not(feature = "gui"))]
         UiMode::Gui => {
-            let _ = wrapped_register;
             let _ = make_dispatcher;
-            let _ = plugin_reloader;
+            let _ = plugin_manager;
             eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
             std::process::exit(1);
         }
@@ -177,46 +186,239 @@ fn run_inner(
     Ok(())
 }
 
-fn make_plugin_reloader(
+fn build_plugin_manager(
     plugins_config: kasane_core::config::PluginsConfig,
-) -> Option<kasane_tui::PluginReloader> {
+    provider: impl PluginProvider + 'static,
+) -> PluginManager {
+    let mut providers: Vec<Box<dyn PluginProvider>> = Vec::new();
     #[cfg(feature = "wasm-plugins")]
     {
-        Some(Box::new(move |registry, state| {
-            kasane_wasm::discover_and_register(&plugins_config, registry);
-            // Re-init all plugins to pick up any new ones
-            let _ = registry.init_all(state);
-        }))
+        providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
+            plugins_config.clone(),
+        )));
     }
     #[cfg(not(feature = "wasm-plugins"))]
     {
         let _ = plugins_config;
-        None
     }
+    providers.push(Box::new(provider));
+    providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
+        "builtin-input",
+        "kasane.builtin.input",
+        || kasane_core::input::BuiltinInputPlugin,
+    )])));
+    PluginManager::new(providers)
 }
 
-fn wrap_with_wasm_discovery(
-    plugins_config: kasane_core::config::PluginsConfig,
-    register_plugins: impl FnOnce(&mut PluginRegistry) + Send + 'static,
-) -> impl FnOnce(&mut PluginRegistry) + Send + 'static {
-    move |registry: &mut PluginRegistry| {
-        #[cfg(feature = "wasm-plugins")]
-        {
-            // 1. Bundled WASM plugins (default functionality)
-            kasane_wasm::register_bundled_plugins(&plugins_config, registry);
-            // 2. Filesystem-discovered WASM plugins (can override bundled)
-            kasane_wasm::discover_and_register(&plugins_config, registry);
+#[cfg(all(test, feature = "wasm-plugins"))]
+mod tests {
+    use super::*;
+
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use kasane_core::config::PluginsConfig;
+    use kasane_core::plugin::PluginBackend;
+    use kasane_core::plugin::{
+        PluginId, PluginManager, PluginProvider, PluginRegistry, PluginSource,
+        StaticPluginProvider, host_plugin,
+    };
+    use kasane_core::state::AppState;
+
+    struct TempPluginDir {
+        path: PathBuf,
+    }
+
+    impl TempPluginDir {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock before unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "kasane-plugin-reload-{}-{unique}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("failed to create temp plugin dir");
+            Self { path }
         }
 
-        #[cfg(not(feature = "wasm-plugins"))]
-        {
-            let _ = plugins_config;
+        fn copy_fixture(&self, fixture_name: &str) {
+            let src = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../kasane-wasm/fixtures")
+                .join(fixture_name);
+            let dst = self.path.join(fixture_name);
+            fs::copy(src, dst).expect("failed to copy fixture");
         }
 
-        // 3. User-provided callback plugins
-        register_plugins(registry);
+        fn remove(&self, file_name: &str) {
+            fs::remove_file(self.path.join(file_name)).expect("failed to remove fixture");
+        }
 
-        // 4. Built-in input handler (lowest priority — all plugins can override)
-        registry.register_backend(Box::new(kasane_core::input::BuiltinInputPlugin));
+        fn config(&self) -> PluginsConfig {
+            PluginsConfig {
+                auto_discover: true,
+                path: Some(self.path.to_string_lossy().into_owned()),
+                disabled: vec![],
+                ..Default::default()
+            }
+        }
+    }
+
+    impl Drop for TempPluginDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn wasm_manager(config: &PluginsConfig) -> PluginManager {
+        PluginManager::new(vec![Box::new(kasane_wasm::WasmPluginProvider::new(
+            config.clone(),
+        ))])
+    }
+
+    struct CursorLineOverridePlugin;
+
+    impl PluginBackend for CursorLineOverridePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("cursor_line".to_string())
+        }
+    }
+
+    fn full_manager(
+        config: &PluginsConfig,
+        provider: impl PluginProvider + 'static,
+    ) -> PluginManager {
+        build_plugin_manager(config.clone(), provider)
+    }
+
+    #[test]
+    fn plugin_manager_reload_skips_unchanged_plugins() {
+        let dir = TempPluginDir::new();
+        dir.copy_fixture("cursor-line.wasm");
+
+        let config = dir.config();
+        let mut registry = PluginRegistry::new();
+        let mut manager = wasm_manager(&config);
+        manager.register_initial_winners(&mut registry).unwrap();
+
+        let result = manager
+            .reload(&mut registry, &AppState::default(), false)
+            .unwrap();
+        assert!(result.winner_changed.is_empty());
+        assert_eq!(registry.plugin_count(), 1);
+    }
+
+    #[test]
+    fn plugin_manager_reload_unloads_removed_plugins() {
+        let dir = TempPluginDir::new();
+        dir.copy_fixture("cursor-line.wasm");
+
+        let config = dir.config();
+        let mut registry = PluginRegistry::new();
+        let mut manager = wasm_manager(&config);
+        manager.register_initial_winners(&mut registry).unwrap();
+
+        dir.remove("cursor-line.wasm");
+
+        let result = manager
+            .reload(&mut registry, &AppState::default(), false)
+            .unwrap();
+        assert!(result.ready_targets.is_empty());
+        assert_eq!(registry.plugin_count(), 0);
+        assert!(!registry.contains_plugin(&PluginId("cursor_line".to_string())));
+    }
+
+    #[test]
+    fn plugin_manager_reload_applies_added_plugins_only() {
+        let dir = TempPluginDir::new();
+        dir.copy_fixture("cursor-line.wasm");
+
+        let config = dir.config();
+        let mut registry = PluginRegistry::new();
+        let mut manager = wasm_manager(&config);
+        manager.register_initial_winners(&mut registry).unwrap();
+
+        dir.copy_fixture("smooth-scroll.wasm");
+
+        let result = manager
+            .reload(&mut registry, &AppState::default(), false)
+            .unwrap();
+        assert_eq!(
+            result.winner_changed,
+            vec![PluginId("smooth_scroll".to_string())]
+        );
+        assert_eq!(registry.plugin_count(), 2);
+        assert!(registry.contains_plugin(&PluginId("smooth_scroll".to_string())));
+    }
+
+    #[test]
+    fn host_override_survives_wasm_removal() {
+        let dir = TempPluginDir::new();
+        dir.copy_fixture("cursor-line.wasm");
+
+        let config = dir.config();
+        let mut registry = PluginRegistry::new();
+        let mut manager = full_manager(
+            &config,
+            StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
+        );
+        manager.register_initial_winners(&mut registry).unwrap();
+        assert!(matches!(
+            manager
+                .snapshot()
+                .winner(&PluginId("cursor_line".to_string()))
+                .map(|winner| &winner.source),
+            Some(PluginSource::Host { .. })
+        ));
+
+        dir.remove("cursor-line.wasm");
+
+        let result = manager
+            .reload(&mut registry, &AppState::default(), false)
+            .unwrap();
+        assert!(
+            !result
+                .winner_changed
+                .contains(&PluginId("cursor_line".to_string()))
+        );
+        assert!(matches!(
+            manager
+                .snapshot()
+                .winner(&PluginId("cursor_line".to_string()))
+                .map(|winner| &winner.source),
+            Some(PluginSource::Host { .. })
+        ));
+    }
+
+    #[test]
+    fn host_override_blocks_later_wasm_addition() {
+        let dir = TempPluginDir::new();
+        let config = dir.config();
+        let mut registry = PluginRegistry::new();
+        let mut manager = full_manager(
+            &config,
+            StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
+        );
+        manager.register_initial_winners(&mut registry).unwrap();
+
+        dir.copy_fixture("cursor-line.wasm");
+
+        let result = manager
+            .reload(&mut registry, &AppState::default(), false)
+            .unwrap();
+        assert!(
+            !result
+                .winner_changed
+                .contains(&PluginId("cursor_line".to_string()))
+        );
+        assert!(matches!(
+            manager
+                .snapshot()
+                .winner(&PluginId("cursor_line".to_string()))
+                .map(|winner| &winner.source),
+            Some(PluginSource::Host { .. })
+        ));
     }
 }

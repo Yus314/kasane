@@ -53,7 +53,7 @@ The simple slot form `SLOT => expr` auto-wraps the expression in `auto_contribut
 | 2 | `contribution` | State, dirty flags, state caching | `state {}`, `#[bind]`, `dirty::BUFFER` |
 | 3 | `annotation` | Per-line decoration | `annotate()` |
 | 4 | `overlay` | Interactive UI, key handling | `handle_key()`, `overlay()`, `redraw()` |
-| 5 | `process` | External processes, I/O events | `capabilities`, `on_io_event()`, `is_ctrl_shift()` |
+| 5 | `process` | External processes, I/O events | `capabilities`, `on_io_event_effects()`, `is_ctrl_shift()` |
 
 ### Project Setup
 
@@ -117,7 +117,7 @@ kasane_plugin_sdk::define_plugin! {
 **Key points:**
 
 - **`define_plugin!`** combines `generate!()`, state declaration, `#[plugin]`, and `export!()` into a single macro. All sections are optional except `id`.
-- **`#[bind(expr, on: flags)]`** on state fields auto-generates sync code in `on_state_changed()`. The expression is evaluated when the specified dirty flags are set.
+- **`#[bind(expr, on: flags)]`** on state fields auto-generates sync code in `on_state_changed_effects()`. The expression is evaluated when the specified dirty flags are set.
 - **`slots {}`** declares slot contributions with dependency tracking. Inside `slots` closures, `state.field` is available directly (read-only).
 - **`status_badge()`** is a helper that returns `Some(auto_contribution(plain(label)))` when the condition is true.
 - The `dirty` and `modifiers` modules are auto-imported by `define_plugin!`.
@@ -147,12 +147,12 @@ These are available in all plugin code (emitted by `generate!()` / `define_plugi
 | Status widget | `state` (`#[bind]`), `slots` | `contribution` | sel-badge |
 | Line annotator | `state` (`#[bind]`), `annotate` | `annotation` | cursor-line |
 | Element transformer | `state` (`#[bind]`), `transform` | `transform` | prompt-highlight |
-| Display transform | `state`, `on_state_changed`, `display_directives` | — | virtual-text-demo (native) |
+| Display transform | `state`, `on_state_changed_effects`, `display_directives` | — | virtual-text-demo (native) |
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
-| Process launcher | Above + `on_io_event`, `capabilities` | `process` | fuzzy-finder |
+| Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
 | Scroll policy | `handle_default_scroll` | — | smooth-scroll |
 
-Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init`, `on_state_changed`, `on_state_changed_commands`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `on_io_event`.
+Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `on_io_event_effects`.
 
 ### Build & Deploy
 
@@ -309,14 +309,14 @@ Kasane registers plugins in the following order:
 
 1. Example WASM (embedded in the binary)
 2. FS-discovered WASM (`~/.local/share/kasane/plugins/*.wasm`)
-3. Native plugins registered via `kasane::run(|registry| { ... })`
+3. Native plugins supplied via `kasane::run_with_factories(...)` or a custom `PluginProvider`
 
 An FS-discovered WASM plugin with the same ID can override an example plugin.
 
 ### Distribution Methods
 
 - WASM: Place `.wasm` files in `~/.local/share/kasane/plugins/`
-- Native: Distribute as a custom binary using `kasane::run()`
+- Native: Distribute as a custom binary using `kasane::run_with_factories(...)` or `kasane::run(provider)`
 
 ### Control via config.toml
 
@@ -350,7 +350,7 @@ fn requested_capabilities() -> Vec<Capability> {
 
 Capabilities are granted upon declaration. Users can deny them via `deny_capabilities` in `config.toml`.
 
-Constraint: WASI capabilities are available from `on_init()` onward. They are not available during component initialization (`_initialize`).
+Constraint: WASI capabilities are available from `on_init_effects()` onward. They are not available during component initialization (`_initialize`).
 
 ## Session-Aware Plugins
 
@@ -361,8 +361,7 @@ Plugins can observe and control sessions using the Tier 8 host-state API and `Se
 ```rust
 use kasane::plugin::host_state;
 
-// In define_plugin!, on_state_changed auto-appends vec![]
-on_state_changed(dirty_flags) {
+on_state_changed_effects(dirty_flags) {
     if dirty_flags & dirty::SESSION != 0 {
         let count = host_state::get_session_count();
         let active_key = host_state::get_active_session_key();
@@ -446,16 +445,21 @@ impl Plugin for CursorLinePlugin {
         PluginCapabilities::ANNOTATOR
     }
 
-    fn on_state_changed(
+    fn on_state_changed_effects(
         &self,
         state: &Self::State,
         app: &AppState,
         dirty: DirtyFlags,
-    ) -> (Self::State, Vec<Command>) {
+    ) -> (Self::State, RuntimeEffects) {
         if dirty.intersects(DirtyFlags::BUFFER) {
-            (CursorLineState { active_line: app.cursor_pos.line }, vec![])
+            (
+                CursorLineState {
+                    active_line: app.cursor_pos.line,
+                },
+                RuntimeEffects::default(),
+            )
         } else {
-            (state.clone(), vec![])
+            (state.clone(), RuntimeEffects::default())
         }
     }
 
@@ -484,9 +488,9 @@ impl Plugin for CursorLinePlugin {
 }
 
 fn main() {
-    kasane::run(|registry| {
-        registry.register(CursorLinePlugin);
-    });
+    kasane::run_with_factories([host_plugin("cursor_line", || {
+        PluginBridge::new(CursorLinePlugin)
+    })]);
 }
 ```
 
@@ -497,7 +501,7 @@ fn main() {
 | Safety | Sandbox isolation | Same process as host |
 | Distribution | `.wasm` file placement | Custom binary |
 | State | Manual (`thread_local!` + `state_hash()`) | Automatic (`PartialEq` comparison) |
-| Registration | Auto-discovered or embedded | `registry.register(..)` in `kasane::run()` |
+| Registration | Auto-discovered or embedded | `host_plugin(...)` / `run_with_factories(...)` |
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
@@ -552,13 +556,11 @@ impl PluginBackend for LineNumbersPlugin {
 }
 
 fn main() {
-    kasane::run(|registry| {
-        registry.register_backend(Box::new(LineNumbersPlugin));
-    });
+    kasane::run_with_factories([host_plugin("line_numbers", || LineNumbersPlugin)]);
 }
 ```
 
-Register via `registry.register_backend(Box::new(..))`. See the `PluginBackend` trait in `kasane-core/src/plugin/traits.rs` for the full method list.
+Register `PluginBackend` implementors via `host_plugin("id", || PluginType)` and `kasane::run_with_factories(...)`. See the `PluginBackend` trait in `kasane-core/src/plugin/traits.rs` for the full method list.
 
 ## Appendix C: WASM vs Native Comparison {#appendix-c-wasm-vs-native-comparison}
 
@@ -599,11 +601,11 @@ impl Guest for SelBadgePlugin {
         "sel_badge".to_string()
     }
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
+    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
         if dirty_flags & dirty::BUFFER != 0 {
             CURSOR_COUNT.set(host_state::get_cursor_count());
         }
-        vec![]
+        RuntimeEffects::default()
     }
 
     fn state_hash() -> u64 {

@@ -5,16 +5,16 @@ use std::io::Write;
 use anyhow::Result;
 
 use kasane_core::event_loop::{
-    DeferredContext, EventResult, SessionReadyGate, TimerScheduler, handle_command_batch,
-    handle_sourced_surface_commands, handle_workspace_divider_input,
-    maybe_flush_active_session_ready, surface_event_from_input,
+    DeferredContext, EventResult, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
+    apply_ready_batch, handle_command_batch, handle_sourced_surface_commands,
+    handle_workspace_divider_input, maybe_flush_active_session_ready, surface_event_from_input,
     sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent, ProcessEventSink,
-    RuntimeBatch, extract_redraw_flags,
+    IoEvent, PluginId, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEvent,
+    ProcessEventSink, RuntimeBatch, extract_redraw_flags,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -199,7 +199,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub scroll_runtime_session: &'a mut Option<SessionId>,
     pub session_ready_gate: &'a mut SessionReadyGate,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
-    pub plugin_reloader: &'a Option<crate::PluginReloader>,
+    pub plugin_manager: &'a mut PluginManager,
 }
 
 /// Process a single event, returning `true` if the application should quit.
@@ -338,12 +338,27 @@ where
         }
         Event::PluginReload => {
             // Reload plugins from disk — triggered by `.reload` sentinel
-            if let Some(reloader) = ctx.plugin_reloader.as_ref() {
-                reloader(ctx.registry, ctx.state);
-                tracing::info!("hot-reloaded plugins");
+            let mut flags = DirtyFlags::all();
+            match ctx
+                .plugin_manager
+                .reload(ctx.registry, ctx.state, *ctx.initial_resize_sent)
+            {
+                Ok(reload) => {
+                    apply_bootstrap_effects(reload.bootstrap, &mut flags);
+                    sync_ready_gate(ctx.session_ready_gate, ctx.state);
+                    if *ctx.initial_resize_sent
+                        && flush_reloaded_plugins_ready(ctx, &reload.ready_targets)
+                    {
+                        return true;
+                    }
+                    tracing::info!("hot-reloaded plugins");
+                }
+                Err(err) => {
+                    tracing::error!("failed to hot-reload plugins: {err}");
+                }
             }
             EventResult {
-                flags: DirtyFlags::all(),
+                flags,
                 commands: vec![],
                 scroll_plans: vec![],
                 surface_commands: vec![],
@@ -469,6 +484,28 @@ where
             .sync_active_from_manager(ctx.session_manager, ctx.state);
     }
     should_quit
+}
+
+fn flush_reloaded_plugins_ready<R, W, C>(
+    ctx: &mut EventProcessingContext<'_, R, W, C>,
+    reloaded_plugins: &[PluginId],
+) -> bool
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    with_deferred_context(ctx, |deferred_ctx| {
+        for plugin_id in reloaded_plugins {
+            let batch = deferred_ctx
+                .registry
+                .notify_plugin_active_session_ready_batch(plugin_id, deferred_ctx.state);
+            if apply_ready_batch(batch, deferred_ctx) {
+                return true;
+            }
+        }
+        false
+    })
 }
 
 fn flush_active_session_ready_if_needed<R, W, C>(

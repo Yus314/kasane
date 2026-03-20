@@ -18,7 +18,8 @@ use kasane_core::event_loop::{
     SessionReadyGate, apply_bootstrap_effects, sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::plugin::{
-    CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
+    CommandResult, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEventSink,
+    execute_commands,
 };
 use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -85,25 +86,17 @@ fn spawn_input_thread(tx: crossbeam_channel::Sender<Event>) {
     });
 }
 
-/// Callback for hot-reloading plugins at runtime.
-///
-/// Called when the `.reload` sentinel file is detected in the plugins directory.
-/// The callback should re-discover and reload changed WASM plugins into the registry.
-pub type PluginReloader = Box<dyn Fn(&mut PluginRegistry, &AppState) + Send>;
-
 /// Run the TUI event loop.
 ///
 /// `session_manager`: managed Kakoune sessions. V1 consumes the active session only.
 /// `create_process_dispatcher`: factory that receives a `ProcessEventSink` and returns
 ///   a `ProcessDispatcher` for plugin-spawned processes.
-/// `plugin_reloader`: optional callback for hot-reloading plugins at runtime.
 pub fn run_tui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
     spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
-    register_plugins: impl FnOnce(&mut PluginRegistry),
     create_process_dispatcher: impl FnOnce(Arc<dyn ProcessEventSink>) -> Box<dyn ProcessDispatcher>,
-    plugin_reloader: Option<PluginReloader>,
+    mut plugin_manager: PluginManager,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -143,7 +136,7 @@ where
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
-    register_plugins(&mut registry);
+    plugin_manager.register_initial_winners(&mut registry)?;
 
     // Surface registry
     let mut surface_registry = SurfaceRegistry::new();
@@ -292,7 +285,7 @@ where
                 scroll_runtime_session: &mut scroll_runtime_session,
                 session_ready_gate: &mut session_ready_gate,
                 process_dispatcher: &mut *process_dispatcher,
-                plugin_reloader: &plugin_reloader,
+                plugin_manager: &mut plugin_manager,
             };
 
             // Process first event

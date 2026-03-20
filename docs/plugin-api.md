@@ -111,7 +111,7 @@ Native plugins can be implemented using one of two traits:
 | Salsa compatibility | State transitions are pure functions; future Salsa integration path | Not directly memoizable (mutable state) |
 | Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, `PaintHook`, pane lifecycle, or complex host integration |
 
-`Plugin` is recommended for new native plugins. Register via `PluginRegistry::register()`.
+`Plugin` is recommended for new native plugins. In unit tests, register via `PluginRegistry::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`.
 
 ```rust
 use kasane_core::plugin_prelude::*;
@@ -126,19 +126,26 @@ impl Plugin for MyPlugin {
     fn id(&self) -> PluginId { PluginId("my_plugin".into()) }
     fn capabilities(&self) -> PluginCapabilities { PluginCapabilities::ANNOTATOR }
 
-    fn on_state_changed(&self, state: &Self::State, app: &AppState, dirty: DirtyFlags)
-        -> (Self::State, Vec<Command>)
+    fn on_state_changed_effects(
+        &self,
+        state: &Self::State,
+        app: &AppState,
+        dirty: DirtyFlags
+    ) -> (Self::State, RuntimeEffects)
     {
         if dirty.intersects(DirtyFlags::BUFFER) {
-            (MyState { counter: state.counter + 1 }, vec![])
+            (
+                MyState { counter: state.counter + 1 },
+                RuntimeEffects::default(),
+            )
         } else {
-            (state.clone(), vec![])
+            (state.clone(), RuntimeEffects::default())
         }
     }
     // ... view methods receive &Self::State as parameter
 }
 
-// Registration:
+// Unit-test registration:
 registry.register(MyPlugin);
 ```
 
@@ -502,9 +509,10 @@ For semantic classification, see [semantics.md](./semantics.md).
 
 | Hook | Timing | Purpose |
 |---|---|---|
-| `on_init` | Immediately after `PluginRegistry` registration | Initialization, theme token registration |
+| `on_init_effects` | Immediately after plugin activation | Bootstrap redraws and local startup effects |
+| `on_active_session_ready_effects` | After the active session is transport-ready | Session-bound startup effects |
 | `on_shutdown` | At application exit | Cleanup |
-| `on_state_changed(dirty)` | After `AppState` update | Synchronize plugin internal state |
+| `on_state_changed_effects(dirty)` | After `AppState` update | Synchronize plugin internal state |
 
 ### 3.4 Input handling
 
@@ -550,7 +558,13 @@ The full Display Unit model (P-040..P-043) with per-unit hit test, focus, and na
 
 ### 3.5 Commands
 
-Hook functions issue side-effect requests by returning `Vec<Command>`.
+Hook functions issue side-effect requests through typed effect structs:
+
+- `BootstrapEffects`
+- `SessionReadyEffects`
+- `RuntimeEffects`
+
+Runtime and session-ready effects carry `Command` values in their `commands` field.
 
 | Command | Description |
 |---|---|
@@ -612,7 +626,7 @@ WASM plugins are sandboxed by default. The host constructs WASM instances withou
 | `SURFACE_PROVIDER` | `surfaces()` |
 | `WORKSPACE_OBSERVER` | `on_workspace_changed()` |
 | `PAINT_HOOK` | `paint_hooks()` |
-| `IO_HANDLER` | `on_io_event()` |
+| `IO_HANDLER` | `on_io_event_effects()` |
 | `DISPLAY_TRANSFORM` | `display_directives()` |
 
 The default for native plugins is `all()`, and the WASM adapter is configured from WIT call results.
@@ -715,7 +729,7 @@ kasane_plugin_sdk::state! {
 // Access: STATE.with(|s| { let state = s.borrow(); ... })
 ```
 
-In `define_plugin!`, the `state {}` section supports `#[bind(expr, on: flags)]` attributes on fields to auto-generate sync code in `on_state_changed()`. Mutable contexts (`handle_key`, `overlay`, `on_io_event`, etc.) use a `StateMutGuard` that auto-calls `bump_generation()` on drop, so manual calls are no longer required. The `on_state_changed` body auto-appends `vec![]`; use `on_state_changed_commands` when you need to return commands explicitly.
+In `define_plugin!`, the `state {}` section supports `#[bind(expr, on: flags)]` attributes on fields to auto-generate sync code in `on_state_changed_effects()`. Mutable contexts (`handle_key`, `overlay`, `on_io_event_effects`, etc.) use a `StateMutGuard` that auto-calls `bump_generation()` on drop, so manual calls are no longer required.
 
 ### Auto Imports
 
@@ -748,13 +762,10 @@ Custom tokens can be created and registered by plugins.
 ```rust
 StyleToken::new("myplugin.highlight")
 
-fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
-    vec![Command::RegisterThemeTokens(vec![
-        ("myplugin.highlight".into(), Face {
-            fg: Color::Named(NamedColor::Yellow),
-            ..Face::default()
-        }),
-    ])]
+fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+    BootstrapEffects {
+        redraw: DirtyFlags::STATUS,
+    }
 }
 ```
 
@@ -792,11 +803,11 @@ impl PluginBackend for MyPlugin {
 | `initial_placement() -> Option<SurfacePlacementRequest>` | Static initial placement |
 | `view(ctx: &ViewContext) -> Element` | Build `Element` tree |
 | `handle_event(event, ctx) -> Vec<Command>` | Event handling |
-| `on_state_changed(state, dirty) -> Vec<Command>` | Shared state change notification |
+| `on_state_changed_effects(state, dirty) -> RuntimeEffects` | Shared state change notification |
 | `state_hash() -> u64` | Hash for view cache |
 | `declared_slots() -> &[SlotDeclaration]` | Extension point declarations |
 
-`ViewContext` provides `state`, `rect`, `focused`, `registry`, and `surface_id`. Collection/registration of plugin-owned surfaces and `initial_placement()` are evaluated during bootstrap preflight, and `workspace_request()` is used only as a legacy fallback during the transition period. The descriptor's `initial_placement()` reflects `SplitFocused` / `SplitFrom` / `Tab` / `TabIn` / `Dock` / `Float` directly from the surface path into the workspace. `Dock` uses `SizeHint`'s preferred/min size to determine the ratio when the root rect is known, and falls back to a default ratio otherwise. Commands returned by `handle_event()` / `handle-surface-event(...)` / `handle-surface-state-changed(...)` are executed in the context of the surface owner plugin, so capability-gated deferred commands such as `SpawnProcess` are evaluated under the owner plugin's permissions. `on_state_changed(...)` is called at least on shared state updates originating from the Kakoune protocol, allowing the surface owner to return additional commands based on dirty flags.
+`ViewContext` provides `state`, `rect`, `focused`, `registry`, and `surface_id`. Collection/registration of plugin-owned surfaces and `initial_placement()` are evaluated during bootstrap preflight, and `workspace_request()` is used only as a legacy fallback during the transition period. The descriptor's `initial_placement()` reflects `SplitFocused` / `SplitFrom` / `Tab` / `TabIn` / `Dock` / `Float` directly from the surface path into the workspace. `Dock` uses `SizeHint`'s preferred/min size to determine the ratio when the root rect is known, and falls back to a default ratio otherwise. Commands returned by `handle_event()` / `handle-surface-event(...)` / `handle-surface-state-changed(...)` are executed in the context of the surface owner plugin, so capability-gated deferred commands such as `SpawnProcess` are evaluated under the owner plugin's permissions. `on_state_changed_effects(...)` is called at least on shared state updates originating from the Kakoune protocol, allowing the surface owner to return additional commands based on dirty flags.
 
 ### 6.2 Workspace commands
 

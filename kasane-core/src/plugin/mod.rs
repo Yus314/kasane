@@ -5,6 +5,8 @@ mod command;
 mod context;
 mod effects;
 pub mod io;
+mod manager;
+mod provider;
 mod registry;
 pub mod state;
 mod traits;
@@ -24,6 +26,12 @@ pub use command::{
 pub use effects::{
     BootstrapEffects, InitBatch, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
     SessionReadyEffects,
+};
+pub use manager::{PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
+pub use provider::{
+    CompositePluginProvider, PluginDescriptor, PluginFactory, PluginProvider, PluginRank,
+    PluginRevision, PluginSource, StaticPluginProvider, builtin_plugin, host_plugin,
+    host_plugin_with_provider, plugin_factory,
 };
 
 // Re-export io module types

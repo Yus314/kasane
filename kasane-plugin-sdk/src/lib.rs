@@ -43,7 +43,7 @@
 //! ```
 //!
 //! Inside `slots` closures, `state.field` is available directly (read-only).
-//! In `handle_key`, `overlay`, `on_io_event`, etc., `state` is mutable and
+//! In `handle_key`, `overlay`, `on_io_event_effects`, etc., `state` is mutable and
 //! `bump_generation()` is called automatically when the guard drops.
 //!
 //! # Explicit Pattern
@@ -119,7 +119,7 @@ pub mod slot_name {
 /// DirtyFlags bit values matching `kasane_core::state::DirtyFlags`.
 ///
 /// Each flag indicates what part of the editor state changed. Use these
-/// in `on_state_changed()` to selectively update cached data.
+/// in `on_state_changed_effects()` to selectively update cached data.
 pub mod dirty {
     /// Buffer line contents changed (Kakoune `draw` command).
     pub const BUFFER_CONTENT: u16 = 1 << 0;
@@ -406,9 +406,7 @@ macro_rules! default_input {
         fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
             None
         }
-        fn handle_default_scroll(
-            _candidate: DefaultScrollCandidate,
-        ) -> Option<ScrollPolicyResult> {
+        fn handle_default_scroll(_candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
             None
         }
         fn observe_key(_event: KeyEvent) {}

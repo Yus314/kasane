@@ -1,3 +1,3 @@
 fn main() {
-    kasane::run(|_registry| {});
+    kasane::run_without_plugins();
 }
