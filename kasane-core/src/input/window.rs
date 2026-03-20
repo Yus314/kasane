@@ -3,7 +3,8 @@
 //! Handles workspace split/focus commands:
 //! - `<C-w>v` — vertical split
 //! - `<C-w>s` — horizontal split
-//! - `<C-w>w` — focus next pane
+//! - `<C-w>w` / `<C-w>W` — focus next / previous pane
+//! - `<C-w>h/j/k/l` — focus left / down / up / right pane
 //! - `<C-w>q` — close most recent split pane
 
 use crate::input::{Key, KeyEvent, Modifiers};
@@ -82,6 +83,24 @@ impl PluginBackend for WindowModePlugin {
                 }
                 Key::Char('w') if key.modifiers.is_empty() => Some(vec![Command::Workspace(
                     WorkspaceCommand::FocusDirection(FocusDirection::Next),
+                )]),
+                // Shift+W: TUI sends Key::Char('W') + SHIFT, GUI sends Key::Char('W') + empty
+                Key::Char('W') if !key.modifiers.intersects(Modifiers::CTRL | Modifiers::ALT) => {
+                    Some(vec![Command::Workspace(WorkspaceCommand::FocusDirection(
+                        FocusDirection::Prev,
+                    ))])
+                }
+                Key::Char('h') if key.modifiers.is_empty() => Some(vec![Command::Workspace(
+                    WorkspaceCommand::FocusDirection(FocusDirection::Left),
+                )]),
+                Key::Char('j') if key.modifiers.is_empty() => Some(vec![Command::Workspace(
+                    WorkspaceCommand::FocusDirection(FocusDirection::Down),
+                )]),
+                Key::Char('k') if key.modifiers.is_empty() => Some(vec![Command::Workspace(
+                    WorkspaceCommand::FocusDirection(FocusDirection::Up),
+                )]),
+                Key::Char('l') if key.modifiers.is_empty() => Some(vec![Command::Workspace(
+                    WorkspaceCommand::FocusDirection(FocusDirection::Right),
                 )]),
                 Key::Char('q') if key.modifiers.is_empty() => {
                     if let Some(id) = self.mirrors.pop() {
@@ -241,6 +260,81 @@ mod tests {
             Command::ClosePaneClient { surface_id } if surface_id == second_id
         ));
         assert_eq!(plugin.mirrors.len(), 1);
+    }
+
+    #[test]
+    fn ctrl_w_h_focuses_left() {
+        let mut plugin = WindowModePlugin::new();
+        let state = AppState::default();
+
+        plugin.handle_key(&ctrl_w(), &state);
+        let cmds = plugin.handle_key(&plain('h'), &state).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(
+            cmds[0],
+            Command::Workspace(WorkspaceCommand::FocusDirection(FocusDirection::Left))
+        ));
+    }
+
+    #[test]
+    fn ctrl_w_j_focuses_down() {
+        let mut plugin = WindowModePlugin::new();
+        let state = AppState::default();
+
+        plugin.handle_key(&ctrl_w(), &state);
+        let cmds = plugin.handle_key(&plain('j'), &state).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(
+            cmds[0],
+            Command::Workspace(WorkspaceCommand::FocusDirection(FocusDirection::Down))
+        ));
+    }
+
+    #[test]
+    fn ctrl_w_k_focuses_up() {
+        let mut plugin = WindowModePlugin::new();
+        let state = AppState::default();
+
+        plugin.handle_key(&ctrl_w(), &state);
+        let cmds = plugin.handle_key(&plain('k'), &state).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(
+            cmds[0],
+            Command::Workspace(WorkspaceCommand::FocusDirection(FocusDirection::Up))
+        ));
+    }
+
+    #[test]
+    fn ctrl_w_l_focuses_right() {
+        let mut plugin = WindowModePlugin::new();
+        let state = AppState::default();
+
+        plugin.handle_key(&ctrl_w(), &state);
+        let cmds = plugin.handle_key(&plain('l'), &state).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(
+            cmds[0],
+            Command::Workspace(WorkspaceCommand::FocusDirection(FocusDirection::Right))
+        ));
+    }
+
+    #[test]
+    fn ctrl_w_shift_w_focuses_prev() {
+        let mut plugin = WindowModePlugin::new();
+        let state = AppState::default();
+
+        plugin.handle_key(&ctrl_w(), &state);
+        // Shift+W comes as Key::Char('W') with SHIFT modifier (TUI)
+        let shift_w = KeyEvent {
+            key: Key::Char('W'),
+            modifiers: Modifiers::SHIFT,
+        };
+        let cmds = plugin.handle_key(&shift_w, &state).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(
+            cmds[0],
+            Command::Workspace(WorkspaceCommand::FocusDirection(FocusDirection::Prev))
+        ));
     }
 
     #[test]
