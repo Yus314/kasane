@@ -17,15 +17,16 @@ use kasane_core::config::Config;
 use kasane_core::plugin::{
     CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
 };
-use kasane_core::render::render_pipeline_salsa_cached;
+use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
     sync_plugin_epoch,
 };
+use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, tick_scroll_animation};
+use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
 
@@ -156,35 +157,6 @@ where
     // do not get a chance to produce side effects.
     kasane_core::event_loop::setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
 
-    let init_commands = registry.init_all(&state);
-    if matches!(
-        execute_commands(
-            init_commands,
-            session_manager
-                .active_writer_mut()
-                .map_err(|err| anyhow!("failed to access primary session writer: {err:?}"))?,
-            &mut || backend.clipboard_get(),
-        ),
-        CommandResult::Quit
-    ) {
-        backend.cleanup();
-        return Ok(());
-    }
-
-    // Collect paint hooks from plugins
-    let paint_hooks = registry.collect_paint_hooks();
-
-    // Salsa database
-    let (mut salsa_db, salsa_handles) = {
-        let mut db = KasaneDatabase::default();
-        let handles = SalsaInputHandles::new(&mut db);
-        sync_inputs_from_state(&mut db, &state, &handles);
-        (db, handles)
-    };
-
-    // Cell grid
-    let mut grid = CellGrid::new(cols, rows);
-
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
     // initialization (before the Client sets the m_on_key callback),
@@ -227,28 +199,47 @@ where
 
     // Timer scheduler for plugin timer events
     let timer = TuiTimerScheduler(tx.clone());
+    let mut scroll_runtime = ScrollRuntime::default();
+    let mut scroll_runtime_session = session_manager.active_session_id();
 
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
     let mut process_dispatcher = create_process_dispatcher(process_sink);
 
+    let mut pending_init_commands = registry.init_all(&state);
+
+    // Collect paint hooks from plugins
+    let paint_hooks = registry.collect_paint_hooks();
+
+    // Salsa database
+    let (mut salsa_db, salsa_handles) = {
+        let mut db = KasaneDatabase::default();
+        let handles = SalsaInputHandles::new(&mut db);
+        sync_inputs_from_state(&mut db, &state, &handles);
+        (db, handles)
+    };
+
+    // Cell grid
+    let mut grid = CellGrid::new(cols, rows);
+
     let scroll_amount = config.scroll.lines_per_scroll;
 
     // Main event loop
     loop {
-        let timeout = if state.scroll_animation.is_some() {
-            std::time::Duration::from_millis(16) // ~60fps for smooth scroll
-        } else {
-            std::time::Duration::from_secs(60) // effectively infinite
-        };
+        let timeout = scroll_runtime
+            .active_frame_interval()
+            .unwrap_or_else(|| std::time::Duration::from_secs(60));
 
         let first = match rx.recv_timeout(timeout) {
             Ok(e) => e,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                if let Some(cmd) = tick_scroll_animation(&mut state)
+                scroll_runtime.set_initial_resize_complete(initial_resize_sent);
+                if let Some(resolved) = scroll_runtime.tick()
                     && matches!(
                         execute_commands(
-                            vec![cmd],
+                            vec![kasane_core::plugin::Command::SendToKakoune(
+                                resolved.to_kakoune_request(),
+                            )],
                             session_manager
                                 .active_writer_mut()
                                 .expect("missing active session writer"),
@@ -289,6 +280,9 @@ where
                 initial_resize_sent: &mut initial_resize_sent,
                 dirty: &mut dirty,
                 timer: &timer,
+                scroll_runtime: &mut scroll_runtime,
+                scroll_runtime_session: &mut scroll_runtime_session,
+                pending_init_commands: &mut pending_init_commands,
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_reloader: &plugin_reloader,
             };
@@ -355,7 +349,7 @@ where
 
             backend.begin_frame()?;
 
-            let result = render_pipeline_salsa_cached(
+            let result = render_pipeline_cached(
                 &salsa_db,
                 &salsa_handles,
                 &state,

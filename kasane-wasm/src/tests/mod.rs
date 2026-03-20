@@ -23,6 +23,7 @@ mod discovery;
 mod fuzzy_finder;
 mod prompt_highlight;
 mod session_ui;
+mod smooth_scroll;
 mod surface_probe;
 
 fn load_cursor_line_plugin() -> crate::WasmPlugin {
@@ -52,6 +53,14 @@ fn load_session_ui_plugin() -> crate::WasmPlugin {
 fn load_surface_probe_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("surface-probe.wasm").expect("failed to load fixture");
+    loader
+        .load(&bytes, &crate::WasiCapabilityConfig::default())
+        .expect("failed to load plugin")
+}
+
+fn load_smooth_scroll_plugin() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("smooth-scroll.wasm").expect("failed to load fixture");
     loader
         .load(&bytes, &crate::WasiCapabilityConfig::default())
         .expect("failed to load plugin")
@@ -116,14 +125,6 @@ impl PluginBackend for SurfaceProbeContributor {
             priority: 0,
             size_hint: ContribSizeHint::Auto,
         })
-    }
-
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        if region.as_str() == "surface_probe.sidebar.top" {
-            DirtyFlags::BUFFER
-        } else {
-            DirtyFlags::empty()
-        }
     }
 }
 

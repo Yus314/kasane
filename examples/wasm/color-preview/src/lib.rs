@@ -365,10 +365,6 @@ impl Guest for ColorPreviewPlugin {
         })
     }
 
-    fn annotate_deps() -> u16 {
-        dirty::BUFFER
-    }
-
     fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {
         STATE.with(|state| {
             let state = state.borrow();

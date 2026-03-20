@@ -34,7 +34,7 @@ fn compute_info_window(
     Some(win)
 }
 
-#[crate::kasane_component(deps(INFO, OPTIONS), allow(assistant_art))]
+#[crate::kasane_component]
 pub(crate) fn build_info_overlay_indexed(
     info: &InfoState,
     state: &AppState,

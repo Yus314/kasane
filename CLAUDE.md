@@ -67,7 +67,7 @@ Kakoune (kak -ui json)
 
 - **State**: `AppState` in `kasane-core/src/state/mod.rs` — buffer, cursor, menus, info popups, options
 - **Update**: `update()` in `state/update.rs` — `Msg` enum → state mutation + `Command` side-effects, with `DirtyFlags` for selective redraws
-- **View**: `view()` in `render/view/mod.rs` — pure function from state to `Element` tree
+- **View**: `view()` in `render/view/mod.rs` — pure function from state to `Element` tree. Salsa incremental computation is the sole caching layer for the rendering pipeline
 
 ### Element Tree
 
@@ -87,6 +87,8 @@ Five main extension mechanisms (shared by both models):
 - **Line Annotation** (`annotate_line_with_ctx`): Add per-line gutter/background decorations
 - **Overlay** (`contribute_overlay_with_ctx`): Add floating overlay elements
 - **Display Transform** (`display_directives`): Declare display-level transformations (fold, virtual text, hide) via `DisplayDirective`. The core builds a `DisplayMap` providing O(1) bidirectional mapping between buffer lines and display lines. Requires `PluginCapabilities::DISPLAY_TRANSFORM`.
+
+Cache invalidation for plugin contributions is handled entirely by Salsa incremental computation. Plugins no longer need to declare dependency flags via `*_deps()` methods.
 
 `PluginRegistry` in `kasane-core/src/plugin/registry.rs` collects and applies contributions during `view()`.
 

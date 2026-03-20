@@ -34,7 +34,7 @@ pub use context::{
 };
 
 // Re-export registry module
-pub use registry::{EffectiveSectionDeps, PluginRegistry, PluginSurfaceSet};
+pub use registry::{PluginRegistry, PluginSurfaceSet};
 
 // Re-export display types for plugin API
 pub use crate::display::{DisplayDirective, DisplayMapRef};
@@ -63,6 +63,7 @@ bitflags! {
         const ANNOTATOR          = 1 << 16;
         const IO_HANDLER         = 1 << 17;
         const DISPLAY_TRANSFORM  = 1 << 18;
+        const SCROLL_POLICY      = 1 << 19;
     }
 }
 

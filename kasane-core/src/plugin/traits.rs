@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
@@ -52,6 +53,13 @@ pub trait PluginBackend: Any {
     ) -> Option<Vec<Command>> {
         None
     }
+    fn handle_default_scroll(
+        &mut self,
+        _candidate: DefaultScrollCandidate,
+        _state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        None
+    }
 
     // --- View contributions ---
 
@@ -96,12 +104,6 @@ pub trait PluginBackend: Any {
         true
     }
 
-    /// DirtyFlags dependencies for overlay contributions.
-    /// Default: ALL (always recompute).
-    fn overlay_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
     // --- Surface system hooks (Phase S) ---
 
     /// Return surfaces owned by this plugin.
@@ -140,11 +142,6 @@ pub trait PluginBackend: Any {
         None
     }
 
-    /// DirtyFlags dependencies for `contribute_to()`.
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
     // === Transform ===
 
     /// Transform an element for the given target. The element may be the default
@@ -166,11 +163,6 @@ pub trait PluginBackend: Any {
         0
     }
 
-    /// DirtyFlags dependencies for `transform()` on a given target.
-    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
     // === Annotate ===
 
     /// Annotate a buffer line with gutter elements and/or background layer.
@@ -183,21 +175,11 @@ pub trait PluginBackend: Any {
         None
     }
 
-    /// DirtyFlags dependencies for `annotate_line_with_ctx()`.
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
     // === Display Transform ===
 
     /// Return display transformation directives (fold, hide, insert virtual text).
     fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
         vec![]
-    }
-
-    /// DirtyFlags dependencies for `display_directives()`.
-    fn display_directives_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
     }
 
     // === Overlay ===

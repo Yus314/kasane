@@ -2,7 +2,7 @@
 //!
 //! Verifies the invariant: for any valid AppState S,
 //! `render_pipeline(S)` produces deterministic output, and
-//! `render_pipeline_salsa_cached(S)` agrees with `render_pipeline(S)`.
+//! `render_pipeline_cached(S)` agrees with `render_pipeline(S)`.
 //!
 //! Uses proptest for mutation-based fuzzing from a rich base state.
 

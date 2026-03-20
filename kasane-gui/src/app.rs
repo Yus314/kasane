@@ -6,30 +6,30 @@ use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    DeferredContext, TimerScheduler, handle_deferred_commands, handle_sourced_surface_commands,
-    handle_workspace_divider_input, surface_event_from_input,
+    DeferredContext, TimerScheduler, flush_pending_init_commands, handle_command_batch,
+    handle_sourced_surface_commands, handle_workspace_divider_input, surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    Command, CommandResult, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    execute_commands, extract_deferred_commands, extract_redraw_flags,
+    Command, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
 };
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::scene_render_pipeline_salsa_cached;
+use kasane_core::render::scene_render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend, RenderResult, SceneCache};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
     sync_plugin_epoch,
 };
+use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, Msg, tick_scroll_animation, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 use kasane_core::surface::buffer::KakouneBufferSurface;
 
@@ -174,6 +174,7 @@ where
 
     // Event state
     pending_events: Vec<GuiEvent>,
+    pending_init_commands: Vec<Command>,
     dirty: DirtyFlags,
     initial_resize_sent: bool,
 
@@ -186,6 +187,8 @@ where
     config: Config,
     color_resolver: Option<ColorResolver>,
     scroll_amount: i32,
+    scroll_runtime: ScrollRuntime,
+    scroll_runtime_session: Option<kasane_core::session::SessionId>,
 
     // Scene cache
     scene_cache: SceneCache,
@@ -252,8 +255,7 @@ where
             &state,
         );
 
-        let _init_commands = registry.init_all(&state);
-        // init_commands will be executed once initial_resize_sent is true
+        let pending_init_commands = registry.init_all(&state);
 
         let (salsa_db, salsa_handles) = {
             let mut db = KasaneDatabase::default();
@@ -261,6 +263,7 @@ where
             sync_inputs_from_state(&mut db, &state, &handles);
             (db, handles)
         };
+        let scroll_runtime_session = session_manager.active_session_id();
 
         App {
             window: None,
@@ -275,12 +278,15 @@ where
             session_states,
             session_spawner,
             pending_events: Vec::new(),
+            pending_init_commands,
             dirty: DirtyFlags::ALL,
             initial_resize_sent: false,
             current_modifiers: winit::keyboard::ModifiersState::empty(),
             cursor_pos: None,
             mouse_button_held: None,
             scroll_amount,
+            scroll_runtime: ScrollRuntime::default(),
+            scroll_runtime_session,
             config,
             color_resolver: None,
             scene_cache: SceneCache::new(),
@@ -382,7 +388,16 @@ where
                         self.state.rows,
                         self.state.cols,
                     );
-                    let (flags, commands, _source) = update(
+                    if self.flush_pending_init_commands() {
+                        event_loop.exit();
+                        return;
+                    }
+                    let UpdateResult {
+                        flags,
+                        commands,
+                        scroll_plans,
+                        source_plugin: _source,
+                    } = update(
                         &mut self.state,
                         Msg::Kakoune(req),
                         &mut self.registry,
@@ -405,6 +420,7 @@ where
                         self.grid.invalidate_all();
                     }
                     self.dirty |= flags;
+                    self.enqueue_scroll_plans(scroll_plans);
                     if self.exec_commands(commands) {
                         event_loop.exit();
                         return;
@@ -438,6 +454,10 @@ where
                             self.state.rows,
                             self.state.cols,
                         );
+                        if self.flush_pending_init_commands() {
+                            event_loop.exit();
+                            return;
+                        }
                     }
                     // Notify plugins of session change so cached state is updated.
                     for plugin in self.registry.plugins_mut() {
@@ -493,23 +513,34 @@ where
             w: self.state.cols,
             h: self.state.rows,
         };
-        let (mut flags, commands, source, mut surface_command_groups) = if let Some(dirty) =
-            handle_workspace_divider_input(&input, &mut self.surface_registry, total)
-        {
-            (dirty, vec![], None, vec![])
-        } else {
-            let surface_event = surface_event_from_input(&input);
-            let msg = Msg::from(input);
-            let (flags, commands, source) =
-                update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
-            let surface_command_groups = surface_event
-                .map(|event| {
-                    self.surface_registry
-                        .route_event_with_sources(event, &self.state, total)
-                })
-                .unwrap_or_default();
-            (flags, commands, source, surface_command_groups)
-        };
+        let (mut flags, commands, source, mut surface_command_groups, scroll_plans) =
+            if let Some(dirty) =
+                handle_workspace_divider_input(&input, &mut self.surface_registry, total)
+            {
+                (dirty, vec![], None, vec![], vec![])
+            } else {
+                let surface_event = surface_event_from_input(&input);
+                let msg = Msg::from(input);
+                let UpdateResult {
+                    flags,
+                    commands,
+                    scroll_plans,
+                    source_plugin,
+                } = update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
+                let surface_command_groups = surface_event
+                    .map(|event| {
+                        self.surface_registry
+                            .route_event_with_sources(event, &self.state, total)
+                    })
+                    .unwrap_or_default();
+                (
+                    flags,
+                    commands,
+                    source_plugin,
+                    surface_command_groups,
+                    scroll_plans,
+                )
+            };
         for entry in &mut surface_command_groups {
             flags |= extract_redraw_flags(&mut entry.commands);
         }
@@ -521,6 +552,7 @@ where
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
         if self.initial_resize_sent {
+            self.enqueue_scroll_plans(scroll_plans);
             if self.exec_commands_from(commands, source.as_ref()) {
                 event_loop.exit();
                 return;
@@ -530,8 +562,39 @@ where
                 return;
             }
         }
+        self.sync_scroll_runtime();
         self.session_states
             .sync_active_from_manager(&self.session_manager, &self.state);
+    }
+
+    fn sync_scroll_runtime(&mut self) {
+        let active_session = self.session_manager.active_session_id();
+        if self.scroll_runtime_session != active_session {
+            self.scroll_runtime.advance_generation();
+            self.scroll_runtime.suspend();
+            self.scroll_runtime_session = active_session;
+        }
+        self.scroll_runtime
+            .set_initial_resize_complete(self.initial_resize_sent);
+    }
+
+    fn enqueue_scroll_plans(&mut self, scroll_plans: Vec<kasane_core::scroll::ScrollPlan>) {
+        for plan in scroll_plans {
+            self.scroll_runtime.enqueue(plan);
+        }
+    }
+
+    fn flush_pending_init_commands(&mut self) -> bool {
+        if !self.initial_resize_sent || self.pending_init_commands.is_empty() {
+            return false;
+        }
+
+        let mut pending_init_commands = std::mem::take(&mut self.pending_init_commands);
+        let should_quit = self.with_deferred_context(|ctx| {
+            flush_pending_init_commands(&mut pending_init_commands, ctx)
+        });
+        self.pending_init_commands = pending_init_commands;
+        should_quit
     }
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
@@ -545,20 +608,7 @@ where
         commands: Vec<Command>,
         source_plugin: Option<&kasane_core::plugin::PluginId>,
     ) -> bool {
-        let (normal, deferred) = extract_deferred_commands(commands);
-        if matches!(
-            execute_commands(
-                normal,
-                self.session_manager
-                    .active_writer_mut()
-                    .expect("missing active session writer"),
-                &mut || { self.backend.as_mut().and_then(|b| b.clipboard_get()) },
-            ),
-            CommandResult::Quit
-        ) {
-            return true;
-        }
-        self.with_deferred_context(|ctx| handle_deferred_commands(deferred, ctx, source_plugin))
+        self.with_deferred_context(|ctx| handle_command_batch(commands, ctx, source_plugin))
     }
 
     fn exec_surface_command_groups(
@@ -670,7 +720,7 @@ where
                 &self.salsa_handles,
             );
 
-            let (commands, result) = scene_render_pipeline_salsa_cached(
+            let (commands, result) = scene_render_pipeline_cached(
                 &self.salsa_db,
                 &self.salsa_handles,
                 &self.state,
@@ -857,11 +907,12 @@ where
             tracing::debug!(batch_count = pending_count, "event batch drained");
         }
         self.process_pending_events(event_loop);
+        self.sync_scroll_runtime();
 
-        // Smooth scroll animation tick
-        if let Some(cmd) = tick_scroll_animation(&mut self.state) {
+        // Host-owned smooth scroll runtime tick
+        if let Some(resolved) = self.scroll_runtime.tick() {
             kasane_core::plugin::execute_commands(
-                vec![cmd],
+                vec![Command::SendToKakoune(resolved.to_kakoune_request())],
                 self.session_manager
                     .active_writer_mut()
                     .expect("missing active session writer"),
@@ -886,6 +937,12 @@ where
             && let Some(ref window) = self.window
         {
             window.request_redraw();
+        }
+
+        if let Some(delay) = self.scroll_runtime.active_frame_interval() {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + delay));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
 }

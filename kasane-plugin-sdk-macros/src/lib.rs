@@ -25,22 +25,22 @@ use syn::{ImplItem, ItemImpl, parse_macro_input};
 /// impl Guest for CursorLinePlugin {
 ///     fn get_id() -> String { "cursor_line".to_string() }
 ///
-///     fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-///         // ... your logic
-///         vec![]
+///     fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+///         let _ = dirty_flags;
+///         RuntimeEffects::default()
 ///     }
 ///
 ///     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
-///         // ... your logic
+///         let _ = line;
 ///         None
 ///     }
 ///
-///     fn annotate_deps() -> u16 { dirty::BUFFER }
 ///     fn state_hash() -> u64 { ACTIVE_LINE.get() as u64 }
 /// }
 /// ```
 ///
-/// All other `Guest` methods (`on_init`, `on_shutdown`, `contribute`,
+/// All other typed `Guest` methods (`on_init_effects`,
+/// `on_active_session_ready_effects`, `on_shutdown`, `contribute`,
 /// `handle_key`, etc.) are automatically generated with their default
 /// implementations.
 #[proc_macro_attribute]
@@ -93,18 +93,30 @@ pub fn kasane_wasm_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream 
 /// Maps a `default_*!()` macro name to the Guest method names it provides.
 fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
     match macro_name {
-        "default_init" => vec!["on_init".into()],
+        "default_init" => vec!["on_init_effects".into()],
+        "default_active_session_ready" => vec!["on_active_session_ready_effects".into()],
         "default_shutdown" => vec!["on_shutdown".into()],
-        "default_state_changed" => vec!["on_state_changed".into()],
+        "default_state_changed" => vec!["on_state_changed_effects".into()],
         "default_lifecycle" => vec![
-            "on_init".into(),
+            "on_init_effects".into(),
+            "on_active_session_ready_effects".into(),
             "on_shutdown".into(),
-            "on_state_changed".into(),
+            "on_state_changed_effects".into(),
         ],
-        "default_cache" => vec!["state_hash".into(), "slot_deps".into()],
+        "default_typed_lifecycle" => vec![
+            "on_init_effects".into(),
+            "on_active_session_ready_effects".into(),
+            "on_state_changed_effects".into(),
+            "on_shutdown".into(),
+        ],
+        "default_typed_init" => vec!["on_init_effects".into()],
+        "default_typed_active_session_ready" => vec!["on_active_session_ready_effects".into()],
+        "default_typed_state_changed" => vec!["on_state_changed_effects".into()],
+        "default_cache" => vec!["state_hash".into()],
         "default_input" => vec![
             "handle_mouse".into(),
             "handle_key".into(),
+            "handle_default_scroll".into(),
             "observe_key".into(),
             "observe_mouse".into(),
         ],
@@ -116,25 +128,25 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         }
         "default_contribute" => vec!["contribute".into()],
         "default_contribute_to" => vec!["contribute_to".into()],
-        "default_contribute_deps" => vec!["contribute_deps".into()],
         "default_line" => vec!["contribute_line".into()],
         "default_overlay" => vec!["contribute_overlay".into()],
         "default_overlay_v2" => vec!["contribute_overlay_v2".into()],
         "default_annotate" => vec!["annotate_line".into()],
-        "default_annotate_deps" => vec!["annotate_deps".into()],
         "default_named_slot" => vec!["contribute_named".into()],
         "default_transform" => vec!["transform_element".into()],
         "default_transform_priority" => vec!["transform_priority".into()],
-        "default_transform_deps" => vec!["transform_deps".into()],
         "default_menu_transform" => vec!["transform_menu_item".into()],
         "default_replace" => vec!["replace".into()],
         "default_decorate" => vec!["decorate".into()],
         "default_decorator_priority" => vec!["decorator_priority".into()],
         "default_cursor_style" => vec!["cursor_style_override".into()],
-        "default_update" => vec!["update".into()],
+        "default_update" => vec!["update_effects".into()],
+        "default_typed_runtime" => vec!["update_effects".into(), "on_io_event_effects".into()],
+        "default_typed_update" => vec!["update_effects".into()],
+        "default_typed_io_event" => vec!["on_io_event_effects".into()],
         "default_capabilities" => vec!["requested_capabilities".into()],
-        "default_io_event" => vec!["on_io_event".into()],
-        "slots" => vec!["contribute_to".into(), "contribute_deps".into()],
+        "default_io_event" => vec!["on_io_event_effects".into()],
+        "slots" => vec!["contribute_to".into()],
         _ => vec![],
     }
 }
@@ -159,8 +171,17 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- Lifecycle ---
 
     add_default!(
-        "on_init",
-        quote! { fn on_init() -> Vec<Command> { vec![] } }
+        "on_init_effects",
+        quote! { fn on_init_effects() -> BootstrapEffects { BootstrapEffects::default() } }
+    );
+
+    add_default!(
+        "on_active_session_ready_effects",
+        quote! {
+            fn on_active_session_ready_effects() -> SessionReadyEffects {
+                SessionReadyEffects::default()
+            }
+        }
     );
 
     add_default!(
@@ -169,8 +190,12 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     );
 
     add_default!(
-        "on_state_changed",
-        quote! { fn on_state_changed(_dirty_flags: u16) -> Vec<Command> { vec![] } }
+        "on_state_changed_effects",
+        quote! {
+            fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
+                RuntimeEffects::default()
+            }
+        }
     );
 
     // --- Surfaces ---
@@ -351,6 +376,17 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     );
 
     add_default!(
+        "handle_default_scroll",
+        quote! {
+            fn handle_default_scroll(
+                _candidate: DefaultScrollCandidate
+            ) -> Option<ScrollPolicyResult> {
+                None
+            }
+        }
+    );
+
+    add_default!(
         "observe_key",
         quote! { fn observe_key(_event: KeyEvent) {} }
     );
@@ -367,30 +403,6 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         quote! { fn state_hash() -> u64 { __kasane_auto_state_hash() } }
     );
 
-    add_default!(
-        "slot_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
-        quote! { fn slot_deps(_slot: u8) -> u16 { 0x17F } }
-    );
-
-    add_default!(
-        "contribute_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE) — safe default
-        quote! { fn contribute_deps(_region: SlotId) -> u16 { 0x17F } }
-    );
-
-    add_default!(
-        "transform_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
-        quote! { fn transform_deps(_target: TransformTarget) -> u16 { 0x17F } }
-    );
-
-    add_default!(
-        "annotate_deps",
-        // dirty::ALL = 0x17F (excludes PLUGIN_STATE)
-        quote! { fn annotate_deps() -> u16 { 0x17F } }
-    );
-
     // --- Cursor ---
 
     add_default!(
@@ -401,8 +413,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- Inter-plugin messaging ---
 
     add_default!(
-        "update",
-        quote! { fn update(_payload: Vec<u8>) -> Vec<Command> { vec![] } }
+        "update_effects",
+        quote! { fn update_effects(_payload: Vec<u8>) -> RuntimeEffects { RuntimeEffects::default() } }
     );
 
     // --- WASI capabilities ---
@@ -415,23 +427,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- I/O events ---
 
     add_default!(
-        "on_io_event",
-        quote! { fn on_io_event(_event: IoEvent) -> Vec<Command> { vec![] } }
-    );
-
-    // Static assertion: SDK ALL must match our hardcoded default.
-    // If this fails, update the three 0x17F literals above.
-    #[allow(clippy::eq_op, clippy::assertions_on_constants)]
-    const _: () = assert!(
-        0x17F
-            == ((1 << 0)
-                | (1 << 1)
-                | (1 << 2)
-                | (1 << 3)
-                | (1 << 4)
-                | (1 << 5)
-                | (1 << 6)
-                | (1 << 8))
+        "on_io_event_effects",
+        quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { RuntimeEffects::default() } }
     );
 
     defaults
@@ -495,6 +492,32 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             pub use super::kasane::plugin::types::*;
 
             use super::kasane::plugin::types::*;
+
+            impl ::core::default::Default for BootstrapEffects {
+                fn default() -> Self {
+                    Self { redraw: 0 }
+                }
+            }
+
+            impl ::core::default::Default for SessionReadyEffects {
+                fn default() -> Self {
+                    Self {
+                        redraw: 0,
+                        commands: vec![],
+                        scroll_plans: vec![],
+                    }
+                }
+            }
+
+            impl ::core::default::Default for RuntimeEffects {
+                fn default() -> Self {
+                    Self {
+                        redraw: 0,
+                        commands: vec![],
+                        scroll_plans: vec![],
+                    }
+                }
+            }
 
             /// Create a default face (all colors default, no attributes).
             pub fn default_face() -> Face {
@@ -847,21 +870,20 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `id: "plugin_id"` — plugin identifier (required)
 /// - `state { field: Type = default, ... }` — plugin state with generation counter
 ///   - Fields support `#[bind(expr, on: flags)]` for auto-sync from host state
-/// - `on_init() { ... }` → `fn on_init()`
-/// - `on_state_changed(dirty) { ... }` → `fn on_state_changed()` (auto `vec![]`)
-/// - `on_state_changed_commands(dirty) { ... }` → same, but body must return `Vec<Command>`
+/// - `on_init_effects() { ... }` → `fn on_init_effects() -> BootstrapEffects`
+/// - `on_active_session_ready_effects() { ... }` → `fn on_active_session_ready_effects() -> SessionReadyEffects`
+/// - `on_state_changed_effects(dirty) { ... }` → `fn on_state_changed_effects() -> RuntimeEffects`
 /// - `slots { SLOT => expr, ... }` — simple form (auto-wraps in `auto_contribution()`)
 /// - `slots { SLOT(deps) => |ctx| { ... }, ... }` — full form with state access via `state.field`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
-/// - `annotate_deps: expr` → `fn annotate_deps()`
 /// - `transform(target, element, ctx) { ... }` → `fn transform_element()`
-/// - `transform_deps(target) { ... }` → `fn transform_deps()`
 /// - `transform_priority: expr` → `fn transform_priority()`
 /// - `overlay(ctx) { ... }` → `fn contribute_overlay_v2()`
 /// - `handle_key(event) { ... }` → `fn handle_key()`
 /// - `handle_mouse(event, id) { ... }` → `fn handle_mouse()`
 /// - `capabilities: [Cap1, Cap2]` → `fn requested_capabilities()`
-/// - `on_io_event(event) { ... }` → `fn on_io_event()`
+/// - `update_effects(payload) { ... }` → `fn update_effects() -> RuntimeEffects`
+/// - `on_io_event_effects(event) { ... }` → `fn on_io_event_effects() -> RuntimeEffects`
 #[proc_macro]
 pub fn kasane_define_plugin(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();
@@ -1002,12 +1024,22 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         }
     };
 
-    let on_init_method = if let Some(ref body) = def.on_init {
+    let on_init_method = if let Some(ref body) = def.on_init_effects {
         let wrapped = wrap_state(body);
-        quote! { fn on_init() -> Vec<Command> { #wrapped } }
+        quote! { fn on_init_effects() -> BootstrapEffects { #wrapped } }
     } else {
         quote! {}
     };
+
+    let on_active_session_ready_method =
+        if let Some(ref body) = def.on_active_session_ready_effects {
+            let wrapped = wrap_state(body);
+            quote! {
+                fn on_active_session_ready_effects() -> SessionReadyEffects { #wrapped }
+            }
+        } else {
+            quote! {}
+        };
 
     // Generate auto-binding code from #[bind] attributes
     let auto_bindings: Vec<proc_macro2::TokenStream> = if let Some(ref state_def) = def.state {
@@ -1032,35 +1064,20 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     };
 
     let has_bindings = !auto_bindings.is_empty();
-    let has_osc = def.on_state_changed.is_some();
-    let has_osc_commands = def.on_state_changed_commands.is_some();
+    let has_osc = def.on_state_changed_effects.is_some();
 
-    let on_state_changed_method = if has_osc || has_osc_commands || has_bindings {
+    let on_state_changed_method = if has_osc || has_bindings {
         let param_name = def
-            .on_state_changed
+            .on_state_changed_effects
             .as_ref()
             .map(|osc| osc.param.clone())
-            .or_else(|| {
-                def.on_state_changed_commands
-                    .as_ref()
-                    .map(|osc| osc.param.clone())
-            })
             .unwrap_or_else(|| syn::Ident::new("__flags", proc_macro2::Span::call_site()));
 
         let sync_body = def
-            .on_state_changed
+            .on_state_changed_effects
             .as_ref()
             .map(|osc| osc.body.clone())
-            .unwrap_or_default();
-
-        let commands_body = def
-            .on_state_changed_commands
-            .as_ref()
-            .map(|osc| {
-                let body = &osc.body;
-                quote! { return #body; }
-            })
-            .unwrap_or_default();
+            .unwrap_or_else(|| quote! { RuntimeEffects::default() });
 
         let wrapped = if has_state {
             quote! {
@@ -1072,19 +1089,15 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                     };
                     #( #auto_bindings )*
                     { #sync_body }
-                    #commands_body
-                    vec![]
                 })
             }
         } else {
             quote! {
                 { #sync_body }
-                #commands_body
-                vec![]
             }
         };
         quote! {
-            fn on_state_changed(#param_name: u16) -> Vec<Command> {
+            fn on_state_changed_effects(#param_name: u16) -> RuntimeEffects {
                 #wrapped
             }
         }
@@ -1131,29 +1144,11 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             })
             .collect();
 
-        let deps_arms: Vec<_> = slots
-            .iter()
-            .map(|entry| {
-                let pattern = slot_name_to_deps_pattern(&entry.name);
-                let deps = entry
-                    .deps
-                    .clone()
-                    .unwrap_or_else(|| quote! { 0x17F });
-                quote! { #pattern => { #deps } }
-            })
-            .collect();
-
         quote! {
             fn contribute_to(__region: SlotId, __ctx: ContributeContext) -> Option<Contribution> {
                 match &__region {
                     #( #slot_arms, )*
                     _ => None,
-                }
-            }
-            fn contribute_deps(__region: SlotId) -> u16 {
-                match &__region {
-                    #( #deps_arms, )*
-                    _ => 0,
                 }
             }
         }
@@ -1175,12 +1170,6 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let annotate_deps_method = if let Some(ref deps) = def.annotate_deps {
-        quote! { fn annotate_deps() -> u16 { #deps } }
-    } else {
-        quote! {}
-    };
-
     let transform_method = if let Some(ref tr) = def.transform {
         let target_param = &tr.target_param;
         let element_param = &tr.element_param;
@@ -1194,18 +1183,6 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                 #ctx_param: TransformContext,
             ) -> ElementHandle {
                 #wrapped
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    let transform_deps_method = if let Some(ref td) = def.transform_deps {
-        let target_param = &td.param;
-        let body = &td.body;
-        quote! {
-            fn transform_deps(#target_param: TransformTarget) -> u16 {
-                #body
             }
         }
     } else {
@@ -1258,6 +1235,21 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    let handle_default_scroll_method = if let Some(ref hs) = def.handle_default_scroll {
+        let candidate_param = &hs.param;
+        let body = &hs.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn handle_default_scroll(
+                #candidate_param: DefaultScrollCandidate
+            ) -> Option<ScrollPolicyResult> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let capabilities_method = if let Some(ref caps) = def.capabilities {
         quote! {
             fn requested_capabilities() -> Vec<Capability> {
@@ -1268,12 +1260,25 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let on_io_event_method = if let Some(ref io) = def.on_io_event {
+    let update_effects_method = if let Some(ref upd) = def.update_effects {
+        let payload_param = &upd.param;
+        let body = &upd.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn update_effects(#payload_param: Vec<u8>) -> RuntimeEffects {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let on_io_event_method = if let Some(ref io) = def.on_io_event_effects {
         let event_param = &io.param;
         let body = &io.body;
         let wrapped = wrap_state(body);
         quote! {
-            fn on_io_event(#event_param: IoEvent) -> Vec<Command> {
+            fn on_io_event_effects(#event_param: IoEvent) -> RuntimeEffects {
                 #wrapped
             }
         }
@@ -1297,16 +1302,17 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         impl Guest for __KasanePlugin {
             #get_id
             #on_init_method
+            #on_active_session_ready_method
             #on_state_changed_method
+            #update_effects_method
             #slots_method
             #annotate_method
-            #annotate_deps_method
             #transform_method
-            #transform_deps_method
             #transform_priority_method
             #overlay_method
             #handle_key_method
             #handle_mouse_method
+            #handle_default_scroll_method
             #capabilities_method
             #on_io_event_method
         }
@@ -1320,20 +1326,20 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
 struct PluginDef {
     id: syn::LitStr,
     state: Option<StateDef>,
-    on_init: Option<proc_macro2::TokenStream>,
-    on_state_changed: Option<OnStateChanged>,
-    on_state_changed_commands: Option<OnStateChanged>,
+    on_init_effects: Option<proc_macro2::TokenStream>,
+    on_active_session_ready_effects: Option<proc_macro2::TokenStream>,
+    on_state_changed_effects: Option<OnStateChanged>,
+    update_effects: Option<ParamBodyDef>,
     slots: Option<Vec<SlotEntry>>,
     annotate: Option<AnnotateDef>,
-    annotate_deps: Option<proc_macro2::TokenStream>,
     transform: Option<TransformDef>,
-    transform_deps: Option<TransformDepsDef>,
     transform_priority: Option<proc_macro2::TokenStream>,
     overlay: Option<ParamBodyDef>,
     handle_key: Option<ParamBodyDef>,
     handle_mouse: Option<HandleMouseDef>,
+    handle_default_scroll: Option<ParamBodyDef>,
     capabilities: Option<proc_macro2::TokenStream>,
-    on_io_event: Option<ParamBodyDef>,
+    on_io_event_effects: Option<ParamBodyDef>,
 }
 
 struct StateDef {
@@ -1359,7 +1365,6 @@ enum SlotName {
 
 struct SlotEntry {
     name: SlotName,
-    deps: Option<proc_macro2::TokenStream>,
     has_closure: bool,
     ctx_param: Option<syn::Ident>,
     body: proc_macro2::TokenStream,
@@ -1383,11 +1388,6 @@ struct TransformDef {
     body: proc_macro2::TokenStream,
 }
 
-struct TransformDepsDef {
-    param: syn::Ident,
-    body: proc_macro2::TokenStream,
-}
-
 struct ParamBodyDef {
     param: syn::Ident,
     body: proc_macro2::TokenStream,
@@ -1404,20 +1404,20 @@ impl syn::parse::Parse for PluginDef {
         let mut def = PluginDef {
             id: syn::LitStr::new("", proc_macro2::Span::call_site()),
             state: None,
-            on_init: None,
-            on_state_changed: None,
-            on_state_changed_commands: None,
+            on_init_effects: None,
+            on_active_session_ready_effects: None,
+            on_state_changed_effects: None,
+            update_effects: None,
             slots: None,
             annotate: None,
-            annotate_deps: None,
             transform: None,
-            transform_deps: None,
             transform_priority: None,
             overlay: None,
             handle_key: None,
             handle_mouse: None,
+            handle_default_scroll: None,
             capabilities: None,
-            on_io_event: None,
+            on_io_event_effects: None,
         };
 
         let mut has_id = false;
@@ -1480,32 +1480,40 @@ impl syn::parse::Parse for PluginDef {
                     }
                     def.state = Some(StateDef { fields });
                 }
-                "on_init" => {
+                "on_init_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
-                    let _ = params; // empty params for on_init()
+                    let _ = params;
                     let body;
                     syn::braced!(body in input);
-                    def.on_init = Some(body.parse()?);
+                    def.on_init_effects = Some(body.parse()?);
                 }
-                "on_state_changed" => {
+                "on_active_session_ready_effects" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let _ = params;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_active_session_ready_effects = Some(body.parse()?);
+                }
+                "on_state_changed_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
                     let param: syn::Ident = params.parse()?;
                     let body;
                     syn::braced!(body in input);
-                    def.on_state_changed = Some(OnStateChanged {
+                    def.on_state_changed_effects = Some(OnStateChanged {
                         param,
                         body: body.parse()?,
                     });
                 }
-                "on_state_changed_commands" => {
+                "update_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
                     let param: syn::Ident = params.parse()?;
                     let body;
                     syn::braced!(body in input);
-                    def.on_state_changed_commands = Some(OnStateChanged {
+                    def.update_effects = Some(ParamBodyDef {
                         param,
                         body: body.parse()?,
                     });
@@ -1530,10 +1538,6 @@ impl syn::parse::Parse for PluginDef {
                         body: body.parse()?,
                     });
                 }
-                "annotate_deps" => {
-                    input.parse::<syn::Token![:]>()?;
-                    def.annotate_deps = Some(parse_until_comma_or_end(input)?);
-                }
                 "transform" => {
                     let params;
                     syn::parenthesized!(params in input);
@@ -1548,17 +1552,6 @@ impl syn::parse::Parse for PluginDef {
                         target_param,
                         element_param,
                         ctx_param,
-                        body: body.parse()?,
-                    });
-                }
-                "transform_deps" => {
-                    let params;
-                    syn::parenthesized!(params in input);
-                    let param: syn::Ident = params.parse()?;
-                    let body;
-                    syn::braced!(body in input);
-                    def.transform_deps = Some(TransformDepsDef {
-                        param,
                         body: body.parse()?,
                     });
                 }
@@ -1602,22 +1595,69 @@ impl syn::parse::Parse for PluginDef {
                         body: body.parse()?,
                     });
                 }
+                "handle_default_scroll" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.handle_default_scroll = Some(ParamBodyDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
                 "capabilities" => {
                     input.parse::<syn::Token![:]>()?;
                     let content;
                     syn::bracketed!(content in input);
                     def.capabilities = Some(content.parse()?);
                 }
-                "on_io_event" => {
+                "on_io_event_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
                     let param: syn::Ident = params.parse()?;
                     let body;
                     syn::braced!(body in input);
-                    def.on_io_event = Some(ParamBodyDef {
+                    def.on_io_event_effects = Some(ParamBodyDef {
                         param,
                         body: body.parse()?,
                     });
+                }
+                "on_init" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_init` was removed; use `on_init_effects()`",
+                    ));
+                }
+                "on_active_session_ready" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_active_session_ready` was removed; use `on_active_session_ready_effects()`",
+                    ));
+                }
+                "on_state_changed" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_state_changed` was removed; use `on_state_changed_effects(...)`",
+                    ));
+                }
+                "on_state_changed_commands" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_state_changed_commands` was removed; return `RuntimeEffects` from `on_state_changed_effects(...)`",
+                    ));
+                }
+                "update" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `update` was removed; use `update_effects(...)`",
+                    ));
+                }
+                "on_io_event" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_io_event` was removed; use `on_io_event_effects(...)`",
+                    ));
                 }
                 other => {
                     return Err(syn::Error::new(
@@ -1698,15 +1738,12 @@ fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEnt
             }
         };
 
-        // 2. Optional (deps) — if next token is `(`
-        let deps = if input.peek(syn::token::Paren) {
+        // 2. Optional (deps) — if next token is `(`, consume and ignore (deps removed)
+        if input.peek(syn::token::Paren) {
             let args;
             syn::parenthesized!(args in input);
-            let ts: proc_macro2::TokenStream = args.parse()?;
-            Some(ts)
-        } else {
-            None
-        };
+            let _: proc_macro2::TokenStream = args.parse()?;
+        }
 
         // 3. `=>`
         input.parse::<syn::Token![=>]>()?;
@@ -1722,7 +1759,6 @@ fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEnt
             let body_tokens: proc_macro2::TokenStream = body.parse()?;
             entries.push(SlotEntry {
                 name,
-                deps,
                 has_closure: true,
                 ctx_param: Some(ctx_param),
                 body: body_tokens,
@@ -1737,7 +1773,6 @@ fn parse_slot_entries(input: syn::parse::ParseStream) -> syn::Result<Vec<SlotEnt
             let body_tokens: proc_macro2::TokenStream = tokens.into_iter().collect();
             entries.push(SlotEntry {
                 name,
-                deps,
                 has_closure: false,
                 ctx_param: None,
                 body: body_tokens,
@@ -1776,9 +1811,4 @@ fn slot_name_to_pattern(name: &SlotName) -> proc_macro2::TokenStream {
             quote! { SlotId::Named(ref __n) if __n == #lit }
         }
     }
-}
-
-/// Convert a SlotName to a match pattern for deps (same as contribute, but for deps matching).
-fn slot_name_to_deps_pattern(name: &SlotName) -> proc_macro2::TokenStream {
-    slot_name_to_pattern(name)
 }

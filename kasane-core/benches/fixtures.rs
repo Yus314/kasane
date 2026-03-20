@@ -47,10 +47,6 @@ impl PluginBackend for BenchPlugin {
             None
         }
     }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::STATUS
-    }
 }
 
 // ---------------------------------------------------------------------------

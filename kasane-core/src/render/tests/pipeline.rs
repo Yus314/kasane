@@ -289,7 +289,7 @@ fn test_line_dirty_buffer_and_status() {
     state.status_line = make_line("new_st");
     state.lines_dirty = vec![false, true, false, false];
 
-    render_pipeline_cached(
+    render_pipeline_direct(
         &state,
         &registry,
         &mut grid,
@@ -346,7 +346,7 @@ fn test_line_dirty_buffer_only_regression() {
     state.lines[2] = make_line("EDIT2");
     state.lines_dirty = vec![false, false, true, false];
 
-    render_pipeline_cached(&state, &registry, &mut grid, DirtyFlags::BUFFER);
+    render_pipeline_direct(&state, &registry, &mut grid, DirtyFlags::BUFFER);
 
     // Clean lines preserved
     assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");

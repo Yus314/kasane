@@ -119,10 +119,6 @@ impl Plugin for VirtualTextDemoPlugin {
         directives
     }
 
-    fn display_directives_deps(&self) -> DirtyFlags {
-        DirtyFlags::PLUGIN_STATE | DirtyFlags::BUFFER_CONTENT
-    }
-
     fn contribute_to(
         &self,
         state: &VirtualTextState,
@@ -157,9 +153,6 @@ impl Plugin for VirtualTextDemoPlugin {
         })
     }
 
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::PLUGIN_STATE
-    }
 }
 
 fn main() {

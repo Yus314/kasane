@@ -4,6 +4,10 @@ use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, Mous
 use kasane_core::layout::flex::Constraints;
 use kasane_core::plugin::{Command, ContributeContext, IoEvent, ProcessEvent, StdinMode};
 use kasane_core::protocol::KasaneRequest;
+use kasane_core::scroll::{
+    DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
+    ScrollPlan, ScrollPolicyResult,
+};
 use kasane_core::session::SessionCommand;
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::{EventContext, SurfaceEvent};
@@ -117,6 +121,53 @@ fn convert_command_send_keys() {
 fn convert_command_paste() {
     let wc = wit::Command::Paste;
     assert!(matches!(wit_command_to_command(&wc), Command::Paste));
+}
+
+#[test]
+fn convert_default_scroll_candidate_to_wit() {
+    let candidate = DefaultScrollCandidate::new(
+        10,
+        5,
+        Modifiers::CTRL,
+        ScrollGranularity::Line,
+        3,
+        ResolvedScroll::new(3, 10, 5),
+    );
+
+    let wit = default_scroll_candidate_to_wit(&candidate);
+
+    assert_eq!(wit.screen_line, 10);
+    assert_eq!(wit.screen_column, 5);
+    assert_eq!(wit.modifiers, Modifiers::CTRL.bits());
+    assert!(matches!(wit.granularity, wit::ScrollGranularity::Line));
+    assert_eq!(wit.raw_amount, 3);
+    assert_eq!(wit.resolved.amount, 3);
+}
+
+#[test]
+fn convert_scroll_policy_result_from_wit() {
+    let wit_result = wit::ScrollPolicyResult::Plan(wit::ScrollPlan {
+        total_amount: 9,
+        line: 10,
+        column: 5,
+        frame_interval_ms: 16,
+        curve: wit::ScrollCurve::Linear,
+        accumulation: wit::ScrollAccumulationMode::Add,
+    });
+
+    let result = wit_scroll_policy_result_to_result(&wit_result);
+
+    assert_eq!(
+        result,
+        ScrollPolicyResult::Plan(ScrollPlan::new(
+            9,
+            10,
+            5,
+            16,
+            ScrollCurve::Linear,
+            ScrollAccumulationMode::Add,
+        ))
+    );
 }
 
 #[test]

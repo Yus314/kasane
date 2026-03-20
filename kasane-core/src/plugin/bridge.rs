@@ -7,6 +7,7 @@ use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::state::{Plugin, PluginState};
@@ -60,6 +61,12 @@ pub(crate) trait ErasedPlugin: Send {
         id: InteractiveId,
         app: &AppState,
     ) -> Option<Vec<Command>>;
+    fn handle_default_scroll_erased(
+        &self,
+        state: &mut dyn PluginState,
+        candidate: DefaultScrollCandidate,
+        app: &AppState,
+    ) -> Option<ScrollPolicyResult>;
     fn update_erased(
         &self,
         state: &mut dyn PluginState,
@@ -116,13 +123,6 @@ pub(crate) trait ErasedPlugin: Send {
         state: &dyn PluginState,
         app: &AppState,
     ) -> Vec<DisplayDirective>;
-
-    // Dependency declarations
-    fn contribute_deps_erased(&self, region: &SlotId) -> DirtyFlags;
-    fn transform_deps_erased(&self, target: &TransformTarget) -> DirtyFlags;
-    fn annotate_deps_erased(&self) -> DirtyFlags;
-    fn overlay_deps_erased(&self) -> DirtyFlags;
-    fn display_directives_deps_erased(&self) -> DirtyFlags;
 }
 
 impl<P: Plugin> ErasedPlugin for P {
@@ -215,6 +215,20 @@ impl<P: Plugin> ErasedPlugin for P {
             })
     }
 
+    fn handle_default_scroll_erased(
+        &self,
+        state: &mut dyn PluginState,
+        candidate: DefaultScrollCandidate,
+        app: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+        self.handle_default_scroll(typed, candidate, app)
+            .map(|(new_state, result)| {
+                *typed = new_state;
+                result
+            })
+    }
+
     fn update_erased(
         &self,
         state: &mut dyn PluginState,
@@ -299,22 +313,6 @@ impl<P: Plugin> ErasedPlugin for P {
     ) -> Vec<DisplayDirective> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
         self.display_directives(typed, app)
-    }
-
-    fn contribute_deps_erased(&self, region: &SlotId) -> DirtyFlags {
-        self.contribute_deps(region)
-    }
-    fn transform_deps_erased(&self, target: &TransformTarget) -> DirtyFlags {
-        self.transform_deps(target)
-    }
-    fn annotate_deps_erased(&self) -> DirtyFlags {
-        self.annotate_deps()
-    }
-    fn overlay_deps_erased(&self) -> DirtyFlags {
-        self.overlay_deps()
-    }
-    fn display_directives_deps_erased(&self) -> DirtyFlags {
-        self.display_directives_deps()
     }
 }
 
@@ -436,6 +434,18 @@ impl PluginBackend for PluginBridge {
         result
     }
 
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        let result = self
+            .inner
+            .handle_default_scroll_erased(&mut *self.state, candidate, state);
+        self.check_state_change();
+        result
+    }
+
     fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
         let cmds = self.inner.update_erased(&mut *self.state, msg, state);
         self.check_state_change();
@@ -454,10 +464,6 @@ impl PluginBackend for PluginBridge {
             .contribute_to_erased(&*self.state, region, state, ctx)
     }
 
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        self.inner.contribute_deps_erased(region)
-    }
-
     fn transform(
         &self,
         target: &TransformTarget,
@@ -467,10 +473,6 @@ impl PluginBackend for PluginBridge {
     ) -> Element {
         self.inner
             .transform_erased(&*self.state, target, element, state, ctx)
-    }
-
-    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
-        self.inner.transform_deps_erased(target)
     }
 
     fn annotate_line_with_ctx(
@@ -483,16 +485,8 @@ impl PluginBackend for PluginBridge {
             .annotate_line_erased(&*self.state, line, state, ctx)
     }
 
-    fn annotate_deps(&self) -> DirtyFlags {
-        self.inner.annotate_deps_erased()
-    }
-
     fn display_directives(&self, state: &AppState) -> Vec<DisplayDirective> {
         self.inner.display_directives_erased(&*self.state, state)
-    }
-
-    fn display_directives_deps(&self) -> DirtyFlags {
-        self.inner.display_directives_deps_erased()
     }
 
     fn contribute_overlay_with_ctx(
@@ -502,10 +496,6 @@ impl PluginBackend for PluginBridge {
     ) -> Option<OverlayContribution> {
         self.inner
             .contribute_overlay_erased(&*self.state, state, ctx)
-    }
-
-    fn overlay_deps(&self) -> DirtyFlags {
-        self.inner.overlay_deps_erased()
     }
 
     fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
@@ -551,6 +541,7 @@ mod tests {
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
     use crate::plugin::{AnnotateContext, PluginCapabilities, PluginId, PluginRegistry};
+    use crate::scroll::{ResolvedScroll, ScrollPolicyResult};
     use crate::state::AppState;
 
     // ---- PluginBridge tests ----
@@ -615,9 +606,58 @@ mod tests {
     }
 
     #[test]
-    fn bridge_deps_delegated() {
-        let bridge = PluginBridge::new(CursorLinePure);
-        assert_eq!(bridge.annotate_deps(), DirtyFlags::BUFFER);
+    fn bridge_handles_default_scroll_and_tracks_state_changes() {
+        #[derive(Default)]
+        struct ScrollPure;
+
+        impl Plugin for ScrollPure {
+            type State = CursorLineState;
+
+            fn id(&self) -> PluginId {
+                PluginId("test.scroll-pure".into())
+            }
+
+            fn capabilities(&self) -> PluginCapabilities {
+                PluginCapabilities::SCROLL_POLICY
+            }
+
+            fn handle_default_scroll(
+                &self,
+                state: &Self::State,
+                candidate: DefaultScrollCandidate,
+                _app: &AppState,
+            ) -> Option<(Self::State, ScrollPolicyResult)> {
+                let mut next = state.clone();
+                next.active_line = candidate.screen_line as i32;
+                Some((
+                    next,
+                    ScrollPolicyResult::Immediate(ResolvedScroll::new(
+                        candidate.resolved.amount,
+                        candidate.resolved.line,
+                        candidate.resolved.column,
+                    )),
+                ))
+            }
+        }
+
+        let mut bridge = PluginBridge::new(ScrollPure);
+        let state = AppState::default();
+        let candidate = DefaultScrollCandidate::new(
+            10,
+            5,
+            crate::input::Modifiers::empty(),
+            crate::scroll::ScrollGranularity::Line,
+            3,
+            ResolvedScroll::new(3, 10, 5),
+        );
+
+        let result = bridge.handle_default_scroll(candidate, &state);
+
+        assert_eq!(
+            result,
+            Some(ScrollPolicyResult::Immediate(ResolvedScroll::new(3, 10, 5)))
+        );
+        assert_eq!(bridge.state_hash(), 1);
     }
 
     // ---- Registry integration tests ----

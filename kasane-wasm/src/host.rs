@@ -4,6 +4,7 @@ use kasane_core::element::{
     BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay, Style,
 };
 use kasane_core::protocol::{Coord, CursorMode, Face, Line};
+use kasane_core::scroll::{SMOOTH_SCROLL_CONFIG_KEY, smooth_scroll_enabled};
 use kasane_core::state::{AppState, InfoState};
 use wasmtime_wasi::WasiCtxBuilder;
 
@@ -653,8 +654,6 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     host.config_values
         .insert("status_at_top".into(), state.status_at_top.to_string());
     host.config_values
-        .insert("smooth_scroll".into(), state.smooth_scroll.to_string());
-    host.config_values
         .insert("search_dropdown".into(), state.search_dropdown.to_string());
     host.config_values.insert(
         "cursor.secondary_blend".into(),
@@ -669,6 +668,10 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     for (k, v) in &state.plugin_config {
         host.config_values.insert(k.clone(), v.clone());
     }
+    host.config_values.insert(
+        SMOOTH_SCROLL_CONFIG_KEY.into(),
+        smooth_scroll_enabled(state).to_string(),
+    );
 
     // Tier 6: Info content
     host.infos.clone_from(&state.infos);

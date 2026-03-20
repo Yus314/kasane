@@ -1,0 +1,5 @@
+error: define_plugin! `on_active_session_ready` was removed; use `on_active_session_ready_effects()`
+ --> tests/fail/define_plugin_on_active_session_ready.rs:4:5
+  |
+4 |     on_active_session_ready() {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^

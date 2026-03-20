@@ -344,7 +344,8 @@ pub fn render_pipeline(
 }
 
 /// Declarative rendering pipeline with explicit dirty flags for incremental rendering.
-pub fn render_pipeline_cached(
+/// Uses `DirectViewSource` (no Salsa memoization).
+pub fn render_pipeline_direct(
     state: &AppState,
     registry: &PluginRegistry,
     grid: &mut CellGrid,

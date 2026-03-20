@@ -13,6 +13,7 @@ use crate::plugin::{
     Command, CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry, ProcessDispatcher,
     ProcessEvent, execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
+use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
@@ -21,6 +22,7 @@ use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
 pub struct EventResult {
     pub flags: DirtyFlags,
     pub commands: Vec<Command>,
+    pub scroll_plans: Vec<ScrollPlan>,
     pub surface_commands: Vec<SourcedSurfaceCommands>,
     pub command_source: Option<PluginId>,
 }
@@ -30,6 +32,7 @@ impl EventResult {
         Self {
             flags: DirtyFlags::empty(),
             commands: vec![],
+            scroll_plans: vec![],
             surface_commands: vec![],
             command_source: None,
         }
@@ -394,6 +397,31 @@ pub fn handle_deferred_commands(
     handle_deferred_commands_inner(deferred, ctx, command_source_plugin, 0)
 }
 
+/// Execute a command batch, extracting host-owned scroll plans and cascading deferred effects.
+pub fn handle_command_batch(
+    commands: Vec<Command>,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+) -> bool {
+    handle_command_batch_inner(commands, ctx, command_source_plugin, 0)
+}
+
+fn handle_command_batch_inner(
+    commands: Vec<Command>,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> bool {
+    let (normal, deferred) = extract_deferred_commands(commands);
+    if matches!(
+        execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
+        CommandResult::Quit
+    ) {
+        return true;
+    }
+    handle_deferred_commands_inner(deferred, ctx, command_source_plugin, depth)
+}
+
 fn handle_deferred_commands_inner(
     deferred: Vec<DeferredCommand>,
     ctx: &mut DeferredContext<'_>,
@@ -414,14 +442,7 @@ fn handle_deferred_commands_inner(
             DeferredCommand::PluginMessage { target, payload } => {
                 let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
                 *ctx.dirty |= flags;
-                let (normal, nested_deferred) = extract_deferred_commands(commands);
-                if matches!(
-                    execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
-                    CommandResult::Quit
-                ) {
-                    return true;
-                }
-                if handle_deferred_commands_inner(nested_deferred, ctx, Some(&target), depth + 1) {
+                if handle_command_batch_inner(commands, ctx, Some(&target), depth + 1) {
                     return true;
                 }
             }
@@ -475,23 +496,7 @@ fn handle_deferred_commands_inner(
                             ctx.registry
                                 .deliver_io_event(plugin_id, &fail_event, ctx.state);
                         *ctx.dirty |= flags;
-                        let (normal, nested_deferred) = extract_deferred_commands(fail_cmds);
-                        if matches!(
-                            execute_commands(
-                                normal,
-                                ctx.session_host.active_writer(),
-                                ctx.clipboard_get
-                            ),
-                            CommandResult::Quit
-                        ) {
-                            return true;
-                        }
-                        if handle_deferred_commands_inner(
-                            nested_deferred,
-                            ctx,
-                            Some(plugin_id),
-                            depth + 1,
-                        ) {
+                        if handle_command_batch_inner(fail_cmds, ctx, Some(plugin_id), depth + 1) {
                             return true;
                         }
                     }
@@ -607,18 +612,24 @@ pub fn handle_sourced_surface_commands(
     ctx: &mut DeferredContext<'_>,
 ) -> bool {
     for entry in command_groups {
-        let (normal, deferred) = extract_deferred_commands(entry.commands);
-        if matches!(
-            execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
-            CommandResult::Quit
-        ) {
-            return true;
-        }
-        if handle_deferred_commands(deferred, ctx, entry.source_plugin.as_ref()) {
+        if handle_command_batch(entry.commands, ctx, entry.source_plugin.as_ref()) {
             return true;
         }
     }
     false
+}
+
+/// Execute plugin `on_init()` commands once the backend has completed initial resize.
+pub fn flush_pending_init_commands(
+    pending_init_commands: &mut Vec<Command>,
+    ctx: &mut DeferredContext<'_>,
+) -> bool {
+    if pending_init_commands.is_empty() {
+        return false;
+    }
+
+    *ctx.dirty |= extract_redraw_flags(pending_init_commands);
+    handle_command_batch(std::mem::take(pending_init_commands), ctx, None)
 }
 
 /// Consume an input event that targets a workspace split divider.
@@ -640,7 +651,7 @@ pub fn handle_workspace_divider_input(
 mod tests {
     use super::*;
 
-    use crate::plugin::{Command, PluginBackend, StdinMode};
+    use crate::plugin::{Command, PluginBackend, PluginId, StdinMode};
 
     struct TestPlugin {
         id: PluginId,

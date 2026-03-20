@@ -1007,7 +1007,7 @@ For current benchmark data, see [performance.md](./performance.md).
 Kasane's rendering pipeline has multiple optimization variants:
 
 1. `render_pipeline()` — full pipeline (reference implementation)
-2. `render_pipeline_cached()` — subtree memoization via ViewCache
+2. `render_pipeline_direct()` — subtree memoization via ViewCache
 3. `render_pipeline_sectioned()` — selective redraw per section
 4. `render_pipeline_patched()` — direct cell writes via compiled patches
 5. Surface variants (`render_pipeline_surfaces_cached/sectioned/patched`)
@@ -1025,7 +1025,7 @@ Define as a formal invariant that all pipeline variants are **observationally eq
 **Equivalence axiom:**
 ```
 ∀ S ∈ ValidAppState, ∀ D ∈ DirtyFlags:
-  render_pipeline(S) ≡ render_pipeline_cached(S, D, warm_cache(S))
+  render_pipeline(S) ≡ render_pipeline_direct(S, D, warm_cache(S))
                      ≡ render_pipeline_sectioned(S, D, warm_cache(S))
                      ≡ render_pipeline_patched(S, D, warm_cache(S))
 ```

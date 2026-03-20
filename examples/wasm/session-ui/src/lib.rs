@@ -130,7 +130,7 @@ impl Guest for SessionUiPlugin {
     }
 
     kasane_plugin_sdk::slots! {
-        STATUS_RIGHT(dirty::SESSION) => |_ctx| {
+        STATUS_RIGHT => |_ctx| {
             STATE.with(|s| {
                 let state = s.borrow();
                 if state.session_count <= 1 {

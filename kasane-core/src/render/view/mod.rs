@@ -99,7 +99,7 @@ fn legacy_surface_compose_result(
 }
 
 /// Build the menu overlay section.
-#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION))]
+#[crate::kasane_component]
 fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Overlay> {
     let menu_state = state.menu.as_ref()?;
     let transform_target = match menu_state.style {
@@ -125,7 +125,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 }
 
 /// Build info overlay section with collision avoidance.
-#[crate::kasane_component(deps(INFO, MENU_STRUCTURE), stable(cursor_pos))]
+#[crate::kasane_component]
 fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();

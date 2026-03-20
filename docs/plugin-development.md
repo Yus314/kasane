@@ -19,6 +19,7 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 | `transform_element()` | Status bar customization, menu layout changes |
 | `display_directives()` | Code folding, line hiding, virtual text insertion |
 | `handle_key()` + `handle_mouse()` | Interactive pickers, dialogs |
+| `handle_default_scroll()` | Wheel policy, smooth scrolling |
 
 > Native plugins can also use `Surface` for sidebars and dedicated panels. See [Appendix A](#appendix-a-alternative-native-plugin).
 
@@ -50,7 +51,7 @@ The simple slot form `SLOT => expr` auto-wraps the expression in `auto_contribut
 |---|---|---|---|
 | 1 | `hello` | Minimal plugin, slot contribution | `define_plugin!`, `plain()`, simple slot form |
 | 2 | `contribution` | State, dirty flags, state caching | `state {}`, `#[bind]`, `dirty::BUFFER` |
-| 3 | `annotation` | Per-line decoration | `annotate()`, `annotate_deps` |
+| 3 | `annotation` | Per-line decoration | `annotate()` |
 | 4 | `overlay` | Interactive UI, key handling | `handle_key()`, `overlay()`, `redraw()` |
 | 5 | `process` | External processes, I/O events | `capabilities`, `on_io_event()`, `is_ctrl_shift()` |
 
@@ -144,13 +145,14 @@ These are available in all plugin code (emitted by `generate!()` / `define_plugi
 | Profile | Sections | Template | Example |
 |---|---|---|---|
 | Status widget | `state` (`#[bind]`), `slots` | `contribution` | sel-badge |
-| Line annotator | `state` (`#[bind]`), `annotate`, `annotate_deps` | `annotation` | cursor-line |
-| Element transformer | `state` (`#[bind]`), `transform`, `transform_deps` | `transform` | prompt-highlight |
-| Display transform | `state`, `on_state_changed`, `display_directives`, `display_directives_deps` | — | virtual-text-demo (native) |
+| Line annotator | `state` (`#[bind]`), `annotate` | `annotation` | cursor-line |
+| Element transformer | `state` (`#[bind]`), `transform` | `transform` | prompt-highlight |
+| Display transform | `state`, `on_state_changed`, `display_directives` | — | virtual-text-demo (native) |
 | Interactive overlay | `state`, `handle_key`, `overlay` | `overlay` | session-ui |
 | Process launcher | Above + `on_io_event`, `capabilities` | `process` | fuzzy-finder |
+| Scroll policy | `handle_default_scroll` | — | smooth-scroll |
 
-Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init`, `on_state_changed`, `on_state_changed_commands`, `slots`, `annotate`, `annotate_deps`, `transform`, `transform_deps`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `capabilities`, `on_io_event`.
+Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init`, `on_state_changed`, `on_state_changed_commands`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `on_io_event`.
 
 ### Build & Deploy
 
@@ -164,6 +166,11 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin install` copies the `.wasm` to `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`). The plugin loads automatically on the next `kasane` launch.
 
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
+
+WASM plugin ABI note: current Kasane releases expect
+`kasane:plugin@0.8.0`. Rebuild and reinstall any plugin that was built
+against `0.7.x`; older binaries will not load after the
+`handle_default_scroll` ABI addition.
 
 To see installed plugins or diagnose environment issues:
 
@@ -210,13 +217,6 @@ kasane_plugin_sdk::define_plugin! {
             .build()
     },
 
-    transform_deps(target) {
-        match target {
-            TransformTarget::StatusBarT => dirty::STATUS,
-            _ => 0,
-        }
-    },
-
     transform_priority: 0,
 }
 ```
@@ -225,8 +225,61 @@ kasane_plugin_sdk::define_plugin! {
 
 - **`transform(target, element, ctx)`** receives an opaque `ElementHandle` for the target element. Return it unchanged for passthrough, or wrap it with `container().build()`.
 - **`TransformTarget`** selects which UI component to transform (e.g., `StatusBarT`, `Buffer`, `MenuT`). Ignore targets your plugin doesn't handle.
-- **`transform_deps(target)`** declares per-target dirty flag dependencies for caching.
 - **`transform_priority`** (default `0`) controls ordering in the transform chain. Higher priority = applied first (inner).
+
+### Scroll Policy Example: smooth-scroll
+
+This plugin demonstrates `handle_default_scroll()` — a policy hook that runs
+after core has classified the event as a default buffer scroll candidate, but
+before fallback scroll behavior is applied.
+
+```rust
+kasane_plugin_sdk::generate!();
+
+use kasane_plugin_sdk::plugin;
+
+struct SmoothScrollPlugin;
+
+#[plugin]
+impl Guest for SmoothScrollPlugin {
+    fn get_id() -> String {
+        "smooth_scroll".to_string()
+    }
+
+    fn state_hash() -> u64 {
+        0
+    }
+
+    fn handle_default_scroll(candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
+        let enabled = host_state::get_config_string("smooth-scroll.enabled")
+            .or_else(|| host_state::get_config_string("smooth_scroll"))
+            .and_then(|raw| raw.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        if !enabled {
+            return None;
+        }
+
+        Some(ScrollPolicyResult::Plan(ScrollPlan {
+            total_amount: candidate.resolved.amount,
+            line: candidate.resolved.line,
+            column: candidate.resolved.column,
+            frame_interval_ms: 16,
+            curve: ScrollCurve::Linear,
+            accumulation: ScrollAccumulationMode::Add,
+        }))
+    }
+}
+
+export!(SmoothScrollPlugin);
+```
+
+**Key points:**
+
+- **`handle_default_scroll(candidate)`** only runs for default buffer scroll candidates. It does not override info popups, drag-scroll routing, or other core-owned scroll paths.
+- **Return `ScrollPolicyResult::Plan(...)`** to let the host runtime execute time-based scrolling. The plugin does not tick frames itself.
+- **Return `None`** to let the next scroll-policy plugin decide. For exact `None` / `Pass` / `Suppress` / `Immediate` semantics, see [`plugin-api.md`](./plugin-api.md#34-input-handling).
+- The source example lives at [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/). It is not part of the bundled WASM plugin set unless you build and install it yourself.
 
 ## Testing
 
@@ -346,7 +399,7 @@ if host_state::get_session_count() > 1 {
 
 **Key patterns from session-ui:**
 
-- Use `contribute_deps(STATUS_RIGHT) → dirty::SESSION` so the status bar indicator updates on session changes
+- Salsa tracks dependencies automatically, so session state changes trigger status bar indicator updates
 - Use `contribute_overlay_v2()` for a floating session list triggered by a keybinding
 - `state_hash()` is auto-managed via the generation counter — `bump_generation()` is called automatically in mutable contexts
 
@@ -358,10 +411,11 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 |---|---|---|
 | cursor-line | `examples/wasm/cursor-line/` | `annotate_line()`, `state_hash()` |
 | sel-badge | `examples/wasm/sel-badge/` | `contribute_to()` (`STATUS_RIGHT`) |
-| prompt-highlight | `examples/wasm/prompt-highlight/` | `transform_element()` (`StatusBarT`), `transform_deps()` |
+| prompt-highlight | `examples/wasm/prompt-highlight/` | `transform_element()` (`StatusBarT`) |
 | color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
+| smooth-scroll | `examples/wasm/smooth-scroll/` | `handle_default_scroll()`, `ScrollPolicyResult::Plan` |
 | line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |
 | virtual-text-demo (native) | `examples/virtual-text-demo/` | `Plugin` trait, `display_directives()`, `contribute_to()`, `handle_key()`, virtual text insertion |
 
@@ -426,10 +480,6 @@ impl Plugin for CursorLinePlugin {
         } else {
             None
         }
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER
     }
 }
 
@@ -498,10 +548,6 @@ impl PluginBackend for LineNumbersPlugin {
             priority: 0,
             size_hint: ContribSizeHint::Auto,
         })
-    }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
     }
 }
 

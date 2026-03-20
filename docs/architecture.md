@@ -129,7 +129,7 @@ For the full decision record, see [ADR-012](./decisions.md#adr-012-layer-respons
 ### TUI Path
 
 ```text
-view_cached -> display_policy -> place -> paint -> CellGrid -> diff -> backend.draw
+render_pipeline_cached -> display_policy -> place -> paint -> CellGrid -> diff -> backend.draw
 ```
 
 The TUI performs diff-based drawing on a cell grid, converting to escape sequences via crossterm.
@@ -137,21 +137,16 @@ The TUI performs diff-based drawing on a cell grid, converting to escape sequenc
 ### GUI Path
 
 ```text
-view_sections_cached -> display_policy -> scene_paint_section -> SceneCache -> SceneRenderer
+scene_render_pipeline_cached -> display_policy -> scene_paint_section -> SceneRenderer
 ```
 
 The GUI generates a scene description based on `DrawCommand` and draws directly to the GPU.
 
-### Cache Layers
+### Caching
 
-| Layer | Target | Role |
-|---|---|---|
-| `ViewCache` | `Element` tree | Per-section view reuse |
-| `LayoutCache` | Layout results | Per-section redraw support |
-| `SceneCache` | `DrawCommand` sequence | GUI scene reuse |
-| `PaintPatch` | `CellGrid` partial updates | TUI fast path |
+Salsa incremental computation is the sole caching layer for the rendering pipeline. Plugin contributions, element tree construction, and layout are all memoized through Salsa's dependency tracking and automatic invalidation. There are no separate ViewCache, SceneCache, or PaintPatch layers.
 
-For the semantics and invalidation policy of each cache, see [semantics.md](./semantics.md).
+For the semantics and invalidation policy, see [semantics.md](./semantics.md).
 
 ## Display Policy Layer
 

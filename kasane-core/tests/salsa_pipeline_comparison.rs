@@ -11,7 +11,7 @@ use kasane_core::plugin::{
     TransformContext, TransformTarget,
 };
 use kasane_core::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
-use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_salsa_cached};
+use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
@@ -44,7 +44,7 @@ fn render_salsa(
 ) -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
-    render_pipeline_salsa_cached(
+    render_pipeline_cached(
         db,
         handles,
         state,
@@ -309,10 +309,6 @@ impl PluginBackend for BufferLeftPlugin {
             None
         }
     }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
-    }
 }
 
 /// Plugin that contributes to STATUS_RIGHT.
@@ -343,10 +339,6 @@ impl PluginBackend for StatusRightPlugin {
             None
         }
     }
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::OPTIONS
-    }
 }
 
 /// Plugin that wraps the buffer element with a banner line.
@@ -376,10 +368,6 @@ impl PluginBackend for BufferTransformPlugin {
         } else {
             element
         }
-    }
-
-    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
-        DirtyFlags::empty()
     }
 }
 
@@ -419,10 +407,6 @@ impl PluginBackend for LineHighlightPlugin {
             None
         }
     }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
-    }
 }
 
 /// Plugin that contributes a left gutter element per line.
@@ -450,10 +434,6 @@ impl PluginBackend for GutterPlugin {
             background: None,
             priority: 0,
         })
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER_CONTENT
     }
 }
 

@@ -13,6 +13,7 @@ use kasane_core::plugin::{
     PluginId, SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
+use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::{
     EventContext, SizeHint, SlotDeclaration, Surface, SurfaceEvent, SurfaceId,
@@ -348,6 +349,38 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        self.shared.with_runtime(|runtime| {
+            host::sync_from_app_state(runtime.store.data_mut(), state);
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            let wit_candidate = convert::default_scroll_candidate_to_wit(&candidate);
+            let result =
+                match plugin_api.call_handle_default_scroll(&mut runtime.store, wit_candidate) {
+                    Ok(Some(result)) => Some(convert::wit_scroll_policy_result_to_result(&result)),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::error!(
+                            "WASM plugin {}.handle_default_scroll failed: {e}",
+                            self.shared.plugin_id.0
+                        );
+                        return None;
+                    }
+                };
+
+            if result.is_some()
+                && let Ok(h) = plugin_api.call_state_hash(&mut runtime.store)
+            {
+                self.shared.set_state_hash(h);
+            }
+
+            result
+        })
+    }
+
     fn transform_menu_item(
         &self,
         item: &[Atom],
@@ -449,23 +482,6 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn contribute_deps(&self, region: &SlotId) -> DirtyFlags {
-        let wit_region = convert::slot_id_to_wit(region);
-        self.shared.with_runtime(|runtime| {
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            match plugin_api.call_contribute_deps(&mut runtime.store, &wit_region) {
-                Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.contribute_deps failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    DirtyFlags::ALL
-                }
-            }
-        })
-    }
-
     fn transform(
         &self,
         target: &TransformTarget,
@@ -514,23 +530,6 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn transform_deps(&self, target: &TransformTarget) -> DirtyFlags {
-        self.shared.with_runtime(|runtime| {
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            let wit_target = convert::transform_target_to_wit(target);
-            match plugin_api.call_transform_deps(&mut runtime.store, wit_target) {
-                Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.transform_deps failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    DirtyFlags::ALL
-                }
-            }
-        })
-    }
-
     fn annotate_line_with_ctx(
         &self,
         line: usize,
@@ -562,22 +561,6 @@ impl PluginBackend for WasmPlugin {
                         priority: wit_ann.priority,
                     }
                 }))
-        })
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        self.shared.with_runtime(|runtime| {
-            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
-            match plugin_api.call_annotate_deps(&mut runtime.store) {
-                Ok(bits) => DirtyFlags::from_bits_truncate(bits),
-                Err(e) => {
-                    tracing::error!(
-                        "WASM plugin {}.annotate_deps failed: {e}",
-                        self.shared.plugin_id.0
-                    );
-                    DirtyFlags::ALL
-                }
-            }
         })
     }
 

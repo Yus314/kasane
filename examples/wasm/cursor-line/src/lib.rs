@@ -32,10 +32,6 @@ impl Guest for CursorLinePlugin {
         let active = ACTIVE_LINE.get();
         (line as i32 == active).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
     }
-
-    fn annotate_deps() -> u16 {
-        dirty::BUFFER
-    }
 }
 
 export!(CursorLinePlugin);

@@ -17,12 +17,15 @@ use bitflags::bitflags;
 use crate::DirtyTracked;
 use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
-use crate::protocol::{Coord, CursorMode, Face, KasaneRequest, Line};
+use crate::protocol::{Coord, CursorMode, Face, Line};
+use crate::scroll::{
+    SMOOTH_SCROLL_CONFIG_KEY, is_smooth_scroll_config_key, set_smooth_scroll_enabled,
+};
 use crate::session::SessionDescriptor;
 
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
-pub use update::{Msg, update};
+pub use update::{Msg, UpdateResult, update};
 
 bitflags! {
     /// Tracks which parts of `AppState` changed during a frame.
@@ -72,18 +75,6 @@ pub enum DragState {
         start_line: u32,
         start_column: u32,
     },
-}
-
-/// State for smooth scroll animation.
-#[derive(Debug, Clone, Default)]
-pub struct ScrollAnimation {
-    /// Remaining scroll amount (positive=down, negative=up).
-    pub remaining: i32,
-    /// Scroll amount per frame.
-    pub step: i32,
-    /// Mouse coordinates that initiated the scroll.
-    pub line: u32,
-    pub column: u32,
 }
 
 /// The central application state, updated by Kakoune JSON-RPC messages via [`apply`](AppState::apply).
@@ -190,8 +181,6 @@ pub struct AppState {
     pub plugin_config: HashMap<String, String>,
     #[dirty(BUFFER_CONTENT)]
     pub secondary_blend_ratio: f32,
-    #[dirty(free)]
-    pub smooth_scroll: bool,
 
     // -- Session metadata (from SessionManager, preserved across session switches) --
     #[dirty(SESSION)]
@@ -204,8 +193,6 @@ pub struct AppState {
     pub focused: bool,
     #[dirty(free)]
     pub drag: DragState,
-    #[dirty(free)]
-    pub scroll_animation: Option<ScrollAnimation>,
     #[dirty(free)]
     pub cols: u16,
     #[dirty(free)]
@@ -251,7 +238,7 @@ impl AppState {
         self.menu_position = config.menu.menu_position();
         self.search_dropdown = config.search.dropdown;
         self.status_at_top = config.ui.status_position() == StatusPosition::Top;
-        self.smooth_scroll = config.scroll.smooth;
+        set_smooth_scroll_enabled(&mut self.plugin_config, config.scroll.smooth);
     }
 
     /// Reset session-owned UI state while preserving frontend configuration and dimensions.
@@ -282,7 +269,6 @@ impl AppState {
             cursor_count,
             secondary_cursors,
             drag,
-            scroll_animation,
             // === PRESERVE: discard defaults, keep current values ===
             cols: _,
             rows: _,
@@ -298,7 +284,6 @@ impl AppState {
             assistant_art: _,
             plugin_config: _,
             secondary_blend_ratio: _,
-            smooth_scroll: _,
             session_descriptors: _,
             active_session_key: _,
         } = d;
@@ -322,7 +307,6 @@ impl AppState {
         self.cursor_count = cursor_count;
         self.secondary_cursors = secondary_cursors;
         self.drag = drag;
-        self.scroll_animation = scroll_animation;
     }
 }
 
@@ -348,8 +332,9 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
             state.status_at_top = value == "true";
             *dirty |= DirtyFlags::OPTIONS;
         }
-        "smooth_scroll" => {
-            state.smooth_scroll = value == "true";
+        key if is_smooth_scroll_config_key(key) => {
+            set_smooth_scroll_enabled(&mut state.plugin_config, value == "true");
+            *dirty |= DirtyFlags::OPTIONS;
         }
         "cursor.secondary_blend" => {
             if let Ok(ratio) = value.parse::<f32>() {
@@ -367,7 +352,7 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
         }
         _ => {
             // Unknown keys go to ui_options (for Kakoune ui_options) or plugin_config
-            if key.contains('.') {
+            if key == SMOOTH_SCROLL_CONFIG_KEY || key.contains('.') {
                 // Plugin-namespaced keys (e.g. "color-preview.opacity")
                 state
                     .plugin_config
@@ -378,23 +363,6 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
             *dirty |= DirtyFlags::OPTIONS;
         }
     }
-}
-
-/// Advance the scroll animation by one frame.
-/// Returns `Some(Command)` with the scroll request if animation is active, `None` otherwise.
-pub fn tick_scroll_animation(state: &mut AppState) -> Option<crate::plugin::Command> {
-    let anim = state.scroll_animation.as_mut()?;
-    let step = anim.step.min(anim.remaining.abs()) * anim.remaining.signum();
-    let req = KasaneRequest::Scroll {
-        amount: step,
-        line: anim.line,
-        column: anim.column,
-    };
-    anim.remaining -= step;
-    if anim.remaining == 0 {
-        state.scroll_animation = None;
-    }
-    Some(crate::plugin::Command::SendToKakoune(req))
 }
 
 impl Default for AppState {
@@ -433,8 +401,6 @@ impl Default for AppState {
             active_session_key: None,
             drag: DragState::None,
             secondary_blend_ratio: 0.4,
-            smooth_scroll: false,
-            scroll_animation: None,
             cols: 80,
             rows: 24,
         }

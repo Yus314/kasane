@@ -21,7 +21,7 @@ const SUFFIX_RESERVE: usize = 2;
 /// Maximum height for the search dropdown menu.
 const MAX_DROPDOWN_HEIGHT: u16 = 10;
 
-#[crate::kasane_component(deps(MENU_STRUCTURE, MENU_SELECTION, OPTIONS))]
+#[crate::kasane_component]
 pub(crate) fn build_menu_overlay(
     menu: &MenuState,
     state: &AppState,

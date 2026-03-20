@@ -104,10 +104,6 @@ impl Guest for SurfaceProbePlugin {
         host_state::get_cursor_line() as u64
     }
 
-    fn slot_deps(_slot: u8) -> u16 {
-        kasane_plugin_sdk::dirty::ALL
-    }
-
     kasane_plugin_sdk::default_lifecycle!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
@@ -125,9 +121,6 @@ impl Guest for SurfaceProbePlugin {
     kasane_plugin_sdk::default_overlay_v2!();
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_contribute_to!();
-    kasane_plugin_sdk::default_contribute_deps!();
-    kasane_plugin_sdk::default_transform_deps!();
-    kasane_plugin_sdk::default_annotate_deps!();
     kasane_plugin_sdk::default_capabilities!();
     kasane_plugin_sdk::default_io_event!();
 }

@@ -69,13 +69,6 @@ fn status_right_shown_multiple_sessions() {
 }
 
 #[test]
-fn contribute_deps_session_flag() {
-    let plugin = load_session_ui_plugin();
-    let deps = plugin.contribute_deps(&SlotId::STATUS_RIGHT);
-    assert!(deps.contains(DirtyFlags::SESSION));
-}
-
-#[test]
 fn ctrl_t_opens_switcher() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(2);

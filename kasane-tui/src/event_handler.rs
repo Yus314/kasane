@@ -5,19 +5,20 @@ use std::io::Write;
 use anyhow::Result;
 
 use kasane_core::event_loop::{
-    DeferredContext, EventResult, TimerScheduler, handle_deferred_commands,
-    handle_sourced_surface_commands, handle_workspace_divider_input, surface_event_from_input,
+    DeferredContext, EventResult, TimerScheduler, flush_pending_init_commands,
+    handle_command_batch, handle_sourced_surface_commands, handle_workspace_divider_input,
+    surface_event_from_input,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    CommandResult, IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    ProcessEventSink, execute_commands, extract_deferred_commands,
+    IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent, ProcessEventSink,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
+use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
-use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 
 use crate::backend::TuiBackend;
@@ -192,6 +193,9 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub initial_resize_sent: &'a mut bool,
     pub dirty: &'a mut DirtyFlags,
     pub timer: &'a TuiTimerScheduler,
+    pub scroll_runtime: &'a mut ScrollRuntime,
+    pub scroll_runtime_session: &'a mut Option<SessionId>,
+    pub pending_init_commands: &'a mut Vec<kasane_core::plugin::Command>,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_reloader: &'a Option<crate::PluginReloader>,
 }
@@ -224,21 +228,30 @@ where
                 ctx.state.rows,
                 ctx.state.cols,
             );
-            let (f, c, _source) = update(
+            if flush_pending_init_commands_if_ready(ctx) {
+                return true;
+            }
+            let UpdateResult {
+                flags,
+                commands,
+                scroll_plans,
+                source_plugin: _source,
+            } = update(
                 ctx.state,
                 Msg::Kakoune(req),
                 ctx.registry,
                 ctx.scroll_amount,
             );
-            let surface_commands = if f.is_empty() {
+            let surface_commands = if flags.is_empty() {
                 vec![]
             } else {
                 ctx.surface_registry
-                    .on_state_changed_with_sources(ctx.state, f)
+                    .on_state_changed_with_sources(ctx.state, flags)
             };
             EventResult {
-                flags: f,
-                commands: c,
+                flags,
+                commands,
+                scroll_plans,
                 surface_commands,
                 command_source: None,
             }
@@ -262,12 +275,18 @@ where
                 EventResult {
                     flags: divider_dirty,
                     commands: vec![],
+                    scroll_plans: vec![],
                     surface_commands: vec![],
                     command_source: None,
                 }
             } else {
                 let surface_event = surface_event_from_input(&input_event);
-                let (f, c, source) = update(
+                let UpdateResult {
+                    flags,
+                    commands,
+                    scroll_plans,
+                    source_plugin,
+                } = update(
                     ctx.state,
                     Msg::from(input_event),
                     ctx.registry,
@@ -280,10 +299,11 @@ where
                     })
                     .unwrap_or_default();
                 EventResult {
-                    flags: f,
-                    commands: c,
+                    flags,
+                    commands,
+                    scroll_plans,
                     surface_commands,
-                    command_source: source,
+                    command_source: source_plugin,
                 }
             }
         }
@@ -292,6 +312,7 @@ where
             EventResult {
                 flags,
                 commands,
+                scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
             }
@@ -315,6 +336,7 @@ where
             EventResult {
                 flags,
                 commands,
+                scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: Some(plugin_id),
             }
@@ -328,6 +350,7 @@ where
             EventResult {
                 flags: DirtyFlags::all(),
                 commands: vec![],
+                scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
             }
@@ -355,6 +378,9 @@ where
                     ctx.state.rows,
                     ctx.state.cols,
                 );
+                if flush_pending_init_commands_if_ready(ctx) {
+                    return true;
+                }
             }
             // Notify plugins of session change so cached state is updated.
             for plugin in ctx.registry.plugins_mut() {
@@ -388,6 +414,14 @@ where
         ctx.grid.invalidate_all();
     }
     *ctx.dirty |= result.flags;
+    let active_session = ctx.session_manager.active_session_id();
+    if *ctx.scroll_runtime_session != active_session {
+        ctx.scroll_runtime.advance_generation();
+        ctx.scroll_runtime.suspend();
+        *ctx.scroll_runtime_session = active_session;
+    }
+    ctx.scroll_runtime
+        .set_initial_resize_complete(*ctx.initial_resize_sent);
 
     // Suppress commands to Kakoune until initialization is complete.
     if is_input && !*ctx.initial_resize_sent {
@@ -396,45 +430,74 @@ where
         return false;
     }
 
-    let (normal, deferred) = extract_deferred_commands(result.commands);
-    if matches!(
-        execute_commands(
-            normal,
-            ctx.session_manager
-                .active_writer_mut()
-                .expect("missing active session writer"),
-            &mut || ctx.backend.clipboard_get(),
-        ),
-        CommandResult::Quit
-    ) {
-        return true;
+    for plan in result.scroll_plans {
+        ctx.scroll_runtime.enqueue(plan);
     }
+
     let should_quit = {
-        let mut session_host = TuiSessionRuntime {
-            session_manager: ctx.session_manager,
-            session_states: ctx.session_states,
-            tx: ctx.session_tx.clone(),
-            spawn_session: ctx.spawn_session,
-        };
-        let mut deferred_ctx = DeferredContext {
-            state: ctx.state,
-            registry: ctx.registry,
-            surface_registry: ctx.surface_registry,
-            clipboard_get: &mut || ctx.backend.clipboard_get(),
-            dirty: ctx.dirty,
-            timer: ctx.timer,
-            session_host: &mut session_host,
-            initial_resize_sent: ctx.initial_resize_sent,
-            process_dispatcher: ctx.process_dispatcher,
-        };
-        if handle_deferred_commands(deferred, &mut deferred_ctx, result.command_source.as_ref()) {
-            return true;
-        }
-        handle_sourced_surface_commands(result.surface_commands, &mut deferred_ctx)
+        with_deferred_context(ctx, |deferred_ctx| {
+            if handle_command_batch(
+                result.commands,
+                deferred_ctx,
+                result.command_source.as_ref(),
+            ) {
+                return true;
+            }
+            handle_sourced_surface_commands(result.surface_commands, deferred_ctx)
+        })
     };
     if !should_quit {
         ctx.session_states
             .sync_active_from_manager(ctx.session_manager, ctx.state);
     }
     should_quit
+}
+
+fn flush_pending_init_commands_if_ready<R, W, C>(
+    ctx: &mut EventProcessingContext<'_, R, W, C>,
+) -> bool
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    if !*ctx.initial_resize_sent || ctx.pending_init_commands.is_empty() {
+        return false;
+    }
+
+    let mut pending_init_commands = std::mem::take(ctx.pending_init_commands);
+    let should_quit = with_deferred_context(ctx, |deferred_ctx| {
+        flush_pending_init_commands(&mut pending_init_commands, deferred_ctx)
+    });
+    *ctx.pending_init_commands = pending_init_commands;
+    should_quit
+}
+
+fn with_deferred_context<R, W, C, T>(
+    ctx: &mut EventProcessingContext<'_, R, W, C>,
+    f: impl FnOnce(&mut DeferredContext<'_>) -> T,
+) -> T
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    let mut session_host = TuiSessionRuntime {
+        session_manager: ctx.session_manager,
+        session_states: ctx.session_states,
+        tx: ctx.session_tx.clone(),
+        spawn_session: ctx.spawn_session,
+    };
+    let mut deferred_ctx = DeferredContext {
+        state: ctx.state,
+        registry: ctx.registry,
+        surface_registry: ctx.surface_registry,
+        clipboard_get: &mut || ctx.backend.clipboard_get(),
+        dirty: ctx.dirty,
+        timer: ctx.timer,
+        session_host: &mut session_host,
+        initial_resize_sent: ctx.initial_resize_sent,
+        process_dispatcher: ctx.process_dispatcher,
+    };
+    f(&mut deferred_ctx)
 }

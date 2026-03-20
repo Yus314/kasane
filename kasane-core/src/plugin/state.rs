@@ -10,6 +10,7 @@ use dyn_clone::DynClone;
 
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
+use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
@@ -149,6 +150,16 @@ pub trait Plugin: Send + 'static {
         None
     }
 
+    fn handle_default_scroll(
+        &self,
+        state: &Self::State,
+        candidate: DefaultScrollCandidate,
+        app: &AppState,
+    ) -> Option<(Self::State, ScrollPolicyResult)> {
+        let _ = (state, candidate, app);
+        None
+    }
+
     fn update(
         &self,
         state: &Self::State,
@@ -230,31 +241,9 @@ pub trait Plugin: Send + 'static {
         0
     }
 
-    // --- Dependency declarations ---
-
-    fn contribute_deps(&self, _region: &SlotId) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn transform_deps(&self, _target: &TransformTarget) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn annotate_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
     fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
         let _ = (state, app);
         vec![]
-    }
-
-    fn display_directives_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn overlay_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
     }
 }
 
@@ -330,10 +319,6 @@ pub(in crate::plugin) mod tests {
                 None
             }
         }
-
-        fn annotate_deps(&self) -> DirtyFlags {
-            DirtyFlags::BUFFER
-        }
     }
 
     // ---- ColorPreviewPure test double (complex state) ----
@@ -406,10 +391,6 @@ pub(in crate::plugin) mod tests {
             } else {
                 None
             }
-        }
-
-        fn annotate_deps(&self) -> DirtyFlags {
-            DirtyFlags::BUFFER
         }
     }
 

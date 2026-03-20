@@ -667,7 +667,7 @@ Theorem (Trace-Equivalence):
   consistent with prior state history:
 
     render_pipeline(S, ALL, ∅)
-      ≡obs render_pipeline_cached(S, D, C)
+      ≡obs render_pipeline_direct(S, D, C)
       ≡obs render_pipeline_sectioned(S, D, C)
       ≡obs render_pipeline_patched(S, D, C)
 

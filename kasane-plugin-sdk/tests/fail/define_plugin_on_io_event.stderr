@@ -1,0 +1,5 @@
+error: define_plugin! `on_io_event` was removed; use `on_io_event_effects(...)`
+ --> tests/fail/define_plugin_on_io_event.rs:4:5
+  |
+4 |     on_io_event(event) {
+  |     ^^^^^^^^^^^

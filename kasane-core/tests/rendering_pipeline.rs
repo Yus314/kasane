@@ -285,7 +285,7 @@ fn resize_updates_grid() {
     let mut grid = CellGrid::new(state.cols, state.rows);
     let mut registry = PluginRegistry::new();
 
-    let (flags, _cmds, _) = update(
+    let result = update(
         &mut state,
         Msg::Resize {
             cols: 120,
@@ -294,6 +294,7 @@ fn resize_updates_grid() {
         &mut registry,
         3,
     );
+    let flags = result.flags;
     // Caller must resize grid after update() returns ALL
     grid.resize(state.cols, state.rows);
     grid.invalidate_all();
@@ -434,7 +435,8 @@ fn update_kakoune_draw_message() {
         padding_face: Face::default(),
         widget_columns: 0,
     };
-    let (flags, cmds, _) = update(&mut state, Msg::Kakoune(req), &mut registry, 3);
+    let result = update(&mut state, Msg::Kakoune(req), &mut registry, 3);
+    let (flags, cmds) = (result.flags, result.commands);
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(cmds.is_empty(), "draw should not produce commands");
 
@@ -447,13 +449,13 @@ fn update_focus_changes() {
     let mut state = setup_state(vec![make_line("text")]);
     let mut registry = PluginRegistry::new();
 
-    let (flags, _, _) = update(&mut state, Msg::FocusLost, &mut registry, 3);
+    let result = update(&mut state, Msg::FocusLost, &mut registry, 3);
     assert!(!state.focused);
-    assert!(flags.contains(DirtyFlags::ALL));
+    assert!(result.flags.contains(DirtyFlags::ALL));
 
-    let (flags, _, _) = update(&mut state, Msg::FocusGained, &mut registry, 3);
+    let result = update(&mut state, Msg::FocusGained, &mut registry, 3);
     assert!(state.focused);
-    assert!(flags.contains(DirtyFlags::ALL));
+    assert!(result.flags.contains(DirtyFlags::ALL));
 }
 
 // ===========================================================================
@@ -508,12 +510,12 @@ fn long_line_truncated_at_screen_width() {
 // Line-level dirty tracking
 // ===========================================================================
 
-/// Helper: render with line-dirty optimization using render_pipeline_cached.
+/// Helper: render with line-dirty optimization using render_pipeline_direct.
 fn render_with_dirty(state: &AppState, dirty: DirtyFlags, grid: &mut CellGrid) {
-    use kasane_core::render::render_pipeline_cached;
+    use kasane_core::render::render_pipeline_direct;
 
     let registry = PluginRegistry::new();
-    render_pipeline_cached(state, &registry, grid, dirty);
+    render_pipeline_direct(state, &registry, grid, dirty);
 }
 
 #[test]
@@ -642,7 +644,7 @@ fn test_line_dirty_full_repaint_on_overlay() {
 /// as the legacy view()-based pipeline.
 #[test]
 fn test_salsa_pipeline_equivalence_empty_state() {
-    use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};
+    use kasane_core::render::{render_pipeline, render_pipeline_cached};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
         SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
@@ -666,7 +668,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
-    let salsa_result = render_pipeline_salsa_cached(
+    let salsa_result = render_pipeline_cached(
         &db,
         &handles,
         &state,
@@ -706,7 +708,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
 /// Verify Salsa pipeline equivalence with menu overlay.
 #[test]
 fn test_salsa_pipeline_equivalence_with_menu() {
-    use kasane_core::render::{render_pipeline, render_pipeline_salsa_cached};
+    use kasane_core::render::{render_pipeline, render_pipeline_cached};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
         SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
@@ -738,7 +740,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     sync_plugin_contributions(&mut db, &state, &registry, &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
-    let _salsa_result = render_pipeline_salsa_cached(
+    let _salsa_result = render_pipeline_cached(
         &db,
         &handles,
         &state,

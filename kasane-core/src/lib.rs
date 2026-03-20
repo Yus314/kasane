@@ -15,6 +15,7 @@ pub mod salsa_inputs;
 pub mod salsa_queries;
 pub mod salsa_sync;
 pub mod salsa_views;
+pub mod scroll;
 pub mod session;
 pub mod state;
 pub mod surface;
