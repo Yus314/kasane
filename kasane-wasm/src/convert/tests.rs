@@ -171,6 +171,98 @@ fn convert_scroll_policy_result_from_wit() {
 }
 
 #[test]
+fn convert_bootstrap_effects_from_wit() {
+    let effects = wit::BootstrapEffects {
+        redraw: (DirtyFlags::BUFFER_CONTENT | DirtyFlags::STATUS).bits(),
+    };
+
+    let converted = wit_bootstrap_effects_to_effects(&effects);
+
+    assert!(converted.redraw.contains(DirtyFlags::BUFFER_CONTENT));
+    assert!(converted.redraw.contains(DirtyFlags::STATUS));
+}
+
+#[test]
+fn convert_runtime_effects_from_wit() {
+    let effects = wit::RuntimeEffects {
+        redraw: DirtyFlags::SESSION.bits(),
+        commands: vec![wit::Command::Quit],
+        scroll_plans: vec![wit::ScrollPlan {
+            total_amount: 3,
+            line: 9,
+            column: 2,
+            frame_interval_ms: 12,
+            curve: wit::ScrollCurve::Linear,
+            accumulation: wit::ScrollAccumulationMode::Replace,
+        }],
+    };
+
+    let converted = wit_runtime_effects_to_effects(&effects);
+
+    assert_eq!(converted.redraw, DirtyFlags::SESSION);
+    assert!(matches!(converted.commands.as_slice(), [Command::Quit]));
+    assert_eq!(
+        converted.scroll_plans,
+        vec![ScrollPlan::new(
+            3,
+            9,
+            2,
+            12,
+            ScrollCurve::Linear,
+            ScrollAccumulationMode::Replace,
+        )]
+    );
+}
+
+#[test]
+fn convert_session_ready_effects_from_wit() {
+    let effects = wit::SessionReadyEffects {
+        redraw: DirtyFlags::STATUS.bits(),
+        commands: vec![
+            wit::SessionReadyCommand::SendKeys(vec!["g".into(), "g".into()]),
+            wit::SessionReadyCommand::PluginMessage(wit::MessageConfig {
+                target_plugin: "peer".into(),
+                payload: vec![1, 2, 3],
+            }),
+        ],
+        scroll_plans: vec![wit::ScrollPlan {
+            total_amount: 5,
+            line: 4,
+            column: 1,
+            frame_interval_ms: 16,
+            curve: wit::ScrollCurve::Linear,
+            accumulation: wit::ScrollAccumulationMode::Add,
+        }],
+    };
+
+    let converted = wit_session_ready_effects_to_effects(&effects);
+
+    assert_eq!(converted.redraw, DirtyFlags::STATUS);
+    assert!(matches!(
+        converted.commands.first(),
+        Some(kasane_core::plugin::SessionReadyCommand::SendToKakoune(
+            KasaneRequest::Keys(keys)
+        )) if keys == &vec!["g".to_string(), "g".to_string()]
+    ));
+    assert!(matches!(
+        converted.commands.get(1),
+        Some(kasane_core::plugin::SessionReadyCommand::PluginMessage { target, .. })
+        if target.0 == "peer"
+    ));
+    assert_eq!(
+        converted.scroll_plans,
+        vec![ScrollPlan::new(
+            5,
+            4,
+            1,
+            16,
+            ScrollCurve::Linear,
+            ScrollAccumulationMode::Add,
+        )]
+    );
+}
+
+#[test]
 fn convert_command_quit() {
     let wc = wit::Command::Quit;
     assert!(matches!(wit_command_to_command(&wc), Command::Quit));

@@ -1,6 +1,7 @@
 use super::*;
 use crate::input::KeyEvent;
 use crate::layout::SplitDirection;
+use crate::plugin::{BootstrapEffects, RuntimeEffects};
 use crate::protocol::Face;
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{Surface, SurfaceId};
@@ -41,18 +42,20 @@ impl PluginBackend for LifecyclePlugin {
         PluginId("lifecycle".to_string())
     }
 
-    fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
+    fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
         self.init_called = true;
-        vec![Command::RequestRedraw(DirtyFlags::BUFFER)]
+        BootstrapEffects {
+            redraw: DirtyFlags::BUFFER,
+        }
     }
 
     fn on_shutdown(&mut self) {
         self.shutdown_called = true;
     }
 
-    fn on_state_changed(&mut self, _state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
+    fn on_state_changed_effects(&mut self, _state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
         self.state_changes.push(dirty);
-        vec![]
+        RuntimeEffects::default()
     }
 }
 

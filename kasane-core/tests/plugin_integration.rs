@@ -64,7 +64,7 @@ fn handle_key_first_wins() {
     let mut state = setup_state(vec![make_line("text")]);
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(KeyConsumerPluginPlugin::new()));
-    registry.init_all(&state);
+    let _ = registry.init_all_batch(&state);
 
     // Case 1: Ctrl+S should be consumed by the plugin
     let ctrl_s = KeyEvent {
@@ -107,7 +107,7 @@ fn handle_key_first_wins() {
 
 #[kasane_plugin]
 mod msg_receiver_plugin {
-    use kasane_core::plugin::Command;
+    use kasane_core::plugin::RuntimeEffects;
     use kasane_core::state::{AppState, DirtyFlags};
 
     #[state]
@@ -121,11 +121,22 @@ mod msg_receiver_plugin {
         SetValue(u32),
     }
 
-    pub fn update(state: &mut State, msg: Msg, _core: &AppState) -> Vec<Command> {
+    pub fn update_effects(
+        state: &mut State,
+        msg: &mut dyn std::any::Any,
+        _core: &AppState,
+    ) -> RuntimeEffects {
+        let msg = msg
+            .downcast_ref::<Msg>()
+            .expect("typed plugin integration test payload must match Msg");
         match msg {
             Msg::SetValue(v) => {
-                state.value = v;
-                vec![Command::RequestRedraw(DirtyFlags::STATUS)]
+                state.value = *v;
+                RuntimeEffects {
+                    redraw: DirtyFlags::STATUS,
+                    commands: vec![],
+                    scroll_plans: vec![],
+                }
             }
         }
     }
@@ -137,23 +148,20 @@ fn plugin_message_delivery() {
 
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(MsgReceiverPluginPlugin::new()));
-    registry.init_all(&state);
+    let _ = registry.init_all_batch(&state);
 
     let target_id = kasane_core::plugin::PluginId("msg_receiver_plugin".into());
     let payload: Box<dyn std::any::Any> = Box::new(msg_receiver_plugin::Msg::SetValue(42));
-    let (flags, cmds) = registry.deliver_message(&target_id, payload, &state);
+    let batch = registry.deliver_message_batch(&target_id, payload, &state);
 
-    // Assertion 1: RequestRedraw(STATUS) is extracted into flags
     assert!(
-        flags.contains(DirtyFlags::STATUS),
-        "deliver_message should return STATUS flag, got: {flags:?}"
+        batch.effects.redraw.contains(DirtyFlags::STATUS),
+        "deliver_message_batch should return STATUS redraw effect, got: {:?}",
+        batch.effects.redraw
     );
-
-    // Assertion 2: commands are empty (RequestRedraw was extracted)
     assert!(
-        cmds.is_empty(),
-        "commands should be empty after extracting RequestRedraw, got {} commands",
-        cmds.len()
+        batch.effects.commands.is_empty(),
+        "typed update_effects should not emit direct commands"
     );
 }
 
@@ -213,7 +221,7 @@ fn menu_transform_adds_prefix() {
 
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(PrefixPluginPlugin::new()));
-    registry.init_all(&state);
+    let _ = registry.init_all_batch(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
 
     let grid = render_with_registry(&state, &registry);
@@ -280,7 +288,7 @@ fn buffer_transform_adds_banner() {
 
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(BufferBannerPlugin::new()));
-    registry.init_all(&state);
+    let _ = registry.init_all_batch(&state);
 
     let transformed = registry.apply_transform_chain(
         kasane_core::plugin::TransformTarget::Buffer,
@@ -347,7 +355,7 @@ fn above_and_below_buffer_slots_render() {
 
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(VerticalBandsPlugin));
-    registry.init_all(&state);
+    let _ = registry.init_all_batch(&state);
 
     let grid = render_with_registry(&state, &registry);
     let rows: Vec<String> = (0..state.rows).map(|y| row_text(&grid, y)).collect();
@@ -391,7 +399,7 @@ fn cursor_style_override_wins_over_default_logic() {
 
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(UnderlineCursorPlugin));
-    registry.init_all(&state);
+    let _ = registry.init_all_batch(&state);
 
     assert_eq!(
         registry.cursor_style_override(&state),

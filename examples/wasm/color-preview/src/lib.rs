@@ -235,72 +235,74 @@ fn build_color_grid(entry: &ColorEntry, color_idx: u8) -> ElementHandle {
 
 struct ColorPreviewPlugin;
 
+fn refresh_color_state(dirty_flags: u16) {
+    if dirty_flags & dirty::BUFFER == 0 {
+        return;
+    }
+
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let mut changed = false;
+
+        let cursor_line = host_state::get_cursor_line();
+        if state.active_line != cursor_line {
+            state.active_line = cursor_line;
+            changed = true;
+        }
+
+        let line_count = host_state::get_line_count();
+        for i in 0..line_count {
+            if !host_state::is_line_dirty(i) {
+                continue;
+            }
+
+            let text = match host_state::get_line_text(i) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            let idx = i as usize;
+            let colors = detect_colors(&text);
+
+            if colors.is_empty() {
+                if state.color_lines.remove(&idx).is_some() {
+                    changed = true;
+                }
+            } else {
+                let cl = ColorLine { colors };
+                if state.color_lines.get(&idx) != Some(&cl) {
+                    state.color_lines.insert(idx, cl);
+                    changed = true;
+                }
+            }
+        }
+
+        let lc = line_count as usize;
+        state.color_lines.retain(|&k, _| k < lc);
+
+        if changed {
+            state.bump_generation();
+        }
+    });
+}
+
 #[plugin]
 impl Guest for ColorPreviewPlugin {
     fn get_id() -> String {
         "color_preview".to_string()
     }
 
-    fn on_init() -> Vec<Command> {
-        vec![]
+    fn on_init_effects() -> BootstrapEffects {
+        BootstrapEffects::default()
     }
 
     fn on_shutdown() -> Vec<Command> {
         vec![]
     }
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::BUFFER == 0 {
-            return vec![];
-        }
-
-        STATE.with(|state| {
-            let mut state = state.borrow_mut();
-            let mut changed = false;
-
-            let cursor_line = host_state::get_cursor_line();
-            if state.active_line != cursor_line {
-                state.active_line = cursor_line;
-                changed = true;
-            }
-
-            let line_count = host_state::get_line_count();
-            for i in 0..line_count {
-                if !host_state::is_line_dirty(i) {
-                    continue;
-                }
-
-                let text = match host_state::get_line_text(i) {
-                    Some(t) => t,
-                    None => continue,
-                };
-
-                let idx = i as usize;
-                let colors = detect_colors(&text);
-
-                if colors.is_empty() {
-                    if state.color_lines.remove(&idx).is_some() {
-                        changed = true;
-                    }
-                } else {
-                    let cl = ColorLine { colors };
-                    if state.color_lines.get(&idx) != Some(&cl) {
-                        state.color_lines.insert(idx, cl);
-                        changed = true;
-                    }
-                }
-            }
-
-            // Remove entries for deleted lines
-            let lc = line_count as usize;
-            state.color_lines.retain(|&k, _| k < lc);
-
-            if changed {
-                state.bump_generation();
-            }
-
-            vec![]
-        })
+    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+        refresh_color_state(dirty_flags);
+        RuntimeEffects::default()
     }
 
     fn handle_mouse(event: MouseEvent, id: InteractiveId) -> Option<Vec<Command>> {

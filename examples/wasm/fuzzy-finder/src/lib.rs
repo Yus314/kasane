@@ -275,6 +275,90 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
 
 struct FuzzyFinderPlugin;
 
+fn handle_io_event_runtime(event: IoEvent) -> RuntimeEffects {
+    RuntimeEffects {
+        redraw: 0,
+        commands: handle_io_event_commands(event),
+        scroll_plans: vec![],
+    }
+}
+
+fn handle_io_event_commands(event: IoEvent) -> Vec<Command> {
+    STATE.with(|s| {
+        let mut state = s.borrow_mut();
+
+        match event {
+            IoEvent::Process(pe) => {
+                let job_id = pe.job_id;
+                match pe.kind {
+                    ProcessEventKind::Stdout(data) => {
+                        if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
+                            state.fd_buf.extend_from_slice(&data);
+                        } else if job_id == state.current_fzf_job_id() {
+                            state.fzf_buf.extend_from_slice(&data);
+                        }
+                        vec![]
+                    }
+                    ProcessEventKind::Stderr(_) => vec![],
+                    ProcessEventKind::Exited(exit_code) => {
+                        if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
+                            if exit_code == 0 || !state.fd_buf.is_empty() {
+                                state.file_list = split_lines(&state.fd_buf);
+                                state.fd_buf.clear();
+                                state.state = FzfState::Ready;
+                                state.bump_generation();
+
+                                if !state.query.is_empty() {
+                                    state.fzf_job_gen += 1;
+                                    state.fzf_buf.clear();
+                                    state.state = FzfState::Filtering;
+                                    let mut cmds = spawn_fzf_filter(&state);
+                                    cmds.push(Command::RequestRedraw(dirty::ALL));
+                                    return cmds;
+                                }
+
+                                return vec![Command::RequestRedraw(dirty::ALL)];
+                            }
+                            state.state = FzfState::Error("file listing failed".to_string());
+                            state.bump_generation();
+                            return vec![Command::RequestRedraw(dirty::ALL)];
+                        }
+
+                        if job_id == state.current_fzf_job_id() {
+                            state.results = split_lines(&state.fzf_buf);
+                            state.fzf_buf.clear();
+                            state.clamp_selected();
+                            state.state = FzfState::Ready;
+                            state.bump_generation();
+                            return vec![Command::RequestRedraw(dirty::ALL)];
+                        }
+
+                        vec![]
+                    }
+                    ProcessEventKind::SpawnFailed(error) => {
+                        if job_id == JOB_FD {
+                            return spawn_find_fallback_command();
+                        }
+                        if job_id == JOB_FIND_FALLBACK {
+                            state.state = FzfState::Error(
+                                "file listing command not found (tried fd, find)".to_string(),
+                            );
+                            state.bump_generation();
+                            return vec![Command::RequestRedraw(dirty::ALL)];
+                        }
+                        if job_id == state.current_fzf_job_id() {
+                            state.state = FzfState::Error(format!("fzf not installed: {error}"));
+                            state.bump_generation();
+                            return vec![Command::RequestRedraw(dirty::ALL)];
+                        }
+                        vec![]
+                    }
+                }
+            }
+        }
+    })
+}
+
 #[plugin]
 impl Guest for FuzzyFinderPlugin {
     fn get_id() -> String {
@@ -285,16 +369,16 @@ impl Guest for FuzzyFinderPlugin {
         vec![Capability::Process]
     }
 
-    fn on_init() -> Vec<Command> {
-        vec![]
+    fn on_init_effects() -> BootstrapEffects {
+        BootstrapEffects::default()
     }
 
     fn on_shutdown() -> Vec<Command> {
         vec![]
     }
 
-    fn on_state_changed(_dirty_flags: u16) -> Vec<Command> {
-        vec![]
+    fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
+        RuntimeEffects::default()
     }
 
     fn state_hash() -> u64 {
@@ -432,89 +516,8 @@ impl Guest for FuzzyFinderPlugin {
     fn observe_key(_event: KeyEvent) {}
     fn observe_mouse(_event: MouseEvent) {}
 
-    fn on_io_event(event: IoEvent) -> Vec<Command> {
-        STATE.with(|s| {
-            let mut state = s.borrow_mut();
-
-            match event {
-                IoEvent::Process(pe) => {
-                    let job_id = pe.job_id;
-                    match pe.kind {
-                        ProcessEventKind::Stdout(data) => {
-                            if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
-                                state.fd_buf.extend_from_slice(&data);
-                            } else if job_id == state.current_fzf_job_id() {
-                                state.fzf_buf.extend_from_slice(&data);
-                            }
-                            // Stale fzf results are silently ignored
-                            vec![]
-                        }
-                        ProcessEventKind::Stderr(_) => {
-                            // Ignored for proof artifact
-                            vec![]
-                        }
-                        ProcessEventKind::Exited(exit_code) => {
-                            if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
-                                if exit_code == 0 || !state.fd_buf.is_empty() {
-                                    state.file_list = split_lines(&state.fd_buf);
-                                    state.fd_buf.clear();
-                                    state.state = FzfState::Ready;
-                                    state.bump_generation();
-
-                                    // If query was typed while scanning, start filtering
-                                    if !state.query.is_empty() {
-                                        state.fzf_job_gen += 1;
-                                        state.fzf_buf.clear();
-                                        state.state = FzfState::Filtering;
-                                        let mut cmds = spawn_fzf_filter(&state);
-                                        cmds.push(Command::RequestRedraw(dirty::ALL));
-                                        return cmds;
-                                    }
-
-                                    return vec![Command::RequestRedraw(dirty::ALL)];
-                                }
-                                // Non-zero exit with no data — treat as error
-                                state.state = FzfState::Error("file listing failed".to_string());
-                                state.bump_generation();
-                                return vec![Command::RequestRedraw(dirty::ALL)];
-                            }
-
-                            if job_id == state.current_fzf_job_id() {
-                                state.results = split_lines(&state.fzf_buf);
-                                state.fzf_buf.clear();
-                                state.clamp_selected();
-                                state.state = FzfState::Ready;
-                                state.bump_generation();
-                                return vec![Command::RequestRedraw(dirty::ALL)];
-                            }
-
-                            // Stale fzf exit
-                            vec![]
-                        }
-                        ProcessEventKind::SpawnFailed(error) => {
-                            if job_id == JOB_FD {
-                                // fd not found, try find
-                                return spawn_find_fallback_command();
-                            }
-                            if job_id == JOB_FIND_FALLBACK {
-                                state.state = FzfState::Error(
-                                    "file listing command not found (tried fd, find)".to_string(),
-                                );
-                                state.bump_generation();
-                                return vec![Command::RequestRedraw(dirty::ALL)];
-                            }
-                            if job_id == state.current_fzf_job_id() {
-                                state.state =
-                                    FzfState::Error(format!("fzf not installed: {error}"));
-                                state.bump_generation();
-                                return vec![Command::RequestRedraw(dirty::ALL)];
-                            }
-                            vec![]
-                        }
-                    }
-                }
-            }
-        })
+    fn on_io_event_effects(event: IoEvent) -> RuntimeEffects {
+        handle_io_event_runtime(event)
     }
 
     fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {

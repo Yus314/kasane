@@ -20,17 +20,21 @@ thread_local! {
 
 struct PromptHighlightPlugin;
 
+fn refresh_cursor_mode(dirty_flags: u16) {
+    if dirty_flags & dirty::STATUS != 0 {
+        CURSOR_MODE.set(host_state::get_cursor_mode());
+    }
+}
+
 #[plugin]
 impl Guest for PromptHighlightPlugin {
     fn get_id() -> String {
         "prompt_highlight".to_string()
     }
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::STATUS != 0 {
-            CURSOR_MODE.set(host_state::get_cursor_mode());
-        }
-        vec![]
+    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+        refresh_cursor_mode(dirty_flags);
+        RuntimeEffects::default()
     }
 
     fn state_hash() -> u64 {

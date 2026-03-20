@@ -2,7 +2,7 @@ use kasane_core::plugin_prelude::*;
 
 #[kasane_plugin]
 mod test_external {
-    use kasane_core::plugin::Command;
+    use kasane_core::plugin::BootstrapEffects;
     use kasane_core::plugin_prelude::*;
 
     #[state]
@@ -11,9 +11,11 @@ mod test_external {
         pub init_called: bool,
     }
 
-    pub fn on_init(state: &mut State, _core: &AppState) -> Vec<Command> {
+    pub fn on_init_effects(state: &mut State, _core: &AppState) -> BootstrapEffects {
         state.init_called = true;
-        vec![]
+        BootstrapEffects {
+            redraw: DirtyFlags::STATUS,
+        }
     }
 }
 
@@ -22,7 +24,8 @@ fn external_plugin_registers_and_inits() {
     let mut registry = PluginRegistry::new();
     registry.register_backend(Box::new(TestExternalPlugin::new()));
     let state = AppState::default();
-    let _ = registry.init_all(&state);
+    let batch = registry.init_all_batch(&state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
     // No panic = success; plugin was registered and initialized
 }
 
@@ -32,6 +35,7 @@ fn external_plugin_lifecycle() {
     assert!(!plugin.state.init_called);
 
     let state = AppState::default();
-    plugin.on_init(&state);
+    let effects = plugin.on_init_effects(&state);
     assert!(plugin.state.init_called);
+    assert!(effects.redraw.contains(DirtyFlags::STATUS));
 }

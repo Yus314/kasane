@@ -134,7 +134,7 @@ fn wit_resolved_scroll_to_resolved_scroll(resolved: &wit::ResolvedScroll) -> Res
     ResolvedScroll::new(resolved.amount, resolved.line, resolved.column)
 }
 
-fn wit_scroll_plan_to_scroll_plan(plan: &wit::ScrollPlan) -> ScrollPlan {
+pub(crate) fn wit_scroll_plan_to_scroll_plan(plan: &wit::ScrollPlan) -> ScrollPlan {
     ScrollPlan::new(
         plan.total_amount,
         plan.line,

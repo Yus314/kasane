@@ -3,6 +3,7 @@
 pub mod bridge;
 mod command;
 mod context;
+mod effects;
 pub mod io;
 mod registry;
 pub mod state;
@@ -19,6 +20,10 @@ use compact_str::CompactString;
 pub use command::{
     Command, CommandResult, DeferredCommand, PaintHook, execute_commands,
     extract_deferred_commands, extract_redraw_flags,
+};
+pub use effects::{
+    BootstrapEffects, InitBatch, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
+    SessionReadyEffects,
 };
 
 // Re-export io module types

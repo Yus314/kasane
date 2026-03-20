@@ -14,9 +14,10 @@ use crate::workspace::Placement;
 use super::bridge::PluginBridge;
 use super::state::Plugin;
 use super::{
-    AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
+    AnnotateContext, AnnotationResult, BackgroundLayer, ContributeContext, Contribution, InitBatch,
     IoEvent, OverlayContext, OverlayContribution, PaintHook, PluginBackend, PluginCapabilities,
-    PluginId, SlotId, SourcedContribution, TransformContext, TransformTarget, extract_redraw_flags,
+    PluginId, ReadyBatch, RuntimeBatch, SlotId, SourcedContribution, TransformContext,
+    TransformTarget,
 };
 
 /// Cached result for a single plugin's contributions.
@@ -133,13 +134,49 @@ impl PluginRegistry {
         }
     }
 
-    /// Initialize all plugins. Call after all plugins are registered.
-    pub fn init_all(&mut self, state: &AppState) -> Vec<Command> {
-        let mut commands = Vec::new();
+    /// Initialize all plugins and collect typed bootstrap effects.
+    pub fn init_all_batch(&mut self, state: &AppState) -> InitBatch {
+        let mut batch = InitBatch::default();
         for plugin in &mut self.plugins {
-            commands.extend(plugin.on_init(state));
+            batch.effects.merge(plugin.on_init_effects(state));
         }
-        commands
+        batch
+    }
+
+    /// Initialize all plugins.
+    pub fn init_all(&mut self, state: &AppState) -> InitBatch {
+        self.init_all_batch(state)
+    }
+
+    /// Notify all plugins that the active session is ready for transport-bound startup work.
+    pub fn notify_active_session_ready_batch(&mut self, state: &AppState) -> ReadyBatch {
+        let mut batch = ReadyBatch::default();
+        for plugin in &mut self.plugins {
+            batch
+                .effects
+                .merge(plugin.on_active_session_ready_effects(state));
+        }
+        batch
+    }
+
+    /// Notify all plugins that the active session is ready for transport-bound startup work.
+    pub fn notify_active_session_ready(&mut self, state: &AppState) -> ReadyBatch {
+        self.notify_active_session_ready_batch(state)
+    }
+
+    /// Notify all plugins about a state change and collect typed runtime effects.
+    pub fn notify_state_changed_batch(
+        &mut self,
+        state: &AppState,
+        dirty: DirtyFlags,
+    ) -> RuntimeBatch {
+        let mut batch = RuntimeBatch::default();
+        for plugin in &mut self.plugins {
+            batch
+                .effects
+                .merge(plugin.on_state_changed_effects(state, dirty));
+        }
+        batch
     }
 
     /// Shut down all plugins. Call before application exit.
@@ -152,13 +189,12 @@ impl PluginRegistry {
     /// Reload a single plugin by replacing it in-place.
     ///
     /// Shuts down the old plugin (if it exists with the same ID), registers the
-    /// new one, and initializes it. Returns any commands from the new plugin's
-    /// `on_init()`.
-    pub fn reload_plugin(
+    /// new one, and initializes it, collecting typed bootstrap effects.
+    pub fn reload_plugin_batch(
         &mut self,
         plugin: Box<dyn PluginBackend>,
         state: &AppState,
-    ) -> Vec<Command> {
+    ) -> InitBatch {
         let id = plugin.id();
         // Shut down old plugin if present
         if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
@@ -168,9 +204,18 @@ impl PluginRegistry {
         self.register_backend(plugin);
         // Init the new plugin
         if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
-            return self.plugins[pos].on_init(state);
+            let mut batch = InitBatch::default();
+            batch
+                .effects
+                .merge(self.plugins[pos].on_init_effects(state));
+            return batch;
         }
-        vec![]
+        InitBatch::default()
+    }
+
+    /// Reload a single plugin by replacing it in-place.
+    pub fn reload_plugin(&mut self, plugin: Box<dyn PluginBackend>, state: &AppState) -> InitBatch {
+        self.reload_plugin_batch(plugin, state)
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
@@ -194,7 +239,7 @@ impl PluginRegistry {
         surfaces
     }
 
-    /// Collect paint hooks from all plugins. Call after `init_all()`.
+    /// Collect paint hooks from all plugins. Call after `init_all_batch()`.
     pub fn collect_paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
         let mut hooks = Vec::new();
         for (i, plugin) in self.plugins.iter().enumerate() {
@@ -566,41 +611,46 @@ impl PluginRegistry {
     }
 
     /// Deliver an I/O event to a specific plugin by ID.
-    pub fn deliver_io_event(
+    pub fn deliver_io_event_batch(
         &mut self,
         target: &PluginId,
         event: &IoEvent,
         state: &AppState,
-    ) -> (DirtyFlags, Vec<Command>) {
+    ) -> RuntimeBatch {
         crate::perf::perf_span!("deliver_io_event");
         for (i, plugin) in self.plugins.iter_mut().enumerate() {
             if &plugin.id() == target {
                 if !self.capabilities[i].contains(PluginCapabilities::IO_HANDLER) {
-                    return (DirtyFlags::empty(), vec![]);
+                    return RuntimeBatch::default();
                 }
-                let mut commands = plugin.on_io_event(event, state);
-                let flags = extract_redraw_flags(&mut commands);
-                return (flags, commands);
+                let mut batch = RuntimeBatch::default();
+                batch
+                    .effects
+                    .merge(plugin.on_io_event_effects(event, state));
+                return batch;
             }
         }
-        (DirtyFlags::empty(), vec![])
+        RuntimeBatch::default()
     }
 
     /// Deliver a message to a specific plugin by ID.
-    pub fn deliver_message(
+    pub fn deliver_message_batch(
         &mut self,
         target: &PluginId,
         payload: Box<dyn Any>,
         state: &AppState,
-    ) -> (DirtyFlags, Vec<Command>) {
+    ) -> RuntimeBatch {
+        let mut payload = payload;
         for plugin in &mut self.plugins {
             if &plugin.id() == target {
-                let mut commands = plugin.update(payload, state);
-                let flags = extract_redraw_flags(&mut commands);
-                return (flags, commands);
+                let mut batch = RuntimeBatch::default();
+                batch
+                    .effects
+                    .merge(plugin.update_effects(payload.as_mut(), state));
+                return batch;
             }
         }
-        (DirtyFlags::empty(), vec![])
+        RuntimeBatch::default()
     }
 
     /// Register a `Plugin` by wrapping it in a `PluginBridge`.

@@ -74,7 +74,10 @@ fn state_hash_tracks_plugin_state() {
 
     let mut state = AppState::default();
     state.cursor_pos.line = 7;
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER_CURSOR);
+    let effects = plugin.on_state_changed_effects(&state, DirtyFlags::BUFFER_CURSOR);
+    assert!(effects.redraw.is_empty());
+    assert!(effects.commands.is_empty());
+    assert!(effects.scroll_plans.is_empty());
 
     assert_eq!(plugin.state_hash(), 7);
     assert_eq!(surface.state_hash(), 7);

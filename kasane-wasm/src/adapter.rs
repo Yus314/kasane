@@ -8,9 +8,10 @@ use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
-    AnnotateContext, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution, IoEvent,
-    LineAnnotation, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities,
-    PluginId, SlotId, TransformContext, TransformTarget,
+    AnnotateContext, BackgroundLayer, BlendMode, BootstrapEffects, Command, ContributeContext,
+    Contribution, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PluginBackend,
+    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
+    TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -243,13 +244,14 @@ impl PluginBackend for WasmPlugin {
         self.shared.plugin_id.clone()
     }
 
-    fn on_init(&mut self, state: &AppState) -> Vec<Command> {
-        self.shared.call_synced(state, "on_init", |rt| {
-            let api = rt.instance.kasane_plugin_plugin_api();
-            Ok(api
-                .call_on_init(&mut rt.store)
-                .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
-        })
+    fn on_init_effects(&mut self, state: &AppState) -> BootstrapEffects {
+        self.shared
+            .call_synced_with_hash(state, "on_init_effects", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(convert::wit_bootstrap_effects_to_effects(
+                    &api.call_on_init_effects(&mut rt.store)?,
+                ))
+            })
     }
 
     fn on_shutdown(&mut self) {
@@ -264,24 +266,34 @@ impl PluginBackend for WasmPlugin {
         });
     }
 
-    fn on_state_changed(&mut self, state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
+    fn on_active_session_ready_effects(&mut self, state: &AppState) -> SessionReadyEffects {
         self.shared
-            .call_synced_with_hash(state, "on_state_changed", |rt| {
+            .call_synced_with_hash(state, "on_active_session_ready_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(api
-                    .call_on_state_changed(&mut rt.store, dirty.bits())
-                    .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
+                Ok(convert::wit_session_ready_effects_to_effects(
+                    &api.call_on_active_session_ready_effects(&mut rt.store)?,
+                ))
             })
     }
 
-    fn on_io_event(&mut self, event: &IoEvent, state: &AppState) -> Vec<Command> {
+    fn on_state_changed_effects(&mut self, state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
         self.shared
-            .call_synced_with_hash(state, "on_io_event", |rt| {
+            .call_synced_with_hash(state, "on_state_changed_effects", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(convert::wit_runtime_effects_to_effects(
+                    &api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?,
+                ))
+            })
+    }
+
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppState) -> RuntimeEffects {
+        self.shared
+            .call_synced_with_hash(state, "on_io_event_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 let wit_event = convert::io_event_to_wit(event);
-                Ok(api
-                    .call_on_io_event(&mut rt.store, &wit_event)
-                    .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
+                Ok(convert::wit_runtime_effects_to_effects(
+                    &api.call_on_io_event_effects(&mut rt.store, &wit_event)?,
+                ))
             })
     }
 
@@ -597,20 +609,21 @@ impl PluginBackend for WasmPlugin {
         self.shared.process_allowed
     }
 
-    fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
-        if let Ok(bytes) = msg.downcast::<Vec<u8>>() {
-            self.shared.call_synced(state, "update", |rt| {
-                let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(api
-                    .call_update(&mut rt.store, &bytes)
-                    .map(|cmds| convert::wit_commands_to_commands(&cmds))?)
-            })
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppState) -> RuntimeEffects {
+        if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
+            self.shared
+                .call_synced_with_hash(state, "update_effects", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(convert::wit_runtime_effects_to_effects(
+                        &api.call_update_effects(&mut rt.store, bytes)?,
+                    ))
+                })
         } else {
             tracing::warn!(
-                "WASM plugin {} received non-byte message, ignoring",
+                "WASM plugin {} received non-byte message, ignoring typed update_effects",
                 self.shared.plugin_id.0
             );
-            vec![]
+            RuntimeEffects::default()
         }
     }
 }

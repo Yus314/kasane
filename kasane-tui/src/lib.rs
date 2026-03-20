@@ -14,6 +14,9 @@ use crossbeam_channel::unbounded;
 static SESSION_NAME: OnceLock<String> = OnceLock::new();
 
 use kasane_core::config::Config;
+use kasane_core::event_loop::{
+    SessionReadyGate, apply_bootstrap_effects, sync_session_ready_gate as sync_ready_gate,
+};
 use kasane_core::plugin::{
     CommandResult, PluginRegistry, ProcessDispatcher, ProcessEventSink, execute_commands,
 };
@@ -206,7 +209,11 @@ where
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
     let mut process_dispatcher = create_process_dispatcher(process_sink);
 
-    let mut pending_init_commands = registry.init_all(&state);
+    let init_batch = registry.init_all_batch(&state);
+    let mut session_ready_gate = SessionReadyGate::default();
+    let mut bootstrap_dirty = DirtyFlags::empty();
+    sync_ready_gate(&mut session_ready_gate, &state);
+    apply_bootstrap_effects(init_batch.effects, &mut bootstrap_dirty);
 
     // Collect paint hooks from plugins
     let paint_hooks = registry.collect_paint_hooks();
@@ -256,7 +263,8 @@ where
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         };
 
-        let mut dirty = DirtyFlags::empty();
+        let mut dirty = bootstrap_dirty;
+        bootstrap_dirty = DirtyFlags::empty();
         let _frame_span = tracing::debug_span!("frame").entered();
 
         // FIFO metrics: count message types in the batch for diagnostics
@@ -282,7 +290,7 @@ where
                 timer: &timer,
                 scroll_runtime: &mut scroll_runtime,
                 scroll_runtime_session: &mut scroll_runtime_session,
-                pending_init_commands: &mut pending_init_commands,
+                session_ready_gate: &mut session_ready_gate,
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_reloader: &plugin_reloader,
             };

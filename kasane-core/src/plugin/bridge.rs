@@ -12,9 +12,10 @@ use crate::state::{AppState, DirtyFlags};
 
 use super::state::{Plugin, PluginState};
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, DisplayDirective, IoEvent,
-    LineAnnotation, OverlayContext, OverlayContribution, PluginBackend, PluginCapabilities,
-    PluginId, SlotId, TransformContext, TransformTarget,
+    AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
+    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PluginBackend,
+    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
+    TransformTarget,
 };
 
 // =============================================================================
@@ -33,19 +34,28 @@ pub(crate) trait ErasedPlugin: Send {
     fn transform_priority(&self) -> i16;
 
     // State transitions
-    fn on_init_erased(&self, state: &mut dyn PluginState, app: &AppState) -> Vec<Command>;
-    fn on_state_changed_erased(
+    fn on_init_effects_erased(
+        &self,
+        state: &mut dyn PluginState,
+        app: &AppState,
+    ) -> BootstrapEffects;
+    fn on_active_session_ready_effects_erased(
+        &self,
+        state: &mut dyn PluginState,
+        app: &AppState,
+    ) -> SessionReadyEffects;
+    fn on_state_changed_effects_erased(
         &self,
         state: &mut dyn PluginState,
         app: &AppState,
         dirty: DirtyFlags,
-    ) -> Vec<Command>;
-    fn on_io_event_erased(
+    ) -> RuntimeEffects;
+    fn on_io_event_effects_erased(
         &self,
         state: &mut dyn PluginState,
         event: &IoEvent,
         app: &AppState,
-    ) -> Vec<Command>;
+    ) -> RuntimeEffects;
     fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppState);
     fn observe_mouse_erased(&self, state: &mut dyn PluginState, event: &MouseEvent, app: &AppState);
     fn handle_key_erased(
@@ -67,12 +77,12 @@ pub(crate) trait ErasedPlugin: Send {
         candidate: DefaultScrollCandidate,
         app: &AppState,
     ) -> Option<ScrollPolicyResult>;
-    fn update_erased(
+    fn update_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        msg: Box<dyn Any>,
+        msg: &mut dyn Any,
         app: &AppState,
-    ) -> Vec<Command>;
+    ) -> RuntimeEffects;
 
     // Pure view methods
     fn contribute_to_erased(
@@ -139,35 +149,50 @@ impl<P: Plugin> ErasedPlugin for P {
         Plugin::transform_priority(self)
     }
 
-    fn on_init_erased(&self, state: &mut dyn PluginState, app: &AppState) -> Vec<Command> {
+    fn on_init_effects_erased(
+        &self,
+        state: &mut dyn PluginState,
+        app: &AppState,
+    ) -> BootstrapEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, cmds) = self.on_init(typed, app);
+        let (new_state, effects) = self.on_init_effects(typed, app);
         *typed = new_state;
-        cmds
+        effects
     }
 
-    fn on_state_changed_erased(
+    fn on_active_session_ready_effects_erased(
+        &self,
+        state: &mut dyn PluginState,
+        app: &AppState,
+    ) -> SessionReadyEffects {
+        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+        let (new_state, effects) = self.on_active_session_ready_effects(typed, app);
+        *typed = new_state;
+        effects
+    }
+
+    fn on_state_changed_effects_erased(
         &self,
         state: &mut dyn PluginState,
         app: &AppState,
         dirty: DirtyFlags,
-    ) -> Vec<Command> {
+    ) -> RuntimeEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, cmds) = self.on_state_changed(typed, app, dirty);
+        let (new_state, effects) = self.on_state_changed_effects(typed, app, dirty);
         *typed = new_state;
-        cmds
+        effects
     }
 
-    fn on_io_event_erased(
+    fn on_io_event_effects_erased(
         &self,
         state: &mut dyn PluginState,
         event: &IoEvent,
         app: &AppState,
-    ) -> Vec<Command> {
+    ) -> RuntimeEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, cmds) = self.on_io_event(typed, event, app);
+        let (new_state, effects) = self.on_io_event_effects(typed, event, app);
         *typed = new_state;
-        cmds
+        effects
     }
 
     fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppState) {
@@ -229,16 +254,16 @@ impl<P: Plugin> ErasedPlugin for P {
             })
     }
 
-    fn update_erased(
+    fn update_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        msg: Box<dyn Any>,
+        msg: &mut dyn Any,
         app: &AppState,
-    ) -> Vec<Command> {
+    ) -> RuntimeEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, cmds) = self.update(typed, msg, app);
+        let (new_state, effects) = self.update_effects(typed, msg, app);
         *typed = new_state;
-        cmds
+        effects
     }
 
     fn contribute_to_erased(
@@ -376,30 +401,38 @@ impl PluginBackend for PluginBridge {
 
     // --- Lifecycle ---
 
-    fn on_init(&mut self, state: &AppState) -> Vec<Command> {
-        let cmds = self.inner.on_init_erased(&mut *self.state, state);
+    fn on_init_effects(&mut self, state: &AppState) -> BootstrapEffects {
+        let effects = self.inner.on_init_effects_erased(&mut *self.state, state);
         self.check_state_change();
-        cmds
+        effects
+    }
+
+    fn on_active_session_ready_effects(&mut self, state: &AppState) -> SessionReadyEffects {
+        let effects = self
+            .inner
+            .on_active_session_ready_effects_erased(&mut *self.state, state);
+        self.check_state_change();
+        effects
+    }
+
+    fn on_state_changed_effects(&mut self, state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+        let effects = self
+            .inner
+            .on_state_changed_effects_erased(&mut *self.state, state, dirty);
+        self.check_state_change();
+        effects
     }
 
     fn on_shutdown(&mut self) {
         // Plugin has no shutdown hook (pure functions don't need cleanup).
     }
 
-    fn on_state_changed(&mut self, state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
-        let cmds = self
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppState) -> RuntimeEffects {
+        let effects = self
             .inner
-            .on_state_changed_erased(&mut *self.state, state, dirty);
+            .on_io_event_effects_erased(&mut *self.state, event, state);
         self.check_state_change();
-        cmds
-    }
-
-    fn on_io_event(&mut self, event: &IoEvent, state: &AppState) -> Vec<Command> {
-        let cmds = self
-            .inner
-            .on_io_event_erased(&mut *self.state, event, state);
-        self.check_state_change();
-        cmds
+        effects
     }
 
     // --- Input ---
@@ -446,10 +479,12 @@ impl PluginBackend for PluginBridge {
         result
     }
 
-    fn update(&mut self, msg: Box<dyn Any>, state: &AppState) -> Vec<Command> {
-        let cmds = self.inner.update_erased(&mut *self.state, msg, state);
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppState) -> RuntimeEffects {
+        let effects = self
+            .inner
+            .update_effects_erased(&mut *self.state, msg, state);
         self.check_state_change();
-        cmds
+        effects
     }
 
     // --- View contributions ---
@@ -563,16 +598,16 @@ mod tests {
         assert_eq!(bridge.state_hash(), 0);
 
         // State changes: active_line 0 → 5
-        bridge.on_state_changed(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1);
 
         // Same input → same state → no generation bump
-        bridge.on_state_changed(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1);
 
         // Different input → different state → generation bumps
         app.cursor_pos.line = 10;
-        bridge.on_state_changed(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 2);
     }
 
@@ -582,7 +617,7 @@ mod tests {
         let app = AppState::default();
 
         // STATUS dirty doesn't trigger CursorLinePure's on_state_changed logic
-        bridge.on_state_changed(&app, DirtyFlags::STATUS);
+        bridge.on_state_changed_effects(&app, DirtyFlags::STATUS);
         assert_eq!(bridge.state_hash(), 0);
     }
 
@@ -592,7 +627,7 @@ mod tests {
         let mut app = AppState::default();
         app.cursor_pos.line = 3;
 
-        bridge.on_state_changed(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
 
         let ctx = AnnotateContext {
             line_width: 80,
@@ -680,13 +715,11 @@ mod tests {
         app.cols = 80;
         app.rows = 24;
 
-        let cmds = registry.init_all(&app);
-        assert!(cmds.is_empty());
+        let _batch = registry.init_all_batch(&app);
 
         // Notify plugins of state change
-        for plugin in registry.plugins_mut() {
-            plugin.on_state_changed(&app, DirtyFlags::BUFFER);
-        }
+        let batch = registry.notify_state_changed_batch(&app, DirtyFlags::BUFFER);
+        assert!(batch.effects.commands.is_empty());
 
         // Prepare cache — should detect state change
         registry.prepare_plugin_cache(DirtyFlags::BUFFER);
@@ -709,10 +742,9 @@ mod tests {
         app.rows = 24;
 
         // Init and state change
-        registry.init_all(&app);
-        for plugin in registry.plugins_mut() {
-            plugin.on_state_changed(&app, DirtyFlags::BUFFER);
-        }
+        let _ = registry.init_all_batch(&app);
+        let batch = registry.notify_state_changed_batch(&app, DirtyFlags::BUFFER);
+        assert!(batch.effects.commands.is_empty());
 
         let ctx = AnnotateContext {
             line_width: 80,
@@ -735,11 +767,11 @@ mod tests {
         let mut app = AppState::default();
         app.cursor_pos.line = 0;
 
-        bridge.on_state_changed(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1); // generation bumped
 
         // Same cursor → state still changes (generation increments)
-        bridge.on_state_changed(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 2);
     }
 

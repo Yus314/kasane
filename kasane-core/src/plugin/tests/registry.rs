@@ -1,4 +1,77 @@
 use super::*;
+use crate::plugin::{BootstrapEffects, RuntimeEffects, SessionReadyCommand, SessionReadyEffects};
+use crate::protocol::KasaneRequest;
+use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
+
+struct TypedLifecyclePlugin;
+
+impl PluginBackend for TypedLifecyclePlugin {
+    fn id(&self) -> PluginId {
+        PluginId("typed-lifecycle".to_string())
+    }
+
+    fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+        BootstrapEffects {
+            redraw: DirtyFlags::STATUS,
+        }
+    }
+
+    fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+        SessionReadyEffects {
+            redraw: DirtyFlags::BUFFER,
+            commands: vec![SessionReadyCommand::SendToKakoune(KasaneRequest::Scroll {
+                amount: 3,
+                line: 1,
+                column: 1,
+            })],
+            scroll_plans: vec![],
+        }
+    }
+}
+
+struct TypedRuntimePlugin;
+
+impl PluginBackend for TypedRuntimePlugin {
+    fn id(&self) -> PluginId {
+        PluginId("typed-runtime".to_string())
+    }
+
+    fn on_state_changed_effects(&mut self, _state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+        if !dirty.contains(DirtyFlags::BUFFER) {
+            return RuntimeEffects::default();
+        }
+        RuntimeEffects {
+            redraw: DirtyFlags::INFO,
+            commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
+            scroll_plans: vec![ScrollPlan {
+                total_amount: 3,
+                line: 2,
+                column: 4,
+                frame_interval_ms: 8,
+                curve: ScrollCurve::Linear,
+                accumulation: ScrollAccumulationMode::Add,
+            }],
+        }
+    }
+
+    fn update_effects(&mut self, msg: &mut dyn std::any::Any, _state: &AppState) -> RuntimeEffects {
+        if msg.downcast_ref::<u32>() != Some(&7) {
+            return RuntimeEffects::default();
+        }
+        RuntimeEffects {
+            redraw: DirtyFlags::BUFFER,
+            commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
+            scroll_plans: vec![ScrollPlan {
+                total_amount: -2,
+                line: 1,
+                column: 1,
+                frame_interval_ms: 16,
+                curve: ScrollCurve::Linear,
+                accumulation: ScrollAccumulationMode::Add,
+            }],
+        }
+    }
+}
 
 #[test]
 fn test_empty_registry() {
@@ -13,13 +86,58 @@ fn test_plugin_id() {
 }
 
 #[test]
-fn test_init_all_returns_commands() {
+fn test_init_all_batch_collects_bootstrap_effects() {
     let mut registry = PluginRegistry::new();
-    registry.register_backend(Box::new(LifecyclePlugin::new()));
+    registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
-    let commands = registry.init_all(&state);
-    assert_eq!(commands.len(), 1);
-    assert!(matches!(commands[0], Command::RequestRedraw(_)));
+
+    let batch = registry.init_all_batch(&state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
+}
+
+#[test]
+fn test_notify_active_session_ready_batch_collects_effects() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(TypedLifecyclePlugin));
+    let state = AppState::default();
+
+    let batch = registry.notify_active_session_ready_batch(&state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
+    assert_eq!(batch.effects.commands.len(), 1);
+    assert!(matches!(
+        batch.effects.commands.into_iter().next(),
+        Some(SessionReadyCommand::SendToKakoune(
+            KasaneRequest::Scroll { .. }
+        ))
+    ));
+}
+
+#[test]
+fn test_notify_state_changed_batch_collects_runtime_effects() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(TypedRuntimePlugin));
+    let state = AppState::default();
+
+    let batch = registry.notify_state_changed_batch(&state, DirtyFlags::BUFFER);
+    assert!(batch.effects.redraw.contains(DirtyFlags::INFO));
+    assert_eq!(batch.effects.commands.len(), 1);
+    assert_eq!(batch.effects.scroll_plans.len(), 1);
+}
+
+#[test]
+fn test_deliver_message_batch_collects_runtime_effects() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(TypedRuntimePlugin));
+    let state = AppState::default();
+
+    let batch = registry.deliver_message_batch(
+        &PluginId("typed-runtime".to_string()),
+        Box::new(7u32),
+        &state,
+    );
+    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
+    assert_eq!(batch.effects.commands.len(), 1);
+    assert_eq!(batch.effects.scroll_plans.len(), 1);
 }
 
 #[test]
@@ -74,7 +192,7 @@ fn test_on_state_changed_dispatched_with_flags() {
     // Simulate what update() does for Msg::Kakoune
     let flags = DirtyFlags::BUFFER | DirtyFlags::STATUS;
     for plugin in registry.plugins_mut() {
-        plugin.on_state_changed(&state, flags);
+        let _ = plugin.on_state_changed_effects(&state, flags);
     }
     // No panic, default implementations work
 }
@@ -86,11 +204,31 @@ fn test_lifecycle_defaults() {
     registry.register_backend(Box::new(TestPlugin));
     let state = AppState::default();
 
-    let commands = registry.init_all(&state);
-    assert!(commands.is_empty());
+    let batch = registry.init_all_batch(&state);
+    assert!(batch.effects.redraw.is_empty());
 
     registry.shutdown_all();
     // No panic
+}
+
+#[test]
+fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(LifecyclePlugin::new()));
+    let state = AppState::default();
+
+    let batch = registry.init_all_batch(&state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
+}
+
+#[test]
+fn test_reload_plugin_batch_collects_bootstrap_effects() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(TypedLifecyclePlugin));
+    let state = AppState::default();
+
+    let batch = registry.reload_plugin_batch(Box::new(TypedLifecyclePlugin), &state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
 }
 
 #[test]
@@ -110,22 +248,12 @@ fn test_any_plugin_state_changed_flag() {
 // --- deliver_message tests ---
 
 #[test]
-fn test_deliver_message_to_plugin() {
-    let mut registry = PluginRegistry::new();
-    registry.register_backend(Box::new(TestPlugin));
-    let state = AppState::default();
-    let (flags, commands) =
-        registry.deliver_message(&PluginId("test".to_string()), Box::new(42u32), &state);
-    assert!(flags.is_empty());
-    assert!(commands.is_empty());
-}
-
-#[test]
 fn test_deliver_message_unknown_target() {
     let mut registry = PluginRegistry::new();
     let state = AppState::default();
-    let (flags, commands) =
-        registry.deliver_message(&PluginId("unknown".to_string()), Box::new(42u32), &state);
-    assert!(flags.is_empty());
-    assert!(commands.is_empty());
+    let batch =
+        registry.deliver_message_batch(&PluginId("unknown".to_string()), Box::new(42u32), &state);
+    assert!(batch.effects.redraw.is_empty());
+    assert!(batch.effects.commands.is_empty());
+    assert!(batch.effects.scroll_plans.is_empty());
 }

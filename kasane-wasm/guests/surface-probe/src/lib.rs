@@ -104,7 +104,7 @@ impl Guest for SurfaceProbePlugin {
         host_state::get_cursor_line() as u64
     }
 
-    kasane_plugin_sdk::default_lifecycle!();
+    kasane_plugin_sdk::default_typed_lifecycle!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_input!();
     kasane_plugin_sdk::default_overlay!();
@@ -112,7 +112,7 @@ impl Guest for SurfaceProbePlugin {
     kasane_plugin_sdk::default_replace!();
     kasane_plugin_sdk::default_decorate!();
     kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_update!();
+    kasane_plugin_sdk::default_typed_runtime!();
     kasane_plugin_sdk::default_cursor_style!();
     kasane_plugin_sdk::default_named_slot!();
     kasane_plugin_sdk::default_transform!();
@@ -122,7 +122,6 @@ impl Guest for SurfaceProbePlugin {
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_contribute_to!();
     kasane_plugin_sdk::default_capabilities!();
-    kasane_plugin_sdk::default_io_event!();
 }
 
 export!(SurfaceProbePlugin);

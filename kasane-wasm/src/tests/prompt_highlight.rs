@@ -4,6 +4,13 @@ use kasane_core::protocol::Face;
 
 use super::*;
 
+fn apply_prompt_state_change(plugin: &mut crate::WasmPlugin, state: &AppState, dirty: DirtyFlags) {
+    let effects = plugin.on_state_changed_effects(state, dirty);
+    assert!(effects.redraw.is_empty());
+    assert!(effects.commands.is_empty());
+    assert!(effects.scroll_plans.is_empty());
+}
+
 #[test]
 fn plugin_id() {
     let plugin = load_prompt_highlight_plugin();
@@ -14,7 +21,7 @@ fn plugin_id() {
 fn passthrough_in_buffer_mode() {
     let mut plugin = load_prompt_highlight_plugin();
     let state = AppState::default(); // cursor_mode = Buffer
-    plugin.on_state_changed(&state, DirtyFlags::STATUS);
+    apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
     let element = Element::text("status content", Face::default());
     let ctx = TransformContext {
@@ -35,7 +42,7 @@ fn wraps_in_prompt_mode() {
     let mut plugin = load_prompt_highlight_plugin();
     let mut state = AppState::default();
     state.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
-    plugin.on_state_changed(&state, DirtyFlags::STATUS);
+    apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
     let element = Element::text("prompt content", Face::default());
     let ctx = TransformContext {
@@ -67,7 +74,7 @@ fn ignores_non_status_targets() {
     let mut plugin = load_prompt_highlight_plugin();
     let mut state = AppState::default();
     state.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
-    plugin.on_state_changed(&state, DirtyFlags::STATUS);
+    apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
     let element = Element::text("buffer content", Face::default());
     let ctx = TransformContext {
@@ -89,7 +96,7 @@ fn state_hash_changes_with_mode() {
 
     let mut state = AppState::default();
     state.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
-    plugin.on_state_changed(&state, DirtyFlags::STATUS);
+    apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
     let h2 = plugin.state_hash();
 
     assert_ne!(h1, h2);
