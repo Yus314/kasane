@@ -1,0 +1,112 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitTypeAll(deps)"
+  ],
+  "baseBranches": ["master"],
+  "schedule": ["before 9am on Monday"],
+  "timezone": "Asia/Tokyo",
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+
+  // Cargo: update versions within semver range in lockfile (cargo update equivalent)
+  "cargo": {
+    "enabled": true,
+    "rangeStrategy": "update-lockfile"
+  },
+
+  // Nix flake: managed manually (nix flake update)
+  "nix": {
+    "enabled": false
+  },
+
+  // Excluded crates with independent Cargo.lock, WASM guests, SDK
+  "ignorePaths": [
+    "examples/wasm/**",
+    "kasane-wasm-bench/guests/**",
+    "kasane-wasm/guests/**",
+    "kasane-plugin-sdk/**",
+    "kasane-plugin-sdk-macros/**",
+    "examples/line-numbers/**",
+    "examples/virtual-text-demo/**",
+    "tools/wasm-test/**",
+    "flake.lock"
+  ],
+
+  "packageRules": [
+    // GitHub Actions — automerge
+    {
+      "groupName": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "automerge": true
+    },
+
+    // Cargo patch — grouped + automerge
+    {
+      "groupName": "Rust patch updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+
+    // Cargo minor — grouped, manual review
+    {
+      "groupName": "Rust minor updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor"],
+      "automerge": false
+    },
+
+    // Cargo major — individual PRs, Dashboard approval required
+    {
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "dependencyDashboardApproval": true
+    },
+
+    // dev-dependencies — minor/patch automerge
+    {
+      "groupName": "Rust dev dependency updates",
+      "matchManagers": ["cargo"],
+      "matchDepTypes": ["dev-dependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+
+    // ── Disabled: tightly-coupled high-risk dependencies ──
+
+    // salsa: core caching layer of Kasane
+    {
+      "matchPackageNames": ["salsa"],
+      "matchManagers": ["cargo"],
+      "enabled": false
+    },
+    // wgpu + glyphon: GPU backend, breaking API changes between majors
+    {
+      "matchPackageNames": ["wgpu", "glyphon"],
+      "matchManagers": ["cargo"],
+      "enabled": false
+    },
+    // winit: windowing, breaking changes between versions
+    {
+      "matchPackageNames": ["winit"],
+      "matchManagers": ["cargo"],
+      "enabled": false
+    },
+    // wasmtime + wasmtime-wasi: Component Model API changes frequently
+    {
+      "matchPackageNames": ["wasmtime", "wasmtime-wasi"],
+      "matchManagers": ["cargo"],
+      "enabled": false
+    },
+    // wit-bindgen: tied to wasmtime version
+    {
+      "matchPackageNames": ["wit-bindgen"],
+      "matchManagers": ["cargo"],
+      "enabled": false
+    }
+  ]
+}

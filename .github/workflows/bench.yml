@@ -13,6 +13,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    if: github.actor != 'renovate[bot]'
     steps:
       - uses: actions/checkout@v4
 
