@@ -8,6 +8,7 @@
 pub mod buffer;
 pub mod info;
 pub mod menu;
+pub mod pane_map;
 mod registry;
 pub mod resolve;
 pub mod status;

@@ -144,6 +144,18 @@ fn run_inner(
         ))
     };
 
+    // Auto-generate a server session name for multi-pane support.
+    // When the user didn't specify -s/-c, start kak with -s kasane-{pid}
+    // so that additional clients can connect with -c later.
+    let (session, kak_args) = if session.is_none() {
+        let server_name = format!("kasane-{}", std::process::id());
+        let mut args = vec!["-s".to_string(), server_name.clone()];
+        args.extend(kak_args);
+        (Some(server_name), args)
+    } else {
+        (session, kak_args)
+    };
+
     let mut session_manager = SessionManager::new();
     let primary_session = SessionSpec::primary(session, kak_args);
     let (reader, writer, child) = process::spawn_kakoune_for_spec(&primary_session)?;
@@ -202,11 +214,14 @@ fn build_plugin_manager(
         let _ = plugins_config;
     }
     providers.push(Box::new(provider));
-    providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
-        "builtin-input",
-        "kasane.builtin.input",
-        || kasane_core::input::BuiltinInputPlugin,
-    )])));
+    providers.push(Box::new(StaticPluginProvider::new([
+        builtin_plugin("builtin-window", "kasane.builtin.window", || {
+            kasane_core::input::WindowModePlugin::new()
+        }),
+        builtin_plugin("builtin-input", "kasane.builtin.input", || {
+            kasane_core::input::BuiltinInputPlugin
+        }),
+    ])));
     PluginManager::new(providers)
 }
 
