@@ -5,7 +5,8 @@ use std::time::Duration;
 use crate::protocol::{Face, KasaneRequest};
 use crate::session::SessionCommand;
 use crate::state::DirtyFlags;
-use crate::workspace::WorkspaceCommand;
+use crate::surface::SurfaceId;
+use crate::workspace::{Placement, WorkspaceCommand};
 
 use super::PluginId;
 use super::io::StdinMode;
@@ -87,6 +88,15 @@ pub enum Command {
     KillProcess {
         job_id: u64,
     },
+    /// Spawn a new pane backed by an independent Kakoune client connection.
+    SpawnPaneClient {
+        surface_id: SurfaceId,
+        placement: Placement,
+    },
+    /// Close a pane and terminate its Kakoune client connection.
+    ClosePaneClient {
+        surface_id: SurfaceId,
+    },
 }
 
 /// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
@@ -122,6 +132,13 @@ pub enum DeferredCommand {
     },
     KillProcess {
         job_id: u64,
+    },
+    SpawnPaneClient {
+        surface_id: SurfaceId,
+        placement: Placement,
+    },
+    ClosePaneClient {
+        surface_id: SurfaceId,
     },
 }
 
@@ -172,6 +189,16 @@ pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<D
             Command::KillProcess { job_id } => {
                 deferred.push(DeferredCommand::KillProcess { job_id })
             }
+            Command::SpawnPaneClient {
+                surface_id,
+                placement,
+            } => deferred.push(DeferredCommand::SpawnPaneClient {
+                surface_id,
+                placement,
+            }),
+            Command::ClosePaneClient { surface_id } => {
+                deferred.push(DeferredCommand::ClosePaneClient { surface_id })
+            }
             other => normal.push(other),
         }
     }
@@ -220,7 +247,9 @@ pub fn execute_commands(
             | Command::Session(_)
             | Command::WriteToProcess { .. }
             | Command::CloseProcessStdin { .. }
-            | Command::KillProcess { .. } => {}
+            | Command::KillProcess { .. }
+            | Command::SpawnPaneClient { .. }
+            | Command::ClosePaneClient { .. } => {}
         }
     }
     CommandResult::Continue
