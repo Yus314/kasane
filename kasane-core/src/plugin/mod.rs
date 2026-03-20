@@ -25,8 +25,21 @@ pub use command::{
     extract_deferred_commands, extract_redraw_flags,
 };
 pub use diagnostics::{
-    PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticSeverity, PluginDiagnosticTarget,
-    ProviderArtifactStage, report_plugin_diagnostics,
+    DEFAULT_PLUGIN_DIAGNOSTIC_OVERLAY_LINES, PLUGIN_ACTIVATION_OVERLAY_TITLE,
+    PLUGIN_DIAGNOSTIC_OVERLAY_TITLE, PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnostic,
+    PluginDiagnosticKind, PluginDiagnosticOverlayFrame, PluginDiagnosticOverlayLayout,
+    PluginDiagnosticOverlayLine, PluginDiagnosticOverlayPaintSpec, PluginDiagnosticOverlayPainter,
+    PluginDiagnosticOverlayRow, PluginDiagnosticOverlayShadowSpec, PluginDiagnosticOverlayState,
+    PluginDiagnosticOverlayTagKind, PluginDiagnosticOverlayTextRun, PluginDiagnosticSeverity,
+    PluginDiagnosticTarget, ProviderArtifactStage, diagnostic_overlay_lines,
+    paint_plugin_diagnostic_overlay, plugin_diagnostic_overlay_body_face,
+    plugin_diagnostic_overlay_body_face_for, plugin_diagnostic_overlay_border_face,
+    plugin_diagnostic_overlay_frame, plugin_diagnostic_overlay_header_face,
+    plugin_diagnostic_overlay_header_face_for, plugin_diagnostic_overlay_layout,
+    plugin_diagnostic_overlay_paint_spec, plugin_diagnostic_overlay_shadow_spec,
+    plugin_diagnostic_overlay_shadow_spec_for, plugin_diagnostic_overlay_tag_face,
+    plugin_diagnostic_overlay_tag_text, plugin_diagnostic_overlay_text_face,
+    provider_artifact_stage_label, report_plugin_diagnostics, summarize_plugin_diagnostic,
 };
 pub use effects::{
     BootstrapEffects, InitBatch, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,

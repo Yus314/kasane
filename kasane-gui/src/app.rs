@@ -1,5 +1,6 @@
 //! Winit application loop: handles window events, GPU frame rendering, and input.
 
+use std::borrow::Cow;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -20,8 +21,9 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    Command, IoEvent, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    extract_redraw_flags, report_plugin_diagnostics,
+    Command, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginManager,
+    PluginRegistry, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
+    report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -39,6 +41,7 @@ use kasane_core::surface::SurfaceRegistry;
 use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
 use crate::colors::ColorResolver;
+use crate::diagnostics_overlay::build_diagnostic_overlay_commands;
 use crate::gpu::GpuState;
 use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
@@ -200,6 +203,7 @@ where
     cursor_animation: CursorAnimation,
     cursor_dirty: bool,
     last_render_result: Option<RenderResult>,
+    diagnostic_overlay: PluginDiagnosticOverlayState,
 
     // Timer scheduler for plugin timer events
     timer_scheduler: GuiTimerScheduler,
@@ -249,7 +253,13 @@ where
         let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
             kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
         })?;
+        let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
         report_plugin_diagnostics(&initial_plugins.diagnostics);
+        schedule_diagnostic_overlay(
+            &event_proxy,
+            &mut diagnostic_overlay,
+            &initial_plugins.diagnostics,
+        );
 
         let init_batch = registry.init_all_batch(&state);
         let mut initial_dirty = DirtyFlags::ALL;
@@ -293,6 +303,7 @@ where
             cursor_animation: CursorAnimation::new(),
             cursor_dirty: false,
             last_render_result: None,
+            diagnostic_overlay,
             timer_scheduler: GuiTimerScheduler(event_proxy),
             process_dispatcher,
             salsa_db,
@@ -515,6 +526,11 @@ where
                     self.sync_session_ready_gate();
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);
+                }
+                GuiEvent::DiagnosticOverlayExpire(generation) => {
+                    if self.diagnostic_overlay.dismiss(generation) {
+                        self.dirty |= DirtyFlags::ALL;
+                    }
                 }
             }
         }
@@ -757,6 +773,13 @@ where
                 &mut self.scene_cache,
             );
             self.last_render_result = Some(result);
+            let overlay_commands = build_diagnostic_overlay_commands(
+                &self.diagnostic_overlay,
+                cell_size,
+                self.state.cols,
+                self.state.rows,
+            );
+            let frame_commands = append_overlay_commands(commands, overlay_commands);
 
             let gpu = self.gpu.as_ref().unwrap();
             let resolver = self.color_resolver.as_ref().unwrap();
@@ -765,7 +788,7 @@ where
                 sr,
                 gpu,
                 resolver,
-                commands,
+                &frame_commands,
                 &mut self.cursor_animation,
                 result,
                 cw,
@@ -784,12 +807,19 @@ where
             let gpu = self.gpu.as_ref().unwrap();
             let resolver = self.color_resolver.as_ref().unwrap();
             let commands = self.scene_cache.composed_ref();
+            let overlay_commands = build_diagnostic_overlay_commands(
+                &self.diagnostic_overlay,
+                cell_size,
+                self.state.cols,
+                self.state.rows,
+            );
+            let frame_commands = append_overlay_commands(commands, overlay_commands);
             let (cw, ch) = (sr.metrics().cell_width, sr.metrics().cell_height);
             submit_render(
                 sr,
                 gpu,
                 resolver,
-                commands,
+                &frame_commands,
                 &mut self.cursor_animation,
                 result,
                 cw,
@@ -819,6 +849,39 @@ fn submit_render(
         Ok(()) => tracing::debug!("[app] render_frame complete ({label})"),
         Err(e) => tracing::error!("[app] scene render failed: {e}"),
     }
+}
+
+fn append_overlay_commands(
+    base_commands: &[kasane_core::render::DrawCommand],
+    overlay_commands: Vec<kasane_core::render::DrawCommand>,
+) -> Cow<'_, [kasane_core::render::DrawCommand]> {
+    if overlay_commands.is_empty() {
+        return Cow::Borrowed(base_commands);
+    }
+
+    let mut combined = Vec::with_capacity(base_commands.len() + overlay_commands.len());
+    combined.extend_from_slice(base_commands);
+    combined.extend(overlay_commands);
+    Cow::Owned(combined)
+}
+
+fn schedule_diagnostic_overlay(
+    proxy: &winit::event_loop::EventLoopProxy<GuiEvent>,
+    overlay: &mut PluginDiagnosticOverlayState,
+    diagnostics: &[PluginDiagnostic],
+) {
+    let Some(generation) = overlay.record(diagnostics) else {
+        return;
+    };
+    let Some(delay) = overlay.dismiss_after() else {
+        return;
+    };
+
+    let proxy = proxy.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let _ = proxy.send_event(GuiEvent::DiagnosticOverlayExpire(generation));
+    });
 }
 
 impl<R, W, C> Drop for App<R, W, C>

@@ -1,4 +1,5 @@
 mod backend;
+mod diagnostics_overlay;
 mod event_handler;
 mod input;
 pub mod sgr;
@@ -19,8 +20,8 @@ use kasane_core::event_loop::{
     sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::plugin::{
-    CommandResult, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEventSink,
-    execute_commands, report_plugin_diagnostics,
+    CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRegistry, ProcessDispatcher,
+    ProcessEventSink, execute_commands, report_plugin_diagnostics,
 };
 use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -35,6 +36,7 @@ use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
 
 use backend::TuiBackend;
+use diagnostics_overlay::paint_diagnostic_overlay;
 use event_handler::{
     Event, EventProcessingContext, PaintHookState, TuiProcessEventSink, TuiTimerScheduler,
     process_event, spawn_session_reader,
@@ -105,6 +107,8 @@ where
 {
     install_panic_hook();
 
+    let (tx, rx) = unbounded::<Event>();
+
     // Store session name for panic hook reconnect message
     if let Some(spec) = session_manager.active_spec()
         && let Some(ref name) = spec.session
@@ -139,6 +143,7 @@ where
     // Surface registry
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
+    let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
     // do not get a chance to produce side effects.
@@ -146,6 +151,7 @@ where
         kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
     })?;
     report_plugin_diagnostics(&initial_plugins.diagnostics);
+    schedule_diagnostic_overlay(&tx, &mut diagnostic_overlay, &initial_plugins.diagnostics);
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
@@ -157,9 +163,6 @@ where
     // Instead, we defer the resize to after receiving the first
     // Kakoune event, which guarantees initialization is complete.
     let mut initial_resize_sent = false;
-
-    // Event channel
-    let (tx, rx) = unbounded::<Event>();
 
     // Kakoune stdout reader thread
     spawn_session_reader(active_session, kak_reader, tx.clone());
@@ -281,6 +284,7 @@ where
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_manager: &mut plugin_manager,
                 paint_hooks: &mut paint_hooks,
+                diagnostic_overlay: &mut diagnostic_overlay,
             };
 
             // Process first event
@@ -354,6 +358,9 @@ where
                 dirty,
                 paint_hooks.hooks(),
             );
+            if diagnostic_overlay.is_active() {
+                paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
+            }
             backend.draw_grid(&grid)?;
             backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;
             backend.end_frame()?;
@@ -382,4 +389,23 @@ where
     registry.shutdown_all();
     backend.cleanup();
     Ok(())
+}
+
+pub(crate) fn schedule_diagnostic_overlay(
+    tx: &crossbeam_channel::Sender<Event>,
+    overlay: &mut PluginDiagnosticOverlayState,
+    diagnostics: &[kasane_core::plugin::PluginDiagnostic],
+) {
+    let Some(generation) = overlay.record(diagnostics) else {
+        return;
+    };
+    let Some(delay) = overlay.dismiss_after() else {
+        return;
+    };
+
+    let tx = tx.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let _ = tx.send(Event::DiagnosticOverlayExpire(generation));
+    });
 }
