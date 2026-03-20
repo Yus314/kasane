@@ -46,11 +46,10 @@ impl Plugin for LineNumbersPlugin {
             size_hint: ContribSizeHint::Auto,
         })
     }
-
 }
 
 fn main() {
-    kasane::run(|registry| {
-        registry.register(LineNumbersPlugin);
-    });
+    kasane::run_with_factories([host_plugin("line_numbers", || {
+        PluginBridge::new(LineNumbersPlugin)
+    })]);
 }

@@ -1,18 +1,52 @@
+use kasane::kasane_core::plugin::{
+    plugin_factory, PluginDescriptor, PluginRank, PluginRevision, PluginSource,
+};
+use kasane::kasane_wasm::{WasiCapabilityConfig, WasmPluginLoader};
+
 fn main() {
-    kasane::run(|registry| {
-        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../kasane-wasm/fixtures");
-        let loader = kasane::kasane_wasm::WasmPluginLoader::new().unwrap();
-        let wasi_config = kasane::kasane_wasm::WasiCapabilityConfig::default();
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../kasane-wasm/fixtures");
+    let wasi_config = WasiCapabilityConfig::default();
 
-        let cursor_line = loader
-            .load_file(&fixtures.join("cursor-line.wasm"), &wasi_config)
-            .unwrap();
-        registry.register_backend(Box::new(cursor_line));
+    let cursor_line_path = fixtures.join("cursor-line.wasm");
+    let line_numbers_path = fixtures.join("line-numbers.wasm");
 
-        let line_numbers = loader
-            .load_file(&fixtures.join("line-numbers.wasm"), &wasi_config)
-            .unwrap();
-        registry.register_backend(Box::new(line_numbers));
-    });
+    kasane::run_with_factories([
+        plugin_factory(
+            PluginDescriptor {
+                id: kasane::kasane_core::plugin::PluginId("cursor_line".to_string()),
+                source: PluginSource::FilesystemWasm {
+                    path: cursor_line_path.clone(),
+                },
+                revision: PluginRevision("static".to_string()),
+                rank: PluginRank::FILESYSTEM_WASM,
+            },
+            {
+                let wasi_config = wasi_config.clone();
+                move || {
+                    let loader = WasmPluginLoader::new()?;
+                    let plugin = loader.load_file(&cursor_line_path, &wasi_config)?;
+                    Ok(Box::new(plugin))
+                }
+            },
+        ),
+        plugin_factory(
+            PluginDescriptor {
+                id: kasane::kasane_core::plugin::PluginId("line_numbers".to_string()),
+                source: PluginSource::FilesystemWasm {
+                    path: line_numbers_path.clone(),
+                },
+                revision: PluginRevision("static".to_string()),
+                rank: PluginRank::FILESYSTEM_WASM,
+            },
+            {
+                let wasi_config = wasi_config.clone();
+                move || {
+                    let loader = WasmPluginLoader::new()?;
+                    let plugin = loader.load_file(&line_numbers_path, &wasi_config)?;
+                    Ok(Box::new(plugin))
+                }
+            },
+        ),
+    ]);
 }

@@ -29,7 +29,7 @@ fn install_panic_hook() {
     }));
 }
 use kasane_core::config::Config;
-use kasane_core::plugin::{IoEvent, PluginId, ProcessEventSink};
+use kasane_core::plugin::{IoEvent, PluginId, PluginManager, ProcessEventSink};
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec};
 use winit::event_loop::EventLoop;
@@ -94,10 +94,10 @@ pub fn run_gui<R, W, C>(
     config: Config,
     mut session_manager: SessionManager<R, W, C>,
     spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
-    register_plugins: impl FnOnce(&mut kasane_core::plugin::PluginRegistry),
     create_process_dispatcher: impl FnOnce(
         Arc<dyn ProcessEventSink>,
     ) -> Box<dyn kasane_core::plugin::ProcessDispatcher>,
+    mut plugin_manager: PluginManager,
 ) -> Result<()>
 where
     R: std::io::BufRead + Send + 'static,
@@ -125,7 +125,7 @@ where
 
     // Build plugin registry
     let mut registry = kasane_core::plugin::PluginRegistry::new();
-    register_plugins(&mut registry);
+    plugin_manager.register_initial_winners(&mut registry)?;
 
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(GuiProcessEventSink(proxy.clone()));

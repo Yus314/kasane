@@ -25,25 +25,25 @@ struct Keyword {
 const KEYWORDS: &[Keyword] = &[
     Keyword {
         pattern: "FIXME",
-        icon: "\u{26d4}",  // ⛔
+        icon: "\u{26d4}", // ⛔
         label: "known defect \u{2014} fix required",
         color: NamedColor::Red,
     },
     Keyword {
         pattern: "TODO",
-        icon: "\u{26a0}",  // ⚠
+        icon: "\u{26a0}", // ⚠
         label: "consider addressing before merge",
         color: NamedColor::Yellow,
     },
     Keyword {
         pattern: "HACK",
-        icon: "\u{26a1}",  // ⚡
+        icon: "\u{26a1}", // ⚡
         label: "temporary workaround \u{2014} needs proper solution",
         color: NamedColor::Magenta,
     },
     Keyword {
         pattern: "NOTE",
-        icon: "\u{2139}",  // ℹ
+        icon: "\u{2139}", // ℹ
         label: "important context for reviewers",
         color: NamedColor::Cyan,
     },
@@ -152,11 +152,10 @@ impl Plugin for VirtualTextDemoPlugin {
             size_hint: ContribSizeHint::Auto,
         })
     }
-
 }
 
 fn main() {
-    kasane::run(|registry| {
-        registry.register(VirtualTextDemoPlugin);
-    });
+    kasane::run_with_factories([host_plugin("virtual_text_demo", || {
+        PluginBridge::new(VirtualTextDemoPlugin)
+    })]);
 }

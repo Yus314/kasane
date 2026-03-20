@@ -11,9 +11,10 @@ pub use crate::plugin::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, BootstrapEffects, Command,
     ContribSizeHint, ContributeContext, Contribution, DisplayDirective, DisplayMapRef,
     IsBridgedPlugin, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, Plugin,
-    PluginBackend, PluginBridge, PluginCapabilities, PluginId, PluginRegistry, PluginState,
-    RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId, TransformContext,
-    TransformTarget,
+    PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor, PluginFactory, PluginId,
+    PluginManager, PluginProvider, PluginRank, PluginRegistry, PluginRevision, PluginSource,
+    PluginState, RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId,
+    TransformContext, TransformTarget, builtin_plugin, host_plugin, host_plugin_with_provider,
 };
 
 // Element tree

@@ -76,7 +76,7 @@ pub fn setup_plugin_surfaces(
             for surface_id in registered_ids {
                 surface_registry.remove(surface_id);
             }
-            registry.remove_plugin(&surface_set.owner);
+            registry.unload_plugin(&surface_set.owner);
             eprintln!(
                 "disabling plugin {} after surface registration failure: {err:?}",
                 surface_set.owner.0
@@ -403,6 +403,10 @@ impl SessionReadyGate {
     pub fn mark_ready_notified(&mut self) {
         self.notified_generation = Some(self.generation);
     }
+
+    pub fn rearm_ready_notification(&mut self) {
+        self.notified_generation = None;
+    }
 }
 
 /// Shared mutable context for deferred command handling.
@@ -721,7 +725,7 @@ pub fn maybe_flush_active_session_ready(ctx: &mut DeferredContext<'_>) -> bool {
     should_quit
 }
 
-fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bool {
+pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bool {
     *ctx.dirty |= batch.effects.redraw;
 
     for command in batch.effects.commands {
@@ -1239,6 +1243,18 @@ mod tests {
         gate.sync_active_session(Some("beta"));
         assert!(!gate.should_notify_ready());
         gate.mark_initial_resize_sent();
+        assert!(gate.should_notify_ready());
+    }
+
+    #[test]
+    fn session_ready_gate_can_rearm_current_generation() {
+        let mut gate = SessionReadyGate::default();
+        gate.sync_active_session(Some("alpha"));
+        gate.mark_initial_resize_sent();
+        gate.mark_ready_notified();
+        assert!(!gate.should_notify_ready());
+
+        gate.rearm_ready_notification();
         assert!(gate.should_notify_ready());
     }
 }

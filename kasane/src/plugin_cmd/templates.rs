@@ -388,6 +388,8 @@ mod tests {
         let output = Command::new(cargo)
             .arg("check")
             .arg("--quiet")
+            .arg("--target")
+            .arg("wasm32-wasip2")
             .arg("--manifest-path")
             .arg(project_dir.join("Cargo.toml"))
             .env("CARGO_TARGET_DIR", project_dir.join("target"))

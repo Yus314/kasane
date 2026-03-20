@@ -2,6 +2,8 @@ use super::*;
 use crate::plugin::{BootstrapEffects, RuntimeEffects, SessionReadyCommand, SessionReadyEffects};
 use crate::protocol::KasaneRequest;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TypedLifecyclePlugin;
 
@@ -73,6 +75,40 @@ impl PluginBackend for TypedRuntimePlugin {
     }
 }
 
+struct ShutdownProbePlugin {
+    id: &'static str,
+    shutdowns: Arc<AtomicUsize>,
+}
+
+impl PluginBackend for ShutdownProbePlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn on_shutdown(&mut self) {
+        self.shutdowns.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct TargetedReadyPlugin {
+    id: &'static str,
+    redraw: DirtyFlags,
+}
+
+impl PluginBackend for TargetedReadyPlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+        SessionReadyEffects {
+            redraw: self.redraw,
+            commands: vec![],
+            scroll_plans: vec![],
+        }
+    }
+}
+
 #[test]
 fn test_empty_registry() {
     let registry = PluginRegistry::new();
@@ -110,6 +146,25 @@ fn test_notify_active_session_ready_batch_collects_effects() {
             KasaneRequest::Scroll { .. }
         ))
     ));
+}
+
+#[test]
+fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(TargetedReadyPlugin {
+        id: "alpha",
+        redraw: DirtyFlags::STATUS,
+    }));
+    registry.register_backend(Box::new(TargetedReadyPlugin {
+        id: "beta",
+        redraw: DirtyFlags::BUFFER,
+    }));
+    let state = AppState::default();
+
+    let batch =
+        registry.notify_plugin_active_session_ready_batch(&PluginId("beta".to_string()), &state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
+    assert!(!batch.effects.redraw.contains(DirtyFlags::STATUS));
 }
 
 #[test]
@@ -181,6 +236,23 @@ fn test_remove_plugin_removes_registered_plugin() {
     assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
     assert_eq!(registry.plugin_count(), 1);
     assert!(!registry.remove_plugin(&PluginId("surface-plugin".to_string())));
+}
+
+#[test]
+fn test_unload_plugin_calls_shutdown_and_removes_plugin() {
+    let mut registry = PluginRegistry::new();
+    let shutdowns = Arc::new(AtomicUsize::new(0));
+    registry.register_backend(Box::new(ShutdownProbePlugin {
+        id: "shutdown-probe",
+        shutdowns: shutdowns.clone(),
+    }));
+
+    assert!(registry.contains_plugin(&PluginId("shutdown-probe".to_string())));
+    assert!(registry.unload_plugin(&PluginId("shutdown-probe".to_string())));
+    assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    assert!(!registry.contains_plugin(&PluginId("shutdown-probe".to_string())));
+    assert!(!registry.unload_plugin(&PluginId("shutdown-probe".to_string())));
+    assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
 }
 
 #[test]

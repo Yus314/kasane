@@ -99,8 +99,28 @@ impl PluginRegistry {
         }
     }
 
+    pub fn contains_plugin(&self, id: &PluginId) -> bool {
+        self.plugins.iter().any(|plugin| plugin.id() == *id)
+    }
+
+    /// Remove a plugin from the registry without running shutdown hooks.
+    ///
+    /// Prefer [`Self::unload_plugin`] for normal lifecycle transitions.
     pub fn remove_plugin(&mut self, id: &PluginId) -> bool {
         if let Some(pos) = self.plugins.iter().position(|plugin| plugin.id() == *id) {
+            self.plugins.remove(pos);
+            self.capabilities.remove(pos);
+            self.slot_cache.get_mut().entries.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Shut down and remove a single plugin by ID.
+    pub fn unload_plugin(&mut self, id: &PluginId) -> bool {
+        if let Some(pos) = self.plugins.iter().position(|plugin| plugin.id() == *id) {
+            self.plugins[pos].on_shutdown();
             self.plugins.remove(pos);
             self.capabilities.remove(pos);
             self.slot_cache.get_mut().entries.remove(pos);
@@ -162,6 +182,24 @@ impl PluginRegistry {
     /// Notify all plugins that the active session is ready for transport-bound startup work.
     pub fn notify_active_session_ready(&mut self, state: &AppState) -> ReadyBatch {
         self.notify_active_session_ready_batch(state)
+    }
+
+    /// Notify a single plugin that the active session is ready.
+    pub fn notify_plugin_active_session_ready_batch(
+        &mut self,
+        target: &PluginId,
+        state: &AppState,
+    ) -> ReadyBatch {
+        for plugin in &mut self.plugins {
+            if &plugin.id() == target {
+                let mut batch = ReadyBatch::default();
+                batch
+                    .effects
+                    .merge(plugin.on_active_session_ready_effects(state));
+                return batch;
+            }
+        }
+        ReadyBatch::default()
     }
 
     /// Notify all plugins about a state change and collect typed runtime effects.

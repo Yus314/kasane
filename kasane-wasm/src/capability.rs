@@ -12,6 +12,7 @@ use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder};
 use crate::bindings::kasane::plugin::types::Capability;
 
 /// Configuration for resolving WASI capabilities across all plugins.
+#[derive(Clone)]
 pub struct WasiCapabilityConfig {
     /// Base directory for per-plugin data directories.
     /// Each plugin gets `<data_base_dir>/<plugin_id>/data/`.
