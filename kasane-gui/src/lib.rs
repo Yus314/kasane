@@ -2,6 +2,7 @@ pub mod animation;
 mod app;
 pub(crate) mod backend;
 pub mod colors;
+mod diagnostics_overlay;
 pub mod gpu;
 pub(crate) mod input;
 
@@ -50,6 +51,7 @@ pub(crate) enum GuiEvent {
     KakouneDied(SessionId),
     PluginTimer(PluginId, TimerPayload),
     ProcessOutput(PluginId, IoEvent),
+    DiagnosticOverlayExpire(u64),
 }
 
 fn spawn_session_reader<R>(

@@ -14,9 +14,9 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    IoEvent, PaintHook, PluginDiagnostic, PluginId, PluginManager, PluginRegistry,
-    ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch, extract_redraw_flags,
-    report_plugin_diagnostics,
+    IoEvent, PaintHook, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId, PluginManager,
+    PluginRegistry, ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch,
+    extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -26,6 +26,7 @@ use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 
 use crate::backend::TuiBackend;
+use crate::schedule_diagnostic_overlay;
 
 #[derive(Default)]
 pub(crate) struct PaintHookState {
@@ -136,6 +137,7 @@ pub(crate) enum Event {
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
     ProcessOutput(PluginId, IoEvent),
     PluginReload,
+    DiagnosticOverlayExpire(u64),
 }
 
 impl Event {
@@ -305,6 +307,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_manager: &'a mut PluginManager,
     pub paint_hooks: &'a mut PaintHookState,
+    pub diagnostic_overlay: &'a mut PluginDiagnosticOverlayState,
 }
 
 struct PluginReloadOutcome {
@@ -428,6 +431,18 @@ where
                 .deliver_message_batch(&target, payload, ctx.state),
             Some(target),
         ),
+        Event::DiagnosticOverlayExpire(generation) => EventResult {
+            flags: if ctx.diagnostic_overlay.dismiss(generation) {
+                ctx.grid.invalidate_all();
+                DirtyFlags::ALL
+            } else {
+                DirtyFlags::empty()
+            },
+            commands: vec![],
+            scroll_plans: vec![],
+            surface_commands: vec![],
+            command_source: None,
+        },
         Event::ProcessOutput(plugin_id, io_event) => {
             let batch = ctx
                 .registry
@@ -538,6 +553,7 @@ where
             )
         })?;
     report_plugin_diagnostics(&reload.diagnostics);
+    schedule_diagnostic_overlay(ctx.session_tx, ctx.diagnostic_overlay, &reload.diagnostics);
 
     let mut flags = DirtyFlags::all();
     apply_bootstrap_effects(reload.bootstrap, &mut flags);
