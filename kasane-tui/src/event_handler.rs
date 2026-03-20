@@ -24,6 +24,7 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
+use kasane_core::surface::pane_map::PaneMap;
 
 use crate::backend::TuiBackend;
 use crate::schedule_diagnostic_overlay;
@@ -271,6 +272,10 @@ where
             initial_resize_sent,
         );
     }
+
+    fn session_id_by_key(&self, key: &str) -> Option<SessionId> {
+        self.session_manager.session_id_by_key(key)
+    }
 }
 
 impl<'a, R, W, C> kasane_core::event_loop::SessionHost for TuiSessionRuntime<'a, R, W, C>
@@ -284,6 +289,13 @@ where
             .active_writer_mut()
             .expect("missing active session writer")
     }
+
+    fn writer_for_session(&mut self, session_id: SessionId) -> Option<&mut dyn Write> {
+        self.session_manager
+            .writer_mut(session_id)
+            .ok()
+            .map(|w| w as &mut dyn Write)
+    }
 }
 
 /// Grouped mutable context for `process_event`, reducing its parameter count.
@@ -291,6 +303,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub state: &'a mut AppState,
     pub registry: &'a mut PluginRegistry,
     pub surface_registry: &'a mut SurfaceRegistry,
+    pub pane_map: &'a mut PaneMap,
     pub session_manager: &'a mut SessionManager<R, W, C>,
     pub session_states: &'a mut SessionStateStore,
     pub session_tx: &'a crossbeam_channel::Sender<Event>,
@@ -333,6 +346,35 @@ where
                 ctx.session_states
                     .ensure_session(session_id, ctx.state)
                     .apply(req);
+                // Send the deferred initial Resize now that the kak process
+                // has proven it's initialized (it sent its first event).
+                if ctx.pane_map.take_pending_resize(session_id)
+                    && let Some(surface_id) = ctx.pane_map.surface_for_session(session_id)
+                {
+                    let total = kasane_core::layout::Rect {
+                        x: 0,
+                        y: 0,
+                        w: ctx.state.cols,
+                        h: ctx.state.rows,
+                    };
+                    let rects = ctx.surface_registry.workspace().compute_rects(total);
+                    if let Some(rect) = rects.get(&surface_id)
+                        && let Ok(writer) = ctx.session_manager.writer_mut(session_id)
+                    {
+                        kasane_core::io::send_request(
+                            writer,
+                            &kasane_core::protocol::KasaneRequest::Resize {
+                                rows: rect.h,
+                                cols: rect.w,
+                            },
+                        );
+                        ctx.pane_map.record_resize(session_id, rect.h, rect.w);
+                    }
+                }
+                // If the session is a visible pane, trigger a redraw
+                if ctx.pane_map.surface_for_session(session_id).is_some() {
+                    *ctx.dirty |= DirtyFlags::ALL;
+                }
                 return false;
             }
             kasane_core::io::send_initial_resize(
@@ -492,6 +534,18 @@ where
             }
         }
         Event::KakouneDied(session_id) => {
+            // If this is a secondary pane client (not the primary session),
+            // clean up the pane without exiting Kasane.
+            if ctx.pane_map.is_pane_client(session_id) {
+                if let Some(surface_id) = ctx.pane_map.unbind_session(session_id) {
+                    ctx.surface_registry.remove(surface_id);
+                    let _ = ctx.surface_registry.workspace_mut().close(surface_id);
+                    ctx.session_states.remove(session_id);
+                    let _ = ctx.session_manager.close(session_id);
+                    *ctx.dirty |= DirtyFlags::ALL;
+                }
+                return false;
+            }
             if kasane_core::event_loop::handle_session_death(
                 session_id,
                 ctx.session_manager,
@@ -714,6 +768,7 @@ where
         state: ctx.state,
         registry: ctx.registry,
         surface_registry: ctx.surface_registry,
+        pane_map: ctx.pane_map,
         clipboard_get: &mut || ctx.backend.clipboard_get(),
         dirty: ctx.dirty,
         timer: ctx.timer,

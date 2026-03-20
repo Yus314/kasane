@@ -34,12 +34,13 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
+use kasane_core::surface::pane_map::{PaneMap, PaneStates};
 
 use backend::TuiBackend;
 use diagnostics_overlay::paint_diagnostic_overlay;
 use event_handler::{
-    Event, EventProcessingContext, PaintHookState, TuiProcessEventSink, TuiTimerScheduler,
-    process_event, spawn_session_reader,
+    Event, EventProcessingContext, PaintHookState, TuiProcessEventSink, TuiSessionRuntime,
+    TuiTimerScheduler, process_event, spawn_session_reader,
 };
 use input::convert_event;
 
@@ -143,6 +144,14 @@ where
     // Surface registry
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
+    // PaneMap: bind initial session to the primary buffer surface
+    let mut pane_map = PaneMap::new();
+    pane_map.bind(kasane_core::surface::SurfaceId::BUFFER, active_session);
+    if let Some(spec) = session_manager.active_spec()
+        && let Some(ref name) = spec.session
+    {
+        pane_map.set_server_session_name(name.clone());
+    }
     let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
@@ -268,6 +277,7 @@ where
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
                 session_manager: &mut session_manager,
                 session_states: &mut session_states,
                 session_tx: &tx,
@@ -335,6 +345,28 @@ where
             tracing::debug!(batch_count, "event batch drained");
         }
 
+        // Send resize commands to pane clients when layout may have changed
+        if !dirty.is_empty() && pane_map.len() > 1 {
+            let total = kasane_core::layout::Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            };
+            let mut session_host = TuiSessionRuntime {
+                session_manager: &mut session_manager,
+                session_states: &mut session_states,
+                tx: tx.clone(),
+                spawn_session,
+            };
+            kasane_core::event_loop::send_pane_resizes(
+                &surface_registry,
+                &mut pane_map,
+                &mut session_host,
+                total,
+            );
+        }
+
         if !dirty.is_empty() {
             let render_start = std::time::Instant::now();
 
@@ -349,6 +381,19 @@ where
 
             backend.begin_frame()?;
 
+            let pane_states_val;
+            let pane_states_opt = if pane_map.len() > 1 {
+                pane_states_val = PaneStates::new(
+                    &pane_map,
+                    &session_states,
+                    &state,
+                    session_manager.active_session_id(),
+                );
+                Some(&pane_states_val)
+            } else {
+                None
+            };
+
             let result = render_pipeline_cached(
                 &salsa_db,
                 &salsa_handles,
@@ -357,6 +402,8 @@ where
                 &mut grid,
                 dirty,
                 paint_hooks.hooks(),
+                Some(&surface_registry),
+                pane_states_opt,
             );
             if diagnostic_overlay.is_active() {
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
