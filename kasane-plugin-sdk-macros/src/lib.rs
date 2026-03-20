@@ -25,13 +25,13 @@ use syn::{ImplItem, ItemImpl, parse_macro_input};
 /// impl Guest for CursorLinePlugin {
 ///     fn get_id() -> String { "cursor_line".to_string() }
 ///
-///     fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-///         // ... your logic
-///         vec![]
+///     fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+///         let _ = dirty_flags;
+///         RuntimeEffects::default()
 ///     }
 ///
 ///     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
-///         // ... your logic
+///         let _ = line;
 ///         None
 ///     }
 ///
@@ -39,7 +39,8 @@ use syn::{ImplItem, ItemImpl, parse_macro_input};
 /// }
 /// ```
 ///
-/// All other `Guest` methods (`on_init`, `on_shutdown`, `contribute`,
+/// All other typed `Guest` methods (`on_init_effects`,
+/// `on_active_session_ready_effects`, `on_shutdown`, `contribute`,
 /// `handle_key`, etc.) are automatically generated with their default
 /// implementations.
 #[proc_macro_attribute]
@@ -92,14 +93,25 @@ pub fn kasane_wasm_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream 
 /// Maps a `default_*!()` macro name to the Guest method names it provides.
 fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
     match macro_name {
-        "default_init" => vec!["on_init".into()],
+        "default_init" => vec!["on_init_effects".into()],
+        "default_active_session_ready" => vec!["on_active_session_ready_effects".into()],
         "default_shutdown" => vec!["on_shutdown".into()],
-        "default_state_changed" => vec!["on_state_changed".into()],
+        "default_state_changed" => vec!["on_state_changed_effects".into()],
         "default_lifecycle" => vec![
-            "on_init".into(),
+            "on_init_effects".into(),
+            "on_active_session_ready_effects".into(),
             "on_shutdown".into(),
-            "on_state_changed".into(),
+            "on_state_changed_effects".into(),
         ],
+        "default_typed_lifecycle" => vec![
+            "on_init_effects".into(),
+            "on_active_session_ready_effects".into(),
+            "on_state_changed_effects".into(),
+            "on_shutdown".into(),
+        ],
+        "default_typed_init" => vec!["on_init_effects".into()],
+        "default_typed_active_session_ready" => vec!["on_active_session_ready_effects".into()],
+        "default_typed_state_changed" => vec!["on_state_changed_effects".into()],
         "default_cache" => vec!["state_hash".into()],
         "default_input" => vec![
             "handle_mouse".into(),
@@ -128,9 +140,12 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_decorate" => vec!["decorate".into()],
         "default_decorator_priority" => vec!["decorator_priority".into()],
         "default_cursor_style" => vec!["cursor_style_override".into()],
-        "default_update" => vec!["update".into()],
+        "default_update" => vec!["update_effects".into()],
+        "default_typed_runtime" => vec!["update_effects".into(), "on_io_event_effects".into()],
+        "default_typed_update" => vec!["update_effects".into()],
+        "default_typed_io_event" => vec!["on_io_event_effects".into()],
         "default_capabilities" => vec!["requested_capabilities".into()],
-        "default_io_event" => vec!["on_io_event".into()],
+        "default_io_event" => vec!["on_io_event_effects".into()],
         "slots" => vec!["contribute_to".into()],
         _ => vec![],
     }
@@ -156,8 +171,17 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- Lifecycle ---
 
     add_default!(
-        "on_init",
-        quote! { fn on_init() -> Vec<Command> { vec![] } }
+        "on_init_effects",
+        quote! { fn on_init_effects() -> BootstrapEffects { BootstrapEffects::default() } }
+    );
+
+    add_default!(
+        "on_active_session_ready_effects",
+        quote! {
+            fn on_active_session_ready_effects() -> SessionReadyEffects {
+                SessionReadyEffects::default()
+            }
+        }
     );
 
     add_default!(
@@ -166,8 +190,12 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     );
 
     add_default!(
-        "on_state_changed",
-        quote! { fn on_state_changed(_dirty_flags: u16) -> Vec<Command> { vec![] } }
+        "on_state_changed_effects",
+        quote! {
+            fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
+                RuntimeEffects::default()
+            }
+        }
     );
 
     // --- Surfaces ---
@@ -385,8 +413,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- Inter-plugin messaging ---
 
     add_default!(
-        "update",
-        quote! { fn update(_payload: Vec<u8>) -> Vec<Command> { vec![] } }
+        "update_effects",
+        quote! { fn update_effects(_payload: Vec<u8>) -> RuntimeEffects { RuntimeEffects::default() } }
     );
 
     // --- WASI capabilities ---
@@ -399,8 +427,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- I/O events ---
 
     add_default!(
-        "on_io_event",
-        quote! { fn on_io_event(_event: IoEvent) -> Vec<Command> { vec![] } }
+        "on_io_event_effects",
+        quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { RuntimeEffects::default() } }
     );
 
     defaults
@@ -464,6 +492,32 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             pub use super::kasane::plugin::types::*;
 
             use super::kasane::plugin::types::*;
+
+            impl ::core::default::Default for BootstrapEffects {
+                fn default() -> Self {
+                    Self { redraw: 0 }
+                }
+            }
+
+            impl ::core::default::Default for SessionReadyEffects {
+                fn default() -> Self {
+                    Self {
+                        redraw: 0,
+                        commands: vec![],
+                        scroll_plans: vec![],
+                    }
+                }
+            }
+
+            impl ::core::default::Default for RuntimeEffects {
+                fn default() -> Self {
+                    Self {
+                        redraw: 0,
+                        commands: vec![],
+                        scroll_plans: vec![],
+                    }
+                }
+            }
 
             /// Create a default face (all colors default, no attributes).
             pub fn default_face() -> Face {
@@ -816,9 +870,9 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `id: "plugin_id"` — plugin identifier (required)
 /// - `state { field: Type = default, ... }` — plugin state with generation counter
 ///   - Fields support `#[bind(expr, on: flags)]` for auto-sync from host state
-/// - `on_init() { ... }` → `fn on_init()`
-/// - `on_state_changed(dirty) { ... }` → `fn on_state_changed()` (auto `vec![]`)
-/// - `on_state_changed_commands(dirty) { ... }` → same, but body must return `Vec<Command>`
+/// - `on_init_effects() { ... }` → `fn on_init_effects() -> BootstrapEffects`
+/// - `on_active_session_ready_effects() { ... }` → `fn on_active_session_ready_effects() -> SessionReadyEffects`
+/// - `on_state_changed_effects(dirty) { ... }` → `fn on_state_changed_effects() -> RuntimeEffects`
 /// - `slots { SLOT => expr, ... }` — simple form (auto-wraps in `auto_contribution()`)
 /// - `slots { SLOT(deps) => |ctx| { ... }, ... }` — full form with state access via `state.field`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
@@ -828,7 +882,8 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `handle_key(event) { ... }` → `fn handle_key()`
 /// - `handle_mouse(event, id) { ... }` → `fn handle_mouse()`
 /// - `capabilities: [Cap1, Cap2]` → `fn requested_capabilities()`
-/// - `on_io_event(event) { ... }` → `fn on_io_event()`
+/// - `update_effects(payload) { ... }` → `fn update_effects() -> RuntimeEffects`
+/// - `on_io_event_effects(event) { ... }` → `fn on_io_event_effects() -> RuntimeEffects`
 #[proc_macro]
 pub fn kasane_define_plugin(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();
@@ -969,12 +1024,22 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         }
     };
 
-    let on_init_method = if let Some(ref body) = def.on_init {
+    let on_init_method = if let Some(ref body) = def.on_init_effects {
         let wrapped = wrap_state(body);
-        quote! { fn on_init() -> Vec<Command> { #wrapped } }
+        quote! { fn on_init_effects() -> BootstrapEffects { #wrapped } }
     } else {
         quote! {}
     };
+
+    let on_active_session_ready_method =
+        if let Some(ref body) = def.on_active_session_ready_effects {
+            let wrapped = wrap_state(body);
+            quote! {
+                fn on_active_session_ready_effects() -> SessionReadyEffects { #wrapped }
+            }
+        } else {
+            quote! {}
+        };
 
     // Generate auto-binding code from #[bind] attributes
     let auto_bindings: Vec<proc_macro2::TokenStream> = if let Some(ref state_def) = def.state {
@@ -999,35 +1064,20 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     };
 
     let has_bindings = !auto_bindings.is_empty();
-    let has_osc = def.on_state_changed.is_some();
-    let has_osc_commands = def.on_state_changed_commands.is_some();
+    let has_osc = def.on_state_changed_effects.is_some();
 
-    let on_state_changed_method = if has_osc || has_osc_commands || has_bindings {
+    let on_state_changed_method = if has_osc || has_bindings {
         let param_name = def
-            .on_state_changed
+            .on_state_changed_effects
             .as_ref()
             .map(|osc| osc.param.clone())
-            .or_else(|| {
-                def.on_state_changed_commands
-                    .as_ref()
-                    .map(|osc| osc.param.clone())
-            })
             .unwrap_or_else(|| syn::Ident::new("__flags", proc_macro2::Span::call_site()));
 
         let sync_body = def
-            .on_state_changed
+            .on_state_changed_effects
             .as_ref()
             .map(|osc| osc.body.clone())
-            .unwrap_or_default();
-
-        let commands_body = def
-            .on_state_changed_commands
-            .as_ref()
-            .map(|osc| {
-                let body = &osc.body;
-                quote! { return #body; }
-            })
-            .unwrap_or_default();
+            .unwrap_or_else(|| quote! { RuntimeEffects::default() });
 
         let wrapped = if has_state {
             quote! {
@@ -1039,19 +1089,15 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                     };
                     #( #auto_bindings )*
                     { #sync_body }
-                    #commands_body
-                    vec![]
                 })
             }
         } else {
             quote! {
                 { #sync_body }
-                #commands_body
-                vec![]
             }
         };
         quote! {
-            fn on_state_changed(#param_name: u16) -> Vec<Command> {
+            fn on_state_changed_effects(#param_name: u16) -> RuntimeEffects {
                 #wrapped
             }
         }
@@ -1214,12 +1260,25 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let on_io_event_method = if let Some(ref io) = def.on_io_event {
+    let update_effects_method = if let Some(ref upd) = def.update_effects {
+        let payload_param = &upd.param;
+        let body = &upd.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn update_effects(#payload_param: Vec<u8>) -> RuntimeEffects {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let on_io_event_method = if let Some(ref io) = def.on_io_event_effects {
         let event_param = &io.param;
         let body = &io.body;
         let wrapped = wrap_state(body);
         quote! {
-            fn on_io_event(#event_param: IoEvent) -> Vec<Command> {
+            fn on_io_event_effects(#event_param: IoEvent) -> RuntimeEffects {
                 #wrapped
             }
         }
@@ -1243,7 +1302,9 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         impl Guest for __KasanePlugin {
             #get_id
             #on_init_method
+            #on_active_session_ready_method
             #on_state_changed_method
+            #update_effects_method
             #slots_method
             #annotate_method
             #transform_method
@@ -1265,9 +1326,10 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
 struct PluginDef {
     id: syn::LitStr,
     state: Option<StateDef>,
-    on_init: Option<proc_macro2::TokenStream>,
-    on_state_changed: Option<OnStateChanged>,
-    on_state_changed_commands: Option<OnStateChanged>,
+    on_init_effects: Option<proc_macro2::TokenStream>,
+    on_active_session_ready_effects: Option<proc_macro2::TokenStream>,
+    on_state_changed_effects: Option<OnStateChanged>,
+    update_effects: Option<ParamBodyDef>,
     slots: Option<Vec<SlotEntry>>,
     annotate: Option<AnnotateDef>,
     transform: Option<TransformDef>,
@@ -1277,7 +1339,7 @@ struct PluginDef {
     handle_mouse: Option<HandleMouseDef>,
     handle_default_scroll: Option<ParamBodyDef>,
     capabilities: Option<proc_macro2::TokenStream>,
-    on_io_event: Option<ParamBodyDef>,
+    on_io_event_effects: Option<ParamBodyDef>,
 }
 
 struct StateDef {
@@ -1342,9 +1404,10 @@ impl syn::parse::Parse for PluginDef {
         let mut def = PluginDef {
             id: syn::LitStr::new("", proc_macro2::Span::call_site()),
             state: None,
-            on_init: None,
-            on_state_changed: None,
-            on_state_changed_commands: None,
+            on_init_effects: None,
+            on_active_session_ready_effects: None,
+            on_state_changed_effects: None,
+            update_effects: None,
             slots: None,
             annotate: None,
             transform: None,
@@ -1354,7 +1417,7 @@ impl syn::parse::Parse for PluginDef {
             handle_mouse: None,
             handle_default_scroll: None,
             capabilities: None,
-            on_io_event: None,
+            on_io_event_effects: None,
         };
 
         let mut has_id = false;
@@ -1417,32 +1480,40 @@ impl syn::parse::Parse for PluginDef {
                     }
                     def.state = Some(StateDef { fields });
                 }
-                "on_init" => {
+                "on_init_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
-                    let _ = params; // empty params for on_init()
+                    let _ = params;
                     let body;
                     syn::braced!(body in input);
-                    def.on_init = Some(body.parse()?);
+                    def.on_init_effects = Some(body.parse()?);
                 }
-                "on_state_changed" => {
+                "on_active_session_ready_effects" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let _ = params;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_active_session_ready_effects = Some(body.parse()?);
+                }
+                "on_state_changed_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
                     let param: syn::Ident = params.parse()?;
                     let body;
                     syn::braced!(body in input);
-                    def.on_state_changed = Some(OnStateChanged {
+                    def.on_state_changed_effects = Some(OnStateChanged {
                         param,
                         body: body.parse()?,
                     });
                 }
-                "on_state_changed_commands" => {
+                "update_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
                     let param: syn::Ident = params.parse()?;
                     let body;
                     syn::braced!(body in input);
-                    def.on_state_changed_commands = Some(OnStateChanged {
+                    def.update_effects = Some(ParamBodyDef {
                         param,
                         body: body.parse()?,
                     });
@@ -1541,16 +1612,52 @@ impl syn::parse::Parse for PluginDef {
                     syn::bracketed!(content in input);
                     def.capabilities = Some(content.parse()?);
                 }
-                "on_io_event" => {
+                "on_io_event_effects" => {
                     let params;
                     syn::parenthesized!(params in input);
                     let param: syn::Ident = params.parse()?;
                     let body;
                     syn::braced!(body in input);
-                    def.on_io_event = Some(ParamBodyDef {
+                    def.on_io_event_effects = Some(ParamBodyDef {
                         param,
                         body: body.parse()?,
                     });
+                }
+                "on_init" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_init` was removed; use `on_init_effects()`",
+                    ));
+                }
+                "on_active_session_ready" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_active_session_ready` was removed; use `on_active_session_ready_effects()`",
+                    ));
+                }
+                "on_state_changed" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_state_changed` was removed; use `on_state_changed_effects(...)`",
+                    ));
+                }
+                "on_state_changed_commands" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_state_changed_commands` was removed; return `RuntimeEffects` from `on_state_changed_effects(...)`",
+                    ));
+                }
+                "update" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `update` was removed; use `update_effects(...)`",
+                    ));
+                }
+                "on_io_event" => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "define_plugin! `on_io_event` was removed; use `on_io_event_effects(...)`",
+                    ));
                 }
                 other => {
                     return Err(syn::Error::new(

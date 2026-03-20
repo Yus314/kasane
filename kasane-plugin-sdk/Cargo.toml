@@ -13,3 +13,6 @@ readme = "README.md"
 [dependencies]
 wit-bindgen = "0.41"
 kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.1.0" }
+
+[dev-dependencies]
+trybuild = "1"

@@ -1,0 +1,5 @@
+error: define_plugin! `update` was removed; use `update_effects(...)`
+ --> tests/fail/define_plugin_update.rs:4:5
+  |
+4 |     update(payload) {
+  |     ^^^^^^

@@ -1,0 +1,5 @@
+error: define_plugin! `on_state_changed` was removed; use `on_state_changed_effects(...)`
+ --> tests/fail/define_plugin_on_state_changed.rs:4:5
+  |
+4 |     on_state_changed(dirty) {
+  |     ^^^^^^^^^^^^^^^^

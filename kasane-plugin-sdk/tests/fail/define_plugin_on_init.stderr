@@ -1,0 +1,5 @@
+error: define_plugin! `on_init` was removed; use `on_init_effects()`
+ --> tests/fail/define_plugin_on_init.rs:4:5
+  |
+4 |     on_init() {
+  |     ^^^^^^^
