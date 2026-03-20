@@ -1024,6 +1024,8 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
+                            None,
+                            None,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1062,6 +1064,8 @@ mod salsa_benches {
                     &mut grid,
                     DirtyFlags::ALL,
                     &paint_hooks,
+                    None,
+                    None,
                 );
                 grid.swap_with_dirty();
 
@@ -1074,6 +1078,8 @@ mod salsa_benches {
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
                         &paint_hooks,
+                        None,
+                        None,
                     );
                 });
             });
@@ -1118,6 +1124,8 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
+                            None,
+                            None,
                         );
                         grid.swap_with_dirty();
                         sync_inputs_from_state(&mut db, &edited, &handles);
@@ -1132,6 +1140,8 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::BUFFER,
                             &paint_hooks,
+                            None,
+                            None,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1195,6 +1205,8 @@ mod salsa_benches {
                         cell_size,
                         DirtyFlags::ALL,
                         &mut scene_cache,
+                        None,
+                        None,
                     );
                 },
                 BatchSize::SmallInput,
@@ -1213,6 +1225,8 @@ mod salsa_benches {
                 cell_size,
                 DirtyFlags::ALL,
                 &mut scene_cache,
+                None,
+                None,
             );
 
             group.bench_function("warm", |b| {
@@ -1225,6 +1239,8 @@ mod salsa_benches {
                         cell_size,
                         DirtyFlags::MENU_SELECTION,
                         &mut scene_cache,
+                        None,
+                        None,
                     );
                 });
             });
@@ -1261,6 +1277,8 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
+                            None,
+                            None,
                         );
                     },
                     BatchSize::SmallInput,

@@ -52,6 +52,8 @@ fn render_salsa(
         &mut grid,
         DirtyFlags::ALL,
         &[],
+        None,
+        None,
     );
     grid
 }

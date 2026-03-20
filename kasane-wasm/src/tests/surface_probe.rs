@@ -31,6 +31,7 @@ fn renders_abstract_tree_with_placeholder() {
     let registry = PluginRegistry::new();
     let ctx = ViewContext {
         state: &state,
+        global_state: &state,
         rect: default_surface_rect(),
         focused: true,
         registry: &registry,
@@ -126,7 +127,7 @@ fn integrates_with_surface_registry_and_resolver() {
         w: state.cols,
         h: state.rows,
     };
-    let mut sections = surface_registry.compose_view_sections(&state, &registry, root_area);
+    let mut sections = surface_registry.compose_view_sections(&state, None, &registry, root_area);
 
     assert_eq!(sections.surface_reports.len(), 1);
     let report = &sections.surface_reports[0];

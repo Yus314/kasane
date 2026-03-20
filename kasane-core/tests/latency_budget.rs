@@ -262,8 +262,17 @@ fn salsa_full_frame_under_2ms() {
         let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
         sync_display_directives(&mut db, &state, &registry, &handles);
         sync_plugin_contributions(&mut db, &state, &registry, &handles);
-        let _result =
-            render_pipeline_cached(&db, &handles, &state, &registry, &mut grid, dirty, &[]);
+        let _result = render_pipeline_cached(
+            &db,
+            &handles,
+            &state,
+            &registry,
+            &mut grid,
+            dirty,
+            &[],
+            None,
+            None,
+        );
         let _ = grid.diff();
         grid.swap();
     }
@@ -275,8 +284,17 @@ fn salsa_full_frame_under_2ms() {
             let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
             sync_display_directives(&mut db, &state, &registry, &handles);
             sync_plugin_contributions(&mut db, &state, &registry, &handles);
-            let _result =
-                render_pipeline_cached(&db, &handles, &state, &registry, &mut grid, dirty, &[]);
+            let _result = render_pipeline_cached(
+                &db,
+                &handles,
+                &state,
+                &registry,
+                &mut grid,
+                dirty,
+                &[],
+                None,
+                None,
+            );
             let _ = grid.diff();
             grid.swap();
             start.elapsed().as_micros()

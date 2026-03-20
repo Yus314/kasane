@@ -592,7 +592,7 @@ fn test_surface_view_sections_preserves_surface_reports() {
         w: state.cols,
         h: state.rows,
     };
-    let sections = surface_registry.compose_view_sections(&state, &registry, root_area);
+    let sections = surface_registry.compose_view_sections(&state, None, &registry, root_area);
 
     let keys: HashSet<&str> = sections
         .surface_reports
