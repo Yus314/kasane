@@ -29,8 +29,9 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Status | Next deliverable | Completion criteria |
 |---|---|---|---|
-| Session / Surface parity | Active | Per-session surface filtering (multi-pane prerequisite) | Infrastructure landed; correctness proof complete via automated tests |
-| Multi-session UI parity | **Complete** | Session-ui example plugin with status bar + switcher overlay | Multiple sessions can be switched in a user-visible manner, and the existence of non-active sessions is apparent from the UI |
+| Session / Surface parity | **Complete** | — | Infrastructure landed; multi-pane integration delivered |
+| Multi-session UI parity | **Complete** | — | Multiple sessions can be switched in a user-visible manner |
+| Multi-pane UI polish | Active | Pane border / separator rendering | Visual distinction between panes; resize controls; per-pane status |
 | Display transformation / display unit model | Active | First slice of P-030 through P-043 | Minimal implementation and proof of display transformation / navigation policy are in place |
 
 ### 2.2 Next
@@ -38,7 +39,7 @@ for the current specification from a plugin's perspective, see
 | Workstream | Status | Next deliverable |
 |---|---|---|
 | WASM runtime operations | Open | Add operational features in order: plugin manifest, plugin settings API, precompiled component cache |
-| Native escape hatch redesign | Open | Higher-level `PaintHook`, definition of `Pane` / `Workspace` parity model |
+| Native escape hatch redesign | Open | Higher-level `PaintHook` redesign (Pane / Workspace model landed in Phase 5) |
 | Core event / degraded behavior | Open | Minimal queuing for D-001, introduction of P-023 `DropEvent` |
 
 ### 2.3 Backlog
@@ -46,54 +47,35 @@ for the current specification from a plugin's perspective, see
 | Workstream | Status | Notes |
 |---|---|---|
 | External plugin candidates | Open | Maintained as candidates: indent guides, clickable links, built-in splits, floating panels, code folding, display-line navigation, URL detection, region-specific text policy, etc. |
+| Session-affine plugin surfaces | Open | Plugin API for declaring session affinity on `surfaces()` return values. No consumer exists yet; design deferred until a plugin requires it |
 
 ## 3. Open Workstreams
 
 ### 3.1 Session / Surface parity
 
-Current status:
+Current status: **Complete**
 
-- `SessionManager` foundation, primary session linkage, and runtime `spawn-session` / `close-session` wiring are in place
-- Kakoune events from inactive sessions continue to be reflected in off-screen snapshots
-- Hosted surface `render-surface` / `handle-surface-event` / `handle-surface-state-changed` are in place
-- Session observability infrastructure complete: `AppState.session_descriptors` / `active_session_key`, `DirtyFlags::SESSION`, `SessionCommand::Switch`, WIT Tier 8 host-state functions (ADR-023 step 1)
+Delivered:
 
-Design analysis (2026-03-16):
+- `SessionManager` foundation, primary session linkage, and runtime `spawn-session` / `close-session` wiring
+- Kakoune events from inactive sessions reflected in off-screen snapshots
+- Hosted surface `render-surface` / `handle-surface-event` / `handle-surface-state-changed`
+- Session observability: `AppState.session_descriptors` / `active_session_key`, `DirtyFlags::SESSION`, `SessionCommand::Switch`, WIT Tier 8 host-state functions (ADR-023 step 1)
+- `session_id: Option<SessionId>` field in `RegisteredSurface`, `remove_surfaces_for_session()`, `surface_session_id()`
+- Multi-pane integration (Phase 5b/5c): `PaneMap` per-session surface binding, `ClientBufferSurface` per-pane rendering, `PaneStates` per-pane state snapshots, `Workspace` split tree, focused pane command routing
+- Automated correctness proof: 7 integration tests + 4 unit tests + multi-pane tests
 
-Built-in surfaces (`KakouneBufferSurface`, `StatusBarSurface`) are stateless renderers of `AppState`.
-Ephemeral surfaces (`MenuSurface`, `InfoSurface`) are auto-managed via `sync_ephemeral_surfaces()` based on `AppState`.
-Because `AppState` is already swapped atomically on session switch, current single-pane surface composition
-is correct without per-session surface instances. Per-session surface generation and per-session workspace trees
-are deferred to multi-pane implementation, where they become necessary.
-
-Completed:
-
-- `session_id: Option<SessionId>` field in `RegisteredSurface` — enables future per-session surface binding
-- `SurfaceRegistry::remove_surfaces_for_session()` — close-time cleanup of session-bound surfaces
-- `SurfaceRegistry::surface_session_id()` — query session binding of a registered surface
-- Automated correctness proof: 7 integration tests + 4 unit tests covering session switch, ephemeral surface lifecycle, round-trip stability, session close/promote, dirty flags, metadata consistency, and compose_view correctness
-
-Remaining work:
-
-- `compose_view` filtering by active session (deferred — co-designed with multi-pane, where per-session surfaces become necessary)
-- Plugin API for declaring session affinity on `surfaces()` return values (deferred — no consumer exists yet; correct model depends on multi-pane design)
-
-Deferred to multi-pane:
-
-- Per-session `KakouneBufferSurface` / `StatusBarSurface` instances (stateless surfaces do not benefit from duplication)
-- Per-session workspace trees (single-pane layout is session-agnostic)
-- Surface internal state snapshots (no stateful plugin surfaces exist yet)
-
-Next deliverable:
-
-- Multi-pane integration: per-session surface filtering in `compose_view`, workspace tree per session
-
-Proof / completion criteria:
+Proof / completion criteria (all met):
 
 - ✓ Surface composition does not break when there are two or more sessions
 - ✓ No stale surfaces remain after session switch
 - ✓ Correspondence between active / inactive session snapshots and surfaces is locked down by automated tests
 - ✓ Session affinity API is available for plugin surfaces (even if no plugin uses it yet)
+- ✓ Multi-pane split views render independently with per-session state
+
+Deferred to backlog:
+
+- Plugin API for declaring session affinity on `surfaces()` return values (no consumer exists yet)
 
 ### 3.2 Multi-session UI parity
 
@@ -147,10 +129,13 @@ Next deliverable:
 
 ### 3.5 Native escape hatch redesign
 
+Completed:
+
+- `Pane` / `Workspace` parity model — `Workspace` split tree, `PaneMap`, pane lifecycle hooks on `PluginBackend` (landed in Phase 5)
+
 Remaining work:
 
 - Redesign `PaintHook` into a high-level render hook that does not depend on direct `CellGrid` manipulation
-- Definition of `Pane` / `Workspace` parity model
 
 Next deliverable:
 
@@ -167,6 +152,29 @@ Next deliverable:
 
 - Select either D-001 or P-023 as the first slice and land it on the core path
 
+### 3.7 Multi-pane UI polish
+
+Foundation delivered in Phase 5b/5c:
+
+- `PaneMap` per-session surface binding with `ClientBufferSurface`
+- `Workspace` split tree with flexbox-based pane layout
+- Per-pane rendering via `PaneStates` + `BufferRefState`
+- Overlay offset for multi-pane (menu/info positioned in pane-local → screen coordinates)
+- Focused pane command routing (`focused_writer!` macro) across all dispatch sites and scroll runtime
+- `<C-w>v/s/w/W/h/j/k/l/q` key bindings (split, focus, close)
+- TUI and GUI backend support
+
+Remaining work:
+
+- Pane border / separator rendering — visual distinction between adjacent panes
+- Per-pane status bar — each pane displays its own mode, file name, and status
+- Pane resize controls — `<C-w>+/-/>/<` to adjust pane split ratios
+- Pane layout persistence — restore layout on session reconnect
+
+Next deliverable:
+
+- Pane border / separator rendering
+
 ## 4. Phase Status Summary
 
 | Phase | Primary objective | Status | Notes |
@@ -178,7 +186,7 @@ Next deliverable:
 | Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete |
 | Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Remaining operational issues consolidated into `WASM runtime operations` |
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
-| Phase 5 | Surface / Workspace / display restructuring foundation | Open | Session/surface parity and display transformation are ongoing |
+| Phase 5 | Surface / Workspace / multi-pane foundation | Foundation complete | Session/surface parity complete; multi-pane split/focus/routing landed (5b/5c); UI polish (borders, resize) ongoing |
 | Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
 
 ## 5. Items Separated to Upstream Dependencies
