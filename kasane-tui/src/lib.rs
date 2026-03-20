@@ -15,7 +15,8 @@ static SESSION_NAME: OnceLock<String> = OnceLock::new();
 
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    SessionReadyGate, apply_bootstrap_effects, sync_session_ready_gate as sync_ready_gate,
+    SessionReadyGate, apply_bootstrap_effects, register_builtin_surfaces,
+    sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::plugin::{
     CommandResult, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEventSink,
@@ -32,12 +33,11 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
-use kasane_core::surface::buffer::KakouneBufferSurface;
 
 use backend::TuiBackend;
 use event_handler::{
-    Event, EventProcessingContext, TuiProcessEventSink, TuiTimerScheduler, process_event,
-    spawn_session_reader,
+    Event, EventProcessingContext, PaintHookState, TuiProcessEventSink, TuiTimerScheduler,
+    process_event, spawn_session_reader,
 };
 use input::convert_event;
 
@@ -136,22 +136,15 @@ where
 
     // Plugin registry
     let mut registry = PluginRegistry::new();
-    plugin_manager.register_initial_winners(&mut registry)?;
-
     // Surface registry
     let mut surface_registry = SurfaceRegistry::new();
-    surface_registry
-        .try_register(Box::new(KakouneBufferSurface::new()))
-        .map_err(|err| anyhow!("failed to register built-in surface kasane.buffer: {err:?}"))?;
-    surface_registry
-        .try_register(Box::new(
-            kasane_core::surface::status::StatusBarSurface::new(),
-        ))
-        .map_err(|err| anyhow!("failed to register built-in surface kasane.status: {err:?}"))?;
+    register_builtin_surfaces(&mut surface_registry);
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
     // do not get a chance to produce side effects.
-    kasane_core::event_loop::setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
+    let _ = plugin_manager.initialize(&mut registry, |_, registry| {
+        kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
+    })?;
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
@@ -209,7 +202,7 @@ where
     apply_bootstrap_effects(init_batch.effects, &mut bootstrap_dirty);
 
     // Collect paint hooks from plugins
-    let paint_hooks = registry.collect_paint_hooks();
+    let mut paint_hooks = PaintHookState::from_registry(&registry);
 
     // Salsa database
     let (mut salsa_db, salsa_handles) = {
@@ -286,6 +279,7 @@ where
                 session_ready_gate: &mut session_ready_gate,
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_manager: &mut plugin_manager,
+                paint_hooks: &mut paint_hooks,
             };
 
             // Process first event
@@ -357,7 +351,7 @@ where
                 &registry,
                 &mut grid,
                 dirty,
-                &paint_hooks,
+                paint_hooks.hooks(),
             );
             backend.draw_grid(&grid)?;
             backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;

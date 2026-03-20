@@ -27,7 +27,10 @@ pub use effects::{
     BootstrapEffects, InitBatch, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
     SessionReadyEffects,
 };
-pub use manager::{PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
+pub use manager::{
+    AppliedWinnerDelta, PluginApplyResult, PluginDiagnostic, PluginDiagnosticKind, PluginManager,
+    ResolvedPluginSnapshot,
+};
 pub use provider::{
     CompositePluginProvider, PluginDescriptor, PluginFactory, PluginProvider, PluginRank,
     PluginRevision, PluginSource, StaticPluginProvider, builtin_plugin, host_plugin,

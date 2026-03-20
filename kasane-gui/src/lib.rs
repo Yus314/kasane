@@ -124,9 +124,7 @@ where
         .map_err(|err| anyhow::anyhow!("failed to acquire primary session: {err:?}"))?;
 
     // Build plugin registry
-    let mut registry = kasane_core::plugin::PluginRegistry::new();
-    plugin_manager.register_initial_winners(&mut registry)?;
-
+    let registry = kasane_core::plugin::PluginRegistry::new();
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(GuiProcessEventSink(proxy.clone()));
     let process_dispatcher = create_process_dispatcher(process_sink);
@@ -139,9 +137,10 @@ where
         session_manager,
         spawn_session,
         proxy,
+        &mut plugin_manager,
         registry,
         process_dispatcher,
-    );
+    )?;
     event_loop.run_app(&mut app_handler)?;
     Ok(())
 }

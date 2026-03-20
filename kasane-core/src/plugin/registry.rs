@@ -277,6 +277,29 @@ impl PluginRegistry {
         surfaces
     }
 
+    /// Collect plugin-owned surfaces for a single owner during reload reconciliation.
+    pub fn collect_plugin_surfaces_for_owner(
+        &mut self,
+        target: &PluginId,
+    ) -> Option<PluginSurfaceSet> {
+        for plugin in &mut self.plugins {
+            if plugin.id() != *target {
+                continue;
+            }
+            let owner = plugin.id();
+            let plugin_surfaces = plugin.surfaces();
+            if plugin_surfaces.is_empty() {
+                return None;
+            }
+            return Some(PluginSurfaceSet {
+                owner,
+                surfaces: plugin_surfaces,
+                legacy_workspace_request: plugin.workspace_request(),
+            });
+        }
+        None
+    }
+
     /// Collect paint hooks from all plugins. Call after `init_all_batch()`.
     pub fn collect_paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
         let mut hooks = Vec::new();
@@ -286,6 +309,30 @@ impl PluginRegistry {
             }
         }
         hooks
+    }
+
+    /// Collect paint hooks for a single owner in plugin registration order.
+    pub fn collect_paint_hooks_for_owner(&self, target: &PluginId) -> Vec<Box<dyn PaintHook>> {
+        for (i, plugin) in self.plugins.iter().enumerate() {
+            if plugin.id() != *target {
+                continue;
+            }
+            if !self.capabilities[i].contains(PluginCapabilities::PAINT_HOOK) {
+                return vec![];
+            }
+            return plugin.paint_hooks();
+        }
+        vec![]
+    }
+
+    /// Plugin IDs that currently contribute paint hooks, in registry order.
+    pub fn paint_hook_owners_in_order(&self) -> Vec<PluginId> {
+        self.plugins
+            .iter()
+            .zip(self.capabilities.iter())
+            .filter(|(_, caps)| caps.contains(PluginCapabilities::PAINT_HOOK))
+            .map(|(plugin, _)| plugin.id())
+            .collect()
     }
 
     pub fn set_hit_map(&mut self, hit_map: HitMap) {

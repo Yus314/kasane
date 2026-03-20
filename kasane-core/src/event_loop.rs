@@ -10,14 +10,17 @@ use std::time::Duration;
 use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
-    BootstrapEffects, Command, CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry,
-    ProcessDispatcher, ProcessEvent, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
-    execute_commands, extract_deferred_commands, extract_redraw_flags,
+    AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, DeferredCommand, IoEvent,
+    PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent, ReadyBatch, RuntimeBatch,
+    RuntimeEffects, SessionReadyCommand, execute_commands, extract_deferred_commands,
+    extract_redraw_flags,
 };
 use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
+use crate::surface::buffer::KakouneBufferSurface;
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
+use crate::workspace::Workspace;
 
 /// Structured result from processing a single event.
 pub struct EventResult {
@@ -57,7 +60,8 @@ pub fn setup_plugin_surfaces(
     registry: &mut PluginRegistry,
     surface_registry: &mut SurfaceRegistry,
     state: &AppState,
-) {
+) -> Vec<PluginId> {
+    let mut disabled_plugins = Vec::new();
     for surface_set in registry.collect_plugin_surfaces() {
         let mut registered_ids = Vec::new();
         let mut registration_error = None;
@@ -77,6 +81,7 @@ pub fn setup_plugin_surfaces(
                 surface_registry.remove(surface_id);
             }
             registry.unload_plugin(&surface_set.owner);
+            disabled_plugins.push(surface_set.owner.clone());
             eprintln!(
                 "disabling plugin {} after surface registration failure: {err:?}",
                 surface_set.owner.0
@@ -99,6 +104,147 @@ pub fn setup_plugin_surfaces(
                 );
             }
         }
+    }
+    disabled_plugins
+}
+
+pub fn register_builtin_surfaces(surface_registry: &mut SurfaceRegistry) {
+    surface_registry
+        .try_register(Box::new(KakouneBufferSurface::new()))
+        .expect("failed to register built-in surface kasane.buffer");
+    surface_registry
+        .try_register(Box::new(crate::surface::status::StatusBarSurface::new()))
+        .expect("failed to register built-in surface kasane.status");
+}
+
+pub fn rebuild_plugin_surface_registry(
+    registry: &mut PluginRegistry,
+    surface_registry: &mut SurfaceRegistry,
+    state: &AppState,
+) -> Vec<PluginId> {
+    let workspace = std::mem::take(surface_registry.workspace_mut());
+    let mut rebuilt = SurfaceRegistry::with_workspace(workspace);
+    register_builtin_surfaces(&mut rebuilt);
+    let disabled_plugins = setup_plugin_surfaces(registry, &mut rebuilt, state);
+    prune_missing_workspace_surfaces(&mut rebuilt);
+    *surface_registry = rebuilt;
+    disabled_plugins
+}
+
+/// Reconcile plugin-owned surfaces for the specific set of changed winners.
+///
+/// Unchanged owners keep their surface instances and workspace placement.
+/// Changed owners are removed first, then re-registered from the current
+/// registry. Missing surfaces are pruned from the workspace afterwards.
+pub fn reconcile_plugin_surfaces(
+    registry: &mut PluginRegistry,
+    surface_registry: &mut SurfaceRegistry,
+    state: &AppState,
+    deltas: &[AppliedWinnerDelta],
+) -> Vec<PluginId> {
+    if deltas.is_empty() {
+        return vec![];
+    }
+
+    for delta in deltas {
+        if delta.old.is_some() {
+            surface_registry.remove_owned_surfaces(&delta.id);
+        }
+    }
+
+    let mut disabled_plugins = Vec::new();
+    for delta in deltas {
+        if delta.new.is_none() {
+            continue;
+        }
+        let Some(surface_set) = registry.collect_plugin_surfaces_for_owner(&delta.id) else {
+            continue;
+        };
+
+        let mut registered_ids = Vec::new();
+        let mut new_workspace_surfaces = Vec::new();
+        let mut registration_error = None;
+
+        for surface in surface_set.surfaces {
+            let surface_id = surface.id();
+            let already_in_workspace = surface_registry.workspace_contains(surface_id);
+            match surface_registry.try_register_for_owner(surface, Some(surface_set.owner.clone()))
+            {
+                Ok(()) => {
+                    registered_ids.push(surface_id);
+                    if !already_in_workspace {
+                        new_workspace_surfaces.push(surface_id);
+                    }
+                }
+                Err(err) => {
+                    registration_error = Some(err);
+                    break;
+                }
+            }
+        }
+
+        if let Some(err) = registration_error {
+            for surface_id in registered_ids {
+                surface_registry.remove(surface_id);
+            }
+            registry.unload_plugin(&surface_set.owner);
+            disabled_plugins.push(surface_set.owner.clone());
+            eprintln!(
+                "disabling plugin {} after surface registration failure: {err:?}",
+                surface_set.owner.0
+            );
+            continue;
+        }
+
+        if !new_workspace_surfaces.is_empty() {
+            let mut bootstrap_dirty = DirtyFlags::empty();
+            for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+                &new_workspace_surfaces,
+                surface_set.legacy_workspace_request.as_ref(),
+                &mut bootstrap_dirty,
+                Some(Rect {
+                    x: 0,
+                    y: 0,
+                    w: state.cols,
+                    h: state.rows,
+                }),
+            ) {
+                eprintln!(
+                    "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
+                );
+            }
+        }
+    }
+
+    prune_missing_workspace_surfaces(surface_registry);
+    disabled_plugins
+}
+
+fn prune_missing_workspace_surfaces(surface_registry: &mut SurfaceRegistry) {
+    let stale_ids: Vec<_> = surface_registry
+        .workspace()
+        .root()
+        .collect_ids()
+        .into_iter()
+        .filter(|surface_id| surface_registry.get(*surface_id).is_none())
+        .collect();
+
+    if stale_ids.is_empty() {
+        return;
+    }
+
+    for stale_id in stale_ids {
+        let _ = surface_registry.workspace_mut().close(stale_id);
+    }
+
+    let still_stale = surface_registry
+        .workspace()
+        .root()
+        .collect_ids()
+        .into_iter()
+        .any(|surface_id| surface_registry.get(surface_id).is_none());
+    if still_stale {
+        *surface_registry.workspace_mut() = Workspace::default();
     }
 }
 
@@ -791,8 +937,15 @@ pub fn handle_workspace_divider_input(
 mod tests {
     use super::*;
 
-    use crate::plugin::{Command, PluginBackend, PluginId, RuntimeEffects, StdinMode};
+    use crate::layout::SplitDirection;
+    use crate::plugin::{
+        AppliedWinnerDelta, Command, PluginBackend, PluginDescriptor, PluginId, PluginRank,
+        PluginRevision, PluginSource, RuntimeEffects, StdinMode,
+    };
     use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
+    use crate::surface::SurfaceId;
+    use crate::test_support::TestSurfaceBuilder;
+    use crate::workspace::Placement;
 
     struct TestPlugin {
         id: PluginId,
@@ -919,6 +1072,179 @@ mod tests {
         fn kill(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 
         fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
+    }
+
+    struct SurfacePlugin;
+
+    impl PluginBackend for SurfacePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("surface-plugin".to_string())
+        }
+
+        fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+            vec![TestSurfaceBuilder::new(SurfaceId(200)).build()]
+        }
+
+        fn workspace_request(&self) -> Option<Placement> {
+            Some(Placement::SplitFocused {
+                direction: SplitDirection::Vertical,
+                ratio: 0.5,
+            })
+        }
+    }
+
+    struct ReplacementSurfacePlugin;
+
+    impl PluginBackend for ReplacementSurfacePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("surface-plugin".to_string())
+        }
+
+        fn surfaces(&mut self) -> Vec<Box<dyn crate::surface::Surface>> {
+            vec![TestSurfaceBuilder::new(SurfaceId(200)).build()]
+        }
+
+        fn workspace_request(&self) -> Option<Placement> {
+            Some(Placement::SplitFocused {
+                direction: SplitDirection::Horizontal,
+                ratio: 0.4,
+            })
+        }
+    }
+
+    fn owner_delta(old: Option<&str>, new: Option<&str>) -> AppliedWinnerDelta {
+        fn descriptor(id: &str, revision: &str) -> PluginDescriptor {
+            PluginDescriptor {
+                id: PluginId(id.to_string()),
+                source: PluginSource::Host {
+                    provider: "test".to_string(),
+                },
+                revision: PluginRevision(revision.to_string()),
+                rank: PluginRank::HOST,
+            }
+        }
+
+        AppliedWinnerDelta {
+            id: PluginId("surface-plugin".to_string()),
+            old: old.map(|rev| descriptor("surface-plugin", rev)),
+            new: new.map(|rev| descriptor("surface-plugin", rev)),
+        }
+    }
+
+    #[test]
+    fn rebuild_plugin_surface_registry_removes_stale_plugin_surfaces() {
+        let state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register_backend(Box::new(SurfacePlugin));
+
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
+
+        assert!(surface_registry.get(SurfaceId(200)).is_some());
+        assert!(
+            surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .contains(&SurfaceId(200))
+        );
+
+        assert!(registry.unload_plugin(&PluginId("surface-plugin".to_string())));
+        rebuild_plugin_surface_registry(&mut registry, &mut surface_registry, &state);
+
+        assert!(surface_registry.get(SurfaceId(200)).is_none());
+        assert!(
+            !surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .contains(&SurfaceId(200))
+        );
+        assert!(surface_registry.get(SurfaceId::BUFFER).is_some());
+        assert!(surface_registry.get(SurfaceId::STATUS).is_some());
+    }
+
+    #[test]
+    fn reconcile_plugin_surfaces_removes_stale_plugin_surfaces() {
+        let state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register_backend(Box::new(SurfacePlugin));
+
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let disabled_plugins = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
+        assert!(disabled_plugins.is_empty());
+
+        assert!(surface_registry.get(SurfaceId(200)).is_some());
+        assert!(
+            surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .contains(&SurfaceId(200))
+        );
+
+        assert!(registry.unload_plugin(&PluginId("surface-plugin".to_string())));
+        let disabled_plugins = reconcile_plugin_surfaces(
+            &mut registry,
+            &mut surface_registry,
+            &state,
+            &[owner_delta(Some("r0"), None)],
+        );
+
+        assert!(disabled_plugins.is_empty());
+        assert!(surface_registry.get(SurfaceId(200)).is_none());
+        assert!(
+            !surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .contains(&SurfaceId(200))
+        );
+    }
+
+    #[test]
+    fn reconcile_plugin_surfaces_preserves_same_id_workspace_placement() {
+        let state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register_backend(Box::new(SurfacePlugin));
+
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let disabled_plugins = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
+        assert!(disabled_plugins.is_empty());
+        assert_eq!(
+            surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .into_iter()
+                .filter(|surface_id| *surface_id == SurfaceId(200))
+                .count(),
+            1
+        );
+
+        let _ = registry.reload_plugin_batch(Box::new(ReplacementSurfacePlugin), &state);
+        let disabled_plugins = reconcile_plugin_surfaces(
+            &mut registry,
+            &mut surface_registry,
+            &state,
+            &[owner_delta(Some("r1"), Some("r2"))],
+        );
+
+        assert!(disabled_plugins.is_empty());
+        assert!(surface_registry.get(SurfaceId(200)).is_some());
+        assert_eq!(
+            surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .into_iter()
+                .filter(|surface_id| *surface_id == SurfaceId(200))
+                .count(),
+            1
+        );
     }
 
     #[test]

@@ -216,15 +216,24 @@ mod tests {
 
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use anyhow::Result as AnyResult;
     use kasane_core::config::PluginsConfig;
-    use kasane_core::plugin::PluginBackend;
-    use kasane_core::plugin::{
-        PluginId, PluginManager, PluginProvider, PluginRegistry, PluginSource,
-        StaticPluginProvider, host_plugin,
+    use kasane_core::event_loop::{
+        reconcile_plugin_surfaces, register_builtin_surfaces, setup_plugin_surfaces,
     };
-    use kasane_core::state::AppState;
+    use kasane_core::layout::SplitDirection;
+    use kasane_core::plugin::{PaintHook, PluginBackend, PluginCapabilities, SessionReadyEffects};
+    use kasane_core::plugin::{
+        PluginDescriptor, PluginId, PluginManager, PluginProvider, PluginRank, PluginRegistry,
+        PluginRevision, PluginSource, StaticPluginProvider, host_plugin, plugin_factory,
+    };
+    use kasane_core::state::{AppState, DirtyFlags};
+    use kasane_core::surface::{Surface, SurfaceId, SurfaceRegistry};
+    use kasane_core::test_support::TestSurfaceBuilder;
+    use kasane_core::workspace::Placement;
 
     struct TempPluginDir {
         path: PathBuf,
@@ -293,6 +302,147 @@ mod tests {
         build_plugin_manager(config.clone(), provider)
     }
 
+    #[derive(Clone, Copy)]
+    enum ReloadVariant {
+        V1,
+        V2,
+    }
+
+    impl ReloadVariant {
+        fn revision(self) -> &'static str {
+            match self {
+                Self::V1 => "r1",
+                Self::V2 => "r2",
+            }
+        }
+
+        fn hook_id(self) -> &'static str {
+            match self {
+                Self::V1 => "hook-a",
+                Self::V2 => "hook-b",
+            }
+        }
+
+        fn ready_redraw(self) -> DirtyFlags {
+            match self {
+                Self::V1 => DirtyFlags::STATUS,
+                Self::V2 => DirtyFlags::BUFFER,
+            }
+        }
+
+        fn bootstrap_redraw(self) -> DirtyFlags {
+            match self {
+                Self::V1 => DirtyFlags::BUFFER_CURSOR,
+                Self::V2 => DirtyFlags::ALL,
+            }
+        }
+    }
+
+    struct ReloadHook {
+        id: &'static str,
+    }
+
+    impl PaintHook for ReloadHook {
+        fn id(&self) -> &str {
+            self.id
+        }
+
+        fn deps(&self) -> DirtyFlags {
+            DirtyFlags::ALL
+        }
+
+        fn apply(
+            &self,
+            _grid: &mut kasane_core::render::CellGrid,
+            _region: &kasane_core::layout::Rect,
+            _state: &AppState,
+        ) {
+        }
+    }
+
+    struct ReloadChainPlugin {
+        variant: ReloadVariant,
+    }
+
+    impl PluginBackend for ReloadChainPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("reload_owner".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::PAINT_HOOK
+        }
+
+        fn on_init_effects(&mut self, _state: &AppState) -> kasane_core::plugin::BootstrapEffects {
+            kasane_core::plugin::BootstrapEffects {
+                redraw: self.variant.bootstrap_redraw(),
+            }
+        }
+
+        fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+            SessionReadyEffects {
+                redraw: self.variant.ready_redraw(),
+                commands: vec![],
+                scroll_plans: vec![],
+            }
+        }
+
+        fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
+            vec![TestSurfaceBuilder::new(SurfaceId(200)).build()]
+        }
+
+        fn workspace_request(&self) -> Option<Placement> {
+            Some(Placement::SplitFocused {
+                direction: SplitDirection::Vertical,
+                ratio: 0.4,
+            })
+        }
+
+        fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
+            vec![Box::new(ReloadHook {
+                id: self.variant.hook_id(),
+            })]
+        }
+    }
+
+    #[derive(Clone)]
+    struct ReloadChainProvider {
+        variant: Arc<std::sync::Mutex<ReloadVariant>>,
+    }
+
+    impl ReloadChainProvider {
+        fn new(initial: ReloadVariant) -> Self {
+            Self {
+                variant: Arc::new(std::sync::Mutex::new(initial)),
+            }
+        }
+
+        fn set_variant(&self, variant: ReloadVariant) {
+            *self.variant.lock().expect("poisoned reload variant") = variant;
+        }
+    }
+
+    impl PluginProvider for ReloadChainProvider {
+        fn collect(&self) -> AnyResult<Vec<Arc<dyn kasane_core::plugin::PluginFactory>>> {
+            let variant = *self.variant.lock().expect("poisoned reload variant");
+            let descriptor = PluginDescriptor {
+                id: PluginId("reload_owner".to_string()),
+                source: PluginSource::Host {
+                    provider: "reload-test".to_string(),
+                },
+                revision: PluginRevision(variant.revision().to_string()),
+                rank: PluginRank::HOST,
+            };
+            Ok(vec![plugin_factory(descriptor, move || {
+                Ok(Box::new(ReloadChainPlugin { variant }))
+            })])
+        }
+    }
+
+    fn commit_initial_winners(manager: &mut PluginManager, registry: &mut PluginRegistry) {
+        let _ = manager.initialize(registry, |_, _| vec![]).unwrap();
+    }
+
     #[test]
     fn plugin_manager_reload_skips_unchanged_plugins() {
         let dir = TempPluginDir::new();
@@ -301,12 +451,12 @@ mod tests {
         let config = dir.config();
         let mut registry = PluginRegistry::new();
         let mut manager = wasm_manager(&config);
-        manager.register_initial_winners(&mut registry).unwrap();
+        commit_initial_winners(&mut manager, &mut registry);
 
         let result = manager
-            .reload(&mut registry, &AppState::default(), false)
+            .reload(&mut registry, &AppState::default(), |_, _| vec![])
             .unwrap();
-        assert!(result.winner_changed.is_empty());
+        assert!(result.deltas.is_empty());
         assert_eq!(registry.plugin_count(), 1);
     }
 
@@ -318,14 +468,16 @@ mod tests {
         let config = dir.config();
         let mut registry = PluginRegistry::new();
         let mut manager = wasm_manager(&config);
-        manager.register_initial_winners(&mut registry).unwrap();
+        commit_initial_winners(&mut manager, &mut registry);
 
         dir.remove("cursor-line.wasm");
 
         let result = manager
-            .reload(&mut registry, &AppState::default(), false)
+            .reload(&mut registry, &AppState::default(), |_, _| vec![])
             .unwrap();
-        assert!(result.ready_targets.is_empty());
+        assert_eq!(result.deltas.len(), 1);
+        assert!(result.deltas[0].is_removed());
+        assert_eq!(result.ready_targets().count(), 0);
         assert_eq!(registry.plugin_count(), 0);
         assert!(!registry.contains_plugin(&PluginId("cursor_line".to_string())));
     }
@@ -338,17 +490,16 @@ mod tests {
         let config = dir.config();
         let mut registry = PluginRegistry::new();
         let mut manager = wasm_manager(&config);
-        manager.register_initial_winners(&mut registry).unwrap();
+        commit_initial_winners(&mut manager, &mut registry);
 
         dir.copy_fixture("smooth-scroll.wasm");
 
         let result = manager
-            .reload(&mut registry, &AppState::default(), false)
+            .reload(&mut registry, &AppState::default(), |_, _| vec![])
             .unwrap();
-        assert_eq!(
-            result.winner_changed,
-            vec![PluginId("smooth_scroll".to_string())]
-        );
+        assert_eq!(result.deltas.len(), 1);
+        assert!(result.deltas[0].is_added());
+        assert_eq!(result.deltas[0].id, PluginId("smooth_scroll".to_string()));
         assert_eq!(registry.plugin_count(), 2);
         assert!(registry.contains_plugin(&PluginId("smooth_scroll".to_string())));
     }
@@ -364,7 +515,7 @@ mod tests {
             &config,
             StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
         );
-        manager.register_initial_winners(&mut registry).unwrap();
+        commit_initial_winners(&mut manager, &mut registry);
         assert!(matches!(
             manager
                 .snapshot()
@@ -376,12 +527,13 @@ mod tests {
         dir.remove("cursor-line.wasm");
 
         let result = manager
-            .reload(&mut registry, &AppState::default(), false)
+            .reload(&mut registry, &AppState::default(), |_, _| vec![])
             .unwrap();
         assert!(
-            !result
-                .winner_changed
-                .contains(&PluginId("cursor_line".to_string()))
+            result
+                .deltas
+                .iter()
+                .all(|delta| delta.id != PluginId("cursor_line".to_string()))
         );
         assert!(matches!(
             manager
@@ -401,17 +553,18 @@ mod tests {
             &config,
             StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
         );
-        manager.register_initial_winners(&mut registry).unwrap();
+        commit_initial_winners(&mut manager, &mut registry);
 
         dir.copy_fixture("cursor-line.wasm");
 
         let result = manager
-            .reload(&mut registry, &AppState::default(), false)
+            .reload(&mut registry, &AppState::default(), |_, _| vec![])
             .unwrap();
         assert!(
-            !result
-                .winner_changed
-                .contains(&PluginId("cursor_line".to_string()))
+            result
+                .deltas
+                .iter()
+                .all(|delta| delta.id != PluginId("cursor_line".to_string()))
         );
         assert!(matches!(
             manager
@@ -420,5 +573,74 @@ mod tests {
                 .map(|winner| &winner.source),
             Some(PluginSource::Host { .. })
         ));
+    }
+
+    #[test]
+    fn reload_reconciles_surface_paint_hook_and_ready_chain() {
+        let state = AppState::default();
+        let provider = ReloadChainProvider::new(ReloadVariant::V1);
+        let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
+        let mut registry = PluginRegistry::new();
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+
+        let _ = manager
+            .initialize(&mut registry, |_, registry| {
+                let disabled = setup_plugin_surfaces(registry, &mut surface_registry, &state);
+                assert!(disabled.is_empty());
+                disabled
+            })
+            .unwrap();
+
+        assert!(surface_registry.get(SurfaceId(200)).is_some());
+        let hooks = registry.collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0].id(), "hook-a");
+
+        provider.set_variant(ReloadVariant::V2);
+
+        let result = manager
+            .reload(&mut registry, &state, |result, registry| {
+                let disabled = reconcile_plugin_surfaces(
+                    registry,
+                    &mut surface_registry,
+                    &state,
+                    &result.deltas,
+                );
+                assert!(disabled.is_empty());
+                disabled
+            })
+            .unwrap();
+
+        assert_eq!(
+            result.bootstrap.redraw,
+            ReloadVariant::V2.bootstrap_redraw()
+        );
+        assert_eq!(result.deltas.len(), 1);
+        assert!(result.deltas[0].is_replaced());
+        assert_eq!(
+            result.ready_targets().cloned().collect::<Vec<_>>(),
+            vec![PluginId("reload_owner".to_string())]
+        );
+        assert_eq!(
+            surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .into_iter()
+                .filter(|surface_id| *surface_id == SurfaceId(200))
+                .count(),
+            1
+        );
+
+        let hooks = registry.collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0].id(), "hook-b");
+
+        let ready_batch = registry.notify_plugin_active_session_ready_batch(
+            &PluginId("reload_owner".to_string()),
+            &state,
+        );
+        assert_eq!(ready_batch.effects.redraw, ReloadVariant::V2.ready_redraw());
     }
 }

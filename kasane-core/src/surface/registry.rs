@@ -151,6 +151,21 @@ impl SurfaceRegistry {
         Some(entry.surface)
     }
 
+    /// Remove every surface owned by a plugin from the registry, preserving workspace nodes.
+    pub fn remove_owned_surfaces(&mut self, owner: &PluginId) -> Vec<SurfaceId> {
+        let mut surface_ids: Vec<_> = self
+            .surfaces
+            .iter()
+            .filter(|(_, entry)| entry.owner_plugin.as_ref() == Some(owner))
+            .map(|(surface_id, _)| *surface_id)
+            .collect();
+        surface_ids.sort_by_key(|surface_id| surface_id.0);
+        for surface_id in &surface_ids {
+            let _ = self.remove(*surface_id);
+        }
+        surface_ids
+    }
+
     /// Get a reference to a surface by ID.
     pub fn get(&self, id: SurfaceId) -> Option<&dyn Surface> {
         self.surfaces.get(&id).map(|entry| entry.surface.as_ref())
@@ -188,6 +203,11 @@ impl SurfaceRegistry {
     /// Get a mutable reference to the workspace.
     pub fn workspace_mut(&mut self) -> &mut Workspace {
         &mut self.workspace
+    }
+
+    /// Returns whether the workspace tree currently contains the given surface id.
+    pub fn workspace_contains(&self, surface_id: SurfaceId) -> bool {
+        self.workspace.root().find(surface_id).is_some()
     }
 
     /// Return visible workspace split dividers for the current layout.
