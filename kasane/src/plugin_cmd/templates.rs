@@ -470,42 +470,32 @@ mod tests {
         }
     }
 
-    // Template compile tests are ignored here because the typed effects
-    // WIT records (RuntimeEffects, etc.) are introduced in the next PR.
-    // Un-ignored once the WIT ABI catches up.
-
     #[test]
-    #[ignore]
     fn test_generated_process_template_compiles() {
         compile_generated_template("compile-process", PluginTemplate::Process);
     }
 
     #[test]
-    #[ignore]
     fn test_generated_hello_template_compiles() {
         compile_generated_template("compile-hello", PluginTemplate::Hello);
     }
 
     #[test]
-    #[ignore]
     fn test_generated_contribution_template_compiles() {
         compile_generated_template("compile-contribution", PluginTemplate::Contribution);
     }
 
     #[test]
-    #[ignore]
     fn test_generated_annotation_template_compiles() {
         compile_generated_template("compile-annotation", PluginTemplate::Annotation);
     }
 
     #[test]
-    #[ignore]
     fn test_generated_transform_template_compiles() {
         compile_generated_template("compile-transform", PluginTemplate::Transform);
     }
 
     #[test]
-    #[ignore]
     fn test_generated_overlay_template_compiles() {
         compile_generated_template("compile-overlay", PluginTemplate::Overlay);
     }

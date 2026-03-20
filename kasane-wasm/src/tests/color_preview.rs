@@ -1,5 +1,16 @@
 use super::*;
 
+fn apply_color_preview_state_change(
+    plugin: &mut crate::WasmPlugin,
+    state: &AppState,
+    dirty: DirtyFlags,
+) {
+    let effects = plugin.on_state_changed_effects(state, dirty);
+    assert!(effects.redraw.is_empty());
+    assert!(effects.commands.is_empty());
+    assert!(effects.scroll_plans.is_empty());
+}
+
 fn load_color_preview_plugin() -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("color-preview.wasm").expect("failed to load fixture");
@@ -18,7 +29,7 @@ fn plugin_id() {
 fn detects_colors_in_line() {
     let mut plugin = load_color_preview_plugin();
     let state = make_state_with_lines(&["#ff0000"]);
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
     let ann = plugin.annotate_line_with_ctx(0, &state, &ctx);
@@ -32,7 +43,7 @@ fn detects_colors_in_line() {
 fn no_decoration_without_colors() {
     let mut plugin = load_color_preview_plugin();
     let state = make_state_with_lines(&["no colors here"]);
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
     assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
@@ -43,7 +54,7 @@ fn overlay_on_color_line() {
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["#3498db"]);
     state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_overlay_ctx();
     let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
@@ -55,7 +66,7 @@ fn no_overlay_on_plain_line() {
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["no colors here", "#ff0000"]);
     state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_overlay_ctx();
     assert!(plugin.contribute_overlay_with_ctx(&state, &ctx).is_none());
@@ -67,7 +78,7 @@ fn state_hash_changes() {
     let h1 = plugin.state_hash();
 
     let state = make_state_with_lines(&["#aabbcc"]);
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
     let h2 = plugin.state_hash();
 
     assert_ne!(h1, h2);
@@ -79,7 +90,7 @@ fn skips_non_buffer_dirty() {
     let h1 = plugin.state_hash();
 
     let state = make_state_with_lines(&["#aabbcc"]);
-    plugin.on_state_changed(&state, DirtyFlags::STATUS);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::STATUS);
     let h2 = plugin.state_hash();
 
     assert_eq!(h1, h2);
@@ -93,7 +104,7 @@ fn handle_mouse_increments() {
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["#100000"]);
     state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     // R up button: id = 2000 + 0*6 + 0 = 2000
     let event = MouseEvent {
@@ -126,7 +137,7 @@ fn handle_mouse_consumes_release() {
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["#ff0000"]);
     state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
-    plugin.on_state_changed(&state, DirtyFlags::BUFFER);
+    apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let event = MouseEvent {
         kind: MouseEventKind::Release(MouseButton::Left),

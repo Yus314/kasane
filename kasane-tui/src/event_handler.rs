@@ -5,14 +5,16 @@ use std::io::Write;
 use anyhow::Result;
 
 use kasane_core::event_loop::{
-    DeferredContext, EventResult, TimerScheduler, flush_pending_init_commands,
-    handle_command_batch, handle_sourced_surface_commands, handle_workspace_divider_input,
-    surface_event_from_input,
+    DeferredContext, EventResult, SessionReadyGate, TimerScheduler, handle_command_batch,
+    handle_sourced_surface_commands, handle_workspace_divider_input,
+    maybe_flush_active_session_ready, surface_event_from_input,
+    sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     IoEvent, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent, ProcessEventSink,
+    RuntimeBatch, extract_redraw_flags,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -195,7 +197,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub timer: &'a TuiTimerScheduler,
     pub scroll_runtime: &'a mut ScrollRuntime,
     pub scroll_runtime_session: &'a mut Option<SessionId>,
-    pub pending_init_commands: &'a mut Vec<kasane_core::plugin::Command>,
+    pub session_ready_gate: &'a mut SessionReadyGate,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_reloader: &'a Option<crate::PluginReloader>,
 }
@@ -228,7 +230,11 @@ where
                 ctx.state.rows,
                 ctx.state.cols,
             );
-            if flush_pending_init_commands_if_ready(ctx) {
+            sync_ready_gate(ctx.session_ready_gate, ctx.state);
+            if *ctx.initial_resize_sent {
+                ctx.session_ready_gate.mark_initial_resize_sent();
+            }
+            if flush_active_session_ready_if_needed(ctx) {
                 return true;
             }
             let UpdateResult {
@@ -307,20 +313,15 @@ where
                 }
             }
         }
-        Event::PluginTimer(target, payload) => {
-            let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
-            EventResult {
-                flags,
-                commands,
-                scroll_plans: vec![],
-                surface_commands: vec![],
-                command_source: None,
-            }
-        }
+        Event::PluginTimer(target, payload) => event_result_from_runtime_batch(
+            ctx.registry
+                .deliver_message_batch(&target, payload, ctx.state),
+            Some(target),
+        ),
         Event::ProcessOutput(plugin_id, io_event) => {
-            let (flags, commands) = ctx
+            let batch = ctx
                 .registry
-                .deliver_io_event(&plugin_id, &io_event, ctx.state);
+                .deliver_io_event_batch(&plugin_id, &io_event, ctx.state);
             // Free per-plugin process count slot when a job finishes
             let IoEvent::Process(ref pe) = io_event;
             let finished_job = match pe {
@@ -333,13 +334,7 @@ where
                 ctx.process_dispatcher
                     .remove_finished_job(&plugin_id, job_id);
             }
-            EventResult {
-                flags,
-                commands,
-                scroll_plans: vec![],
-                surface_commands: vec![],
-                command_source: Some(plugin_id),
-            }
+            event_result_from_runtime_batch(batch, Some(plugin_id))
         }
         Event::PluginReload => {
             // Reload plugins from disk — triggered by `.reload` sentinel
@@ -378,19 +373,38 @@ where
                     ctx.state.rows,
                     ctx.state.cols,
                 );
-                if flush_pending_init_commands_if_ready(ctx) {
+                sync_ready_gate(ctx.session_ready_gate, ctx.state);
+                if *ctx.initial_resize_sent {
+                    ctx.session_ready_gate.mark_initial_resize_sent();
+                }
+                if flush_active_session_ready_if_needed(ctx) {
                     return true;
                 }
             }
-            // Notify plugins of session change so cached state is updated.
-            for plugin in ctx.registry.plugins_mut() {
-                plugin.on_state_changed(ctx.state, DirtyFlags::SESSION);
-            }
-            return false;
+            let batch = ctx
+                .registry
+                .notify_state_changed_batch(ctx.state, DirtyFlags::SESSION);
+            let result = event_result_from_runtime_batch(batch, None);
+            return process_event_result(result, false, ctx);
         }
     };
 
     process_event_result(result, is_input, ctx)
+}
+
+fn event_result_from_runtime_batch(
+    mut batch: RuntimeBatch,
+    command_source: Option<PluginId>,
+) -> EventResult {
+    let mut commands = std::mem::take(&mut batch.effects.commands);
+    let flags = batch.effects.redraw | extract_redraw_flags(&mut commands);
+    EventResult {
+        flags,
+        commands,
+        scroll_plans: batch.effects.scroll_plans,
+        surface_commands: vec![],
+        command_source,
+    }
 }
 
 /// Apply an `EventResult` to the shared context: accumulate dirty flags,
@@ -447,13 +461,17 @@ where
         })
     };
     if !should_quit {
+        sync_ready_gate(ctx.session_ready_gate, ctx.state);
+        if !*ctx.initial_resize_sent {
+            ctx.session_ready_gate.clear_initial_resize();
+        }
         ctx.session_states
             .sync_active_from_manager(ctx.session_manager, ctx.state);
     }
     should_quit
 }
 
-fn flush_pending_init_commands_if_ready<R, W, C>(
+fn flush_active_session_ready_if_needed<R, W, C>(
     ctx: &mut EventProcessingContext<'_, R, W, C>,
 ) -> bool
 where
@@ -461,16 +479,7 @@ where
     W: Write + Send + 'static,
     C: Send + 'static,
 {
-    if !*ctx.initial_resize_sent || ctx.pending_init_commands.is_empty() {
-        return false;
-    }
-
-    let mut pending_init_commands = std::mem::take(ctx.pending_init_commands);
-    let should_quit = with_deferred_context(ctx, |deferred_ctx| {
-        flush_pending_init_commands(&mut pending_init_commands, deferred_ctx)
-    });
-    *ctx.pending_init_commands = pending_init_commands;
-    should_quit
+    with_deferred_context(ctx, maybe_flush_active_session_ready)
 }
 
 fn with_deferred_context<R, W, C, T>(
@@ -488,6 +497,7 @@ where
         tx: ctx.session_tx.clone(),
         spawn_session: ctx.spawn_session,
     };
+    let scroll_runtime = &mut *ctx.scroll_runtime;
     let mut deferred_ctx = DeferredContext {
         state: ctx.state,
         registry: ctx.registry,
@@ -497,6 +507,8 @@ where
         timer: ctx.timer,
         session_host: &mut session_host,
         initial_resize_sent: ctx.initial_resize_sent,
+        session_ready_gate: Some(&mut *ctx.session_ready_gate),
+        scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
         process_dispatcher: ctx.process_dispatcher,
     };
     f(&mut deferred_ctx)

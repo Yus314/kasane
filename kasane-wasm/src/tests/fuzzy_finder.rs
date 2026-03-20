@@ -43,6 +43,17 @@ fn key_event(key: Key) -> KeyEvent {
     }
 }
 
+fn apply_fuzzy_io_event(
+    plugin: &mut crate::WasmPlugin,
+    event: IoEvent,
+    state: &AppState,
+) -> kasane_core::plugin::RuntimeEffects {
+    let effects = plugin.on_io_event_effects(&event, state);
+    assert!(effects.redraw.is_empty());
+    assert!(effects.scroll_plans.is_empty());
+    effects
+}
+
 #[test]
 fn plugin_id() {
     let plugin = load_fuzzy_finder_plugin();
@@ -136,15 +147,17 @@ fn io_event_stdout_accumulation() {
     let h1 = plugin.state_hash();
 
     // Simulate fd stdout in chunks
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Stdout {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Stdout {
             job_id: 1,
             data: b"file1.rs\nfile2.rs\n".to_vec(),
         }),
         &state,
     );
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Stdout {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Stdout {
             job_id: 1,
             data: b"file3.rs\n".to_vec(),
         }),
@@ -152,8 +165,9 @@ fn io_event_stdout_accumulation() {
     );
 
     // Simulate fd exit
-    let cmds = plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Exited {
+    let effects = apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Exited {
             job_id: 1,
             exit_code: 0,
         }),
@@ -164,7 +178,10 @@ fn io_event_stdout_accumulation() {
     assert_ne!(h1, h2, "state_hash should change after receiving file list");
 
     // Should request redraw
-    let has_redraw = cmds.iter().any(|c| matches!(c, Command::RequestRedraw(_)));
+    let has_redraw = effects
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::RequestRedraw(_)));
     assert!(has_redraw, "expected RequestRedraw after fd exit");
 
     // Overlay should now show results
@@ -177,20 +194,54 @@ fn io_event_stdout_accumulation() {
 }
 
 #[test]
+fn typed_io_event_effects_accumulation() {
+    let mut plugin = load_fuzzy_finder_plugin();
+    let state = AppState::default();
+
+    plugin.handle_key(&ctrl_p_event(), &state);
+    let h1 = plugin.state_hash();
+
+    let effects = plugin.on_io_event_effects(
+        &IoEvent::Process(ProcessEvent::Exited {
+            job_id: 1,
+            exit_code: 0,
+        }),
+        &state,
+    );
+
+    let h2 = plugin.state_hash();
+    assert_ne!(
+        h1, h2,
+        "state_hash should change after typed io_event_effects"
+    );
+    assert!(effects.redraw.is_empty());
+    assert!(
+        effects
+            .commands
+            .iter()
+            .any(|c| matches!(c, Command::RequestRedraw(_))),
+        "expected RequestRedraw in typed runtime effects"
+    );
+    assert!(effects.scroll_plans.is_empty());
+}
+
+#[test]
 fn overlay_uses_absolute_anchor() {
     let mut plugin = load_fuzzy_finder_plugin();
     let state = AppState::default();
 
     plugin.handle_key(&ctrl_p_event(), &state);
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Stdout {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Stdout {
             job_id: 1,
             data: b"src/main.rs\nsrc/lib.rs\n".to_vec(),
         }),
         &state,
     );
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Exited {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Exited {
             job_id: 1,
             exit_code: 0,
         }),
@@ -218,8 +269,9 @@ fn spawn_failed_no_panic() {
     plugin.handle_key(&ctrl_p_event(), &state);
 
     // fd fails → should try find fallback
-    let cmds = plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::SpawnFailed {
+    let effects = apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::SpawnFailed {
             job_id: 1,
             error: "not found".to_string(),
         }),
@@ -227,14 +279,16 @@ fn spawn_failed_no_panic() {
     );
 
     // Should have spawned find as fallback
-    let has_spawn = cmds
+    let has_spawn = effects
+        .commands
         .iter()
         .any(|c| matches!(c, Command::SpawnProcess { .. }));
     assert!(has_spawn, "expected find fallback SpawnProcess");
 
     // find also fails
-    let cmds = plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::SpawnFailed {
+    let effects = apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::SpawnFailed {
             job_id: 2,
             error: "not found".to_string(),
         }),
@@ -242,7 +296,10 @@ fn spawn_failed_no_panic() {
     );
 
     // Should show error overlay without panicking
-    let has_redraw = cmds.iter().any(|c| matches!(c, Command::RequestRedraw(_)));
+    let has_redraw = effects
+        .commands
+        .iter()
+        .any(|c| matches!(c, Command::RequestRedraw(_)));
     assert!(has_redraw);
 
     let ctx = default_overlay_ctx();
@@ -257,15 +314,17 @@ fn fzf_spawn_failed_shows_error() {
 
     // Activate and provide file list
     plugin.handle_key(&ctrl_p_event(), &state);
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Stdout {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Stdout {
             job_id: 1,
             data: b"file1.rs\n".to_vec(),
         }),
         &state,
     );
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Exited {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Exited {
             job_id: 1,
             exit_code: 0,
         }),
@@ -276,8 +335,9 @@ fn fzf_spawn_failed_shows_error() {
     plugin.handle_key(&char_event('f'), &state);
 
     // fzf spawn fails (job_id = 100 + 1 = 101)
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::SpawnFailed {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::SpawnFailed {
             job_id: 101,
             error: "fzf not installed".to_string(),
         }),
@@ -297,15 +357,17 @@ fn enter_selects_file() {
 
     // Activate and provide file list
     plugin.handle_key(&ctrl_p_event(), &state);
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Stdout {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Stdout {
             job_id: 1,
             data: b"src/main.rs\nsrc/lib.rs\n".to_vec(),
         }),
         &state,
     );
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Exited {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Exited {
             job_id: 1,
             exit_code: 0,
         }),
@@ -335,15 +397,17 @@ fn up_down_navigation() {
 
     // Activate and provide file list
     plugin.handle_key(&ctrl_p_event(), &state);
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Stdout {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Stdout {
             job_id: 1,
             data: b"a.rs\nb.rs\nc.rs\n".to_vec(),
         }),
         &state,
     );
-    plugin.on_io_event(
-        &IoEvent::Process(ProcessEvent::Exited {
+    apply_fuzzy_io_event(
+        &mut plugin,
+        IoEvent::Process(ProcessEvent::Exited {
             job_id: 1,
             exit_code: 0,
         }),

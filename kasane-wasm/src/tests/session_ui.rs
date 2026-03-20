@@ -3,6 +3,13 @@ use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::plugin::{Command, PluginBackend};
 use kasane_core::session::{SessionCommand, SessionDescriptor};
 
+fn apply_session_state_change(plugin: &mut crate::WasmPlugin, state: &AppState, dirty: DirtyFlags) {
+    let effects = plugin.on_state_changed_effects(state, dirty);
+    assert!(effects.redraw.is_empty());
+    assert!(effects.commands.is_empty());
+    assert!(effects.scroll_plans.is_empty());
+}
+
 fn ctrl_t_event() -> KeyEvent {
     KeyEvent {
         key: Key::Char('t'),
@@ -50,7 +57,7 @@ fn plugin_id() {
 fn status_right_hidden_single_session() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(1);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     let ctx = default_contribute_ctx(&state);
     let result = plugin.contribute_to(&SlotId::STATUS_RIGHT, &state, &ctx);
@@ -61,7 +68,7 @@ fn status_right_hidden_single_session() {
 fn status_right_shown_multiple_sessions() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(3);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     let ctx = default_contribute_ctx(&state);
     let result = plugin.contribute_to(&SlotId::STATUS_RIGHT, &state, &ctx);
@@ -72,7 +79,7 @@ fn status_right_shown_multiple_sessions() {
 fn ctrl_t_opens_switcher() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(2);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     let result = plugin.handle_key(&ctrl_t_event(), &state);
     assert!(result.is_some());
@@ -82,7 +89,7 @@ fn ctrl_t_opens_switcher() {
 fn overlay_present_when_open() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(2);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -97,7 +104,7 @@ fn overlay_present_when_open() {
 fn overlay_absent_when_closed() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(2);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Before opening, no overlay
     let ctx = default_overlay_ctx();
@@ -109,7 +116,7 @@ fn overlay_absent_when_closed() {
 fn enter_issues_switch_command() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(3);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -129,7 +136,7 @@ fn enter_issues_switch_command() {
 fn escape_closes_switcher() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(2);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -163,7 +170,7 @@ fn enriched_descriptor_fields() {
         },
     ];
     state.active_session_key = Some("work".into());
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher — the overlay should contain elements for both sessions
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -179,7 +186,7 @@ fn enriched_descriptor_fields() {
 fn d_closes_selected_session() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(3);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -197,7 +204,7 @@ fn d_closes_selected_session() {
 fn d_does_not_close_last_session() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(1);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -215,7 +222,7 @@ fn d_does_not_close_last_session() {
 fn n_spawns_new_session() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(1);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
     plugin.handle_key(&ctrl_t_event(), &state);
@@ -233,7 +240,7 @@ fn n_spawns_new_session() {
 fn n_closes_switcher() {
     let mut plugin = load_session_ui_plugin();
     let state = state_with_sessions(1);
-    plugin.on_state_changed(&state, DirtyFlags::SESSION);
+    apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
     plugin.handle_key(&ctrl_t_event(), &state);

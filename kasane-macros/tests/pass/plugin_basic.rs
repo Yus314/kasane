@@ -2,7 +2,7 @@ use kasane_core::kasane_plugin;
 
 #[kasane_plugin]
 mod my_plugin {
-    use kasane_core::plugin::Command;
+    use kasane_core::plugin::RuntimeEffects;
     use kasane_core::state::AppState;
 
     #[state]
@@ -16,11 +16,15 @@ mod my_plugin {
         Increment,
     }
 
-    pub fn update(state: &mut State, msg: Msg, _core: &AppState) -> Vec<Command> {
-        match msg {
-            Msg::Increment => state.counter += 1,
+    pub fn update_effects(
+        state: &mut State,
+        msg: &mut dyn std::any::Any,
+        _core: &AppState,
+    ) -> RuntimeEffects {
+        if let Some(Msg::Increment) = msg.downcast_ref::<Msg>() {
+            state.counter += 1;
         }
-        vec![]
+        RuntimeEffects::default()
     }
 }
 

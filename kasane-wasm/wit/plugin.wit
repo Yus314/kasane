@@ -1,4 +1,4 @@
-package kasane:plugin@0.8.0;
+package kasane:plugin@0.10.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -169,6 +169,28 @@ interface types {
         suppress,
         immediate(resolved-scroll),
         plan(scroll-plan),
+    }
+
+    record bootstrap-effects {
+        redraw: u16,
+    }
+
+    variant session-ready-command {
+        send-keys(list<string>),
+        paste,
+        plugin-message(message-config),
+    }
+
+    record session-ready-effects {
+        redraw: u16,
+        commands: list<session-ready-command>,
+        scroll-plans: list<scroll-plan>,
+    }
+
+    record runtime-effects {
+        redraw: u16,
+        commands: list<command>,
+        scroll-plans: list<scroll-plan>,
     }
 
     variant key-code {
@@ -615,15 +637,21 @@ interface plugin-api {
                slot-id, contribute-context, contribution, transform-target, transform-context,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
                capability, io-event, surface-view-context, surface-event-context, surface-event,
-               surface-descriptor, default-scroll-candidate, scroll-policy-result};
+               surface-descriptor, default-scroll-candidate, scroll-policy-result,
+               bootstrap-effects, session-ready-effects, runtime-effects};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
 
-    /// Lifecycle hooks — return commands to execute.
-    on-init: func() -> list<command>;
+    /// Typed bootstrap effects (redraw-only).
+    on-init-effects: func() -> bootstrap-effects;
     on-shutdown: func() -> list<command>;
-    on-state-changed: func(dirty-flags: u16) -> list<command>;
+
+    /// Typed active-session-ready startup effects.
+    on-active-session-ready-effects: func() -> session-ready-effects;
+
+    /// Typed runtime effects for state changes.
+    on-state-changed-effects: func(dirty-flags: u16) -> runtime-effects;
 
     /// Static hosted surfaces exposed by this plugin.
     /// Called during bootstrap preflight before `on-init`.
@@ -705,8 +733,8 @@ interface plugin-api {
 
     // --- v0.3.0: Inter-plugin messaging ---
 
-    /// Receive a message from another plugin (payload is opaque bytes).
-    update: func(payload: list<u8>) -> list<command>;
+    /// Typed runtime effects for inter-plugin messages.
+    update-effects: func(payload: list<u8>) -> runtime-effects;
 
     // --- v0.5.0: Contribute / Transform / Annotate ---
 
@@ -733,8 +761,8 @@ interface plugin-api {
 
     // --- v0.6.0: I/O event handling ---
 
-    /// Handle an I/O event (process output, etc.). Return commands to execute.
-    on-io-event: func(event: io-event) -> list<command>;
+    /// Typed runtime effects for I/O events.
+    on-io-event-effects: func(event: io-event) -> runtime-effects;
 }
 
 world kasane-plugin {

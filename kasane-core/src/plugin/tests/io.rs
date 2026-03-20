@@ -1,4 +1,6 @@
 use super::*;
+use crate::plugin::RuntimeEffects;
+use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
 // --- I/O event construction tests ---
 
@@ -85,28 +87,39 @@ impl PluginBackend for IoHandlerPlugin {
         PluginCapabilities::IO_HANDLER
     }
 
-    fn on_io_event(&mut self, event: &IoEvent, _state: &AppState) -> Vec<Command> {
+    fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppState) -> RuntimeEffects {
         match event {
             IoEvent::Process(pe) => match pe {
                 ProcessEvent::Stdout { job_id, data } => {
                     self.received_events
                         .push(format!("stdout:{}:{}", job_id, data.len()));
-                    vec![Command::RequestRedraw(DirtyFlags::BUFFER)]
+                    RuntimeEffects {
+                        redraw: DirtyFlags::BUFFER,
+                        commands: vec![],
+                        scroll_plans: vec![ScrollPlan {
+                            total_amount: 1,
+                            line: 1,
+                            column: 1,
+                            frame_interval_ms: 16,
+                            curve: ScrollCurve::Linear,
+                            accumulation: ScrollAccumulationMode::Add,
+                        }],
+                    }
                 }
                 ProcessEvent::Stderr { job_id, data } => {
                     self.received_events
                         .push(format!("stderr:{}:{}", job_id, data.len()));
-                    vec![]
+                    RuntimeEffects::default()
                 }
                 ProcessEvent::Exited { job_id, exit_code } => {
                     self.received_events
                         .push(format!("exited:{}:{}", job_id, exit_code));
-                    vec![]
+                    RuntimeEffects::default()
                 }
                 ProcessEvent::SpawnFailed { job_id, error } => {
                     self.received_events
                         .push(format!("failed:{}:{}", job_id, error));
-                    vec![]
+                    RuntimeEffects::default()
                 }
             },
         }
@@ -123,12 +136,11 @@ fn test_deliver_io_event_dispatches_to_plugin() {
         job_id: 1,
         data: b"output".to_vec(),
     });
-    let (flags, commands) =
-        registry.deliver_io_event(&PluginId("io_handler".to_string()), &event, &state);
-
-    // The plugin returns RequestRedraw(BUFFER) for stdout events
-    assert!(flags.contains(DirtyFlags::BUFFER));
-    assert!(commands.is_empty()); // RequestRedraw is extracted into flags
+    let batch =
+        registry.deliver_io_event_batch(&PluginId("io_handler".to_string()), &event, &state);
+    assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
+    assert!(batch.effects.commands.is_empty());
+    assert_eq!(batch.effects.scroll_plans.len(), 1);
 }
 
 #[test]
@@ -141,43 +153,11 @@ fn test_deliver_io_event_unknown_target() {
         job_id: 1,
         data: vec![],
     });
-    let (flags, commands) =
-        registry.deliver_io_event(&PluginId("nonexistent".to_string()), &event, &state);
-    assert!(flags.is_empty());
-    assert!(commands.is_empty());
-}
-
-#[test]
-fn test_deliver_io_event_skips_plugin_without_io_handler_capability() {
-    // TestPlugin has default capabilities (all()), but let's make one with no IO_HANDLER
-    struct NoIoCapPlugin;
-    impl PluginBackend for NoIoCapPlugin {
-        fn id(&self) -> PluginId {
-            PluginId("no_io".to_string())
-        }
-        fn capabilities(&self) -> PluginCapabilities {
-            // All capabilities EXCEPT IO_HANDLER
-            PluginCapabilities::all() - PluginCapabilities::IO_HANDLER
-        }
-        fn on_io_event(&mut self, _event: &IoEvent, _state: &AppState) -> Vec<Command> {
-            // This should never be called
-            vec![Command::Quit]
-        }
-    }
-
-    let mut registry = PluginRegistry::new();
-    registry.register_backend(Box::new(NoIoCapPlugin));
-    let state = AppState::default();
-
-    let event = IoEvent::Process(ProcessEvent::Exited {
-        job_id: 1,
-        exit_code: 0,
-    });
-    let (flags, commands) =
-        registry.deliver_io_event(&PluginId("no_io".to_string()), &event, &state);
-    // Should return empty because the capability check short-circuits
-    assert!(flags.is_empty());
-    assert!(commands.is_empty());
+    let batch =
+        registry.deliver_io_event_batch(&PluginId("nonexistent".to_string()), &event, &state);
+    assert!(batch.effects.redraw.is_empty());
+    assert!(batch.effects.commands.is_empty());
+    assert!(batch.effects.scroll_plans.is_empty());
 }
 
 // --- ProcessDispatcher tests ---

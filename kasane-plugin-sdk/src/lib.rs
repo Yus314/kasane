@@ -234,7 +234,7 @@ pub const WIT: &str = include_str!("../wit/plugin.wit");
 /// `wit_bindgen::generate!` generates code referencing `wit_bindgen` runtime types.
 pub use kasane_plugin_sdk_macros::kasane_generate as generate;
 
-/// Default lifecycle stubs (on_init, on_shutdown, on_state_changed).
+/// Default lifecycle stubs.
 ///
 /// Use inside a `Guest` trait impl to skip implementing unused lifecycle hooks.
 /// For partial overrides, use `default_init!`, `default_shutdown!`, or
@@ -242,19 +242,64 @@ pub use kasane_plugin_sdk_macros::kasane_generate as generate;
 #[macro_export]
 macro_rules! default_lifecycle {
     () => {
-        $crate::default_init!();
-        $crate::default_shutdown!();
-        $crate::default_state_changed!();
+        $crate::default_typed_lifecycle!();
     };
 }
 
-/// Default on_init stub (returns empty command list).
+/// Default typed lifecycle stubs.
+#[macro_export]
+macro_rules! default_typed_lifecycle {
+    () => {
+        $crate::default_typed_init!();
+        $crate::default_typed_active_session_ready!();
+        $crate::default_typed_state_changed!();
+        $crate::default_shutdown!();
+    };
+}
+
+/// Default typed on_init stub.
+#[macro_export]
+macro_rules! default_typed_init {
+    () => {
+        fn on_init_effects() -> BootstrapEffects {
+            BootstrapEffects::default()
+        }
+    };
+}
+
+/// Default typed active-session-ready stub.
+#[macro_export]
+macro_rules! default_typed_active_session_ready {
+    () => {
+        fn on_active_session_ready_effects() -> SessionReadyEffects {
+            SessionReadyEffects::default()
+        }
+    };
+}
+
+/// Default typed on_state_changed stub.
+#[macro_export]
+macro_rules! default_typed_state_changed {
+    () => {
+        fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
+            RuntimeEffects::default()
+        }
+    };
+}
+
+/// Default on_init stubs.
 #[macro_export]
 macro_rules! default_init {
     () => {
-        fn on_init() -> Vec<Command> {
-            vec![]
-        }
+        $crate::default_typed_init!();
+    };
+}
+
+/// Default active-session-ready stubs.
+#[macro_export]
+macro_rules! default_active_session_ready {
+    () => {
+        $crate::default_typed_active_session_ready!();
     };
 }
 
@@ -268,13 +313,11 @@ macro_rules! default_shutdown {
     };
 }
 
-/// Default on_state_changed stub (returns empty command list).
+/// Default on_state_changed stubs.
 #[macro_export]
 macro_rules! default_state_changed {
     () => {
-        fn on_state_changed(_dirty_flags: u16) -> Vec<Command> {
-            vec![]
-        }
+        $crate::default_typed_state_changed!();
     };
 }
 
@@ -451,8 +494,35 @@ macro_rules! default_named_slot {
 #[macro_export]
 macro_rules! default_update {
     () => {
-        fn update(_payload: Vec<u8>) -> Vec<Command> {
-            vec![]
+        $crate::default_typed_update!();
+    };
+}
+
+/// Default typed runtime stubs.
+#[macro_export]
+macro_rules! default_typed_runtime {
+    () => {
+        $crate::default_typed_update!();
+        $crate::default_typed_io_event!();
+    };
+}
+
+/// Default typed update stub.
+#[macro_export]
+macro_rules! default_typed_update {
+    () => {
+        fn update_effects(_payload: Vec<u8>) -> RuntimeEffects {
+            RuntimeEffects::default()
+        }
+    };
+}
+
+/// Default typed on-io-event stub.
+#[macro_export]
+macro_rules! default_typed_io_event {
+    () => {
+        fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects {
+            RuntimeEffects::default()
         }
     };
 }
@@ -625,9 +695,7 @@ macro_rules! default_capabilities {
 #[macro_export]
 macro_rules! default_io_event {
     () => {
-        fn on_io_event(_event: IoEvent) -> Vec<Command> {
-            vec![]
-        }
+        $crate::default_typed_io_event!();
     };
 }
 

@@ -61,16 +61,24 @@ pub fn update(
             }
             let flags = state.apply(req);
             let mut commands = Vec::new();
+            let mut scroll_plans = Vec::new();
             if !flags.is_empty() {
-                for plugin in registry.plugins_mut() {
-                    commands.extend(plugin.on_state_changed(state, flags));
-                }
+                let mut batch = registry.notify_state_changed_batch(state, flags);
+                scroll_plans.append(&mut batch.effects.scroll_plans);
+                commands.append(&mut batch.effects.commands);
+                let effect_flags = batch.effects.redraw;
+                let extra_flags = effect_flags | extract_redraw_flags(&mut commands);
+                return UpdateResult {
+                    flags: flags | extra_flags,
+                    commands,
+                    scroll_plans,
+                    source_plugin: None,
+                };
             }
-            let extra_flags = extract_redraw_flags(&mut commands);
             UpdateResult {
-                flags: flags | extra_flags,
+                flags,
                 commands,
-                scroll_plans: vec![],
+                scroll_plans,
                 source_plugin: None,
             }
         }

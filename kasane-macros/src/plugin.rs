@@ -10,9 +10,14 @@ struct PluginDef {
     has_state: bool,
     has_event: bool,
     has_update: bool,
+    has_on_init_effects: bool,
     has_on_init: bool,
+    has_on_active_session_ready_effects: bool,
+    has_on_active_session_ready: bool,
     has_on_shutdown: bool,
+    has_on_state_changed_effects: bool,
     has_on_state_changed: bool,
+    has_update_effects: bool,
     has_observe_key: bool,
     has_observe_mouse: bool,
     has_handle_key: bool,
@@ -43,9 +48,14 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
         has_state: false,
         has_event: false,
         has_update: false,
+        has_on_init_effects: false,
         has_on_init: false,
+        has_on_active_session_ready_effects: false,
+        has_on_active_session_ready: false,
         has_on_shutdown: false,
+        has_on_state_changed_effects: false,
         has_on_state_changed: false,
+        has_update_effects: false,
         has_observe_key: false,
         has_observe_mouse: false,
         has_handle_key: false,
@@ -70,9 +80,16 @@ pub fn expand_kasane_plugin(input: TokenStream) -> syn::Result<TokenStream> {
             Item::Fn(f) => {
                 match f.sig.ident.to_string().as_str() {
                     "update" => def.has_update = true,
+                    "on_init_effects" => def.has_on_init_effects = true,
                     "on_init" => def.has_on_init = true,
+                    "on_active_session_ready_effects" => {
+                        def.has_on_active_session_ready_effects = true
+                    }
+                    "on_active_session_ready" => def.has_on_active_session_ready = true,
                     "on_shutdown" => def.has_on_shutdown = true,
+                    "on_state_changed_effects" => def.has_on_state_changed_effects = true,
                     "on_state_changed" => def.has_on_state_changed = true,
+                    "update_effects" => def.has_update_effects = true,
                     "observe_key" => def.has_observe_key = true,
                     "observe_mouse" => def.has_observe_mouse = true,
                     "handle_key" => def.has_handle_key = true,
@@ -170,36 +187,49 @@ fn gen_state_field(def: &PluginDef) -> (TokenStream, TokenStream) {
     }
 }
 
-/// Generates the `Plugin::update()` trait method implementation.
+/// Generates the typed `PluginBackend::update_effects()` implementation.
 ///
 /// Returns an empty TokenStream if the plugin has no update function or event type.
 fn gen_update_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
     let mod_ident = &def.mod_ident;
     let _ = struct_name; // available for future use (e.g., error messages)
-    if def.has_update && def.has_event {
-        quote! {
-            fn update(&mut self, msg: Box<dyn ::std::any::Any>, state: &kasane_core::state::AppState) -> Vec<kasane_core::plugin::Command> {
-                if let Ok(msg) = msg.downcast::<#mod_ident::Msg>() {
-                    #mod_ident::update(&mut self.state, *msg, state)
-                } else {
-                    vec![]
-                }
+    let mut tokens = TokenStream::new();
+
+    if def.has_update_effects {
+        tokens.extend(quote! {
+            fn update_effects(
+                &mut self,
+                _msg: &mut dyn ::std::any::Any,
+                _state: &kasane_core::state::AppState,
+            ) -> kasane_core::plugin::RuntimeEffects {
+                #mod_ident::update_effects(&mut self.state, _msg, _state)
             }
-        }
-    } else {
-        quote! {}
+        });
     }
+
+    tokens
 }
 
-/// Generates lifecycle hook implementations (on_init, on_shutdown, on_state_changed).
+/// Generates typed lifecycle hook implementations.
 fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
     let mod_ident = &def.mod_ident;
     let mut tokens = TokenStream::new();
 
-    if def.has_on_init {
+    if def.has_on_init_effects {
         tokens.extend(quote! {
-            fn on_init(&mut self, _state: &kasane_core::state::AppState) -> Vec<kasane_core::plugin::Command> {
-                #mod_ident::on_init(&mut self.state, _state)
+            fn on_init_effects(&mut self, _state: &kasane_core::state::AppState) -> kasane_core::plugin::BootstrapEffects {
+                #mod_ident::on_init_effects(&mut self.state, _state)
+            }
+        });
+    }
+
+    if def.has_on_active_session_ready_effects {
+        tokens.extend(quote! {
+            fn on_active_session_ready_effects(
+                &mut self,
+                _state: &kasane_core::state::AppState,
+            ) -> kasane_core::plugin::SessionReadyEffects {
+                #mod_ident::on_active_session_ready_effects(&mut self.state, _state)
             }
         });
     }
@@ -212,10 +242,14 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
         });
     }
 
-    if def.has_on_state_changed {
+    if def.has_on_state_changed_effects {
         tokens.extend(quote! {
-            fn on_state_changed(&mut self, _state: &kasane_core::state::AppState, _dirty: kasane_core::state::DirtyFlags) -> Vec<kasane_core::plugin::Command> {
-                #mod_ident::on_state_changed(&mut self.state, _state, _dirty)
+            fn on_state_changed_effects(
+                &mut self,
+                _state: &kasane_core::state::AppState,
+                _dirty: kasane_core::state::DirtyFlags,
+            ) -> kasane_core::plugin::RuntimeEffects {
+                #mod_ident::on_state_changed_effects(&mut self.state, _state, _dirty)
             }
         });
     }

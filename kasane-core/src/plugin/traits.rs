@@ -6,9 +6,9 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, DisplayDirective, IoEvent,
-    LineAnnotation, OverlayContext, OverlayContribution, PaintHook, PluginCapabilities, PluginId,
-    SlotId, TransformContext, TransformTarget,
+    AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
+    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, PluginCapabilities,
+    PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
 };
 
 /// Internal framework trait. Plugin authors should use [`Plugin`] instead.
@@ -18,16 +18,23 @@ pub trait PluginBackend: Any {
 
     // --- Lifecycle hooks ---
 
-    fn on_init(&mut self, _state: &AppState) -> Vec<Command> {
-        vec![]
+    fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+        BootstrapEffects::default()
+    }
+    fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+        SessionReadyEffects::default()
     }
     fn on_shutdown(&mut self) {}
-    fn on_state_changed(&mut self, _state: &AppState, _dirty: DirtyFlags) -> Vec<Command> {
-        vec![]
+    fn on_state_changed_effects(
+        &mut self,
+        _state: &AppState,
+        _dirty: DirtyFlags,
+    ) -> RuntimeEffects {
+        RuntimeEffects::default()
     }
     /// Handle an I/O event (process output, etc.).
-    fn on_io_event(&mut self, _event: &IoEvent, _state: &AppState) -> Vec<Command> {
-        vec![]
+    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppState) -> RuntimeEffects {
+        RuntimeEffects::default()
     }
 
     // --- Input hooks ---
@@ -39,8 +46,8 @@ pub trait PluginBackend: Any {
 
     // --- Update / Input handling ---
 
-    fn update(&mut self, _msg: Box<dyn Any>, _state: &AppState) -> Vec<Command> {
-        vec![]
+    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppState) -> RuntimeEffects {
+        RuntimeEffects::default()
     }
     fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
         None

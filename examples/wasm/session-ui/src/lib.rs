@@ -105,28 +105,30 @@ fn build_switcher_overlay(
 
 struct SessionUiPlugin;
 
+fn refresh_sessions(dirty_flags: u16) {
+    if dirty_flags & dirty::SESSION != 0 {
+        STATE.with(|s| {
+            let mut state = s.borrow_mut();
+            state.session_count = host_state::get_session_count();
+            state.active_key = host_state::get_active_session_key();
+            state.switcher_open = false;
+            if state.session_count > 0 && state.selected >= state.session_count as usize {
+                state.selected = state.session_count as usize - 1;
+            }
+            state.bump_generation();
+        });
+    }
+}
+
 #[plugin]
 impl Guest for SessionUiPlugin {
     fn get_id() -> String {
         "session_ui".to_string()
     }
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::SESSION != 0 {
-            STATE.with(|s| {
-                let mut state = s.borrow_mut();
-                state.session_count = host_state::get_session_count();
-                state.active_key = host_state::get_active_session_key();
-                // Close switcher on session change to avoid stale overlay state
-                state.switcher_open = false;
-                // Clamp selected if sessions were removed
-                if state.session_count > 0 && state.selected >= state.session_count as usize {
-                    state.selected = state.session_count as usize - 1;
-                }
-                state.bump_generation();
-            });
-        }
-        vec![]
+    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+        refresh_sessions(dirty_flags);
+        RuntimeEffects::default()
     }
 
     kasane_plugin_sdk::slots! {

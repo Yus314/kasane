@@ -10,17 +10,21 @@ thread_local! {
 
 struct SelBadgePlugin;
 
+fn refresh_cursor_count(dirty_flags: u16) {
+    if dirty_flags & dirty::BUFFER != 0 {
+        CURSOR_COUNT.set(host_state::get_cursor_count());
+    }
+}
+
 #[plugin]
 impl Guest for SelBadgePlugin {
     fn get_id() -> String {
         "sel_badge".to_string()
     }
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::BUFFER != 0 {
-            CURSOR_COUNT.set(host_state::get_cursor_count());
-        }
-        vec![]
+    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+        refresh_cursor_count(dirty_flags);
+        RuntimeEffects::default()
     }
 
     fn state_hash() -> u64 {

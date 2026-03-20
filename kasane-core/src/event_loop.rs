@@ -10,8 +10,9 @@ use std::time::Duration;
 use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
-    Command, CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry, ProcessDispatcher,
-    ProcessEvent, execute_commands, extract_deferred_commands, extract_redraw_flags,
+    BootstrapEffects, Command, CommandResult, DeferredCommand, IoEvent, PluginId, PluginRegistry,
+    ProcessDispatcher, ProcessEvent, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
+    execute_commands, extract_deferred_commands, extract_redraw_flags,
 };
 use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
@@ -364,6 +365,46 @@ pub trait SessionHost: SessionRuntime {
     fn active_writer(&mut self) -> &mut dyn Write;
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SessionReadyGate {
+    active_session_key: Option<String>,
+    generation: u64,
+    notified_generation: Option<u64>,
+    initial_resize_sent: bool,
+}
+
+impl SessionReadyGate {
+    pub fn sync_active_session(&mut self, key: Option<&str>) -> bool {
+        let next = key.map(str::to_owned);
+        if self.active_session_key == next {
+            return false;
+        }
+        self.active_session_key = next;
+        self.generation += 1;
+        self.notified_generation = None;
+        self.initial_resize_sent = false;
+        true
+    }
+
+    pub fn mark_initial_resize_sent(&mut self) {
+        self.initial_resize_sent = true;
+    }
+
+    pub fn clear_initial_resize(&mut self) {
+        self.initial_resize_sent = false;
+    }
+
+    pub fn should_notify_ready(&self) -> bool {
+        self.active_session_key.is_some()
+            && self.initial_resize_sent
+            && self.notified_generation != Some(self.generation)
+    }
+
+    pub fn mark_ready_notified(&mut self) {
+        self.notified_generation = Some(self.generation);
+    }
+}
+
 /// Shared mutable context for deferred command handling.
 ///
 /// Groups the many `&mut` parameters that `handle_deferred_commands` and
@@ -377,6 +418,8 @@ pub struct DeferredContext<'a> {
     pub timer: &'a dyn TimerScheduler,
     pub session_host: &'a mut dyn SessionHost,
     pub initial_resize_sent: &'a mut bool,
+    pub session_ready_gate: Option<&'a mut SessionReadyGate>,
+    pub scroll_plan_sink: &'a mut dyn FnMut(ScrollPlan),
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
 }
 
@@ -440,9 +483,10 @@ fn handle_deferred_commands_inner(
     for cmd in deferred {
         match cmd {
             DeferredCommand::PluginMessage { target, payload } => {
-                let (flags, commands) = ctx.registry.deliver_message(&target, payload, ctx.state);
-                *ctx.dirty |= flags;
-                if handle_command_batch_inner(commands, ctx, Some(&target), depth + 1) {
+                let batch = ctx
+                    .registry
+                    .deliver_message_batch(&target, payload, ctx.state);
+                if apply_runtime_batch(batch, ctx, Some(&target), depth + 1) {
                     return true;
                 }
             }
@@ -492,11 +536,10 @@ fn handle_deferred_commands_inner(
                             job_id,
                             error: "process capability not granted".to_string(),
                         });
-                        let (flags, fail_cmds) =
+                        let batch =
                             ctx.registry
-                                .deliver_io_event(plugin_id, &fail_event, ctx.state);
-                        *ctx.dirty |= flags;
-                        if handle_command_batch_inner(fail_cmds, ctx, Some(plugin_id), depth + 1) {
+                                .deliver_io_event_batch(plugin_id, &fail_event, ctx.state);
+                        if apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1) {
                             return true;
                         }
                     }
@@ -566,37 +609,11 @@ fn handle_deferred_commands_inner(
                 // Notify plugins of SESSION change so they update cached state
                 // (e.g. session_count). Without this, plugins hold stale values
                 // until the next Kakoune Draw triggers on_state_changed.
-                let mut notify_commands = Vec::new();
-                for plugin in ctx.registry.plugins_mut() {
-                    notify_commands.extend(plugin.on_state_changed(ctx.state, DirtyFlags::SESSION));
-                }
-                if !notify_commands.is_empty() {
-                    let extra_flags = extract_redraw_flags(&mut notify_commands);
-                    *ctx.dirty |= extra_flags;
-                    let (normal, nested_deferred) = extract_deferred_commands(notify_commands);
-                    if matches!(
-                        execute_commands(
-                            normal,
-                            ctx.session_host.active_writer(),
-                            ctx.clipboard_get
-                        ),
-                        CommandResult::Quit
-                    ) {
-                        return true;
-                    }
-                    // Filter out nested Session commands to prevent recursion.
-                    let nested_non_session: Vec<_> = nested_deferred
-                        .into_iter()
-                        .filter(|d| !matches!(d, DeferredCommand::Session(_)))
-                        .collect();
-                    if handle_deferred_commands_inner(
-                        nested_non_session,
-                        ctx,
-                        command_source_plugin,
-                        depth + 1,
-                    ) {
-                        return true;
-                    }
+                let batch = ctx
+                    .registry
+                    .notify_state_changed_batch(ctx.state, DirtyFlags::SESSION);
+                if apply_runtime_batch_without_session_deferred(batch, ctx, None, depth + 1) {
+                    return true;
                 }
             }
         }
@@ -619,17 +636,136 @@ pub fn handle_sourced_surface_commands(
     false
 }
 
-/// Execute plugin `on_init()` commands once the backend has completed initial resize.
-pub fn flush_pending_init_commands(
-    pending_init_commands: &mut Vec<Command>,
+pub fn apply_bootstrap_effects(effects: BootstrapEffects, dirty: &mut DirtyFlags) {
+    *dirty |= effects.redraw;
+}
+
+fn apply_runtime_effects(
+    mut effects: RuntimeEffects,
     ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
 ) -> bool {
-    if pending_init_commands.is_empty() {
+    *ctx.dirty |= effects.redraw;
+    *ctx.dirty |= extract_redraw_flags(&mut effects.commands);
+
+    for plan in effects.scroll_plans {
+        (ctx.scroll_plan_sink)(plan);
+    }
+
+    if effects.commands.is_empty() {
+        return false;
+    }
+    handle_command_batch_inner(effects.commands, ctx, command_source_plugin, depth)
+}
+
+fn apply_runtime_batch(
+    batch: RuntimeBatch,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> bool {
+    apply_runtime_effects(batch.effects, ctx, command_source_plugin, depth)
+}
+
+fn apply_runtime_batch_without_session_deferred(
+    batch: RuntimeBatch,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> bool {
+    let mut effects = batch.effects;
+    *ctx.dirty |= effects.redraw;
+    *ctx.dirty |= extract_redraw_flags(&mut effects.commands);
+    for plan in effects.scroll_plans {
+        (ctx.scroll_plan_sink)(plan);
+    }
+
+    let commands = effects.commands;
+    if commands.is_empty() {
         return false;
     }
 
-    *ctx.dirty |= extract_redraw_flags(pending_init_commands);
-    handle_command_batch(std::mem::take(pending_init_commands), ctx, None)
+    let (normal, nested_deferred) = extract_deferred_commands(commands);
+    if matches!(
+        execute_commands(normal, ctx.session_host.active_writer(), ctx.clipboard_get),
+        CommandResult::Quit
+    ) {
+        return true;
+    }
+    let nested_non_session: Vec<_> = nested_deferred
+        .into_iter()
+        .filter(|d| !matches!(d, DeferredCommand::Session(_)))
+        .collect();
+    handle_deferred_commands_inner(nested_non_session, ctx, command_source_plugin, depth)
+}
+
+pub fn sync_session_ready_gate(gate: &mut SessionReadyGate, state: &AppState) -> bool {
+    gate.sync_active_session(state.active_session_key.as_deref())
+}
+
+pub fn maybe_flush_active_session_ready(ctx: &mut DeferredContext<'_>) -> bool {
+    let should_notify = ctx
+        .session_ready_gate
+        .as_deref_mut()
+        .is_some_and(|gate| gate.should_notify_ready());
+    if !should_notify {
+        return false;
+    }
+
+    let batch = ctx.registry.notify_active_session_ready_batch(ctx.state);
+    let should_quit = apply_ready_batch(batch, ctx);
+    if let Some(gate) = ctx.session_ready_gate.as_deref_mut() {
+        gate.mark_ready_notified();
+    }
+    should_quit
+}
+
+fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bool {
+    *ctx.dirty |= batch.effects.redraw;
+
+    for command in batch.effects.commands {
+        match command {
+            SessionReadyCommand::SendToKakoune(request) => {
+                if matches!(
+                    execute_commands(
+                        vec![Command::SendToKakoune(request)],
+                        ctx.session_host.active_writer(),
+                        ctx.clipboard_get,
+                    ),
+                    CommandResult::Quit
+                ) {
+                    return true;
+                }
+            }
+            SessionReadyCommand::Paste => {
+                if matches!(
+                    execute_commands(
+                        vec![Command::Paste],
+                        ctx.session_host.active_writer(),
+                        ctx.clipboard_get,
+                    ),
+                    CommandResult::Quit
+                ) {
+                    return true;
+                }
+            }
+            SessionReadyCommand::PluginMessage { target, payload } => {
+                let batch = ctx
+                    .registry
+                    .deliver_message_batch(&target, payload, ctx.state);
+                if apply_runtime_batch(batch, ctx, Some(&target), 0) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    for plan in batch.effects.scroll_plans {
+        (ctx.scroll_plan_sink)(plan);
+    }
+
+    false
 }
 
 /// Consume an input event that targets a workspace split divider.
@@ -651,7 +787,8 @@ pub fn handle_workspace_divider_input(
 mod tests {
     use super::*;
 
-    use crate::plugin::{Command, PluginBackend, PluginId, StdinMode};
+    use crate::plugin::{Command, PluginBackend, PluginId, RuntimeEffects, StdinMode};
+    use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
     struct TestPlugin {
         id: PluginId,
@@ -665,6 +802,32 @@ mod tests {
 
         fn allows_process_spawn(&self) -> bool {
             self.allow_spawn
+        }
+    }
+
+    struct RuntimeMessagePlugin;
+
+    impl PluginBackend for RuntimeMessagePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("runtime-message".to_string())
+        }
+
+        fn update_effects(&mut self, msg: &mut dyn Any, _state: &AppState) -> RuntimeEffects {
+            if msg.downcast_ref::<u32>() != Some(&11) {
+                return RuntimeEffects::default();
+            }
+            RuntimeEffects {
+                redraw: DirtyFlags::INFO,
+                commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
+                scroll_plans: vec![ScrollPlan {
+                    total_amount: 2,
+                    line: 3,
+                    column: 5,
+                    frame_interval_ms: 12,
+                    curve: ScrollCurve::Linear,
+                    accumulation: ScrollAccumulationMode::Add,
+                }],
+            }
         }
     }
 
@@ -790,6 +953,8 @@ mod tests {
                 timer: &timer,
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
             },
         );
@@ -801,6 +966,47 @@ mod tests {
         assert_eq!(dispatcher.spawned[0].2, "fd");
         assert_eq!(dispatcher.spawned[0].3, vec!["foo".to_string()]);
         assert_eq!(dispatcher.spawned[0].4, StdinMode::Null);
+    }
+
+    #[test]
+    fn plugin_message_runtime_effects_update_dirty_and_enqueue_scroll_plans() {
+        let mut state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register_backend(Box::new(RuntimeMessagePlugin));
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = true;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut plans = Vec::new();
+
+        let quit = handle_deferred_commands(
+            vec![DeferredCommand::PluginMessage {
+                target: PluginId("runtime-message".to_string()),
+                payload: Box::new(11u32),
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |plan| plans.push(plan),
+                process_dispatcher: &mut dispatcher,
+            },
+            None,
+        );
+
+        assert!(!quit);
+        assert!(dirty.contains(DirtyFlags::INFO));
+        assert!(dirty.contains(DirtyFlags::STATUS));
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].total_amount, 2);
     }
 
     #[derive(Default)]
@@ -881,6 +1087,8 @@ mod tests {
                 timer: &timer,
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
             },
             None,
@@ -920,6 +1128,8 @@ mod tests {
                 timer: &timer,
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
             },
             None,
@@ -956,6 +1166,8 @@ mod tests {
                 timer: &timer,
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
             },
             None,
@@ -991,6 +1203,8 @@ mod tests {
                 timer: &timer,
                 session_host: &mut sessions,
                 initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
             },
             None,
@@ -998,5 +1212,33 @@ mod tests {
 
         assert!(!quit);
         assert_eq!(sessions.switched, vec!["work".to_string()]);
+    }
+
+    #[test]
+    fn session_ready_gate_requires_active_session_and_initial_resize() {
+        let mut gate = SessionReadyGate::default();
+        assert!(!gate.should_notify_ready());
+
+        gate.sync_active_session(Some("alpha"));
+        assert!(!gate.should_notify_ready());
+
+        gate.mark_initial_resize_sent();
+        assert!(gate.should_notify_ready());
+        gate.mark_ready_notified();
+        assert!(!gate.should_notify_ready());
+    }
+
+    #[test]
+    fn session_ready_gate_rearms_on_session_switch() {
+        let mut gate = SessionReadyGate::default();
+        gate.sync_active_session(Some("alpha"));
+        gate.mark_initial_resize_sent();
+        gate.mark_ready_notified();
+        assert!(!gate.should_notify_ready());
+
+        gate.sync_active_session(Some("beta"));
+        assert!(!gate.should_notify_ready());
+        gate.mark_initial_resize_sent();
+        assert!(gate.should_notify_ready());
     }
 }

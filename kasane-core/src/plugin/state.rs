@@ -14,9 +14,9 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 
 use super::{
-    AnnotateContext, Command, ContributeContext, Contribution, DisplayDirective, IoEvent,
-    LineAnnotation, OverlayContext, OverlayContribution, PluginCapabilities, PluginId, SlotId,
-    TransformContext, TransformTarget,
+    AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
+    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PluginCapabilities, PluginId,
+    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
 };
 
 // =============================================================================
@@ -89,29 +89,42 @@ pub trait Plugin: Send + 'static {
 
     // --- State transitions (replace &mut self methods) ---
 
-    fn on_init(&self, state: &Self::State, app: &AppState) -> (Self::State, Vec<Command>) {
+    fn on_init_effects(
+        &self,
+        state: &Self::State,
+        app: &AppState,
+    ) -> (Self::State, BootstrapEffects) {
         let _ = app;
-        (state.clone(), vec![])
+        (state.clone(), BootstrapEffects::default())
     }
 
-    fn on_state_changed(
+    fn on_active_session_ready_effects(
+        &self,
+        state: &Self::State,
+        app: &AppState,
+    ) -> (Self::State, SessionReadyEffects) {
+        let _ = app;
+        (state.clone(), SessionReadyEffects::default())
+    }
+
+    fn on_state_changed_effects(
         &self,
         state: &Self::State,
         app: &AppState,
         dirty: DirtyFlags,
-    ) -> (Self::State, Vec<Command>) {
+    ) -> (Self::State, RuntimeEffects) {
         let _ = (app, dirty);
-        (state.clone(), vec![])
+        (state.clone(), RuntimeEffects::default())
     }
 
-    fn on_io_event(
+    fn on_io_event_effects(
         &self,
         state: &Self::State,
         event: &IoEvent,
         app: &AppState,
-    ) -> (Self::State, Vec<Command>) {
+    ) -> (Self::State, RuntimeEffects) {
         let _ = (event, app);
-        (state.clone(), vec![])
+        (state.clone(), RuntimeEffects::default())
     }
 
     fn observe_key(&self, state: &Self::State, key: &KeyEvent, app: &AppState) -> Self::State {
@@ -160,14 +173,14 @@ pub trait Plugin: Send + 'static {
         None
     }
 
-    fn update(
+    fn update_effects(
         &self,
         state: &Self::State,
-        msg: Box<dyn Any>,
+        msg: &mut dyn Any,
         app: &AppState,
-    ) -> (Self::State, Vec<Command>) {
+    ) -> (Self::State, RuntimeEffects) {
         let _ = (msg, app);
-        (state.clone(), vec![])
+        (state.clone(), RuntimeEffects::default())
     }
 
     // --- Pure view methods (state passed as parameter) ---
@@ -254,7 +267,7 @@ pub trait Plugin: Send + 'static {
 #[cfg(test)]
 pub(in crate::plugin) mod tests {
     use super::*;
-    use crate::plugin::{BackgroundLayer, BlendMode, PluginCapabilities, PluginId};
+    use crate::plugin::{BackgroundLayer, BlendMode, PluginCapabilities, PluginId, RuntimeEffects};
     use crate::protocol::{Color, Face, NamedColor};
     use crate::state::AppState;
 
@@ -278,19 +291,19 @@ pub(in crate::plugin) mod tests {
             PluginCapabilities::ANNOTATOR
         }
 
-        fn on_state_changed(
+        fn on_state_changed_effects(
             &self,
             state: &Self::State,
             app: &AppState,
             dirty: DirtyFlags,
-        ) -> (Self::State, Vec<Command>) {
+        ) -> (Self::State, RuntimeEffects) {
             if dirty.intersects(DirtyFlags::BUFFER) {
                 let new_state = CursorLineState {
                     active_line: app.cursor_pos.line,
                 };
-                (new_state, vec![])
+                (new_state, RuntimeEffects::default())
             } else {
-                (state.clone(), vec![])
+                (state.clone(), RuntimeEffects::default())
             }
         }
 
@@ -351,19 +364,19 @@ pub(in crate::plugin) mod tests {
             PluginCapabilities::ANNOTATOR | PluginCapabilities::OVERLAY
         }
 
-        fn on_state_changed(
+        fn on_state_changed_effects(
             &self,
             state: &Self::State,
             app: &AppState,
             dirty: DirtyFlags,
-        ) -> (Self::State, Vec<Command>) {
+        ) -> (Self::State, RuntimeEffects) {
             if dirty.intersects(DirtyFlags::BUFFER) {
                 let mut new_state = state.clone();
                 new_state.active_line = app.cursor_pos.line;
                 new_state.generation += 1;
-                (new_state, vec![])
+                (new_state, RuntimeEffects::default())
             } else {
-                (state.clone(), vec![])
+                (state.clone(), RuntimeEffects::default())
             }
         }
 

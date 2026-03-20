@@ -2,7 +2,7 @@ use kasane_core::kasane_plugin;
 
 #[kasane_plugin]
 mod lifecycle_plugin {
-    use kasane_core::plugin::Command;
+    use kasane_core::plugin::{BootstrapEffects, RuntimeEffects};
     use kasane_core::state::{AppState, DirtyFlags};
 
     #[state]
@@ -11,21 +11,21 @@ mod lifecycle_plugin {
         pub initialized: bool,
     }
 
-    pub fn on_init(state: &mut State, _core: &AppState) -> Vec<Command> {
+    pub fn on_init_effects(state: &mut State, _core: &AppState) -> BootstrapEffects {
         state.initialized = true;
-        vec![]
+        BootstrapEffects::default()
     }
 
     pub fn on_shutdown(state: &mut State) {
         state.initialized = false;
     }
 
-    pub fn on_state_changed(
+    pub fn on_state_changed_effects(
         _state: &mut State,
         _core: &AppState,
         _dirty: DirtyFlags,
-    ) -> Vec<Command> {
-        vec![]
+    ) -> RuntimeEffects {
+        RuntimeEffects::default()
     }
 }
 
@@ -37,7 +37,7 @@ fn main() {
     assert!(!plugin.state.initialized);
 
     let state = AppState::default();
-    plugin.on_init(&state);
+    plugin.on_init_effects(&state);
     assert!(plugin.state.initialized);
 
     plugin.on_shutdown();

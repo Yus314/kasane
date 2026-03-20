@@ -11,8 +11,10 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    DeferredContext, TimerScheduler, flush_pending_init_commands, handle_command_batch,
-    handle_sourced_surface_commands, handle_workspace_divider_input, surface_event_from_input,
+    DeferredContext, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
+    handle_command_batch, handle_sourced_surface_commands, handle_workspace_divider_input,
+    maybe_flush_active_session_ready, surface_event_from_input,
+    sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -174,9 +176,9 @@ where
 
     // Event state
     pending_events: Vec<GuiEvent>,
-    pending_init_commands: Vec<Command>,
     dirty: DirtyFlags,
     initial_resize_sent: bool,
+    session_ready_gate: SessionReadyGate,
 
     // Input state
     current_modifiers: winit::keyboard::ModifiersState,
@@ -255,7 +257,11 @@ where
             &state,
         );
 
-        let pending_init_commands = registry.init_all(&state);
+        let init_batch = registry.init_all_batch(&state);
+        let mut initial_dirty = DirtyFlags::ALL;
+        apply_bootstrap_effects(init_batch.effects, &mut initial_dirty);
+        let mut session_ready_gate = SessionReadyGate::default();
+        sync_ready_gate(&mut session_ready_gate, &state);
 
         let (salsa_db, salsa_handles) = {
             let mut db = KasaneDatabase::default();
@@ -278,9 +284,9 @@ where
             session_states,
             session_spawner,
             pending_events: Vec::new(),
-            pending_init_commands,
-            dirty: DirtyFlags::ALL,
+            dirty: initial_dirty,
             initial_resize_sent: false,
+            session_ready_gate,
             current_modifiers: winit::keyboard::ModifiersState::empty(),
             cursor_pos: None,
             mouse_button_held: None,
@@ -388,7 +394,11 @@ where
                         self.state.rows,
                         self.state.cols,
                     );
-                    if self.flush_pending_init_commands() {
+                    self.sync_session_ready_gate();
+                    if self.initial_resize_sent {
+                        self.session_ready_gate.mark_initial_resize_sent();
+                    }
+                    if self.flush_active_session_ready() {
                         event_loop.exit();
                         return;
                     }
@@ -429,6 +439,7 @@ where
                         event_loop.exit();
                         return;
                     }
+                    self.sync_session_ready_gate();
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);
                 }
@@ -454,36 +465,44 @@ where
                             self.state.rows,
                             self.state.cols,
                         );
-                        if self.flush_pending_init_commands() {
+                        self.sync_session_ready_gate();
+                        if self.initial_resize_sent {
+                            self.session_ready_gate.mark_initial_resize_sent();
+                        }
+                        if self.flush_active_session_ready() {
                             event_loop.exit();
                             return;
                         }
                     }
                     // Notify plugins of session change so cached state is updated.
-                    for plugin in self.registry.plugins_mut() {
-                        plugin.on_state_changed(&self.state, DirtyFlags::SESSION);
+                    let batch = self
+                        .registry
+                        .notify_state_changed_batch(&self.state, DirtyFlags::SESSION);
+                    if self.apply_runtime_batch(batch, None) {
+                        event_loop.exit();
+                        return;
                     }
+                    self.sync_session_ready_gate();
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);
                     continue;
                 }
                 GuiEvent::PluginTimer(target, payload) => {
-                    let (flags, commands) =
+                    let batch =
                         self.registry
-                            .deliver_message(&target, payload.0, &self.state);
-                    self.dirty |= flags;
-                    if self.exec_commands(commands) {
+                            .deliver_message_batch(&target, payload.0, &self.state);
+                    if self.apply_runtime_batch(batch, Some(&target)) {
                         event_loop.exit();
                         return;
                     }
+                    self.sync_session_ready_gate();
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);
                 }
                 GuiEvent::ProcessOutput(plugin_id, io_event) => {
-                    let (flags, commands) =
+                    let batch =
                         self.registry
-                            .deliver_io_event(&plugin_id, &io_event, &self.state);
-                    self.dirty |= flags;
+                            .deliver_io_event_batch(&plugin_id, &io_event, &self.state);
                     // Free per-plugin process count slot when a job finishes
                     let IoEvent::Process(ref pe) = io_event;
                     let finished_job = match pe {
@@ -495,10 +514,11 @@ where
                         self.process_dispatcher
                             .remove_finished_job(&plugin_id, job_id);
                     }
-                    if self.exec_commands_from(commands, Some(&plugin_id)) {
+                    if self.apply_runtime_batch(batch, Some(&plugin_id)) {
                         event_loop.exit();
                         return;
                     }
+                    self.sync_session_ready_gate();
                     self.session_states
                         .sync_active_from_manager(&self.session_manager, &self.state);
                 }
@@ -565,6 +585,7 @@ where
         self.sync_scroll_runtime();
         self.session_states
             .sync_active_from_manager(&self.session_manager, &self.state);
+        self.sync_session_ready_gate();
     }
 
     fn sync_scroll_runtime(&mut self) {
@@ -584,17 +605,26 @@ where
         }
     }
 
-    fn flush_pending_init_commands(&mut self) -> bool {
-        if !self.initial_resize_sent || self.pending_init_commands.is_empty() {
-            return false;
-        }
+    fn apply_runtime_batch(
+        &mut self,
+        mut batch: kasane_core::plugin::RuntimeBatch,
+        source_plugin: Option<&kasane_core::plugin::PluginId>,
+    ) -> bool {
+        self.dirty |= batch.effects.redraw;
+        self.enqueue_scroll_plans(std::mem::take(&mut batch.effects.scroll_plans));
+        self.dirty |= extract_redraw_flags(&mut batch.effects.commands);
+        self.exec_commands_from(batch.effects.commands, source_plugin)
+    }
 
-        let mut pending_init_commands = std::mem::take(&mut self.pending_init_commands);
-        let should_quit = self.with_deferred_context(|ctx| {
-            flush_pending_init_commands(&mut pending_init_commands, ctx)
-        });
-        self.pending_init_commands = pending_init_commands;
-        should_quit
+    fn flush_active_session_ready(&mut self) -> bool {
+        self.with_deferred_context(maybe_flush_active_session_ready)
+    }
+
+    fn sync_session_ready_gate(&mut self) {
+        sync_ready_gate(&mut self.session_ready_gate, &self.state);
+        if !self.initial_resize_sent {
+            self.session_ready_gate.clear_initial_resize();
+        }
     }
 
     /// Execute side-effect commands, including deferred ones. Returns `true` if Quit was requested.
@@ -630,6 +660,7 @@ where
             proxy,
             spawn_session,
         };
+        let scroll_runtime = &mut self.scroll_runtime;
         let mut ctx = DeferredContext {
             state: &mut self.state,
             registry: &mut self.registry,
@@ -639,6 +670,8 @@ where
             timer: &self.timer_scheduler,
             session_host: &mut session_runtime,
             initial_resize_sent: &mut self.initial_resize_sent,
+            session_ready_gate: Some(&mut self.session_ready_gate),
+            scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
             process_dispatcher: &mut *self.process_dispatcher,
         };
         f(&mut ctx)

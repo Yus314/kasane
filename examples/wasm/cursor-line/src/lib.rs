@@ -10,18 +10,22 @@ thread_local! {
 
 struct CursorLinePlugin;
 
+fn refresh_active_line(dirty_flags: u16) {
+    if dirty_flags & dirty::BUFFER != 0 {
+        let line = host_state::get_cursor_line();
+        ACTIVE_LINE.set(line);
+    }
+}
+
 #[plugin]
 impl Guest for CursorLinePlugin {
     fn get_id() -> String {
         "cursor_line".to_string()
     }
 
-    fn on_state_changed(dirty_flags: u16) -> Vec<Command> {
-        if dirty_flags & dirty::BUFFER != 0 {
-            let line = host_state::get_cursor_line();
-            ACTIVE_LINE.set(line);
-        }
-        vec![]
+    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+        refresh_active_line(dirty_flags);
+        RuntimeEffects::default()
     }
 
     fn state_hash() -> u64 {

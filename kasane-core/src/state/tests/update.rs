@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
-use crate::plugin::{Command, PluginBackend, PluginId, PluginRegistry};
+use crate::plugin::{Command, PluginBackend, PluginId, PluginRegistry, RuntimeEffects};
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
+use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 use crate::state::update::{Msg, update};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
@@ -339,11 +340,15 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         fn id(&self) -> PluginId {
             PluginId("watcher".into())
         }
-        fn on_state_changed(&mut self, _state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
+        fn on_state_changed_effects(
+            &mut self,
+            _state: &AppState,
+            dirty: DirtyFlags,
+        ) -> RuntimeEffects {
             if dirty.contains(DirtyFlags::BUFFER) {
                 self.0.store(true, Ordering::Relaxed);
             }
-            vec![]
+            RuntimeEffects::default()
         }
     }
 
@@ -366,4 +371,59 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
     .flags;
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(called.load(Ordering::Relaxed));
+}
+
+#[test]
+fn test_on_state_changed_effects_return_scroll_plans() {
+    struct StateWatcher;
+
+    impl PluginBackend for StateWatcher {
+        fn id(&self) -> PluginId {
+            PluginId("watcher-effects".into())
+        }
+
+        fn on_state_changed_effects(
+            &mut self,
+            _state: &AppState,
+            dirty: DirtyFlags,
+        ) -> RuntimeEffects {
+            if !dirty.contains(DirtyFlags::BUFFER) {
+                return RuntimeEffects::default();
+            }
+            RuntimeEffects {
+                redraw: DirtyFlags::STATUS,
+                commands: vec![],
+                scroll_plans: vec![ScrollPlan {
+                    total_amount: 4,
+                    line: 1,
+                    column: 2,
+                    frame_interval_ms: 16,
+                    curve: ScrollCurve::Linear,
+                    accumulation: ScrollAccumulationMode::Add,
+                }],
+            }
+        }
+    }
+
+    let mut state = AppState::default();
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(StateWatcher));
+
+    let result = update(
+        &mut state,
+        Msg::Kakoune(KakouneRequest::Draw {
+            lines: vec![make_line("hello")],
+            cursor_pos: Coord::default(),
+            default_face: Face::default(),
+            padding_face: Face::default(),
+            widget_columns: 0,
+        }),
+        &mut registry,
+        3,
+    );
+
+    assert!(result.flags.contains(DirtyFlags::BUFFER));
+    assert!(result.flags.contains(DirtyFlags::STATUS));
+    assert_eq!(result.scroll_plans.len(), 1);
+    assert_eq!(result.scroll_plans[0].total_amount, 4);
 }
