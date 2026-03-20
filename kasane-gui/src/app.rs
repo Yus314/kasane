@@ -3,6 +3,7 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use anyhow::Result;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
@@ -13,13 +14,14 @@ use kasane_core::config::Config;
 use kasane_core::event_loop::{
     DeferredContext, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
     handle_command_batch, handle_sourced_surface_commands, handle_workspace_divider_input,
-    maybe_flush_active_session_ready, surface_event_from_input,
+    maybe_flush_active_session_ready, register_builtin_surfaces, surface_event_from_input,
     sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    Command, IoEvent, PluginRegistry, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
+    Command, IoEvent, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEvent,
+    extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -33,7 +35,6 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
-use kasane_core::surface::buffer::KakouneBufferSurface;
 
 use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
@@ -222,9 +223,10 @@ where
         session_manager: SessionManager<R, W, C>,
         session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
+        plugin_manager: &mut PluginManager,
         registry: PluginRegistry,
         process_dispatcher: Box<dyn ProcessDispatcher>,
-    ) -> Self {
+    ) -> Result<Self> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
         let mut state = AppState::default();
@@ -240,22 +242,14 @@ where
         let mut registry = registry;
 
         let mut surface_registry = SurfaceRegistry::new();
-        surface_registry
-            .try_register(Box::new(KakouneBufferSurface::new()))
-            .expect("failed to register built-in surface kasane.buffer");
-        surface_registry
-            .try_register(Box::new(
-                kasane_core::surface::status::StatusBarSurface::new(),
-            ))
-            .expect("failed to register built-in surface kasane.status");
+        register_builtin_surfaces(&mut surface_registry);
 
         // Collect plugin-owned surfaces before plugin init so invalid surface
         // contracts do not get a chance to produce side effects.
-        kasane_core::event_loop::setup_plugin_surfaces(
-            &mut registry,
-            &mut surface_registry,
-            &state,
-        );
+        let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
+            kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
+        })?;
+        report_plugin_diagnostics(&initial_plugins.diagnostics);
 
         let init_batch = registry.init_all_batch(&state);
         let mut initial_dirty = DirtyFlags::ALL;
@@ -271,7 +265,7 @@ where
         };
         let scroll_runtime_session = session_manager.active_session_id();
 
-        App {
+        Ok(App {
             window: None,
             gpu: None,
             scene_renderer: None,
@@ -303,7 +297,7 @@ where
             process_dispatcher,
             salsa_db,
             salsa_handles,
-        }
+        })
     }
 
     fn init_window(&mut self, event_loop: &ActiveEventLoop) {

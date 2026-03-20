@@ -1,5 +1,6 @@
 //! TUI event loop: polls crossterm and Kakoune, dispatches to core update/view/render.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 
 use anyhow::Result;
@@ -7,14 +8,15 @@ use anyhow::Result;
 use kasane_core::event_loop::{
     DeferredContext, EventResult, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
     apply_ready_batch, handle_command_batch, handle_sourced_surface_commands,
-    handle_workspace_divider_input, maybe_flush_active_session_ready, surface_event_from_input,
-    sync_session_ready_gate as sync_ready_gate,
+    handle_workspace_divider_input, maybe_flush_active_session_ready, reconcile_plugin_surfaces,
+    surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    IoEvent, PluginId, PluginManager, PluginRegistry, ProcessDispatcher, ProcessEvent,
-    ProcessEventSink, RuntimeBatch, extract_redraw_flags,
+    IoEvent, PaintHook, PluginDiagnostic, PluginId, PluginManager, PluginRegistry,
+    ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch, extract_redraw_flags,
+    report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -24,6 +26,108 @@ use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 
 use crate::backend::TuiBackend;
+
+#[derive(Default)]
+pub(crate) struct PaintHookState {
+    hooks: Vec<Box<dyn PaintHook>>,
+    owner_ranges: BTreeMap<PluginId, std::ops::Range<usize>>,
+}
+
+impl PaintHookState {
+    pub(crate) fn from_registry(registry: &PluginRegistry) -> Self {
+        let mut state = Self::default();
+        state.rebuild_from_grouped(
+            registry,
+            registry
+                .paint_hook_owners_in_order()
+                .into_iter()
+                .map(|owner| {
+                    (
+                        owner.clone(),
+                        registry.collect_paint_hooks_for_owner(&owner),
+                    )
+                })
+                .collect(),
+        );
+        state
+    }
+
+    pub(crate) fn hooks(&self) -> &[Box<dyn PaintHook>] {
+        &self.hooks
+    }
+
+    pub(crate) fn reconcile(
+        &mut self,
+        registry: &PluginRegistry,
+        deltas: &[kasane_core::plugin::AppliedWinnerDelta],
+        diagnostics: &[PluginDiagnostic],
+    ) {
+        if deltas.is_empty() && diagnostics.is_empty() {
+            return;
+        }
+
+        let mut grouped = self.take_grouped();
+        let mut changed_owners = BTreeMap::<PluginId, ()>::new();
+        for delta in deltas {
+            changed_owners.insert(delta.id.clone(), ());
+        }
+        for diagnostic in diagnostics {
+            if let Some(plugin_id) = diagnostic.plugin_id() {
+                changed_owners.insert(plugin_id.clone(), ());
+            }
+        }
+
+        for plugin_id in changed_owners.keys() {
+            grouped.remove(plugin_id);
+        }
+        for plugin_id in changed_owners.keys() {
+            if diagnostics.iter().any(|d| d.plugin_id() == Some(plugin_id))
+                || !registry.contains_plugin(plugin_id)
+            {
+                continue;
+            }
+            let hooks = registry.collect_paint_hooks_for_owner(plugin_id);
+            if !hooks.is_empty() {
+                grouped.insert(plugin_id.clone(), hooks);
+            }
+        }
+
+        self.rebuild_from_grouped(registry, grouped);
+    }
+
+    fn take_grouped(&mut self) -> BTreeMap<PluginId, Vec<Box<dyn PaintHook>>> {
+        let old_hooks = std::mem::take(&mut self.hooks);
+        let old_ranges = std::mem::take(&mut self.owner_ranges);
+        let mut entries: Vec<_> = old_ranges.into_iter().collect();
+        entries.sort_by_key(|(_, range)| range.start);
+        let mut hooks_iter = old_hooks.into_iter();
+        let mut grouped = BTreeMap::new();
+        for (owner, range) in entries {
+            let len = range.end.saturating_sub(range.start);
+            grouped.insert(owner, hooks_iter.by_ref().take(len).collect());
+        }
+        grouped
+    }
+
+    fn rebuild_from_grouped(
+        &mut self,
+        registry: &PluginRegistry,
+        mut grouped: BTreeMap<PluginId, Vec<Box<dyn PaintHook>>>,
+    ) {
+        let mut hooks = Vec::new();
+        let mut owner_ranges = BTreeMap::new();
+        for owner in registry.paint_hook_owners_in_order() {
+            let Some(owner_hooks) = grouped.remove(&owner) else {
+                continue;
+            };
+            let start = hooks.len();
+            hooks.extend(owner_hooks);
+            owner_ranges.insert(owner, start..hooks.len());
+        }
+        self.hooks = hooks;
+        self.owner_ranges = owner_ranges;
+    }
+}
 
 pub(crate) enum Event {
     Kakoune(SessionId, KakouneRequest),
@@ -200,6 +304,12 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub session_ready_gate: &'a mut SessionReadyGate,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_manager: &'a mut PluginManager,
+    pub paint_hooks: &'a mut PaintHookState,
+}
+
+struct PluginReloadOutcome {
+    flags: DirtyFlags,
+    should_quit: bool,
 }
 
 /// Process a single event, returning `true` if the application should quit.
@@ -337,28 +447,29 @@ where
             event_result_from_runtime_batch(batch, Some(plugin_id))
         }
         Event::PluginReload => {
-            // Reload plugins from disk — triggered by `.reload` sentinel
-            let mut flags = DirtyFlags::all();
-            match ctx
-                .plugin_manager
-                .reload(ctx.registry, ctx.state, *ctx.initial_resize_sent)
-            {
-                Ok(reload) => {
-                    apply_bootstrap_effects(reload.bootstrap, &mut flags);
-                    sync_ready_gate(ctx.session_ready_gate, ctx.state);
-                    if *ctx.initial_resize_sent
-                        && flush_reloaded_plugins_ready(ctx, &reload.ready_targets)
-                    {
+            match handle_plugin_reload(ctx) {
+                Ok(outcome) => {
+                    if outcome.should_quit {
                         return true;
                     }
-                    tracing::info!("hot-reloaded plugins");
+                    return process_event_result(
+                        EventResult {
+                            flags: outcome.flags,
+                            commands: vec![],
+                            scroll_plans: vec![],
+                            surface_commands: vec![],
+                            command_source: None,
+                        },
+                        false,
+                        ctx,
+                    );
                 }
                 Err(err) => {
                     tracing::error!("failed to hot-reload plugins: {err}");
                 }
             }
             EventResult {
-                flags,
+                flags: DirtyFlags::all(),
                 commands: vec![],
                 scroll_plans: vec![],
                 surface_commands: vec![],
@@ -405,6 +516,54 @@ where
     };
 
     process_event_result(result, is_input, ctx)
+}
+
+fn handle_plugin_reload<R, W, C>(
+    ctx: &mut EventProcessingContext<'_, R, W, C>,
+) -> Result<PluginReloadOutcome>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    C: Send + 'static,
+{
+    let reload = ctx
+        .plugin_manager
+        .reload(ctx.registry, ctx.state, |result, registry| {
+            reconcile_reloaded_plugin_resources(
+                registry,
+                ctx.surface_registry,
+                ctx.state,
+                ctx.paint_hooks,
+                result.deltas.as_slice(),
+            )
+        })?;
+    report_plugin_diagnostics(&reload.diagnostics);
+
+    let mut flags = DirtyFlags::all();
+    apply_bootstrap_effects(reload.bootstrap, &mut flags);
+    sync_ready_gate(ctx.session_ready_gate, ctx.state);
+
+    let ready_targets = reload.ready_targets().cloned().collect::<Vec<_>>();
+    let should_quit = *ctx.initial_resize_sent && flush_reloaded_plugins_ready(ctx, &ready_targets);
+    tracing::info!("hot-reloaded plugins");
+
+    Ok(PluginReloadOutcome { flags, should_quit })
+}
+
+fn reconcile_reloaded_plugin_resources(
+    registry: &mut PluginRegistry,
+    surface_registry: &mut SurfaceRegistry,
+    state: &AppState,
+    paint_hooks: &mut PaintHookState,
+    deltas: &[kasane_core::plugin::AppliedWinnerDelta],
+) -> Vec<PluginDiagnostic> {
+    if deltas.is_empty() {
+        return vec![];
+    }
+
+    let diagnostics = reconcile_plugin_surfaces(registry, surface_registry, state, deltas);
+    paint_hooks.reconcile(registry, deltas, &diagnostics);
+    diagnostics
 }
 
 fn event_result_from_runtime_batch(
@@ -549,4 +708,174 @@ where
         process_dispatcher: ctx.process_dispatcher,
     };
     f(&mut deferred_ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kasane_core::event_loop::{register_builtin_surfaces, setup_plugin_surfaces};
+    use kasane_core::layout::SplitDirection;
+    use kasane_core::plugin::{
+        PaintHook, PluginBackend, PluginCapabilities, PluginDescriptor, PluginRank, PluginRevision,
+        PluginSource,
+    };
+    use kasane_core::surface::{Surface, SurfaceId};
+    use kasane_core::test_support::TestSurfaceBuilder;
+    use kasane_core::workspace::Placement;
+
+    struct TestPaintHook {
+        id: &'static str,
+    }
+
+    impl PaintHook for TestPaintHook {
+        fn id(&self) -> &str {
+            self.id
+        }
+
+        fn deps(&self) -> DirtyFlags {
+            DirtyFlags::ALL
+        }
+
+        fn apply(
+            &self,
+            _grid: &mut kasane_core::render::CellGrid,
+            _region: &kasane_core::layout::Rect,
+            _state: &AppState,
+        ) {
+        }
+    }
+
+    struct ReloadResourcePlugin {
+        surface_id: SurfaceId,
+        hook_id: &'static str,
+    }
+
+    impl PluginBackend for ReloadResourcePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("reload-owner".to_string())
+        }
+
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::PAINT_HOOK
+        }
+
+        fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
+            vec![TestSurfaceBuilder::new(self.surface_id).build()]
+        }
+
+        fn workspace_request(&self) -> Option<Placement> {
+            Some(Placement::SplitFocused {
+                direction: SplitDirection::Vertical,
+                ratio: 0.4,
+            })
+        }
+
+        fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
+            vec![Box::new(TestPaintHook { id: self.hook_id })]
+        }
+    }
+
+    fn owner_delta(
+        old: Option<&str>,
+        new: Option<&str>,
+    ) -> kasane_core::plugin::AppliedWinnerDelta {
+        fn descriptor(revision: &str) -> PluginDescriptor {
+            PluginDescriptor {
+                id: PluginId("reload-owner".to_string()),
+                source: PluginSource::Host {
+                    provider: "test".to_string(),
+                },
+                revision: PluginRevision(revision.to_string()),
+                rank: PluginRank::HOST,
+            }
+        }
+
+        kasane_core::plugin::AppliedWinnerDelta {
+            id: PluginId("reload-owner".to_string()),
+            old: old.map(descriptor),
+            new: new.map(descriptor),
+        }
+    }
+
+    #[test]
+    fn reconcile_reloaded_plugin_resources_replaces_owner_surfaces_and_hooks() {
+        let state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register_backend(Box::new(ReloadResourcePlugin {
+            surface_id: SurfaceId(200),
+            hook_id: "hook-a",
+        }));
+
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let disabled = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
+        assert!(disabled.is_empty());
+
+        let mut paint_hooks = PaintHookState::from_registry(&registry);
+        assert_eq!(paint_hooks.hooks().len(), 1);
+        assert_eq!(paint_hooks.hooks()[0].id(), "hook-a");
+
+        let _ = registry.reload_plugin_batch(
+            Box::new(ReloadResourcePlugin {
+                surface_id: SurfaceId(200),
+                hook_id: "hook-b",
+            }),
+            &state,
+        );
+
+        let disabled = reconcile_reloaded_plugin_resources(
+            &mut registry,
+            &mut surface_registry,
+            &state,
+            &mut paint_hooks,
+            &[owner_delta(Some("r1"), Some("r2"))],
+        );
+
+        assert!(disabled.is_empty());
+        assert!(surface_registry.get(SurfaceId(200)).is_some());
+        assert_eq!(
+            surface_registry
+                .workspace()
+                .root()
+                .collect_ids()
+                .into_iter()
+                .filter(|surface_id| *surface_id == SurfaceId(200))
+                .count(),
+            1
+        );
+        assert_eq!(paint_hooks.hooks().len(), 1);
+        assert_eq!(paint_hooks.hooks()[0].id(), "hook-b");
+    }
+
+    #[test]
+    fn reconcile_reloaded_plugin_resources_removes_owner_surfaces_and_hooks() {
+        let state = AppState::default();
+        let mut registry = PluginRegistry::new();
+        registry.register_backend(Box::new(ReloadResourcePlugin {
+            surface_id: SurfaceId(200),
+            hook_id: "hook-a",
+        }));
+
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let disabled = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
+        assert!(disabled.is_empty());
+
+        let mut paint_hooks = PaintHookState::from_registry(&registry);
+        assert_eq!(paint_hooks.hooks().len(), 1);
+        assert!(registry.unload_plugin(&PluginId("reload-owner".to_string())));
+
+        let disabled = reconcile_reloaded_plugin_resources(
+            &mut registry,
+            &mut surface_registry,
+            &state,
+            &mut paint_hooks,
+            &[owner_delta(Some("r1"), None)],
+        );
+
+        assert!(disabled.is_empty());
+        assert!(surface_registry.get(SurfaceId(200)).is_none());
+        assert!(!surface_registry.workspace_contains(SurfaceId(200)));
+        assert!(paint_hooks.hooks().is_empty());
+    }
 }

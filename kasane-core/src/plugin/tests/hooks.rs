@@ -201,6 +201,30 @@ fn test_collect_paint_hooks() {
 }
 
 #[test]
+fn test_collect_paint_hooks_for_owner() {
+    let mut registry = PluginRegistry::new();
+    registry.register_backend(Box::new(PaintHookPlugin {
+        hooks: vec![
+            Box::new(TestPaintHook {
+                id: "hook-a",
+                deps: DirtyFlags::BUFFER,
+                surface_filter: None,
+            }),
+            Box::new(TestPaintHook {
+                id: "hook-b",
+                deps: DirtyFlags::STATUS,
+                surface_filter: None,
+            }),
+        ],
+    }));
+
+    let hooks = registry.collect_paint_hooks_for_owner(&PluginId("paint-hook-test".to_string()));
+    assert_eq!(hooks.len(), 2);
+    assert_eq!(hooks[0].id(), "hook-a");
+    assert_eq!(hooks[1].id(), "hook-b");
+}
+
+#[test]
 fn test_paint_hook_applies_to_grid() {
     use crate::layout::Rect;
     use crate::render::CellGrid;

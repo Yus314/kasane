@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use super::diagnostics::PluginDiagnostic;
 use super::{PluginBackend, PluginId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -54,8 +55,25 @@ pub trait PluginFactory: Send + Sync {
     fn create(&self) -> Result<Box<dyn PluginBackend>>;
 }
 
+#[derive(Default)]
+pub struct PluginCollect {
+    pub factories: Vec<Arc<dyn PluginFactory>>,
+    pub diagnostics: Vec<PluginDiagnostic>,
+}
+
+impl PluginCollect {
+    pub fn extend(&mut self, other: PluginCollect) {
+        self.factories.extend(other.factories);
+        self.diagnostics.extend(other.diagnostics);
+    }
+}
+
 pub trait PluginProvider: Send + Sync {
-    fn collect(&self) -> Result<Vec<Arc<dyn PluginFactory>>>;
+    fn name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
+
+    fn collect(&self) -> Result<PluginCollect>;
 }
 
 struct ClosurePluginFactory<F> {
@@ -142,8 +160,11 @@ impl StaticPluginProvider {
 }
 
 impl PluginProvider for StaticPluginProvider {
-    fn collect(&self) -> Result<Vec<Arc<dyn PluginFactory>>> {
-        Ok(self.factories.clone())
+    fn collect(&self) -> Result<PluginCollect> {
+        Ok(PluginCollect {
+            factories: self.factories.clone(),
+            diagnostics: vec![],
+        })
     }
 }
 
@@ -173,11 +194,19 @@ impl Default for CompositePluginProvider {
 }
 
 impl PluginProvider for CompositePluginProvider {
-    fn collect(&self) -> Result<Vec<Arc<dyn PluginFactory>>> {
-        let mut factories = Vec::new();
+    fn collect(&self) -> Result<PluginCollect> {
+        let mut collect = PluginCollect::default();
         for provider in &self.providers {
-            factories.extend(provider.collect()?);
+            match provider.collect() {
+                Ok(provider_collect) => collect.extend(provider_collect),
+                Err(err) => collect
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_collect_failed(
+                        provider.name(),
+                        err.to_string(),
+                    )),
+            }
         }
-        Ok(factories)
+        Ok(collect)
     }
 }
