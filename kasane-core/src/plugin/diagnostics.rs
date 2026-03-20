@@ -6,17 +6,33 @@ use crate::surface::SurfaceRegistrationError;
 
 use super::{PluginDescriptor, PluginId};
 
+/// Maximum visible lines in the overlay under normal conditions.
 pub const DEFAULT_PLUGIN_DIAGNOSTIC_OVERLAY_LINES: usize = 3;
 pub const PLUGIN_DIAGNOSTIC_OVERLAY_TITLE: &str = "plugin diagnostics";
 pub const PLUGIN_ACTIVATION_OVERLAY_TITLE: &str = "plugin activation";
 pub const PLUGIN_DISCOVERY_OVERLAY_TITLE: &str = "plugin discovery";
+/// Expanded line limit when any provider error is present.
 const ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_LINES: usize = 4;
+/// Expanded line limit when a direct plugin activation error is present.
 const PLUGIN_ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_LINES: usize = 5;
 const MIN_PLUGIN_DIAGNOSTIC_OVERLAY_COLS: u16 = 8;
 const MIN_PLUGIN_DIAGNOSTIC_OVERLAY_ROWS: u16 = 3;
+/// Suppress a new overlay generation if the previous one was shown within this window.
 const PLUGIN_DIAGNOSTIC_OVERLAY_COALESCE_WINDOW: Duration = Duration::from_millis(750);
 const WARNING_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(4);
 const ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_DURATION: Duration = Duration::from_secs(8);
+
+// Backdrop tone scoring — used to decide whether the overlay is colored as
+// "activation" (plugin errors dominate), "discovery" (provider errors dominate),
+// or "neutral" (mixed). Errors weigh 3× more than warnings so a single error
+// outweighs a warning even when the warning has a tag bonus.
+const OVERLAY_WARNING_SCORE: u32 = 2;
+const OVERLAY_ERROR_SCORE: u32 = 6;
+/// Minimum score gap to declare one target category dominant for backdrop tone.
+const OVERLAY_SCORE_DOMINANCE_DELTA: u32 = 3;
+/// Score gap threshold for strong dominance, used in mixed-batch provider
+/// artifact stage quota allocation (allows up to 3 provider lines).
+const OVERLAY_SCORE_STRONG_DOMINANCE_DELTA: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PluginDiagnosticSeverity {
@@ -175,6 +191,13 @@ struct OverlayBucket {
     last_seen: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OverlayBackdropTone {
+    Neutral,
+    Activation,
+    Discovery,
+}
+
 #[derive(Default)]
 pub struct PluginDiagnosticOverlayState {
     generation: u64,
@@ -207,10 +230,9 @@ impl PluginDiagnosticOverlayState {
         self.retained = all_lines.clone();
         self.last_recorded_at = Some(now);
         self.hidden_count = all_lines.len().saturating_sub(line_limit);
-        self.lines = all_lines
+        self.lines = select_visible_overlay_buckets(&all_lines, line_limit)
             .into_iter()
             .map(|bucket| bucket.line)
-            .take(line_limit)
             .collect();
         Some(self.generation)
     }
@@ -249,8 +271,9 @@ impl PluginDiagnosticOverlayState {
     }
 
     pub fn paint_spec(&self, cols: u16, rows: u16) -> Option<PluginDiagnosticOverlayPaintSpec> {
-        plugin_diagnostic_overlay_paint_spec_with_title(
+        plugin_diagnostic_overlay_paint_spec_with_style(
             overlay_title(&self.retained),
+            overlay_backdrop_tone(&self.retained),
             &self.lines,
             self.hidden_count,
             cols,
@@ -416,10 +439,81 @@ fn provider_artifact_summary_name(artifact: &str) -> &str {
 }
 
 fn overlay_title(buckets: &[OverlayBucket]) -> &'static str {
-    match buckets.first().map(|bucket| &bucket.target) {
-        Some(PluginDiagnosticTarget::Plugin(_)) => PLUGIN_ACTIVATION_OVERLAY_TITLE,
-        Some(PluginDiagnosticTarget::Provider(_)) => PLUGIN_DISCOVERY_OVERLAY_TITLE,
-        None => PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+    let has_plugin = buckets
+        .iter()
+        .any(|bucket| matches!(bucket.target, PluginDiagnosticTarget::Plugin(_)));
+    let has_provider = buckets
+        .iter()
+        .any(|bucket| matches!(bucket.target, PluginDiagnosticTarget::Provider(_)));
+
+    match (has_plugin, has_provider) {
+        (true, true) => PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+        (true, false) => PLUGIN_ACTIVATION_OVERLAY_TITLE,
+        (false, true) => PLUGIN_DISCOVERY_OVERLAY_TITLE,
+        (false, false) => PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+    }
+}
+
+fn overlay_backdrop_tone_for_title(title: &str) -> OverlayBackdropTone {
+    match title {
+        PLUGIN_ACTIVATION_OVERLAY_TITLE => OverlayBackdropTone::Activation,
+        PLUGIN_DISCOVERY_OVERLAY_TITLE => OverlayBackdropTone::Discovery,
+        _ => OverlayBackdropTone::Neutral,
+    }
+}
+
+/// Choose the backdrop tone by comparing weighted scores of plugin vs provider
+/// diagnostics. The dominant category colors the overlay; if neither dominates
+/// by at least `OVERLAY_SCORE_DOMINANCE_DELTA`, the tone is neutral.
+fn overlay_backdrop_tone(buckets: &[OverlayBucket]) -> OverlayBackdropTone {
+    let plugin_score = overlay_target_score(buckets, true);
+    let provider_score = overlay_target_score(buckets, false);
+
+    match (plugin_score, provider_score) {
+        (0, 0) => OverlayBackdropTone::Neutral,
+        (0, _) => OverlayBackdropTone::Discovery,
+        (_, 0) => OverlayBackdropTone::Activation,
+        (plugin, provider) if plugin >= provider.saturating_add(OVERLAY_SCORE_DOMINANCE_DELTA) => {
+            OverlayBackdropTone::Activation
+        }
+        (plugin, provider) if provider >= plugin.saturating_add(OVERLAY_SCORE_DOMINANCE_DELTA) => {
+            OverlayBackdropTone::Discovery
+        }
+        _ => OverlayBackdropTone::Neutral,
+    }
+}
+
+fn overlay_target_score(buckets: &[OverlayBucket], plugin_target: bool) -> u32 {
+    buckets
+        .iter()
+        .filter(|bucket| {
+            if plugin_target {
+                matches!(bucket.target, PluginDiagnosticTarget::Plugin(_))
+            } else {
+                matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+            }
+        })
+        .map(|bucket| overlay_line_score(&bucket.line) * bucket.line.repeat_count as u32)
+        .sum()
+}
+
+fn overlay_line_score(line: &PluginDiagnosticOverlayLine) -> u32 {
+    overlay_severity_weight(line.severity) + overlay_tag_score_bonus(line.tag_kind)
+}
+
+fn overlay_severity_weight(severity: PluginDiagnosticSeverity) -> u32 {
+    match severity {
+        PluginDiagnosticSeverity::Warning => OVERLAY_WARNING_SCORE,
+        PluginDiagnosticSeverity::Error => OVERLAY_ERROR_SCORE,
+    }
+}
+
+fn overlay_tag_score_bonus(kind: PluginDiagnosticOverlayTagKind) -> u32 {
+    match kind {
+        PluginDiagnosticOverlayTagKind::ArtifactRead => 0,
+        PluginDiagnosticOverlayTagKind::ArtifactLoad => 1,
+        PluginDiagnosticOverlayTagKind::ArtifactInstantiate => 2,
+        PluginDiagnosticOverlayTagKind::Activation | PluginDiagnosticOverlayTagKind::Discovery => 0,
     }
 }
 
@@ -427,10 +521,9 @@ pub fn diagnostic_overlay_lines(
     diagnostics: &[PluginDiagnostic],
     max_lines: usize,
 ) -> Vec<PluginDiagnosticOverlayLine> {
-    collect_diagnostic_overlay_buckets(diagnostics)
+    select_visible_overlay_buckets(&collect_diagnostic_overlay_buckets(diagnostics), max_lines)
         .into_iter()
         .map(|bucket| bucket.line)
-        .take(max_lines)
         .collect()
 }
 
@@ -525,6 +618,337 @@ fn overlay_line_limit(buckets: &[OverlayBucket]) -> usize {
         ERROR_PLUGIN_DIAGNOSTIC_OVERLAY_LINES
     } else {
         DEFAULT_PLUGIN_DIAGNOSTIC_OVERLAY_LINES
+    }
+}
+
+/// Select which diagnostic buckets to display in the overlay, respecting `limit`.
+///
+/// For mixed overlays (both plugin and provider diagnostics), uses a multi-pass
+/// quota reservation strategy: plugin errors first, then provider errors, then
+/// warnings, then remaining slots filled by priority order.
+fn select_visible_overlay_buckets(buckets: &[OverlayBucket], limit: usize) -> Vec<OverlayBucket> {
+    if limit == 0 || buckets.is_empty() {
+        return vec![];
+    }
+
+    let has_plugin = buckets
+        .iter()
+        .any(|bucket| matches!(bucket.target, PluginDiagnosticTarget::Plugin(_)));
+    let has_provider = buckets
+        .iter()
+        .any(|bucket| matches!(bucket.target, PluginDiagnosticTarget::Provider(_)));
+    if !has_plugin && has_provider {
+        return select_provider_overlay_buckets(buckets, limit);
+    }
+    if !has_plugin || !has_provider {
+        return buckets.iter().take(limit).cloned().collect();
+    }
+
+    let mut selected = Vec::new();
+    let mut marked = vec![false; buckets.len()];
+
+    reserve_overlay_indexes(
+        &mut selected,
+        &mut marked,
+        buckets,
+        limit,
+        mixed_overlay_plugin_error_quota(buckets, limit),
+        |bucket| {
+            matches!(bucket.target, PluginDiagnosticTarget::Plugin(_))
+                && bucket.line.severity == PluginDiagnosticSeverity::Error
+        },
+    );
+    let remaining_after_plugin_errors = limit.saturating_sub(selected.len());
+    reserve_overlay_indexes(
+        &mut selected,
+        &mut marked,
+        buckets,
+        limit,
+        mixed_overlay_provider_error_quota(buckets, remaining_after_plugin_errors),
+        provider_discovery_error,
+    );
+    if buckets
+        .iter()
+        .any(|bucket| bucket.line.severity == PluginDiagnosticSeverity::Warning)
+    {
+        reserve_overlay_indexes(&mut selected, &mut marked, buckets, limit, 1, |bucket| {
+            matches!(bucket.target, PluginDiagnosticTarget::Plugin(_))
+                && bucket.line.severity == PluginDiagnosticSeverity::Warning
+        });
+        let remaining_after_plugin_warning = limit.saturating_sub(selected.len());
+        reserve_provider_artifact_stage_indexes(
+            &mut selected,
+            &mut marked,
+            buckets,
+            limit,
+            mixed_overlay_provider_artifact_stage_quota(buckets, remaining_after_plugin_warning),
+        );
+    }
+    reserve_overlay_indexes(
+        &mut selected,
+        &mut marked,
+        buckets,
+        limit,
+        mixed_overlay_plugin_quota(buckets, limit),
+        |bucket| matches!(bucket.target, PluginDiagnosticTarget::Plugin(_)),
+    );
+    let remaining_after_plugin_target = limit.saturating_sub(selected.len());
+    reserve_overlay_indexes(
+        &mut selected,
+        &mut marked,
+        buckets,
+        limit,
+        mixed_overlay_provider_quota(buckets, remaining_after_plugin_target),
+        |bucket| matches!(bucket.target, PluginDiagnosticTarget::Provider(_)),
+    );
+
+    for (idx, is_marked) in marked.iter_mut().enumerate() {
+        if selected.len() >= limit {
+            break;
+        }
+        if !*is_marked {
+            selected.push(idx);
+            *is_marked = true;
+        }
+    }
+
+    selected.sort_unstable();
+    selected
+        .into_iter()
+        .take(limit)
+        .map(|idx| buckets[idx].clone())
+        .collect()
+}
+
+fn select_provider_overlay_buckets(buckets: &[OverlayBucket], limit: usize) -> Vec<OverlayBucket> {
+    if limit == 0 || buckets.is_empty() {
+        return vec![];
+    }
+
+    let has_provider_error = buckets.iter().any(provider_discovery_error);
+    let has_provider_warning = buckets.iter().any(provider_artifact_warning);
+    if !has_provider_error && !has_provider_warning {
+        return buckets.iter().take(limit).cloned().collect();
+    }
+
+    let mut selected = Vec::new();
+    let mut marked = vec![false; buckets.len()];
+    if has_provider_error {
+        reserve_overlay_indexes(
+            &mut selected,
+            &mut marked,
+            buckets,
+            limit,
+            1,
+            provider_discovery_error,
+        );
+    }
+    if has_provider_warning {
+        let remaining_limit = limit.saturating_sub(selected.len());
+        reserve_provider_artifact_stage_indexes(
+            &mut selected,
+            &mut marked,
+            buckets,
+            limit,
+            provider_artifact_stage_quota(buckets, remaining_limit),
+        );
+    }
+    for (idx, is_marked) in marked.iter_mut().enumerate() {
+        if selected.len() >= limit {
+            break;
+        }
+        if !*is_marked {
+            selected.push(idx);
+            *is_marked = true;
+        }
+    }
+
+    selected.sort_unstable();
+    selected
+        .into_iter()
+        .take(limit)
+        .map(|idx| buckets[idx].clone())
+        .collect()
+}
+
+fn provider_discovery_error(bucket: &OverlayBucket) -> bool {
+    matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+        && bucket.line.severity == PluginDiagnosticSeverity::Error
+        && bucket.line.tag_kind == PluginDiagnosticOverlayTagKind::Discovery
+}
+
+fn provider_artifact_warning(bucket: &OverlayBucket) -> bool {
+    matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+        && bucket.line.severity == PluginDiagnosticSeverity::Warning
+        && matches!(
+            bucket.line.tag_kind,
+            PluginDiagnosticOverlayTagKind::ArtifactRead
+                | PluginDiagnosticOverlayTagKind::ArtifactLoad
+                | PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+        )
+}
+
+fn provider_artifact_stage_quota(buckets: &[OverlayBucket], limit: usize) -> usize {
+    [
+        provider_artifact_instantiate_warning as fn(&OverlayBucket) -> bool,
+        provider_artifact_load_warning,
+        provider_artifact_read_warning,
+    ]
+    .into_iter()
+    .filter(|predicate| buckets.iter().any(*predicate))
+    .count()
+    .min(limit)
+}
+
+fn provider_artifact_instantiate_warning(bucket: &OverlayBucket) -> bool {
+    matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+        && bucket.line.severity == PluginDiagnosticSeverity::Warning
+        && bucket.line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+}
+
+fn provider_artifact_load_warning(bucket: &OverlayBucket) -> bool {
+    matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+        && bucket.line.severity == PluginDiagnosticSeverity::Warning
+        && bucket.line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactLoad
+}
+
+fn provider_artifact_read_warning(bucket: &OverlayBucket) -> bool {
+    matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+        && bucket.line.severity == PluginDiagnosticSeverity::Warning
+        && bucket.line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactRead
+}
+
+fn reserve_provider_artifact_stage_indexes(
+    selected: &mut Vec<usize>,
+    marked: &mut [bool],
+    buckets: &[OverlayBucket],
+    limit: usize,
+    quota: usize,
+) {
+    if quota == 0 || selected.len() >= limit {
+        return;
+    }
+
+    let predicates: [fn(&OverlayBucket) -> bool; 3] = [
+        provider_artifact_instantiate_warning,
+        provider_artifact_load_warning,
+        provider_artifact_read_warning,
+    ];
+    for predicate in predicates {
+        reserve_overlay_indexes(selected, marked, buckets, limit, 1, predicate);
+        if selected.len() >= limit
+            || quota
+                <= selected
+                    .iter()
+                    .filter(|&&i| provider_artifact_warning(&buckets[i]))
+                    .count()
+        {
+            break;
+        }
+    }
+}
+
+fn reserve_overlay_indexes<F>(
+    selected: &mut Vec<usize>,
+    marked: &mut [bool],
+    buckets: &[OverlayBucket],
+    limit: usize,
+    quota: usize,
+    predicate: F,
+) where
+    F: Fn(&OverlayBucket) -> bool,
+{
+    if quota == 0 || selected.len() >= limit {
+        return;
+    }
+
+    for (idx, bucket) in buckets.iter().enumerate() {
+        if selected.len() >= limit
+            || quota <= selected.iter().filter(|&&i| predicate(&buckets[i])).count()
+        {
+            break;
+        }
+        if marked[idx] || !predicate(bucket) {
+            continue;
+        }
+        selected.push(idx);
+        marked[idx] = true;
+    }
+}
+
+/// Base quota for plugin-targeted lines in a mixed overlay.
+/// Reserves up to 2 slots if plugin errors exist, otherwise 1.
+fn mixed_overlay_plugin_quota(buckets: &[OverlayBucket], limit: usize) -> usize {
+    let plugin_count = buckets
+        .iter()
+        .filter(|bucket| matches!(bucket.target, PluginDiagnosticTarget::Plugin(_)))
+        .count();
+    if plugin_count == 0 {
+        return 0;
+    }
+
+    let desired = if buckets.iter().any(|bucket| {
+        matches!(bucket.target, PluginDiagnosticTarget::Plugin(_))
+            && bucket.line.severity == PluginDiagnosticSeverity::Error
+    }) {
+        2
+    } else {
+        1
+    };
+
+    desired.min(plugin_count).min(limit)
+}
+
+/// At most 2 plugin error lines in a mixed overlay, to leave room for provider lines.
+fn mixed_overlay_plugin_error_quota(buckets: &[OverlayBucket], limit: usize) -> usize {
+    let error_count = buckets
+        .iter()
+        .filter(|bucket| {
+            matches!(bucket.target, PluginDiagnosticTarget::Plugin(_))
+                && bucket.line.severity == PluginDiagnosticSeverity::Error
+        })
+        .count();
+    error_count.min(2).min(limit)
+}
+
+/// At most 1 general provider line in a mixed overlay.
+fn mixed_overlay_provider_quota(buckets: &[OverlayBucket], limit: usize) -> usize {
+    let provider_count = buckets
+        .iter()
+        .filter(|bucket| matches!(bucket.target, PluginDiagnosticTarget::Provider(_)))
+        .count();
+    provider_count.min(usize::from(limit > 0))
+}
+
+/// At most 1 provider error line (discovery failure) in a mixed overlay.
+fn mixed_overlay_provider_error_quota(buckets: &[OverlayBucket], limit: usize) -> usize {
+    let error_count = buckets
+        .iter()
+        .filter(|bucket| {
+            matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+                && bucket.line.severity == PluginDiagnosticSeverity::Error
+        })
+        .count();
+    error_count.min(usize::from(limit > 0))
+}
+
+/// Provider artifact stage lines in a mixed overlay, scaled by score dominance:
+/// strong dominance → up to 3, normal dominance → up to 2, otherwise → up to 1.
+fn mixed_overlay_provider_artifact_stage_quota(buckets: &[OverlayBucket], limit: usize) -> usize {
+    let stage_count = provider_artifact_stage_quota(buckets, limit);
+    if stage_count == 0 {
+        return 0;
+    }
+
+    let plugin_score = overlay_target_score(buckets, true);
+    let provider_score = overlay_target_score(buckets, false);
+
+    if provider_score >= plugin_score.saturating_add(OVERLAY_SCORE_STRONG_DOMINANCE_DELTA) {
+        stage_count.min(3)
+    } else if provider_score >= plugin_score.saturating_add(OVERLAY_SCORE_DOMINANCE_DELTA) {
+        stage_count.min(2)
+    } else {
+        stage_count.min(1)
     }
 }
 
@@ -701,8 +1125,9 @@ pub fn plugin_diagnostic_overlay_paint_spec(
     cols: u16,
     rows: u16,
 ) -> Option<PluginDiagnosticOverlayPaintSpec> {
-    plugin_diagnostic_overlay_paint_spec_with_title(
+    plugin_diagnostic_overlay_paint_spec_with_style(
         PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+        overlay_backdrop_tone_for_title(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE),
         lines,
         hidden_count,
         cols,
@@ -710,8 +1135,9 @@ pub fn plugin_diagnostic_overlay_paint_spec(
     )
 }
 
-fn plugin_diagnostic_overlay_paint_spec_with_title(
+fn plugin_diagnostic_overlay_paint_spec_with_style(
     title: &str,
+    tone: OverlayBackdropTone,
     lines: &[PluginDiagnosticOverlayLine],
     hidden_count: usize,
     cols: u16,
@@ -720,8 +1146,8 @@ fn plugin_diagnostic_overlay_paint_spec_with_title(
     let frame = plugin_diagnostic_overlay_frame_with_title(title, lines, hidden_count, cols, rows)?;
     let layout = frame.layout.clone();
     let severity = layout.severity;
-    let header_face = plugin_diagnostic_overlay_header_face_for(title, severity);
-    let body_face = plugin_diagnostic_overlay_body_face_for(title, severity);
+    let header_face = plugin_diagnostic_overlay_header_face_with_tone(title, tone, severity);
+    let body_face = plugin_diagnostic_overlay_body_face_with_tone(title, tone, severity);
     let border_face = plugin_diagnostic_overlay_border_face(severity);
 
     let mut text_runs = vec![PluginDiagnosticOverlayTextRun {
@@ -758,14 +1184,17 @@ fn plugin_diagnostic_overlay_paint_spec_with_title(
         header_face,
         body_face,
         border_face,
-        shadow: Some(plugin_diagnostic_overlay_shadow_spec_for(title, severity)),
+        shadow: Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
+            title, tone, severity,
+        )),
         text_runs,
     })
 }
 
 pub fn plugin_diagnostic_overlay_shadow_spec() -> PluginDiagnosticOverlayShadowSpec {
-    plugin_diagnostic_overlay_shadow_spec_for(
+    plugin_diagnostic_overlay_shadow_spec_with_tone(
         PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+        overlay_backdrop_tone_for_title(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE),
         PluginDiagnosticSeverity::Warning,
     )
 }
@@ -774,22 +1203,41 @@ pub fn plugin_diagnostic_overlay_shadow_spec_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
 ) -> PluginDiagnosticOverlayShadowSpec {
-    match (title, severity) {
-        (PLUGIN_ACTIVATION_OVERLAY_TITLE, PluginDiagnosticSeverity::Error) => {
+    plugin_diagnostic_overlay_shadow_spec_with_tone(
+        title,
+        overlay_backdrop_tone_for_title(title),
+        severity,
+    )
+}
+
+fn plugin_diagnostic_overlay_shadow_spec_with_tone(
+    _title: &str,
+    tone: OverlayBackdropTone,
+    severity: PluginDiagnosticSeverity,
+) -> PluginDiagnosticOverlayShadowSpec {
+    match (tone, severity) {
+        (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => {
             PluginDiagnosticOverlayShadowSpec {
                 offset: (8.0, 8.0),
                 blur_radius: 9.0,
                 color: [0.16, 0.03, 0.03, 0.38],
             }
         }
-        (PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnosticSeverity::Error) => {
+        (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => {
+            PluginDiagnosticOverlayShadowSpec {
+                offset: (6.0, 6.0),
+                blur_radius: 6.5,
+                color: [0.12, 0.03, 0.03, 0.30],
+            }
+        }
+        (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => {
             PluginDiagnosticOverlayShadowSpec {
                 offset: (7.0, 7.0),
                 blur_radius: 8.0,
                 color: [0.12, 0.07, 0.01, 0.34],
             }
         }
-        (PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnosticSeverity::Warning) => {
+        (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => {
             PluginDiagnosticOverlayShadowSpec {
                 offset: (5.0, 5.0),
                 blur_radius: 5.0,
@@ -858,20 +1306,37 @@ pub fn plugin_diagnostic_overlay_header_face_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
 ) -> Face {
+    plugin_diagnostic_overlay_header_face_with_tone(
+        title,
+        overlay_backdrop_tone_for_title(title),
+        severity,
+    )
+}
+
+fn plugin_diagnostic_overlay_header_face_with_tone(
+    _title: &str,
+    tone: OverlayBackdropTone,
+    severity: PluginDiagnosticSeverity,
+) -> Face {
     Face {
         fg: Color::Named(NamedColor::BrightWhite),
-        bg: match (title, severity) {
-            (PLUGIN_ACTIVATION_OVERLAY_TITLE, PluginDiagnosticSeverity::Error) => Color::Rgb {
+        bg: match (tone, severity) {
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
                 r: 128,
                 g: 20,
                 b: 20,
             },
-            (PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnosticSeverity::Error) => Color::Rgb {
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => Color::Rgb {
+                r: 104,
+                g: 24,
+                b: 24,
+            },
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => Color::Rgb {
                 r: 112,
                 g: 60,
                 b: 16,
             },
-            (PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnosticSeverity::Warning) => Color::Rgb {
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => Color::Rgb {
                 r: 88,
                 g: 68,
                 b: 24,
@@ -903,20 +1368,37 @@ pub fn plugin_diagnostic_overlay_body_face_for(
     title: &str,
     severity: PluginDiagnosticSeverity,
 ) -> Face {
+    plugin_diagnostic_overlay_body_face_with_tone(
+        title,
+        overlay_backdrop_tone_for_title(title),
+        severity,
+    )
+}
+
+fn plugin_diagnostic_overlay_body_face_with_tone(
+    _title: &str,
+    tone: OverlayBackdropTone,
+    severity: PluginDiagnosticSeverity,
+) -> Face {
     Face {
         fg: Color::Named(NamedColor::BrightWhite),
-        bg: match (title, severity) {
-            (PLUGIN_ACTIVATION_OVERLAY_TITLE, PluginDiagnosticSeverity::Error) => Color::Rgb {
+        bg: match (tone, severity) {
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
                 r: 28,
                 g: 18,
                 b: 18,
             },
-            (PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnosticSeverity::Error) => Color::Rgb {
+            (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => Color::Rgb {
+                r: 26,
+                g: 20,
+                b: 20,
+            },
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => Color::Rgb {
                 r: 28,
                 g: 23,
                 b: 17,
             },
-            (PLUGIN_DISCOVERY_OVERLAY_TITLE, PluginDiagnosticSeverity::Warning) => Color::Rgb {
+            (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => Color::Rgb {
                 r: 26,
                 g: 24,
                 b: 20,
@@ -1461,6 +1943,140 @@ mod tests {
     }
 
     #[test]
+    fn overlay_state_keeps_provider_artifact_context_in_provider_only_batches() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_collect_failed("provider", "one"),
+            PluginDiagnostic::provider_collect_failed("provider", "two"),
+            PluginDiagnostic::provider_collect_failed("provider", "three"),
+            PluginDiagnostic::provider_collect_failed("provider", "four"),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "warn.wasm",
+                ProviderArtifactStage::Load,
+                "warn",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 4);
+        assert!(overlay.lines().iter().any(|line| {
+            line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactLoad
+                && line.severity == PluginDiagnosticSeverity::Warning
+        }));
+        assert_eq!(overlay.hidden_count(), 1);
+    }
+
+    #[test]
+    fn overlay_state_shows_distinct_provider_artifact_stages_in_warning_batches() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "read.wasm",
+                ProviderArtifactStage::Read,
+                "read failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "load.wasm",
+                ProviderArtifactStage::Load,
+                "load failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "init.wasm",
+                ProviderArtifactStage::Instantiate,
+                "init failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "extra-load.wasm",
+                ProviderArtifactStage::Load,
+                "load failed again",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 3);
+        assert_eq!(overlay.hidden_count(), 1);
+        assert!(
+            overlay.lines().iter().any(|line| {
+                line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+            })
+        );
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| { line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactLoad })
+        );
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| { line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactRead })
+        );
+    }
+
+    #[test]
+    fn overlay_state_shows_discovery_and_multiple_artifact_stages_in_provider_error_batches() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed again"),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "read.wasm",
+                ProviderArtifactStage::Read,
+                "read failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "load.wasm",
+                ProviderArtifactStage::Load,
+                "load failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "init.wasm",
+                ProviderArtifactStage::Instantiate,
+                "init failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 4);
+        assert_eq!(overlay.hidden_count(), 1);
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| { line.tag_kind == PluginDiagnosticOverlayTagKind::Discovery })
+        );
+        assert!(
+            overlay.lines().iter().any(|line| {
+                line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+            })
+        );
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| { line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactLoad })
+        );
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| { line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactRead })
+        );
+    }
+
+    #[test]
     fn overlay_state_expands_further_for_plugin_targeted_errors() {
         let diagnostics = vec![
             PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
@@ -1475,6 +2091,227 @@ mod tests {
         overlay.record(&diagnostics).expect("generation");
         assert_eq!(overlay.lines().len(), 5);
         assert_eq!(overlay.hidden_count(), 1);
+    }
+
+    #[test]
+    fn overlay_state_reserves_provider_line_in_mixed_batches() {
+        let diagnostics = vec![
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.four".to_string()), "four"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.five".to_string()), "five"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 5);
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| matches!(line.tag_kind, PluginDiagnosticOverlayTagKind::Discovery))
+        );
+        assert!(
+            overlay
+                .lines()
+                .iter()
+                .any(|line| matches!(line.tag_kind, PluginDiagnosticOverlayTagKind::Activation))
+        );
+        assert_eq!(overlay.hidden_count(), 1);
+    }
+
+    #[test]
+    fn overlay_state_keeps_provider_warning_context_alongside_errors() {
+        let diagnostics = vec![
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "warn.wasm",
+                ProviderArtifactStage::Load,
+                "warn",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert!(overlay.lines().iter().any(|line| line.tag_kind
+            == PluginDiagnosticOverlayTagKind::Discovery
+            && line.severity == PluginDiagnosticSeverity::Error));
+        assert!(overlay.lines().iter().any(|line| line.tag_kind
+            == PluginDiagnosticOverlayTagKind::ArtifactLoad
+            && line.severity == PluginDiagnosticSeverity::Warning));
+    }
+
+    #[test]
+    fn overlay_state_prefers_plugin_lines_when_plugin_score_dominates_mixed_error_batches() {
+        let diagnostics = vec![
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.three".to_string()), "three"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "read.wasm",
+                ProviderArtifactStage::Read,
+                "read failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "load.wasm",
+                ProviderArtifactStage::Load,
+                "load failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "init.wasm",
+                ProviderArtifactStage::Instantiate,
+                "init failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 5);
+        assert_eq!(overlay.hidden_count(), 2);
+        assert_eq!(
+            overlay
+                .lines()
+                .iter()
+                .filter(|line| {
+                    line.tag_kind == PluginDiagnosticOverlayTagKind::Activation
+                        && line.severity == PluginDiagnosticSeverity::Error
+                })
+                .count(),
+            3
+        );
+        assert!(overlay.lines().iter().any(|line| {
+            line.tag_kind == PluginDiagnosticOverlayTagKind::Discovery
+                && line.severity == PluginDiagnosticSeverity::Error
+        }));
+        assert!(overlay.lines().iter().any(|line| {
+            line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+                && line.severity == PluginDiagnosticSeverity::Warning
+        }));
+        assert_eq!(
+            overlay
+                .lines()
+                .iter()
+                .filter(|line| {
+                    matches!(
+                        line.tag_kind,
+                        PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+                            | PluginDiagnosticOverlayTagKind::ArtifactLoad
+                            | PluginDiagnosticOverlayTagKind::ArtifactRead
+                    ) && line.severity == PluginDiagnosticSeverity::Warning
+                })
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn overlay_state_keeps_two_provider_artifact_stages_when_provider_score_dominates() {
+        let diagnostics = vec![
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "read.wasm",
+                ProviderArtifactStage::Read,
+                "read failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "load.wasm",
+                ProviderArtifactStage::Load,
+                "load failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "init.wasm",
+                ProviderArtifactStage::Instantiate,
+                "init failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 5);
+        assert_eq!(overlay.hidden_count(), 1);
+        assert_eq!(
+            overlay
+                .lines()
+                .iter()
+                .filter(|line| {
+                    matches!(
+                        line.tag_kind,
+                        PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+                            | PluginDiagnosticOverlayTagKind::ArtifactLoad
+                            | PluginDiagnosticOverlayTagKind::ArtifactRead
+                    ) && line.severity == PluginDiagnosticSeverity::Warning
+                })
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn overlay_state_shows_three_provider_artifact_stages_when_provider_strongly_dominates() {
+        let diagnostics = vec![
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "read.wasm",
+                ProviderArtifactStage::Read,
+                "read failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "load.wasm",
+                ProviderArtifactStage::Load,
+                "load failed",
+            ),
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "init.wasm",
+                ProviderArtifactStage::Instantiate,
+                "init failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+
+        assert_eq!(overlay.lines().len(), 5);
+        assert_eq!(overlay.hidden_count(), 0);
+        assert_eq!(
+            overlay
+                .lines()
+                .iter()
+                .filter(|line| {
+                    matches!(
+                        line.tag_kind,
+                        PluginDiagnosticOverlayTagKind::ArtifactInstantiate
+                            | PluginDiagnosticOverlayTagKind::ArtifactLoad
+                            | PluginDiagnosticOverlayTagKind::ArtifactRead
+                    ) && line.severity == PluginDiagnosticSeverity::Warning
+                })
+                .count(),
+            3
+        );
     }
 
     #[test]
@@ -1635,7 +2472,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_frame_precomputes_header_rows_and_tags() {
+    fn overlay_frame_precomputes_rows_and_tags_for_mixed_batches() {
         let diagnostics = vec![
             PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
             PluginDiagnostic::instantiation_failed(
@@ -1648,12 +2485,233 @@ mod tests {
         overlay.record(&diagnostics).expect("generation");
         let frame = overlay.frame(32, 8).expect("frame");
 
-        assert!(frame.header_text.contains(PLUGIN_ACTIVATION_OVERLAY_TITLE));
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
         assert_eq!(frame.rows.len(), 2);
         assert_eq!(frame.rows[0].tag, "P");
         assert_eq!(frame.rows[1].tag, "D");
         assert!(frame.rows[0].text.chars().count() as u16 <= frame.layout.body_text_width());
         assert!(frame.rows[1].y > frame.rows[0].y);
+    }
+
+    #[test]
+    fn overlay_frame_uses_neutral_title_for_mixed_batches() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::instantiation_failed(
+                PluginId("plugin.target".to_string()),
+                "instantiation failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+        let frame = overlay.frame(40, 8).expect("frame");
+        let spec = overlay.paint_spec(40, 8).expect("paint spec");
+
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
+        assert_eq!(
+            spec.shadow,
+            Some(plugin_diagnostic_overlay_shadow_spec_for(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                PluginDiagnosticSeverity::Error,
+            ))
+        );
+    }
+
+    #[test]
+    fn overlay_paint_spec_uses_activation_tone_for_plugin_error_with_provider_warning() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "warn.wasm",
+                ProviderArtifactStage::Load,
+                "load failed",
+            ),
+            PluginDiagnostic::instantiation_failed(
+                PluginId("plugin.target".to_string()),
+                "instantiation failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+        let frame = overlay.frame(40, 8).expect("frame");
+        let spec = overlay.paint_spec(40, 8).expect("paint spec");
+
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
+        assert_eq!(
+            spec.shadow,
+            Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Activation,
+                PluginDiagnosticSeverity::Error,
+            ))
+        );
+        assert_eq!(
+            spec.header_face,
+            plugin_diagnostic_overlay_header_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Activation,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
+        assert_eq!(
+            spec.body_face,
+            plugin_diagnostic_overlay_body_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Activation,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
+    }
+
+    #[test]
+    fn overlay_paint_spec_uses_neutral_tone_for_plugin_error_with_provider_init_warning() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_artifact_failed(
+                "provider",
+                "init.wasm",
+                ProviderArtifactStage::Instantiate,
+                "init failed",
+            ),
+            PluginDiagnostic::instantiation_failed(
+                PluginId("plugin.target".to_string()),
+                "instantiation failed",
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+        let frame = overlay.frame(40, 8).expect("frame");
+        let spec = overlay.paint_spec(40, 8).expect("paint spec");
+
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
+        assert_eq!(
+            spec.shadow,
+            Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Neutral,
+                PluginDiagnosticSeverity::Error,
+            ))
+        );
+        assert_eq!(
+            spec.header_face,
+            plugin_diagnostic_overlay_header_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Neutral,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
+    }
+
+    #[test]
+    fn overlay_paint_spec_keeps_neutral_tone_for_balanced_mixed_errors() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::surface_registration_failed(
+                PluginId("plugin.target".to_string()),
+                SurfaceRegistrationError::DuplicateSurfaceId {
+                    surface_id: crate::surface::SurfaceId(12),
+                    existing_surface_key: "existing".into(),
+                    new_surface_key: "new".into(),
+                },
+            ),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+        let frame = overlay.frame(40, 8).expect("frame");
+        let spec = overlay.paint_spec(40, 8).expect("paint spec");
+
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
+        assert_eq!(
+            spec.shadow,
+            Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Neutral,
+                PluginDiagnosticSeverity::Error,
+            ))
+        );
+        assert_eq!(
+            spec.header_face,
+            plugin_diagnostic_overlay_header_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Neutral,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
+        assert_eq!(
+            spec.body_face,
+            plugin_diagnostic_overlay_body_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Neutral,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
+    }
+
+    #[test]
+    fn overlay_paint_spec_uses_activation_tone_when_plugin_score_dominates_mixed_batch() {
+        let diagnostics = vec![
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.two".to_string()), "two"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+        let frame = overlay.frame(40, 8).expect("frame");
+        let spec = overlay.paint_spec(40, 8).expect("paint spec");
+
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
+        assert_eq!(
+            spec.shadow,
+            Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Activation,
+                PluginDiagnosticSeverity::Error,
+            ))
+        );
+        assert_eq!(
+            spec.header_face,
+            plugin_diagnostic_overlay_header_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Activation,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
+    }
+
+    #[test]
+    fn overlay_paint_spec_uses_discovery_tone_when_provider_score_dominates_mixed_batch() {
+        let diagnostics = vec![
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed"),
+            PluginDiagnostic::provider_collect_failed("provider", "collect failed again"),
+            PluginDiagnostic::instantiation_failed(PluginId("plugin.one".to_string()), "one"),
+        ];
+
+        let mut overlay = PluginDiagnosticOverlayState::default();
+        overlay.record(&diagnostics).expect("generation");
+        let frame = overlay.frame(40, 8).expect("frame");
+        let spec = overlay.paint_spec(40, 8).expect("paint spec");
+
+        assert!(frame.header_text.contains(PLUGIN_DIAGNOSTIC_OVERLAY_TITLE));
+        assert_eq!(
+            spec.shadow,
+            Some(plugin_diagnostic_overlay_shadow_spec_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Discovery,
+                PluginDiagnosticSeverity::Error,
+            ))
+        );
+        assert_eq!(
+            spec.header_face,
+            plugin_diagnostic_overlay_header_face_with_tone(
+                PLUGIN_DIAGNOSTIC_OVERLAY_TITLE,
+                OverlayBackdropTone::Discovery,
+                PluginDiagnosticSeverity::Error,
+            )
+        );
     }
 
     #[test]
