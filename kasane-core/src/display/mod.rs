@@ -89,10 +89,12 @@ pub type DisplayMapRef = Arc<DisplayMap>;
 impl PartialEq for DisplayMap {
     fn eq(&self, other: &Self) -> bool {
         if self.is_identity && other.is_identity {
-            // Identity maps of same size are equal
+            // Identity maps of same size are equal;
+            // INV-7 guarantees entries.len() == buffer_to_display.len()
             return self.entries.len() == other.entries.len();
         }
-        self.entries == other.entries
+        self.buffer_to_display.len() == other.buffer_to_display.len()
+            && self.entries == other.entries
     }
 }
 
@@ -109,11 +111,13 @@ impl DisplayMap {
             })
             .collect();
         let buffer_to_display: Vec<Option<usize>> = (0..n).map(Some).collect();
-        DisplayMap {
+        let dm = DisplayMap {
             entries,
             buffer_to_display,
             is_identity: true,
-        }
+        };
+        dm.check_invariants();
+        dm
     }
 
     /// Build a DisplayMap from a set of directives applied to a buffer with
@@ -122,9 +126,41 @@ impl DisplayMap {
     /// Directives are processed in order. In the initial implementation, only
     /// a single plugin may contribute directives (`debug_assert!` enforced
     /// at the collection site).
+    ///
+    /// # Preconditions (debug-asserted)
+    ///
+    /// - No fold range overlaps any hide range
+    /// - No empty fold ranges (`range.start < range.end`)
+    ///
+    /// Use [`resolve::resolve()`] to produce valid directives from multi-plugin input.
     pub fn build(line_count: usize, directives: &[DisplayDirective]) -> Self {
         if directives.is_empty() {
             return Self::identity(line_count);
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            for d in directives {
+                if let DisplayDirective::Fold { range, .. } = d {
+                    debug_assert!(
+                        range.start < range.end,
+                        "build() precondition: empty fold range {range:?}"
+                    );
+                }
+            }
+            for d1 in directives {
+                if let DisplayDirective::Fold { range: fold_r, .. } = d1 {
+                    for d2 in directives {
+                        if let DisplayDirective::Hide { range: hide_r } = d2 {
+                            debug_assert!(
+                                !(fold_r.start < hide_r.end && hide_r.start < fold_r.end),
+                                "build() precondition: fold {fold_r:?} overlaps hide {hide_r:?}. \
+                                 Use resolve() to produce valid directives."
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         // Track which buffer lines are affected by directives
@@ -222,11 +258,13 @@ impl DisplayMap {
             }
         }
 
-        DisplayMap {
+        let dm = DisplayMap {
             entries,
             buffer_to_display,
             is_identity: false,
-        }
+        };
+        dm.check_invariants();
+        dm
     }
 
     /// Returns true if this is an identity mapping (no transformations).
@@ -279,6 +317,278 @@ impl DisplayMap {
                 .clone()
                 .any(|l| lines_dirty.get(l).copied().unwrap_or(true)),
             SourceMapping::None => false,
+        }
+    }
+
+    /// Verify structural invariants (INV-1 through INV-7) in debug builds.
+    ///
+    /// Called automatically at the end of `identity()` and `build()`.
+    /// No-op in release builds.
+    fn check_invariants(&self) {
+        #[cfg(debug_assertions)]
+        {
+            // INV-7: Identity flag correctness
+            if self.is_identity {
+                debug_assert_eq!(
+                    self.entries.len(),
+                    self.buffer_to_display.len(),
+                    "INV-7: identity entries.len() != buffer_to_display.len()"
+                );
+                for i in 0..self.entries.len() {
+                    debug_assert!(
+                        matches!(&self.entries[i].source, SourceMapping::BufferLine(bl) if *bl == i),
+                        "INV-7: identity entries[{i}] is not BufferLine({i})"
+                    );
+                    debug_assert_eq!(
+                        self.entries[i].interaction,
+                        InteractionPolicy::Normal,
+                        "INV-7: identity entries[{i}] is not Normal"
+                    );
+                    debug_assert!(
+                        self.entries[i].synthetic.is_none(),
+                        "INV-7: identity entries[{i}] has synthetic content"
+                    );
+                    debug_assert_eq!(
+                        self.buffer_to_display[i],
+                        Some(i),
+                        "INV-7: identity b2d[{i}] != Some({i})"
+                    );
+                }
+                return; // identity trivially satisfies INV-1..6
+            }
+
+            let n_buf = self.buffer_to_display.len();
+
+            // INV-1: Forward-Backward consistency
+            for bl in 0..n_buf {
+                if let Some(dl) = self.buffer_to_display[bl] {
+                    debug_assert!(
+                        dl < self.entries.len(),
+                        "INV-1: b2d[{bl}] = {dl} out of entries range"
+                    );
+                    match &self.entries[dl].source {
+                        SourceMapping::BufferLine(b) => debug_assert_eq!(
+                            *b, bl,
+                            "INV-1: b2d[{bl}] = {dl} but entries[{dl}] = BufferLine({b})"
+                        ),
+                        SourceMapping::LineRange(r) => debug_assert!(
+                            r.contains(&bl),
+                            "INV-1: b2d[{bl}] = {dl} but entries[{dl}] = LineRange({r:?})"
+                        ),
+                        SourceMapping::None => {
+                            panic!("INV-3: b2d[{bl}] = {dl} but entries[{dl}] = None (virtual)")
+                        }
+                    }
+                }
+            }
+
+            // INV-2: Backward-Forward + INV-5: Monotonicity
+            let mut prev_buf: Option<usize> = None;
+            for dl in 0..self.entries.len() {
+                match &self.entries[dl].source {
+                    SourceMapping::BufferLine(bl) => {
+                        debug_assert!(
+                            *bl < n_buf,
+                            "INV-2: entries[{dl}] = BufferLine({bl}) but line_count = {n_buf}"
+                        );
+                        debug_assert_eq!(
+                            self.buffer_to_display[*bl],
+                            Some(dl),
+                            "INV-2: entries[{dl}] = BufferLine({bl}) but b2d[{bl}] = {:?}",
+                            self.buffer_to_display[*bl]
+                        );
+                        if let Some(p) = prev_buf {
+                            debug_assert!(
+                                *bl > p,
+                                "INV-5: non-monotonic: entries[{dl}] = BufferLine({bl}) after {p}"
+                            );
+                        }
+                        prev_buf = Some(*bl);
+                    }
+                    SourceMapping::LineRange(r) => {
+                        let end = r.end.min(n_buf);
+                        for bl in r.start..end {
+                            debug_assert_eq!(
+                                self.buffer_to_display[bl],
+                                Some(dl),
+                                "INV-2: entries[{dl}] = LineRange({r:?}) but b2d[{bl}] = {:?}",
+                                self.buffer_to_display[bl]
+                            );
+                        }
+                        if let Some(p) = prev_buf {
+                            debug_assert!(
+                                r.start > p,
+                                "INV-5: non-monotonic: entries[{dl}] = LineRange({r:?}) after {p}"
+                            );
+                        }
+                        prev_buf = r.end.checked_sub(1);
+                    }
+                    SourceMapping::None => {} // INV-3 checked in INV-1 loop
+                }
+            }
+
+            // INV-4: Injectivity — no buffer line covered by multiple entries
+            let mut covered = vec![false; n_buf];
+            for dl in 0..self.entries.len() {
+                let range = match &self.entries[dl].source {
+                    SourceMapping::BufferLine(bl) => *bl..*bl + 1,
+                    SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
+                    SourceMapping::None => continue,
+                };
+                for bl in range {
+                    debug_assert!(
+                        !covered[bl],
+                        "INV-4: buffer line {bl} covered by multiple entries"
+                    );
+                    covered[bl] = true;
+                }
+            }
+
+            // INV-6: Synthetic consistency
+            for (dl, entry) in self.entries.iter().enumerate() {
+                match &entry.source {
+                    SourceMapping::None => debug_assert!(
+                        entry.synthetic.is_some(),
+                        "INV-6: entries[{dl}] = None but synthetic is None"
+                    ),
+                    SourceMapping::BufferLine(_) => debug_assert!(
+                        entry.synthetic.is_none(),
+                        "INV-6: entries[{dl}] = BufferLine but has synthetic"
+                    ),
+                    SourceMapping::LineRange(_) => {
+                        // Fold summary: LineRange + synthetic.is_some() is the expected case
+                        debug_assert!(
+                            entry.synthetic.is_some(),
+                            "INV-6: entries[{dl}] = LineRange but synthetic is None"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) {
+    assert_eq!(
+        dm.buffer_to_display.len(),
+        line_count,
+        "line_count mismatch"
+    );
+
+    if dm.is_identity {
+        assert_eq!(dm.entries.len(), dm.buffer_to_display.len(), "INV-7");
+        for i in 0..dm.entries.len() {
+            assert!(
+                matches!(&dm.entries[i].source, SourceMapping::BufferLine(bl) if *bl == i),
+                "INV-7: entries[{i}]"
+            );
+            assert_eq!(
+                dm.entries[i].interaction,
+                InteractionPolicy::Normal,
+                "INV-7"
+            );
+            assert!(dm.entries[i].synthetic.is_none(), "INV-7");
+            assert_eq!(dm.buffer_to_display[i], Some(i), "INV-7");
+        }
+        return;
+    }
+
+    let n_buf = dm.buffer_to_display.len();
+
+    // INV-1
+    for bl in 0..n_buf {
+        if let Some(dl) = dm.buffer_to_display[bl] {
+            assert!(dl < dm.entries.len(), "INV-1: b2d[{bl}] out of range");
+            match &dm.entries[dl].source {
+                SourceMapping::BufferLine(b) => {
+                    assert_eq!(
+                        *b, bl,
+                        "INV-1: b2d[{bl}] = {dl} but source = BufferLine({b})"
+                    );
+                }
+                SourceMapping::LineRange(r) => {
+                    assert!(
+                        r.contains(&bl),
+                        "INV-1: b2d[{bl}] = {dl} but source = LineRange({r:?})"
+                    );
+                }
+                SourceMapping::None => {
+                    panic!("INV-3: b2d[{bl}] = {dl} but source = None");
+                }
+            }
+        }
+    }
+
+    // INV-2 + INV-5
+    let mut prev_buf: Option<usize> = None;
+    for dl in 0..dm.entries.len() {
+        match &dm.entries[dl].source {
+            SourceMapping::BufferLine(bl) => {
+                assert!(*bl < n_buf, "INV-2: BufferLine({bl}) >= line_count {n_buf}");
+                assert_eq!(
+                    dm.buffer_to_display[*bl],
+                    Some(dl),
+                    "INV-2: entries[{dl}] = BufferLine({bl})"
+                );
+                if let Some(p) = prev_buf {
+                    assert!(*bl > p, "INV-5: non-monotonic at entries[{dl}]");
+                }
+                prev_buf = Some(*bl);
+            }
+            SourceMapping::LineRange(r) => {
+                let end = r.end.min(n_buf);
+                for bl in r.start..end {
+                    assert_eq!(
+                        dm.buffer_to_display[bl],
+                        Some(dl),
+                        "INV-2: entries[{dl}] = LineRange({r:?})"
+                    );
+                }
+                if let Some(p) = prev_buf {
+                    assert!(r.start > p, "INV-5: non-monotonic at entries[{dl}]");
+                }
+                prev_buf = r.end.checked_sub(1);
+            }
+            SourceMapping::None => {}
+        }
+    }
+
+    // INV-4
+    let mut covered = vec![false; n_buf];
+    for dl in 0..dm.entries.len() {
+        let range = match &dm.entries[dl].source {
+            SourceMapping::BufferLine(bl) => *bl..*bl + 1,
+            SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
+            SourceMapping::None => continue,
+        };
+        for bl in range {
+            assert!(!covered[bl], "INV-4: buffer line {bl} covered twice");
+            covered[bl] = true;
+        }
+    }
+
+    // INV-6
+    for (dl, entry) in dm.entries.iter().enumerate() {
+        match &entry.source {
+            SourceMapping::None => {
+                assert!(
+                    entry.synthetic.is_some(),
+                    "INV-6: entries[{dl}] None without synthetic"
+                );
+            }
+            SourceMapping::BufferLine(_) => {
+                assert!(
+                    entry.synthetic.is_none(),
+                    "INV-6: entries[{dl}] BufferLine with synthetic"
+                );
+            }
+            SourceMapping::LineRange(_) => {
+                assert!(
+                    entry.synthetic.is_some(),
+                    "INV-6: entries[{dl}] LineRange without synthetic"
+                );
+            }
         }
     }
 }

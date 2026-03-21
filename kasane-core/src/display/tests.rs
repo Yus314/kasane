@@ -1,4 +1,8 @@
+use proptest::prelude::*;
+
 use super::*;
+use crate::display::resolve;
+use crate::plugin::PluginId;
 use crate::protocol::Face;
 
 #[test]
@@ -181,4 +185,94 @@ fn out_of_bounds_display_to_buffer() {
 fn out_of_bounds_buffer_to_display() {
     let dm = DisplayMap::identity(3);
     assert_eq!(dm.buffer_to_display(5), None);
+}
+
+// --- Phase 2: Precondition tests ---
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "precondition")]
+fn build_rejects_fold_hide_overlap() {
+    let directives = vec![
+        DisplayDirective::Fold {
+            range: 2..5,
+            summary: "fold".into(),
+            face: Face::default(),
+        },
+        DisplayDirective::Hide { range: 3..6 },
+    ];
+    let _ = DisplayMap::build(10, &directives);
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "precondition")]
+fn build_rejects_empty_fold_range() {
+    let directives = vec![DisplayDirective::Fold {
+        range: 3..3,
+        summary: "empty".into(),
+        face: Face::default(),
+    }];
+    let _ = DisplayMap::build(10, &directives);
+}
+
+// --- Phase 3: PartialEq test ---
+
+#[test]
+fn different_line_count_not_equal() {
+    let a = DisplayMap::build(5, &[DisplayDirective::Hide { range: 3..5 }]);
+    let b = DisplayMap::build(3, &[]);
+    assert_ne!(a, b);
+}
+
+// --- Phase 4: proptest ---
+
+fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirective> {
+    let m = max_line.max(1);
+    prop_oneof![
+        (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+            DisplayDirective::Fold {
+                range: s..(s + len).min(m),
+                summary: "...".into(),
+                face: Face::default(),
+            }
+        }),
+        (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+            DisplayDirective::Hide {
+                range: s..(s + len).min(m),
+            }
+        }),
+        (0usize..m).prop_map(|after| {
+            DisplayDirective::InsertAfter {
+                after,
+                content: "virtual".into(),
+                face: Face::default(),
+            }
+        }),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn build_invariants_hold(
+        (line_count, directives) in (1usize..50).prop_flat_map(|lc| {
+            (Just(lc), prop::collection::vec(arb_display_directive(lc), 0..8))
+        })
+    ) {
+        let mut set = DirectiveSet::default();
+        for (i, d) in directives.into_iter().enumerate() {
+            set.push(d, 0, PluginId(format!("p{i}")));
+        }
+        let resolved = resolve::resolve(&set, line_count);
+        let dm = DisplayMap::build(line_count, &resolved);
+        assert_display_map_invariants(&dm, line_count);
+    }
+
+    #[test]
+    fn identity_invariants_hold(n in 0usize..200) {
+        let dm = DisplayMap::identity(n);
+        assert_display_map_invariants(&dm, n);
+    }
 }

@@ -1,4 +1,7 @@
+use proptest::prelude::*;
+
 use super::*;
+use crate::display::assert_display_map_invariants;
 use crate::protocol::Face;
 
 fn pid(name: &str) -> PluginId {
@@ -360,4 +363,115 @@ fn resolve_insert_outside_fold_kept() {
         .filter(|d| matches!(d, DisplayDirective::InsertAfter { .. }))
         .count();
     assert_eq!(insert_count, 1);
+}
+
+// --- Phase 5: proptest for resolve → build pipeline ---
+
+fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirective> {
+    let m = max_line.max(1);
+    prop_oneof![
+        (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+            DisplayDirective::Fold {
+                range: s..(s + len).min(m),
+                summary: "...".into(),
+                face: Face::default(),
+            }
+        }),
+        (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
+            DisplayDirective::Hide {
+                range: s..(s + len).min(m),
+            }
+        }),
+        (0usize..m).prop_map(|after| {
+            DisplayDirective::InsertAfter {
+                after,
+                content: "virtual".into(),
+                face: Face::default(),
+            }
+        }),
+    ]
+}
+
+fn arb_tagged_directives(max_line: usize) -> impl Strategy<Value = DirectiveSet> {
+    let m = max_line.max(1);
+    prop::collection::vec(
+        (
+            arb_display_directive(m),
+            -10i16..10i16,
+            "[a-z]{1,4}".prop_map(PluginId),
+        ),
+        0..8,
+    )
+    .prop_map(|items| {
+        let mut set = DirectiveSet::default();
+        for (d, priority, plugin_id) in items {
+            set.push(d, priority, plugin_id);
+        }
+        set
+    })
+}
+
+fn ranges_overlap(a: &std::ops::Range<usize>, b: &std::ops::Range<usize>) -> bool {
+    a.start < b.end && b.start < a.end
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn resolve_build_invariants(
+        (line_count, set) in (1usize..50).prop_flat_map(|lc| {
+            (Just(lc), arb_tagged_directives(lc))
+        })
+    ) {
+        let resolved = resolve(&set, line_count);
+        let dm = crate::display::DisplayMap::build(line_count, &resolved);
+        assert_display_map_invariants(&dm, line_count);
+    }
+
+    #[test]
+    fn resolve_no_fold_hide_overlap(
+        (line_count, set) in (1usize..50).prop_flat_map(|lc| {
+            (Just(lc), arb_tagged_directives(lc))
+        })
+    ) {
+        let resolved = resolve(&set, line_count);
+        for d1 in &resolved {
+            if let DisplayDirective::Fold { range: fold_r, .. } = d1 {
+                for d2 in &resolved {
+                    if let DisplayDirective::Hide { range: hide_r } = d2 {
+                        prop_assert!(
+                            !ranges_overlap(fold_r, hide_r),
+                            "resolve produced fold {fold_r:?} overlapping hide {hide_r:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_no_overlapping_folds(
+        (line_count, set) in (1usize..50).prop_flat_map(|lc| {
+            (Just(lc), arb_tagged_directives(lc))
+        })
+    ) {
+        let resolved = resolve(&set, line_count);
+        let folds: Vec<_> = resolved.iter().filter_map(|d| {
+            if let DisplayDirective::Fold { range, .. } = d {
+                Some(range.clone())
+            } else {
+                None
+            }
+        }).collect();
+        for i in 0..folds.len() {
+            for j in i + 1..folds.len() {
+                prop_assert!(
+                    !ranges_overlap(&folds[i], &folds[j]),
+                    "resolve produced overlapping folds {:?} and {:?}",
+                    folds[i], folds[j]
+                );
+            }
+        }
+    }
 }
