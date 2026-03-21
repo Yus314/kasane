@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774083371506,
+  "lastUpdate": 1774083549377,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39011,6 +39011,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20373541,
             "range": "± 57898",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "37dfb71feea1d64f767d945da87e5335cf0dbd5d",
+          "message": "docs(semantics): update for Salsa migration, remove obsolete mechanisms\n\nRemove or compress sections describing deleted pre-Salsa mechanisms\n(ViewCache, PaintPatch, LayoutCache, ComponentCache, stable(), allow(),\ncomponent deps macro, hand-written dependency tables). Add §6.11\ndocumenting the current Salsa incremental computation model. Update all\ncross-references (§4.5, §6.2, §8.10, §8.12.3, §11.1–11.5, §12.x) to\nreflect the current architecture. Fix stale DirtyFlags doc comment in\nkasane-core/src/state/mod.rs.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T17:42:45+09:00",
+          "tree_id": "04db611cf4695af56afb08478511644078724490",
+          "url": "https://github.com/Yus314/kasane/commit/37dfb71feea1d64f767d945da87e5335cf0dbd5d"
+        },
+        "date": 1774083548611,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4702091,
+            "range": "± 9052",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17428818,
+            "range": "± 264357",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1818372,
+            "range": "± 62636",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20360151,
+            "range": "± 63467",
             "unit": "ns/iter"
           }
         ]
