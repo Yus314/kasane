@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774061766312,
+  "lastUpdate": 1774067392209,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38771,6 +38771,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20522477,
             "range": "± 97524",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "5fc831de86a318dec4d2759876f97526d292732f",
+          "message": "docs: absorb architecture.md into index.md and remove\n\nThe standalone architecture.md had become stale — missing WASM runtime,\nevent loop, session management, and multi-pane coverage while duplicating\ncontent already authoritative in semantics.md, CLAUDE.md, and plugin-api.md.\n\nAbsorb the Three-Layer Responsibility Model (the only unique, stable\ncontent) into index.md as a \"System Architecture\" section and update all\n7 cross-references to point to their true authorities.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T13:13:07+09:00",
+          "tree_id": "bde029de54370016607d89f1237d2e43d29fafc7",
+          "url": "https://github.com/Yus314/kasane/commit/5fc831de86a318dec4d2759876f97526d292732f"
+        },
+        "date": 1774067391572,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4698592,
+            "range": "± 14816",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17244091,
+            "range": "± 85483",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1826292,
+            "range": "± 42449",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20418513,
+            "range": "± 46563",
             "unit": "ns/iter"
           }
         ]
