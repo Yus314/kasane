@@ -28,6 +28,8 @@ Kasane embeds a small set of WASM plugins in the binary. Their source is in
 | Color Preview | `color_preview` | Line annotation + overlay + mouse input |
 | Selection Badge | `sel_badge` | Slot contribution (`contribute_to`) |
 | Fuzzy Finder | `fuzzy_finder` | Overlay + key input + external process I/O |
+| Prompt Highlight | `prompt_highlight` | Element transform (`transform_element`) |
+| Session UI | `session_ui` | Slot contribution + overlay + session commands |
 
 A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
 

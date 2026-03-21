@@ -138,7 +138,7 @@ kasane_plugin_sdk::define_plugin! {
 | `redraw_flags(flags)` | `u16 → Vec<Command>` | `vec![Command::RequestRedraw(flags)]` |
 | `send_command(cmd)` | `&str → Command` | Build `SendKeys` for a Kakoune command |
 
-These are available in all plugin code (emitted by `generate!()` / `define_plugin!`).
+These are available in all plugin code (emitted by `generate!()` / `define_plugin!`). For the full list of SDK helpers including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.4](./plugin-api.md#44-sdk-helpers).
 
 ### Plugin Profiles
 
@@ -168,9 +168,8 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@0.8.0`. Rebuild and reinstall any plugin that was built
-against `0.7.x`; older binaries will not load after the
-`handle_default_scroll` ABI addition.
+`kasane:plugin@0.11.0`. Rebuild and reinstall any plugin that was built
+against an older version; older binaries will not load.
 
 To see installed plugins or diagnose environment issues:
 

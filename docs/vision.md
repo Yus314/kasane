@@ -65,5 +65,5 @@ The declarative UI model (currently TEA with a pure `view()` function) exists to
 
 - **Plugin-first** — features belong in plugins, not core. The core provides primitives; plugins build features.
 - **Compatibility by default** — conservative defaults that match Kakoune's standard behavior. No surprises for new users.
-- **Performance as prerequisite** — the most perceptive user on the best hardware (240 Hz displays, experienced typists) should be unable to perceive any difference from native Kakoune. ~49 μs/frame at 80×24 is a measured baseline, not an aspiration.
+- **Performance as prerequisite** — the most perceptive user on the best hardware (240 Hz displays, experienced typists) should be unable to perceive any difference from native Kakoune. ~59 μs/frame at 80×24 is a measured baseline, not an aspiration (see [performance.md](./performance.md) for current numbers).
 - **Correctness over convenience** — technology choices favor performance, extensibility, logical correctness, and safety, even when this means more implementation effort.

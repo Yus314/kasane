@@ -75,14 +75,14 @@ See [config.md](config.md) for the full configuration reference.
 
 Kasane has a WASM plugin system for UI extensions. Plugins can add visual elements, decorations, overlays, and input handling that Kakoune's shell-based plugins cannot — for example, line highlights, gutter annotations, floating pickers, and status bar widgets.
 
-Several [example plugins](../examples/wasm/) are included to demonstrate the available extension points. They can be enabled in `~/.config/kasane/config.toml`:
+Several example plugins are bundled in the binary. Enable them in `~/.config/kasane/config.toml`:
 
 ```toml
 [plugins]
-enabled = ["cursor_line", "color_preview", "sel_badge", "fuzzy_finder"]
+enabled = ["cursor_line", "color_preview"]
 ```
 
-See [Using Plugins](using-plugins.md) for details, and [Plugin Development](plugin-development.md) to write your own.
+See [Using Plugins](using-plugins.md) for the full list of bundled plugins and details, and [Plugin Development](plugin-development.md) to write your own.
 
 ## Opt-in: GPU Backend
 
