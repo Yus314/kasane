@@ -38,7 +38,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Plugin extension | Current | **Slot + Decorator + Replacement** | Three-tier extension mechanism |
 | Layout | Current | **Flex + Overlay + Grid** | Basic layout + layering + tabular |
 | Event propagation | Current | **Central dispatch + InteractiveId** | Keys centralized, mouse uses hit test |
-| Compiler-driven optimization | Current | **deps verification + ViewCache / SceneCache / PaintPatch** | Automatic patch generation for generic plugins not yet implemented |
+| Compiler-driven optimization | Current | **Salsa incremental computation + SceneCache (GPU)** | ViewCache/PaintPatch superseded by Salsa (ADR-020) |
 | CLI design | Current | **kak drop-in replacement** | Non-UI flags delegated via exec |
 | Three-layer responsibilities | Current | **Upstream / Core / Plugin** | Criteria in [ADR-012](#adr-012-layer-responsibility-model) |
 | WASM plugin runtime | Current | **Component Model (wasmtime)** | Detailed performance figures in [ADR-013](#adr-013-wasm-plugin-runtime--component-model-adoption) and [performance.md](./performance.md) |
@@ -417,53 +417,52 @@ Furthermore, Rust's ownership model naturally aligns with TEA (`&State` for view
 - Achieves the same duality as Svelte: maintaining a declarative API while making execution code imperative
 - Comes into its own as plugins increase from Phase 2 onward. Only design considerations in Phase 1, no implementation
 
-**2026-03 note:** The "two-layer rendering" in this section is the name for the overall vision. What is currently established is deps verification, `ViewCache`, `SceneCache`, and `PaintPatch`. Automatic patch generation from generic plugin views remains a Stage 5 research topic.
+**2026-03 note:** The "two-layer rendering" in this section is the name for the overall vision. Stages 1-4 below were originally implemented with manual caching (ViewCache, PaintPatch, etc.), but have since been **superseded by Salsa incremental computation** (ADR-020). `SceneCache` remains as a GPU-path auxiliary cache. The historical implementation record is preserved below for reference.
 
 ### Implementation Record
 
-All 4 stages completed: (1) DirtyFlags-based view memoization, (2) verified dependency tracking via `#[kasane::component(deps(...))]`, (3) SceneCache for DrawCommand-level caching, (4) compiled PaintPatch with StatusBarPatch / MenuSelectionPatch / CursorPatch.
+> **Superseded by ADR-020.** ViewCache, ComponentCache, LayoutCache, and PaintPatch have been removed. Salsa is now the sole caching layer for element tree construction and layout. SceneCache remains for GPU-path DrawCommand reuse.
 
-### Implementation Status
+Original 4 stages: (1) DirtyFlags-based view memoization, (2) verified dependency tracking via `#[kasane::component(deps(...))]`, (3) SceneCache for DrawCommand-level caching, (4) compiled PaintPatch with StatusBarPatch / MenuSelectionPatch / CursorPatch.
 
-#### Stage 1: DirtyFlags-Based View Memoization — Implemented
+### Implementation Status (Historical)
+
+#### Stage 1: DirtyFlags-Based View Memoization — Superseded by Salsa
 
 | Metric | Value |
 |---|---|
 | view() cost | 5.0 us (0 plugins) / 10.4 us (10 plugins) |
-| Implementation | ViewCache, ComponentCache\<T\>, DirtyFlags u16, MENU→MENU_STRUCTURE+MENU_SELECTION split |
-| Result | view() sections skipped entirely when corresponding DirtyFlags are clear |
+| Implementation | ~~ViewCache, ComponentCache\<T\>~~ → Salsa tracked functions. DirtyFlags u16, MENU→MENU_STRUCTURE+MENU_SELECTION split retained |
+| Result | view() sections skipped entirely when Salsa inputs are unchanged (PartialEq early-cutoff) |
 
-#### Stage 2: Verified Dependency Tracking — Implemented
+#### Stage 2: Verified Dependency Tracking — Superseded by Salsa
 
 | Metric | Value |
 |---|---|
-| Implementation | `#[kasane::component(deps(FLAG, ...))]` proc macro, AST-based field access analysis, FIELD_FLAG_MAP |
-| Compile-time check | Accesses to state fields not covered by declared deps cause compile error |
-| Escape hatch | `allow(field, ...)` for intentional dependency gaps |
+| Implementation | ~~`#[kasane::component(deps(FLAG, ...))]` proc macro, AST-based field access analysis, FIELD_FLAG_MAP~~ → Salsa structural dependency tracking |
+| Note | `#[kasane::component]` now validates purity only (return type + no &mut). Deps/field-access analysis removed |
 
-#### Stage 3: SceneCache (DrawCommand-Level Caching) — Implemented
+#### Stage 3: SceneCache (DrawCommand-Level Caching) — Active (GPU only)
 
 | Metric | Value |
 |---|---|
 | Implementation | Per-section DrawCommand caching (base, menu, info) |
-| Invalidation | Mirrors ViewCache: BUFFER\|STATUS\|OPTIONS→base, MENU→menu, INFO→info |
+| Invalidation | DirtyFlags-based: BUFFER\|STATUS\|OPTIONS→base, MENU→menu, INFO→info |
 | GPU benefit | Cursor-only frames reuse cached scene (0 us pipeline work) |
 | Cold/Warm ratio | 22.8 μs cold → 7.0 μs warm (3.3x speedup) |
 
-#### Stage 4: Compiled Paint Patches — Implemented
+#### Stage 4: Compiled Paint Patches — Superseded by Salsa
 
 | Metric | Value |
 |---|---|
-| StatusBarPatch | STATUS-only dirty → repaint ~80 cells: **6.17 μs** (vs 57 μs full) |
-| MenuSelectionPatch | MENU_SELECTION-only dirty → swap face on ~10 cells: **6.80 μs** |
-| CursorPatch | Cursor moved, no dirty flags → swap face on 2 cells: **1.01 μs** |
-| LayoutCache | base_layout, status_row, root_area cached with per-section invalidation |
+| ~~StatusBarPatch~~ | Removed — Salsa handles status section memoization |
+| ~~MenuSelectionPatch~~ | Removed — Salsa handles menu section memoization |
+| ~~CursorPatch~~ | Removed — Salsa handles cursor-related memoization |
+| ~~LayoutCache~~ | Removed — Salsa handles layout memoization |
 
 #### Overall Result
 
-All four stages are operational. The pipeline automatically selects the minimal repaint path:
-
-1. **PaintPatch** (2-80 cells) → **sectioned repaint** (~1 section) → **full pipeline** (fallback)
+Salsa incremental computation replaced the manual multi-layer caching. The pipeline relies on Salsa's automatic dependency tracking and PartialEq early-cutoff for memoization, with SceneCache providing an additional GPU-specific optimization layer.
 
 ### Component Macro Details
 
@@ -519,7 +518,7 @@ Five approaches were examined, all with fundamental barriers when applied to bui
 |----------|----------|---------|
 | A: Macro code generation | Extend `#[kasane_component]` to auto-derive patch code from view function AST | proc_macro operates on single-item local AST transformation. Cannot expand external functions or statically resolve layout |
 | B: Runtime tracking | Record cell provenance during paint, identify affected cells via dirty flags | Can identify affected cells but **cannot compute new values** — view → layout → paint still required |
-| C: Incremental diffing (React-style) | Redraw only changed parts via Element tree diffing | Already covered by ViewCache + section splitting. Additional diff layer not worth the complexity |
+| C: Incremental diffing (React-style) | Redraw only changed parts via Element tree diffing | Already covered by Salsa memoization + section splitting. Additional diff layer not worth the complexity |
 | D: Patch templates | Define repaintable slots, partially re-execute view + paint | **Most realistic**. Sub-section granularity pipeline execution |
 | E: Declarative DSL | Describe patches in a DSL, macro generates PaintPatch impl | Paint logic still hand-written. Gap between DSL expressiveness and Rust expressiveness is problematic |
 
@@ -582,9 +581,9 @@ Fundamental reason: Plugin Slot contributions are a **constrained task** — "in
 Recommended introduction order: L0 → L1 → L3 → L2 → L4 → L5 (maximum effect at minimum cost)
 
 - **L0: Initial state (historical)** — Plugin contributions were rebuilt via the full pipeline
-- **L1: Plugin state cache (implemented)** — `PluginSlotCache` in `PluginRegistry` caches `contribute_to()` results per slot, invalidating only when `state_hash()` changes
-- **L3: Explicit DirtyFlags dependencies (partially implemented)** — `contribute_deps()` / `transform_deps()` / `annotate_deps()` allow plugins to declare dependencies. Automatic derivation is not yet implemented
-- **L2: Slot position cache (not implemented)** — Extend `LayoutCache` with per-slot Rect cache, so only that slot is partially repainted when plugin state changes
+- **L1: Plugin state cache (implemented)** — `PluginSlotCache` in `PluginRuntime` caches `contribute_to()` results per slot, invalidating only when `state_hash()` changes
+- **L3: Explicit DirtyFlags dependencies (removed)** — `contribute_deps()` / `transform_deps()` / `annotate_deps()` were removed; Salsa handles dependency tracking automatically
+- **L2: Slot position cache (not implemented)** — Per-slot Rect cache for partial repaint when plugin state changes
 - **L4: Automatic patch code generation (not implemented)** — Auto-generate `apply_grid()` equivalent for simple plugin views, falling back to L2 for unsupported patterns
 - **L5: Decorator pattern recognition (not implemented)** — Recognize typical Decorator patterns and inject style overrides at the end of existing patches
 
@@ -1007,10 +1006,10 @@ For current benchmark data, see [performance.md](./performance.md).
 Kasane's rendering pipeline has multiple optimization variants:
 
 1. `render_pipeline()` — full pipeline (reference implementation)
-2. `render_pipeline_direct()` — subtree memoization via ViewCache
-3. `render_pipeline_sectioned()` — selective redraw per section
-4. `render_pipeline_patched()` — direct cell writes via compiled patches
-5. Surface variants (`render_pipeline_surfaces_cached/sectioned/patched`)
+2. `render_pipeline_cached()` — Salsa-backed memoization (previously `render_pipeline_direct()` with ViewCache)
+3. ~~`render_pipeline_sectioned()`~~ — removed (Salsa handles section-level memoization)
+4. ~~`render_pipeline_patched()`~~ — removed (PaintPatch superseded by Salsa)
+5. `scene_render_pipeline_cached()` — GPU path with SceneCache
 
 Currently, inter-variant equivalence is verified through `debug_assert` (debug builds only) and manual tests (`cache_soundness.rs`), with the following issues:
 
@@ -1049,12 +1048,13 @@ Full Arbitrary implementation is unnecessary — the mutation-based strategy eff
 ### Preservation Mechanism
 
 ```
-DirtyFlags → ViewCache invalidation → per-section rebuild decision
-          → SceneCache invalidation → DrawCommand regeneration decision
-          → LayoutCache invalidation → layout recalculation decision
+DirtyFlags → Salsa input sync (PartialEq early-cutoff) → per-section rebuild decision
+          → SceneCache invalidation → DrawCommand regeneration decision (GPU only)
 ```
 
-If each cache's invalidation mask is correct, all variants are equivalent to the reference implementation.
+> **Note:** The original diagram referenced ViewCache/LayoutCache, which have been superseded by Salsa (ADR-020).
+
+If each cache's invalidation is correct, all variants are equivalent to the reference implementation.
 
 ## ADR-017: SurfaceId-Based Invalidation (Design)
 
@@ -1062,12 +1062,12 @@ If each cache's invalidation mask is correct, all variants are equivalent to the
 
 ### Background
 
-The current `DirtyFlags` are global: Draw messages from Kakoune invalidate all ViewCache/SceneCache/LayoutCache. In Phase 5 (multi-pane), pane A's Draw would unnecessarily invalidate pane B's cache.
+The current `DirtyFlags` are global: Draw messages from Kakoune invalidate all Salsa inputs and SceneCache. In Phase 5 (multi-pane), pane A's Draw would unnecessarily invalidate pane B's cache.
 
 ### Proposed Design
 
 1. **`SurfaceDirtyMap`**: Replace global `DirtyFlags` with `HashMap<SurfaceId, DirtyFlags>`
-2. **Per-surface ViewCache**: `HashMap<SurfaceId, ViewCache>` for per-surface caching
+2. **Per-surface Salsa inputs**: Per-surface input structs for per-surface memoization
 3. **`apply()` return type change**: `DirtyFlags` → `Vec<(SurfaceId, DirtyFlags)>`
 4. **Global events**: Refresh, SetUiOptions broadcast `ALL` to all surfaces
 5. **BUFFER_CURSOR split integration**: Per-surface `BUFFER_CONTENT` for inter-pane isolation
@@ -1092,7 +1092,7 @@ The current `DirtyFlags` are global: Draw messages from Kakoune invalidate all V
 
 1. Introduce `SurfaceDirtyMap` internally while maintaining global `DirtyFlags` as a fallback
 2. In `apply()`, set flags only for the target surface for Draw; broadcast to all surfaces for others
-3. Gradually migrate ViewCache to per-surface
+3. Gradually migrate Salsa inputs to per-surface
 4. Testing: existing `cache_soundness.rs` + `trace_equivalence.rs` guarantee single-surface equivalence
 
 ### Risks
@@ -1377,13 +1377,13 @@ Reflecting the decisions of 19-1 and 19-2, the Phase P sub-phases are restructur
 
 ### Background
 
-Kasane's rendering pipeline uses a multi-layer caching system (ViewCache, LayoutCache, SceneCache, PaintPatch) driven by manual `DirtyFlags` bitmask tracking. While effective — achieving ~49μs CPU per frame at 80×24 — the system has accumulated complexity:
+Kasane's rendering pipeline previously used a multi-layer caching system (ViewCache, LayoutCache, SceneCache, PaintPatch) driven by manual `DirtyFlags` bitmask tracking. While effective — achieving ~49μs CPU per frame at 80×24 — the system had accumulated complexity:
 
-1. **Manual invalidation bookkeeping**: Each view function must declare its `DirtyFlags` dependencies (BUILD_BASE_DEPS, BUILD_MENU_SECTION_DEPS, etc.), verified at compile time by the `#[kasane::component(deps(...))]` macro. Adding new state fields requires updating both `DirtyFlags` and all dependency declarations.
+1. **Manual invalidation bookkeeping**: Each view function had to declare its `DirtyFlags` dependencies (BUILD_BASE_DEPS, BUILD_MENU_SECTION_DEPS, etc.), verified at compile time by the `#[kasane::component(deps(...))]` macro. Adding new state fields required updating both `DirtyFlags` and all dependency declarations.
 
-2. **Cache coherence by convention**: `ViewCache`, `SceneCache`, and `LayoutCache` each duplicate the invalidation logic (which flags invalidate which cache section), with correctness relying on manual alignment rather than structural guarantees.
+2. **Cache coherence by convention**: `ViewCache`, `SceneCache`, and `LayoutCache` each duplicated the invalidation logic (which flags invalidate which cache section), with correctness relying on manual alignment rather than structural guarantees.
 
-3. **Plugin interaction complexity**: `PluginSlotCache` uses its own two-level cache (L1: state_hash, L3: slot_deps) independent of the view caching system, requiring separate `prepare_plugin_cache()` calls before rendering.
+3. **Plugin interaction complexity**: `PluginSlotCache` used its own two-level cache (L1: state_hash, L3: slot_deps) independent of the view caching system, requiring separate `prepare_plugin_cache()` calls before rendering.
 
 The Salsa incremental computation framework (v0.26.0) offers automatic dependency tracking and memoization, potentially replacing the manual invalidation bookkeeping while preserving the pipeline's performance characteristics.
 
@@ -1392,19 +1392,19 @@ The Salsa incremental computation framework (v0.26.0) offers automatic dependenc
 Adopt a **Stage 1 / Stage 2 split** architecture where:
 
 - **Stage 1 (Salsa tracked)**: Pure Element generation from protocol state. Salsa automatically tracks dependencies and memoizes results. No plugin interaction.
-- **Stage 2 (imperative)**: Plugin contributions, transforms, and annotations applied outside Salsa. Uses existing `PluginRegistry` with its `RefCell` interior mutability unchanged.
+- **Stage 2 (imperative)**: Plugin contributions, transforms, and annotations applied outside Salsa. Uses existing `PluginRuntime` with its `RefCell` interior mutability unchanged.
 
 Salsa is a mandatory dependency. The legacy Surface-based pipeline (`pipeline_surface.rs`, `SurfaceViewSource`) has been removed; all rendering uses the Salsa path exclusively.
 
 ### Architecture
 
-Stage 1 uses 6 Salsa input structs (grouped by protocol message boundary) + `PluginEpochInput` (monotonic counter bridging plugin state changes into Salsa's dependency graph). Four tracked view functions produce Element trees from these inputs. Stage 2 composes plugin contributions outside Salsa. Four pipeline variants mirror the legacy paths (cached/sectioned/patched/scene-cached). The legacy Surface-based pipeline has been removed; `SalsaViewSource` is the sole implementation.
+Stage 1 uses 6 Salsa input structs (grouped by protocol message boundary) + `PluginEpochInput` (monotonic counter bridging plugin state changes into Salsa's dependency graph). Four tracked view functions produce Element trees from these inputs. Stage 2 composes plugin contributions outside Salsa. The legacy Surface-based pipeline and manual caching infrastructure (ViewCache, LayoutCache, PaintPatch) have been removed; `SalsaViewSource` is the sole implementation. `SceneCache` remains as a GPU-path auxiliary cache.
 
 For implementation details (input structs, tracked functions, pipeline variants, file mapping), see the source code in `kasane-core/src/state/salsa_*.rs` and `kasane-core/src/render/pipeline_salsa.rs`.
 
 ### Trade-offs
 
-1. **Additive, not replacive**: The Salsa layer adds ~11-13μs of cache-hit overhead (5-6 tracked functions × ~2.2μs each), which is negligible relative to the 4167μs frame budget at 240fps. However, it does not delete the existing caching infrastructure — `ViewCache`, `LayoutCache`, and `SceneCache` remain.
+1. **Now fully replacive**: The Salsa layer adds ~11-13μs of cache-hit overhead (5-6 tracked functions × ~2.2μs each), which is negligible relative to the 4167μs frame budget at 240fps. The legacy caching infrastructure (`ViewCache`, `LayoutCache`, `PaintPatch`) has been fully removed. Only `SceneCache` remains as a GPU-path auxiliary cache for per-section `DrawCommand` reuse.
 
 2. **Plugin boundary remains imperative**: Plugins with `RefCell` interior mutability cannot participate in Salsa's dependency graph. The epoch-based bridge is a pragmatic compromise: it detects when plugin outputs *might* have changed but cannot provide fine-grained invalidation per-slot or per-plugin.
 
@@ -1453,7 +1453,7 @@ Introduce `PurePlugin` as an alternative to `Plugin` where the framework owns th
 | For | Against |
 |-----|---------|
 | Automatic, collision-free state change detection | State clone cost on every transition (negligible for small states) |
-| Pure functions enable future Salsa memoization of Stage 2 | `PurePlugin` cannot use `Surface`, `PaintHook`, or pane lifecycle |
+| Pure functions enable future Salsa memoization of Stage 2 | `Plugin` cannot use `Surface`, `PaintHook`, or workspace observation |
 | Framework-owned state enables snapshotting and diffing | Blanket `PluginState` impl causes method resolution ambiguity with `Box<dyn PluginState>` (mitigated by using `&mut dyn PluginState` in erased interface) |
 | Zero boilerplate for state types (blanket impl) | WASM plugins cannot externalize state to host without serialization overhead |
 | Opt-in migration — existing plugins unchanged | Two plugin models to maintain during transition |

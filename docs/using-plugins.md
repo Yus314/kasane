@@ -75,9 +75,9 @@ auto_discover = false
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@0.8.0`. If you are upgrading from a build that used
-`0.7.x`, rebuild and reinstall those plugins before startup; older
-artifacts will not load.
+`kasane:plugin@0.11.0`. If you are upgrading from an older build,
+rebuild and reinstall those plugins before startup; older artifacts
+will not load.
 
 For example, `smooth_scroll` is not embedded in the binary. Build and install
 the WASM from [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/)

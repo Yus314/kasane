@@ -144,7 +144,7 @@ The GUI generates a scene description based on `DrawCommand` and draws directly 
 
 ### Caching
 
-Salsa incremental computation is the sole caching layer for the rendering pipeline. Plugin contributions, element tree construction, and layout are all memoized through Salsa's dependency tracking and automatic invalidation. There are no separate ViewCache, SceneCache, or PaintPatch layers.
+Salsa incremental computation is the sole caching layer for the rendering pipeline. Plugin contributions, element tree construction, and layout are all memoized through Salsa's dependency tracking and automatic invalidation. There are no separate ViewCache or PaintPatch layers. `SceneCache` remains as a GPU-path auxiliary cache for per-section `DrawCommand` reuse atop Salsa.
 
 For the semantics and invalidation policy, see [semantics.md](./semantics.md).
 
@@ -168,9 +168,9 @@ The full Display Unit model (geometry, semantic role, navigation relationships) 
 Kasane supports two native plugin models:
 
 - **`Plugin` (state-externalized, recommended)**: The framework owns the plugin state. All methods are pure functions: `(&self, &State, ...) → (State, effects)`. State changes are tracked automatically via `PartialEq` comparison, eliminating manual `state_hash()`. This model opens the path to making Stage 2 (plugin contributions) a pure, Salsa-memoizable function. This is the primary user-facing API.
-- **`PluginBackend` (mutable, internal)**: Plugins own their state via `&mut self` methods. This is the internal framework trait with full access to all extension points including `Surface`, `PaintHook`, and pane lifecycle.
+- **`PluginBackend` (mutable, internal)**: Plugins own their state via `&mut self` methods. This is the internal framework trait with full access to all extension points including `Surface`, `PaintHook`, and workspace observation.
 
-`PluginBridge` adapts `Plugin` to `PluginBackend`, allowing both models to coexist in the same `PluginRegistry`. The bridge uses a generation counter for `state_hash()` and `PartialEq`-based change detection.
+`PluginBridge` adapts `Plugin` to `PluginBackend`, allowing both models to coexist in the same `PluginRuntime`. The bridge uses a generation counter for `state_hash()` and `PartialEq`-based change detection.
 
 For semantic details, see the `Display Policy State` and `Display Transformation and Display Units` sections in [semantics.md](./semantics.md).
 

@@ -283,12 +283,12 @@ export!(SmoothScrollPlugin);
 
 ## Testing
 
-Unit tests can be written using `PluginRegistry` directly.
+Unit tests can be written using `PluginRuntime` directly.
 
 ```rust
 #[test]
 fn my_plugin_contributes_gutter() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register(MyPlugin);  // Plugin trait (state-externalized)
 
     let state = AppState::default();
@@ -415,7 +415,7 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
 | smooth-scroll | `examples/wasm/smooth-scroll/` | `handle_default_scroll()`, `ScrollPolicyResult::Plan` |
-| line-numbers (native) | `examples/line-numbers/` | Direct `PluginBackend` trait, `contribute_to()`, `kasane::run()` |
+| line-numbers (native) | `examples/line-numbers/` | `Plugin` trait with `PluginBridge`, `contribute_to()`, `kasane::run()` |
 | virtual-text-demo (native) | `examples/virtual-text-demo/` | `Plugin` trait, `display_directives()`, `contribute_to()`, `handle_key()`, virtual text insertion |
 
 ## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
@@ -505,7 +505,7 @@ fn main() {
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
-`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface`, `PaintHook`, and pane lifecycle. Use this only when `Plugin` cannot express what you need.
+`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface`, `PaintHook`, and workspace observation. Use this only when `Plugin` cannot express what you need.
 
 ```rust
 use kasane::kasane_core::plugin_prelude::*;

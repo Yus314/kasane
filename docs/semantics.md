@@ -304,6 +304,8 @@ This design means that a menu change does not always require rebuilding the buff
 
 ### 6.3 ViewCache
 
+> **Superseded.** `ViewCache` has been removed. Salsa incremental computation is now the sole caching layer for element tree construction (see ADR-020). This section is retained for historical reference.
+
 `ViewCache` holds `Element` trees or their subtrees and skips reconstruction when the corresponding dirty flags are not set.
 
 `ViewCache` performs policy-driven reuse based on `DirtyFlags` and component deps, not exact dependency analysis.
@@ -313,6 +315,8 @@ This design means that a menu change does not always require rebuilding the buff
 `SceneCache` holds `DrawCommand` sequences per section for the GUI backend. Like `ViewCache`, it has an invalidation mask, but it is used for GUI-specific fast paths.
 
 ### 6.5 PaintPatch
+
+> **Superseded.** `PaintPatch` has been removed. Salsa incremental computation handles all memoization (see ADR-020). This section is retained for historical reference.
 
 `PaintPatch` is a compiled fast path on the TUI side that performs direct cell updates for specific change patterns. It is an alternative to the full pipeline.
 
@@ -346,6 +350,8 @@ In debug builds, a correctness assertion (`patch_correctness_assertion`) verifie
 
 ### 6.6 LayoutCache
 
+> **Superseded.** `LayoutCache` has been removed. Salsa incremental computation handles layout memoization (see ADR-020). This section is retained for historical reference.
+
 `LayoutCache` supports section-level redraws and patched paths through layout reuse. Which parts of the state the layout depends on is controlled by the invalidation policy.
 
 ### 6.7 Meaning of `stable()`
@@ -371,9 +377,11 @@ When the AST analysis cannot detect a field access (e.g., field read inside a `f
 
 Current Kasane does not require step-by-step equivalence with complete re-rendering for all fast paths. Particularly where `stable()` is involved, warm/cold cache consistency becomes the primary correctness condition (see §11.2 for the formal statement).
 
-This weakening is a design trade-off and is treated as a documented specification. In debug builds, PaintPatch outputs are verified against the full pipeline (§6.5), providing empirical evidence that optimization paths preserve observational equivalence.
+This weakening is a design trade-off and is treated as a documented specification. Previously, PaintPatch outputs were verified against the full pipeline in debug builds (§6.5); this verification was removed along with PaintPatch itself.
 
 ### 6.10 ComponentCache
+
+> **Superseded.** `ComponentCache<T>` has been removed along with `ViewCache`. Salsa provides equivalent memoization with automatic dependency tracking (see ADR-020). This section is retained for historical reference.
 
 `ComponentCache<T>` is a generic memoization wrapper used by `ViewCache` and other caches. It stores a value of type `T` and invalidates it when the corresponding dirty flags are set.
 
@@ -496,9 +504,9 @@ The `Plugin` trait externalizes plugin state ownership to the framework. The key
 Kasane provides two plugin trait models with different levels of abstraction.
 
 - **`Plugin` trait** (recommended, primary API): State-externalized model. The framework owns plugin state; all methods are pure functions. Automatic cache invalidation via `PartialEq`. Suitable for most plugins.
-- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and pane lifecycle hooks. Intended for framework-internal use and advanced scenarios.
+- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and workspace observation. Intended for framework-internal use and advanced scenarios.
 
-`PluginBridge` adapts `Plugin` to `PluginBackend`, enabling both models to coexist in `PluginRegistry`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
+`PluginBridge` adapts `Plugin` to `PluginBackend`, enabling both models to coexist in `PluginRuntime`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
 
 WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer.
 
@@ -706,6 +714,8 @@ The distinction is critical: warm/cold equivalence for a given `D` is the soundn
 
 ### 11.3 PaintPatch Correctness
 
+> **Superseded.** PaintPatch has been removed (see §6.5). This section is retained for historical reference.
+
 Each PaintPatch has its own correctness obligation, derived from the general trace-equivalence theorem.
 
 ```text
@@ -728,8 +738,8 @@ What tests primarily guarantee are the following properties.
 
 - Trace-equivalence across pipeline variants (property-based, §11.1)
 - Warm/cold cache equivalence for each atomic dirty flag (§11.2)
-- PaintPatch guard soundness, observational equivalence, and spatial isolation (§11.3)
-- Plugin cache invalidation consistency (L1 state hash, L3 slot deps)
+- ~~PaintPatch guard soundness, observational equivalence, and spatial isolation (§11.3)~~ (removed with PaintPatch)
+- Plugin cache invalidation consistency (L1 state hash)
 - Preservation of semantics shared across backends
 
 ### 11.5 Contracts Expressible Only in Prose

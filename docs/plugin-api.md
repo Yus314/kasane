@@ -109,9 +109,9 @@ Native plugins can be implemented using one of two traits:
 | State ownership | Framework holds state; methods are `(&self, &State) → (State, effects)` | Plugin holds its own state (`&mut self`) |
 | Cache invalidation | Automatic via `PartialEq` comparison (generation counter) | Manual `state_hash()` |
 | Salsa compatibility | State transitions are pure functions; future Salsa integration path | Not directly memoizable (mutable state) |
-| Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, `PaintHook`, pane lifecycle, or complex host integration |
+| Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, `PaintHook`, workspace observation, or complex host integration |
 
-`Plugin` is recommended for new native plugins. In unit tests, register via `PluginRegistry::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`.
+`Plugin` is recommended for new native plugins. In unit tests, register via `PluginRuntime::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`.
 
 ```rust
 use kasane_core::plugin_prelude::*;
@@ -213,6 +213,7 @@ fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateC
                 z_order: 0,
                 blend: BlendMode::Opaque,
             }),
+            priority: 0,
         })
     } else {
         None
@@ -220,7 +221,7 @@ fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateC
 }
 ```
 
-`LineAnnotation` consists of three elements: `left_gutter`, `right_gutter`, and `background`. `BackgroundLayer` has `face`, `z_order`, and `blend` (compositing mode); background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
+`LineAnnotation` consists of four fields: `left_gutter`, `right_gutter`, `background`, and `priority` (controls gutter element ordering). `BackgroundLayer` has `face`, `z_order`, and `blend` (compositing mode); background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
 
 ### 1.6 Overlay (`contribute_overlay_with_ctx`)
 
@@ -234,6 +235,7 @@ fn contribute_overlay_with_ctx(&self, state: &AppState, _ctx: &OverlayContext) -
         element: Element::container(child, style),
         anchor: OverlayAnchor::AnchorPoint { coord, prefer_above: true, avoid: vec![] },
         z_index: 0,
+        plugin_id: self.id(),
     })
 }
 ```
@@ -250,7 +252,7 @@ fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
 }
 ```
 
-`OverlayContribution` consists of `element`, `anchor`, and `z_index`. There are two types of `OverlayAnchor`:
+`OverlayContribution` consists of `element`, `anchor`, `z_index`, and `plugin_id` (used for deterministic tie-breaking). There are two types of `OverlayAnchor`:
 
 - `Absolute { x, y, w, h }`: Absolute position in screen coordinates
 - `AnchorPoint { coord, prefer_above, avoid }`: Kakoune-compatible anchor-based positioning
@@ -580,18 +582,22 @@ Runtime and session-ready effects carry `Command` values in their `commands` fie
 | `WriteToProcess { job_id, data }` | Write to the stdin of a spawned process |
 | `CloseProcessStdin { job_id }` | Close a process's stdin (EOF) |
 | `KillProcess { job_id }` | Force-kill a process |
-| `Pane(PaneCommand)` | Pane operations |
+| `SpawnPaneClient { surface_id, placement }` | Spawn a new pane backed by an independent Kakoune client |
+| `ClosePaneClient { surface_id }` | Close a pane and terminate its Kakoune client |
 | `Workspace(WorkspaceCommand)` | Workspace operations |
+| `RegisterSurface { surface, placement }` | Register a plugin-owned surface into the workspace |
+| `UnregisterSurface { surface_id }` | Unregister a plugin-owned surface |
 | `RegisterThemeTokens(tokens)` | Register custom theme tokens |
 
 `SessionCommand` has the following variants:
 
-- `Spawn { key, session, args, activate }`: Open a new managed session. `key` is a stable key within the host, `session` is the session name corresponding to `kak -c <name>`, and `activate = true` immediately switches to that session as the active session.
-- `Close { key }`: Close the session with the specified key. `key = None` closes the current active session. If the last session is closed, the host runtime terminates. If the active session is closed and other sessions remain, the host runtime promotes the next session in creation order to active.
+- `Spawn { key, session, args, activate }`: Open a new managed session. `key: Option<String>` is an optional stable key within the host, `session: Option<String>` is the session name corresponding to `kak -c <name>`, and `activate = true` immediately switches to that session as the active session.
+- `Close { key }`: Close the session with the specified key. `key: Option<String> = None` closes the current active session. If the last session is closed, the host runtime terminates. If the active session is closed and other sessions remain, the host runtime promotes the next session in creation order to active.
+- `Switch { key }`: Switch the active session to the one identified by `key: String`.
 
 The V1 session runtime can hold multiple sessions, but only one active session is rendered at a time. The Kakoune reader for inactive sessions remains alive, and its events continue to be reflected in the off-screen session snapshot. When activated, that snapshot is restored, but automatic generation of session-bound surfaces and multi-session dedicated UI are not yet implemented.
 
-In WASM, these are represented as `command` variants. `Pane`, `Workspace`, and `RegisterThemeTokens` are currently not supported in WASM. Process execution commands (`SpawnProcess`, etc.) and session management commands (`spawn-session`, `close-session`) have been introduced on the WIT side.
+In WASM, these are represented as `command` variants. `SpawnPaneClient`, `ClosePaneClient`, `Workspace`, `RegisterSurface`, `UnregisterSurface`, and `RegisterThemeTokens` are currently not supported in WASM. Process execution commands (`SpawnProcess`, etc.) and session management commands (`spawn-session`, `close-session`) have been introduced on the WIT side.
 
 #### 3.5.1 Session Observability
 

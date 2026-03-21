@@ -131,7 +131,7 @@ Next deliverable:
 
 Completed:
 
-- `Pane` / `Workspace` parity model — `Workspace` split tree, `PaneMap`, pane lifecycle hooks on `PluginBackend` (landed in Phase 5)
+- `Pane` / `Workspace` parity model — `Workspace` split tree, `PaneMap`, workspace observation on `PluginBackend` (landed in Phase 5)
 
 Remaining work:
 
