@@ -211,6 +211,33 @@ This split is a semantic design decision, not merely an optimization. It encodes
 
 The composite flag `BUFFER` is defined as `BUFFER_CONTENT | BUFFER_CURSOR` for convenience.
 
+### 4.6 Frame Structure and Phase Ordering
+
+A frame is one iteration of the backend event loop. Each frame processes input and optionally renders. The phases execute in strict order:
+
+1. **Event batch**: Drain channel up to 256 events or 16ms deadline, whichever comes first. Each event is processed sequentially via `update()`, accumulating `DirtyFlags` via bitwise OR.
+2. **Plugin cache**: `prepare_plugin_cache(dirty)` — compare each plugin's generation counter against previous frame to set `any_plugin_state_changed`.
+3. **Salsa sync**: `sync_inputs_from_state()` unconditionally projects all `AppState` fields to Salsa inputs (PartialEq early-cutoff). `sync_plugin_epoch()` increments epoch if any plugin changed. `sync_plugin_contributions()` and `sync_display_directives()` refresh Salsa-tracked extension point data.
+4. **Render**: `render_pipeline_cached()` (Salsa demand-driven) → `draw_grid()` → `rebuild_hit_map()`.
+
+If dirty flags are empty after the batch phase, phases 2–4 are skipped entirely.
+
+```text
+Invariant (Intra-Frame Plugin Isolation):
+  During the render phase, plugin view methods (contribute_to, transform,
+  annotate_line, contribute_overlay) operate on a frozen PluginView<'_>
+  (immutable borrow). No plugin can observe state changes made by other
+  plugins within the same render phase. Inter-plugin state effects
+  propagate only via the next frame's event processing.
+```
+
+The plugin system enforces a two-phase lifecycle per frame:
+
+- **Mutable phase**: event processing, state transitions (`&mut PluginRuntime`)
+- **Immutable phase**: rendering, view queries (`PluginView<'_>`)
+
+This boundary is enforced at compile time by Rust's borrow checker. The two phases never overlap within a frame.
+
 ## 5. Rendering Semantics
 
 ### 5.1 Exact Semantics
@@ -456,13 +483,28 @@ Element-level transforms are unified in the plugin composition pipeline as `appl
 
 ### 8.6 Composition Order and Priority
 
-The current basic principles are as follows.
+The rendering pipeline composes plugin outputs in three phases:
 
-1. Build the seed default elements
-2. Apply the transform chain in priority order (processing decoration and replacement in a unified manner)
-3. Compose contributions and overlays
+1. Build the seed default elements (framework-provided base UI)
+2. Apply the transform chain in priority order
+3. Compose contributions, annotations, and overlays
 
-The transform chain is the result of unifying what were formerly separate replacement and decorator mechanisms. Priority determines application order, and both lightweight decorations and full replacements are processed in the same pipeline.
+Each extension point has its own ordering rule. All multi-plugin results use stable, deterministic sorting. When priorities are equal, `PluginId` (lexicographic string comparison) breaks ties.
+
+| Extension Point | Sort Key | Direction | Semantics |
+|---|---|---|---|
+| Contribution | `(priority, plugin_id)` | ASC | Lower priority → earlier in layout |
+| Transform | `(priority, plugin_id)` | **DESC** (priority reversed) | Higher priority → applied first (innermost) |
+| Annotation gutter | `(priority, plugin_id)` | ASC | Lower priority → leftmost |
+| Annotation background | `(z_order, plugin_id)` | ASC, **last wins** | Highest z_order takes the line background |
+| Overlay | `(z_index, plugin_id)` | ASC | Lower z_index → behind; higher → front |
+| Display directive | registration order | **first non-empty wins** | Single-plugin exclusive (§9.3) |
+| Menu item transform | registration order | sequential chain | Output of previous = input of next |
+| Cursor style override | registration order | first non-None wins | Single winner |
+
+> **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
+
+> **Effects merge**: When multiple plugins produce `RuntimeEffects` in the same notification cycle, effects are merged by OR-ing `DirtyFlags` and appending `commands` and `scroll_plans` in plugin registration order.
 
 ### 8.7 Input Dispatch and Key Consumption
 
@@ -497,6 +539,15 @@ The `Plugin` trait externalizes plugin state ownership to the framework. The key
 - **Invalidation**: `DirtyFlags::PLUGIN_STATE` (bit 7) signals plugin state changes to the view cache. `BUILD_BASE_DEPS` includes `PLUGIN_STATE` to trigger base section rebuilds when plugin state changes.
 - **DynCompare**: `dyn PluginState` supports equality comparison via downcasting. Two states of different concrete types are always unequal.
 - **Compatibility**: `PluginBridge` adapts `Plugin` to `PluginBackend`, preserving all existing cache invalidation behavior (L1 state_hash, L3 slot_deps).
+
+#### Dual Change Detection
+
+Plugin state changes are tracked by two independent tiers:
+
+- **Tier 1 (coarse)**: `PluginBridge` compares current state against a previous snapshot via `PartialEq` after every mutable hook. If different, increments a monotonic generation counter (`state_hash()`). `PluginRuntime::prepare_plugin_cache()` reads generation counters to set `any_plugin_state_changed`.
+- **Tier 2 (fine)**: `sync_plugin_epoch()` increments a Salsa input epoch when `any_plugin_state_changed` is true. Salsa tracked functions re-evaluate, but individual inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when the epoch bumps.
+
+Both tiers are necessary. The generation counter provides the coarse "did anything change?" gate. Salsa provides fine-grained memoization. Removing the generation counter would force Salsa to re-evaluate all plugin queries every frame. Removing Salsa would lose incremental computation.
 
 > **Naming history**: This model was originally introduced as `PurePlugin` (ADR-021), with the mutable trait called `Plugin`. In ADR-022, the traits were renamed: `PurePlugin` became `Plugin` (primary API) and the old `Plugin` became `PluginBackend` (internal). The adapter was renamed from `PurePluginBridge` to `PluginBridge`, and the marker trait from `IsPurePlugin` to `IsBridgedPlugin`.
 
@@ -808,6 +859,12 @@ WASM plugins receive a frozen state snapshot before each call (§8.12.1). Multip
 ### 12.10 Menu Item Transform Outside Unified Pipeline
 
 `transform_menu_item()` operates separately from the Element-level `apply_transform_chain` (§8.5). The two transform mechanisms have independent priority orderings and are not subject to the same composition rules.
+
+### 12.11 HitMap Frame Delay
+
+Mouse routing uses the previous frame's HitMap. The HitMap is rebuilt after rendering (`rebuild_hit_map()`), so input events within a batch are routed using a potentially stale hit map. This introduces at most one frame of stale mouse routing (~16ms).
+
+This is an accepted tradeoff documented in the frame loop code. It is recorded here because it represents a deviation from the "current frame reflects current state" ideal.
 
 ### Resolved Gaps
 
