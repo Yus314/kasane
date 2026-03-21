@@ -109,6 +109,7 @@ fn embed_buffer_state(element: Element, state: &AppState) -> Element {
             line_range,
             line_backgrounds,
             display_map,
+            inline_decorations,
             ..
         } => Element::BufferRef {
             line_range,
@@ -121,6 +122,7 @@ fn embed_buffer_state(element: Element, state: &AppState) -> Element {
                 padding_face: state.padding_face,
                 padding_char: state.padding_char.clone(),
             })),
+            inline_decorations,
         },
         // If a transform wrapped the BufferRef, pass through unchanged
         other => other,

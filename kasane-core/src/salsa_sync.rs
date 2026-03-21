@@ -71,7 +71,7 @@ impl SalsaInputHandles {
                 vec![],
                 vec![],
             ),
-            annotations: AnnotationResultInput::new(db, 0, None, None, None),
+            annotations: AnnotationResultInput::new(db, 0, None, None, None, None),
             plugin_overlays: PluginOverlaysInput::new(db, 0, vec![]),
         }
     }
@@ -292,6 +292,10 @@ pub fn sync_plugin_contributions(
         .annotations
         .set_right_gutter(db)
         .to(result.right_gutter);
+    inputs
+        .annotations
+        .set_inline_decorations(db)
+        .to(result.inline_decorations);
 
     // Plugin overlays
     let overlay_ctx = OverlayContext {

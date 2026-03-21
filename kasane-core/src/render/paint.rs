@@ -49,6 +49,7 @@ pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Fa
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_buffer_ref(
     grid: &mut CellGrid,
     area: &Rect,
@@ -57,6 +58,7 @@ pub(crate) fn paint_buffer_ref(
     buffer_state: Option<&crate::element::BufferRefState>,
     line_backgrounds: Option<&[Option<Face>]>,
     display_map: Option<&crate::display::DisplayMap>,
+    inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
 ) {
     let lines = buffer_state.map(|s| &s.lines).unwrap_or(&state.lines);
     let lines_dirty = buffer_state
@@ -131,7 +133,19 @@ pub(crate) fn paint_buffer_ref(
                 .and_then(|bgs| bgs.get(line_idx).copied().flatten())
                 .unwrap_or(default_face);
             grid.fill_region(y, area.x, area.w, &base_face);
-            grid.put_line_with_base(y, area.x, line, area.w, Some(&base_face));
+            // Apply inline decorations if present
+            let decorated;
+            let line_to_render: &[crate::protocol::Atom] = match inline_decorations
+                .and_then(|ds| ds.get(line_idx))
+                .and_then(|d| d.as_ref())
+            {
+                Some(deco) if !deco.is_empty() => {
+                    decorated = crate::render::inline_decoration::apply_inline_ops(line, deco);
+                    decorated.as_slice()
+                }
+                _ => line,
+            };
+            grid.put_line_with_base(y, area.x, line_to_render, area.w, Some(&base_face));
         } else {
             // Padding row
             grid.fill_region(y, area.x, area.w, &padding_face);

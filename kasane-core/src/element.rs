@@ -400,6 +400,8 @@ pub enum Element {
         /// Pane-specific state for multi-pane rendering. When `Some`, `paint_buffer_ref`
         /// reads lines/faces from here instead of the walk context's primary AppState.
         state: Option<Box<BufferRefState>>,
+        /// Per-line inline decorations (byte-range Style/Hide) from plugins.
+        inline_decorations: Option<Vec<Option<crate::render::InlineDecoration>>>,
     },
 }
 
@@ -446,6 +448,7 @@ impl Element {
             line_backgrounds: None,
             display_map: None,
             state: None,
+            inline_decorations: None,
         }
     }
 

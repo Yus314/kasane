@@ -53,6 +53,7 @@ pub(crate) trait PaintVisitor {
     fn visit_styled_line(&mut self, atoms: &[Atom], area: Rect);
 
     /// Render a BufferRef element (the main editor buffer area).
+    #[allow(clippy::too_many_arguments)]
     fn visit_buffer_ref(
         &mut self,
         area: Rect,
@@ -61,6 +62,7 @@ pub(crate) trait PaintVisitor {
         buffer_state: Option<&BufferRefState>,
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
+        inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
     );
 
     /// Pre-visit for Container: render shadow, background fill, border, title.
@@ -105,6 +107,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             line_backgrounds,
             display_map,
             state: buffer_state,
+            inline_decorations,
         } => {
             let dm = display_map
                 .as_ref()
@@ -117,6 +120,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 buffer_state.as_deref(),
                 line_backgrounds.as_deref(),
                 dm,
+                inline_decorations.as_deref(),
             );
         }
         Element::Empty => {}
@@ -237,6 +241,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         buffer_state: Option<&BufferRefState>,
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
+        inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
     ) {
         paint_buffer_ref(
             self.grid,
@@ -246,6 +251,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
             buffer_state,
             line_backgrounds,
             display_map,
+            inline_decorations,
         );
     }
 
@@ -342,6 +348,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         buffer_state: Option<&BufferRefState>,
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
+        inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
     ) {
         let cs = self.cell_size;
         let lines = buffer_state.map(|s| &s.lines).unwrap_or(&state.lines);
@@ -419,9 +426,21 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     face: base_face,
                     elevated: false,
                 });
+                // Apply inline decorations if present
+                let decorated;
+                let line_to_render: &[Atom] = match inline_decorations
+                    .and_then(|ds| ds.get(line_idx))
+                    .and_then(|d| d.as_ref())
+                {
+                    Some(deco) if !deco.is_empty() => {
+                        decorated = crate::render::inline_decoration::apply_inline_ops(line, deco);
+                        decorated.as_slice()
+                    }
+                    _ => line,
+                };
                 // Atoms — clear PrimaryCursor face at the cursor cell in
                 // non-block cursor modes so the thin bar/underline is visible.
-                let mut resolved = resolve_atoms(line, Some(&base_face));
+                let mut resolved = resolve_atoms(line_to_render, Some(&base_face));
                 if !matches!(self.cursor_style, CursorStyle::Block | CursorStyle::Outline)
                     && state.cursor_mode == crate::protocol::CursorMode::Buffer
                     && line_idx == state.cursor_pos.line as usize

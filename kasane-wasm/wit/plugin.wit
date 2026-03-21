@@ -504,12 +504,22 @@ interface types {
         blend-opaque: bool,
     }
 
+    variant inline-op {
+        style-range(style-range-op),
+        hide-range(hide-range-op),
+    }
+    record style-range-op { start: u32, end: u32, face: face }
+    record hide-range-op { start: u32, end: u32 }
+    record inline-decoration { ops: list<inline-op> }
+
     record line-annotation {
         left-gutter: option<element-handle>,
         right-gutter: option<element-handle>,
         background: option<background-layer>,
         /// Sort priority for gutter ordering (lower = first). Default: 0.
         priority: s16,
+        /// Inline decoration (byte-range Style/Hide) for this line.
+        inline: option<inline-decoration>,
     }
 
     record overlay-context {

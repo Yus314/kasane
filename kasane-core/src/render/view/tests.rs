@@ -519,6 +519,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
                     right_gutter: Some(Element::text("R", Face::default())),
                     background: None,
                     priority: 0,
+                    inline: None,
                 })
             } else {
                 None

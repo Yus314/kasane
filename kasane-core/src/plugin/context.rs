@@ -5,6 +5,7 @@ use crate::element::{Element, OverlayAnchor};
 use crate::layout::Rect;
 use crate::layout::flex::Constraints;
 use crate::protocol::Face;
+use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
 use super::{AppView, PluginId};
@@ -181,6 +182,8 @@ pub struct LineAnnotation {
     /// Lower values sort first (leftmost in left gutter, leftmost in right gutter).
     /// Mirrors `Contribution::priority` and `BackgroundLayer::z_order` conventions.
     pub priority: i16,
+    /// Inline decoration (byte-range Style/Hide) for this line.
+    pub inline: Option<InlineDecoration>,
 }
 
 /// Context for overlay contributions with collision avoidance.
@@ -209,4 +212,6 @@ pub struct AnnotationResult {
     pub left_gutter: Option<Element>,
     pub right_gutter: Option<Element>,
     pub line_backgrounds: Option<Vec<Option<Face>>>,
+    /// Per-line inline decorations (indexed by visible line).
+    pub inline_decorations: Option<Vec<Option<InlineDecoration>>>,
 }

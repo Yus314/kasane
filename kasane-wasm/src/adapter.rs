@@ -685,6 +685,9 @@ impl PluginBackend for WasmPlugin {
                         right_gutter,
                         background,
                         priority: wit_ann.priority,
+                        inline: wit_ann.inline.map(|wit_inline| {
+                            convert::wit_inline_decoration_to_inline_decoration(&wit_inline)
+                        }),
                     }
                 }))
         })

@@ -248,6 +248,7 @@ fn compose_base_from_salsa(
     let line_backgrounds = handles.annotations.line_backgrounds(db).clone();
     let left_gutter = handles.annotations.left_gutter(db).clone();
     let right_gutter = handles.annotations.right_gutter(db).clone();
+    let inline_decorations = handles.annotations.inline_decorations(db).clone();
 
     // When a non-identity DisplayMap is active, line_range must reflect
     // the display line count (which is fewer than buffer lines after fold).
@@ -257,17 +258,19 @@ fn compose_base_from_salsa(
         buffer_rows
     };
 
-    // Incorporate line backgrounds and display_map into buffer element
-    let buffer_with_bg = if line_backgrounds.is_some() || dm_for_element.is_some() {
-        Element::BufferRef {
-            line_range: 0..effective_rows,
-            line_backgrounds,
-            display_map: dm_for_element,
-            state: None,
-        }
-    } else {
-        buffer_el
-    };
+    // Incorporate line backgrounds, display_map, and inline decorations into buffer element
+    let buffer_with_bg =
+        if line_backgrounds.is_some() || dm_for_element.is_some() || inline_decorations.is_some() {
+            Element::BufferRef {
+                line_range: 0..effective_rows,
+                line_backgrounds,
+                display_map: dm_for_element,
+                state: None,
+                inline_decorations,
+            }
+        } else {
+            buffer_el
+        };
 
     // Apply buffer transform chain (imperative)
     let transformed_buffer = registry.apply_transform_chain(

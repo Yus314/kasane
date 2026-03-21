@@ -404,6 +404,7 @@ impl PluginBackend for LineHighlightPlugin {
                     blend: BlendMode::Opaque,
                 }),
                 priority: 0,
+                inline: None,
             })
         } else {
             None
@@ -435,6 +436,7 @@ impl PluginBackend for GutterPlugin {
             right_gutter: None,
             background: None,
             priority: 0,
+            inline: None,
         })
     }
 }

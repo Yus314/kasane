@@ -2,6 +2,7 @@
 
 pub mod cursor;
 mod grid;
+pub mod inline_decoration;
 pub mod markup;
 pub mod paint;
 pub mod pipeline;
@@ -19,6 +20,7 @@ mod tests;
 
 pub use cursor::*;
 pub use grid::{Cell, CellDiff, CellGrid};
+pub use inline_decoration::{InlineDecoration, InlineOp};
 pub use pipeline::{render_pipeline, render_pipeline_direct, scene_render_pipeline};
 pub use pipeline_salsa::{render_pipeline_cached, scene_render_pipeline_cached};
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};

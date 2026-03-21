@@ -119,6 +119,8 @@ pub struct AnnotationResultInput {
     pub left_gutter: Option<crate::element::Element>,
     #[returns(ref)]
     pub right_gutter: Option<crate::element::Element>,
+    #[returns(ref)]
+    pub inline_decorations: Option<Vec<Option<crate::render::InlineDecoration>>>,
 }
 
 /// Plugin overlay contributions.

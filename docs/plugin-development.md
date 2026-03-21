@@ -487,6 +487,7 @@ impl Plugin for CursorLinePlugin {
                     blend: BlendMode::Opaque,
                 }),
                 priority: 0,
+                inline: None,
             })
         } else {
             None

@@ -656,6 +656,7 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                         blend_opaque: true,
                     }),
                     priority: 0,
+                    inline: None,
                 }
             }
 
@@ -666,6 +667,7 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     right_gutter: None,
                     background: None,
                     priority,
+                    inline: None,
                 }
             }
 

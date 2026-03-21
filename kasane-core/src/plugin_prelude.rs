@@ -22,6 +22,9 @@ pub use crate::plugin::{
 // Element tree
 pub use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor, StyleToken};
 
+// Inline decoration
+pub use crate::render::{InlineDecoration, InlineOp};
+
 // Protocol types
 pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor};
 

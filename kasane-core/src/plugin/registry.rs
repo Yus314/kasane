@@ -746,6 +746,7 @@ impl<'a> PluginView<'a> {
                 left_gutter: None,
                 right_gutter: None,
                 line_backgrounds: None,
+                inline_decorations: None,
             };
         }
 
@@ -753,12 +754,15 @@ impl<'a> PluginView<'a> {
         let mut has_left = false;
         let mut has_right = false;
         let mut has_bg = false;
+        let mut has_inline = false;
 
         let mut left_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         let mut right_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         let mut backgrounds: Vec<Option<crate::protocol::Face>> = vec![None; line_count];
+        let mut inline_decorations: Vec<Option<crate::render::InlineDecoration>> =
+            vec![None; line_count];
 
-        for (line, bg_slot) in backgrounds.iter_mut().enumerate().take(line_count) {
+        for line in 0..line_count {
             let mut left_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut right_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut bg_layers: Vec<(BackgroundLayer, PluginId)> = Vec::new();
@@ -780,6 +784,14 @@ impl<'a> PluginView<'a> {
                     }
                     if let Some(bg) = ann.background {
                         bg_layers.push((bg, pid));
+                    }
+                    if let Some(inline) = ann.inline {
+                        debug_assert!(
+                            inline_decorations[line].is_none(),
+                            "Phase 1: only one plugin may provide inline decoration per line"
+                        );
+                        inline_decorations[line] = Some(inline);
+                        has_inline = true;
                     }
                 }
             }
@@ -813,7 +825,7 @@ impl<'a> PluginView<'a> {
 
             if !bg_layers.is_empty() {
                 bg_layers.sort_by_key(|(l, id)| (l.z_order, id.clone()));
-                *bg_slot = Some(bg_layers.last().unwrap().0.face);
+                backgrounds[line] = Some(bg_layers.last().unwrap().0.face);
                 has_bg = true;
             }
         }
@@ -830,6 +842,11 @@ impl<'a> PluginView<'a> {
                 None
             },
             line_backgrounds: if has_bg { Some(backgrounds) } else { None },
+            inline_decorations: if has_inline {
+                Some(inline_decorations)
+            } else {
+                None
+            },
         }
     }
 

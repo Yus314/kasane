@@ -194,3 +194,22 @@ pub(crate) fn overlay_context_to_wit(ctx: &OverlayContext) -> wit::OverlayContex
         existing_overlays: ctx.existing_overlays.iter().map(rect_to_wit).collect(),
     }
 }
+
+pub(crate) fn wit_inline_decoration_to_inline_decoration(
+    wit_deco: &wit::InlineDecoration,
+) -> kasane_core::render::InlineDecoration {
+    let ops = wit_deco
+        .ops
+        .iter()
+        .map(|op| match op {
+            wit::InlineOp::StyleRange(s) => kasane_core::render::InlineOp::Style {
+                range: s.start as usize..s.end as usize,
+                face: super::wit_face_to_face(&s.face),
+            },
+            wit::InlineOp::HideRange(h) => kasane_core::render::InlineOp::Hide {
+                range: h.start as usize..h.end as usize,
+            },
+        })
+        .collect();
+    kasane_core::render::InlineDecoration::new(ops)
+}

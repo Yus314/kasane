@@ -271,6 +271,7 @@ pub(crate) fn build_buffer_core_parts(
     };
     let annotations = registry.collect_annotations(&app_view, &annotate_ctx);
     let line_backgrounds = annotations.line_backgrounds;
+    let inline_decorations = annotations.inline_decorations;
     // When a non-identity DisplayMap is active, line_range must reflect
     // the display line count (which is fewer than buffer lines after fold).
     let effective_rows = if !display_map.is_identity() {
@@ -278,16 +279,18 @@ pub(crate) fn build_buffer_core_parts(
     } else {
         buffer_rows
     };
-    let buffer_element = if line_backgrounds.is_some() || dm_for_element.is_some() {
-        Element::BufferRef {
-            line_range: 0..effective_rows,
-            line_backgrounds,
-            display_map: dm_for_element,
-            state: None,
-        }
-    } else {
-        Element::buffer_ref(0..buffer_rows)
-    };
+    let buffer_element =
+        if line_backgrounds.is_some() || dm_for_element.is_some() || inline_decorations.is_some() {
+            Element::BufferRef {
+                line_range: 0..effective_rows,
+                line_backgrounds,
+                display_map: dm_for_element,
+                state: None,
+                inline_decorations,
+            }
+        } else {
+            Element::buffer_ref(0..buffer_rows)
+        };
     let transformed_buffer =
         registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, &app_view);
     BufferCoreParts {

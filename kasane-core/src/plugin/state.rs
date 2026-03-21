@@ -364,6 +364,7 @@ pub(in crate::plugin) mod tests {
                         blend: BlendMode::Opaque,
                     }),
                     priority: 0,
+                    inline: None,
                 })
             } else {
                 None
@@ -437,6 +438,7 @@ pub(in crate::plugin) mod tests {
                         blend: BlendMode::Opaque,
                     }),
                     priority: 0,
+                    inline: None,
                 })
             } else {
                 None

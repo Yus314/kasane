@@ -219,6 +219,7 @@ fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &Annotate
                 blend: BlendMode::Opaque,
             }),
             priority: 0,
+            inline: None,
         })
     } else {
         None
@@ -226,7 +227,38 @@ fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &Annotate
 }
 ```
 
-`LineAnnotation` consists of four fields: `left_gutter`, `right_gutter`, `background`, and `priority` (controls gutter element ordering). `BackgroundLayer` has `face`, `z_order`, and `blend` (compositing mode); background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
+`LineAnnotation` consists of five fields: `left_gutter`, `right_gutter`, `background`, `priority` (controls gutter element ordering), and `inline` (byte-range inline decoration). `BackgroundLayer` has `face`, `z_order`, and `blend` (compositing mode); background contributions from multiple plugins are composited in `z_order` order. Gutter contributions are composited horizontally.
+
+#### Inline Decoration
+
+The `inline` field provides byte-range operations applied directly to buffer line atoms. This enables styling or hiding sub-ranges of a line without replacing the entire element tree.
+
+`InlineDecoration` contains a sorted, non-overlapping list of `InlineOp`:
+
+- `InlineOp::Style { range, face }` — Override the face for the given byte range
+- `InlineOp::Hide { range }` — Hide the given byte range (omit from output)
+
+**Example** — style bytes 6..11 ("world") in red, hide bytes 0..2 ("he"):
+
+```rust
+fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &AnnotateContext) -> Option<LineAnnotation> {
+    Some(LineAnnotation {
+        left_gutter: None,
+        right_gutter: None,
+        background: None,
+        priority: 0,
+        inline: Some(InlineDecoration::new(vec![
+            InlineOp::Hide { range: 0..2 },
+            InlineOp::Style {
+                range: 6..11,
+                face: Face { fg: Color::Named(NamedColor::Red), ..Face::default() },
+            },
+        ])),
+    })
+}
+```
+
+Ops must be sorted by `range.start` and non-overlapping (enforced by `debug_assert` in `InlineDecoration::new`). Byte ranges operate on UTF-8 byte offsets within the line's atom contents. Phase 1 constraint: only one plugin may provide inline decoration per line.
 
 ### 1.6 Overlay (`contribute_overlay_with_ctx`)
 
