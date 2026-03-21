@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774085076508,
+  "lastUpdate": 1774085321350,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39203,6 +39203,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20295113,
             "range": "± 72413",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "7f27a5c36cc3b7fa2a0d712c7a981199ee55d3f8",
+          "message": "ci: add SRCINFO consistency check and auto-update docs version\n\n- ci.yml: verify PKGBUILD and .SRCINFO field consistency on every PR\n- release.yml: include docs/getting-started.md in the auto-generated\n  update PR so the binary download version stays current\n- update.sh: also update VERSION= line in getting-started.md\n- getting-started.md: use shell variable for version to avoid hardcoded\n  URLs that break on new releases\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T18:12:07+09:00",
+          "tree_id": "9bb72dc49f417e55d17a284926bc9150778569af",
+          "url": "https://github.com/Yus314/kasane/commit/7f27a5c36cc3b7fa2a0d712c7a981199ee55d3f8"
+        },
+        "date": 1774085320857,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4734273,
+            "range": "± 25257",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17410129,
+            "range": "± 33082",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1825821,
+            "range": "± 59419",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20561318,
+            "range": "± 63782",
             "unit": "ns/iter"
           }
         ]
