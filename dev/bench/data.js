@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774061754605,
+  "lastUpdate": 1774061766312,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38723,6 +38723,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20383435,
             "range": "± 49599",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "91413196+Yus314@users.noreply.github.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9025de22a4bdde964cd1478c434eeec3bc279c8d",
+          "message": "Merge pull request #16 from Yus314/renovate/rust-minor-updates\n\ndeps(deps): update rust minor updates",
+          "timestamp": "2026-03-21T11:39:30+09:00",
+          "tree_id": "ef114a8594eb36da62612dcbc5b3da90612846f2",
+          "url": "https://github.com/Yus314/kasane/commit/9025de22a4bdde964cd1478c434eeec3bc279c8d"
+        },
+        "date": 1774061765870,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4703465,
+            "range": "± 10047",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17328613,
+            "range": "± 133877",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1831112,
+            "range": "± 36200",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20522477,
+            "range": "± 97524",
             "unit": "ns/iter"
           }
         ]
