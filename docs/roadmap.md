@@ -110,7 +110,7 @@ Proof / completion criteria (all met):
 
 **Remaining work:**
 
-- P-031: Composition rules for multi-plugin display directives (currently single-plugin constraint)
+- ~~P-031: Composition rules for multi-plugin display directives~~ **Done** — DirectiveSet monoid + `resolve()` with priority-based composition
 - P-032: Formal observed/policy separation (theory organized, not yet enforced)
 - P-040 through P-043: Display unit model, geometry/source mapping/role, visual navigation, plugin-defined navigation policy
 - WASM WIT extension: `display-directives` function for WASM plugins

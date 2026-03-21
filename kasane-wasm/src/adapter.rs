@@ -639,6 +639,12 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn display_directive_priority(&self) -> i16 {
+        // WIT v0.3.0 will add display-directive-priority function.
+        // Until then, default to 0.
+        0
+    }
+
     fn annotate_line_with_ctx(
         &self,
         line: usize,

@@ -498,7 +498,7 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Annotation gutter | `(priority, plugin_id)` | ASC | Lower priority → leftmost |
 | Annotation background | `(z_order, plugin_id)` | ASC, **last wins** | Highest z_order takes the line background |
 | Overlay | `(z_index, plugin_id)` | ASC | Lower z_index → behind; higher → front |
-| Display directive | registration order | **first non-empty wins** | Single-plugin exclusive (§9.3) |
+| Display directive | `(priority, plugin_id)` | `resolve()` composition | Multi-plugin composable (P-031) |
 | Menu item transform | registration order | sequential chain | Output of previous = input of next |
 | Cursor style override | registration order | first non-None wins | Single winner |
 
@@ -625,6 +625,16 @@ In Default Frontend Semantics, Observed-eliding transformation is not the standa
 Display Transformation may change display structure and interaction policy. What it may not change is falsifying Observed State content as "facts given by upstream."
 
 For example, a fold summary may summarize multiple lines into one, but that summary must not be treated as the actual buffer lines sent by Kakoune.
+
+**Multi-plugin composition (P-031):** Multiple plugins may contribute display directives simultaneously. The `resolve()` function composes them deterministically:
+
+- **InsertAfter**: All kept; same-line ordering by `(priority, plugin_id)`.
+- **Hide**: Set union of all ranges (idempotent).
+- **Fold overlap**: Higher `(priority, plugin_id)` wins entirely; lower-priority overlapping fold dropped whole (protects summary integrity).
+- **Fold-Hide partial overlap**: Fold removed (conservative — partial hide invalidates fold summary).
+- **InsertAfter suppression**: Inserts targeting hidden or folded lines removed.
+
+Plugins declare priority via `display_directive_priority()` (default 0). The resolved `Vec<DisplayDirective>` is passed to `DisplayMap::build()` unchanged.
 
 ### 9.4 Meaning of Display Unit
 
@@ -872,6 +882,7 @@ The following gaps have been resolved and are retained for historical reference.
 
 - **Transform and Replacement unification**: At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
 - **Session invisibility to plugins**: Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant.
+- **P-031 Single-plugin display directive exclusivity**: Display directives now support multi-plugin composition via `DirectiveSet` monoid and `resolve()`. Priority-based fold conflict resolution, hide union, and insert suppression enable combining code folding + virtual text from different plugins.
 
 ## 13. Non-Goals
 

@@ -802,7 +802,11 @@ impl<'a> PluginView<'a> {
         }
 
         let line_count = state.visible_line_range().len();
-        let directives = self.collect_exclusive_display_directives(state);
+        let set = self.collect_tagged_display_directives(state);
+        if set.is_empty() {
+            return Arc::new(DisplayMap::identity(line_count));
+        }
+        let directives = crate::display::resolve(&set, line_count);
         let dm = DisplayMap::build(line_count, &directives);
         Arc::new(dm)
     }
@@ -816,34 +820,31 @@ impl<'a> PluginView<'a> {
             return Vec::new();
         }
 
-        self.collect_exclusive_display_directives(state)
+        let set = self.collect_tagged_display_directives(state);
+        if set.is_empty() {
+            return Vec::new();
+        }
+        let line_count = state.visible_line_range().len();
+        crate::display::resolve(&set, line_count)
     }
 
-    fn collect_exclusive_display_directives(
-        &self,
-        state: &AppState,
-    ) -> Vec<crate::display::DisplayDirective> {
-        let mut winner: Option<(PluginId, Vec<crate::display::DisplayDirective>)> = None;
+    fn collect_tagged_display_directives(&self, state: &AppState) -> crate::display::DirectiveSet {
+        let mut set = crate::display::DirectiveSet::default();
         for (i, plugin) in self.plugins.iter().enumerate() {
             if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
                 continue;
             }
             let directives = plugin.display_directives(state);
-            if !directives.is_empty() {
-                match &winner {
-                    None => winner = Some((plugin.id(), directives)),
-                    Some((existing, _)) => {
-                        let ignored = plugin.id();
-                        tracing::warn!(
-                            existing_plugin = existing.0.as_str(),
-                            ignored_plugin = ignored.0.as_str(),
-                            "ignoring display directives from additional plugin"
-                        );
-                    }
-                }
+            if directives.is_empty() {
+                continue;
+            }
+            let priority = plugin.display_directive_priority();
+            let plugin_id = plugin.id();
+            for d in directives {
+                set.push(d, priority, plugin_id.clone());
             }
         }
-        winner.map_or_else(Vec::new, |(_, directives)| directives)
+        set
     }
 
     /// Collect overlay contributions with collision-avoidance context.

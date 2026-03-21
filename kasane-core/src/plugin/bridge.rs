@@ -34,6 +34,7 @@ pub(crate) trait ErasedPlugin: Send {
     fn authorities(&self) -> PluginAuthorities;
     fn allows_process_spawn(&self) -> bool;
     fn transform_priority(&self) -> i16;
+    fn display_directive_priority(&self) -> i16;
 
     // State transitions
     fn on_init_effects_erased(
@@ -159,6 +160,9 @@ impl<P: Plugin> ErasedPlugin for P {
     }
     fn transform_priority(&self) -> i16 {
         Plugin::transform_priority(self)
+    }
+    fn display_directive_priority(&self) -> i16 {
+        Plugin::display_directive_priority(self)
     }
 
     fn on_init_effects_erased(
@@ -431,6 +435,10 @@ impl PluginBackend for PluginBridge {
 
     fn transform_priority(&self) -> i16 {
         self.inner.transform_priority()
+    }
+
+    fn display_directive_priority(&self) -> i16 {
+        self.inner.display_directive_priority()
     }
 
     // --- Lifecycle ---

@@ -105,6 +105,7 @@ struct AuthorityPlugin {
 struct DisplayTransformPlugin {
     id: &'static str,
     directives: Vec<DisplayDirective>,
+    priority: i16,
 }
 
 impl PluginBackend for DisplayTransformPlugin {
@@ -118,6 +119,10 @@ impl PluginBackend for DisplayTransformPlugin {
 
     fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
         self.directives.clone()
+    }
+
+    fn display_directive_priority(&self) -> i16 {
+        self.priority
     }
 }
 
@@ -360,55 +365,136 @@ fn test_register_backend_replacement_updates_authorities() {
 }
 
 #[test]
-fn test_collect_display_directives_uses_first_non_empty_contributor() {
+fn test_collect_display_directives_composes_multi_plugin() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(DisplayTransformPlugin {
         id: "first",
         directives: vec![DisplayDirective::Hide { range: 1..3 }],
+        priority: 0,
     }));
     registry.register_backend(Box::new(DisplayTransformPlugin {
         id: "second",
         directives: vec![DisplayDirective::InsertAfter {
-            after: 0,
-            content: "ignored".to_string(),
+            after: 3,
+            content: "virtual".to_string(),
             face: Face::default(),
         }],
+        priority: 0,
     }));
 
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    assert_eq!(
-        registry.collect_display_directives(&state),
-        vec![DisplayDirective::Hide { range: 1..3 }]
+    let directives = registry.collect_display_directives(&state);
+    // Both plugins' directives are present (Hide + InsertAfter)
+    assert!(
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { .. }))
+    );
+    assert!(
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::InsertAfter { .. }))
     );
 }
 
 #[test]
-fn test_collect_display_map_ignores_later_display_transform_plugins() {
+fn test_collect_display_map_composes_multi_plugin() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(DisplayTransformPlugin {
         id: "first",
         directives: vec![DisplayDirective::Hide { range: 1..3 }],
+        priority: 0,
     }));
     registry.register_backend(Box::new(DisplayTransformPlugin {
         id: "second",
         directives: vec![DisplayDirective::InsertAfter {
-            after: 0,
-            content: "ignored".to_string(),
+            after: 3,
+            content: "virtual".to_string(),
             face: Face::default(),
         }],
+        priority: 0,
     }));
 
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
     let display_map = registry.collect_display_map(&state);
-    assert_eq!(display_map.display_line_count(), 2);
+    // 4 lines - 2 hidden + 1 virtual = 3 display lines
+    assert_eq!(display_map.display_line_count(), 3);
     assert_eq!(display_map.buffer_to_display(0), Some(0));
-    assert_eq!(display_map.buffer_to_display(1), None);
-    assert_eq!(display_map.buffer_to_display(2), None);
-    assert_eq!(display_map.buffer_to_display(3), Some(1));
+    assert_eq!(display_map.buffer_to_display(1), None); // hidden
+    assert_eq!(display_map.buffer_to_display(2), None); // hidden
+    assert_eq!(display_map.buffer_to_display(3), Some(1)); // visible
+    // display line 2 is the virtual text
+    assert_eq!(display_map.display_to_buffer(2), None);
+}
+
+#[test]
+fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "low",
+        directives: vec![DisplayDirective::Fold {
+            range: 1..4,
+            summary: "low-fold".to_string(),
+            face: Face::default(),
+        }],
+        priority: 0,
+    }));
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "high",
+        directives: vec![DisplayDirective::Fold {
+            range: 2..5,
+            summary: "high-fold".to_string(),
+            face: Face::default(),
+        }],
+        priority: 10,
+    }));
+
+    let mut state = AppState::default();
+    state.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
+
+    let directives = registry.collect_display_directives(&state);
+    let fold_summaries: Vec<&str> = directives
+        .iter()
+        .filter_map(|d| match d {
+            DisplayDirective::Fold { summary, .. } => Some(summary.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fold_summaries, vec!["high-fold"]);
+}
+
+#[test]
+fn test_collect_display_directives_single_plugin_unchanged() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "only",
+        directives: vec![
+            DisplayDirective::Hide { range: 1..3 },
+            DisplayDirective::InsertAfter {
+                after: 0,
+                content: "virtual".to_string(),
+                face: Face::default(),
+            },
+        ],
+        priority: 0,
+    }));
+
+    let mut state = AppState::default();
+    state.lines = vec![vec![], vec![], vec![], vec![]];
+
+    let directives = registry.collect_display_directives(&state);
+    assert!(
+        directives
+            .iter()
+            .any(|d| matches!(d, DisplayDirective::Hide { range } if *range == (1..3)))
+    );
+    assert!(directives.iter().any(
+        |d| matches!(d, DisplayDirective::InsertAfter { content, .. } if content == "virtual")
+    ));
 }
 
 #[test]

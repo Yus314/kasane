@@ -89,8 +89,14 @@ The **Display Transform API** (`display_directives()`) provides the first concre
 - `InteractionPolicy`: `Normal`, `ReadOnly` (clicks suppressed), `Skip` (navigation skips)
 - `SyntheticContent`: text and face for non-buffer display lines
 
+**Multi-plugin composition (P-031):**
+- Multiple plugins may contribute display directives simultaneously
+- Composition is deterministic via `resolve()`: Hide ranges are unioned, InsertAfter lines accumulate, overlapping Folds are resolved by `(priority, plugin_id)` (higher wins)
+- Plugins declare priority via `display_directive_priority()` (default 0)
+- Folds that partially overlap hidden ranges are conservatively removed (protects summary integrity)
+- Inserts targeting hidden or folded lines are suppressed
+
 **Constraints:**
-- In the initial implementation, only a single plugin may contribute display directives (`debug_assert!` enforced)
 - Display-oriented navigation (Display Units, P-040..P-043) is not yet implemented
 - Kakoune controls the viewport and cursor movement, so true code folding (where folded lines are skipped during navigation) is not possible; `Fold` is best suited for read-only summaries
 - `InsertAfter` (virtual text) is the primary practical use case
@@ -320,7 +326,7 @@ fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<Display
 
 The `DisplayMap` is integrated into: paint (buffer rendering), cursor positioning (`buffer_to_display`), mouse input (`display_to_buffer` with interaction policy check), and the patch optimization layer.
 
-Future extensions: display unit model (P-040..P-043), multi-plugin directive composition, WASM WIT `display-directives` function.
+Future extensions: display unit model (P-040..P-043), WASM WIT `display-directive-priority` function.
 
 ## 2. Element API
 

@@ -4,6 +4,7 @@
 //! diverges from the buffer line count. `DisplayMap` provides O(1) bidirectional
 //! mapping between the two coordinate systems.
 
+pub mod resolve;
 #[cfg(test)]
 mod tests;
 
@@ -11,6 +12,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::protocol::Face;
+
+pub use resolve::{DirectiveSet, TaggedDirective, resolve};
 
 /// Plugin-declared display transformation directive.
 #[derive(Debug, Clone, PartialEq)]

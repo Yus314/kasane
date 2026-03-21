@@ -205,6 +205,11 @@ pub trait PluginBackend: Any {
 
     // === Display Transform ===
 
+    /// Priority for display directive composition (higher = wins overlap conflicts).
+    fn display_directive_priority(&self) -> i16 {
+        0
+    }
+
     /// Return display transformation directives (fold, hide, insert virtual text).
     fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
         vec![]

@@ -277,6 +277,10 @@ pub trait Plugin: Send + 'static {
         0
     }
 
+    fn display_directive_priority(&self) -> i16 {
+        0
+    }
+
     fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
         let _ = (state, app);
         vec![]
