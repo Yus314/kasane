@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774080721880,
+  "lastUpdate": 1774083371506,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38963,6 +38963,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20356608,
             "range": "± 308513",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "643ba303467158bc8e0d4f802618e9fb2ba68289",
+          "message": "chore(aur): add kasane-bin AUR package for Arch Linux\n\nProvides PKGBUILD and .SRCINFO for prebuilt binary installation via\n`yay -S kasane-bin`. Pulls stripped binaries from GitHub Releases\n(x86_64 + aarch64). AUR push is manual; this copy enables review and\nchange tracking within the main repository.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T17:39:55+09:00",
+          "tree_id": "0ac432b64e688c6a8802d9fb4624790f6742810e",
+          "url": "https://github.com/Yus314/kasane/commit/643ba303467158bc8e0d4f802618e9fb2ba68289"
+        },
+        "date": 1774083370877,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4717935,
+            "range": "± 72495",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17258238,
+            "range": "± 112767",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1822094,
+            "range": "± 38701",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20373541,
+            "range": "± 57898",
             "unit": "ns/iter"
           }
         ]
