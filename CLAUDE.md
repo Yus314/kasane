@@ -14,7 +14,7 @@ cargo build                              # TUI only
 cargo build --features gui               # Include GPU backend
 
 # Test
-cargo test                               # All tests (~1100)
+cargo test                               # All tests (~1150)
 cargo test -p kasane-core                # Single crate
 cargo test -p kasane-core -- test_name   # Single test by name
 

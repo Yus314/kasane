@@ -16,6 +16,8 @@ The plugin API is extensible — plugins can:
 - Transform existing elements (status bar customization)
 - Handle keyboard and mouse input
 - Override default wheel scroll policy
+- Apply structured buffer edits
+- Inject synthetic input events
 
 ## Bundled WASM Plugins
 
@@ -77,7 +79,7 @@ auto_discover = false
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@0.11.0`. If you are upgrading from an older build,
+`kasane:plugin@0.12.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
 will not load.
 

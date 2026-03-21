@@ -183,12 +183,13 @@ The semantic benefits of TEA are as follows.
 
 Commands fall into the following categories.
 
-- Protocol commands: `SendToKakoune` (key forwarding, command execution)
-- Frontend commands: `Paste`, `Quit`, `RequestRedraw(DirtyFlags)`
+- Protocol commands: `SendToKakoune` (key forwarding, command execution), `EditBuffer` (structured buffer edits translated to key sequences)
+- Frontend commands: `Paste`, `Quit`, `RequestRedraw(DirtyFlags)`, `InjectInput` (synthetic input re-dispatch with depth guard)
 - Timer and scheduling: `ScheduleTimer`
 - Plugin communication: `PluginMessage` (inter-plugin messaging)
 - Configuration: `SetConfig`, `RegisterThemeTokens`
-- Process management: `SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`
+- Process management: `SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`, `ResizePty`
+- Surface management: `RegisterSurface`, `UnregisterSurface`, `RegisterSurfaceRequested`, `UnregisterSurfaceKey`
 - Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `Pane(PaneCommand)`
 
 The runtime receives Commands and executes them as side effects. The important invariant is that Command generation is deterministic given the same state and input, even though Command execution may involve I/O.

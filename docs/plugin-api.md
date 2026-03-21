@@ -14,7 +14,6 @@ The following operations are currently outside the scope of the plugin API.
 
 | Out-of-scope operation | Reason |
 |---|---|
-| External process execution | No corresponding `Command` variant |
 | File system access | WASM is prohibited by the sandbox. Native is technically possible but lacks an async infrastructure |
 | Network communication | Same as above |
 | Text input widgets | No input elements in `Element`. Text editing is delegated to Kakoune by design |
@@ -587,6 +586,8 @@ Runtime and session-ready effects carry `Command` values in their `commands` fie
 | `Workspace(WorkspaceCommand)` | Workspace operations |
 | `RegisterSurface { surface, placement }` | Register a plugin-owned surface into the workspace |
 | `UnregisterSurface { surface_id }` | Unregister a plugin-owned surface |
+| `EditBuffer { edits }` | Apply structured buffer edits (translated to Kakoune key sequences) |
+| `InjectInput(InputEvent)` | Re-dispatch a synthetic input event through the update system |
 | `RegisterThemeTokens(tokens)` | Register custom theme tokens |
 
 `SessionCommand` has the following variants:
@@ -597,9 +598,28 @@ Runtime and session-ready effects carry `Command` values in their `commands` fie
 
 The V1 session runtime can hold multiple sessions, but only one active session is rendered at a time. The Kakoune reader for inactive sessions remains alive, and its events continue to be reflected in the off-screen session snapshot. When activated, that snapshot is restored, but automatic generation of session-bound surfaces and multi-session dedicated UI are not yet implemented.
 
-In WASM, these are represented as `command` variants. `SpawnPaneClient`, `ClosePaneClient`, `Workspace`, `RegisterSurface`, `UnregisterSurface`, and `RegisterThemeTokens` are currently not supported in WASM. Process execution commands (`SpawnProcess`, etc.) and session management commands (`spawn-session`, `close-session`) have been introduced on the WIT side.
+In WASM, these are represented as `command` variants. `SpawnPaneClient`, `ClosePaneClient`, `Workspace`, `RegisterSurface`, `UnregisterSurface`, and `RegisterThemeTokens` are currently not supported in WASM. Process execution commands (`SpawnProcess`, etc.), session management commands (`spawn-session`, `close-session`), `edit-buffer`, and `inject-key` have been introduced on the WIT side.
 
-#### 3.5.1 Session Observability
+#### 3.5.1 Buffer Editing
+
+`Command::EditBuffer { edits }` allows plugins to apply structured edits to the buffer. Each `BufferEdit` specifies a range (1-indexed `BufferPosition { line, column }`) and a replacement string. The framework translates edits into Kakoune key sequences via `edits_to_keys()`:
+
+- Edits are applied bottom-up (higher lines first) to preserve line/column validity
+- Zero-width range with non-empty replacement = insertion at point
+- Non-zero range with empty replacement = deletion
+- Non-zero range with non-empty replacement = replacement (select + `c` + text)
+
+`EditBuffer` is an immediate command — it is executed inline during command processing. In WASM, use the `edit-buffer(list<buffer-edit>)` command variant.
+
+#### 3.5.2 Input Injection
+
+`Command::InjectInput(InputEvent)` re-dispatches a synthetic input event through the `update()` state machine, as if the user had pressed the key. This enables plugins to programmatically trigger input-driven behavior.
+
+- Injection is recursive: commands produced by the injected event are processed in the same batch
+- A depth guard (`MAX_INJECT_DEPTH = 10`) prevents infinite recursion
+- Only `InputEvent::Key` is supported via WASM (`inject-key(key-event)` command variant)
+
+#### 3.5.3 Session Observability
 
 Plugins can observe session state and control session switching:
 
