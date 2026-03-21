@@ -29,7 +29,6 @@ use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
-    sync_plugin_epoch,
 };
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
@@ -385,7 +384,6 @@ where
 
             // Sync Salsa inputs from updated state
             sync_inputs_from_state(&mut salsa_db, &state, &salsa_handles);
-            let _epoch_changed = sync_plugin_epoch(&mut salsa_db, &registry, &salsa_handles);
             let view = registry.view();
             sync_display_directives(&mut salsa_db, &state, &view, &salsa_handles);
             sync_plugin_contributions(&mut salsa_db, &state, &view, &salsa_handles);

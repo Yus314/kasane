@@ -73,24 +73,12 @@ pub struct ConfigInput {
     pub assistant_art: Option<Vec<String>>,
 }
 
-/// Plugin contribution epoch — increments when plugin outputs change.
-///
-/// Tracked functions that depend on plugin contributions read this input
-/// to detect when re-evaluation is needed, without storing the actual
-/// contribution data in Salsa.
-#[salsa::input]
-pub struct PluginEpochInput {
-    pub epoch: u64,
-}
-
 /// Plugin slot contributions snapshot.
 ///
 /// Stores the FlexChild vectors for each slot, collected from plugins
-/// during the sync phase. A generation counter triggers Salsa revision
-/// bumps when contributions change.
+/// during the sync phase.
 #[salsa::input]
 pub struct SlotContributionsInput {
-    pub generation: u64,
     #[returns(ref)]
     pub buffer_left: Vec<crate::element::FlexChild>,
     #[returns(ref)]
@@ -113,7 +101,6 @@ pub struct SlotContributionsInput {
 /// collected during the sync phase.
 #[salsa::input]
 pub struct AnnotationResultInput {
-    pub generation: u64,
     #[returns(ref)]
     pub line_backgrounds: Option<Vec<Option<crate::protocol::Face>>>,
     #[returns(ref)]
@@ -129,7 +116,6 @@ pub struct AnnotationResultInput {
 /// Stores overlay elements collected from plugins during the sync phase.
 #[salsa::input]
 pub struct PluginOverlaysInput {
-    pub generation: u64,
     #[returns(ref)]
     pub overlays: Vec<crate::element::Overlay>,
 }
@@ -137,7 +123,7 @@ pub struct PluginOverlaysInput {
 /// Display transformation directives from plugins.
 ///
 /// Contains the raw directives and buffer line count needed to build a `DisplayMap`.
-/// Set by `sync_display_directives()` when `BUFFER_CONTENT` or plugin epoch changes.
+/// Set by `sync_display_directives()` when `BUFFER_CONTENT` changes.
 #[salsa::input]
 pub struct DisplayDirectivesInput {
     #[returns(ref)]

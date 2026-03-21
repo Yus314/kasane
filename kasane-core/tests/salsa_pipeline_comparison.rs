@@ -15,7 +15,6 @@ use kasane_core::render::{CellGrid, render_pipeline, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
-    sync_plugin_epoch,
 };
 use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
 use kasane_core::test_support::{assert_grids_equal, test_state_80x24};
@@ -66,7 +65,7 @@ fn setup_salsa_with_plugins(
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
-    let _epoch_changed = sync_plugin_epoch(&mut db, registry, &handles);
+
     sync_display_directives(&mut db, state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, state, &registry.view(), &handles);
     (db, handles)
@@ -263,7 +262,7 @@ fn compare_memoization_consistency() {
     // Change only buffer, re-sync, render again
     state.lines = vec![vec![make_atom("world")]];
     sync_inputs_from_state(&mut db, &state, &handles);
-    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
@@ -667,7 +666,7 @@ fn compare_menu_appears_while_info_visible() {
     // Now add a menu and re-render
     state.menu = Some(make_menu_state());
     sync_inputs_from_state(&mut db, &state, &handles);
-    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
@@ -694,7 +693,7 @@ fn compare_menu_disappears_while_info_visible() {
     // Remove the menu
     state.menu = None;
     sync_inputs_from_state(&mut db, &state, &handles);
-    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 

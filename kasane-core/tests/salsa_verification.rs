@@ -9,7 +9,7 @@ use kasane_core::protocol::{Atom, Coord, CursorMode, Face};
 use kasane_core::render::CursorStyle;
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_queries;
-use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state, sync_plugin_epoch};
+use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
 use kasane_core::state::AppState;
 
 fn make_atom(text: &str) -> Atom {
@@ -242,46 +242,4 @@ fn selective_dirty_preserves_unrelated_inputs() {
         handles.status.status_line(&db)[0].contents.as_str(),
         "status"
     );
-}
-
-// ---------------------------------------------------------------------------
-// Plugin epoch tests (Phase 2-2)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn plugin_epoch_starts_at_zero() {
-    let mut db = KasaneDatabase::default();
-    let handles = SalsaInputHandles::new(&mut db);
-
-    assert_eq!(salsa_queries::plugin_epoch(&db, handles.plugin_epoch), 0);
-}
-
-#[test]
-fn plugin_epoch_no_bump_when_no_plugins() {
-    use kasane_core::plugin::PluginRuntime;
-
-    let mut db = KasaneDatabase::default();
-    let handles = SalsaInputHandles::new(&mut db);
-    let registry = PluginRuntime::new();
-
-    let bumped = sync_plugin_epoch(&mut db, &registry, &handles);
-    assert!(!bumped, "epoch should not bump with no plugins");
-    assert_eq!(salsa_queries::plugin_epoch(&db, handles.plugin_epoch), 0);
-}
-
-#[test]
-fn plugin_epoch_tracked_function_dependency() {
-    let mut db = KasaneDatabase::default();
-    let handles = SalsaInputHandles::new(&mut db);
-
-    // Initial read
-    let e1 = salsa_queries::plugin_epoch(&db, handles.plugin_epoch);
-    assert_eq!(e1, 0);
-
-    // Manually bump epoch (simulates sync_plugin_epoch detecting change)
-    use salsa::Setter;
-    handles.plugin_epoch.set_epoch(&mut db).to(1);
-
-    let e2 = salsa_queries::plugin_epoch(&db, handles.plugin_epoch);
-    assert_eq!(e2, 1);
 }

@@ -35,8 +35,8 @@ bitflags! {
     ///
     /// 1. **Salsa sync hints** — `sync_inputs_from_state()` checks flags to decide which
     ///    Salsa inputs need updating.
-    /// 2. **Plugin contribution gating** — epoch bump via `sync_plugin_epoch()` triggers
-    ///    re-collection of plugin contributions when plugin state changes.
+    /// 2. **Plugin contribution gating** — `prepare_plugin_cache()` compares plugin state
+    ///    hashes to gate re-collection of plugin contributions.
     /// 3. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirtyFlags: u16 {

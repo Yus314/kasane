@@ -7,7 +7,7 @@
 
 use salsa::{Durability, Setter};
 
-use crate::plugin::{AppView, PluginRuntime, PluginView};
+use crate::plugin::{AppView, PluginView};
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_inputs::*;
 use crate::state::AppState;
@@ -21,7 +21,6 @@ pub struct SalsaInputHandles {
     pub menu: MenuInput,
     pub info: InfoInput,
     pub config: ConfigInput,
-    pub plugin_epoch: PluginEpochInput,
     pub display_directives: DisplayDirectivesInput,
     pub slot_contributions: SlotContributionsInput,
     pub annotations: AnnotationResultInput,
@@ -64,11 +63,9 @@ impl SalsaInputHandles {
                 "░".to_string(),
                 None,
             ),
-            plugin_epoch: PluginEpochInput::new(db, 0),
             display_directives: DisplayDirectivesInput::new(db, vec![], 0),
             slot_contributions: SlotContributionsInput::new(
                 db,
-                0,
                 vec![],
                 vec![],
                 vec![],
@@ -77,8 +74,8 @@ impl SalsaInputHandles {
                 vec![],
                 vec![],
             ),
-            annotations: AnnotationResultInput::new(db, 0, None, None, None, None),
-            plugin_overlays: PluginOverlaysInput::new(db, 0, vec![]),
+            annotations: AnnotationResultInput::new(db, None, None, None, None),
+            plugin_overlays: PluginOverlaysInput::new(db, vec![]),
         }
     }
 }
@@ -194,9 +191,8 @@ pub fn sync_inputs_from_state(
 
 /// Synchronize plugin contributions (slots, annotations, overlays) into Salsa inputs.
 ///
-/// Call this after `prepare_plugin_cache()`, `sync_plugin_epoch()`, and
-/// `sync_display_directives()`. Collects plugin contributions and stores
-/// them as Salsa inputs for memoization.
+/// Call this after `prepare_plugin_cache()` and `sync_display_directives()`.
+/// Collects plugin contributions and stores them as Salsa inputs for memoization.
 pub fn sync_plugin_contributions(
     db: &mut KasaneDatabase,
     state: &AppState,
@@ -243,8 +239,6 @@ pub fn sync_plugin_contributions(
     // Slot contributions
     let view = AppView::new(state);
     let ctx = ContributeContext::new(&view, None);
-    let next_gen = inputs.slot_contributions.generation(db) + 1;
-    inputs.slot_contributions.set_generation(db).to(next_gen);
     inputs
         .slot_contributions
         .set_buffer_left(db)
@@ -285,8 +279,6 @@ pub fn sync_plugin_contributions(
         pane_focused: true,
     };
     let result = registry.collect_annotations(&AppView::new(state), &annotate_ctx);
-    let next_gen = inputs.annotations.generation(db) + 1;
-    inputs.annotations.set_generation(db).to(next_gen);
     inputs
         .annotations
         .set_line_backgrounds(db)
@@ -320,14 +312,12 @@ pub fn sync_plugin_contributions(
             anchor: oc.anchor,
         })
         .collect();
-    let next_gen = inputs.plugin_overlays.generation(db) + 1;
-    inputs.plugin_overlays.set_generation(db).to(next_gen);
     inputs.plugin_overlays.set_overlays(db).to(overlays);
 }
 
 /// Synchronize display directives from plugins into Salsa.
 ///
-/// Call this after `prepare_plugin_cache()` and `sync_plugin_epoch()`.
+/// Call this after `prepare_plugin_cache()`.
 pub fn sync_display_directives(
     db: &mut KasaneDatabase,
     state: &AppState,
@@ -346,25 +336,4 @@ pub fn sync_display_directives(
         .display_directives
         .set_buffer_line_count(db)
         .to(line_count);
-}
-
-/// Synchronize plugin epoch into Salsa.
-///
-/// Call this after `PluginRuntime::prepare_plugin_cache()` each frame.
-/// If any plugin's state hash changed, increments the epoch counter so
-/// Salsa tracked functions that depend on `PluginEpochInput` will re-evaluate.
-///
-/// Returns `true` if the epoch was bumped (i.e., plugin outputs may have changed).
-pub fn sync_plugin_epoch(
-    db: &mut KasaneDatabase,
-    registry: &PluginRuntime,
-    inputs: &SalsaInputHandles,
-) -> bool {
-    if registry.any_plugin_state_changed() {
-        let next = inputs.plugin_epoch.epoch(db) + 1;
-        inputs.plugin_epoch.set_epoch(db).to(next);
-        true
-    } else {
-        false
-    }
 }

@@ -6,7 +6,7 @@
 use crate::protocol::CursorMode;
 use crate::render::CursorStyle;
 use crate::salsa_db::KasaneDb;
-use crate::salsa_inputs::{ConfigInput, CursorInput, PluginEpochInput, StatusInput};
+use crate::salsa_inputs::{ConfigInput, CursorInput, StatusInput};
 
 /// Available height (rows - status bar).
 #[salsa::tracked]
@@ -40,15 +40,4 @@ pub fn cursor_style_query(
         cursor.cursor_mode(db),
         status.status_mode_line(db),
     )
-}
-
-/// Read the plugin contribution epoch.
-///
-/// Tracked functions that depend on plugin outputs should call this to
-/// establish a Salsa dependency on the epoch. When any plugin's state
-/// hash changes, `sync_plugin_epoch()` bumps this value, causing
-/// dependent tracked functions to re-evaluate.
-#[salsa::tracked]
-pub fn plugin_epoch(db: &dyn KasaneDb, input: PluginEpochInput) -> u64 {
-    input.epoch(db)
 }

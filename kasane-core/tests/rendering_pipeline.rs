@@ -648,7 +648,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
         SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
-        sync_plugin_contributions, sync_plugin_epoch,
+        sync_plugin_contributions,
     };
     use kasane_core::state::DirtyFlags;
 
@@ -663,7 +663,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, &handles);
-    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
@@ -714,7 +714,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
         SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
-        sync_plugin_contributions, sync_plugin_epoch,
+        sync_plugin_contributions,
     };
     use kasane_core::state::DirtyFlags;
 
@@ -737,7 +737,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, &handles);
-    let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
+
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 

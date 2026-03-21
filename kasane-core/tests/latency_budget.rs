@@ -245,7 +245,7 @@ fn salsa_full_frame_under_2ms() {
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
         SalsaInputHandles, sync_display_directives, sync_inputs_from_state,
-        sync_plugin_contributions, sync_plugin_epoch,
+        sync_plugin_contributions,
     };
     use kasane_core::state::DirtyFlags;
 
@@ -259,7 +259,6 @@ fn salsa_full_frame_under_2ms() {
     // Warmup
     for _ in 0..20 {
         sync_inputs_from_state(&mut db, &state, &handles);
-        let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
         sync_display_directives(&mut db, &state, &registry.view(), &handles);
         sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
         let _result = render_pipeline_cached(
@@ -281,7 +280,6 @@ fn salsa_full_frame_under_2ms() {
         .map(|_| {
             let start = Instant::now();
             sync_inputs_from_state(&mut db, &state, &handles);
-            let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
             sync_display_directives(&mut db, &state, &registry.view(), &handles);
             sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
             let _result = render_pipeline_cached(
