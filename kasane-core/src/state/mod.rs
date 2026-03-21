@@ -35,12 +35,9 @@ bitflags! {
     ///
     /// 1. **Salsa sync hints** — `sync_inputs_from_state()` checks flags to decide which
     ///    Salsa inputs need updating.
-    /// 2. **Plugin contribution gating** — `sync_plugin_contributions()` uses
-    ///    `contribute_deps_union()` / `annotate_deps()` / `transform_deps()` to skip
-    ///    re-collection when irrelevant flags are set.
+    /// 2. **Plugin contribution gating** — epoch bump via `sync_plugin_epoch()` triggers
+    ///    re-collection of plugin contributions when plugin state changes.
     /// 3. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
-    /// 5. **Section deps** — `EffectiveSectionDeps` in PluginRuntime unions plugin deps
-    ///    with core section deps for Salsa-aware invalidation.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirtyFlags: u16 {
         /// Buffer content changed (lines, faces, widget_columns, etc.).

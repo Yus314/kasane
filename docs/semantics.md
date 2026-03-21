@@ -207,7 +207,7 @@ The important point is that `DirtyFlags` represents "what kind of information ha
 - `BUFFER_CONTENT`: Buffer lines, faces, and structural changes received via `draw`
 - `BUFFER_CURSOR`: Cursor position, cursor mode, and secondary cursor coordinates
 
-This split is a semantic design decision, not merely an optimization. It encodes the invariant that cursor movement alone does not change the meaning of the buffer body. Consequently, `BUILD_BASE_DEPS` includes `BUFFER_CONTENT` but excludes `BUFFER_CURSOR`, enabling cursor-only redraws without rebuilding the base section Element tree.
+This split is a semantic design decision, not merely an optimization. It encodes the invariant that cursor movement alone does not change the meaning of the buffer body. Consequently, the Salsa input separation places buffer content in `BufferInput` and cursor state in `CursorInput`, enabling cursor-only changes to skip base section re-evaluation.
 
 The composite flag `BUFFER` is defined as `BUFFER_CONTENT | BUFFER_CURSOR` for convenience.
 
@@ -254,16 +254,13 @@ Correctness here means that the observable rendering result is consistent with t
 
 ### 5.2 Policy Semantics
 
-Kasane's actual fast paths do not always recompute `render_exact(S)` itself. They perform policy-relative incremental rendering based on `DirtyFlags`, various caches, and `stable()`.
+Policy Semantics describes the practical rendering produced by Salsa-based incremental evaluation. It is the meaning of the output when memoization and early-cutoff may skip recomputation of unchanged subgraphs.
 
-Therefore, practical correctness is divided into two tiers.
+In the current implementation, Exact Semantics and Policy Semantics coincide. Salsa's automatic dependency tracking ensures that cached rendering produces the same result as complete re-rendering — there is no intentional staleness.
 
-- Exact Semantics: The meaning of complete re-rendering
-- Policy Semantics: The meaning of incremental rendering under the current invalidation policy
+A future optimization (e.g., introducing `PartialEq` for `Element` to enable fine-grained output-level early-cutoff) could reintroduce a gap between the two tiers. If that happens, the distinction will be re-specified here.
 
-Where `stable()` is involved, Policy Semantics is weaker than Exact Semantics. This is not a defect but an intentional specification.
-
-However, in Default Frontend Semantics, policy-permitted staleness must remain within the range that does not break "the meaning existing users expect from a `kak` replacement." Staleness tolerance may exist for the freedom of plugin-defined extensions, but it must not take priority over the semantic consistency of the core frontend.
+In Default Frontend Semantics, any future policy-permitted staleness must remain within the range that does not break "the meaning existing users expect from a `kak` replacement." Staleness tolerance may exist for the freedom of plugin-defined extensions, but it must not take priority over the semantic consistency of the core frontend.
 
 ### 5.3 Separation of Responsibilities: view, layout, paint
 
@@ -326,17 +323,13 @@ Correctness of this cycle requires that `diff()` detects all cells that have cha
 
 ### 6.2 Section-Level Invalidation
 
-The current core view is primarily divided into `base`, `menu`, and `info` sections. Cache invalidation is performed at this section granularity.
+The current core view is primarily divided into `base`, `menu`, and `info` sections. Salsa input granularity (`BufferInput`, `StatusInput`, `MenuInput`, `InfoInput`, etc.) provides natural section-level isolation — changes to one input struct do not trigger re-evaluation of tracked functions that depend only on other inputs.
 
 This design means that a menu change does not always require rebuilding the buffer body.
 
 ### 6.3 ViewCache
 
-> **Superseded.** `ViewCache` has been removed. Salsa incremental computation is now the sole caching layer for element tree construction (see ADR-020). This section is retained for historical reference.
-
-`ViewCache` holds `Element` trees or their subtrees and skips reconstruction when the corresponding dirty flags are not set.
-
-`ViewCache` performs policy-driven reuse based on `DirtyFlags` and component deps, not exact dependency analysis.
+> Removed. Replaced by Salsa incremental computation (ADR-020).
 
 ### 6.4 SceneCache
 
@@ -344,105 +337,77 @@ This design means that a menu change does not always require rebuilding the buff
 
 ### 6.5 PaintPatch
 
-> **Superseded.** `PaintPatch` has been removed. Salsa incremental computation handles all memoization (see ADR-020). This section is retained for historical reference.
-
-`PaintPatch` is a compiled fast path on the TUI side that performs direct cell updates for specific change patterns. It is an alternative to the full pipeline.
-
-The correctness of a PaintPatch is defined by three conditions.
-
-```text
-For a PaintPatch P with guard predicate guard_P(dirty):
-
-  (1) Guard soundness:
-      P.can_apply(dirty) = true  →  guard_P(dirty) holds
-      P.can_apply(dirty) = false →  P is not applied
-
-  (2) Observational equivalence:
-      P.apply(S, dirty, grid) ≡obs full_pipeline(S, dirty, grid)
-      for all states S where guard_P(dirty) holds
-
-  (3) Spatial isolation:
-      For all cells c outside P's designated region:
-        grid[c] after P.apply = grid[c] before P.apply
-```
-
-Current built-in patches and their guard predicates:
-
-- `StatusBarPatch`: `dirty == STATUS` — repaints only the status row (~80 cells vs full grid)
-- `MenuSelectionPatch`: `dirty == MENU_SELECTION` — swaps face on old/new selected menu items (~10 cells)
-- `CursorPatch`: `dirty == ∅ ∧ cursor_moved` — swaps face at old/new cursor positions (2 cells)
-
-All patches are disabled when `plugins_changed` is true, as plugin state changes may affect any region.
-
-In debug builds, a correctness assertion (`patch_correctness_assertion`) verifies condition (2) by comparing patch output against the full pipeline output for every patched frame.
+> Removed. Replaced by Salsa incremental computation (ADR-020).
 
 ### 6.6 LayoutCache
 
-> **Superseded.** `LayoutCache` has been removed. Salsa incremental computation handles layout memoization (see ADR-020). This section is retained for historical reference.
-
-`LayoutCache` supports section-level redraws and patched paths through layout reuse. Which parts of the state the layout depends on is controlled by the invalidation policy.
+> Removed. Replaced by Salsa incremental computation (ADR-020).
 
 ### 6.7 Meaning of `stable()`
 
-`stable()` is a policy declaration that "this component does not request reconstruction in response to specific state changes." It does not mean "this component never reads that state."
-
-Therefore, a component with `stable(x)` may read `x`. In that case, the component may become stale relative to Exact Semantics, but this is permitted under Policy Semantics.
-
-The distinction between `stable()` and `allow()` is as follows.
-
-- `stable(field)`: The macro can detect the field access, but staleness is intentionally permitted. This is a **policy declaration**.
-- `allow(field)`: The macro cannot detect the field access (e.g., access through helper functions, macros, or opaque references). This is a **verification escape hatch**.
-
-Example: `build_info_section` is declared `stable(cursor_pos)`. It reads `cursor_pos` for overlap avoidance logic, but info popups are permitted to be stale relative to cursor movement. This avoids rebuilding info overlays on every cursor move.
+> Removed. `stable()` and the `#[kasane::component(deps(...))]` macro were removed when Salsa replaced manual dependency tracking (ADR-020). Exact Semantics and Policy Semantics now coincide.
 
 ### 6.8 Meaning of `allow()`
 
-`allow()` is an explicit escape hatch for the static dependency analysis of `#[kasane::component]`. It is not a function that strengthens soundness; rather, it is a function for intentionally exempting dependencies that the verifier cannot handle.
-
-When the AST analysis cannot detect a field access (e.g., field read inside a `format!()` macro, through a helper function, or via an opaque reference), `allow(field)` suppresses the diagnostic. Unlike `stable()`, `allow()` does not imply that staleness is intentionally permitted — it indicates that the dependency exists but cannot be statically verified.
+> Removed with `#[kasane::component(deps(...))]` (ADR-020).
 
 ### 6.9 Locations Where Exactness Is Intentionally Weakened
 
-Current Kasane does not require step-by-step equivalence with complete re-rendering for all fast paths. Particularly where `stable()` is involved, warm/cold cache consistency becomes the primary correctness condition (see §11.2 for the formal statement).
-
-This weakening is a design trade-off and is treated as a documented specification. Previously, PaintPatch outputs were verified against the full pipeline in debug builds (§6.5); this verification was removed along with PaintPatch itself.
+> Removed. No intentional exactness weakening exists in the current system (ADR-020).
 
 ### 6.10 ComponentCache
 
-> **Superseded.** `ComponentCache<T>` has been removed along with `ViewCache`. Salsa provides equivalent memoization with automatic dependency tracking (see ADR-020). This section is retained for historical reference.
+> Removed. Replaced by Salsa incremental computation (ADR-020).
 
-`ComponentCache<T>` is a generic memoization wrapper used by `ViewCache` and other caches. It stores a value of type `T` and invalidates it when the corresponding dirty flags are set.
+### 6.11 Salsa Incremental Computation
 
-`ComponentCache` provides `get_or_insert()` for lazy construction and `invalidate()` for manual clearing. The distinction between a warm cache (value present) and a cold cache (value absent) is observable via `cache_dirty_snapshot()`, which is used in tests to verify warm/cold equivalence (§11.2).
+Salsa 0.26 is the sole caching layer for Element tree construction and the rendering pipeline.
+
+**Input projection.** `sync_inputs_from_state()` runs unconditionally every frame, projecting `AppState` fields into Salsa input structs. Salsa's `set_*().to()` compares the new value via `PartialEq` and skips downstream re-evaluation when the value is unchanged.
+
+**Input granularity.** Salsa inputs are split into fine-grained structs that provide section-level isolation:
+
+- `BufferInput` — buffer lines, faces, cursor position, widget columns
+- `CursorInput` — cursor mode, cursor count, secondary cursors
+- `StatusInput` — status line, mode line, default face
+- `MenuInput` — menu snapshot
+- `InfoInput` — info popup snapshots
+- `ConfigInput` — runtime dimensions and configuration (high durability)
+- `PluginEpochInput` — plugin contribution epoch counter
+
+Additional tracked inputs for plugin outputs: `SlotContributionsInput`, `AnnotationResultInput`, `PluginOverlaysInput`, `DisplayDirectivesInput`.
+
+**Memoization level.** Salsa tracked functions use `#[salsa::tracked(no_eq)]` because `Element` does not implement `PartialEq`. This means output-level early-cutoff is not available; only input-level memoization applies (if all inputs are identical, the function is not re-executed).
+
+**DirtyFlags role.** `DirtyFlags` serves as a semantic classifier of protocol messages, not as a cache invalidation driver. It provides hints to the Salsa sync phase about which inputs to update and gates optimizations like line-level `mark_region_dirty`. Cache invalidation itself is handled automatically by Salsa's `PartialEq`-based change detection.
+
+**Plugin change detection (dual structure).** Plugin state changes are tracked by two tiers working together:
+
+- **Tier 1 (generation counter):** `PluginBridge` compares plugin state via `PartialEq` after each mutable hook. On change, it increments a monotonic generation counter (`state_hash()`). `PluginRuntime::prepare_plugin_cache()` reads counters to set `any_plugin_state_changed`.
+- **Tier 2 (Salsa epoch):** `sync_plugin_epoch()` bumps a Salsa input epoch when any plugin changed. Downstream tracked functions re-evaluate, but individual contribution inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when the epoch bumps.
+
+Both tiers are necessary: the generation counter provides the coarse gate; Salsa provides fine-grained memoization.
 
 ## 7. Dependency Tracking Semantics
 
 ### 7.1 Contract of `#[kasane::component(deps(...))]`
 
-`#[kasane::component(deps(...))]` is a contract declaring which dirty flags a component depends on. Declared dependencies are interpreted as part of the conditions under which reconstruction should occur.
+> Removed. `#[kasane::component(deps(...))]` was replaced by Salsa automatic dependency tracking (ADR-020).
 
 ### 7.2 Guarantees of AST-Based Verification
 
-The proc macro analyzes the AST and partially verifies consistency between declared deps and state field references. This verification enables compile-time detection of simple field access omissions.
+> Removed with the component macro's AST-based verification (ADR-020).
 
 ### 7.3 Role of Hand-Written Dependency Information
 
-In the current implementation, not all dependency information is generated from a single macro. Since hand-written dependency tables and section deps coexist, the dependency theory is not yet a single source of truth.
+> Removed. Hand-written dependency tables were eliminated by Salsa (ADR-020).
 
 ### 7.4 Limits of Soundness
 
-The current dependency tracking is not fully sound.
+Salsa provides automatic dependency tracking for native rendering paths, but two limitations remain:
 
-Main reasons:
-
-- Dependencies across helper functions may not be automatically detected
-- Hand-written deps constants and macro analysis are dual-managed
-- `allow()` is an explicit exemption
-- WASM plugins declare dependencies via WIT functions (`contribute_deps()`, `transform_deps()`, `annotate_deps()`) with no compile-time verification (see §8.12)
-
-Therefore, dependency tracking is effective as "strong discipline" but is not a "complete proof."
-
-For native plugins, the `#[kasane::component(deps(...))]` macro provides partial compile-time verification. For WASM plugins, dependency declarations are entirely manual and unverified. Incorrect WASM dependency declarations may cause plugin output to become stale without detection.
+- **WASM `state_hash()` is manual.** WASM plugins implement `state_hash() → u64` by hand. An incorrect hash may cause stale contributions to persist without detection (see §8.12.4).
+- **`no_eq` on tracked functions.** Salsa tracked functions use `#[salsa::tracked(no_eq)]` because `Element` lacks `PartialEq`. Output-level early-cutoff is not available; only input-level memoization applies.
 
 ## 8. Plugin Composition Semantics
 
@@ -536,9 +501,9 @@ The `Plugin` trait externalizes plugin state ownership to the framework. The key
 
 - **State ownership**: The framework holds `Box<dyn PluginState>` for each Plugin. State transitions produce new values; the old state is replaced atomically.
 - **Transition semantics**: All state-mutating operations return `(NewState, Vec<Command>)`. The framework detects changes via `PartialEq` on the concrete state type and increments a generation counter for `state_hash()`.
-- **Invalidation**: `DirtyFlags::PLUGIN_STATE` (bit 7) signals plugin state changes to the view cache. `BUILD_BASE_DEPS` includes `PLUGIN_STATE` to trigger base section rebuilds when plugin state changes.
+- **Invalidation**: `DirtyFlags::PLUGIN_STATE` (bit 7) signals plugin state changes. `sync_plugin_epoch()` bumps the Salsa epoch when any plugin state changes, triggering re-evaluation of plugin-dependent tracked functions.
 - **DynCompare**: `dyn PluginState` supports equality comparison via downcasting. Two states of different concrete types are always unequal.
-- **Compatibility**: `PluginBridge` adapts `Plugin` to `PluginBackend`, preserving all existing cache invalidation behavior (L1 state_hash, L3 slot_deps).
+- **Compatibility**: `PluginBridge` adapts `Plugin` to `PluginBackend`, preserving generation-counter-based change detection (`state_hash()`).
 
 #### Dual Change Detection
 
@@ -587,9 +552,9 @@ Element handles returned by builder calls are valid only within the current invo
 
 #### 8.12.3 Dependency Declaration
 
-WASM plugins declare `DirtyFlags` dependencies via WIT functions: `contribute_deps()`, `transform_deps()`, `annotate_deps()`. Unlike native `#[kasane::component(deps(...))]`, these declarations have no compile-time verification.
+WASM dependency declaration functions (`contribute_deps()`, `transform_deps()`, `annotate_deps()`) have been removed. The host now uses `state_hash()` as the sole mechanism for detecting WASM plugin state changes (see §8.12.4).
 
-If a WASM plugin does not implement a dependency function, the default is `DirtyFlags::ALL` (always recompute). This is conservative but may negate caching benefits.
+Each frame, the host compares the current `state_hash()` against the previous frame's value. If the hash differs, the host re-collects the plugin's contributions. If the hash is unchanged, cached contributions are reused.
 
 #### 8.12.4 State Hash and Cache Invalidation
 
@@ -733,82 +698,46 @@ Kasane has multiple rendering optimization paths. These are required to be equiv
 
 ```text
 Theorem (Trace-Equivalence):
-  For all valid states S, dirty flags D, and cache states C
-  consistent with prior state history:
+  For all valid states S:
 
-    render_pipeline(S, ALL, ∅)
-      ≡obs render_pipeline_direct(S, D, C)
-      ≡obs render_pipeline_sectioned(S, D, C)
-      ≡obs render_pipeline_patched(S, D, C)
+    render_pipeline(S)
+      ≡obs render_pipeline_cached(S)
 
   where ≡obs denotes identity of the final CellGrid / DrawCommand
   sequence as observable output.
 ```
 
-This is Kasane's central correctness theorem. All optimization paths — cached view reuse, section-level repaints, and compiled paint patches — must produce output identical to the reference full-pipeline path.
+Pipeline variants:
 
-Trace-equivalence is verified empirically via property-based tests (`trace_equivalence.rs`) across randomly generated states and dirty flag combinations.
+- `render_pipeline` — DirectViewSource, no Salsa. Reference path for correctness testing.
+- `render_pipeline_direct` — DirectViewSource with DirtyFlags. Used in benchmarks.
+- `render_pipeline_cached` — SalsaViewSource. Production path with Salsa memoization.
+
+This is Kasane's central correctness theorem. The Salsa-cached production path must produce output identical to the reference full-pipeline path.
+
+Trace-equivalence is verified empirically via property-based tests (`trace_equivalence.rs`), which use proptest to verify determinism of `render_pipeline` and agreement between `render_pipeline` and `render_pipeline_cached` across randomly generated states.
 
 ### 11.2 Warm/Cold Cache Equivalence
 
-When `stable()` is involved, the trace-equivalence theorem as stated in §11.1 requires qualification. A component declared `stable(x)` may produce stale output relative to changes in `x`. Therefore, the practical correctness criterion is warm/cold cache equivalence under the same dirty flags.
-
-```text
-Theorem (Warm/Cold Equivalence):
-  For all valid states S and dirty flags D:
-
-    render(S, D, warm_cache) ≡obs render(S, D, cold_cache)
-
-  where warm_cache has been populated by prior rendering,
-  and cold_cache is freshly constructed.
-```
-
-Note what this does **not** require:
-
-```text
-  render(S, D, warm_cache) ≡obs render(S, ALL, ∅)
-
-  — This may NOT hold when stable() permits staleness.
-  — This is by specification, not a defect (§6.7, §6.9).
-```
-
-The distinction is critical: warm/cold equivalence for a given `D` is the soundness oracle; full-pipeline equivalence with `ALL` flags is the exactness oracle. Where `stable()` weakens exactness, warm/cold equivalence remains the binding correctness criterion.
+> Removed. With Salsa as the sole caching layer and no `stable()` declarations, Trace-Equivalence (§11.1) is the single correctness criterion. The distinction between warm and cold caches is subsumed by Salsa's automatic dependency tracking.
 
 ### 11.3 PaintPatch Correctness
 
-> **Superseded.** PaintPatch has been removed (see §6.5). This section is retained for historical reference.
-
-Each PaintPatch has its own correctness obligation, derived from the general trace-equivalence theorem.
-
-```text
-Theorem (PaintPatch Correctness):
-  For a PaintPatch P with guard predicate guard_P:
-
-    guard_P(dirty) ∧ ¬plugins_changed
-      → P.apply(S, dirty, grid) ≡obs full_pipeline(S, dirty, grid)
-
-  Additionally (spatial isolation):
-    ∀ cell c ∉ P.region:
-      grid[c] is unchanged by P.apply
-```
-
-See §6.5 for the specific guard predicates of built-in patches.
+> Removed with PaintPatch (ADR-020).
 
 ### 11.4 What Tests Guarantee
 
 What tests primarily guarantee are the following properties.
 
-- Trace-equivalence across pipeline variants (property-based, §11.1)
-- Warm/cold cache equivalence for each atomic dirty flag (§11.2)
-- ~~PaintPatch guard soundness, observational equivalence, and spatial isolation (§11.3)~~ (removed with PaintPatch)
-- Plugin cache invalidation consistency (L1 state hash)
+- Trace-equivalence between `render_pipeline` and `render_pipeline_cached` (property-based via proptest, §11.1)
+- Determinism of `render_pipeline` across identical inputs
+- Plugin cache invalidation consistency (generation counter state hash)
 - Preservation of semantics shared across backends
 
 ### 11.5 Contracts Expressible Only in Prose
 
 The following contracts are difficult to fully express through tests alone.
 
-- That weakening exactness via `stable()` is by specification (§6.7, §6.9)
 - That heuristic state is not on par with protocol truth (§3.4)
 - The boundaries that plugins may and may not cross (§8.9)
 - That WASM state snapshot isolation holds across the Component Model boundary (§8.12)
@@ -828,13 +757,17 @@ TUI and GUI differ in output methods, but at least the following semantics must 
 
 ## 12. Known Gaps
 
-### 12.1 Non-Strictness Due to `stable()`
+### 12.1 ~~Non-Strictness Due to `stable()`~~
 
-`stable()` intentionally weakens strict equivalence with exact semantics. This is a specification at the policy level, but which locations permit staleness must be carefully managed. See §6.7 for the definition and §11.2 for the formal correctness criterion under staleness.
+> Resolved. `stable()` was removed with the introduction of Salsa (ADR-020). Exact and Policy Semantics now coincide (§5.2).
 
 ### 12.2 Limits of Dependency Tracking
 
-AST-based verification and hand-written deps are useful but do not guarantee complete soundness. The dependency theory is not yet a single source of truth. See §7.4 for the detailed enumeration.
+Salsa provides automatic dependency tracking for native rendering paths. Remaining limitations:
+
+- **WASM `state_hash()` is manual.** Incorrect implementations may cause stale plugin output without detection (§7.4, §8.12.4).
+- **`no_eq` on tracked functions.** Output-level early-cutoff is unavailable because `Element` does not implement `PartialEq` (§6.11).
+- **Salsa input comparison cost.** `sync_inputs_from_state()` performs `PartialEq` comparisons each frame, including deep comparisons of `Vec<Line>` in `BufferInput`. This is correct but carries a per-frame cost proportional to buffer size.
 
 ### 12.3 Mismatch Between Global DirtyFlags and Surface Theory
 
@@ -850,7 +783,7 @@ The GUI-side scene invalidation and plugin overlay dependencies are not fully in
 
 ### 12.6 Display Transformation and Core Invalidation
 
-The `DisplayMap` is now integrated into the rendering pipeline. `display_directives_deps()` contributes to `EffectiveSectionDeps.base`, ensuring that the base view cache is invalidated when display directive dependencies change. The `DisplayMap` is rebuilt each frame via `collect_display_map()` and propagated through `Element::BufferRef`, `ViewSections`, and cursor/input functions.
+The `DisplayMap` is integrated into the rendering pipeline. Display directives are synced to Salsa via `DisplayDirectivesInput`, and the `DisplayMap` is rebuilt each frame via `collect_display_map()` and propagated through `Element::BufferRef`, `ViewSections`, and cursor/input functions. Salsa's automatic dependency tracking ensures that changes to display directives trigger re-evaluation of dependent tracked functions.
 
 Remaining gap: the display unit model (P-040..P-043) has not yet been introduced as a first-class invalidation unit. Per-display-unit dirty tracking and navigation are not implemented.
 
@@ -858,9 +791,9 @@ Remaining gap: the display unit model (P-040..P-043) has not yet been introduced
 
 Visual unit-based navigation is required as a future foundation, but the current implementation still centers on buffer-oriented navigation, and a complete unification theory with display units is unfinished.
 
-### 12.8 Unverified WASM Dependency Declarations
+### 12.8 WASM State Hash Accuracy
 
-WASM plugins declare `DirtyFlags` dependencies via WIT functions with no compile-time verification (§8.12.3). Incorrect declarations may cause plugin output to become stale without detection. The default fallback (`DirtyFlags::ALL`) is conservative but negates caching benefits.
+WASM plugins implement `state_hash() → u64` manually (§8.12.4). An incorrect hash — one that returns the same value despite internal state changes — may cause stale contributions to persist without detection. Unlike the `Plugin` trait where `PartialEq`-based change detection is automatic, WASM plugins bear full responsibility for hash correctness.
 
 ### 12.9 WASM Snapshot Consistency Across Plugins
 
@@ -883,6 +816,7 @@ The following gaps have been resolved and are retained for historical reference.
 - **Transform and Replacement unification**: At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
 - **Session invisibility to plugins**: Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant.
 - **P-031 Single-plugin display directive exclusivity**: Display directives now support multi-plugin composition via `DirectiveSet` monoid and `resolve()`. Priority-based fold conflict resolution, hide union, and insert suppression enable combining code folding + virtual text from different plugins.
+- **Non-strictness due to `stable()`**: `stable()` and manual dependency tracking were removed with the introduction of Salsa (ADR-020). Exact and Policy Semantics now coincide.
 
 ## 13. Non-Goals
 
