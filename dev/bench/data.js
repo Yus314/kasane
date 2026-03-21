@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774067392209,
+  "lastUpdate": 1774070866285,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38819,6 +38819,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20418513,
             "range": "± 46563",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "cb71300f7d1e6f272494abf3a48e9f90cbf56d01",
+          "message": "docs: update plugin documentation for extensibility features\n\n- plugin-api.md: add EditBuffer/InjectInput to Command table, add\n  §3.5.1 Buffer Editing and §3.5.2 Input Injection sections, remove\n  external process execution from out-of-scope table\n- plugin-development.md: add EditBuffer/InjectInput to capabilities\n  table, update WIT version to @0.12.0\n- semantics.md: expand §4.3 Command categories with new variants\n- using-plugins.md: add buffer edit/input injection to feature list,\n  update WIT version to @0.12.0\n- CLAUDE.md: update test count (~1100 → ~1150)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T14:11:02+09:00",
+          "tree_id": "95f6c70a702efe538e633675bea19fd5933cb501",
+          "url": "https://github.com/Yus314/kasane/commit/cb71300f7d1e6f272494abf3a48e9f90cbf56d01"
+        },
+        "date": 1774070865343,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4719378,
+            "range": "± 14022",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17400777,
+            "range": "± 91248",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1830439,
+            "range": "± 53471",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20482288,
+            "range": "± 115441",
             "unit": "ns/iter"
           }
         ]
