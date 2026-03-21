@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774084496962,
+  "lastUpdate": 1774085054050,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39107,6 +39107,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20399666,
             "range": "± 94357",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "9f5b7ee8881a6f9453fe7ab324e5417d7229bc6e",
+          "message": "ci(release): auto-generate AUR update PR on new release\n\nAdd update-aur job to release workflow that computes SHA256 hashes\nfrom built artifacts, regenerates PKGBUILD and .SRCINFO via\ncontrib/aur/update.sh, and opens a PR. The PR includes instructions\nfor the manual AUR push step.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T18:08:05+09:00",
+          "tree_id": "62c7ce1905efbee40c590fadb71ac24fb5e448c0",
+          "url": "https://github.com/Yus314/kasane/commit/9f5b7ee8881a6f9453fe7ab324e5417d7229bc6e"
+        },
+        "date": 1774085053106,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4674873,
+            "range": "± 60092",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17224576,
+            "range": "± 223397",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1826816,
+            "range": "± 59231",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20297760,
+            "range": "± 195451",
             "unit": "ns/iter"
           }
         ]
