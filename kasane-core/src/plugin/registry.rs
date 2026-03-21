@@ -26,18 +26,22 @@ pub struct PluginSurfaceSet {
     pub legacy_workspace_request: Option<Placement>,
 }
 
-/// Sentinel value for `last_state_hashes`: guarantees hash mismatch on first
+/// Sentinel value for `last_state_hash`: guarantees hash mismatch on first
 /// `prepare_plugin_cache()` after registration, so newly registered plugins
 /// are always collected on their first frame.
 const HASH_SENTINEL: u64 = u64::MAX;
 
+pub(crate) struct PluginSlot {
+    pub(crate) backend: Box<dyn PluginBackend>,
+    pub(crate) capabilities: PluginCapabilities,
+    pub(crate) authorities: PluginAuthorities,
+    pub(crate) last_state_hash: u64,
+    pub(crate) needs_recollect: bool,
+}
+
 pub struct PluginRuntime {
-    plugins: Vec<Box<dyn PluginBackend>>,
-    capabilities: Vec<PluginCapabilities>,
-    authorities: Vec<PluginAuthorities>,
+    slots: Vec<PluginSlot>,
     any_plugin_state_changed: bool,
-    last_state_hashes: Vec<u64>,
-    needs_recollect: Vec<bool>,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -46,9 +50,7 @@ pub struct PluginRuntime {
 /// requiring `&mut` access. All read-only view queries (contribute, transform,
 /// annotate, overlay, display map, paint hooks, etc.) live here.
 pub struct PluginView<'a> {
-    plugins: &'a [Box<dyn PluginBackend>],
-    capabilities: &'a [PluginCapabilities],
-    needs_recollect: &'a [bool],
+    slots: &'a [PluginSlot],
 }
 
 pub enum KeyDispatchResult {
@@ -62,26 +64,18 @@ pub enum KeyDispatchResult {
 impl PluginRuntime {
     pub fn new() -> Self {
         PluginRuntime {
-            plugins: Vec::new(),
-            capabilities: Vec::new(),
-            authorities: Vec::new(),
+            slots: Vec::new(),
             any_plugin_state_changed: false,
-            last_state_hashes: Vec::new(),
-            needs_recollect: Vec::new(),
         }
     }
 
     pub fn plugin_count(&self) -> usize {
-        self.plugins.len()
+        self.slots.len()
     }
 
     /// Borrow an immutable view for the render phase.
     pub fn view(&self) -> PluginView<'_> {
-        PluginView {
-            plugins: &self.plugins,
-            capabilities: &self.capabilities,
-            needs_recollect: &self.needs_recollect,
-        }
+        PluginView { slots: &self.slots }
     }
 
     /// Returns true if any plugin's state_hash changed during the last
@@ -94,40 +88,35 @@ impl PluginRuntime {
         let id = plugin.id();
         let caps = plugin.capabilities();
         let authorities = plugin.authorities();
-        if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
+        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
-            self.plugins[pos] = plugin;
-            self.capabilities[pos] = caps;
-            self.authorities[pos] = authorities;
-            self.last_state_hashes[pos] = HASH_SENTINEL;
-            if pos < self.needs_recollect.len() {
-                self.needs_recollect[pos] = true;
-            }
+            let slot = &mut self.slots[pos];
+            slot.backend = plugin;
+            slot.capabilities = caps;
+            slot.authorities = authorities;
+            slot.last_state_hash = HASH_SENTINEL;
+            slot.needs_recollect = true;
         } else {
-            self.plugins.push(plugin);
-            self.capabilities.push(caps);
-            self.authorities.push(authorities);
-            self.last_state_hashes.push(HASH_SENTINEL);
-            self.needs_recollect.push(true);
+            self.slots.push(PluginSlot {
+                backend: plugin,
+                capabilities: caps,
+                authorities,
+                last_state_hash: HASH_SENTINEL,
+                needs_recollect: true,
+            });
         }
     }
 
     pub fn contains_plugin(&self, id: &PluginId) -> bool {
-        self.plugins.iter().any(|plugin| plugin.id() == *id)
+        self.slots.iter().any(|s| s.backend.id() == *id)
     }
 
     /// Remove a plugin from the registry without running shutdown hooks.
     ///
     /// Prefer [`Self::unload_plugin`] for normal lifecycle transitions.
     pub fn remove_plugin(&mut self, id: &PluginId) -> bool {
-        if let Some(pos) = self.plugins.iter().position(|plugin| plugin.id() == *id) {
-            self.plugins.remove(pos);
-            self.capabilities.remove(pos);
-            self.authorities.remove(pos);
-            self.last_state_hashes.remove(pos);
-            if pos < self.needs_recollect.len() {
-                self.needs_recollect.remove(pos);
-            }
+        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == *id) {
+            self.slots.remove(pos);
             true
         } else {
             false
@@ -136,15 +125,9 @@ impl PluginRuntime {
 
     /// Shut down and remove a single plugin by ID.
     pub fn unload_plugin(&mut self, id: &PluginId) -> bool {
-        if let Some(pos) = self.plugins.iter().position(|plugin| plugin.id() == *id) {
-            self.plugins[pos].on_shutdown();
-            self.plugins.remove(pos);
-            self.capabilities.remove(pos);
-            self.authorities.remove(pos);
-            self.last_state_hashes.remove(pos);
-            if pos < self.needs_recollect.len() {
-                self.needs_recollect.remove(pos);
-            }
+        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == *id) {
+            self.slots[pos].backend.on_shutdown();
+            self.slots.remove(pos);
             true
         } else {
             false
@@ -155,36 +138,28 @@ impl PluginRuntime {
     /// and compute per-plugin `needs_recollect` based on state hash changes
     /// and the intersection of `dirty` flags with each plugin's `view_deps()`.
     pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
-        // Grow tracking vecs if plugins were registered after last prepare
-        while self.last_state_hashes.len() < self.plugins.len() {
-            self.last_state_hashes.push(HASH_SENTINEL);
-        }
-        while self.needs_recollect.len() < self.plugins.len() {
-            self.needs_recollect.push(true); // first frame → always collect
-        }
-
         self.any_plugin_state_changed = false;
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            let current_hash = plugin.state_hash();
-            let hash_changed = current_hash != self.last_state_hashes[i];
+        for slot in &mut self.slots {
+            let current_hash = slot.backend.state_hash();
+            let hash_changed = current_hash != slot.last_state_hash;
             if hash_changed {
-                self.last_state_hashes[i] = current_hash;
+                slot.last_state_hash = current_hash;
                 self.any_plugin_state_changed = true;
             }
-            self.needs_recollect[i] = hash_changed || dirty.intersects(plugin.view_deps());
+            slot.needs_recollect = hash_changed || dirty.intersects(slot.backend.view_deps());
         }
     }
 
     /// Returns true if any plugin needs its view contributions re-collected.
     pub fn any_needs_recollect(&self) -> bool {
-        self.needs_recollect.iter().any(|&r| r)
+        self.slots.iter().any(|s| s.needs_recollect)
     }
 
     /// Initialize all plugins and collect typed bootstrap effects.
     pub fn init_all_batch(&mut self, app: &AppView<'_>) -> InitBatch {
         let mut batch = InitBatch::default();
-        for plugin in &mut self.plugins {
-            batch.effects.merge(plugin.on_init_effects(app));
+        for slot in &mut self.slots {
+            batch.effects.merge(slot.backend.on_init_effects(app));
         }
         batch
     }
@@ -197,10 +172,10 @@ impl PluginRuntime {
     /// Notify all plugins that the active session is ready for transport-bound startup work.
     pub fn notify_active_session_ready_batch(&mut self, app: &AppView<'_>) -> ReadyBatch {
         let mut batch = ReadyBatch::default();
-        for plugin in &mut self.plugins {
+        for slot in &mut self.slots {
             batch
                 .effects
-                .merge(plugin.on_active_session_ready_effects(app));
+                .merge(slot.backend.on_active_session_ready_effects(app));
         }
         batch
     }
@@ -216,12 +191,12 @@ impl PluginRuntime {
         target: &PluginId,
         app: &AppView<'_>,
     ) -> ReadyBatch {
-        for plugin in &mut self.plugins {
-            if &plugin.id() == target {
+        for slot in &mut self.slots {
+            if &slot.backend.id() == target {
                 let mut batch = ReadyBatch::default();
                 batch
                     .effects
-                    .merge(plugin.on_active_session_ready_effects(app));
+                    .merge(slot.backend.on_active_session_ready_effects(app));
                 return batch;
             }
         }
@@ -235,28 +210,31 @@ impl PluginRuntime {
         dirty: DirtyFlags,
     ) -> RuntimeBatch {
         let mut batch = RuntimeBatch::default();
-        for plugin in &mut self.plugins {
+        for slot in &mut self.slots {
             batch
                 .effects
-                .merge(plugin.on_state_changed_effects(app, dirty));
+                .merge(slot.backend.on_state_changed_effects(app, dirty));
         }
         batch
     }
 
     /// Notify interested plugins that the workspace layout changed.
     pub fn notify_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
-        for (i, plugin) in self.plugins.iter_mut().enumerate() {
-            if !self.capabilities[i].contains(PluginCapabilities::WORKSPACE_OBSERVER) {
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::WORKSPACE_OBSERVER)
+            {
                 continue;
             }
-            plugin.on_workspace_changed(query);
+            slot.backend.on_workspace_changed(query);
         }
     }
 
     /// Shut down all plugins. Call before application exit.
     pub fn shutdown_all(&mut self) {
-        for plugin in &mut self.plugins {
-            plugin.on_shutdown();
+        for slot in &mut self.slots {
+            slot.backend.on_shutdown();
         }
     }
 
@@ -271,15 +249,17 @@ impl PluginRuntime {
     ) -> InitBatch {
         let id = plugin.id();
         // Shut down old plugin if present
-        if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
-            self.plugins[pos].on_shutdown();
+        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
+            self.slots[pos].backend.on_shutdown();
         }
         // register_backend handles replacement or insertion
         self.register_backend(plugin);
         // Init the new plugin
-        if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
+        if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
             let mut batch = InitBatch::default();
-            batch.effects.merge(self.plugins[pos].on_init_effects(app));
+            batch
+                .effects
+                .merge(self.slots[pos].backend.on_init_effects(app));
             return batch;
         }
         InitBatch::default()
@@ -295,20 +275,20 @@ impl PluginRuntime {
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
-        self.plugins.iter_mut()
+        self.slots.iter_mut().map(|s| &mut s.backend)
     }
 
     /// Collect plugin-owned surfaces during the bootstrap preflight stage.
     pub fn collect_plugin_surfaces(&mut self) -> Vec<PluginSurfaceSet> {
         let mut surfaces = Vec::new();
-        for plugin in &mut self.plugins {
-            let owner = plugin.id();
-            let plugin_surfaces = plugin.surfaces();
+        for slot in &mut self.slots {
+            let owner = slot.backend.id();
+            let plugin_surfaces = slot.backend.surfaces();
             if !plugin_surfaces.is_empty() {
                 surfaces.push(PluginSurfaceSet {
                     owner,
                     surfaces: plugin_surfaces,
-                    legacy_workspace_request: plugin.workspace_request(),
+                    legacy_workspace_request: slot.backend.workspace_request(),
                 });
             }
         }
@@ -320,19 +300,19 @@ impl PluginRuntime {
         &mut self,
         target: &PluginId,
     ) -> Option<PluginSurfaceSet> {
-        for plugin in &mut self.plugins {
-            if plugin.id() != *target {
+        for slot in &mut self.slots {
+            if slot.backend.id() != *target {
                 continue;
             }
-            let owner = plugin.id();
-            let plugin_surfaces = plugin.surfaces();
+            let owner = slot.backend.id();
+            let plugin_surfaces = slot.backend.surfaces();
             if plugin_surfaces.is_empty() {
                 return None;
             }
             return Some(PluginSurfaceSet {
                 owner,
                 surfaces: plugin_surfaces,
-                legacy_workspace_request: plugin.workspace_request(),
+                legacy_workspace_request: slot.backend.workspace_request(),
             });
         }
         None
@@ -379,12 +359,15 @@ impl PluginRuntime {
         candidate: DefaultScrollCandidate,
         app: &AppView<'_>,
     ) -> Option<(PluginId, ScrollPolicyResult)> {
-        for (i, plugin) in self.plugins.iter_mut().enumerate() {
-            if !self.capabilities[i].contains(PluginCapabilities::SCROLL_POLICY) {
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::SCROLL_POLICY)
+            {
                 continue;
             }
-            if let Some(result) = plugin.handle_default_scroll(candidate, app) {
-                return Some((plugin.id(), result));
+            if let Some(result) = slot.backend.handle_default_scroll(candidate, app) {
+                return Some((slot.backend.id(), result));
             }
         }
         None
@@ -396,11 +379,11 @@ impl PluginRuntime {
         app: &AppView<'_>,
     ) -> KeyDispatchResult {
         let mut current_key = key.clone();
-        for plugin in &mut self.plugins {
-            match plugin.handle_key_middleware(&current_key, app) {
+        for slot in &mut self.slots {
+            match slot.backend.handle_key_middleware(&current_key, app) {
                 KeyHandleResult::Consumed(commands) => {
                     return KeyDispatchResult::Consumed {
-                        source_plugin: plugin.id(),
+                        source_plugin: slot.backend.id(),
                         commands,
                     };
                 }
@@ -498,19 +481,18 @@ impl PluginRuntime {
 
     /// Check whether a plugin is allowed to spawn external processes.
     pub fn plugin_allows_process_spawn(&self, plugin_id: &PluginId) -> bool {
-        self.plugins
+        self.slots
             .iter()
-            .find(|p| &p.id() == plugin_id)
-            .is_some_and(|p| p.allows_process_spawn())
+            .find(|s| &s.backend.id() == plugin_id)
+            .is_some_and(|s| s.backend.allows_process_spawn())
     }
 
     /// Check whether a plugin has a specific host-resolved authority.
     pub fn plugin_has_authority(&self, plugin_id: &PluginId, authority: PluginAuthorities) -> bool {
-        self.plugins
+        self.slots
             .iter()
-            .zip(self.authorities.iter())
-            .find(|(plugin, _)| &plugin.id() == plugin_id)
-            .is_some_and(|(_, authorities)| authorities.contains(authority))
+            .find(|s| &s.backend.id() == plugin_id)
+            .is_some_and(|s| s.authorities.contains(authority))
     }
 
     /// Deliver an I/O event to a specific plugin by ID.
@@ -521,13 +503,15 @@ impl PluginRuntime {
         app: &AppView<'_>,
     ) -> RuntimeBatch {
         crate::perf::perf_span!("deliver_io_event");
-        for (i, plugin) in self.plugins.iter_mut().enumerate() {
-            if &plugin.id() == target {
-                if !self.capabilities[i].contains(PluginCapabilities::IO_HANDLER) {
+        for slot in &mut self.slots {
+            if &slot.backend.id() == target {
+                if !slot.capabilities.contains(PluginCapabilities::IO_HANDLER) {
                     return RuntimeBatch::default();
                 }
                 let mut batch = RuntimeBatch::default();
-                batch.effects.merge(plugin.on_io_event_effects(event, app));
+                batch
+                    .effects
+                    .merge(slot.backend.on_io_event_effects(event, app));
                 return batch;
             }
         }
@@ -542,12 +526,12 @@ impl PluginRuntime {
         app: &AppView<'_>,
     ) -> RuntimeBatch {
         let mut payload = payload;
-        for plugin in &mut self.plugins {
-            if &plugin.id() == target {
+        for slot in &mut self.slots {
+            if &slot.backend.id() == target {
                 let mut batch = RuntimeBatch::default();
                 batch
                     .effects
-                    .merge(plugin.update_effects(payload.as_mut(), app));
+                    .merge(slot.backend.update_effects(payload.as_mut(), app));
                 return batch;
             }
         }
@@ -565,15 +549,15 @@ impl PluginRuntime {
 
     /// Broadcast key observation to all plugins.
     pub fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
-        for plugin in self.plugins_mut() {
-            plugin.observe_key(key, app);
+        for slot in &mut self.slots {
+            slot.backend.observe_key(key, app);
         }
     }
 
     /// Broadcast mouse observation to all plugins.
     pub fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {
-        for plugin in self.plugins_mut() {
-            plugin.observe_mouse(event, app);
+        for slot in &mut self.slots {
+            slot.backend.observe_mouse(event, app);
         }
     }
 
@@ -584,9 +568,9 @@ impl PluginRuntime {
         id: InteractiveId,
         app: &AppView<'_>,
     ) -> MouseHandleResult {
-        for plugin in self.plugins_mut() {
-            if let Some(commands) = plugin.handle_mouse(event, id, app) {
-                let source = plugin.id();
+        for slot in &mut self.slots {
+            if let Some(commands) = slot.backend.handle_mouse(event, id, app) {
+                let source = slot.backend.id();
                 return MouseHandleResult::Handled {
                     source_plugin: source,
                     commands,
@@ -635,12 +619,12 @@ impl PluginEffects for PluginRuntime {
 impl<'a> PluginView<'a> {
     /// Returns true if any plugin needs its view contributions re-collected.
     pub fn any_needs_recollect(&self) -> bool {
-        self.needs_recollect.iter().any(|&r| r)
+        self.slots.iter().any(|s| s.needs_recollect)
     }
 
     /// Check if any registered plugin has the given capability.
     fn has_capability(&self, cap: PluginCapabilities) -> bool {
-        self.capabilities.iter().any(|c| c.contains(cap))
+        self.slots.iter().any(|s| s.capabilities.contains(cap))
     }
 
     /// Collect contributions from all plugins for a given region, sorted by priority.
@@ -664,17 +648,15 @@ impl<'a> PluginView<'a> {
     ) -> Vec<SourcedContribution> {
         use super::compose::{Composable, ContributionSet};
 
-        self.plugins
+        self.slots
             .iter()
-            .enumerate()
-            .filter_map(|(i, plugin)| {
-                let caps = self.capabilities[i];
-                if !caps.contains(PluginCapabilities::CONTRIBUTOR) {
+            .filter_map(|slot| {
+                if !slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR) {
                     return None;
                 }
-                let result = plugin.contribute_to(region, state, ctx);
+                let result = slot.backend.contribute_to(region, state, ctx);
                 result.map(|contribution| SourcedContribution {
-                    contributor: plugin.id(),
+                    contributor: slot.backend.id(),
                     contribution,
                 })
             })
@@ -714,10 +696,10 @@ impl<'a> PluginView<'a> {
         let mut element = default_element_fn();
 
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if self.capabilities[i].contains(PluginCapabilities::TRANSFORMER) {
-                let prio = plugin.transform_priority();
-                chain.push((i, prio, plugin.id()));
+        for (i, slot) in self.slots.iter().enumerate() {
+            if slot.capabilities.contains(PluginCapabilities::TRANSFORMER) {
+                let prio = slot.backend.transform_priority();
+                chain.push((i, prio, slot.backend.id()));
             }
         }
         chain.sort_by_key(|(_, prio, id)| (std::cmp::Reverse(*prio), id.clone()));
@@ -729,7 +711,9 @@ impl<'a> PluginView<'a> {
                 pane_surface_id: pane_context.surface_id,
                 pane_focused: pane_context.focused,
             };
-            element = self.plugins[*i].transform(&target, element, state, &ctx);
+            element = self.slots[*i]
+                .backend
+                .transform(&target, element, state, &ctx);
         }
 
         element
@@ -767,13 +751,13 @@ impl<'a> PluginView<'a> {
             let mut right_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut bg_layers: Vec<(BackgroundLayer, PluginId)> = Vec::new();
 
-            for (i, plugin) in self.plugins.iter().enumerate() {
-                if !self.capabilities[i].contains(PluginCapabilities::ANNOTATOR) {
+            for slot in self.slots.iter() {
+                if !slot.capabilities.contains(PluginCapabilities::ANNOTATOR) {
                     continue;
                 }
-                if let Some(ann) = plugin.annotate_line_with_ctx(line, state, ctx) {
+                if let Some(ann) = slot.backend.annotate_line_with_ctx(line, state, ctx) {
                     let prio = ann.priority;
-                    let pid = plugin.id();
+                    let pid = slot.backend.id();
                     if let Some(el) = ann.left_gutter {
                         left_parts.push((prio, pid.clone(), el));
                         has_left = true;
@@ -894,16 +878,19 @@ impl<'a> PluginView<'a> {
         state: &AppView<'_>,
     ) -> crate::display::DirectiveSet {
         let mut set = crate::display::DirectiveSet::default();
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
+        for slot in self.slots.iter() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::DISPLAY_TRANSFORM)
+            {
                 continue;
             }
-            let directives = plugin.display_directives(state);
+            let directives = slot.backend.display_directives(state);
             if directives.is_empty() {
                 continue;
             }
-            let priority = plugin.display_directive_priority();
-            let plugin_id = plugin.id();
+            let priority = slot.backend.display_directive_priority();
+            let plugin_id = slot.backend.id();
             for d in directives {
                 set.push(d, priority, plugin_id.clone());
             }
@@ -919,16 +906,14 @@ impl<'a> PluginView<'a> {
     ) -> Vec<OverlayContribution> {
         use super::compose::{Composable, OverlaySet};
 
-        self.plugins
+        self.slots
             .iter()
-            .enumerate()
-            .filter_map(|(i, plugin)| {
-                let caps = self.capabilities[i];
-                if (caps.contains(PluginCapabilities::CONTRIBUTOR)
-                    || caps.contains(PluginCapabilities::OVERLAY))
-                    && let Some(mut oc) = plugin.contribute_overlay_with_ctx(state, ctx)
+            .filter_map(|slot| {
+                if (slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR)
+                    || slot.capabilities.contains(PluginCapabilities::OVERLAY))
+                    && let Some(mut oc) = slot.backend.contribute_overlay_with_ctx(state, ctx)
                 {
-                    oc.plugin_id = plugin.id();
+                    oc.plugin_id = slot.backend.id();
                     Some(oc)
                 } else {
                     None
@@ -949,12 +934,18 @@ impl<'a> PluginView<'a> {
         state: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         let mut current: Option<Vec<crate::protocol::Atom>> = None;
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if !self.capabilities[i].contains(PluginCapabilities::MENU_TRANSFORM) {
+        for slot in self.slots.iter() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::MENU_TRANSFORM)
+            {
                 continue;
             }
             let input = current.as_deref().unwrap_or(item);
-            if let Some(transformed) = plugin.transform_menu_item(input, index, selected, state) {
+            if let Some(transformed) = slot
+                .backend
+                .transform_menu_item(input, index, selected, state)
+            {
                 current = Some(transformed);
             }
         }
@@ -963,11 +954,11 @@ impl<'a> PluginView<'a> {
 
     /// Query plugins for a cursor style override. Returns the first non-None.
     pub fn cursor_style_override(&self, state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if !self.capabilities[i].contains(PluginCapabilities::CURSOR_STYLE) {
+        for slot in self.slots.iter() {
+            if !slot.capabilities.contains(PluginCapabilities::CURSOR_STYLE) {
                 continue;
             }
-            if let Some(style) = plugin.cursor_style_override(state) {
+            if let Some(style) = slot.backend.cursor_style_override(state) {
                 return Some(style);
             }
         }
@@ -977,9 +968,9 @@ impl<'a> PluginView<'a> {
     /// Collect paint hooks from all plugins.
     pub fn collect_paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
         let mut hooks = Vec::new();
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if self.capabilities[i].contains(PluginCapabilities::PAINT_HOOK) {
-                hooks.extend(plugin.paint_hooks());
+        for slot in self.slots.iter() {
+            if slot.capabilities.contains(PluginCapabilities::PAINT_HOOK) {
+                hooks.extend(slot.backend.paint_hooks());
             }
         }
         hooks
@@ -987,33 +978,32 @@ impl<'a> PluginView<'a> {
 
     /// Collect paint hooks for a single owner in plugin registration order.
     pub fn collect_paint_hooks_for_owner(&self, target: &PluginId) -> Vec<Box<dyn PaintHook>> {
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if plugin.id() != *target {
+        for slot in self.slots.iter() {
+            if slot.backend.id() != *target {
                 continue;
             }
-            if !self.capabilities[i].contains(PluginCapabilities::PAINT_HOOK) {
+            if !slot.capabilities.contains(PluginCapabilities::PAINT_HOOK) {
                 return vec![];
             }
-            return plugin.paint_hooks();
+            return slot.backend.paint_hooks();
         }
         vec![]
     }
 
     /// Plugin IDs that currently contribute paint hooks, in registry order.
     pub fn paint_hook_owners_in_order(&self) -> Vec<PluginId> {
-        self.plugins
+        self.slots
             .iter()
-            .zip(self.capabilities.iter())
-            .filter(|(_, caps)| caps.contains(PluginCapabilities::PAINT_HOOK))
-            .map(|(plugin, _)| plugin.id())
+            .filter(|s| s.capabilities.contains(PluginCapabilities::PAINT_HOOK))
+            .map(|s| s.backend.id())
             .collect()
     }
 
     /// Check if any plugin has TRANSFORMER capability for a given target.
     pub fn has_transform_for(&self, _target: TransformTarget) -> bool {
-        self.capabilities
+        self.slots
             .iter()
-            .any(|c| c.contains(PluginCapabilities::TRANSFORMER))
+            .any(|s| s.capabilities.contains(PluginCapabilities::TRANSFORMER))
     }
 }
 
