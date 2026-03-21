@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774058231611,
+  "lastUpdate": 1774059382957,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38627,6 +38627,54 @@ window.BENCHMARK_DATA = {
             "name": "gpu/color_resolve_1920cells",
             "value": 2231,
             "range": "± 17",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "77e62f979b71c9c7d334f36533955f651094bc33",
+          "message": "refactor(plugin): externalize effects for TEA purity\n\nFive-step refactor to decouple hidden side effects from update()/view():\n\n- S1: Remove slot_cache (RefCell interior mutability) from PluginRegistry\n- S2: Extract hit_map from PluginRegistry into AppState as ephemeral field\n- S3: Unify Command/DeferredCommand into single enum with is_deferred()\n- S4: Split PluginRegistry into PluginRuntime (lifecycle) + PluginView\n      (immutable render queries), rename PluginRegistry → PluginRuntime\n- S5: Change update() to ownership-passing signature\n      Box<AppState> → (Box<AppState>, UpdateResult)\n\nPluginView<'a> borrows &[Box<dyn PluginBackend>] immutably, making the\nupdate/view phase separation type-safe. TUI/GUI create PluginView at the\nrender boundary via registry.view(). DeferredContext and other non-update\npaths use DerefMut coercion transparently.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T11:00:08+09:00",
+          "tree_id": "667280372b9fea793adb63ef8ca7ca75a4b5d0d1",
+          "url": "https://github.com/Yus314/kasane/commit/77e62f979b71c9c7d334f36533955f651094bc33"
+        },
+        "date": 1774059382031,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4701349,
+            "range": "± 96411",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17058057,
+            "range": "± 274141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1819729,
+            "range": "± 102515",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20432399,
+            "range": "± 286069",
             "unit": "ns/iter"
           }
         ]
