@@ -446,7 +446,7 @@ fn discover_loads_with_fixtures() {
         disabled: vec![],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
 
     // Should now include fuzzy_finder among loaded plugins

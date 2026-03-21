@@ -111,7 +111,7 @@ impl PluginBackend for TargetedReadyPlugin {
 
 #[test]
 fn test_empty_registry() {
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     assert!(registry.plugin_count() == 0);
 }
 
@@ -123,7 +123,7 @@ fn test_plugin_id() {
 
 #[test]
 fn test_init_all_batch_collects_bootstrap_effects() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
 
@@ -133,7 +133,7 @@ fn test_init_all_batch_collects_bootstrap_effects() {
 
 #[test]
 fn test_notify_active_session_ready_batch_collects_effects() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
 
@@ -150,7 +150,7 @@ fn test_notify_active_session_ready_batch_collects_effects() {
 
 #[test]
 fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TargetedReadyPlugin {
         id: "alpha",
         redraw: DirtyFlags::STATUS,
@@ -169,7 +169,7 @@ fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin()
 
 #[test]
 fn test_notify_state_changed_batch_collects_runtime_effects() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TypedRuntimePlugin));
     let state = AppState::default();
 
@@ -181,7 +181,7 @@ fn test_notify_state_changed_batch_collects_runtime_effects() {
 
 #[test]
 fn test_deliver_message_batch_collects_runtime_effects() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TypedRuntimePlugin));
     let state = AppState::default();
 
@@ -197,7 +197,7 @@ fn test_deliver_message_batch_collects_runtime_effects() {
 
 #[test]
 fn test_shutdown_all_calls_all_plugins() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(LifecyclePlugin::new()));
     registry.register_backend(Box::new(LifecyclePlugin::new()));
     registry.shutdown_all();
@@ -206,7 +206,7 @@ fn test_shutdown_all_calls_all_plugins() {
 
 #[test]
 fn test_collect_plugin_surfaces_returns_owner_group() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(SurfacePlugin));
 
     let surface_sets = registry.collect_plugin_surfaces();
@@ -229,7 +229,7 @@ fn test_collect_plugin_surfaces_returns_owner_group() {
 
 #[test]
 fn test_remove_plugin_removes_registered_plugin() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TestPlugin));
     registry.register_backend(Box::new(SurfacePlugin));
 
@@ -240,7 +240,7 @@ fn test_remove_plugin_removes_registered_plugin() {
 
 #[test]
 fn test_unload_plugin_calls_shutdown_and_removes_plugin() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     let shutdowns = Arc::new(AtomicUsize::new(0));
     registry.register_backend(Box::new(ShutdownProbePlugin {
         id: "shutdown-probe",
@@ -257,7 +257,7 @@ fn test_unload_plugin_calls_shutdown_and_removes_plugin() {
 
 #[test]
 fn test_on_state_changed_dispatched_with_flags() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(LifecyclePlugin::new()));
     let state = AppState::default();
 
@@ -272,7 +272,7 @@ fn test_on_state_changed_dispatched_with_flags() {
 #[test]
 fn test_lifecycle_defaults() {
     // TestPlugin has no lifecycle hooks — defaults should work
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TestPlugin));
     let state = AppState::default();
 
@@ -285,7 +285,7 @@ fn test_lifecycle_defaults() {
 
 #[test]
 fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(LifecyclePlugin::new()));
     let state = AppState::default();
 
@@ -295,7 +295,7 @@ fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
 
 #[test]
 fn test_reload_plugin_batch_collects_bootstrap_effects() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
 
@@ -305,7 +305,7 @@ fn test_reload_plugin_batch_collects_bootstrap_effects() {
 
 #[test]
 fn test_any_plugin_state_changed_flag() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
 
     // Initial prepare: hash differs from default 0 → changed
@@ -321,7 +321,7 @@ fn test_any_plugin_state_changed_flag() {
 
 #[test]
 fn test_deliver_message_unknown_target() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     let state = AppState::default();
     let batch =
         registry.deliver_message_batch(&PluginId("unknown".to_string()), Box::new(42u32), &state);

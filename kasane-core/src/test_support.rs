@@ -8,7 +8,7 @@ use compact_str::CompactString;
 use crate::element::Element;
 use crate::layout::Rect;
 use crate::layout::flex::place;
-use crate::plugin::{Command, PluginRegistry};
+use crate::plugin::{Command, PluginRuntime};
 use crate::protocol::{Atom, Color, Face, Line, NamedColor};
 use crate::render::pipeline::render_pipeline;
 use crate::render::view;
@@ -65,8 +65,8 @@ pub fn row_text(grid: &CellGrid, y: u16) -> String {
 }
 
 /// Run the full pipeline (view → place → paint) with a given registry.
-pub fn render_with_registry(state: &AppState, registry: &PluginRegistry) -> CellGrid {
-    let element = view::view(state, registry);
+pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellGrid {
+    let element = view::view(state, &registry.view());
     let root = Rect {
         x: 0,
         y: 0,
@@ -81,10 +81,10 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRegistry) -> Cell
 }
 
 /// Render to a fresh CellGrid using the non-cached pipeline.
-pub fn render_to_grid(state: &AppState, registry: &PluginRegistry) -> CellGrid {
+pub fn render_to_grid(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
-    render_pipeline(state, registry, &mut grid);
+    render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
 

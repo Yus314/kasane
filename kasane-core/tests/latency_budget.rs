@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Atom, Color, Face, KakouneRequest, NamedColor, parse_request};
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
@@ -106,7 +106,7 @@ fn median_us(mut durations: Vec<u128>) -> u128 {
 #[ignore]
 fn full_frame_under_2ms() {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -117,7 +117,7 @@ fn full_frame_under_2ms() {
 
     // Warmup
     for _ in 0..20 {
-        let element = view::view(&state, &registry);
+        let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
         grid.clear(&state.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
@@ -128,7 +128,7 @@ fn full_frame_under_2ms() {
     let durations: Vec<u128> = (0..RUNS)
         .map(|_| {
             let start = Instant::now();
-            let element = view::view(&state, &registry);
+            let element = view::view(&state, &registry.view());
             let layout = flex::place(&element, area, &state);
             grid.clear(&state.default_face);
             paint::paint(&element, &layout, &mut grid, &state);
@@ -250,7 +250,7 @@ fn salsa_full_frame_under_2ms() {
     use kasane_core::state::DirtyFlags;
 
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
@@ -260,13 +260,13 @@ fn salsa_full_frame_under_2ms() {
     for _ in 0..20 {
         sync_inputs_from_state(&mut db, &state, &handles);
         let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
-        sync_display_directives(&mut db, &state, &registry, &handles);
-        sync_plugin_contributions(&mut db, &state, &registry, &handles);
+        sync_display_directives(&mut db, &state, &registry.view(), &handles);
+        sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
         let _result = render_pipeline_cached(
             &db,
             &handles,
             &state,
-            &registry,
+            &registry.view(),
             &mut grid,
             dirty,
             &[],
@@ -282,13 +282,13 @@ fn salsa_full_frame_under_2ms() {
             let start = Instant::now();
             sync_inputs_from_state(&mut db, &state, &handles);
             let _pe = sync_plugin_epoch(&mut db, &registry, &handles);
-            sync_display_directives(&mut db, &state, &registry, &handles);
-            sync_plugin_contributions(&mut db, &state, &registry, &handles);
+            sync_display_directives(&mut db, &state, &registry.view(), &handles);
+            sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
             let _result = render_pipeline_cached(
                 &db,
                 &handles,
                 &state,
-                &registry,
+                &registry.view(),
                 &mut grid,
                 dirty,
                 &[],

@@ -17,6 +17,7 @@ use bitflags::bitflags;
 use crate::DirtyTracked;
 use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
+use crate::layout::HitMap;
 use crate::protocol::{Coord, CursorMode, Face, Line};
 use crate::scroll::{
     SMOOTH_SCROLL_CONFIG_KEY, is_smooth_scroll_config_key, set_smooth_scroll_enabled,
@@ -25,7 +26,7 @@ use crate::session::SessionDescriptor;
 
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
-pub use update::{Msg, UpdateResult, update};
+pub use update::{Msg, UpdateResult, update, update_in_place};
 
 bitflags! {
     /// Tracks which parts of `AppState` changed during a frame.
@@ -38,7 +39,7 @@ bitflags! {
     ///    `contribute_deps_union()` / `annotate_deps()` / `transform_deps()` to skip
     ///    re-collection when irrelevant flags are set.
     /// 3. **Selective grid clear** — `BUFFER_CONTENT` triggers line-level `mark_region_dirty`.
-    /// 5. **Section deps** — `EffectiveSectionDeps` in PluginRegistry unions plugin deps
+    /// 5. **Section deps** — `EffectiveSectionDeps` in PluginRuntime unions plugin deps
     ///    with core section deps for Salsa-aware invalidation.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirtyFlags: u16 {
@@ -197,6 +198,10 @@ pub struct AppState {
     pub cols: u16,
     #[dirty(free)]
     pub rows: u16,
+    /// Post-render hit map for interactive element mouse routing.
+    /// Updated after each frame by `rebuild_hit_map()`.
+    #[dirty(free)]
+    pub hit_map: HitMap,
 }
 
 impl AppState {
@@ -273,6 +278,7 @@ impl AppState {
             cols: _,
             rows: _,
             focused: _,
+            hit_map: _,
             shadow_enabled: _,
             padding_char: _,
             menu_max_height: _,
@@ -403,6 +409,7 @@ impl Default for AppState {
             secondary_blend_ratio: 0.4,
             cols: 80,
             rows: 24,
+            hit_map: HitMap::new(),
         }
     }
 }

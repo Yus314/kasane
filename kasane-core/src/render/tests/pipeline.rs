@@ -2,7 +2,7 @@ use super::super::test_helpers::render_frame;
 use super::super::*;
 use crate::layout::Rect;
 use crate::layout::flex;
-use crate::plugin::PluginRegistry;
+use crate::plugin::PluginRuntime;
 use crate::protocol::{Atom, Color, Face, NamedColor};
 use crate::state::AppState;
 use crate::test_utils::make_line;
@@ -65,8 +65,8 @@ fn test_treesitter_rgb_colors_preserved() {
     // New pipeline
     let mut grid_new = CellGrid::new(state.cols, state.rows);
     grid_new.clear(&state.default_face);
-    let registry = PluginRegistry::new();
-    let element = view::view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = view::view(&state, &registry.view());
     let root_area = Rect {
         x: 0,
         y: 0,
@@ -175,12 +175,12 @@ fn test_treesitter_colors_persist_across_frames() {
     }]];
     state.status_line = make_line("st");
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
 
     // Frame 1
     grid.clear(&state.default_face);
-    let el = view::view(&state, &registry);
+    let el = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
         y: 0,
@@ -206,7 +206,7 @@ fn test_treesitter_colors_persist_across_frames() {
 
     // Frame 2: same content → diff should be empty (colors retained)
     grid.clear(&state.default_face);
-    let el = view::view(&state, &registry);
+    let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
 
@@ -231,7 +231,7 @@ fn test_treesitter_colors_persist_across_frames() {
     }]];
 
     grid.clear(&state.default_face);
-    let el = view::view(&state, &registry);
+    let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
 
@@ -272,15 +272,15 @@ fn test_line_dirty_buffer_and_status() {
     ];
     state.status_line = make_line("status");
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
 
     // Frame 1: full render (first frame — swap_with_dirty falls back to swap)
-    render_pipeline(&state, &registry, &mut grid);
+    render_pipeline(&state, &registry.view(), &mut grid);
     grid.swap_with_dirty();
 
     // Frame 2: identical content — populates both current and previous properly
-    render_pipeline(&state, &registry, &mut grid);
+    render_pipeline(&state, &registry.view(), &mut grid);
     grid.swap_with_dirty();
     // Now swap_with_dirty preserved current (it has content from frame 2)
 
@@ -291,7 +291,7 @@ fn test_line_dirty_buffer_and_status() {
 
     render_pipeline_direct(
         &state,
-        &registry,
+        &registry.view(),
         &mut grid,
         DirtyFlags::BUFFER | DirtyFlags::STATUS,
     );
@@ -331,22 +331,22 @@ fn test_line_dirty_buffer_only_regression() {
     ];
     state.status_line = make_line("status");
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
 
     // Frame 1: full render (first frame)
-    render_pipeline(&state, &registry, &mut grid);
+    render_pipeline(&state, &registry.view(), &mut grid);
     grid.swap_with_dirty();
 
     // Frame 2: identical — establishes current with valid content
-    render_pipeline(&state, &registry, &mut grid);
+    render_pipeline(&state, &registry.view(), &mut grid);
     grid.swap_with_dirty();
 
     // Frame 3: change only line 2, BUFFER dirty only
     state.lines[2] = make_line("EDIT2");
     state.lines_dirty = vec![false, false, true, false];
 
-    render_pipeline_direct(&state, &registry, &mut grid, DirtyFlags::BUFFER);
+    render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::BUFFER);
 
     // Clean lines preserved
     assert_eq!(grid.get(0, 0).unwrap().grapheme, "l");
@@ -394,8 +394,8 @@ fn test_declarative_matches_imperative_buffer_status() {
     // New pipeline
     let mut grid_new = CellGrid::new(state.cols, state.rows);
     grid_new.clear(&state.default_face);
-    let registry = PluginRegistry::new();
-    let element = view::view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = view::view(&state, &registry.view());
     let root_area = Rect {
         x: 0,
         y: 0,

@@ -1,7 +1,7 @@
 mod fixtures;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::parse_request;
 use kasane_core::render::{CellGrid, render_pipeline};
 
@@ -79,14 +79,14 @@ fn generate_mixed_session() -> Vec<Vec<u8>> {
 
 fn replay_session(msgs: &[Vec<u8>]) {
     let mut state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
 
     for msg in msgs {
         let mut buf = msg.clone();
         let request = parse_request(&mut buf).unwrap();
         state.apply(request);
-        let _ = render_pipeline(&state, &registry, &mut grid);
+        let _ = render_pipeline(&state, &registry.view(), &mut grid);
         let _ = grid.diff();
         grid.swap();
     }

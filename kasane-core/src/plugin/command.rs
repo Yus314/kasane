@@ -99,110 +99,21 @@ pub enum Command {
     },
 }
 
-/// Commands that require event-loop-level handling (timers, inter-plugin messages, config).
-pub enum DeferredCommand {
-    ScheduleTimer {
-        delay: Duration,
-        target: PluginId,
-        payload: Box<dyn Any + Send>,
-    },
-    PluginMessage {
-        target: PluginId,
-        payload: Box<dyn Any + Send>,
-    },
-    SetConfig {
-        key: String,
-        value: String,
-    },
-    Workspace(WorkspaceCommand),
-    RegisterThemeTokens(Vec<(String, Face)>),
-    SpawnProcess {
-        job_id: u64,
-        program: String,
-        args: Vec<String>,
-        stdin_mode: StdinMode,
-    },
-    Session(SessionCommand),
-    WriteToProcess {
-        job_id: u64,
-        data: Vec<u8>,
-    },
-    CloseProcessStdin {
-        job_id: u64,
-    },
-    KillProcess {
-        job_id: u64,
-    },
-    SpawnPaneClient {
-        surface_id: SurfaceId,
-        placement: Placement,
-    },
-    ClosePaneClient {
-        surface_id: SurfaceId,
-    },
+impl Command {
+    /// Returns true if this command requires event-loop-level handling
+    /// (timers, inter-plugin messages, config, workspace, processes, sessions).
+    pub fn is_deferred(&self) -> bool {
+        !matches!(
+            self,
+            Command::SendToKakoune(_) | Command::Paste | Command::Quit | Command::RequestRedraw(_)
+        )
+    }
 }
 
-/// Separate deferred commands from normal commands.
-/// Returns (normal_commands, deferred_commands).
-pub fn extract_deferred_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<DeferredCommand>) {
-    let mut normal = Vec::new();
-    let mut deferred = Vec::new();
-    for cmd in commands {
-        match cmd {
-            Command::ScheduleTimer {
-                delay,
-                target,
-                payload,
-            } => deferred.push(DeferredCommand::ScheduleTimer {
-                delay,
-                target,
-                payload,
-            }),
-            Command::PluginMessage { target, payload } => {
-                deferred.push(DeferredCommand::PluginMessage { target, payload })
-            }
-            Command::SetConfig { key, value } => {
-                deferred.push(DeferredCommand::SetConfig { key, value })
-            }
-            Command::Workspace(cmd) => deferred.push(DeferredCommand::Workspace(cmd)),
-            Command::RegisterThemeTokens(tokens) => {
-                deferred.push(DeferredCommand::RegisterThemeTokens(tokens))
-            }
-            Command::SpawnProcess {
-                job_id,
-                program,
-                args,
-                stdin_mode,
-            } => deferred.push(DeferredCommand::SpawnProcess {
-                job_id,
-                program,
-                args,
-                stdin_mode,
-            }),
-            Command::Session(cmd) => deferred.push(DeferredCommand::Session(cmd)),
-            Command::WriteToProcess { job_id, data } => {
-                deferred.push(DeferredCommand::WriteToProcess { job_id, data })
-            }
-            Command::CloseProcessStdin { job_id } => {
-                deferred.push(DeferredCommand::CloseProcessStdin { job_id })
-            }
-            Command::KillProcess { job_id } => {
-                deferred.push(DeferredCommand::KillProcess { job_id })
-            }
-            Command::SpawnPaneClient {
-                surface_id,
-                placement,
-            } => deferred.push(DeferredCommand::SpawnPaneClient {
-                surface_id,
-                placement,
-            }),
-            Command::ClosePaneClient { surface_id } => {
-                deferred.push(DeferredCommand::ClosePaneClient { surface_id })
-            }
-            other => normal.push(other),
-        }
-    }
-    (normal, deferred)
+/// Separate deferred commands from immediate commands.
+/// Returns (immediate_commands, deferred_commands).
+pub fn partition_commands(commands: Vec<Command>) -> (Vec<Command>, Vec<Command>) {
+    commands.into_iter().partition(|cmd| !cmd.is_deferred())
 }
 
 /// コマンド実行の結果。

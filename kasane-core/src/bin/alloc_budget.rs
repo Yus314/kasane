@@ -55,7 +55,7 @@ static ALLOC: alloc_counter::CountingAllocator = alloc_counter::CountingAllocato
 fn main() {
     use kasane_core::layout::Rect;
     use kasane_core::layout::flex;
-    use kasane_core::plugin::PluginRegistry;
+    use kasane_core::plugin::PluginRuntime;
     use kasane_core::protocol::{Atom, Color, Coord, Face, NamedColor, parse_request};
     use kasane_core::render::CellGrid;
     use kasane_core::render::paint;
@@ -140,7 +140,7 @@ fn main() {
         contents: "normal".into(),
     }];
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -153,7 +153,7 @@ fn main() {
 
     // view
     alloc_counter::reset();
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let (view_count, view_bytes) = alloc_counter::snapshot();
 
     // place

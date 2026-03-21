@@ -126,7 +126,7 @@ where
         .map_err(|err| anyhow::anyhow!("failed to acquire primary session: {err:?}"))?;
 
     // Build plugin registry
-    let registry = kasane_core::plugin::PluginRegistry::new();
+    let registry = kasane_core::plugin::PluginRuntime::new();
     // Process dispatcher for plugin-spawned processes
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(GuiProcessEventSink(proxy.clone()));
     let process_dispatcher = create_process_dispatcher(process_sink);

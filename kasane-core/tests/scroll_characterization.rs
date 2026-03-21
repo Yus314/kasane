@@ -95,10 +95,9 @@ fn info_popup_scroll_consumes_event_without_kakoune_scroll() {
         3,
         &["one", "two", "three", "four", "five", "six"],
     ));
-    let mut registry = registry_empty();
+    let registry = registry_empty();
     install_info_hit_region(
-        &mut registry,
-        &state,
+        &mut state,
         0,
         Rect {
             x: 2,
@@ -134,12 +133,11 @@ fn plugin_hit_mouse_press_consumes_before_default_mouse_forwarding() {
         }
     }
 
-    let state = state_80x24();
+    let mut state = state_80x24();
     let mut registry = registry_empty();
     registry.register_backend(Box::new(MousePlugin));
     install_hit_region(
-        &mut registry,
-        &state,
+        &mut state,
         InteractiveId(42),
         Rect {
             x: 5,

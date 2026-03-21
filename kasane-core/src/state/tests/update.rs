@@ -4,23 +4,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
-use crate::plugin::{Command, PluginBackend, PluginId, PluginRegistry, RuntimeEffects};
+use crate::plugin::{Command, PluginBackend, PluginId, PluginRuntime, RuntimeEffects};
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
-use crate::state::update::{Msg, update};
+use crate::state::update::{Msg, update_in_place};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
 
 #[test]
 fn test_update_key_forwards_to_kakoune() {
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::Char('a'),
         modifiers: crate::input::Modifiers::empty(),
     };
-    let result = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::Key(key), &mut registry, 3);
     let flags = result.flags;
     let commands = result.commands;
     assert!(flags.is_empty());
@@ -38,10 +38,10 @@ fn test_update_key_forwards_to_kakoune() {
 
 #[test]
 fn test_update_kakoune_draw() {
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
 
-    let result = update(
+    let result = update_in_place(
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
@@ -62,21 +62,21 @@ fn test_update_kakoune_draw() {
 
 #[test]
 fn test_update_focus_lost() {
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
 
-    let flags = update(&mut state, Msg::FocusLost, &mut registry, 3).flags;
+    let flags = update_in_place(&mut state, Msg::FocusLost, &mut registry, 3).flags;
     assert_eq!(flags, DirtyFlags::ALL);
     assert!(!state.focused);
 }
 
 #[test]
 fn test_update_focus_gained() {
-    let mut state = AppState::default();
+    let mut state = Box::new(AppState::default());
     state.focused = false;
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
 
-    let flags = update(&mut state, Msg::FocusGained, &mut registry, 3).flags;
+    let flags = update_in_place(&mut state, Msg::FocusGained, &mut registry, 3).flags;
     assert_eq!(flags, DirtyFlags::ALL);
     assert!(state.focused);
 }
@@ -99,15 +99,15 @@ fn test_update_plugin_handles_key() {
         }
     }
 
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(KeyPlugin));
 
     let key = crate::input::KeyEvent {
         key: crate::input::Key::Char('a'),
         modifiers: crate::input::Modifiers::empty(),
     };
-    let result = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::Key(key), &mut registry, 3);
     let flags = result.flags;
     let commands = result.commands;
     assert!(flags.is_empty());
@@ -140,10 +140,10 @@ fn test_update_mouse_routes_to_plugin() {
         }
     }
 
-    let mut state = AppState::default();
+    let mut state = Box::new(AppState::default());
     state.cols = 80;
     state.rows = 24;
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(MousePlugin));
 
     // Build a HitMap with an interactive region at (5,3)-(12,3)
@@ -159,7 +159,7 @@ fn test_update_mouse_routes_to_plugin() {
     };
     let layout = crate::layout::flex::place(&el, area, &state);
     let hit_map = build_hit_map(&el, &layout);
-    registry.set_hit_map(hit_map);
+    state.hit_map = hit_map;
 
     let mouse = MouseEvent {
         kind: MouseEventKind::Press(MouseButton::Left),
@@ -167,7 +167,7 @@ fn test_update_mouse_routes_to_plugin() {
         column: 7,
         modifiers: Modifiers::empty(),
     };
-    let result = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     let flags = result.flags;
     let commands = result.commands;
     // Plugin handled the mouse event and returned RequestRedraw(INFO)
@@ -177,10 +177,10 @@ fn test_update_mouse_routes_to_plugin() {
 
 #[test]
 fn test_update_mouse_miss_forwards_to_kakoune() {
-    let mut state = AppState::default();
+    let mut state = Box::new(AppState::default());
     state.cols = 80;
     state.rows = 24;
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     // Empty HitMap (no interactive regions)
 
     let mouse = MouseEvent {
@@ -189,7 +189,7 @@ fn test_update_mouse_miss_forwards_to_kakoune() {
         column: 10,
         modifiers: Modifiers::empty(),
     };
-    let result = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     let flags = result.flags;
     let commands = result.commands;
     assert!(flags.is_empty());
@@ -214,15 +214,15 @@ fn test_observe_key_called_for_all_plugins() {
         }
     }
 
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
 
     let key = KeyEvent {
         key: Key::Char('x'),
         modifiers: Modifiers::empty(),
     };
-    let _ = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let _ = update_in_place(&mut state, Msg::Key(key), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
 }
 
@@ -251,8 +251,8 @@ fn test_observe_key_called_even_when_plugin_handles() {
         }
     }
 
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
     registry.register_backend(Box::new(HandlerPlugin));
 
@@ -260,7 +260,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
         key: Key::Char('x'),
         modifiers: Modifiers::empty(),
     };
-    let _ = update(&mut state, Msg::Key(key), &mut registry, 3);
+    let _ = update_in_place(&mut state, Msg::Key(key), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
 }
 
@@ -282,15 +282,15 @@ fn test_plugin_can_override_pageup() {
         }
     }
 
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(PageUpPlugin));
 
     let key = KeyEvent {
         key: Key::PageUp,
         modifiers: Modifiers::empty(),
     };
-    let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
+    let commands = update_in_place(&mut state, Msg::Key(key), &mut registry, 3).commands;
     assert_eq!(commands.len(), 1);
     match &commands[0] {
         Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -314,10 +314,10 @@ fn test_observe_mouse_called_without_hit_test() {
         }
     }
 
-    let mut state = AppState::default();
+    let mut state = Box::new(AppState::default());
     state.cols = 80;
     state.rows = 24;
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(MouseObserver(observed.clone())));
     // No interactive regions → hit_test returns None
 
@@ -327,7 +327,7 @@ fn test_observe_mouse_called_without_hit_test() {
         column: 10,
         modifiers: Modifiers::empty(),
     };
-    let _ = update(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    let _ = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
 }
 
@@ -352,11 +352,11 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         }
     }
 
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StateWatcher(called.clone())));
 
-    let flags = update(
+    let flags = update_in_place(
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],
@@ -405,11 +405,11 @@ fn test_on_state_changed_effects_return_scroll_plans() {
         }
     }
 
-    let mut state = AppState::default();
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StateWatcher));
 
-    let result = update(
+    let result = update_in_place(
         &mut state,
         Msg::Kakoune(KakouneRequest::Draw {
             lines: vec![make_line("hello")],

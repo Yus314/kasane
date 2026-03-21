@@ -7,7 +7,7 @@
 
 use salsa::{Durability, Setter};
 
-use crate::plugin::PluginRegistry;
+use crate::plugin::{PluginRuntime, PluginView};
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_inputs::*;
 use crate::state::AppState;
@@ -193,7 +193,7 @@ pub fn sync_inputs_from_state(
 pub fn sync_plugin_contributions(
     db: &mut KasaneDatabase,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
 ) {
     use crate::display::DisplayMapRef;
@@ -219,7 +219,7 @@ pub fn sync_plugin_contributions(
     fn collect_slot(
         slot: &SlotId,
         state: &AppState,
-        registry: &PluginRegistry,
+        registry: &PluginView<'_>,
         ctx: &ContributeContext,
     ) -> Vec<crate::element::FlexChild> {
         registry
@@ -312,7 +312,7 @@ pub fn sync_plugin_contributions(
 pub fn sync_display_directives(
     db: &mut KasaneDatabase,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
 ) {
     let directives = registry.collect_display_directives(state);
@@ -327,14 +327,14 @@ pub fn sync_display_directives(
 
 /// Synchronize plugin epoch into Salsa.
 ///
-/// Call this after `PluginRegistry::prepare_plugin_cache()` each frame.
+/// Call this after `PluginRuntime::prepare_plugin_cache()` each frame.
 /// If any plugin's state hash changed, increments the epoch counter so
 /// Salsa tracked functions that depend on `PluginEpochInput` will re-evaluate.
 ///
 /// Returns `true` if the epoch was bumped (i.e., plugin outputs may have changed).
 pub fn sync_plugin_epoch(
     db: &mut KasaneDatabase,
-    registry: &PluginRegistry,
+    registry: &PluginRuntime,
     inputs: &SalsaInputHandles,
 ) -> bool {
     if registry.any_plugin_state_changed() {

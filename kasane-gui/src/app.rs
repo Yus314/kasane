@@ -21,9 +21,8 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    Command, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginManager,
-    PluginRegistry, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
-    report_plugin_diagnostics,
+    Command, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
+    ProcessDispatcher, ProcessEvent, extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -182,8 +181,8 @@ where
     scene_renderer: Option<SceneRenderer>,
 
     // kasane-core
-    state: AppState,
-    registry: PluginRegistry,
+    state: Box<AppState>,
+    registry: PluginRuntime,
     surface_registry: SurfaceRegistry,
     pane_map: PaneMap,
     grid: CellGrid, // used for resize tracking
@@ -244,12 +243,12 @@ where
         session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
         plugin_manager: &mut PluginManager,
-        registry: PluginRegistry,
+        registry: PluginRuntime,
         process_dispatcher: Box<dyn ProcessDispatcher>,
     ) -> Result<Self> {
         let scroll_amount = config.scroll.lines_per_scroll;
 
-        let mut state = AppState::default();
+        let mut state = Box::new(AppState::default());
         let mut session_states = SessionStateStore::new();
         if let Some(active) = session_manager.active_session_id() {
             session_states.sync_from_active(active, &state);
@@ -464,17 +463,22 @@ where
                         event_loop.exit();
                         return;
                     }
-                    let UpdateResult {
-                        flags,
-                        commands,
-                        scroll_plans,
-                        source_plugin: _source,
-                    } = update(
-                        &mut self.state,
+                    let state = std::mem::take(&mut self.state);
+                    let (
+                        state,
+                        UpdateResult {
+                            flags,
+                            commands,
+                            scroll_plans,
+                            source_plugin: _source,
+                        },
+                    ) = update(
+                        state,
                         Msg::Kakoune(req),
                         &mut self.registry,
                         self.scroll_amount,
                     );
+                    self.state = state;
                     let mut surface_command_groups = if flags.is_empty() {
                         vec![]
                     } else {
@@ -620,12 +624,17 @@ where
             } else {
                 let surface_event = surface_event_from_input(&input);
                 let msg = Msg::from(input);
-                let UpdateResult {
-                    flags,
-                    commands,
-                    scroll_plans,
-                    source_plugin,
-                } = update(&mut self.state, msg, &mut self.registry, self.scroll_amount);
+                let state = std::mem::take(&mut self.state);
+                let (
+                    state,
+                    UpdateResult {
+                        flags,
+                        commands,
+                        scroll_plans,
+                        source_plugin,
+                    },
+                ) = update(state, msg, &mut self.registry, self.scroll_amount);
+                self.state = state;
                 let surface_command_groups = surface_event
                     .map(|event| {
                         self.surface_registry
@@ -844,18 +853,9 @@ where
             sync_inputs_from_state(&mut self.salsa_db, &self.state, &self.salsa_handles);
             let _epoch_changed =
                 sync_plugin_epoch(&mut self.salsa_db, &self.registry, &self.salsa_handles);
-            sync_display_directives(
-                &mut self.salsa_db,
-                &self.state,
-                &self.registry,
-                &self.salsa_handles,
-            );
-            sync_plugin_contributions(
-                &mut self.salsa_db,
-                &self.state,
-                &self.registry,
-                &self.salsa_handles,
-            );
+            let view = self.registry.view();
+            sync_display_directives(&mut self.salsa_db, &self.state, &view, &self.salsa_handles);
+            sync_plugin_contributions(&mut self.salsa_db, &self.state, &view, &self.salsa_handles);
 
             let pane_states_val;
             let pane_states_opt = if self.pane_map.len() > 1 {
@@ -874,7 +874,7 @@ where
                 &self.salsa_db,
                 &self.salsa_handles,
                 &self.state,
-                &self.registry,
+                &view,
                 cell_size,
                 self.dirty,
                 &mut self.scene_cache,
@@ -907,8 +907,8 @@ where
 
             // Rebuild HitMap from cached view tree for plugin mouse routing
             kasane_core::event_loop::rebuild_hit_map(
-                &self.state,
-                &mut self.registry,
+                &mut self.state,
+                &self.registry,
                 &self.surface_registry,
             );
         } else if let Some(result) = self.last_render_result {

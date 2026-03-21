@@ -21,8 +21,7 @@ use compact_str::CompactString;
 
 // Re-export command module
 pub use command::{
-    Command, CommandResult, DeferredCommand, PaintHook, execute_commands,
-    extract_deferred_commands, extract_redraw_flags,
+    Command, CommandResult, PaintHook, execute_commands, extract_redraw_flags, partition_commands,
 };
 pub use diagnostics::{
     DEFAULT_PLUGIN_DIAGNOSTIC_OVERLAY_LINES, PLUGIN_ACTIVATION_OVERLAY_TITLE,
@@ -65,7 +64,11 @@ pub use context::{
 };
 
 // Re-export registry module
-pub use registry::{PluginRegistry, PluginSurfaceSet};
+pub use registry::{PluginRuntime, PluginSurfaceSet, PluginView};
+
+/// Deprecated alias — use [`PluginRuntime`] instead.
+#[deprecated(note = "renamed to PluginRuntime")]
+pub type PluginRegistry = PluginRuntime;
 
 // Re-export display types for plugin API
 pub use crate::display::{DisplayDirective, DisplayMapRef};
@@ -79,7 +82,7 @@ pub use state::{Plugin, PluginState};
 
 bitflags! {
     /// Declares which Plugin trait methods a plugin actually implements.
-    /// Used by PluginRegistry to skip WASM boundary crossings for non-participating plugins.
+    /// Used by PluginRuntime to skip WASM boundary crossings for non-participating plugins.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct PluginCapabilities: u32 {
         const OVERLAY            = 1 << 2;

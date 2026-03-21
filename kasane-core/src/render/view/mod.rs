@@ -7,18 +7,18 @@ mod tests;
 use crate::display::DisplayMapRef;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
-use crate::plugin::{AnnotateContext, PluginRegistry, TransformTarget};
+use crate::plugin::{AnnotateContext, PluginView, TransformTarget};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::state::AppState;
 use crate::surface::{SurfaceComposeResult, SurfaceRenderReport};
 
 /// Build the full Element tree from application state.
-pub fn view(state: &AppState, registry: &PluginRegistry) -> Element {
+pub fn view(state: &AppState, registry: &PluginView<'_>) -> Element {
     view_sections(state, registry).into_element()
 }
 
 /// Build decomposed view sections without caching.
-pub(crate) fn view_sections(state: &AppState, registry: &PluginRegistry) -> ViewSections {
+pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> ViewSections {
     crate::perf::perf_span!("view_sections");
 
     let base = legacy_surface_compose_result(state, registry);
@@ -88,7 +88,7 @@ impl ViewSections {
 
 fn legacy_surface_compose_result(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> SurfaceComposeResult {
     let mut surface_registry = crate::surface::SurfaceRegistry::new();
     surface_registry.register(Box::new(crate::surface::buffer::KakouneBufferSurface::new()));
@@ -108,7 +108,7 @@ fn legacy_surface_compose_result(
 
 /// Build the menu overlay section.
 #[crate::kasane_component]
-fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Overlay> {
+fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Overlay> {
     let menu_state = state.menu.as_ref()?;
     let transform_target = match menu_state.style {
         MenuStyle::Prompt => TransformTarget::MenuPrompt,
@@ -134,7 +134,7 @@ fn build_menu_section(state: &AppState, registry: &PluginRegistry) -> Option<Ove
 
 /// Build info overlay section with collision avoidance.
 #[crate::kasane_component]
-fn build_info_section(state: &AppState, registry: &PluginRegistry) -> Vec<Overlay> {
+fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overlay> {
     let menu_rect = crate::layout::get_menu_rect(state);
     let mut avoid_rects: Vec<crate::layout::Rect> = Vec::new();
     if let Some(mr) = menu_rect {
@@ -204,7 +204,7 @@ fn build_status_core(state: &AppState) -> Element {
 
 pub(crate) fn build_status_surface_abstract(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Element {
     let transformed_core = registry.apply_transform_chain(
         TransformTarget::StatusBar,
@@ -244,7 +244,7 @@ pub(crate) struct BufferCoreParts {
 
 pub(crate) fn build_buffer_core_parts(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> BufferCoreParts {
     use std::sync::Arc;
 
@@ -292,7 +292,7 @@ pub(crate) fn build_buffer_core_parts(
 
 pub(crate) fn build_buffer_surface_abstract(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Element {
     let parts = build_buffer_core_parts(state, registry);
     let mut row_children = Vec::new();
@@ -336,7 +336,7 @@ pub(crate) fn build_buffer_surface_abstract(
 /// Build the menu overlay section (non-cached, for Surface pipeline).
 pub(crate) fn build_menu_section_standalone(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Option<Overlay> {
     build_menu_section(state, registry)
 }
@@ -344,7 +344,7 @@ pub(crate) fn build_menu_section_standalone(
 /// Build the info overlay section (non-cached, for Surface pipeline).
 pub(crate) fn build_info_section_standalone(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Vec<Overlay> {
     build_info_section(state, registry)
 }

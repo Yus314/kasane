@@ -7,7 +7,7 @@
 //! The flow per section:
 //! 1. Salsa tracked function produces the core element (auto-memoized)
 //! 2. Plugin contributions (slots, annotations, overlays) read from Salsa inputs
-//! 3. Plugin transforms are applied on top (using PluginRegistry)
+//! 3. Plugin transforms are applied on top (using PluginRuntime)
 //!
 //! Salsa handles memoization of pure elements,
 //! and `sync_plugin_contributions()` pre-computes plugin contributions
@@ -20,7 +20,7 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use crate::element::{Element, FlexChild, Style};
 use crate::layout::Rect;
-use crate::plugin::{PaintHook, PluginRegistry, TransformTarget};
+use crate::plugin::{PaintHook, PluginView, TransformTarget};
 use crate::protocol::MenuStyle;
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
@@ -38,7 +38,7 @@ use crate::surface::pane_map::PaneStates;
 /// Stage 2 (Salsa inputs): slot contributions, annotations, overlays
 /// (set by `sync_plugin_contributions()` each frame).
 ///
-/// Stage 3 (imperative): plugin transforms applied via `PluginRegistry`.
+/// Stage 3 (imperative): plugin transforms applied via `PluginRuntime`.
 pub(crate) struct SalsaViewSource<'a> {
     db: &'a KasaneDatabase,
     handles: &'a SalsaInputHandles,
@@ -63,12 +63,12 @@ impl<'a> SalsaViewSource<'a> {
 }
 
 impl ViewSource for SalsaViewSource<'_> {
-    fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginRegistry) {
+    fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginView<'_>) {
         // No-op: Salsa handles invalidation automatically.
         // Plugin contributions are synced by sync_plugin_contributions() before rendering.
     }
 
-    fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections {
+    fn view_sections(&mut self, state: &AppState, registry: &PluginView<'_>) -> view::ViewSections {
         crate::perf::perf_span!("salsa_view_sections");
 
         let db = self.db;
@@ -227,7 +227,7 @@ fn compose_base_from_salsa(
     buffer_el: Element,
     status_el: Element,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     display_map: &crate::display::DisplayMapRef,
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
@@ -356,7 +356,7 @@ pub fn render_pipeline_cached(
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
     paint_hooks: &[Box<dyn PaintHook>],
@@ -373,7 +373,7 @@ pub fn scene_render_pipeline_cached<'a>(
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
     scene_cache: &'a mut SceneCache,

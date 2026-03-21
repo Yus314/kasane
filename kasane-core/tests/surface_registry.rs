@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use kasane_core::element::{Element, Style, StyleToken};
 use kasane_core::input::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::{Rect, SplitDirection};
-use kasane_core::plugin::{Command, PluginId, PluginRegistry};
+use kasane_core::plugin::{Command, PluginId, PluginRuntime};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::buffer::KakouneBufferSurface;
 use kasane_core::surface::status::StatusBarSurface;
@@ -480,14 +480,14 @@ fn test_registry_compose_single_surface() {
     reg.register(Box::new(KakouneBufferSurface::new()));
 
     let state = AppState::default();
-    let plugin_reg = PluginRegistry::new();
+    let plugin_reg = PluginRuntime::new();
     let total = Rect {
         x: 0,
         y: 0,
         w: 80,
         h: 24,
     };
-    let element = reg.compose_view(&state, &plugin_reg, total);
+    let element = reg.compose_view(&state, &plugin_reg.view(), total);
     // KakouneBufferSurface now delegates to the abstract/resolved surface path.
     assert!(!matches!(element, Element::Empty));
 }
@@ -513,14 +513,14 @@ fn test_registry_compose_split_includes_explicit_divider_node() {
     );
 
     let state = AppState::default();
-    let plugin_reg = PluginRegistry::new();
+    let plugin_reg = PluginRuntime::new();
     let total = Rect {
         x: 0,
         y: 0,
         w: 80,
         h: 24,
     };
-    let element = reg.compose_view(&state, &plugin_reg, total);
+    let element = reg.compose_view(&state, &plugin_reg.view(), total);
     match element {
         Element::Flex { gap, children, .. } => {
             assert_eq!(gap, 0);

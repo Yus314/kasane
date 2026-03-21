@@ -9,7 +9,7 @@ use crossterm::{
 };
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Atom, Attributes, Color, Face, Line, NamedColor, parse_request};
 use kasane_core::render::paint;
 use kasane_core::render::view;
@@ -220,7 +220,7 @@ fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
     let mut state = typical_state(line_count);
     state.cols = cols;
     state.rows = rows;
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -238,7 +238,7 @@ fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
 /// Generate grid for an incremental 1-line edit.
 fn generate_incremental_grid() -> CellGrid {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -284,7 +284,7 @@ fn generate_realistic_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid 
     let mut state = realistic_state(line_count);
     state.cols = cols;
     state.rows = rows;
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -304,7 +304,7 @@ fn generate_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<CellDiff> {
     let mut state = typical_state(line_count);
     state.cols = cols;
     state.rows = rows;
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -322,7 +322,7 @@ fn generate_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<CellDiff> {
 /// Generate diffs for an incremental 1-line edit (previous buffer populated, 1 line changed).
 fn generate_incremental_diffs() -> Vec<CellDiff> {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -648,7 +648,7 @@ fn generate_realistic_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<Cell
     let mut state = realistic_state(line_count);
     state.cols = cols;
     state.rows = rows;
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -852,7 +852,7 @@ fn bench_sgr_bytes(c: &mut Criterion) {
 fn bench_e2e_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("e2e_pipeline");
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
 
     // E2E: parse JSON → apply → render → diff → backend.draw (uniform data)
     {

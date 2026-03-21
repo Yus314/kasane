@@ -28,13 +28,13 @@ fn renders_abstract_tree_with_placeholder() {
     let mut surfaces = plugin.surfaces();
     let surface = surfaces.pop().expect("expected hosted surface");
     let state = AppState::default();
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let ctx = ViewContext {
         state: &state,
         global_state: &state,
         rect: default_surface_rect(),
         focused: true,
-        registry: &registry,
+        registry: &registry.view(),
         surface_id: surface.id(),
     };
 
@@ -104,7 +104,7 @@ fn routes_state_changes_to_guest_and_updates_hash() {
 
 #[test]
 fn integrates_with_surface_registry_and_resolver() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
     registry.register_backend(Box::new(SurfaceProbeContributor));
 
@@ -127,7 +127,8 @@ fn integrates_with_surface_registry_and_resolver() {
         w: state.cols,
         h: state.rows,
     };
-    let mut sections = surface_registry.compose_view_sections(&state, None, &registry, root_area);
+    let mut sections =
+        surface_registry.compose_view_sections(&state, None, &registry.view(), root_area);
 
     assert_eq!(sections.surface_reports.len(), 1);
     let report = &sections.surface_reports[0];
@@ -194,7 +195,7 @@ fn integrates_with_surface_registry_and_resolver() {
 
 #[test]
 fn routes_key_events_to_guest() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
 
     let mut surface_sets = registry.collect_plugin_surfaces();
@@ -231,7 +232,7 @@ fn routes_key_events_to_guest() {
 
 #[test]
 fn routes_spawn_session_commands_to_host() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
 
     let mut surface_sets = registry.collect_plugin_surfaces();
@@ -281,7 +282,7 @@ fn routes_spawn_session_commands_to_host() {
 
 #[test]
 fn routes_close_session_commands_to_host() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
 
     let mut surface_sets = registry.collect_plugin_surfaces();
@@ -323,7 +324,7 @@ fn routes_close_session_commands_to_host() {
 
 #[test]
 fn routes_mouse_and_focus_events_to_guest() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
 
     let mut surface_sets = registry.collect_plugin_surfaces();
@@ -378,7 +379,7 @@ fn routes_mouse_and_focus_events_to_guest() {
 
 #[test]
 fn state_change_commands_preserve_owner_plugin_source() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
 
     let mut surface_sets = registry.collect_plugin_surfaces();

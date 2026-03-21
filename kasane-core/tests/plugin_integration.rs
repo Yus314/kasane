@@ -1,5 +1,5 @@
 //! Integration tests for the plugin system:
-//!   `#[kasane_plugin]` macro → PluginRegistry → view → layout → paint → CellGrid
+//!   `#[kasane_plugin]` macro → PluginRuntime → view → layout → paint → CellGrid
 //!
 //! These tests verify the end-to-end plugin pipeline, covering:
 //! Lifecycle, Input, Event/Message, MenuTransform, Transform, and CursorStyle.
@@ -9,11 +9,11 @@ use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
 use kasane_core::plugin::{
     Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
-    PluginId, PluginRegistry, SlotId,
+    PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
 use kasane_core::render::{CursorStyle, cursor_style, cursor_style_default};
-use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
 // ---------------------------------------------------------------------------
@@ -61,8 +61,8 @@ mod key_consumer_plugin {
 
 #[test]
 fn handle_key_first_wins() {
-    let mut state = setup_state(vec![make_line("text")]);
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(setup_state(vec![make_line("text")]));
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(KeyConsumerPluginPlugin::new()));
     let _ = registry.init_all_batch(&state);
 
@@ -71,7 +71,7 @@ fn handle_key_first_wins() {
         key: Key::Char('s'),
         modifiers: Modifiers::CTRL,
     };
-    let result = update(&mut state, Msg::Key(ctrl_s), &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::Key(ctrl_s), &mut registry, 3);
     let flags = result.flags;
     let cmds = result.commands;
 
@@ -92,7 +92,7 @@ fn handle_key_first_wins() {
         key: Key::Char('a'),
         modifiers: Modifiers::empty(),
     };
-    let cmds = update(&mut state, Msg::Key(key_a), &mut registry, 3).commands;
+    let cmds = update_in_place(&mut state, Msg::Key(key_a), &mut registry, 3).commands;
 
     let has_send = cmds.iter().any(|c| matches!(c, Command::SendToKakoune(_)));
     assert!(
@@ -146,7 +146,7 @@ mod msg_receiver_plugin {
 fn plugin_message_delivery() {
     let state = setup_state(vec![make_line("text")]);
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(MsgReceiverPluginPlugin::new()));
     let _ = registry.init_all_batch(&state);
 
@@ -219,7 +219,7 @@ fn menu_transform_adds_prefix() {
         style: MenuStyle::Inline,
     });
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(PrefixPluginPlugin::new()));
     let _ = registry.init_all_batch(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -286,7 +286,7 @@ mod buffer_banner {
 fn buffer_transform_adds_banner() {
     let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferBannerPlugin::new()));
     let _ = registry.init_all_batch(&state);
 
@@ -353,7 +353,7 @@ impl PluginBackend for VerticalBandsPlugin {
 fn above_and_below_buffer_slots_render() {
     let state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(VerticalBandsPlugin));
     let _ = registry.init_all_batch(&state);
 
@@ -397,7 +397,7 @@ fn cursor_style_override_wins_over_default_logic() {
 
     assert_eq!(cursor_style_default(&state), CursorStyle::Outline);
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(UnderlineCursorPlugin));
     let _ = registry.init_all_batch(&state);
 
@@ -405,5 +405,8 @@ fn cursor_style_override_wins_over_default_logic() {
         registry.cursor_style_override(&state),
         Some(CursorStyle::Underline)
     );
-    assert_eq!(cursor_style(&state, &registry), CursorStyle::Underline);
+    assert_eq!(
+        cursor_style(&state, &registry.view()),
+        CursorStyle::Underline
+    );
 }

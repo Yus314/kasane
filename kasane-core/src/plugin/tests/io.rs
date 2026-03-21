@@ -128,7 +128,7 @@ impl PluginBackend for IoHandlerPlugin {
 
 #[test]
 fn test_deliver_io_event_dispatches_to_plugin() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(IoHandlerPlugin::new()));
     let state = AppState::default();
 
@@ -145,7 +145,7 @@ fn test_deliver_io_event_dispatches_to_plugin() {
 
 #[test]
 fn test_deliver_io_event_unknown_target() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(IoHandlerPlugin::new()));
     let state = AppState::default();
 
@@ -244,7 +244,7 @@ fn test_recording_dispatcher_tracks_operations() {
 #[test]
 fn test_plugin_allows_process_spawn_default_true() {
     // TestPlugin uses default allows_process_spawn() which returns true
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TestPlugin));
     assert!(registry.plugin_allows_process_spawn(&PluginId("test".to_string())));
 }
@@ -261,14 +261,14 @@ fn test_plugin_allows_process_spawn_denied() {
         }
     }
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(DenySpawnPlugin));
     assert!(!registry.plugin_allows_process_spawn(&PluginId("deny_spawn".to_string())));
 }
 
 #[test]
 fn test_plugin_allows_process_spawn_unknown_plugin() {
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     // Unknown plugin should return false (is_some_and fails on None)
     assert!(!registry.plugin_allows_process_spawn(&PluginId("unknown".to_string())));
 }

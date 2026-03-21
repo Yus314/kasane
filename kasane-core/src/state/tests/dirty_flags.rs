@@ -451,7 +451,7 @@ fn test_field_dirty_map_matches_macro_analysis() {
 
 #[test]
 fn test_free_read_fields_match() {
-    let expected_free: HashSet<&str> = ["cols", "rows", "focused", "drag"]
+    let expected_free: HashSet<&str> = ["cols", "rows", "focused", "drag", "hit_map"]
         .iter()
         .copied()
         .collect();

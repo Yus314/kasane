@@ -12,7 +12,7 @@ pub use crate::plugin::{
     ContribSizeHint, ContributeContext, Contribution, DisplayDirective, DisplayMapRef,
     IsBridgedPlugin, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, Plugin,
     PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor, PluginFactory, PluginId,
-    PluginManager, PluginProvider, PluginRank, PluginRegistry, PluginRevision, PluginSource,
+    PluginManager, PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
     PluginState, RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId,
     TransformContext, TransformTarget, builtin_plugin, host_plugin, host_plugin_with_provider,
 };

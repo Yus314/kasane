@@ -129,8 +129,8 @@ mod tests {
     #[test]
     fn test_user_plugin_overrides_builtin() {
         use crate::input::Modifiers;
-        use crate::plugin::PluginRegistry;
-        use crate::state::{Msg, update};
+        use crate::plugin::PluginRuntime;
+        use crate::state::{Msg, update_in_place};
 
         struct CustomPageUpPlugin;
         impl PluginBackend for CustomPageUpPlugin {
@@ -148,8 +148,8 @@ mod tests {
             }
         }
 
-        let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut state = Box::new(AppState::default());
+        let mut registry = PluginRuntime::new();
         // Custom plugin registered BEFORE builtin → gets priority
         registry.register_backend(Box::new(CustomPageUpPlugin));
         registry.register_backend(Box::new(BuiltinInputPlugin));
@@ -157,7 +157,7 @@ mod tests {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
+        let commands = update_in_place(&mut state, Msg::Key(key), &mut registry, 3).commands;
         assert_eq!(commands.len(), 1);
         match &commands[0] {
             Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
@@ -170,8 +170,8 @@ mod tests {
     #[test]
     fn test_builtin_fallback_when_no_override() {
         use crate::input::Modifiers;
-        use crate::plugin::PluginRegistry;
-        use crate::state::{Msg, update};
+        use crate::plugin::PluginRuntime;
+        use crate::state::{Msg, update_in_place};
 
         // Plugin that doesn't handle PageUp
         struct NoOpPlugin;
@@ -181,15 +181,15 @@ mod tests {
             }
         }
 
-        let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut state = Box::new(AppState::default());
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(NoOpPlugin));
         registry.register_backend(Box::new(BuiltinInputPlugin));
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let commands = update(&mut state, Msg::Key(key), &mut registry, 3).commands;
+        let commands = update_in_place(&mut state, Msg::Key(key), &mut registry, 3).commands;
         assert_eq!(commands.len(), 1);
         // BuiltinInputPlugin should handle it as a Scroll command
         assert!(matches!(
@@ -257,7 +257,7 @@ mod tests {
             3,
             crate::scroll::ResolvedScroll::new(3, 10, 5),
         );
-        let mut registry = crate::plugin::PluginRegistry::new();
+        let mut registry = crate::plugin::PluginRuntime::new();
         registry.register_backend(Box::new(BuiltinInputPlugin));
 
         assert_eq!(
@@ -294,7 +294,7 @@ mod tests {
             3,
             crate::scroll::ResolvedScroll::new(3, 10, 5),
         );
-        let mut registry = crate::plugin::PluginRegistry::new();
+        let mut registry = crate::plugin::PluginRuntime::new();
         registry.register_backend(Box::new(OverrideScrollPlugin));
         registry.register_backend(Box::new(BuiltinInputPlugin));
 

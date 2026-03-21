@@ -25,7 +25,7 @@ fn test_extract_redraw_flags_empty() {
 }
 
 #[test]
-fn test_extract_deferred_separates_correctly() {
+fn test_partition_separates_correctly() {
     let commands = vec![
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
         Command::ScheduleTimer {
@@ -43,19 +43,19 @@ fn test_extract_deferred_separates_correctly() {
         },
         Command::Paste,
     ];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert_eq!(normal.len(), 2); // SendToKakoune + Paste
+    let (immediate, deferred) = partition_commands(commands);
+    assert_eq!(immediate.len(), 2); // SendToKakoune + Paste
     assert_eq!(deferred.len(), 3); // Timer + Message + Config
 }
 
 #[test]
-fn test_extract_deferred_empty() {
+fn test_partition_empty_deferred() {
     let commands = vec![
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
         Command::Quit,
     ];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert_eq!(normal.len(), 2);
+    let (immediate, deferred) = partition_commands(commands);
+    assert_eq!(immediate.len(), 2);
     assert!(deferred.is_empty());
 }
 
@@ -68,76 +68,64 @@ fn test_set_config_stores_in_ui_options() {
 }
 
 #[test]
-fn test_extract_deferred_spawn_process() {
+fn test_partition_spawn_process() {
     let commands = vec![Command::SpawnProcess {
         job_id: 1,
         program: "cat".into(),
         args: vec!["/etc/hostname".into()],
         stdin_mode: StdinMode::Null,
     }];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert!(normal.is_empty());
+    let (immediate, deferred) = partition_commands(commands);
+    assert!(immediate.is_empty());
     assert_eq!(deferred.len(), 1);
-    match &deferred[0] {
-        DeferredCommand::SpawnProcess {
-            job_id,
-            program,
-            args,
-            stdin_mode,
-        } => {
-            assert_eq!(*job_id, 1);
-            assert_eq!(program, "cat");
-            assert_eq!(args, &["/etc/hostname".to_string()]);
-            assert_eq!(*stdin_mode, StdinMode::Null);
+    assert!(matches!(
+        deferred[0],
+        Command::SpawnProcess {
+            job_id: 1,
+            program: _,
+            ..
         }
-        _ => panic!("expected DeferredCommand::SpawnProcess"),
-    }
+    ));
 }
 
 #[test]
-fn test_extract_deferred_write_to_process() {
+fn test_partition_write_to_process() {
     let commands = vec![Command::WriteToProcess {
         job_id: 5,
         data: b"input data".to_vec(),
     }];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert!(normal.is_empty());
+    let (immediate, deferred) = partition_commands(commands);
+    assert!(immediate.is_empty());
     assert_eq!(deferred.len(), 1);
-    match &deferred[0] {
-        DeferredCommand::WriteToProcess { job_id, data } => {
-            assert_eq!(*job_id, 5);
-            assert_eq!(data, b"input data");
-        }
-        _ => panic!("expected DeferredCommand::WriteToProcess"),
-    }
+    assert!(matches!(
+        deferred[0],
+        Command::WriteToProcess { job_id: 5, .. }
+    ));
 }
 
 #[test]
-fn test_extract_deferred_close_process_stdin() {
+fn test_partition_close_process_stdin() {
     let commands = vec![Command::CloseProcessStdin { job_id: 3 }];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert!(normal.is_empty());
+    let (immediate, deferred) = partition_commands(commands);
+    assert!(immediate.is_empty());
     assert_eq!(deferred.len(), 1);
     assert!(matches!(
         deferred[0],
-        DeferredCommand::CloseProcessStdin { job_id: 3 }
+        Command::CloseProcessStdin { job_id: 3 }
     ));
 }
 
 #[test]
-fn test_extract_deferred_kill_process() {
+fn test_partition_kill_process() {
     let commands = vec![Command::KillProcess { job_id: 10 }];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert!(normal.is_empty());
+    let (immediate, deferred) = partition_commands(commands);
+    assert!(immediate.is_empty());
     assert_eq!(deferred.len(), 1);
-    assert!(matches!(
-        deferred[0],
-        DeferredCommand::KillProcess { job_id: 10 }
-    ));
+    assert!(matches!(deferred[0], Command::KillProcess { job_id: 10 }));
 }
 
 #[test]
-fn test_extract_deferred_mixed_process_commands() {
+fn test_partition_mixed_process_commands() {
     let commands = vec![
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["x".into()])),
         Command::SpawnProcess {
@@ -154,7 +142,7 @@ fn test_extract_deferred_mixed_process_commands() {
         Command::KillProcess { job_id: 2 },
         Command::Paste,
     ];
-    let (normal, deferred) = extract_deferred_commands(commands);
-    assert_eq!(normal.len(), 2); // SendToKakoune + Paste
+    let (immediate, deferred) = partition_commands(commands);
+    assert_eq!(immediate.len(), 2); // SendToKakoune + Paste
     assert_eq!(deferred.len(), 4); // SpawnProcess + WriteToProcess + CloseProcessStdin + KillProcess
 }

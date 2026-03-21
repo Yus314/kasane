@@ -1,7 +1,7 @@
 //! PluginBridge adapter — adapts `Plugin` to the internal `PluginBackend` trait.
 //!
 //! Use `PluginBridge` to adapt a `Plugin` into the internal `PluginBackend` trait,
-//! or register directly via `PluginRegistry::register()`.
+//! or register directly via `PluginRuntime::register()`.
 
 use std::any::Any;
 
@@ -346,7 +346,7 @@ impl<P: Plugin> ErasedPlugin for P {
 /// Holds the plugin logic + its externalized state. State changes are tracked
 /// via a generation counter (incremented on every state mutation detected
 /// by `PartialEq` comparison), which powers the existing L1 cache invalidation
-/// in `PluginRegistry::prepare_plugin_cache()`.
+/// in `PluginRuntime::prepare_plugin_cache()`.
 pub struct PluginBridge {
     inner: Box<dyn ErasedPlugin>,
     state: Box<dyn PluginState>,
@@ -575,7 +575,7 @@ impl IsBridgedPlugin for PluginBridge {
 mod tests {
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
-    use crate::plugin::{AnnotateContext, PluginCapabilities, PluginId, PluginRegistry};
+    use crate::plugin::{AnnotateContext, PluginCapabilities, PluginId, PluginRuntime};
     use crate::scroll::{ResolvedScroll, ScrollPolicyResult};
     use crate::state::AppState;
 
@@ -699,14 +699,14 @@ mod tests {
 
     #[test]
     fn register_integrates_with_registry() {
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register(CursorLinePure);
         assert_eq!(registry.plugin_count(), 1);
     }
 
     #[test]
     fn registry_init_and_state_change() {
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register(CursorLinePure);
 
         let mut app = AppState::default();
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn registry_collect_annotations_from_pure_plugin() {
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register(CursorLinePure);
 
         let mut app = AppState::default();

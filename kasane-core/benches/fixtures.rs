@@ -6,7 +6,7 @@ use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
     Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
-    PluginId, PluginRegistry, SlotId,
+    PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
@@ -554,10 +554,10 @@ pub fn draw_request(line_count: usize) -> KakouneRequest {
     }
 }
 
-/// Create a `PluginRegistry` with N dummy plugins.
+/// Create a `PluginRuntime` with N dummy plugins.
 /// Each plugin contributes to `StatusRight` and acts as a no-op decorator on `Buffer`.
-pub fn registry_with_plugins(n: usize) -> PluginRegistry {
-    let mut registry = PluginRegistry::new();
+pub fn registry_with_plugins(n: usize) -> PluginRuntime {
+    let mut registry = PluginRuntime::new();
     for i in 0..n {
         registry.register_backend(Box::new(BenchPlugin {
             id: format!("bench_plugin_{i}"),

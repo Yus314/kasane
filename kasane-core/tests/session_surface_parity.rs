@@ -4,7 +4,7 @@
 //! scenarios via AppState swap + ephemeral surface lifecycle management.
 
 use kasane_core::element::Element;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Coord, Face, InfoStyle, MenuStyle};
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuState};
@@ -394,12 +394,12 @@ fn test_compose_view_after_session_switch() {
     store.sync_from_active(id_b, &state_b);
 
     let mut reg = new_surface_registry();
-    let plugin_reg = PluginRegistry::new();
+    let plugin_reg = PluginRuntime::new();
 
     // Compose with state A
     let mut state = state_a.clone();
     reg.sync_ephemeral_surfaces(&state);
-    let element_a = reg.compose_view(&state, &plugin_reg, test_rect());
+    let element_a = reg.compose_view(&state, &plugin_reg.view(), test_rect());
     assert!(!matches!(element_a, Element::Empty));
 
     // Switch to B
@@ -408,7 +408,7 @@ fn test_compose_view_after_session_switch() {
     assert!(state.menu.is_some()); // B has a menu
 
     reg.sync_ephemeral_surfaces(&state);
-    let element_b = reg.compose_view(&state, &plugin_reg, test_rect());
+    let element_b = reg.compose_view(&state, &plugin_reg.view(), test_rect());
     assert!(!matches!(element_b, Element::Empty));
 
     // The menu surface should now be registered

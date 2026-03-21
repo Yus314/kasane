@@ -15,7 +15,7 @@ use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     IoEvent, PaintHook, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId, PluginManager,
-    PluginRegistry, ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch,
+    PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch,
     extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
@@ -36,7 +36,7 @@ pub(crate) struct PaintHookState {
 }
 
 impl PaintHookState {
-    pub(crate) fn from_registry(registry: &PluginRegistry) -> Self {
+    pub(crate) fn from_registry(registry: &PluginRuntime) -> Self {
         let mut state = Self::default();
         state.rebuild_from_grouped(
             registry,
@@ -60,7 +60,7 @@ impl PaintHookState {
 
     pub(crate) fn reconcile(
         &mut self,
-        registry: &PluginRegistry,
+        registry: &PluginRuntime,
         deltas: &[kasane_core::plugin::AppliedWinnerDelta],
         diagnostics: &[PluginDiagnostic],
     ) {
@@ -113,7 +113,7 @@ impl PaintHookState {
 
     fn rebuild_from_grouped(
         &mut self,
-        registry: &PluginRegistry,
+        registry: &PluginRuntime,
         mut grouped: BTreeMap<PluginId, Vec<Box<dyn PaintHook>>>,
     ) {
         let mut hooks = Vec::new();
@@ -300,8 +300,8 @@ where
 
 /// Grouped mutable context for `process_event`, reducing its parameter count.
 pub(crate) struct EventProcessingContext<'a, R, W, C> {
-    pub state: &'a mut AppState,
-    pub registry: &'a mut PluginRegistry,
+    pub state: &'a mut Box<AppState>,
+    pub registry: &'a mut PluginRuntime,
     pub surface_registry: &'a mut SurfaceRegistry,
     pub pane_map: &'a mut PaneMap,
     pub session_manager: &'a mut SessionManager<R, W, C>,
@@ -392,17 +392,17 @@ where
             if flush_active_session_ready_if_needed(ctx) {
                 return true;
             }
-            let UpdateResult {
-                flags,
-                commands,
-                scroll_plans,
-                source_plugin: _source,
-            } = update(
-                ctx.state,
-                Msg::Kakoune(req),
-                ctx.registry,
-                ctx.scroll_amount,
-            );
+            let state = std::mem::take(ctx.state);
+            let (
+                state,
+                UpdateResult {
+                    flags,
+                    commands,
+                    scroll_plans,
+                    source_plugin: _source,
+                },
+            ) = update(state, Msg::Kakoune(req), ctx.registry, ctx.scroll_amount);
+            *ctx.state = state;
             let surface_commands = if flags.is_empty() {
                 vec![]
             } else {
@@ -442,17 +442,22 @@ where
                 }
             } else {
                 let surface_event = surface_event_from_input(&input_event);
-                let UpdateResult {
-                    flags,
-                    commands,
-                    scroll_plans,
-                    source_plugin,
-                } = update(
-                    ctx.state,
+                let state = std::mem::take(ctx.state);
+                let (
+                    state,
+                    UpdateResult {
+                        flags,
+                        commands,
+                        scroll_plans,
+                        source_plugin,
+                    },
+                ) = update(
+                    state,
                     Msg::from(input_event),
                     ctx.registry,
                     ctx.scroll_amount,
                 );
+                *ctx.state = state;
                 let surface_commands = surface_event
                     .map(|event| {
                         ctx.surface_registry
@@ -621,7 +626,7 @@ where
 }
 
 fn reconcile_reloaded_plugin_resources(
-    registry: &mut PluginRegistry,
+    registry: &mut PluginRuntime,
     surface_registry: &mut SurfaceRegistry,
     state: &AppState,
     paint_hooks: &mut PaintHookState,
@@ -871,7 +876,7 @@ mod tests {
     #[test]
     fn reconcile_reloaded_plugin_resources_replaces_owner_surfaces_and_hooks() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(ReloadResourcePlugin {
             surface_id: SurfaceId(200),
             hook_id: "hook-a",
@@ -921,7 +926,7 @@ mod tests {
     #[test]
     fn reconcile_reloaded_plugin_resources_removes_owner_surfaces_and_hooks() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(ReloadResourcePlugin {
             surface_id: SurfaceId(200),
             hook_id: "hook-a",

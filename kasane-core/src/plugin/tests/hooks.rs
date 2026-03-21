@@ -28,7 +28,7 @@ impl PluginBackend for ObservingPlugin {
 
 #[test]
 fn test_observe_key_called() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(ObservingPlugin::new()));
     let state = AppState::default();
     let key = KeyEvent {
@@ -68,7 +68,7 @@ impl PluginBackend for IconPlugin {
 
 #[test]
 fn test_transform_menu_item() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(IconPlugin));
     let state = AppState::default();
     let item = vec![crate::protocol::Atom {
@@ -84,7 +84,7 @@ fn test_transform_menu_item() {
 
 #[test]
 fn test_transform_menu_item_no_plugin() {
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let state = AppState::default();
     let item = vec![crate::protocol::Atom {
         face: Face::default(),
@@ -179,7 +179,7 @@ impl PluginBackend for PaintHookPlugin {
 
 #[test]
 fn test_collect_paint_hooks() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(PaintHookPlugin {
         hooks: vec![
             Box::new(TestPaintHook {
@@ -202,7 +202,7 @@ fn test_collect_paint_hooks() {
 
 #[test]
 fn test_collect_paint_hooks_for_owner() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(PaintHookPlugin {
         hooks: vec![
             Box::new(TestPaintHook {
@@ -286,7 +286,7 @@ fn test_paint_hook_no_capability_not_collected() {
         // capabilities() defaults to empty — no PAINT_HOOK
     }
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(NoPaintHookPlugin));
     let hooks = registry.collect_paint_hooks();
     assert!(hooks.is_empty());

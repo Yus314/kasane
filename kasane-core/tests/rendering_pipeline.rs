@@ -6,14 +6,14 @@
 
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex::place;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{
     Atom, Color, Coord, Face, InfoStyle, KakouneRequest, Line, MenuStyle, NamedColor,
 };
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
-use kasane_core::state::{AppState, DirtyFlags, Msg, update};
+use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ fn setup_state(lines: Vec<Line>) -> AppState {
 
 /// Run the full pipeline with an empty registry.
 fn render(state: &AppState) -> kasane_core::render::CellGrid {
-    render_with_registry(state, &PluginRegistry::new())
+    render_with_registry(state, &PluginRuntime::new())
 }
 
 // ===========================================================================
@@ -281,11 +281,11 @@ fn multiple_infos_coexist() {
 
 #[test]
 fn resize_updates_grid() {
-    let mut state = setup_state(vec![make_line("hello")]);
+    let mut state = Box::new(setup_state(vec![make_line("hello")]));
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
 
-    let result = update(
+    let result = update_in_place(
         &mut state,
         Msg::Resize {
             cols: 120,
@@ -361,8 +361,8 @@ fn diff_detects_changes() {
     let mut grid = CellGrid::new(80, 24);
     grid.clear(&state.default_face);
 
-    let registry = PluginRegistry::new();
-    let element = view::view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = view::view(&state, &registry.view());
     let root = Rect {
         x: 0,
         y: 0,
@@ -425,8 +425,8 @@ fn emoji_rendering() {
 
 #[test]
 fn update_kakoune_draw_message() {
-    let mut state = setup_state(vec![]);
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(setup_state(vec![]));
+    let mut registry = PluginRuntime::new();
 
     let req = KakouneRequest::Draw {
         lines: vec![make_line("updated content")],
@@ -435,7 +435,7 @@ fn update_kakoune_draw_message() {
         padding_face: Face::default(),
         widget_columns: 0,
     };
-    let result = update(&mut state, Msg::Kakoune(req), &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::Kakoune(req), &mut registry, 3);
     let (flags, cmds) = (result.flags, result.commands);
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(cmds.is_empty(), "draw should not produce commands");
@@ -446,14 +446,14 @@ fn update_kakoune_draw_message() {
 
 #[test]
 fn update_focus_changes() {
-    let mut state = setup_state(vec![make_line("text")]);
-    let mut registry = PluginRegistry::new();
+    let mut state = Box::new(setup_state(vec![make_line("text")]));
+    let mut registry = PluginRuntime::new();
 
-    let result = update(&mut state, Msg::FocusLost, &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::FocusLost, &mut registry, 3);
     assert!(!state.focused);
     assert!(result.flags.contains(DirtyFlags::ALL));
 
-    let result = update(&mut state, Msg::FocusGained, &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::FocusGained, &mut registry, 3);
     assert!(state.focused);
     assert!(result.flags.contains(DirtyFlags::ALL));
 }
@@ -514,8 +514,8 @@ fn long_line_truncated_at_screen_width() {
 fn render_with_dirty(state: &AppState, dirty: DirtyFlags, grid: &mut CellGrid) {
     use kasane_core::render::render_pipeline_direct;
 
-    let registry = PluginRegistry::new();
-    render_pipeline_direct(state, &registry, grid, dirty);
+    let registry = PluginRuntime::new();
+    render_pipeline_direct(state, &registry.view(), grid, dirty);
 }
 
 #[test]
@@ -653,26 +653,26 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     use kasane_core::state::DirtyFlags;
 
     let state = setup_state(vec![make_line("hello world"), make_line("second line")]);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
 
     // Legacy pipeline
     let mut legacy_grid = CellGrid::new(state.cols, state.rows);
-    let legacy_result = render_pipeline(&state, &registry, &mut legacy_grid);
+    let legacy_result = render_pipeline(&state, &registry.view(), &mut legacy_grid);
 
     // Salsa pipeline
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, &handles);
     let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let salsa_result = render_pipeline_cached(
         &db,
         &handles,
         &state,
-        &registry,
+        &registry.view(),
         &mut salsa_grid,
         DirtyFlags::ALL,
         &[],
@@ -727,26 +727,26 @@ fn test_salsa_pipeline_equivalence_with_menu() {
         style: MenuStyle::Inline,
     });
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
 
     // Legacy pipeline
     let mut legacy_grid = CellGrid::new(state.cols, state.rows);
-    let _legacy_result = render_pipeline(&state, &registry, &mut legacy_grid);
+    let _legacy_result = render_pipeline(&state, &registry.view(), &mut legacy_grid);
 
     // Salsa pipeline
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, &state, &handles);
     let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let _salsa_result = render_pipeline_cached(
         &db,
         &handles,
         &state,
-        &registry,
+        &registry.view(),
         &mut salsa_grid,
         DirtyFlags::ALL,
         &[],

@@ -6,7 +6,7 @@
 //!
 //! Uses proptest for mutation-based fuzzing from a rich base state.
 
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Color, Coord, Face, InfoStyle, KakouneRequest, MenuStyle, NamedColor};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::test_support::{assert_grids_equal, make_line, render_to_grid, test_state_80x24};
@@ -244,7 +244,7 @@ proptest! {
     /// render_pipeline is deterministic: two calls with the same state produce identical grids.
     #[test]
     fn test_pipeline_deterministic(mutation in arb_mutation()) {
-        let registry = PluginRegistry::new();
+        let registry = PluginRuntime::new();
         let mut state = rich_state();
         apply_mutation(&mut state, &mutation);
 
@@ -262,7 +262,7 @@ proptest! {
 /// Test that render_pipeline produces consistent output across multiple state configurations.
 #[test]
 fn test_multi_state_pipeline_consistency() {
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
 
     let states: Vec<(&str, AppState)> = vec![
         ("rich", rich_state()),

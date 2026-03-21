@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use crate::input::Modifiers;
 use crate::input::{self, MouseButton, MouseEvent, MouseEventKind};
-use crate::plugin::PluginRegistry;
+use crate::layout::HitMap;
+use crate::plugin::PluginRuntime;
 use crate::protocol::KasaneRequest;
 use crate::state::{AppState, DragState};
 
@@ -151,14 +152,10 @@ pub const fn selection_scroll_edge_line(rows: u16, mouse: &MouseEvent) -> Option
 }
 
 /// Legacy-compatible info popup consumption used while scroll routing is being extracted.
-pub fn consume_info_scroll(
-    state: &mut AppState,
-    mouse: &MouseEvent,
-    registry: &PluginRegistry,
-) -> bool {
+pub fn consume_info_scroll(state: &mut AppState, mouse: &MouseEvent, hit_map: &HitMap) -> bool {
     use crate::element::InteractiveId;
 
-    let (id, rect) = match registry.hit_test_with_rect(mouse.column as u16, mouse.line as u16) {
+    let (id, rect) = match hit_map.test_with_rect(mouse.column as u16, mouse.line as u16) {
         Some(hit) => hit,
         None => return false,
     };
@@ -288,7 +285,7 @@ pub const fn fallback_scroll_policy(candidate: DefaultScrollCandidate) -> Scroll
 }
 
 pub fn resolve_default_scroll_policy(
-    registry: &mut PluginRegistry,
+    registry: &mut PluginRuntime,
     state: &AppState,
     candidate: DefaultScrollCandidate,
 ) -> ScrollPolicyResult {
@@ -329,7 +326,8 @@ pub const fn legacy_smooth_scroll_plan(candidate: DefaultScrollCandidate) -> Scr
 pub fn dispatch_legacy_mouse_scroll(
     state: &mut AppState,
     mouse: &MouseEvent,
-    registry: &mut PluginRegistry,
+    hit_map: &HitMap,
+    registry: &mut PluginRuntime,
     scroll_amount: i32,
 ) -> LegacyScrollDispatch {
     if !is_scroll_event(mouse) {
@@ -343,7 +341,7 @@ pub fn dispatch_legacy_mouse_scroll(
             ..
         }
     ) {
-        if consume_info_scroll(state, mouse, registry) {
+        if consume_info_scroll(state, mouse, hit_map) {
             return LegacyScrollDispatch::ConsumedInfo;
         }
 
@@ -359,7 +357,7 @@ pub fn dispatch_legacy_mouse_scroll(
         }
     }
 
-    if consume_info_scroll(state, mouse, registry) {
+    if consume_info_scroll(state, mouse, hit_map) {
         return LegacyScrollDispatch::ConsumedInfo;
     }
 

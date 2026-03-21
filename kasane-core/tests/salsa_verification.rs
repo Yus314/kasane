@@ -258,11 +258,11 @@ fn plugin_epoch_starts_at_zero() {
 
 #[test]
 fn plugin_epoch_no_bump_when_no_plugins() {
-    use kasane_core::plugin::PluginRegistry;
+    use kasane_core::plugin::PluginRuntime;
 
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
 
     let bumped = sync_plugin_epoch(&mut db, &registry, &handles);
     assert!(!bumped, "epoch should not bump with no plugins");

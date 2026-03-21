@@ -21,7 +21,7 @@ mod test_external {
 
 #[test]
 fn external_plugin_registers_and_inits() {
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(TestExternalPlugin::new()));
     let state = AppState::default();
     let batch = registry.init_all_batch(&state);

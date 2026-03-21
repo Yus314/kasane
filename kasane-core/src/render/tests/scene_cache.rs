@@ -1,6 +1,6 @@
 use super::super::test_helpers::test_state_80x24;
 use super::super::*;
-use crate::plugin::PluginRegistry;
+use crate::plugin::PluginRuntime;
 use crate::protocol::{Coord, Face, MenuStyle};
 use crate::state::DirtyFlags;
 use crate::test_utils::make_line;
@@ -141,15 +141,15 @@ fn test_scene_render_pipeline_deterministic() {
     state.lines = vec![make_line("hello"), make_line("world")];
     state.status_line = make_line("status");
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let cs = scene::CellSize {
         width: 10.0,
         height: 20.0,
     };
 
     // Two calls to scene_render_pipeline should produce identical output
-    let (first, _) = scene_render_pipeline(&state, &registry, cs);
-    let (second, _) = scene_render_pipeline(&state, &registry, cs);
+    let (first, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let (second, _) = scene_render_pipeline(&state, &registry.view(), cs);
 
     assert_eq!(
         first, second,
@@ -184,15 +184,15 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
         style: crate::protocol::InfoStyle::Prompt,
     });
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let cs = scene::CellSize {
         width: 10.0,
         height: 20.0,
     };
 
     // Verify scene_render_pipeline produces deterministic overlay output
-    let (first, _) = scene_render_pipeline(&state, &registry, cs);
-    let (second, _) = scene_render_pipeline(&state, &registry, cs);
+    let (first, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let (second, _) = scene_render_pipeline(&state, &registry.view(), cs);
 
     let overlay_count = first
         .iter()

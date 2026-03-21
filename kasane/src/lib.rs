@@ -243,7 +243,7 @@ mod tests {
     use kasane_core::plugin::{PaintHook, PluginBackend, PluginCapabilities, SessionReadyEffects};
     use kasane_core::plugin::{
         PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
-        PluginProvider, PluginRank, PluginRegistry, PluginRevision, PluginSource,
+        PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
         StaticPluginProvider, host_plugin, plugin_factory,
     };
     use kasane_core::state::{AppState, DirtyFlags};
@@ -524,7 +524,7 @@ mod tests {
         }
     }
 
-    fn commit_initial_winners(manager: &mut PluginManager, registry: &mut PluginRegistry) {
+    fn commit_initial_winners(manager: &mut PluginManager, registry: &mut PluginRuntime) {
         let _ = manager.initialize(registry, |_, _| vec![]).unwrap();
     }
 
@@ -534,7 +534,7 @@ mod tests {
         dir.copy_fixture("cursor-line.wasm");
 
         let config = dir.config();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut manager = wasm_manager(&config);
         commit_initial_winners(&mut manager, &mut registry);
 
@@ -551,7 +551,7 @@ mod tests {
         dir.copy_fixture("cursor-line.wasm");
 
         let config = dir.config();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut manager = wasm_manager(&config);
         commit_initial_winners(&mut manager, &mut registry);
 
@@ -573,7 +573,7 @@ mod tests {
         dir.copy_fixture("cursor-line.wasm");
 
         let config = dir.config();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut manager = wasm_manager(&config);
         commit_initial_winners(&mut manager, &mut registry);
 
@@ -595,7 +595,7 @@ mod tests {
         dir.copy_fixture("cursor-line.wasm");
 
         let config = dir.config();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut manager = full_manager(
             &config,
             StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
@@ -633,7 +633,7 @@ mod tests {
     fn host_override_blocks_later_wasm_addition() {
         let dir = TempPluginDir::new();
         let config = dir.config();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut manager = full_manager(
             &config,
             StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
@@ -665,7 +665,7 @@ mod tests {
         let state = AppState::default();
         let provider = ReloadChainProvider::new(ReloadVariant::V1);
         let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
 
@@ -735,7 +735,7 @@ mod tests {
         let mut manager = PluginManager::new(vec![Box::new(DiagnosticProvider::new(
             DiagnosticVariant::Invalid,
         ))]);
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
 
@@ -779,7 +779,7 @@ mod tests {
         let state = AppState::default();
         let provider = DiagnosticProvider::new(DiagnosticVariant::Valid);
         let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
 

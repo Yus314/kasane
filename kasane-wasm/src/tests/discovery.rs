@@ -269,7 +269,7 @@ fn discover_loads_fixtures_directory() {
         disabled: vec![],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
 
     // Should have loaded cursor-line.wasm, prompt-highlight.wasm, etc.
@@ -289,7 +289,7 @@ fn discover_skips_disabled_plugins() {
         disabled: vec!["cursor_line".to_string()],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
 
     // cursor-line skipped; the remaining fixtures still load.
@@ -309,7 +309,7 @@ fn discover_does_nothing_when_disabled() {
         disabled: vec![],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
     assert_eq!(registry.plugin_count(), 0);
 }
@@ -322,7 +322,7 @@ fn discover_handles_missing_directory() {
         disabled: vec![],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     // Should not panic, just silently skip
     crate::discover_and_register(&config, &mut registry);
     assert_eq!(registry.plugin_count(), 0);
@@ -344,7 +344,7 @@ fn register_bundled_plugins_loads_four() {
         disabled: vec![],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::register_bundled_plugins(&config, &mut registry);
 
     assert_eq!(registry.plugin_count(), 4);
@@ -364,7 +364,7 @@ fn register_bundled_plugins_respects_disabled() {
         disabled: vec!["color_preview".to_string()],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::register_bundled_plugins(&config, &mut registry);
 
     assert_eq!(registry.plugin_count(), 3);
@@ -384,7 +384,7 @@ fn filesystem_plugin_overrides_bundled() {
         disabled: vec![],
         ..Default::default()
     };
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     crate::register_bundled_plugins(&config, &mut registry);
     assert_eq!(registry.plugin_count(), 4);
 

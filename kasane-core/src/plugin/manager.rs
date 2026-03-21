@@ -8,7 +8,7 @@ use crate::state::AppState;
 
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
 use super::{
-    BootstrapEffects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRegistry,
+    BootstrapEffects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime,
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -231,7 +231,7 @@ impl PluginManager {
 
     fn apply_plan(
         &self,
-        registry: &mut PluginRegistry,
+        registry: &mut PluginRuntime,
         plan: PluginApplyPlan,
         mode: PluginApplyMode<'_>,
     ) -> Result<PendingPluginCommit> {
@@ -309,11 +309,11 @@ impl PluginManager {
 
     pub fn initialize<F>(
         &mut self,
-        registry: &mut PluginRegistry,
+        registry: &mut PluginRuntime,
         collect_diagnostics: F,
     ) -> Result<PluginApplyResult>
     where
-        F: FnOnce(&PluginApplyResult, &mut PluginRegistry) -> Vec<PluginDiagnostic>,
+        F: FnOnce(&PluginApplyResult, &mut PluginRuntime) -> Vec<PluginDiagnostic>,
     {
         let plan = self.plan_initial()?;
         let catalog_diagnostics = plan.catalog_diagnostics.clone();
@@ -326,12 +326,12 @@ impl PluginManager {
 
     pub fn reload<F>(
         &mut self,
-        registry: &mut PluginRegistry,
+        registry: &mut PluginRuntime,
         state: &AppState,
         collect_diagnostics: F,
     ) -> Result<PluginApplyResult>
     where
-        F: FnOnce(&PluginApplyResult, &mut PluginRegistry) -> Vec<PluginDiagnostic>,
+        F: FnOnce(&PluginApplyResult, &mut PluginRuntime) -> Vec<PluginDiagnostic>,
     {
         let plan = self.plan_reload()?;
         let catalog_diagnostics = plan.catalog_diagnostics.clone();
@@ -585,7 +585,7 @@ mod tests {
     fn initialize_reports_instantiation_failure_and_skips_snapshot() {
         let provider = DemoFactoryProvider::new(FactoryVariant::Err, "r1");
         let mut manager = PluginManager::new(vec![Box::new(provider)]);
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
 
         let result = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
 
@@ -620,7 +620,7 @@ mod tests {
     fn reload_reports_instantiation_failure_and_keeps_old_winner() {
         let provider = DemoFactoryProvider::new(FactoryVariant::Ok, "r1");
         let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
 
         let initial = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
         assert!(initial.diagnostics.is_empty());
@@ -672,7 +672,7 @@ mod tests {
         let good_provider = DemoFactoryProvider::new(FactoryVariant::Ok, "r1");
         let mut manager =
             PluginManager::new(vec![Box::new(FailingProvider), Box::new(good_provider)]);
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
 
         let result = manager.initialize(&mut registry, |_, _| vec![]).unwrap();
 

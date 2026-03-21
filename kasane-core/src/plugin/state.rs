@@ -72,7 +72,7 @@ where
 /// All `&mut self` methods from `PluginBackend` become `(&self, &State) → (State, effects)`.
 /// All `&self` view methods gain `state: &Self::State` parameter.
 ///
-/// Register via `PluginRegistry::register()` or wrap manually with `PluginBridge`.
+/// Register via `PluginRuntime::register()` or wrap manually with `PluginBridge`.
 pub trait Plugin: Send + 'static {
     /// Concrete state type. Must be `Clone + PartialEq + Debug + Send + Default`.
     type State: PluginState + PartialEq + Clone + Default;

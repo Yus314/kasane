@@ -615,7 +615,7 @@ mod tests {
         OverlayAnchor, Style,
     };
     use crate::layout::flex::place;
-    use crate::plugin::PluginRegistry;
+    use crate::plugin::PluginRuntime;
     use crate::protocol::Face;
     use crate::render::paint;
     use crate::render::scene;
@@ -873,8 +873,8 @@ mod tests {
         state.status_mode_line = make_line("normal");
         let theme = Theme::default_theme();
 
-        let registry = PluginRegistry::new();
-        let element = view::view(&state, &registry);
+        let registry = PluginRuntime::new();
+        let element = view::view(&state, &registry.view());
         let root = root_area(state.cols, state.rows);
         let layout = place(&element, root, &state);
 
@@ -904,8 +904,8 @@ mod tests {
         let cs = default_cell_size();
         let cursor = CursorStyle::Block;
 
-        let registry = PluginRegistry::new();
-        let element = view::view(&state, &registry);
+        let registry = PluginRuntime::new();
+        let element = view::view(&state, &registry.view());
         let root = root_area(state.cols, state.rows);
         let layout = place(&element, root, &state);
 

@@ -5,7 +5,7 @@ use kasane_core::input::{
     InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use kasane_core::layout::{Rect, build_hit_map};
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Coord, Face, InfoStyle};
 use kasane_core::state::{AppState, InfoIdentity, InfoState};
 
@@ -13,8 +13,8 @@ pub fn state_80x24() -> AppState {
     kasane_core::test_support::test_state_80x24()
 }
 
-pub fn registry_empty() -> PluginRegistry {
-    PluginRegistry::new()
+pub fn registry_empty() -> PluginRuntime {
+    PluginRuntime::new()
 }
 
 pub fn make_info_state(anchor_line: u32, anchor_column: u32, lines: &[&str]) -> InfoState {
@@ -38,12 +38,7 @@ pub fn make_info_state(anchor_line: u32, anchor_column: u32, lines: &[&str]) -> 
     }
 }
 
-pub fn install_hit_region(
-    registry: &mut PluginRegistry,
-    state: &AppState,
-    id: InteractiveId,
-    area: Rect,
-) {
+pub fn install_hit_region(state: &mut AppState, id: InteractiveId, area: Rect) {
     let line = "x".repeat(area.w.max(1) as usize);
     let child = Element::column(
         (0..area.h.max(1))
@@ -55,18 +50,11 @@ pub fn install_hit_region(
         id,
     };
     let layout = kasane_core::layout::flex::place(&interactive, area, state);
-    let hit_map = build_hit_map(&interactive, &layout);
-    registry.set_hit_map(hit_map);
+    state.hit_map = build_hit_map(&interactive, &layout);
 }
 
-pub fn install_info_hit_region(
-    registry: &mut PluginRegistry,
-    state: &AppState,
-    index: usize,
-    area: Rect,
-) {
+pub fn install_info_hit_region(state: &mut AppState, index: usize, area: Rect) {
     install_hit_region(
-        registry,
         state,
         InteractiveId(InteractiveId::INFO_BASE + index as u32),
         area,

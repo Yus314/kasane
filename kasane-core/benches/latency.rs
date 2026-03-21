@@ -5,7 +5,7 @@ use std::time::Instant;
 use hdrhistogram::Histogram;
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
 use kasane_core::render::view;
@@ -38,7 +38,7 @@ fn print_histogram(name: &str, hist: &Histogram<u64>) {
 
 fn main() {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let area = Rect {
         x: 0,
         y: 0,
@@ -49,7 +49,7 @@ fn main() {
 
     // Warmup
     for _ in 0..100 {
-        let element = view::view(&state, &registry);
+        let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
         grid.clear(&state.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
@@ -61,7 +61,7 @@ fn main() {
     let mut hist_full = Histogram::<u64>::new(3).unwrap();
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        let element = view::view(&state, &registry);
+        let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
         grid.clear(&state.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
@@ -81,14 +81,14 @@ fn main() {
     let mut hist_view = Histogram::<u64>::new(3).unwrap();
     for _ in 0..ITERATIONS {
         let start = Instant::now();
-        let _ = view::view(&state, &registry);
+        let _ = view::view(&state, &registry.view());
         let elapsed = start.elapsed().as_nanos() as u64;
         let _ = hist_view.record(elapsed);
     }
     print_histogram("view() latency", &hist_view);
 
     // place
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let mut hist_place = Histogram::<u64>::new(3).unwrap();
     for _ in 0..ITERATIONS {
         let start = Instant::now();

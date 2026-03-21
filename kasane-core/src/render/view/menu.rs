@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
-use crate::plugin::PluginRegistry;
+use crate::plugin::PluginView;
 use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face, MenuStyle};
 use crate::state::{AppState, MenuColumns, MenuState};
@@ -25,7 +25,7 @@ const MAX_DROPDOWN_HEIGHT: u16 = 10;
 pub(crate) fn build_menu_overlay(
     menu: &MenuState,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Option<Overlay> {
     if menu.items.is_empty() || menu.win_height == 0 {
         return None;
@@ -54,7 +54,7 @@ fn build_menu_item_element(
     menu: &MenuState,
     item_idx: usize,
     width: u16,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     state: &AppState,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
@@ -146,7 +146,7 @@ fn build_split_item_element(
     item_idx: usize,
     candidate_col_w: u16,
     _content_w: u16,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     state: &AppState,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
@@ -216,7 +216,7 @@ fn build_split_item_element(
 fn build_menu_inline(
     menu: &MenuState,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Option<Overlay> {
     let win_w = (menu.effective_content_width(state.cols) + SCROLLBAR_WIDTH).min(state.cols);
     let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
@@ -279,7 +279,7 @@ fn build_menu_inline(
 fn build_menu_prompt(
     menu: &MenuState,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Option<Overlay> {
     if menu.columns == 0 {
         return None;
@@ -337,7 +337,7 @@ fn build_menu_prompt(
 fn build_menu_search(
     menu: &MenuState,
     state: &AppState,
-    _registry: &PluginRegistry,
+    _registry: &PluginView<'_>,
 ) -> Option<Overlay> {
     let status_row = state.available_height();
     let y = status_row.saturating_sub(1);
@@ -422,7 +422,7 @@ fn build_menu_search(
 fn build_menu_search_dropdown(
     menu: &MenuState,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
 ) -> Option<Overlay> {
     let screen_h = state.available_height();
     let status_row = state.available_height();
@@ -504,6 +504,7 @@ fn build_scrollbar(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin::PluginRuntime;
     use crate::protocol::{Color, Coord, NamedColor};
     use crate::state::MenuParams;
 
@@ -593,9 +594,10 @@ mod tests {
         let columns = menu.columns_split.as_ref().unwrap();
         let cand_w = columns.max_candidate_width.min(80 * 2 / 5);
 
-        let registry = PluginRegistry::new();
+        let registry = PluginRuntime::new();
         let state = AppState::default();
-        let element = build_split_item_element(&menu, columns, 0, cand_w, 20, &registry, &state);
+        let element =
+            build_split_item_element(&menu, columns, 0, cand_w, 20, &registry.view(), &state);
         // Should be a Container wrapping a StyledLine
         if let Element::Container { child, .. } = &element {
             if let Element::StyledLine(atoms) = child.as_ref() {
@@ -637,8 +639,8 @@ mod tests {
 
         let menu = state.menu.as_ref().unwrap();
         assert!(menu.columns_split.is_some());
-        let registry = PluginRegistry::new();
-        let overlay = build_menu_inline(menu, &state, &registry);
+        let registry = PluginRuntime::new();
+        let overlay = build_menu_inline(menu, &state, &registry.view());
         assert!(overlay.is_some());
 
         let o = overlay.unwrap();

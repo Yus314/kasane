@@ -5,7 +5,7 @@ use compact_str::CompactString;
 use crate::input::KeyEvent;
 use crate::input::MouseEvent;
 use crate::layout::{Rect, SplitDirection};
-use crate::plugin::{Command, PluginId, PluginRegistry};
+use crate::plugin::{Command, PluginId, PluginView};
 use crate::state::AppState;
 use crate::workspace::DockPosition;
 
@@ -99,7 +99,7 @@ pub struct ViewContext<'a> {
     /// Whether this surface currently has focus.
     pub focused: bool,
     /// Plugin registry for collecting slot contributions.
-    pub registry: &'a PluginRegistry,
+    pub registry: &'a PluginView<'a>,
     /// This surface's identifier.
     pub surface_id: SurfaceId,
 }

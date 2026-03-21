@@ -1,6 +1,6 @@
 use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
-use crate::plugin::{Command, PluginId, PluginRegistry, extract_redraw_flags};
+use crate::plugin::{Command, PluginId, PluginRuntime, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
@@ -43,10 +43,41 @@ pub struct UpdateResult {
     pub source_plugin: Option<PluginId>,
 }
 
+/// TEA-pure update: takes ownership of state and returns it alongside effects.
+///
+/// The implementation mutates `state` in place (through `DerefMut` on `Box`),
+/// but the ownership-passing signature makes the data flow explicit and enables
+/// future snapshot/rollback without changing callers.
 pub fn update(
+    mut state: Box<AppState>,
+    msg: Msg,
+    registry: &mut PluginRuntime,
+    scroll_amount: i32,
+) -> (Box<AppState>, UpdateResult) {
+    let result = update_inner(&mut state, msg, registry, scroll_amount);
+    (state, result)
+}
+
+/// Convenience wrapper: calls [`update()`] in-place on a `Box<AppState>`.
+///
+/// Useful for tests and call sites that hold a `Box<AppState>` but don't need
+/// the ownership-passing signature.
+pub fn update_in_place(
+    state: &mut Box<AppState>,
+    msg: Msg,
+    registry: &mut PluginRuntime,
+    scroll_amount: i32,
+) -> UpdateResult {
+    let s = std::mem::take(state);
+    let (s, result) = update(s, msg, registry, scroll_amount);
+    *state = s;
+    result
+}
+
+fn update_inner(
     state: &mut AppState,
     msg: Msg,
-    registry: &mut PluginRegistry,
+    registry: &mut PluginRuntime,
     scroll_amount: i32,
 ) -> UpdateResult {
     match msg {
@@ -135,7 +166,7 @@ pub fn update(
             }
 
             // Plugin mouse handling: route click/press to plugins via hit test
-            if let Some(id) = registry.hit_test(mouse.column as u16, mouse.line as u16) {
+            if let Some(id) = state.hit_map.test(mouse.column as u16, mouse.line as u16) {
                 tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
                 for plugin in registry.plugins_mut() {
                     if let Some(mut commands) = plugin.handle_mouse(&mouse, id, state) {
@@ -155,12 +186,18 @@ pub fn update(
                 tracing::debug!(col = mouse.column, line = mouse.line, kind = ?mouse.kind, "hit_test: no match");
             }
 
-            match crate::scroll::dispatch_legacy_mouse_scroll(
+            // Temporarily take the hit_map to avoid split-borrow conflict
+            // (dispatch_legacy_mouse_scroll needs &mut state and &HitMap simultaneously)
+            let hit_map = std::mem::take(&mut state.hit_map);
+            let scroll_result = crate::scroll::dispatch_legacy_mouse_scroll(
                 state,
                 &mouse,
+                &hit_map,
                 registry,
                 scroll_amount,
-            ) {
+            );
+            state.hit_map = hit_map;
+            match scroll_result {
                 LegacyScrollDispatch::ConsumedInfo => {
                     return UpdateResult {
                         flags: DirtyFlags::INFO,

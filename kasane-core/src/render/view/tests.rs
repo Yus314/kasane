@@ -2,7 +2,7 @@ use super::*;
 use std::collections::HashSet;
 
 use crate::element::{Direction, OverlayAnchor};
-use crate::plugin::{LineAnnotation, PluginBackend, PluginId, PluginRegistry, SlotId};
+use crate::plugin::{LineAnnotation, PluginBackend, PluginId, PluginRuntime, SlotId};
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
 use crate::state::AppState;
 use crate::surface::{
@@ -30,8 +30,8 @@ fn assert_slot_placeholder(element: &Element, slot_name: &str, direction: Direct
 #[test]
 fn test_view_empty_state() {
     let state = AppState::default();
-    let registry = PluginRegistry::new();
-    let el = view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let el = view(&state, &registry.view());
 
     // Should be a Column with BufferRef + status bar
     match el {
@@ -60,8 +60,8 @@ fn test_view_with_menu() {
         style: MenuStyle::Inline,
     });
 
-    let registry = PluginRegistry::new();
-    let el = view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let el = view(&state, &registry.view());
 
     // Should be a Stack (base Column + menu overlay)
     match el {
@@ -85,8 +85,8 @@ fn test_view_with_info() {
         style: InfoStyle::Modal,
     });
 
-    let registry = PluginRegistry::new();
-    let el = view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let el = view(&state, &registry.view());
 
     match el {
         Element::Stack { overlays, .. } => {
@@ -204,10 +204,10 @@ fn test_status_left_slot_in_status_bar() {
     state.status_line = make_line("status");
     state.status_mode_line = make_line("normal");
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StatusLeftPlugin));
 
-    let el = view(&state, &registry);
+    let el = view(&state, &registry.view());
 
     // After Surface-based rendering, the status bar is produced by
     // build_status_surface_abstract → slot resolution. With a STATUS_LEFT
@@ -281,8 +281,8 @@ fn test_info_framed_shadow_disabled() {
         style: InfoStyle::Modal,
     });
 
-    let registry = PluginRegistry::new();
-    let el = view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let el = view(&state, &registry.view());
 
     // Find the info overlay's framed Container
     fn find_shadow(el: &Element) -> Option<bool> {
@@ -316,8 +316,8 @@ fn test_view_status_bar_structure() {
     state.status_line = make_line("status");
     state.status_mode_line = make_line("normal");
 
-    let registry = PluginRegistry::new();
-    let el = view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let el = view(&state, &registry.view());
 
     // After Surface-based rendering, the status bar is produced by
     // build_status_surface_abstract → slot resolution. The resolved structure
@@ -370,8 +370,8 @@ fn test_status_surface_abstract_shape() {
     state.status_line = make_line("status");
     state.status_mode_line = make_line("normal");
 
-    let registry = PluginRegistry::new();
-    let element = build_status_surface_abstract(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = build_status_surface_abstract(&state, &registry.view());
 
     match element {
         Element::Flex {
@@ -429,8 +429,8 @@ fn test_buffer_surface_abstract_shape() {
     let mut state = AppState::default();
     state.lines = vec![make_line("buffer")];
 
-    let registry = PluginRegistry::new();
-    let element = build_buffer_surface_abstract(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = build_buffer_surface_abstract(&state, &registry.view());
 
     match element {
         Element::Stack { base, overlays } => {
@@ -529,9 +529,9 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     let mut state = AppState::default();
     state.lines = vec![make_line("buffer")];
 
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
-    let element = build_buffer_surface_abstract(&state, &registry);
+    let element = build_buffer_surface_abstract(&state, &registry.view());
 
     match element {
         Element::Stack { base, .. } => match base.as_ref() {
@@ -581,7 +581,7 @@ fn test_surface_view_sections_preserves_surface_reports() {
     state.status_line = make_line("status");
     state.status_mode_line = make_line("normal");
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut surface_registry = SurfaceRegistry::new();
     surface_registry.register(Box::new(KakouneBufferSurface::new()));
     surface_registry.register(Box::new(StatusBarSurface::new()));
@@ -592,7 +592,8 @@ fn test_surface_view_sections_preserves_surface_reports() {
         w: state.cols,
         h: state.rows,
     };
-    let sections = surface_registry.compose_view_sections(&state, None, &registry, root_area);
+    let sections =
+        surface_registry.compose_view_sections(&state, None, &registry.view(), root_area);
 
     let keys: HashSet<&str> = sections
         .surface_reports

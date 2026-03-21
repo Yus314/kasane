@@ -6,7 +6,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use kasane_core::config::ColorsConfig;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::{Atom, Color, Face, NamedColor};
 use kasane_core::render::{CellGrid, render_pipeline};
 use kasane_core::state::AppState;
@@ -92,7 +92,7 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
         contents: "normal".into(),
     }];
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
     let _ = render_pipeline(&state, &registry, &mut grid);
 

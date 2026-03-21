@@ -69,11 +69,10 @@ fn parity_info_popup_scroll_trace() {
         3,
         &["one", "two", "three", "four", "five", "six"],
     ));
-    let new_state = state.clone();
-    let mut legacy_registry = registry_empty();
+    let mut new_state = state.clone();
+    let legacy_registry = registry_empty();
     install_info_hit_region(
-        &mut legacy_registry,
-        &state,
+        &mut state,
         0,
         Rect {
             x: 2,
@@ -82,10 +81,9 @@ fn parity_info_popup_scroll_trace() {
             h: 4,
         },
     );
-    let mut new_registry = registry_empty();
+    let new_registry = registry_empty();
     install_info_hit_region(
-        &mut new_registry,
-        &new_state,
+        &mut new_state,
         0,
         Rect {
             x: 2,
@@ -130,12 +128,11 @@ fn parity_plugin_hit_then_miss_trace() {
         TraceStep::Input(mouse_press_left(3, 7)),
         TraceStep::Input(mouse_press_left(12, 30)),
     ];
-    let state = state_80x24();
+    let mut state = state_80x24();
     let mut legacy_registry = registry_empty();
     legacy_registry.register_backend(Box::new(MousePlugin));
     install_hit_region(
-        &mut legacy_registry,
-        &state,
+        &mut state,
         InteractiveId(42),
         Rect {
             x: 5,
@@ -144,11 +141,11 @@ fn parity_plugin_hit_then_miss_trace() {
             h: 1,
         },
     );
+    let mut new_state = state.clone();
     let mut new_registry = registry_empty();
     new_registry.register_backend(Box::new(MousePlugin));
     install_hit_region(
-        &mut new_registry,
-        &state,
+        &mut new_state,
         InteractiveId(42),
         Rect {
             x: 5,
@@ -158,9 +155,9 @@ fn parity_plugin_hit_then_miss_trace() {
         },
     );
 
-    let mut legacy_harness = LegacyHarness::new(state.clone(), legacy_registry);
+    let mut legacy_harness = LegacyHarness::new(state, legacy_registry);
     let legacy = legacy_harness.run_trace(&trace);
-    let mut new_harness = NewHarness::new(state, new_registry);
+    let mut new_harness = NewHarness::new(new_state, new_registry);
     let new = new_harness.run_trace(&trace);
 
     assert_same_requests(&legacy, &new);

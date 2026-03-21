@@ -1,12 +1,12 @@
 use kasane_core::input::InputEvent;
-use kasane_core::plugin::{Command, PluginId, PluginRegistry};
+use kasane_core::plugin::{Command, PluginId, PluginRuntime};
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::scroll::{
     ScrollPolicyResult, ScrollRuntime, consume_info_scroll, default_scroll_candidate,
     fallback_scroll_policy, is_scroll_event, resolve_default_scroll_policy,
     selection_scroll_edge_line,
 };
-use kasane_core::state::{AppState, DirtyFlags, DragState, Msg, UpdateResult, update};
+use kasane_core::state::{AppState, DirtyFlags, DragState, Msg, UpdateResult, update_in_place};
 
 pub struct StepOutcome {
     pub dirty: DirtyFlags,
@@ -50,17 +50,17 @@ pub struct TraceOutcome {
 
 #[allow(dead_code)]
 pub struct LegacyHarness {
-    pub state: AppState,
-    pub registry: PluginRegistry,
+    pub state: Box<AppState>,
+    pub registry: PluginRuntime,
     pub scroll_amount: i32,
     pub runtime: ScrollRuntime,
 }
 
 #[allow(dead_code)]
 impl LegacyHarness {
-    pub fn new(state: AppState, registry: PluginRegistry) -> Self {
+    pub fn new(state: AppState, registry: PluginRuntime) -> Self {
         Self {
-            state,
+            state: Box::new(state),
             registry,
             scroll_amount: 3,
             runtime: ScrollRuntime {
@@ -76,7 +76,7 @@ impl LegacyHarness {
             commands,
             scroll_plans,
             source_plugin: owner,
-        } = update(
+        } = update_in_place(
             &mut self.state,
             Msg::from(input),
             &mut self.registry,
@@ -123,15 +123,15 @@ impl LegacyHarness {
 
         TraceOutcome {
             emitted,
-            final_state: self.state.clone(),
+            final_state: (*self.state).clone(),
         }
     }
 }
 
 #[allow(dead_code)]
 pub struct NewHarness {
-    pub state: AppState,
-    pub registry: PluginRegistry,
+    pub state: Box<AppState>,
+    pub registry: PluginRuntime,
     pub scroll_amount: i32,
     pub forced_scroll_policy: Option<ScrollPolicyResult>,
     pub runtime: ScrollRuntime,
@@ -139,9 +139,9 @@ pub struct NewHarness {
 
 #[allow(dead_code)]
 impl NewHarness {
-    pub fn new(state: AppState, registry: PluginRegistry) -> Self {
+    pub fn new(state: AppState, registry: PluginRuntime) -> Self {
         Self {
-            state,
+            state: Box::new(state),
             registry,
             scroll_amount: 3,
             forced_scroll_policy: None,
@@ -165,7 +165,7 @@ impl NewHarness {
             commands,
             scroll_plans,
             source_plugin: owner,
-        } = update(
+        } = update_in_place(
             &mut self.state,
             Msg::from(input),
             &mut self.registry,
@@ -207,8 +207,9 @@ impl NewHarness {
             return None;
         }
         if self
-            .registry
-            .hit_test(mouse.column as u16, mouse.line as u16)
+            .state
+            .hit_map
+            .test(mouse.column as u16, mouse.line as u16)
             .is_some()
         {
             return None;
@@ -241,7 +242,10 @@ impl NewHarness {
             return None;
         }
 
-        if consume_info_scroll(&mut self.state, mouse, &self.registry) {
+        let hit_map = std::mem::take(&mut self.state.hit_map);
+        let consumed = consume_info_scroll(&mut self.state, mouse, &hit_map);
+        self.state.hit_map = hit_map;
+        if consumed {
             return Some(StepOutcome {
                 dirty: DirtyFlags::INFO,
                 commands: Vec::new(),
@@ -292,7 +296,10 @@ impl NewHarness {
             return None;
         }
 
-        if !consume_info_scroll(&mut self.state, mouse, &self.registry) {
+        let hit_map = std::mem::take(&mut self.state.hit_map);
+        let consumed = consume_info_scroll(&mut self.state, mouse, &hit_map);
+        self.state.hit_map = hit_map;
+        if !consumed {
             return None;
         }
 
@@ -320,7 +327,7 @@ impl NewHarness {
 
         TraceOutcome {
             emitted,
-            final_state: self.state.clone(),
+            final_state: (*self.state).clone(),
         }
     }
 }

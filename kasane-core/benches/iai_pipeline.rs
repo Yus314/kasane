@@ -3,7 +3,7 @@ mod fixtures;
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
-use kasane_core::plugin::PluginRegistry;
+use kasane_core::plugin::PluginRuntime;
 use kasane_core::protocol::parse_request;
 use kasane_core::render::CellGrid;
 use kasane_core::render::paint;
@@ -15,9 +15,9 @@ use fixtures::{draw_json, typical_state};
 // Setup helpers (called outside measurement)
 // ---------------------------------------------------------------------------
 
-fn setup_full_frame() -> (kasane_core::state::AppState, PluginRegistry, CellGrid) {
+fn setup_full_frame() -> (kasane_core::state::AppState, PluginRuntime, CellGrid) {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let grid = CellGrid::new(state.cols, state.rows);
     (state, registry, grid)
 }
@@ -39,8 +39,8 @@ fn setup_paint() -> (
     CellGrid,
 ) {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
-    let element = view::view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
         y: 0,
@@ -54,8 +54,8 @@ fn setup_paint() -> (
 
 fn setup_grid_diff_full() -> CellGrid {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
-    let element = view::view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
         y: 0,
@@ -71,8 +71,8 @@ fn setup_grid_diff_full() -> CellGrid {
 
 fn setup_grid_diff_incremental() -> CellGrid {
     let state = typical_state(23);
-    let registry = PluginRegistry::new();
-    let element = view::view(&state, &registry);
+    let registry = PluginRuntime::new();
+    let element = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
         y: 0,
@@ -97,9 +97,9 @@ fn setup_grid_diff_incremental() -> CellGrid {
 #[library_benchmark]
 #[bench::default(setup_full_frame())]
 fn iai_full_frame(
-    (state, registry, mut grid): (kasane_core::state::AppState, PluginRegistry, CellGrid),
+    (state, registry, mut grid): (kasane_core::state::AppState, PluginRuntime, CellGrid),
 ) {
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
         y: 0,

@@ -10,10 +10,10 @@ use std::time::Duration;
 use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
-    AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, DeferredCommand, IoEvent,
-    PluginDiagnostic, PluginId, PluginRegistry, ProcessDispatcher, ProcessEvent, ReadyBatch,
-    RuntimeBatch, RuntimeEffects, SessionReadyCommand, execute_commands, extract_deferred_commands,
-    extract_redraw_flags,
+    AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, IoEvent, PluginDiagnostic,
+    PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent, ReadyBatch, RuntimeBatch,
+    RuntimeEffects, SessionReadyCommand, execute_commands, extract_redraw_flags,
+    partition_commands,
 };
 use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
@@ -58,7 +58,7 @@ impl EventResult {
 /// previously-registered surfaces from that set are rolled back and the plugin
 /// is removed from the registry.
 pub fn setup_plugin_surfaces(
-    registry: &mut PluginRegistry,
+    registry: &mut PluginRuntime,
     surface_registry: &mut SurfaceRegistry,
     state: &AppState,
 ) -> Vec<PluginDiagnostic> {
@@ -118,7 +118,7 @@ pub fn register_builtin_surfaces(surface_registry: &mut SurfaceRegistry) {
 }
 
 pub fn rebuild_plugin_surface_registry(
-    registry: &mut PluginRegistry,
+    registry: &mut PluginRuntime,
     surface_registry: &mut SurfaceRegistry,
     state: &AppState,
 ) -> Vec<PluginDiagnostic> {
@@ -137,7 +137,7 @@ pub fn rebuild_plugin_surface_registry(
 /// Changed owners are removed first, then re-registered from the current
 /// registry. Missing surfaces are pruned from the workspace afterwards.
 pub fn reconcile_plugin_surfaces(
-    registry: &mut PluginRegistry,
+    registry: &mut PluginRuntime,
     surface_registry: &mut SurfaceRegistry,
     state: &AppState,
     deltas: &[AppliedWinnerDelta],
@@ -458,8 +458,8 @@ pub fn switch_session_core<R, W, C>(
 
 /// Rebuild the HitMap from the current view tree for plugin mouse routing.
 pub fn rebuild_hit_map(
-    state: &AppState,
-    registry: &mut PluginRegistry,
+    state: &mut AppState,
+    registry: &PluginRuntime,
     surface_registry: &SurfaceRegistry,
 ) {
     let root_area = Rect {
@@ -469,11 +469,10 @@ pub fn rebuild_hit_map(
         h: state.rows,
     };
     let element = surface_registry
-        .compose_view_sections(state, None, registry, root_area)
+        .compose_view_sections(state, None, &registry.view(), root_area)
         .into_element();
     let layout_result = crate::layout::flex::place(&element, root_area, state);
-    let hit_map = crate::layout::build_hit_map(&element, &layout_result);
-    registry.set_hit_map(hit_map);
+    state.hit_map = crate::layout::build_hit_map(&element, &layout_result);
 }
 
 /// Convert an input event into a surface event.
@@ -605,7 +604,7 @@ impl SessionReadyGate {
 /// `handle_sourced_surface_commands` previously accepted individually.
 pub struct DeferredContext<'a> {
     pub state: &'a mut AppState,
-    pub registry: &'a mut PluginRegistry,
+    pub registry: &'a mut PluginRuntime,
     pub surface_registry: &'a mut SurfaceRegistry,
     pub pane_map: &'a mut PaneMap,
     pub clipboard_get: &'a mut dyn FnMut() -> Option<String>,
@@ -646,7 +645,7 @@ macro_rules! focused_writer {
 ///
 /// Returns `true` if a `Quit` command was encountered.
 pub fn handle_deferred_commands(
-    deferred: Vec<DeferredCommand>,
+    deferred: Vec<Command>,
     ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
 ) -> bool {
@@ -668,12 +667,12 @@ fn handle_command_batch_inner(
     command_source_plugin: Option<&PluginId>,
     depth: usize,
 ) -> bool {
-    let (normal, deferred) = extract_deferred_commands(commands);
+    let (immediate, deferred) = partition_commands(commands);
 
     // Route commands to the focused pane's Kakoune client when in multi-pane mode.
     let writer = focused_writer!(ctx);
     if matches!(
-        execute_commands(normal, writer, ctx.clipboard_get),
+        execute_commands(immediate, writer, ctx.clipboard_get),
         CommandResult::Quit
     ) {
         return true;
@@ -682,7 +681,7 @@ fn handle_command_batch_inner(
 }
 
 fn handle_deferred_commands_inner(
-    deferred: Vec<DeferredCommand>,
+    deferred: Vec<Command>,
     ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
     depth: usize,
@@ -698,7 +697,7 @@ fn handle_deferred_commands_inner(
 
     for cmd in deferred {
         match cmd {
-            DeferredCommand::PluginMessage { target, payload } => {
+            Command::PluginMessage { target, payload } => {
                 let batch = ctx
                     .registry
                     .deliver_message_batch(&target, payload, ctx.state);
@@ -706,17 +705,17 @@ fn handle_deferred_commands_inner(
                     return true;
                 }
             }
-            DeferredCommand::ScheduleTimer {
+            Command::ScheduleTimer {
                 delay,
                 target,
                 payload,
             } => {
                 ctx.timer.schedule_timer(delay, target, payload);
             }
-            DeferredCommand::SetConfig { key, value } => {
+            Command::SetConfig { key, value } => {
                 crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
             }
-            DeferredCommand::Workspace(ws_cmd) => {
+            Command::Workspace(ws_cmd) => {
                 // Auto-register ClientBufferSurface for unknown surface IDs
                 if let crate::workspace::WorkspaceCommand::AddSurface { surface_id, .. } = &ws_cmd
                     && ctx.surface_registry.get(*surface_id).is_none()
@@ -737,11 +736,11 @@ fn handle_deferred_commands_inner(
                     }),
                 );
             }
-            DeferredCommand::RegisterThemeTokens(_tokens) => {
+            Command::RegisterThemeTokens(_tokens) => {
                 // Theme token registration will be handled when Theme is
                 // accessible from the event loop (Phase 1 completion).
             }
-            DeferredCommand::SpawnProcess {
+            Command::SpawnProcess {
                 job_id,
                 program,
                 args,
@@ -769,22 +768,22 @@ fn handle_deferred_commands_inner(
                     }
                 }
             }
-            DeferredCommand::WriteToProcess { job_id, data } => {
+            Command::WriteToProcess { job_id, data } => {
                 if let Some(plugin_id) = command_source_plugin {
                     ctx.process_dispatcher.write(plugin_id, job_id, &data);
                 }
             }
-            DeferredCommand::CloseProcessStdin { job_id } => {
+            Command::CloseProcessStdin { job_id } => {
                 if let Some(plugin_id) = command_source_plugin {
                     ctx.process_dispatcher.close_stdin(plugin_id, job_id);
                 }
             }
-            DeferredCommand::KillProcess { job_id } => {
+            Command::KillProcess { job_id } => {
                 if let Some(plugin_id) = command_source_plugin {
                     ctx.process_dispatcher.kill(plugin_id, job_id);
                 }
             }
-            DeferredCommand::SpawnPaneClient {
+            Command::SpawnPaneClient {
                 surface_id,
                 placement,
             } => {
@@ -836,7 +835,7 @@ fn handle_deferred_commands_inner(
                     tracing::warn!("SpawnPaneClient ignored: no server session name available");
                 }
             }
-            DeferredCommand::ClosePaneClient { surface_id } => {
+            Command::ClosePaneClient { surface_id } => {
                 if let Some(_session_id) = ctx.pane_map.unbind_surface(surface_id) {
                     // Close the Kakoune client session by key
                     let key = format!("pane-{}", surface_id.0);
@@ -851,7 +850,7 @@ fn handle_deferred_commands_inner(
                 let _ = ctx.surface_registry.workspace_mut().close(surface_id);
                 *ctx.dirty |= DirtyFlags::ALL;
             }
-            DeferredCommand::Session(cmd) => {
+            Command::Session(cmd) => {
                 match cmd {
                     crate::session::SessionCommand::Spawn {
                         key,
@@ -907,6 +906,11 @@ fn handle_deferred_commands_inner(
                     return true;
                 }
             }
+            // Immediate commands should not reach the deferred handler
+            Command::SendToKakoune(_)
+            | Command::Paste
+            | Command::Quit
+            | Command::RequestRedraw(_) => {}
         }
     }
     false
@@ -977,16 +981,16 @@ fn apply_runtime_batch_without_session_deferred(
         return false;
     }
 
-    let (normal, nested_deferred) = extract_deferred_commands(commands);
+    let (immediate, nested_deferred) = partition_commands(commands);
     if matches!(
-        execute_commands(normal, focused_writer!(ctx), ctx.clipboard_get),
+        execute_commands(immediate, focused_writer!(ctx), ctx.clipboard_get),
         CommandResult::Quit
     ) {
         return true;
     }
     let nested_non_session: Vec<_> = nested_deferred
         .into_iter()
-        .filter(|d| !matches!(d, DeferredCommand::Session(_)))
+        .filter(|d| !matches!(d, Command::Session(_)))
         .collect();
     handle_deferred_commands_inner(nested_non_session, ctx, command_source_plugin, depth)
 }
@@ -1287,7 +1291,7 @@ mod tests {
     #[test]
     fn rebuild_plugin_surface_registry_removes_stale_plugin_surfaces() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(SurfacePlugin));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -1321,7 +1325,7 @@ mod tests {
     #[test]
     fn reconcile_plugin_surfaces_removes_stale_plugin_surfaces() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(SurfacePlugin));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -1360,7 +1364,7 @@ mod tests {
     #[test]
     fn reconcile_plugin_surfaces_preserves_same_id_workspace_placement() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(SurfacePlugin));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -1403,7 +1407,7 @@ mod tests {
     #[test]
     fn setup_plugin_surfaces_returns_diagnostic_for_invalid_surface_contract() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(InvalidSurfacePlugin));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -1427,7 +1431,7 @@ mod tests {
     #[test]
     fn reconcile_plugin_surfaces_returns_diagnostic_for_invalid_replacement() {
         let state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(SurfacePlugin));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -1471,7 +1475,7 @@ mod tests {
     #[test]
     fn sourced_surface_commands_preserve_plugin_for_spawn_process() {
         let plugin_id = PluginId("surface-owner".to_string());
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(TestPlugin {
             id: plugin_id.clone(),
             allow_spawn: true,
@@ -1524,7 +1528,7 @@ mod tests {
     #[test]
     fn plugin_message_runtime_effects_update_dirty_and_enqueue_scroll_plans() {
         let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(RuntimeMessagePlugin));
         let mut surface_registry = SurfaceRegistry::new();
         let mut pane_map = PaneMap::new();
@@ -1536,7 +1540,7 @@ mod tests {
         let mut plans = Vec::new();
 
         let quit = handle_deferred_commands(
-            vec![DeferredCommand::PluginMessage {
+            vec![Command::PluginMessage {
                 target: PluginId("runtime-message".to_string()),
                 payload: Box::new(11u32),
             }],
@@ -1616,7 +1620,7 @@ mod tests {
     #[test]
     fn deferred_session_spawn_is_routed_to_session_host() {
         let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
@@ -1626,14 +1630,12 @@ mod tests {
         let mut dispatcher = RecordingDispatcher::default();
 
         let quit = handle_deferred_commands(
-            vec![DeferredCommand::Session(
-                crate::session::SessionCommand::Spawn {
-                    key: Some("work".to_string()),
-                    session: Some("project".to_string()),
-                    args: vec!["file.txt".to_string()],
-                    activate: true,
-                },
-            )],
+            vec![Command::Session(crate::session::SessionCommand::Spawn {
+                key: Some("work".to_string()),
+                session: Some("project".to_string()),
+                args: vec!["file.txt".to_string()],
+                activate: true,
+            })],
             &mut DeferredContext {
                 state: &mut state,
                 registry: &mut registry,
@@ -1662,7 +1664,7 @@ mod tests {
     #[test]
     fn deferred_session_close_is_routed_to_session_host() {
         let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
@@ -1672,11 +1674,9 @@ mod tests {
         let mut dispatcher = RecordingDispatcher::default();
 
         let quit = handle_deferred_commands(
-            vec![DeferredCommand::Session(
-                crate::session::SessionCommand::Close {
-                    key: Some("work".to_string()),
-                },
-            )],
+            vec![Command::Session(crate::session::SessionCommand::Close {
+                key: Some("work".to_string()),
+            })],
             &mut DeferredContext {
                 state: &mut state,
                 registry: &mut registry,
@@ -1701,7 +1701,7 @@ mod tests {
     #[test]
     fn deferred_session_close_returns_quit_when_host_requests_shutdown() {
         let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
@@ -1714,9 +1714,9 @@ mod tests {
         let mut dispatcher = RecordingDispatcher::default();
 
         let quit = handle_deferred_commands(
-            vec![DeferredCommand::Session(
-                crate::session::SessionCommand::Close { key: None },
-            )],
+            vec![Command::Session(crate::session::SessionCommand::Close {
+                key: None,
+            })],
             &mut DeferredContext {
                 state: &mut state,
                 registry: &mut registry,
@@ -1741,7 +1741,7 @@ mod tests {
     #[test]
     fn deferred_session_switch_is_routed() {
         let mut state = AppState::default();
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
         let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
@@ -1751,11 +1751,9 @@ mod tests {
         let mut dispatcher = RecordingDispatcher::default();
 
         let quit = handle_deferred_commands(
-            vec![DeferredCommand::Session(
-                crate::session::SessionCommand::Switch {
-                    key: "work".to_string(),
-                },
-            )],
+            vec![Command::Session(crate::session::SessionCommand::Switch {
+                key: "work".to_string(),
+            })],
             &mut DeferredContext {
                 state: &mut state,
                 registry: &mut registry,

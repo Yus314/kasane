@@ -4,6 +4,7 @@ use crate::element::{Element, InteractiveId};
 
 /// Flat map of interactive regions for efficient mouse hit testing.
 /// Entries are stored in depth-first order (deepest/topmost last).
+#[derive(Debug, Clone)]
 pub struct HitMap {
     entries: Vec<(Rect, InteractiveId)>,
 }

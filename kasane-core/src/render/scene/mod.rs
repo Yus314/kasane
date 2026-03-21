@@ -230,7 +230,7 @@ mod tests {
     use super::*;
     use crate::layout::Rect;
     use crate::layout::flex::place;
-    use crate::plugin::PluginRegistry;
+    use crate::plugin::PluginRuntime;
     use crate::protocol::Face;
     use crate::render::CursorStyle;
     use crate::render::view;
@@ -244,8 +244,8 @@ mod tests {
     }
 
     fn scene_render(state: &AppState) -> Vec<DrawCommand> {
-        let registry = PluginRegistry::new();
-        let element = view::view(state, &registry);
+        let registry = PluginRuntime::new();
+        let element = view::view(state, &registry.view());
         let root = root_area(state.cols, state.rows);
         let layout = place(&element, root, state);
         let theme = Theme::default_theme();

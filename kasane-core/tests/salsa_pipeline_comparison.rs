@@ -7,7 +7,7 @@
 use kasane_core::element::Element;
 use kasane_core::plugin::{
     AnnotateContext, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext, Contribution,
-    LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRegistry, SlotId,
+    LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime, SlotId,
     TransformContext, TransformTarget,
 };
 use kasane_core::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
@@ -28,17 +28,17 @@ fn make_atom(text: &str) -> Atom {
 }
 
 /// Render with legacy pipeline and return the grid.
-fn render_legacy(state: &AppState, registry: &PluginRegistry) -> CellGrid {
+fn render_legacy(state: &AppState, registry: &PluginRuntime) -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
     grid.clear(&state.default_face);
-    render_pipeline(state, registry, &mut grid);
+    render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
 
 /// Render with Salsa pipeline and return the grid.
 fn render_salsa(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginRuntime,
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
 ) -> CellGrid {
@@ -48,7 +48,7 @@ fn render_salsa(
         db,
         handles,
         state,
-        registry,
+        &registry.view(),
         &mut grid,
         DirtyFlags::ALL,
         &[],
@@ -61,20 +61,20 @@ fn render_salsa(
 /// Set up Salsa database and sync all inputs including plugin contributions.
 fn setup_salsa_with_plugins(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginRuntime,
 ) -> (KasaneDatabase, SalsaInputHandles) {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
     let _epoch_changed = sync_plugin_epoch(&mut db, registry, &handles);
-    sync_display_directives(&mut db, state, registry, &handles);
-    sync_plugin_contributions(&mut db, state, registry, &handles);
+    sync_display_directives(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, state, &registry.view(), &handles);
     (db, handles)
 }
 
 /// Set up Salsa database and sync state (no plugins).
 fn setup_salsa(state: &AppState) -> (KasaneDatabase, SalsaInputHandles) {
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     setup_salsa_with_plugins(state, &registry)
 }
 
@@ -85,7 +85,7 @@ fn setup_salsa(state: &AppState) -> (KasaneDatabase, SalsaInputHandles) {
 #[test]
 fn compare_empty_state() {
     let state = test_state_80x24();
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -103,7 +103,7 @@ fn compare_with_buffer_content() {
         vec![make_atom("}")],
     ];
     state.cursor_pos = Coord { line: 1, column: 4 };
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -117,7 +117,7 @@ fn compare_with_status_line() {
     let mut state = test_state_80x24();
     state.status_line = vec![make_atom(" :edit foo.rs ")];
     state.status_mode_line = vec![make_atom(" normal ")];
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -146,7 +146,7 @@ fn compare_with_inline_menu() {
             max_height: 10,
         },
     ));
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -170,7 +170,7 @@ fn compare_with_search_menu() {
             max_height: 10,
         },
     ));
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -200,7 +200,7 @@ fn compare_with_info_modal() {
         },
         scroll_offset: 0,
     });
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -239,7 +239,7 @@ fn compare_with_multiple_infos() {
         },
         scroll_offset: 0,
     });
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -254,7 +254,7 @@ fn compare_memoization_consistency() {
     state.lines = vec![vec![make_atom("hello")]];
     state.status_line = vec![make_atom("status")];
     state.status_mode_line = vec![make_atom("normal")];
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (mut db, handles) = setup_salsa(&state);
 
     // First render
@@ -264,8 +264,8 @@ fn compare_memoization_consistency() {
     state.lines = vec![vec![make_atom("world")]];
     sync_inputs_from_state(&mut db, &state, &handles);
     let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let legacy2 = render_legacy(&state, &registry);
     let salsa2 = render_salsa(&state, &registry, &db, &handles);
@@ -447,7 +447,7 @@ impl PluginBackend for GutterPlugin {
 fn compare_with_buffer_left_plugin() {
     let mut state = test_state_80x24();
     state.lines = vec![vec![make_atom("hello world")]];
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferLeftPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -464,7 +464,7 @@ fn compare_with_status_right_plugin() {
     let mut state = test_state_80x24();
     state.status_line = vec![make_atom("main.rs")];
     state.status_mode_line = vec![make_atom("normal")];
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StatusRightPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -480,7 +480,7 @@ fn compare_with_status_right_plugin() {
 fn compare_with_buffer_transform_plugin() {
     let mut state = test_state_80x24();
     state.lines = vec![vec![make_atom("line 0")], vec![make_atom("line 1")]];
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferTransformPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -499,7 +499,7 @@ fn compare_with_line_highlight_plugin() {
         vec![make_atom("highlighted line")],
         vec![make_atom("normal line")],
     ];
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(LineHighlightPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -519,7 +519,7 @@ fn compare_with_gutter_plugin() {
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
     ];
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
     registry.init_all(&state);
     registry.prepare_plugin_cache(DirtyFlags::ALL);
@@ -541,7 +541,7 @@ fn compare_with_multiple_plugins() {
     ];
     state.status_line = vec![make_atom("main.rs")];
     state.status_mode_line = vec![make_atom("normal")];
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
     registry.register_backend(Box::new(BufferLeftPlugin));
     registry.register_backend(Box::new(StatusRightPlugin));
@@ -572,7 +572,7 @@ fn compare_with_plugins_and_menu() {
             max_height: 10,
         },
     ));
-    let mut registry = PluginRegistry::new();
+    let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
     registry.register_backend(Box::new(StatusRightPlugin));
     registry.init_all(&state);
@@ -635,7 +635,7 @@ fn compare_menu_and_info_simultaneous() {
     state.lines = vec![vec![make_atom("hello world")]];
     state.menu = Some(make_menu_state());
     state.infos.push(make_info_state(5, 10, InfoStyle::Modal));
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
     let legacy = render_legacy(&state, &registry);
@@ -650,7 +650,7 @@ fn compare_menu_appears_while_info_visible() {
     state.lines = vec![vec![make_atom("hello world")]];
     state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (mut db, handles) = setup_salsa(&state);
 
     // Render with only info visible
@@ -666,8 +666,8 @@ fn compare_menu_appears_while_info_visible() {
     state.menu = Some(make_menu_state());
     sync_inputs_from_state(&mut db, &state, &handles);
     let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let legacy_both = render_legacy(&state, &registry);
     let salsa_both = render_salsa(&state, &registry, &db, &handles);
@@ -681,7 +681,7 @@ fn compare_menu_disappears_while_info_visible() {
     state.menu = Some(make_menu_state());
     state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
 
-    let registry = PluginRegistry::new();
+    let registry = PluginRuntime::new();
     let (mut db, handles) = setup_salsa(&state);
 
     // Render with both menu and info
@@ -693,8 +693,8 @@ fn compare_menu_disappears_while_info_visible() {
     state.menu = None;
     sync_inputs_from_state(&mut db, &state, &handles);
     let _epoch_changed = sync_plugin_epoch(&mut db, &registry, &handles);
-    sync_display_directives(&mut db, &state, &registry, &handles);
-    sync_plugin_contributions(&mut db, &state, &registry, &handles);
+    sync_display_directives(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let legacy_info_only = render_legacy(&state, &registry);
     let salsa_info_only = render_salsa(&state, &registry, &db, &handles);

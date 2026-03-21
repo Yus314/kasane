@@ -235,7 +235,7 @@ pub fn cursor_position(
 /// Determine the cursor style from the application state.
 ///
 /// Priority: plugin override > ui_option `kasane_cursor_style` > prompt mode > mode_line heuristic > Block.
-pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginRegistry) -> CursorStyle {
+pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginView<'_>) -> CursorStyle {
     if let Some(style) = registry.cursor_style_override(state) {
         return style;
     }

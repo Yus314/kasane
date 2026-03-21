@@ -206,7 +206,7 @@ impl ResolvedWasmPlugins {
         self.plugins
     }
 
-    pub fn register_into(self, registry: &mut kasane_core::plugin::PluginRegistry) {
+    pub fn register_into(self, registry: &mut kasane_core::plugin::PluginRuntime) {
         for plugin in self.plugins {
             registry.register_backend(plugin.into_backend());
         }
@@ -600,7 +600,7 @@ pub fn resolve_wasm_plugins(
 /// will replace bundled versions.
 pub fn register_bundled_plugins(
     plugins_config: &kasane_core::config::PluginsConfig,
-    registry: &mut kasane_core::plugin::PluginRegistry,
+    registry: &mut kasane_core::plugin::PluginRuntime,
 ) {
     let loader = match WasmPluginLoader::new() {
         Ok(l) => l,
@@ -619,12 +619,12 @@ pub fn register_bundled_plugins(
 /// Discover and register WASM plugins from the plugins directory.
 ///
 /// Scans `plugins_config.plugins_dir()` for `*.wasm` files, loads each one,
-/// and registers it with the given `PluginRegistry`. Plugins whose ID appears
+/// and registers it with the given `PluginRuntime`. Plugins whose ID appears
 /// in `plugins_config.disabled` are skipped. Errors are logged and do not
 /// prevent other plugins from loading.
 pub fn discover_and_register(
     plugins_config: &kasane_core::config::PluginsConfig,
-    registry: &mut kasane_core::plugin::PluginRegistry,
+    registry: &mut kasane_core::plugin::PluginRuntime,
 ) {
     let loader = match WasmPluginLoader::new() {
         Ok(l) => l,

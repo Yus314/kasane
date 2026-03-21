@@ -6,7 +6,7 @@ use crate::element::{Direction, Element, FlexChild, ResolvedSlotInstanceId};
 use crate::layout::Rect;
 use crate::layout::flex::{self, Constraints, LayoutResult};
 use crate::plugin::{
-    ContribSizeHint, ContributeContext, Contribution, PluginRegistry, SlotId, SourcedContribution,
+    ContribSizeHint, ContributeContext, Contribution, PluginView, SlotId, SourcedContribution,
 };
 use crate::state::AppState;
 
@@ -116,7 +116,7 @@ pub fn resolve_surface_tree(
     descriptor: &SurfaceDescriptor,
     root: Element,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     rect: Rect,
 ) -> SurfaceRenderOutcome {
     let root_constraints = Constraints::tight(rect.w, rect.h);
@@ -261,7 +261,7 @@ enum PlaceholderPolicy {
 struct Resolver<'a> {
     descriptor: &'a SurfaceDescriptor,
     state: &'a AppState,
-    registry: &'a PluginRegistry,
+    registry: &'a PluginView<'a>,
     seen_slots: HashSet<&'a str>,
     next_instance_id: u64,
     slot_records: Vec<ResolvedSlotRecord>,
@@ -690,7 +690,7 @@ mod tests {
     use crate::element::FlexChild;
     use crate::element::{Edges, Style};
     use crate::layout::flex;
-    use crate::plugin::{PluginBackend, PluginCapabilities, PluginId};
+    use crate::plugin::{PluginBackend, PluginCapabilities, PluginId, PluginRuntime};
     use crate::protocol::Face;
     use crate::state::AppState;
     use crate::surface::{SlotDeclaration, SlotKind, SurfaceId, SurfaceRegistry};
@@ -793,7 +793,7 @@ mod tests {
         root: Element,
         slots: Vec<SlotDeclaration>,
         state: &AppState,
-        registry: &PluginRegistry,
+        registry: &PluginView<'_>,
     ) -> SurfaceRenderOutcome {
         let mut surface_registry = SurfaceRegistry::new();
         surface_registry
@@ -823,7 +823,7 @@ mod tests {
     #[test]
     fn test_resolve_placeholder_uses_container_child_constraints() {
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
         let state = AppState::default();
 
@@ -851,7 +851,7 @@ mod tests {
                 SlotKind::LeftRail,
             )],
             &state,
-            &registry,
+            &registry.view(),
         );
         assert!(outcome.report.owner_errors.is_empty());
 
@@ -874,7 +874,7 @@ mod tests {
     #[test]
     fn test_resolve_placeholder_uses_flex_share_constraints() {
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
         let state = AppState::default();
 
@@ -893,7 +893,7 @@ mod tests {
                 SlotKind::LeftRail,
             )],
             &state,
-            &registry,
+            &registry.view(),
         );
         assert!(outcome.report.owner_errors.is_empty());
 
@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn test_resolve_overlay_slot_inside_stack_overlay() {
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut registry = PluginRegistry::new();
+        let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(RecordingPlugin { seen: seen.clone() }));
         let state = AppState::default();
 
@@ -932,7 +932,7 @@ mod tests {
             root,
             vec![SlotDeclaration::new("test.surface.slot", SlotKind::Overlay)],
             &state,
-            &registry,
+            &registry.view(),
         );
         assert!(outcome.report.owner_errors.is_empty());
         let tree = outcome.tree.expect("overlay slot should resolve");

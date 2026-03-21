@@ -5,7 +5,7 @@ use compact_str::CompactString;
 use crate::element::Element;
 use crate::input::{MouseButton, MouseEventKind};
 use crate::layout::{Rect, SplitDirection};
-use crate::plugin::{Command, PluginId, PluginRegistry};
+use crate::plugin::{Command, PluginId, PluginView};
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::{
     Placement, Workspace, WorkspaceCommand, WorkspaceDivider, WorkspaceDividerId,
@@ -368,7 +368,7 @@ impl SurfaceRegistry {
         entry: &RegisteredSurface,
         state: &AppState,
         pane_states: Option<&PaneStates<'_>>,
-        plugin_registry: &PluginRegistry,
+        plugin_registry: &PluginView<'_>,
         rect: Rect,
         focused: bool,
     ) -> SurfaceRenderOutcome {
@@ -404,7 +404,7 @@ impl SurfaceRegistry {
     pub fn compose_view(
         &self,
         state: &AppState,
-        plugin_registry: &PluginRegistry,
+        plugin_registry: &PluginView<'_>,
         total: Rect,
     ) -> Element {
         self.compose_base_result(state, None, plugin_registry, total)
@@ -425,7 +425,7 @@ impl SurfaceRegistry {
     pub fn compose_full_view(
         &self,
         state: &AppState,
-        plugin_registry: &PluginRegistry,
+        plugin_registry: &PluginView<'_>,
         total: Rect,
     ) -> Element {
         use crate::render::view;
@@ -471,7 +471,7 @@ impl SurfaceRegistry {
         &self,
         state: &AppState,
         pane_states: Option<&PaneStates<'_>>,
-        plugin_registry: &PluginRegistry,
+        plugin_registry: &PluginView<'_>,
         total: Rect,
     ) -> SurfaceComposeResult {
         use crate::element::FlexChild;
@@ -541,7 +541,7 @@ impl SurfaceRegistry {
         &self,
         state: &AppState,
         pane_states: Option<&PaneStates<'_>>,
-        plugin_registry: &PluginRegistry,
+        plugin_registry: &PluginView<'_>,
         total: Rect,
     ) -> crate::render::view::ViewSections {
         use crate::render::view;
@@ -587,7 +587,7 @@ impl SurfaceRegistry {
         node: &crate::workspace::WorkspaceNode,
         state: &AppState,
         pane_states: Option<&PaneStates<'_>>,
-        plugin_registry: &PluginRegistry,
+        plugin_registry: &PluginView<'_>,
         rects: &HashMap<SurfaceId, Rect>,
     ) -> (Element, Vec<SurfaceRenderReport>) {
         use crate::element::FlexChild;

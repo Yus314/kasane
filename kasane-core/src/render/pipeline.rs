@@ -12,7 +12,7 @@ use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
 use crate::plugin::PaintHook;
-use crate::plugin::PluginRegistry;
+use crate::plugin::PluginView;
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
 
@@ -23,25 +23,25 @@ use crate::state::{AppState, DirtyFlags};
 /// Trait that abstracts the source of `ViewSections` for the rendering pipeline.
 ///
 /// Two implementations exist:
-/// - `DirectViewSource`: builds sections from `PluginRegistry` without caching
+/// - `DirectViewSource`: builds sections from `PluginRuntime` without caching
 /// - `SalsaViewSource`: reads from Salsa tracked functions (production path)
 pub(crate) trait ViewSource {
     /// Prepare for a new frame: invalidate internal caches if needed.
-    fn prepare(&mut self, dirty: DirtyFlags, registry: &PluginRegistry);
+    fn prepare(&mut self, dirty: DirtyFlags, registry: &PluginView<'_>);
 
     /// Build the decomposed view sections.
-    fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections;
+    fn view_sections(&mut self, state: &AppState, registry: &PluginView<'_>) -> view::ViewSections;
 }
 
-/// Builds view sections directly from PluginRegistry without any memoization.
+/// Builds view sections directly from PluginRuntime without any memoization.
 pub(crate) struct DirectViewSource;
 
 impl ViewSource for DirectViewSource {
-    fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginRegistry) {
+    fn prepare(&mut self, _dirty: DirtyFlags, _registry: &PluginView<'_>) {
         // No cache to invalidate
     }
 
-    fn view_sections(&mut self, state: &AppState, registry: &PluginRegistry) -> view::ViewSections {
+    fn view_sections(&mut self, state: &AppState, registry: &PluginView<'_>) -> view::ViewSections {
         view::view_sections(state, registry)
     }
 }
@@ -99,7 +99,7 @@ fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
 /// Compute the RenderResult (cursor position + style) from AppState.
 fn compute_render_result(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
@@ -162,7 +162,7 @@ fn backfill_surface_report_areas(
 pub(crate) fn render_cached_core(
     source: &mut impl ViewSource,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
     paint_hooks: &[Box<dyn PaintHook>],
@@ -239,7 +239,7 @@ pub(crate) fn render_cached_core(
 pub(crate) fn scene_render_core<'a>(
     source: &mut impl ViewSource,
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
     scene_cache: &'a mut SceneCache,
@@ -351,7 +351,7 @@ pub(crate) fn scene_render_core<'a>(
 /// GUI scene rendering pipeline.
 pub fn scene_render_pipeline(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     cell_size: scene::CellSize,
 ) -> (Vec<DrawCommand>, RenderResult) {
     let mut scene_cache = SceneCache::new();
@@ -370,7 +370,7 @@ pub fn scene_render_pipeline(
 /// Declarative rendering pipeline.
 pub fn render_pipeline(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     grid: &mut CellGrid,
 ) -> RenderResult {
     let mut source = DirectViewSource;
@@ -381,7 +381,7 @@ pub fn render_pipeline(
 /// Uses `DirectViewSource` (no Salsa memoization).
 pub fn render_pipeline_direct(
     state: &AppState,
-    registry: &PluginRegistry,
+    registry: &PluginView<'_>,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
 ) -> RenderResult {
