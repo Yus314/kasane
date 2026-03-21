@@ -2,6 +2,7 @@
 
 pub mod bridge;
 mod command;
+pub mod compose;
 mod context;
 mod diagnostics;
 mod effects;
@@ -76,6 +77,11 @@ pub use crate::display::{DisplayDirective, DisplayMapRef};
 
 // Re-export traits module
 pub use traits::{KeyHandleResult, PluginBackend};
+
+// Re-export compose module
+pub use compose::{
+    CommutativeComposable, Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
+};
 
 // Re-export state and bridge modules
 pub use bridge::{IsBridgedPlugin, PluginBridge};

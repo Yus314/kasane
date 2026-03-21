@@ -471,6 +471,8 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Cursor style override | registration order | first non-None wins | Single winner |
 | Scroll policy override | registration order | first non-None wins | Single winner |
 
+> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). Transform chains and `resolve()` are not monoidal and are intentionally not modeled.
+
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 
 > **Effects merge**: When multiple plugins produce `RuntimeEffects` in the same notification cycle, effects are merged by OR-ing `DirtyFlags` and appending `commands` and `scroll_plans` in plugin registration order.

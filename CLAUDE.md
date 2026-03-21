@@ -69,7 +69,7 @@ Kakoune (kak -ui json)
 - **Element tree**: `kasane-core/src/element.rs`
 - **Rendering**: `kasane-core/src/render/` — `pipeline_salsa.rs` (Salsa-backed entry), `view/mod.rs`, `paint.rs`
 - **Layout**: `kasane-core/src/layout/flex.rs` (flexbox), `grid.rs`, `position.rs` (overlay)
-- **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, recommended), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `bridge.rs` (PluginBridge adapter)
+- **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, recommended), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `bridge.rs` (PluginBridge adapter), `compose.rs` (monoidal composition traits + types)
 - **Event loop**: `kasane-core/src/event_loop.rs` (~80KB, main dispatch)
 - **Salsa integration**: `kasane-core/src/salsa_sync.rs`, `salsa_inputs.rs`, `salsa_views/`
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)

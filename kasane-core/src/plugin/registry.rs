@@ -628,8 +628,9 @@ impl<'a> PluginView<'a> {
         state: &AppState,
         ctx: &ContributeContext,
     ) -> Vec<SourcedContribution> {
-        let mut contributions: Vec<SourcedContribution> = self
-            .plugins
+        use super::compose::{Composable, ContributionSet};
+
+        self.plugins
             .iter()
             .enumerate()
             .filter_map(|(i, plugin)| {
@@ -643,9 +644,10 @@ impl<'a> PluginView<'a> {
                     contribution,
                 })
             })
-            .collect();
-        contributions.sort_by_key(|c| (c.contribution.priority, c.contributor.clone()));
-        contributions
+            .fold(ContributionSet::empty(), |acc, sc| {
+                acc.compose(ContributionSet::from_vec(vec![sc]))
+            })
+            .into_vec()
     }
 
     /// Apply the transform chain for a given target.
@@ -828,6 +830,10 @@ impl<'a> PluginView<'a> {
         crate::display::resolve(&set, line_count)
     }
 
+    /// Collect tagged display directives from all display-transform plugins.
+    ///
+    /// The resulting `DirectiveSet` forms a commutative monoid (see `compose::Composable`):
+    /// plugin evaluation order does not affect the resolved output.
     fn collect_tagged_display_directives(&self, state: &AppState) -> crate::display::DirectiveSet {
         let mut set = crate::display::DirectiveSet::default();
         for (i, plugin) in self.plugins.iter().enumerate() {
@@ -853,19 +859,27 @@ impl<'a> PluginView<'a> {
         state: &AppState,
         ctx: &OverlayContext,
     ) -> Vec<OverlayContribution> {
-        let mut contributions = Vec::new();
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            let caps = self.capabilities[i];
-            if (caps.contains(PluginCapabilities::CONTRIBUTOR)
-                || caps.contains(PluginCapabilities::OVERLAY))
-                && let Some(mut oc) = plugin.contribute_overlay_with_ctx(state, ctx)
-            {
-                oc.plugin_id = plugin.id();
-                contributions.push(oc);
-            }
-        }
-        contributions.sort_by_key(|c| (c.z_index, c.plugin_id.clone()));
-        contributions
+        use super::compose::{Composable, OverlaySet};
+
+        self.plugins
+            .iter()
+            .enumerate()
+            .filter_map(|(i, plugin)| {
+                let caps = self.capabilities[i];
+                if (caps.contains(PluginCapabilities::CONTRIBUTOR)
+                    || caps.contains(PluginCapabilities::OVERLAY))
+                    && let Some(mut oc) = plugin.contribute_overlay_with_ctx(state, ctx)
+                {
+                    oc.plugin_id = plugin.id();
+                    Some(oc)
+                } else {
+                    None
+                }
+            })
+            .fold(OverlaySet::empty(), |acc, oc| {
+                acc.compose(OverlaySet::from_vec(vec![oc]))
+            })
+            .into_vec()
     }
 
     /// Transform a menu item through all plugins.

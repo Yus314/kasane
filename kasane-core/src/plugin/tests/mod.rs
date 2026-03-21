@@ -9,6 +9,7 @@ use crate::test_support::TestSurfaceBuilder;
 use crate::workspace::Placement;
 
 mod commands;
+mod compose;
 mod hooks;
 mod io;
 mod registry;
