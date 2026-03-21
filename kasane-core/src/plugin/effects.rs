@@ -1,10 +1,12 @@
 use std::any::Any;
 
+use crate::element::InteractiveId;
+use crate::input::{KeyEvent, MouseEvent};
 use crate::protocol::KasaneRequest;
-use crate::scroll::ScrollPlan;
-use crate::state::DirtyFlags;
+use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
+use crate::state::{AppState, DirtyFlags};
 
-use super::{Command, PluginId};
+use super::{Command, KeyDispatchResult, PluginId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BootstrapEffects {
@@ -94,5 +96,119 @@ impl RuntimeEffects {
         self.redraw |= other.redraw;
         self.commands.append(&mut other.commands);
         self.scroll_plans.append(&mut other.scroll_plans);
+    }
+}
+
+/// Result of first-wins mouse dispatch across plugins.
+pub enum MouseHandleResult {
+    Handled {
+        source_plugin: PluginId,
+        commands: Vec<Command>,
+    },
+    NotHandled,
+}
+
+/// Minimal interface for plugin effects consumed by `update()`.
+///
+/// Parametrizes the TEA update function over the plugin system,
+/// enabling isolated testing with mock implementations.
+pub trait PluginEffects {
+    /// Notify plugins of state changes and collect batched effects.
+    fn notify_state_changed(&mut self, state: &AppState, flags: DirtyFlags) -> RuntimeBatch;
+
+    /// Broadcast key observation to all plugins (cannot consume).
+    fn observe_key_all(&mut self, key: &KeyEvent, state: &AppState);
+
+    /// Run the key middleware chain (first-wins dispatch).
+    fn dispatch_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyDispatchResult;
+
+    /// Broadcast mouse observation to all plugins (cannot consume).
+    fn observe_mouse_all(&mut self, event: &MouseEvent, state: &AppState);
+
+    /// Run first-wins mouse handler dispatch via hit-test id.
+    fn dispatch_mouse_handler(
+        &mut self,
+        event: &MouseEvent,
+        id: InteractiveId,
+        state: &AppState,
+    ) -> MouseHandleResult;
+
+    /// Resolve default scroll policy for a scroll candidate.
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<ScrollPolicyResult>;
+}
+
+/// No-op implementation — all observations are discarded, all dispatches pass through.
+pub struct NullEffects;
+
+impl PluginEffects for NullEffects {
+    fn notify_state_changed(&mut self, _: &AppState, _: DirtyFlags) -> RuntimeBatch {
+        RuntimeBatch::default()
+    }
+    fn observe_key_all(&mut self, _: &KeyEvent, _: &AppState) {}
+    fn dispatch_key_middleware(&mut self, key: &KeyEvent, _: &AppState) -> KeyDispatchResult {
+        KeyDispatchResult::Passthrough(key.clone())
+    }
+    fn observe_mouse_all(&mut self, _: &MouseEvent, _: &AppState) {}
+    fn dispatch_mouse_handler(
+        &mut self,
+        _: &MouseEvent,
+        _: InteractiveId,
+        _: &AppState,
+    ) -> MouseHandleResult {
+        MouseHandleResult::NotHandled
+    }
+    fn handle_default_scroll(
+        &mut self,
+        _: DefaultScrollCandidate,
+        _: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        None
+    }
+}
+
+/// Records all effect invocations for test assertions.
+#[derive(Default)]
+pub struct RecordingEffects {
+    pub key_observations: Vec<KeyEvent>,
+    pub mouse_observations: Vec<MouseEvent>,
+    pub key_dispatches: Vec<KeyEvent>,
+    pub mouse_dispatches: Vec<(MouseEvent, InteractiveId)>,
+    pub state_notifications: Vec<DirtyFlags>,
+}
+
+impl PluginEffects for RecordingEffects {
+    fn notify_state_changed(&mut self, _: &AppState, flags: DirtyFlags) -> RuntimeBatch {
+        self.state_notifications.push(flags);
+        RuntimeBatch::default()
+    }
+    fn observe_key_all(&mut self, key: &KeyEvent, _: &AppState) {
+        self.key_observations.push(key.clone());
+    }
+    fn dispatch_key_middleware(&mut self, key: &KeyEvent, _: &AppState) -> KeyDispatchResult {
+        self.key_dispatches.push(key.clone());
+        KeyDispatchResult::Passthrough(key.clone())
+    }
+    fn observe_mouse_all(&mut self, event: &MouseEvent, _: &AppState) {
+        self.mouse_observations.push(event.clone());
+    }
+    fn dispatch_mouse_handler(
+        &mut self,
+        event: &MouseEvent,
+        id: InteractiveId,
+        _: &AppState,
+    ) -> MouseHandleResult {
+        self.mouse_dispatches.push((event.clone(), id));
+        MouseHandleResult::NotHandled
+    }
+    fn handle_default_scroll(
+        &mut self,
+        _: DefaultScrollCandidate,
+        _: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        None
     }
 }

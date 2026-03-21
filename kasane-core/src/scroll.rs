@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::input::Modifiers;
 use crate::input::{self, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::HitMap;
-use crate::plugin::PluginRuntime;
+use crate::plugin::PluginEffects;
 use crate::protocol::KasaneRequest;
 use crate::state::{AppState, DragState};
 
@@ -284,14 +284,14 @@ pub const fn fallback_scroll_policy(candidate: DefaultScrollCandidate) -> Scroll
     ScrollPolicyResult::Immediate(candidate.resolved)
 }
 
-pub fn resolve_default_scroll_policy(
-    registry: &mut PluginRuntime,
+pub fn resolve_default_scroll_policy<E: PluginEffects>(
+    effects: &mut E,
     state: &AppState,
     candidate: DefaultScrollCandidate,
 ) -> ScrollPolicyResult {
-    match registry.handle_default_scroll(candidate, state) {
-        Some((_, ScrollPolicyResult::Pass)) | None => fallback_scroll_policy(candidate),
-        Some((_, result)) => result,
+    match effects.handle_default_scroll(candidate, state) {
+        Some(ScrollPolicyResult::Pass) | None => fallback_scroll_policy(candidate),
+        Some(result) => result,
     }
 }
 
@@ -323,11 +323,11 @@ pub const fn legacy_smooth_scroll_plan(candidate: DefaultScrollCandidate) -> Scr
     )
 }
 
-pub fn dispatch_legacy_mouse_scroll(
+pub fn dispatch_legacy_mouse_scroll<E: PluginEffects>(
     state: &mut AppState,
     mouse: &MouseEvent,
     hit_map: &HitMap,
-    registry: &mut PluginRuntime,
+    effects: &mut E,
     scroll_amount: i32,
 ) -> LegacyScrollDispatch {
     if !is_scroll_event(mouse) {
@@ -362,7 +362,7 @@ pub fn dispatch_legacy_mouse_scroll(
     }
 
     if let Some(candidate) = default_scroll_candidate(mouse, scroll_amount) {
-        return match resolve_default_scroll_policy(registry, state, candidate) {
+        return match resolve_default_scroll_policy(effects, state, candidate) {
             ScrollPolicyResult::Plan(plan) => LegacyScrollDispatch::Plan(plan),
             other => LegacyScrollDispatch::Requests(requests_from_policy_result(other)),
         };

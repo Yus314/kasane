@@ -2,14 +2,15 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::display::{DisplayMap, DisplayMapRef};
-use crate::element::{Element, FlexChild};
-use crate::input::KeyEvent;
+use crate::element::{Element, FlexChild, InteractiveId};
+use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::Placement;
 use crate::workspace::WorkspaceQuery;
 
 use super::bridge::PluginBridge;
+use super::effects::{MouseHandleResult, PluginEffects};
 use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
@@ -531,6 +532,74 @@ impl PluginRuntime {
     pub fn register<P: Plugin>(&mut self, plugin: P) {
         let bridge = PluginBridge::new(plugin);
         self.register_backend(Box::new(bridge));
+    }
+
+    /// Broadcast key observation to all plugins.
+    pub fn observe_key_all(&mut self, key: &KeyEvent, state: &AppState) {
+        for plugin in self.plugins_mut() {
+            plugin.observe_key(key, state);
+        }
+    }
+
+    /// Broadcast mouse observation to all plugins.
+    pub fn observe_mouse_all(&mut self, event: &MouseEvent, state: &AppState) {
+        for plugin in self.plugins_mut() {
+            plugin.observe_mouse(event, state);
+        }
+    }
+
+    /// First-wins mouse handler dispatch.
+    pub fn dispatch_mouse_handler(
+        &mut self,
+        event: &MouseEvent,
+        id: InteractiveId,
+        state: &AppState,
+    ) -> MouseHandleResult {
+        for plugin in self.plugins_mut() {
+            if let Some(commands) = plugin.handle_mouse(event, id, state) {
+                let source = plugin.id();
+                return MouseHandleResult::Handled {
+                    source_plugin: source,
+                    commands,
+                };
+            }
+        }
+        MouseHandleResult::NotHandled
+    }
+}
+
+impl PluginEffects for PluginRuntime {
+    fn notify_state_changed(&mut self, state: &AppState, flags: DirtyFlags) -> RuntimeBatch {
+        self.notify_state_changed_batch(state, flags)
+    }
+
+    fn observe_key_all(&mut self, key: &KeyEvent, state: &AppState) {
+        PluginRuntime::observe_key_all(self, key, state)
+    }
+
+    fn dispatch_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyDispatchResult {
+        PluginRuntime::dispatch_key_middleware(self, key, state)
+    }
+
+    fn observe_mouse_all(&mut self, event: &MouseEvent, state: &AppState) {
+        PluginRuntime::observe_mouse_all(self, event, state)
+    }
+
+    fn dispatch_mouse_handler(
+        &mut self,
+        event: &MouseEvent,
+        id: InteractiveId,
+        state: &AppState,
+    ) -> MouseHandleResult {
+        PluginRuntime::dispatch_mouse_handler(self, event, id, state)
+    }
+
+    fn handle_default_scroll(
+        &mut self,
+        candidate: DefaultScrollCandidate,
+        state: &AppState,
+    ) -> Option<ScrollPolicyResult> {
+        PluginRuntime::handle_default_scroll(self, candidate, state).map(|(_, result)| result)
     }
 }
 

@@ -5,7 +5,8 @@ use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{
-    Command, KeyHandleResult, PluginBackend, PluginId, PluginRuntime, RuntimeEffects,
+    Command, KeyHandleResult, NullEffects, PluginBackend, PluginId, PluginRuntime,
+    RecordingEffects, RuntimeEffects,
 };
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
@@ -536,4 +537,51 @@ fn test_on_state_changed_effects_return_scroll_plans() {
     assert!(result.flags.contains(DirtyFlags::STATUS));
     assert_eq!(result.scroll_plans.len(), 1);
     assert_eq!(result.scroll_plans[0].total_amount, 4);
+}
+
+// --- PluginEffects trait tests ---
+
+#[test]
+fn update_key_with_null_effects_passes_through_to_kakoune() {
+    let mut state = Box::new(AppState::default());
+    let mut effects = NullEffects;
+    let key = KeyEvent {
+        key: Key::Char('a'),
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Key(key), &mut effects, 3);
+    assert_eq!(result.commands.len(), 1);
+    assert!(matches!(result.commands[0], Command::SendToKakoune(_)));
+}
+
+#[test]
+fn update_key_records_observations() {
+    let mut state = Box::new(AppState::default());
+    let mut effects = RecordingEffects::default();
+    let key = KeyEvent {
+        key: Key::Char('x'),
+        modifiers: Modifiers::empty(),
+    };
+    update_in_place(&mut state, Msg::Key(key.clone()), &mut effects, 3);
+    assert_eq!(effects.key_observations.len(), 1);
+    assert_eq!(effects.key_dispatches.len(), 1);
+    assert_eq!(effects.key_observations[0], key);
+}
+
+#[test]
+fn update_resize_with_null_effects_sends_resize_command() {
+    let mut state = Box::new(AppState::default());
+    let mut effects = NullEffects;
+    let result = update_in_place(
+        &mut state,
+        Msg::Resize {
+            cols: 120,
+            rows: 40,
+        },
+        &mut effects,
+        3,
+    );
+    assert_eq!(state.cols, 120);
+    assert_eq!(state.rows, 40);
+    assert!(result.flags.contains(DirtyFlags::ALL));
 }

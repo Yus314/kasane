@@ -1,6 +1,8 @@
 use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
-use crate::plugin::{Command, KeyDispatchResult, PluginId, PluginRuntime, extract_redraw_flags};
+use crate::plugin::{
+    Command, KeyDispatchResult, MouseHandleResult, PluginEffects, PluginId, extract_redraw_flags,
+};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
@@ -48,13 +50,13 @@ pub struct UpdateResult {
 /// The implementation mutates `state` in place (through `DerefMut` on `Box`),
 /// but the ownership-passing signature makes the data flow explicit and enables
 /// future snapshot/rollback without changing callers.
-pub fn update(
+pub fn update<E: PluginEffects>(
     mut state: Box<AppState>,
     msg: Msg,
-    registry: &mut PluginRuntime,
+    effects: &mut E,
     scroll_amount: i32,
 ) -> (Box<AppState>, UpdateResult) {
-    let result = update_inner(&mut state, msg, registry, scroll_amount);
+    let result = update_inner(&mut state, msg, effects, scroll_amount);
     (state, result)
 }
 
@@ -62,22 +64,22 @@ pub fn update(
 ///
 /// Useful for tests and call sites that hold a `Box<AppState>` but don't need
 /// the ownership-passing signature.
-pub fn update_in_place(
+pub fn update_in_place<E: PluginEffects>(
     state: &mut Box<AppState>,
     msg: Msg,
-    registry: &mut PluginRuntime,
+    effects: &mut E,
     scroll_amount: i32,
 ) -> UpdateResult {
     let s = std::mem::take(state);
-    let (s, result) = update(s, msg, registry, scroll_amount);
+    let (s, result) = update(s, msg, effects, scroll_amount);
     *state = s;
     result
 }
 
-fn update_inner(
+fn update_inner<E: PluginEffects>(
     state: &mut AppState,
     msg: Msg,
-    registry: &mut PluginRuntime,
+    effects: &mut E,
     scroll_amount: i32,
 ) -> UpdateResult {
     match msg {
@@ -94,7 +96,7 @@ fn update_inner(
             let mut commands = Vec::new();
             let mut scroll_plans = Vec::new();
             if !flags.is_empty() {
-                let mut batch = registry.notify_state_changed_batch(state, flags);
+                let mut batch = effects.notify_state_changed(state, flags);
                 scroll_plans.append(&mut batch.effects.scroll_plans);
                 commands.append(&mut batch.effects.commands);
                 let effect_flags = batch.effects.redraw;
@@ -115,13 +117,11 @@ fn update_inner(
         }
         Msg::Key(key) => {
             // 1. Notify all plugins (observe only, cannot consume)
-            for plugin in registry.plugins_mut() {
-                plugin.observe_key(&key, state);
-            }
+            effects.observe_key_all(&key, state);
 
             // 2. Plugin key middleware chain.
             // PageUp/PageDown are handled by BuiltinInputPlugin (lowest priority).
-            match registry.dispatch_key_middleware(&key, state) {
+            match effects.dispatch_key_middleware(&key, state) {
                 KeyDispatchResult::Consumed {
                     source_plugin,
                     mut commands,
@@ -164,27 +164,29 @@ fn update_inner(
             }
 
             // Notify all plugins (observe only, independent of hit test)
-            for plugin in registry.plugins_mut() {
-                plugin.observe_mouse(&mouse, state);
-            }
+            effects.observe_mouse_all(&mouse, state);
 
             // Plugin mouse handling: route click/press to plugins via hit test
             if let Some(id) = state.hit_map.test(mouse.column as u16, mouse.line as u16) {
                 tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
-                for plugin in registry.plugins_mut() {
-                    if let Some(mut commands) = plugin.handle_mouse(&mouse, id, state) {
-                        let source = plugin.id();
+                match effects.dispatch_mouse_handler(&mouse, id, state) {
+                    MouseHandleResult::Handled {
+                        source_plugin,
+                        mut commands,
+                    } => {
                         tracing::debug!(count = commands.len(), "handle_mouse returned commands");
                         let flags = extract_redraw_flags(&mut commands);
                         return UpdateResult {
                             flags,
                             commands,
                             scroll_plans: vec![],
-                            source_plugin: Some(source),
+                            source_plugin: Some(source_plugin),
                         };
                     }
+                    MouseHandleResult::NotHandled => {
+                        tracing::debug!(id = ?id, "no plugin handled mouse");
+                    }
                 }
-                tracing::debug!(id = ?id, "no plugin handled mouse");
             } else if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
                 tracing::debug!(col = mouse.column, line = mouse.line, kind = ?mouse.kind, "hit_test: no match");
             }
@@ -196,7 +198,7 @@ fn update_inner(
                 state,
                 &mouse,
                 &hit_map,
-                registry,
+                effects,
                 scroll_amount,
             );
             state.hit_map = hit_map;

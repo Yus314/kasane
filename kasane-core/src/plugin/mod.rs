@@ -42,8 +42,8 @@ pub use diagnostics::{
     provider_artifact_stage_label, report_plugin_diagnostics, summarize_plugin_diagnostic,
 };
 pub use effects::{
-    BootstrapEffects, InitBatch, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
-    SessionReadyEffects,
+    BootstrapEffects, InitBatch, MouseHandleResult, NullEffects, PluginEffects, ReadyBatch,
+    RecordingEffects, RuntimeBatch, RuntimeEffects, SessionReadyCommand, SessionReadyEffects,
 };
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{

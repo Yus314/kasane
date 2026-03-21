@@ -11,11 +11,12 @@ pub use crate::plugin::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, BootstrapEffects, BufferEdit,
     BufferPosition, Command, ContribSizeHint, ContributeContext, Contribution, DisplayDirective,
     DisplayMapRef, IsBridgedPlugin, KeyDispatchResult, KeyHandleResult, LineAnnotation,
-    OverlayContext, OverlayContribution, PaintHook, PaneContext, Plugin, PluginAuthorities,
-    PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor, PluginFactory, PluginId,
-    PluginManager, PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
-    PluginState, RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId,
-    TransformContext, TransformTarget, builtin_plugin, host_plugin, host_plugin_with_provider,
+    NullEffects, OverlayContext, OverlayContribution, PaintHook, PaneContext, Plugin,
+    PluginAuthorities, PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor,
+    PluginEffects, PluginFactory, PluginId, PluginManager, PluginProvider, PluginRank,
+    PluginRevision, PluginRuntime, PluginSource, PluginState, RuntimeEffects, SessionReadyCommand,
+    SessionReadyEffects, SlotId, TransformContext, TransformTarget, builtin_plugin, host_plugin,
+    host_plugin_with_provider,
 };
 
 // Element tree
