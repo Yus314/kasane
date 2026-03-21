@@ -23,13 +23,47 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 [Troubleshooting](troubleshooting.md)
 
 **Understand internals:**
-[Architecture](architecture.md) → [Semantics](semantics.md)
+[Semantics](semantics.md) (state, rendering, plugin composition)
 
 **Design decisions:**
 [Vision](vision.md) → [Decisions](decisions.md)
 
 **Project status:**
 [Roadmap](roadmap.md)
+
+## System Architecture
+
+Kasane sits between the user and Kakoune as an independent rendering layer.
+Kakoune handles editing; Kasane handles display, plugin composition, and
+frontend-native capabilities. For formal definitions, see
+[semantics.md](semantics.md) §2.
+
+### Three-Layer Responsibility Model
+
+| Layer | Definition | Decision Criteria |
+|---|---|---|
+| Upstream (Kakoune) | Protocol-level concerns | Does it require a protocol change? |
+| Core (`kasane-core`) | Faithful rendering of the protocol + frontend-native capabilities | Does a single correct implementation exist? |
+| Plugin | Features where policy may vary | Everything else |
+
+```text
+Want to add feature F
+  │
+  ▼
+1. Does it require a protocol change?
+  │  Yes → Upstream (record in upstream-dependencies.md)
+  │  No ↓
+  ▼
+2. Does a single correct implementation exist?
+  │  Yes → Core (kasane-core)
+  │  No ↓
+  ▼
+3. Plugin
+  │  Otherwise → External plugin (WASM or native)
+  │  Insufficient API? → Plugin trait / WIT extension comes first
+```
+
+For the full decision record, see [ADR-012](decisions.md#adr-012-layer-responsibility-model).
 
 ## Document Classification
 
@@ -39,7 +73,6 @@ Authoritative specifications, responsibilities, and usage guides.
 
 - [requirements.md](requirements.md) — core and extension requirements
 - [semantics.md](semantics.md) — current semantics authority
-- [architecture.md](architecture.md) — system boundaries and responsibilities
 - [plugin-development.md](plugin-development.md) — plugin development guide
 - [plugin-api.md](plugin-api.md) — plugin API reference
 - [wasm-constraints.md](wasm-constraints.md) — WASM plugin constraints and evolution path

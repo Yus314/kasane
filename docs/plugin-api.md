@@ -880,5 +880,5 @@ With the `PANE_RENDERER` capability, `render_pane(pane_id, cols, rows)` can rend
 
 - [plugin-development.md](./plugin-development.md) — Quickstart guide
 - [semantics.md](./semantics.md) — Composition ordering and semantics
-- [architecture.md](./architecture.md) — Positioning of surfaces and backends
+- [semantics.md](./semantics.md) — Composition ordering and system boundaries
 - [index.md](./index.md) — Entry point for all docs

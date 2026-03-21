@@ -1567,5 +1567,5 @@ This separation means the default session UI can ship as a bundled WASM plugin, 
 ## Related Documents
 
 - [semantics.md](./semantics.md) — Authoritative specification
-- [architecture.md](./architecture.md) — System boundaries and responsibilities
+- [index.md](./index.md) — Documentation entry point and architecture overview
 - [index.md](./index.md) — Entry point for all docs

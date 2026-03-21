@@ -25,7 +25,7 @@ What is defined here is "what Kasane means." Benchmark values, implementation pr
 ### 1.3 Related Documents
 
 - [requirements.md](./requirements.md): Authoritative reference for requirements
-- [architecture.md](./architecture.md): Summary of system structure and responsibility boundaries
+- [index.md](./index.md): Documentation entry point and architecture overview
 - [plugin-development.md](./plugin-development.md): Guide for plugin authors
 - [performance.md](./performance.md): Performance principles, benchmarks, and optimization status
 - [decisions.md](./decisions.md): History of design decisions
@@ -857,7 +857,7 @@ Changes that advance only semantics or only tests are avoided in principle.
 
 ## 15. Related Documents
 
-- [architecture.md](./architecture.md) — System boundaries and runtime structure
+- [index.md](./index.md) — Documentation entry point and architecture overview
 - [plugin-api.md](./plugin-api.md) — Plugin API reference
 - [requirements.md](./requirements.md) — Authoritative reference for requirements
 - [decisions.md](./decisions.md) — History of design decisions

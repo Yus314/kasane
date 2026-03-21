@@ -75,7 +75,7 @@ Kakoune (kak -ui json)
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
 - **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective)
 
-For architecture details, see `docs/architecture.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.
+For architecture details, see `docs/index.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.
 
 ## Conventions
 

@@ -1,7 +1,7 @@
 # Configuration Reference
 
 This document is the reference for user-facing configuration keys and defaults.
-For architecture and semantics behind these settings, see [architecture.md](./architecture.md) and [semantics.md](./semantics.md).
+For semantics behind these settings, see [semantics.md](./semantics.md).
 
 Kasane reads its configuration from a TOML file at:
 
@@ -330,6 +330,5 @@ See [Using Plugins](using-plugins.md) for more details.
 ## See also
 
 - [README.md](../README.md) — installation and basic usage
-- [architecture.md](./architecture.md) — where configuration is applied
 - [semantics.md](./semantics.md) — runtime semantics affected by config and ui_options
 - [index.md](./index.md) — docs entry point
