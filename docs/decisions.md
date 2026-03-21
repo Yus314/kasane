@@ -1410,7 +1410,7 @@ For implementation details (input structs, tracked functions, pipeline variants,
 
 3. **Dual maintenance during feature flag period**: Both `render_pipeline_surfaces_*` and `render_pipeline_salsa_*` paths must be maintained. The `salsa_pipeline_comparison.rs` test suite (15 tests) verifies byte-identical output between the two paths.
 
-4. **`no_eq` on all view functions**: Since `Element` lacks `PartialEq`, Salsa cannot perform output equality checks to suppress downstream re-evaluation. This means a cache miss on any input *will* propagate to all dependents, even if the output happens to be identical. This is acceptable because the tracked functions are leaf-level (no further tracked functions depend on their Element output).
+4. **`no_eq` on all view functions**: Although `Element` implements `PartialEq`, the tracked view functions use `no_eq` because no downstream tracked functions depend on their outputs. Output-level equality checks would add comparison cost without benefit. This means a cache miss on any input *will* propagate to all callers, even if the output happens to be identical. This is acceptable because the tracked functions are leaf-level (no further tracked functions depend on their Element output).
 
 ### Testing
 
@@ -1422,7 +1422,7 @@ For implementation details (input structs, tracked functions, pipeline variants,
 
 ### Future Considerations
 
-- If `Element` gains `PartialEq`, remove `no_eq` annotations for better downstream invalidation suppression
+- If the pipeline is deepened (e.g., layout or composition as tracked functions), remove `no_eq` annotations to enable output-level early-cutoff (`Element` already implements `PartialEq`)
 - When Phase 5 (multi-pane) introduces `SurfaceDirtyMap`, the Salsa input sync can be extended to per-surface granularity
 - Plugin purity contracts (future): plugins that opt into pure `fn(&AppState) -> Element` could become tracked functions, eliminating the epoch bridge for those plugins
 

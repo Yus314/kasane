@@ -190,7 +190,7 @@ Commands fall into the following categories.
 - Configuration: `SetConfig`, `RegisterThemeTokens`
 - Process management: `SpawnProcess`, `WriteToProcess`, `CloseProcessStdin`, `KillProcess`, `ResizePty`
 - Surface management: `RegisterSurface`, `UnregisterSurface`, `RegisterSurfaceRequested`, `UnregisterSurfaceKey`
-- Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `Pane(PaneCommand)`
+- Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `SpawnPaneClient`, `ClosePaneClient`
 
 The runtime receives Commands and executes them as side effects. The important invariant is that Command generation is deterministic given the same state and input, even though Command execution may involve I/O.
 
@@ -258,7 +258,7 @@ Policy Semantics describes the practical rendering produced by Salsa-based incre
 
 In the current implementation, Exact Semantics and Policy Semantics coincide. Salsa's automatic dependency tracking ensures that cached rendering produces the same result as complete re-rendering — there is no intentional staleness.
 
-A future optimization (e.g., introducing `PartialEq` for `Element` to enable fine-grained output-level early-cutoff) could reintroduce a gap between the two tiers. If that happens, the distinction will be re-specified here.
+A future optimization (e.g., removing `no_eq` from Salsa tracked functions to enable output-level early-cutoff, which is feasible since `Element` already implements `PartialEq`) could reintroduce a gap between the two tiers. If that happens, the distinction will be re-specified here.
 
 In Default Frontend Semantics, any future policy-permitted staleness must remain within the range that does not break "the meaning existing users expect from a `kak` replacement." Staleness tolerance may exist for the freedom of plugin-defined extensions, but it must not take priority over the semantic consistency of the core frontend.
 
@@ -377,7 +377,7 @@ Salsa 0.26 is the sole caching layer for Element tree construction and the rende
 
 Additional tracked inputs for plugin outputs: `SlotContributionsInput`, `AnnotationResultInput`, `PluginOverlaysInput`, `DisplayDirectivesInput`.
 
-**Memoization level.** Salsa tracked functions use `#[salsa::tracked(no_eq)]` because `Element` does not implement `PartialEq`. This means output-level early-cutoff is not available; only input-level memoization applies (if all inputs are identical, the function is not re-executed).
+**Memoization level.** Salsa tracked functions use `#[salsa::tracked(no_eq)]`, disabling output-level early-cutoff. `Element` does implement `PartialEq`, so removing `no_eq` is technically feasible; however, no downstream tracked functions currently depend on these view functions' outputs, so output-level comparison would add cost without benefit. Only input-level memoization applies (if all inputs are identical, the function is not re-executed).
 
 **DirtyFlags role.** `DirtyFlags` serves as a semantic classifier of protocol messages, not as a cache invalidation driver. It provides hints to the Salsa sync phase about which inputs to update and gates optimizations like line-level `mark_region_dirty`. Cache invalidation itself is handled automatically by Salsa's `PartialEq`-based change detection.
 
@@ -407,7 +407,7 @@ Both tiers are necessary: the generation counter provides the coarse gate; Salsa
 Salsa provides automatic dependency tracking for native rendering paths, but two limitations remain:
 
 - **WASM `state_hash()` is manual.** WASM plugins implement `state_hash() → u64` by hand. An incorrect hash may cause stale contributions to persist without detection (see §8.12.4).
-- **`no_eq` on tracked functions.** Salsa tracked functions use `#[salsa::tracked(no_eq)]` because `Element` lacks `PartialEq`. Output-level early-cutoff is not available; only input-level memoization applies.
+- **`no_eq` on tracked functions.** Salsa tracked functions use `#[salsa::tracked(no_eq)]`, disabling output-level early-cutoff. `Element` implements `PartialEq`, but removing `no_eq` would add comparison cost without benefit because no downstream tracked functions depend on these outputs.
 
 ## 8. Plugin Composition Semantics
 
@@ -420,11 +420,14 @@ Kasane's UI extensions are primarily composed of the following mechanisms.
 - Overlay (`contribute_overlay_with_ctx`)
 - Transform (`transform`)
 - Menu Item Transform (`transform_menu_item`)
+- Display Directive (`display_directives`)
+- Cursor Style Override (`cursor_style_override`)
+- Scroll Policy Override (`handle_default_scroll`)
 - PaintHook
 
 These are not at the same level of abstraction; they differ in degrees of freedom and responsibilities.
 
-These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface). The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §8.11, §8.12).
+These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface), with one exception: PaintHook is available only to native `PluginBackend` plugins and is not exposed to WASM. The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §8.11, §8.12).
 
 ### 8.2 Contribution
 
@@ -466,6 +469,7 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Display directive | `(priority, plugin_id)` | `resolve()` composition | Multi-plugin composable (P-031) |
 | Menu item transform | registration order | sequential chain | Output of previous = input of next |
 | Cursor style override | registration order | first non-None wins | Single winner |
+| Scroll policy override | registration order | first non-None wins | Single winner |
 
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 
@@ -523,9 +527,11 @@ Kasane provides two plugin trait models with different levels of abstraction.
 - **`Plugin` trait** (recommended, primary API): State-externalized model. The framework owns plugin state; all methods are pure functions. Automatic cache invalidation via `PartialEq`. Suitable for most plugins.
 - **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and workspace observation. Intended for framework-internal use and advanced scenarios.
 
+The following extension points are available only via `PluginBackend` (not `Plugin` trait): `surfaces()`, `workspace_request()`, `paint_hooks()`. PaintHook is further restricted to native plugins only (not available to WASM).
+
 `PluginBridge` adapts `Plugin` to `PluginBackend`, enabling both models to coexist in `PluginRuntime`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
 
-WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer.
+WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer. WASM plugins have access to surfaces but not to PaintHook.
 
 ### 8.12 WASM Plugin Semantics
 
@@ -656,7 +662,7 @@ A Workspace is a layout structure that manages surface placement, focus, splitti
 
 ### 10.4 Relationship Between Surfaces and the Existing View Layer
 
-Surface lifecycle has been integrated into the core view pipeline via `surface_view_sections_cached()`, which delegates base element composition to `SurfaceRegistry::compose_base_result()`. The legacy view layer remains as an explicit fallback (`legacy_surface_compose_result()`).
+Surface lifecycle has been integrated into the core view pipeline. In the Salsa path, `SalsaViewSource::view_sections()` delegates multi-pane base element composition to `SurfaceRegistry::compose_base_result()`. In the non-Salsa path, `view_sections()` delegates to `legacy_surface_compose_result()`.
 
 Therefore, Surface is partially integrated as a first-class abstraction. The rendering pipeline uses Surfaces when registered, falling back to the legacy direct-construction path otherwise. Full unification (where all core UI elements are Surfaces) is not yet complete.
 
@@ -709,8 +715,8 @@ Theorem (Trace-Equivalence):
 
 Pipeline variants:
 
-- `render_pipeline` — DirectViewSource, no Salsa. Reference path for correctness testing.
-- `render_pipeline_direct` — DirectViewSource with DirtyFlags. Used in benchmarks.
+- `render_pipeline` — DirectViewSource, `DirtyFlags::ALL` hardcoded. Reference path for correctness testing.
+- `render_pipeline_direct` — DirectViewSource with explicit `DirtyFlags` parameter. Used in incremental rendering benchmarks.
 - `render_pipeline_cached` — SalsaViewSource. Production path with Salsa memoization.
 
 This is Kasane's central correctness theorem. The Salsa-cached production path must produce output identical to the reference full-pipeline path.
@@ -766,7 +772,7 @@ TUI and GUI differ in output methods, but at least the following semantics must 
 Salsa provides automatic dependency tracking for native rendering paths. Remaining limitations:
 
 - **WASM `state_hash()` is manual.** Incorrect implementations may cause stale plugin output without detection (§7.4, §8.12.4).
-- **`no_eq` on tracked functions.** Output-level early-cutoff is unavailable because `Element` does not implement `PartialEq` (§6.11).
+- **`no_eq` on tracked functions.** Output-level early-cutoff is disabled because no downstream tracked functions depend on the view functions' Element outputs (§6.11). `Element` implements `PartialEq`, so enabling output-level cutoff is technically feasible if the pipeline is deepened.
 - **Salsa input comparison cost.** `sync_inputs_from_state()` performs `PartialEq` comparisons each frame, including deep comparisons of `Vec<Line>` in `BufferInput`. This is correct but carries a per-frame cost proportional to buffer size.
 
 ### 12.3 Mismatch Between Global DirtyFlags and Surface Theory
