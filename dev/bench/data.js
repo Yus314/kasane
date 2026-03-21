@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774086943274,
+  "lastUpdate": 1774087795134,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39299,6 +39299,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20447090,
             "range": "± 913040",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "e5682600effc096dd11647c2c1acd8e27ffe6cab",
+          "message": "feat(plugin): add monoidal composition framework for extension points\n\nFormalize the implicit monoid structure of plugin collection phases\nwith Composable/CommutativeComposable traits and concrete types:\nContributionSet, OverlaySet, DirectiveSet (commutative); MenuTransformChain,\nFirstWins (non-commutative). Refactor collect_contributions_with_sources\nand collect_overlays_with_ctx to fold through composition types. Add 24\nproperty-based tests (proptest) verifying monoid laws + commutativity.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T18:53:39+09:00",
+          "tree_id": "a5b5d3d41de888655afebff4198387e62d7d3ca4",
+          "url": "https://github.com/Yus314/kasane/commit/e5682600effc096dd11647c2c1acd8e27ffe6cab"
+        },
+        "date": 1774087794566,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4692571,
+            "range": "± 36123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17377109,
+            "range": "± 110444",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1847264,
+            "range": "± 122697",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20434950,
+            "range": "± 203035",
             "unit": "ns/iter"
           }
         ]
