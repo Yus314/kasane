@@ -14,6 +14,14 @@ yay -S kasane-bin    # or: paru -S kasane-bin
 
 Installs a prebuilt binary. Kakoune is pulled in automatically as a dependency.
 
+### macOS (Homebrew)
+
+```bash
+brew install Yus314/kasane/kasane
+```
+
+Installs a prebuilt binary. Kakoune is pulled in automatically as a dependency.
+
 ### Binary Release
 
 Download a prebuilt binary from [GitHub Releases](https://github.com/Yus314/kasane/releases/latest):

@@ -39,6 +39,8 @@ alias kak=kasane  # add to .bashrc / .zshrc
 
 Arch Linux: `yay -S kasane-bin`
 
+macOS: `brew install Yus314/kasane/kasane`
+
 Nix: `nix run github:Yus314/kasane`
 
 GPU backend: `cargo install --path kasane --features gui`, then
