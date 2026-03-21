@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.actor != 'renovate[bot]'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: cachix/install-nix-action@v30
+      - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
@@ -84,7 +84,7 @@ jobs:
           benchmark-data-dir-path: dev/bench
 
       - name: Upload iai-callgrind results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: iai-callgrind-results
