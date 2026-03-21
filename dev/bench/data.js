@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774059382957,
+  "lastUpdate": 1774061754605,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38675,6 +38675,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20432399,
             "range": "± 286069",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "91413196+Yus314@users.noreply.github.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e0289abfc7db7a44eeec28533468934e0d7073fd",
+          "message": "Merge pull request #17 from Yus314/renovate/major-github-actions\n\ndeps(deps): update github actions (major)",
+          "timestamp": "2026-03-21T11:39:51+09:00",
+          "tree_id": "9594af89021083b7c38e552ba8687c4f2ae02255",
+          "url": "https://github.com/Yus314/kasane/commit/e0289abfc7db7a44eeec28533468934e0d7073fd"
+        },
+        "date": 1774061753555,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4682083,
+            "range": "± 6616",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17293633,
+            "range": "± 67773",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1826040,
+            "range": "± 5157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20383435,
+            "range": "± 49599",
             "unit": "ns/iter"
           }
         ]
