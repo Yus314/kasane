@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774085321350,
+  "lastUpdate": 1774086943274,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39251,6 +39251,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20561318,
             "range": "± 63782",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "93efb3ae58faa9928ea65546216f2f238d752f04",
+          "message": "docs: add macOS Homebrew installation instructions\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T18:37:56+09:00",
+          "tree_id": "7d39b10cf78115f53cef11ad801fda301ba55a14",
+          "url": "https://github.com/Yus314/kasane/commit/93efb3ae58faa9928ea65546216f2f238d752f04"
+        },
+        "date": 1774086942736,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4733823,
+            "range": "± 14986",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17348653,
+            "range": "± 117636",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1831075,
+            "range": "± 94516",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20447090,
+            "range": "± 913040",
             "unit": "ns/iter"
           }
         ]
