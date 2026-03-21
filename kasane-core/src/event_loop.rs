@@ -2791,4 +2791,141 @@ mod tests {
 
         assert!(!quit);
     }
+
+    /// Plugin that responds to every PluginMessage by sending another
+    /// PluginMessage to itself, creating an infinite cascade.
+    struct CascadingMessagePlugin;
+
+    impl PluginBackend for CascadingMessagePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("cascading".to_string())
+        }
+
+        fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppState) -> RuntimeEffects {
+            RuntimeEffects {
+                redraw: DirtyFlags::empty(),
+                commands: vec![Command::PluginMessage {
+                    target: PluginId("cascading".to_string()),
+                    payload: Box::new(()),
+                }],
+                scroll_plans: vec![],
+            }
+        }
+    }
+
+    #[test]
+    fn command_cascade_terminates_at_depth_limit() {
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(CascadingMessagePlugin));
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut pane_map = PaneMap::default();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        // Seed a single PluginMessage — should cascade but terminate
+        let quit = handle_deferred_commands(
+            vec![Command::PluginMessage {
+                target: PluginId("cascading".to_string()),
+                payload: Box::new(()),
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            None,
+        );
+
+        assert!(!quit);
+        // The cascade should have been cut off at MAX_COMMAND_CASCADE_DEPTH.
+        // The test's primary assertion is that it terminates without panic/hang.
+    }
+
+    /// Plugin that handles every key by injecting another key, creating
+    /// an infinite injection cascade.
+    struct CascadingInjectPlugin;
+
+    impl PluginBackend for CascadingInjectPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("cascading-inject".to_string())
+        }
+
+        fn capabilities(&self) -> crate::plugin::PluginCapabilities {
+            crate::plugin::PluginCapabilities::INPUT_HANDLER
+        }
+
+        fn handle_key(
+            &mut self,
+            _key: &crate::input::KeyEvent,
+            _state: &AppState,
+        ) -> Option<Vec<Command>> {
+            Some(vec![Command::InjectInput(crate::input::InputEvent::Key(
+                crate::input::KeyEvent {
+                    key: crate::input::Key::Char('z'),
+                    modifiers: crate::input::Modifiers::empty(),
+                },
+            ))])
+        }
+    }
+
+    #[test]
+    fn inject_cascade_terminates_at_depth_limit() {
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(CascadingInjectPlugin));
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut pane_map = PaneMap::default();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        // Inject a key — the plugin will re-inject on every handle_key,
+        // but the depth limit should cut it off.
+        let quit = handle_deferred_commands(
+            vec![Command::InjectInput(crate::input::InputEvent::Key(
+                crate::input::KeyEvent {
+                    key: crate::input::Key::Char('a'),
+                    modifiers: crate::input::Modifiers::empty(),
+                },
+            ))],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            None,
+        );
+
+        assert!(!quit);
+    }
 }
