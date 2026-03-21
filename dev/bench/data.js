@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774083549377,
+  "lastUpdate": 1774084496962,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39059,6 +39059,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20360151,
             "range": "± 63467",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "2b898e7bb7a57ba2856dc004e1e5cfce2ce17fe4",
+          "message": "docs: add AUR and binary release installation instructions\n\nAdd kasane-bin AUR package to Quick Start (README) and expand\ngetting-started.md with four installation methods: AUR, binary\nrelease from GitHub Releases, source build, and Nix.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T17:57:46+09:00",
+          "tree_id": "1e0bf36ad0d7bebd4f4deffb1cad450d0389d239",
+          "url": "https://github.com/Yus314/kasane/commit/2b898e7bb7a57ba2856dc004e1e5cfce2ce17fe4"
+        },
+        "date": 1774084495722,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4716674,
+            "range": "± 12246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17324200,
+            "range": "± 95134",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1830280,
+            "range": "± 48476",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20399666,
+            "range": "± 94357",
             "unit": "ns/iter"
           }
         ]
