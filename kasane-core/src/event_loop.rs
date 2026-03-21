@@ -20,8 +20,8 @@ use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::buffer::KakouneBufferSurface;
 use crate::surface::pane_map::PaneMap;
-use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
-use crate::workspace::Workspace;
+use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceId, SurfaceRegistry};
+use crate::workspace::{Placement, Workspace};
 
 /// Structured result from processing a single event.
 pub struct EventResult {
@@ -667,6 +667,109 @@ macro_rules! focused_writer {
     }};
 }
 
+/// Check that a command originates from a plugin with `DYNAMIC_SURFACE` authority.
+///
+/// Returns `Some(plugin_id)` when both the source plugin is present and the
+/// authority is granted; logs a warning and returns `None` otherwise.
+fn require_surface_authority<'a>(
+    registry: &PluginRuntime,
+    command_source_plugin: Option<&'a PluginId>,
+    command_name: &str,
+) -> Option<&'a PluginId> {
+    let Some(plugin_id) = command_source_plugin else {
+        tracing::warn!("{command_name} ignored: missing command source plugin");
+        return None;
+    };
+    if !registry.plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE) {
+        tracing::warn!(
+            plugin = plugin_id.0,
+            "{command_name} denied: dynamic surface authority not granted"
+        );
+        return None;
+    }
+    Some(plugin_id)
+}
+
+/// Add a surface to the workspace and mark all dirty flags.
+fn dispatch_add_surface(
+    ctx: &mut DeferredContext<'_>,
+    surface_id: SurfaceId,
+    placement: Placement,
+) {
+    crate::workspace::dispatch_workspace_command_with_total(
+        ctx.surface_registry,
+        crate::workspace::WorkspaceCommand::AddSurface {
+            surface_id,
+            placement,
+        },
+        ctx.dirty,
+        Some(crate::layout::Rect {
+            x: 0,
+            y: 0,
+            w: ctx.state.cols,
+            h: ctx.state.rows,
+        }),
+    );
+    *ctx.dirty |= DirtyFlags::ALL;
+    *ctx.workspace_changed = true;
+}
+
+/// Deliver a `SpawnFailed` IO event to a plugin and cascade any resulting effects.
+///
+/// Returns `true` if the cascade produces a `Quit`.
+fn deliver_spawn_failure(
+    ctx: &mut DeferredContext<'_>,
+    plugin_id: &PluginId,
+    job_id: u64,
+    error_msg: &str,
+    depth: usize,
+) -> bool {
+    let fail_event = IoEvent::Process(ProcessEvent::SpawnFailed {
+        job_id,
+        error: error_msg.to_string(),
+    });
+    let batch =
+        ctx.registry
+            .deliver_io_event_batch(plugin_id, &fail_event, &AppView::new(ctx.state));
+    apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1)
+}
+
+/// Result of attempting to unregister a plugin-owned surface.
+enum UnregisterResult {
+    /// The surface was removed and the workspace entry closed.
+    Removed,
+    /// The surface is owned by a different plugin.
+    OwnedByOther(PluginId),
+    /// The surface has no owner or does not exist.
+    NotFound,
+}
+
+/// Attempt to unregister a surface owned by `plugin_id`.
+///
+/// On success the surface is removed from the registry and its workspace
+/// entry is closed, with dirty flags and workspace-changed set accordingly.
+/// On failure the caller receives an [`UnregisterResult`] variant describing
+/// why the operation was rejected so it can log context-specific warnings.
+fn try_unregister_owned_surface(
+    surface_registry: &mut SurfaceRegistry,
+    plugin_id: &PluginId,
+    surface_id: SurfaceId,
+    dirty: &mut DirtyFlags,
+    workspace_changed: &mut bool,
+) -> UnregisterResult {
+    match surface_registry.surface_owner_plugin(surface_id) {
+        Some(owner) if owner == plugin_id => {
+            let _ = surface_registry.remove(surface_id);
+            let _ = surface_registry.workspace_mut().close(surface_id);
+            *dirty |= DirtyFlags::ALL;
+            *workspace_changed = true;
+            UnregisterResult::Removed
+        }
+        Some(owner) => UnregisterResult::OwnedByOther(owner.clone()),
+        None => UnregisterResult::NotFound,
+    }
+}
+
 /// Handle deferred commands (timers, inter-plugin messages, config overrides).
 ///
 /// Returns `true` if a `Quit` command was encountered.
@@ -722,503 +825,511 @@ fn handle_deferred_commands_inner(
     }
 
     for cmd in deferred {
-        match cmd {
-            Command::PluginMessage { target, payload } => {
-                let batch =
-                    ctx.registry
-                        .deliver_message_batch(&target, payload, &AppView::new(ctx.state));
-                if apply_runtime_batch(batch, ctx, Some(&target), depth + 1) {
-                    return true;
-                }
+        let quit = match &cmd {
+            Command::PluginMessage { .. }
+            | Command::ScheduleTimer { .. }
+            | Command::SetConfig { .. } => {
+                handle_inter_plugin_command(cmd, ctx, command_source_plugin, depth)
             }
-            Command::ScheduleTimer {
-                delay,
-                target,
-                payload,
-            } => {
-                ctx.timer.schedule_timer(delay, target, payload);
+            Command::RegisterSurface { .. }
+            | Command::RegisterSurfaceRequested { .. }
+            | Command::UnregisterSurface { .. }
+            | Command::UnregisterSurfaceKey { .. } => {
+                handle_surface_mgmt_command(cmd, ctx, command_source_plugin, depth)
             }
-            Command::SetConfig { key, value } => {
-                crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
+            Command::Workspace(_) | Command::RegisterThemeTokens(_) => {
+                handle_workspace_command(cmd, ctx, command_source_plugin, depth)
             }
-            Command::Workspace(ws_cmd) => {
-                // Auto-register ClientBufferSurface for unknown surface IDs
-                if let crate::workspace::WorkspaceCommand::AddSurface { surface_id, .. } = &ws_cmd
-                    && ctx.surface_registry.get(*surface_id).is_none()
-                {
-                    let _ = ctx.surface_registry.try_register(Box::new(
-                        crate::surface::buffer::ClientBufferSurface::new(*surface_id),
-                    ));
-                }
-                let mut workspace_dirty = DirtyFlags::empty();
-                crate::workspace::dispatch_workspace_command_with_total(
-                    ctx.surface_registry,
-                    ws_cmd,
-                    &mut workspace_dirty,
-                    Some(crate::layout::Rect {
-                        x: 0,
-                        y: 0,
-                        w: ctx.state.cols,
-                        h: ctx.state.rows,
-                    }),
-                );
-                *ctx.dirty |= workspace_dirty;
-                if !workspace_dirty.is_empty() {
-                    *ctx.workspace_changed = true;
-                }
+            Command::SpawnProcess { .. }
+            | Command::WriteToProcess { .. }
+            | Command::CloseProcessStdin { .. }
+            | Command::KillProcess { .. }
+            | Command::ResizePty { .. } => {
+                handle_process_command(cmd, ctx, command_source_plugin, depth)
             }
-            Command::RegisterSurface { surface, placement } => {
-                let Some(plugin_id) = command_source_plugin else {
-                    tracing::warn!("RegisterSurface ignored: missing command source plugin");
-                    continue;
-                };
-                if !ctx
-                    .registry
-                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
-                {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        "RegisterSurface denied: dynamic surface authority not granted"
-                    );
-                    continue;
-                }
-
-                let surface_id = surface.id();
-                match ctx
-                    .surface_registry
-                    .try_register_for_owner(surface, Some(plugin_id.clone()))
-                {
-                    Ok(()) => {
-                        crate::workspace::dispatch_workspace_command_with_total(
-                            ctx.surface_registry,
-                            crate::workspace::WorkspaceCommand::AddSurface {
-                                surface_id,
-                                placement,
-                            },
-                            ctx.dirty,
-                            Some(crate::layout::Rect {
-                                x: 0,
-                                y: 0,
-                                w: ctx.state.cols,
-                                h: ctx.state.rows,
-                            }),
-                        );
-                        *ctx.dirty |= DirtyFlags::ALL;
-                        *ctx.workspace_changed = true;
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            surface_id = surface_id.0,
-                            "RegisterSurface ignored: {err:?}"
-                        );
-                    }
-                }
-            }
-            Command::RegisterSurfaceRequested { surface, placement } => {
-                let Some(plugin_id) = command_source_plugin else {
-                    tracing::warn!(
-                        "RegisterSurfaceRequested ignored: missing command source plugin"
-                    );
-                    continue;
-                };
-                if !ctx
-                    .registry
-                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
-                {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        "RegisterSurfaceRequested denied: dynamic surface authority not granted"
-                    );
-                    continue;
-                }
-
-                let surface_id = surface.id();
-                match ctx
-                    .surface_registry
-                    .try_register_for_owner(surface, Some(plugin_id.clone()))
-                {
-                    Ok(()) => {
-                        let Some(placement) =
-                            ctx.surface_registry.resolve_placement_request(&placement)
-                        else {
-                            let _ = ctx.surface_registry.remove(surface_id);
-                            tracing::warn!(
-                                plugin = plugin_id.0,
-                                surface_id = surface_id.0,
-                                "RegisterSurfaceRequested ignored: unresolved placement request"
-                            );
-                            continue;
-                        };
-
-                        crate::workspace::dispatch_workspace_command_with_total(
-                            ctx.surface_registry,
-                            crate::workspace::WorkspaceCommand::AddSurface {
-                                surface_id,
-                                placement,
-                            },
-                            ctx.dirty,
-                            Some(crate::layout::Rect {
-                                x: 0,
-                                y: 0,
-                                w: ctx.state.cols,
-                                h: ctx.state.rows,
-                            }),
-                        );
-                        *ctx.dirty |= DirtyFlags::ALL;
-                        *ctx.workspace_changed = true;
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            surface_id = surface_id.0,
-                            "RegisterSurfaceRequested ignored: {err:?}"
-                        );
-                    }
-                }
-            }
-            Command::UnregisterSurface { surface_id } => {
-                let Some(plugin_id) = command_source_plugin else {
-                    tracing::warn!("UnregisterSurface ignored: missing command source plugin");
-                    continue;
-                };
-                if !ctx
-                    .registry
-                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
-                {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        "UnregisterSurface denied: dynamic surface authority not granted"
-                    );
-                    continue;
-                }
-
-                match ctx.surface_registry.surface_owner_plugin(surface_id) {
-                    Some(owner) if owner == plugin_id => {
-                        let _ = ctx.surface_registry.remove(surface_id);
-                        let _ = ctx.surface_registry.workspace_mut().close(surface_id);
-                        *ctx.dirty |= DirtyFlags::ALL;
-                        *ctx.workspace_changed = true;
-                    }
-                    Some(owner) => {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            owner = owner.0,
-                            surface_id = surface_id.0,
-                            "UnregisterSurface ignored: surface owned by another plugin"
-                        );
-                    }
-                    None => {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            surface_id = surface_id.0,
-                            "UnregisterSurface ignored: surface is not plugin-owned or missing"
-                        );
-                    }
-                }
-            }
-            Command::UnregisterSurfaceKey { surface_key } => {
-                let Some(plugin_id) = command_source_plugin else {
-                    tracing::warn!("UnregisterSurfaceKey ignored: missing command source plugin");
-                    continue;
-                };
-                if !ctx
-                    .registry
-                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
-                {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        "UnregisterSurfaceKey denied: dynamic surface authority not granted"
-                    );
-                    continue;
-                }
-
-                let Some(surface_id) = ctx.surface_registry.surface_id_by_key(&surface_key) else {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        surface_key,
-                        "UnregisterSurfaceKey ignored: unknown surface key"
-                    );
-                    continue;
-                };
-
-                match ctx.surface_registry.surface_owner_plugin(surface_id) {
-                    Some(owner) if owner == plugin_id => {
-                        let _ = ctx.surface_registry.remove(surface_id);
-                        let _ = ctx.surface_registry.workspace_mut().close(surface_id);
-                        *ctx.dirty |= DirtyFlags::ALL;
-                        *ctx.workspace_changed = true;
-                    }
-                    Some(owner) => {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            owner = owner.0,
-                            surface_id = surface_id.0,
-                            surface_key,
-                            "UnregisterSurfaceKey ignored: surface owned by another plugin"
-                        );
-                    }
-                    None => {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            surface_id = surface_id.0,
-                            surface_key,
-                            "UnregisterSurfaceKey ignored: surface is not plugin-owned or missing"
-                        );
-                    }
-                }
-            }
-            Command::RegisterThemeTokens(_tokens) => {
-                // Theme token registration will be handled when Theme is
-                // accessible from the event loop (Phase 1 completion).
-            }
-            Command::SpawnProcess {
-                job_id,
-                program,
-                args,
-                stdin_mode,
-            } => {
-                if let Some(plugin_id) = command_source_plugin {
-                    // PTY mode requires PTY_PROCESS authority in addition to process spawn
-                    let pty_denied = matches!(stdin_mode, StdinMode::Pty { .. })
-                        && !ctx
-                            .registry
-                            .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS);
-                    if pty_denied {
-                        tracing::warn!(
-                            plugin = plugin_id.0.as_str(),
-                            "SpawnProcess denied: PTY_PROCESS authority not granted"
-                        );
-                        let fail_event = IoEvent::Process(ProcessEvent::SpawnFailed {
-                            job_id,
-                            error: "PTY_PROCESS authority not granted".to_string(),
-                        });
-                        let batch = ctx.registry.deliver_io_event_batch(
-                            plugin_id,
-                            &fail_event,
-                            &AppView::new(ctx.state),
-                        );
-                        if apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1) {
-                            return true;
-                        }
-                    } else if ctx.registry.plugin_allows_process_spawn(plugin_id) {
-                        ctx.process_dispatcher
-                            .spawn(plugin_id, job_id, &program, &args, stdin_mode);
-                    } else {
-                        tracing::warn!(
-                            plugin = plugin_id.0,
-                            "SpawnProcess denied: process capability not granted"
-                        );
-                        let fail_event = IoEvent::Process(ProcessEvent::SpawnFailed {
-                            job_id,
-                            error: "process capability not granted".to_string(),
-                        });
-                        let batch = ctx.registry.deliver_io_event_batch(
-                            plugin_id,
-                            &fail_event,
-                            &AppView::new(ctx.state),
-                        );
-                        if apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            Command::WriteToProcess { job_id, data } => {
-                if let Some(plugin_id) = command_source_plugin {
-                    ctx.process_dispatcher.write(plugin_id, job_id, &data);
-                }
-            }
-            Command::CloseProcessStdin { job_id } => {
-                if let Some(plugin_id) = command_source_plugin {
-                    ctx.process_dispatcher.close_stdin(plugin_id, job_id);
-                }
-            }
-            Command::KillProcess { job_id } => {
-                if let Some(plugin_id) = command_source_plugin {
-                    ctx.process_dispatcher.kill(plugin_id, job_id);
-                }
-            }
-            Command::ResizePty { job_id, rows, cols } => {
-                if let Some(plugin_id) = command_source_plugin {
-                    if !ctx
-                        .registry
-                        .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS)
-                    {
-                        tracing::warn!(
-                            plugin = plugin_id.0.as_str(),
-                            "ResizePty rejected: plugin lacks PTY_PROCESS authority"
-                        );
-                    } else {
-                        ctx.process_dispatcher
-                            .resize_pty(plugin_id, job_id, rows, cols);
-                    }
-                }
-            }
-            Command::SpawnPaneClient {
-                surface_id,
-                placement,
-            } => {
-                if let Some(server_name) = ctx.pane_map.server_session_name().map(str::to_owned) {
-                    let key = format!("pane-{}", surface_id.0);
-                    let spec = SessionSpec::new(
-                        key.clone(),
-                        Some(server_name.clone()),
-                        vec!["-c".to_string(), server_name],
-                    );
-                    // Spawn session without activating (keep focus on current pane)
-                    ctx.session_host.spawn_session(
-                        spec,
-                        false,
-                        ctx.state,
-                        ctx.dirty,
-                        ctx.initial_resize_sent,
-                    );
-
-                    // Bind surface → session in PaneMap and defer initial resize
-                    if let Some(session_id) = ctx.session_host.session_id_by_key(&key) {
-                        ctx.pane_map.bind(surface_id, session_id);
-                        ctx.pane_map.mark_pending_resize(session_id);
-                    }
-
-                    // Register ClientBufferSurface
-                    let _ = ctx.surface_registry.try_register(Box::new(
-                        crate::surface::buffer::ClientBufferSurface::new(surface_id),
-                    ));
-
-                    // Add to workspace
-                    crate::workspace::dispatch_workspace_command_with_total(
-                        ctx.surface_registry,
-                        crate::workspace::WorkspaceCommand::AddSurface {
-                            surface_id,
-                            placement,
-                        },
-                        ctx.dirty,
-                        Some(crate::layout::Rect {
-                            x: 0,
-                            y: 0,
-                            w: ctx.state.cols,
-                            h: ctx.state.rows,
-                        }),
-                    );
-
-                    *ctx.dirty |= DirtyFlags::ALL;
-                    *ctx.workspace_changed = true;
-                } else {
-                    tracing::warn!("SpawnPaneClient ignored: no server session name available");
-                }
-            }
-            Command::ClosePaneClient { surface_id } => {
-                if let Some(_session_id) = ctx.pane_map.unbind_surface(surface_id) {
-                    // Close the Kakoune client session by key
-                    let key = format!("pane-{}", surface_id.0);
-                    ctx.session_host.close_session(
-                        Some(&key),
-                        ctx.state,
-                        ctx.dirty,
-                        ctx.initial_resize_sent,
-                    );
-                }
-                ctx.surface_registry.remove(surface_id);
-                let _ = ctx.surface_registry.workspace_mut().close(surface_id);
-                *ctx.dirty |= DirtyFlags::ALL;
-                *ctx.workspace_changed = true;
-            }
-            Command::Session(cmd) => {
-                match cmd {
-                    crate::session::SessionCommand::Spawn {
-                        key,
-                        session,
-                        args,
-                        activate,
-                    } => {
-                        ctx.session_host.spawn_session(
-                            SessionSpec::with_fallback_key(key, session, args),
-                            activate,
-                            ctx.state,
-                            ctx.dirty,
-                            ctx.initial_resize_sent,
-                        );
-                    }
-                    crate::session::SessionCommand::Close { key } => {
-                        if ctx.session_host.close_session(
-                            key.as_deref(),
-                            ctx.state,
-                            ctx.dirty,
-                            ctx.initial_resize_sent,
-                        ) {
-                            return true;
-                        }
-                    }
-                    crate::session::SessionCommand::Switch { key } => {
-                        ctx.session_host.switch_session(
-                            &key,
-                            ctx.state,
-                            ctx.dirty,
-                            ctx.initial_resize_sent,
-                        );
-                    }
-                }
-                // A session command may have set initial_resize_sent=false.
-                // Send the resize immediately so the new session is unblocked
-                // and subsequent input events are not suppressed.
-                if !*ctx.initial_resize_sent {
-                    crate::io::send_initial_resize(
-                        ctx.session_host.active_writer(),
-                        ctx.initial_resize_sent,
-                        ctx.state.rows,
-                        ctx.state.cols,
-                    );
-                }
-                // Notify plugins of SESSION change so they update cached state
-                // (e.g. session_count). Without this, plugins hold stale values
-                // until the next Kakoune Draw triggers on_state_changed.
-                let batch = ctx
-                    .registry
-                    .notify_state_changed_batch(&AppView::new(ctx.state), DirtyFlags::SESSION);
-                if apply_runtime_batch_without_session_deferred(batch, ctx, None, depth + 1) {
-                    return true;
-                }
-            }
-            Command::InjectInput(input_event) => {
-                if depth >= MAX_INJECT_DEPTH {
-                    tracing::warn!(
-                        depth,
-                        "inject input depth limit reached, dropping injected event"
-                    );
-                } else {
-                    use crate::state::{Msg, update};
-
-                    let msg = Msg::from(input_event);
-                    let state = std::mem::take(ctx.state);
-                    let (returned_state, result) =
-                        update(Box::new(state), msg, ctx.registry, ctx.scroll_amount);
-                    *ctx.state = *returned_state;
-                    *ctx.dirty |= result.flags;
-                    for plan in result.scroll_plans {
-                        (ctx.scroll_plan_sink)(plan);
-                    }
-                    if !result.commands.is_empty()
-                        && handle_command_batch_inner(
-                            result.commands,
-                            ctx,
-                            result.source_plugin.as_ref(),
-                            depth + 1,
-                        )
-                    {
-                        return true;
-                    }
-                }
+            Command::SpawnPaneClient { .. }
+            | Command::ClosePaneClient { .. }
+            | Command::Session(_)
+            | Command::InjectInput(_) => {
+                handle_session_pane_command(cmd, ctx, command_source_plugin, depth)
             }
             // Immediate commands should not reach the deferred handler
-            Command::SendToKakoune(_)
-            | Command::Paste
-            | Command::Quit
-            | Command::RequestRedraw(_)
-            | Command::EditBuffer { .. } => {}
+            _ => unreachable!("immediate commands filtered by partition_commands"),
+        };
+        if quit == Some(true) {
+            return true;
         }
     }
     false
+}
+
+/// Handle inter-plugin communication commands: messages, timers, and config overrides.
+fn handle_inter_plugin_command(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> Option<bool> {
+    let _ = command_source_plugin;
+    match cmd {
+        Command::PluginMessage { target, payload } => {
+            let batch =
+                ctx.registry
+                    .deliver_message_batch(&target, payload, &AppView::new(ctx.state));
+            if apply_runtime_batch(batch, ctx, Some(&target), depth + 1) {
+                return Some(true);
+            }
+        }
+        Command::ScheduleTimer {
+            delay,
+            target,
+            payload,
+        } => {
+            ctx.timer.schedule_timer(delay, target, payload);
+        }
+        Command::SetConfig { key, value } => {
+            crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
+        }
+        _ => unreachable!(),
+    }
+    Some(false)
+}
+
+/// Handle dynamic surface registration and unregistration commands.
+fn handle_surface_mgmt_command(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    _depth: usize,
+) -> Option<bool> {
+    match cmd {
+        Command::RegisterSurface { surface, placement } => {
+            let Some(plugin_id) =
+                require_surface_authority(ctx.registry, command_source_plugin, "RegisterSurface")
+            else {
+                return Some(false);
+            };
+
+            let surface_id = surface.id();
+            match ctx
+                .surface_registry
+                .try_register_for_owner(surface, Some(plugin_id.clone()))
+            {
+                Ok(()) => {
+                    dispatch_add_surface(ctx, surface_id, placement);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        surface_id = surface_id.0,
+                        "RegisterSurface ignored: {err:?}"
+                    );
+                }
+            }
+        }
+        Command::RegisterSurfaceRequested { surface, placement } => {
+            let Some(plugin_id) = require_surface_authority(
+                ctx.registry,
+                command_source_plugin,
+                "RegisterSurfaceRequested",
+            ) else {
+                return Some(false);
+            };
+
+            let surface_id = surface.id();
+            match ctx
+                .surface_registry
+                .try_register_for_owner(surface, Some(plugin_id.clone()))
+            {
+                Ok(()) => {
+                    let Some(placement) =
+                        ctx.surface_registry.resolve_placement_request(&placement)
+                    else {
+                        let _ = ctx.surface_registry.remove(surface_id);
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            surface_id = surface_id.0,
+                            "RegisterSurfaceRequested ignored: unresolved placement request"
+                        );
+                        return Some(false);
+                    };
+
+                    dispatch_add_surface(ctx, surface_id, placement);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        surface_id = surface_id.0,
+                        "RegisterSurfaceRequested ignored: {err:?}"
+                    );
+                }
+            }
+        }
+        Command::UnregisterSurface { surface_id } => {
+            let Some(plugin_id) =
+                require_surface_authority(ctx.registry, command_source_plugin, "UnregisterSurface")
+            else {
+                return Some(false);
+            };
+
+            match try_unregister_owned_surface(
+                ctx.surface_registry,
+                plugin_id,
+                surface_id,
+                ctx.dirty,
+                ctx.workspace_changed,
+            ) {
+                UnregisterResult::Removed => {}
+                UnregisterResult::OwnedByOther(owner) => {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        owner = owner.0,
+                        surface_id = surface_id.0,
+                        "UnregisterSurface ignored: surface owned by another plugin"
+                    );
+                }
+                UnregisterResult::NotFound => {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        surface_id = surface_id.0,
+                        "UnregisterSurface ignored: surface is not plugin-owned or missing"
+                    );
+                }
+            }
+        }
+        Command::UnregisterSurfaceKey { surface_key } => {
+            let Some(plugin_id) = require_surface_authority(
+                ctx.registry,
+                command_source_plugin,
+                "UnregisterSurfaceKey",
+            ) else {
+                return Some(false);
+            };
+
+            let Some(surface_id) = ctx.surface_registry.surface_id_by_key(&surface_key) else {
+                tracing::warn!(
+                    plugin = plugin_id.0,
+                    surface_key,
+                    "UnregisterSurfaceKey ignored: unknown surface key"
+                );
+                return Some(false);
+            };
+
+            match try_unregister_owned_surface(
+                ctx.surface_registry,
+                plugin_id,
+                surface_id,
+                ctx.dirty,
+                ctx.workspace_changed,
+            ) {
+                UnregisterResult::Removed => {}
+                UnregisterResult::OwnedByOther(owner) => {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        owner = owner.0,
+                        surface_id = surface_id.0,
+                        surface_key,
+                        "UnregisterSurfaceKey ignored: surface owned by another plugin"
+                    );
+                }
+                UnregisterResult::NotFound => {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        surface_id = surface_id.0,
+                        surface_key,
+                        "UnregisterSurfaceKey ignored: surface is not plugin-owned or missing"
+                    );
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    Some(false)
+}
+
+/// Handle workspace layout and theme token commands.
+fn handle_workspace_command(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    _command_source_plugin: Option<&PluginId>,
+    _depth: usize,
+) -> Option<bool> {
+    match cmd {
+        Command::Workspace(ws_cmd) => {
+            // Auto-register ClientBufferSurface for unknown surface IDs
+            if let crate::workspace::WorkspaceCommand::AddSurface { surface_id, .. } = &ws_cmd
+                && ctx.surface_registry.get(*surface_id).is_none()
+            {
+                let _ = ctx.surface_registry.try_register(Box::new(
+                    crate::surface::buffer::ClientBufferSurface::new(*surface_id),
+                ));
+            }
+            let mut workspace_dirty = DirtyFlags::empty();
+            crate::workspace::dispatch_workspace_command_with_total(
+                ctx.surface_registry,
+                ws_cmd,
+                &mut workspace_dirty,
+                Some(crate::layout::Rect {
+                    x: 0,
+                    y: 0,
+                    w: ctx.state.cols,
+                    h: ctx.state.rows,
+                }),
+            );
+            *ctx.dirty |= workspace_dirty;
+            if !workspace_dirty.is_empty() {
+                *ctx.workspace_changed = true;
+            }
+        }
+        Command::RegisterThemeTokens(_tokens) => {
+            // Theme token registration will be handled when Theme is
+            // accessible from the event loop (Phase 1 completion).
+        }
+        _ => unreachable!(),
+    }
+    Some(false)
+}
+
+/// Handle process lifecycle commands: spawn, write, close stdin, kill, and PTY resize.
+fn handle_process_command(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> Option<bool> {
+    match cmd {
+        Command::SpawnProcess {
+            job_id,
+            program,
+            args,
+            stdin_mode,
+        } => {
+            if let Some(plugin_id) = command_source_plugin {
+                // PTY mode requires PTY_PROCESS authority in addition to process spawn
+                let pty_denied = matches!(stdin_mode, StdinMode::Pty { .. })
+                    && !ctx
+                        .registry
+                        .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS);
+                if pty_denied {
+                    tracing::warn!(
+                        plugin = plugin_id.0.as_str(),
+                        "SpawnProcess denied: PTY_PROCESS authority not granted"
+                    );
+                    if deliver_spawn_failure(
+                        ctx,
+                        plugin_id,
+                        job_id,
+                        "PTY_PROCESS authority not granted",
+                        depth,
+                    ) {
+                        return Some(true);
+                    }
+                } else if ctx.registry.plugin_allows_process_spawn(plugin_id) {
+                    ctx.process_dispatcher
+                        .spawn(plugin_id, job_id, &program, &args, stdin_mode);
+                } else {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        "SpawnProcess denied: process capability not granted"
+                    );
+                    if deliver_spawn_failure(
+                        ctx,
+                        plugin_id,
+                        job_id,
+                        "process capability not granted",
+                        depth,
+                    ) {
+                        return Some(true);
+                    }
+                }
+            }
+        }
+        Command::WriteToProcess { job_id, data } => {
+            if let Some(plugin_id) = command_source_plugin {
+                ctx.process_dispatcher.write(plugin_id, job_id, &data);
+            }
+        }
+        Command::CloseProcessStdin { job_id } => {
+            if let Some(plugin_id) = command_source_plugin {
+                ctx.process_dispatcher.close_stdin(plugin_id, job_id);
+            }
+        }
+        Command::KillProcess { job_id } => {
+            if let Some(plugin_id) = command_source_plugin {
+                ctx.process_dispatcher.kill(plugin_id, job_id);
+            }
+        }
+        Command::ResizePty { job_id, rows, cols } => {
+            if let Some(plugin_id) = command_source_plugin {
+                if !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS)
+                {
+                    tracing::warn!(
+                        plugin = plugin_id.0.as_str(),
+                        "ResizePty rejected: plugin lacks PTY_PROCESS authority"
+                    );
+                } else {
+                    ctx.process_dispatcher
+                        .resize_pty(plugin_id, job_id, rows, cols);
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    Some(false)
+}
+
+/// Handle session lifecycle and pane management commands.
+fn handle_session_pane_command(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    _command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> Option<bool> {
+    match cmd {
+        Command::SpawnPaneClient {
+            surface_id,
+            placement,
+        } => {
+            if let Some(server_name) = ctx.pane_map.server_session_name().map(str::to_owned) {
+                let key = format!("pane-{}", surface_id.0);
+                let spec = SessionSpec::new(
+                    key.clone(),
+                    Some(server_name.clone()),
+                    vec!["-c".to_string(), server_name],
+                );
+                // Spawn session without activating (keep focus on current pane)
+                ctx.session_host.spawn_session(
+                    spec,
+                    false,
+                    ctx.state,
+                    ctx.dirty,
+                    ctx.initial_resize_sent,
+                );
+
+                // Bind surface -> session in PaneMap and defer initial resize
+                if let Some(session_id) = ctx.session_host.session_id_by_key(&key) {
+                    ctx.pane_map.bind(surface_id, session_id);
+                    ctx.pane_map.mark_pending_resize(session_id);
+                }
+
+                // Register ClientBufferSurface
+                let _ = ctx.surface_registry.try_register(Box::new(
+                    crate::surface::buffer::ClientBufferSurface::new(surface_id),
+                ));
+
+                // Add to workspace
+                dispatch_add_surface(ctx, surface_id, placement);
+            } else {
+                tracing::warn!("SpawnPaneClient ignored: no server session name available");
+            }
+        }
+        Command::ClosePaneClient { surface_id } => {
+            if let Some(_session_id) = ctx.pane_map.unbind_surface(surface_id) {
+                // Close the Kakoune client session by key
+                let key = format!("pane-{}", surface_id.0);
+                ctx.session_host.close_session(
+                    Some(&key),
+                    ctx.state,
+                    ctx.dirty,
+                    ctx.initial_resize_sent,
+                );
+            }
+            ctx.surface_registry.remove(surface_id);
+            let _ = ctx.surface_registry.workspace_mut().close(surface_id);
+            *ctx.dirty |= DirtyFlags::ALL;
+            *ctx.workspace_changed = true;
+        }
+        Command::Session(cmd) => {
+            match cmd {
+                crate::session::SessionCommand::Spawn {
+                    key,
+                    session,
+                    args,
+                    activate,
+                } => {
+                    ctx.session_host.spawn_session(
+                        SessionSpec::with_fallback_key(key, session, args),
+                        activate,
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
+                    );
+                }
+                crate::session::SessionCommand::Close { key } => {
+                    if ctx.session_host.close_session(
+                        key.as_deref(),
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
+                    ) {
+                        return Some(true);
+                    }
+                }
+                crate::session::SessionCommand::Switch { key } => {
+                    ctx.session_host.switch_session(
+                        &key,
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
+                    );
+                }
+            }
+            // A session command may have set initial_resize_sent=false.
+            // Send the resize immediately so the new session is unblocked
+            // and subsequent input events are not suppressed.
+            if !*ctx.initial_resize_sent {
+                crate::io::send_initial_resize(
+                    ctx.session_host.active_writer(),
+                    ctx.initial_resize_sent,
+                    ctx.state.rows,
+                    ctx.state.cols,
+                );
+            }
+            // Notify plugins of SESSION change so they update cached state
+            // (e.g. session_count). Without this, plugins hold stale values
+            // until the next Kakoune Draw triggers on_state_changed.
+            let batch = ctx
+                .registry
+                .notify_state_changed_batch(&AppView::new(ctx.state), DirtyFlags::SESSION);
+            if apply_runtime_batch_without_session_deferred(batch, ctx, None, depth + 1) {
+                return Some(true);
+            }
+        }
+        Command::InjectInput(input_event) => {
+            if depth >= MAX_INJECT_DEPTH {
+                tracing::warn!(
+                    depth,
+                    "inject input depth limit reached, dropping injected event"
+                );
+            } else {
+                use crate::state::{Msg, update};
+
+                let msg = Msg::from(input_event);
+                let state = std::mem::take(ctx.state);
+                let (returned_state, result) =
+                    update(Box::new(state), msg, ctx.registry, ctx.scroll_amount);
+                *ctx.state = *returned_state;
+                *ctx.dirty |= result.flags;
+                for plan in result.scroll_plans {
+                    (ctx.scroll_plan_sink)(plan);
+                }
+                if !result.commands.is_empty()
+                    && handle_command_batch_inner(
+                        result.commands,
+                        ctx,
+                        result.source_plugin.as_ref(),
+                        depth + 1,
+                    )
+                {
+                    return Some(true);
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    Some(false)
 }
 
 /// Execute grouped surface commands while preserving each surface owner's plugin identity.
@@ -1395,9 +1506,8 @@ mod tests {
         PluginId, PluginRank, PluginRevision, PluginSource, RuntimeEffects, StdinMode,
     };
     use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
-    use crate::surface::{SurfaceId, SurfacePlacementRequest, SurfaceRegistrationError};
+    use crate::surface::{SurfacePlacementRequest, SurfaceRegistrationError};
     use crate::test_support::TestSurfaceBuilder;
-    use crate::workspace::Placement;
 
     struct TestPlugin {
         id: PluginId,

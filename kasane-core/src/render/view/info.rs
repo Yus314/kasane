@@ -1,13 +1,9 @@
-use compact_str::CompactString;
-use unicode_width::UnicodeWidthStr;
-
 use crate::element::{
     BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
 };
-use crate::layout::{
-    self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width, word_wrap_segments,
-};
-use crate::protocol::{Atom, Face, InfoStyle, Line};
+use crate::layout::{self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width};
+use crate::protocol::InfoStyle;
+use crate::render::builders::{build_content_column, wrap_content_lines};
 use crate::state::{AppState, InfoState};
 
 /// Compute the floating window for an info popup, returning `None` if zero-size.
@@ -165,16 +161,6 @@ fn build_info_prompt(
     Some(container)
 }
 
-/// Wrap content lines and build a column element.
-fn build_content_column(content: &[Line], max_w: u16, max_h: u16, face: &Face) -> Element {
-    let wrapped_lines = wrap_content_lines(content, max_w, max_h, face);
-    let content_rows: Vec<FlexChild> = wrapped_lines
-        .iter()
-        .map(|line| FlexChild::fixed(Element::StyledLine(line.clone())))
-        .collect();
-    Element::column(content_rows)
-}
-
 fn build_info_framed(
     info: &InfoState,
     win: &layout::FloatingWindow,
@@ -210,88 +196,4 @@ fn build_info_nonframed(info: &InfoState, win: &layout::FloatingWindow) -> Optio
     let content_col = build_content_column(&info.content, win.width, win.height, &info.face);
 
     Some(Element::container(content_col, Style::from(info.face)))
-}
-
-/// Word-wrap content lines and produce resolved StyledLine atoms per visual row.
-fn wrap_content_lines(
-    content: &[Line],
-    max_width: u16,
-    max_rows: u16,
-    base_face: &Face,
-) -> Vec<Vec<Atom>> {
-    if max_width == 0 {
-        return vec![];
-    }
-
-    let mut result = Vec::new();
-
-    for line in content {
-        if result.len() >= max_rows as usize {
-            break;
-        }
-
-        // Collect graphemes with resolved faces
-        let mut graphemes: Vec<(&str, Face, u16)> = Vec::new();
-        for atom in line {
-            let face = crate::protocol::resolve_face(&atom.face, base_face);
-            for grapheme in atom.contents.split_inclusive(|_: char| true) {
-                if grapheme.is_empty() || grapheme.starts_with(|c: char| c.is_control()) {
-                    continue;
-                }
-                let w = UnicodeWidthStr::width(grapheme) as u16;
-                if w == 0 {
-                    continue;
-                }
-                graphemes.push((grapheme, face, w));
-            }
-        }
-
-        if graphemes.is_empty() {
-            result.push(vec![Atom {
-                face: *base_face,
-                contents: CompactString::default(),
-            }]);
-            continue;
-        }
-
-        let metrics: Vec<(u16, bool)> = graphemes
-            .iter()
-            .map(|(text, _, w)| (*w, !layout::is_word_char(text)))
-            .collect();
-        let segments = word_wrap_segments(&metrics, max_width);
-
-        for seg in &segments {
-            if result.len() >= max_rows as usize {
-                break;
-            }
-            let mut row_atoms = Vec::new();
-            let mut current_face: Option<Face> = None;
-            let mut current_text = CompactString::default();
-
-            for &(grapheme, face, _) in &graphemes[seg.start..seg.end] {
-                if current_face == Some(face) {
-                    current_text.push_str(grapheme);
-                } else {
-                    if let Some(cf) = current_face {
-                        row_atoms.push(Atom {
-                            face: cf,
-                            contents: std::mem::take(&mut current_text),
-                        });
-                    }
-                    current_face = Some(face);
-                    current_text = CompactString::from(grapheme);
-                }
-            }
-            if let Some(cf) = current_face {
-                row_atoms.push(Atom {
-                    face: cf,
-                    contents: current_text,
-                });
-            }
-
-            result.push(row_atoms);
-        }
-    }
-
-    result
 }

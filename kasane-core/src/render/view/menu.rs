@@ -5,21 +5,12 @@ use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::plugin::{AppView, PluginView};
 use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face, MenuStyle};
+use crate::render::builders::{
+    self, MAX_DROPDOWN_HEIGHT, PREFIX_WIDTH, SCROLLBAR_WIDTH, SUFFIX_RESERVE,
+};
 use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;
-
-/// Width of the scrollbar column (1 cell).
-const SCROLLBAR_WIDTH: u16 = 1;
-
-/// Width of the "< " prefix indicator in prompt-style menus.
-const PREFIX_WIDTH: usize = 2;
-
-/// Width reserved for the " >" suffix indicator in prompt-style menus.
-const SUFFIX_RESERVE: usize = 2;
-
-/// Maximum height for the search dropdown menu.
-const MAX_DROPDOWN_HEIGHT: u16 = 10;
 
 #[crate::kasane_component]
 pub(crate) fn build_menu_overlay(
@@ -75,68 +66,7 @@ fn build_menu_item_element(
     Element::container(item, Style::from(face))
 }
 
-/// Truncate a slice of atoms to fit within `max_width` display columns.
-///
-/// If the content fits, resolves faces against `base_face` and returns as-is.
-/// If it exceeds, truncates at `max_width - 1` and appends "…" (U+2026, width 1).
-fn truncate_atoms(atoms: &[Atom], max_width: u16, base_face: &Face) -> Vec<Atom> {
-    let max_w = max_width as usize;
-    let total: usize = atoms
-        .iter()
-        .map(|a| {
-            a.contents
-                .split(|c: char| c.is_control())
-                .map(UnicodeWidthStr::width)
-                .sum::<usize>()
-        })
-        .sum();
-
-    if total <= max_w {
-        return atoms
-            .iter()
-            .map(|a| Atom {
-                face: resolve_face(&a.face, base_face),
-                contents: a.contents.clone(),
-            })
-            .collect();
-    }
-
-    // Truncate at max_width - 1 to leave room for "…"
-    let limit = max_w.saturating_sub(1);
-    let mut result = Vec::new();
-    let mut used = 0usize;
-    for atom in atoms {
-        let face = resolve_face(&atom.face, base_face);
-        let mut buf = String::new();
-        for ch in atom.contents.chars() {
-            let cw = if ch.is_control() {
-                0
-            } else {
-                UnicodeWidthStr::width(ch.encode_utf8(&mut [0; 4]) as &str)
-            };
-            if used + cw > limit {
-                break;
-            }
-            buf.push(ch);
-            used += cw;
-        }
-        if !buf.is_empty() {
-            result.push(Atom {
-                face,
-                contents: buf.into(),
-            });
-        }
-        if used >= limit {
-            break;
-        }
-    }
-    // Append ellipsis with the base face
-    result.push(Atom {
-        face: *base_face,
-        contents: "\u{2026}".into(),
-    });
-    result
-}
+use builders::truncate_atoms;
 
 /// Build a two-column menu item element: candidate | gap | docstring.
 ///
@@ -475,31 +405,15 @@ fn build_scrollbar(
     thumb: &str,
     track: &str,
 ) -> Element {
-    let wh = win_height as usize;
-    let item_count = menu.items.len();
-    let columns = menu.columns as usize;
-    if wh == 0 || item_count == 0 {
-        return Element::Empty;
-    }
-
-    let menu_lines = item_count.div_ceil(columns);
-    let mark_h = (wh * wh).div_ceil(menu_lines).min(wh);
-    let menu_cols = item_count.div_ceil(wh);
-    let first_col = menu.first_item / wh;
-    let denom = menu_cols.saturating_sub(columns).max(1);
-    let mark_y = ((wh - mark_h) * first_col / denom).min(wh - mark_h);
-
-    let mut rows: Vec<FlexChild> = Vec::new();
-    for row in 0..wh {
-        let ch = if row >= mark_y && row < mark_y + mark_h {
-            thumb
-        } else {
-            track
-        };
-        rows.push(FlexChild::fixed(Element::text(ch, *face)));
-    }
-
-    Element::column(rows)
+    builders::build_scrollbar(
+        win_height,
+        menu.items.len(),
+        menu.columns,
+        menu.first_item,
+        face,
+        thumb,
+        track,
+    )
 }
 
 #[cfg(test)]

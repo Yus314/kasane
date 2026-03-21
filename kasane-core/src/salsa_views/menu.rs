@@ -2,7 +2,11 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
-use crate::protocol::{Atom, Face, MenuStyle};
+use crate::protocol::{Atom, MenuStyle};
+use crate::render::builders::{
+    MAX_DROPDOWN_HEIGHT, PREFIX_WIDTH, SCROLLBAR_WIDTH, SUFFIX_RESERVE, build_scrollbar,
+    truncate_atoms,
+};
 use crate::render::view::build_styled_line_with_base;
 use crate::salsa_db::KasaneDb;
 use crate::salsa_inputs::*;
@@ -99,7 +103,7 @@ fn build_split_item_element_pure(
 
     // 1. Candidate portion
     let cand_atoms = &item[..split.candidate_end];
-    let mut cand_resolved = truncate_atoms_pure(cand_atoms, candidate_col_w, &face);
+    let mut cand_resolved = truncate_atoms(cand_atoms, candidate_col_w, &face);
     let cand_w: usize = cand_resolved
         .iter()
         .map(|a| {
@@ -135,97 +139,6 @@ fn build_split_item_element_pure(
     Element::container(Element::StyledLine(atoms), Style::from(face))
 }
 
-fn truncate_atoms_pure(atoms: &[Atom], max_width: u16, base_face: &Face) -> Vec<Atom> {
-    let max_w = max_width as usize;
-    let total: usize = atoms
-        .iter()
-        .map(|a| {
-            a.contents
-                .split(|c: char| c.is_control())
-                .map(UnicodeWidthStr::width)
-                .sum::<usize>()
-        })
-        .sum();
-
-    if total <= max_w {
-        return atoms
-            .iter()
-            .map(|a| Atom {
-                face: crate::protocol::resolve_face(&a.face, base_face),
-                contents: a.contents.clone(),
-            })
-            .collect();
-    }
-
-    let limit = max_w.saturating_sub(1);
-    let mut result = Vec::new();
-    let mut used = 0usize;
-    for atom in atoms {
-        let face = crate::protocol::resolve_face(&atom.face, base_face);
-        let mut buf = String::new();
-        for ch in atom.contents.chars() {
-            let cw = if ch.is_control() {
-                0
-            } else {
-                UnicodeWidthStr::width(ch.encode_utf8(&mut [0; 4]) as &str)
-            };
-            if used + cw > limit {
-                break;
-            }
-            buf.push(ch);
-            used += cw;
-        }
-        if !buf.is_empty() {
-            result.push(Atom {
-                face,
-                contents: buf.into(),
-            });
-        }
-        if used >= limit {
-            break;
-        }
-    }
-    result.push(Atom {
-        face: *base_face,
-        contents: "\u{2026}".into(),
-    });
-    result
-}
-
-fn build_scrollbar_pure(
-    win_height: u16,
-    item_count: usize,
-    columns: u16,
-    first_item: usize,
-    face: &Face,
-    thumb: &str,
-    track: &str,
-) -> Element {
-    let wh = win_height as usize;
-    if wh == 0 || item_count == 0 {
-        return Element::Empty;
-    }
-
-    let menu_lines = item_count.div_ceil(columns as usize);
-    let mark_h = (wh * wh).div_ceil(menu_lines).min(wh);
-    let menu_cols = item_count.div_ceil(wh);
-    let first_col = first_item / wh;
-    let denom = menu_cols.saturating_sub(columns as usize).max(1);
-    let mark_y = ((wh - mark_h) * first_col / denom).min(wh - mark_h);
-
-    let mut rows: Vec<FlexChild> = Vec::new();
-    for row in 0..wh {
-        let ch = if row >= mark_y && row < mark_y + mark_h {
-            thumb
-        } else {
-            track
-        };
-        rows.push(FlexChild::fixed(Element::text(ch, *face)));
-    }
-
-    Element::column(rows)
-}
-
 fn build_menu_inline_pure(
     menu: &MenuSnapshot,
     cols: u16,
@@ -234,8 +147,8 @@ fn build_menu_inline_pure(
     scrollbar_thumb: &str,
     scrollbar_track: &str,
 ) -> Option<Overlay> {
-    let win_w = (menu.effective_content_width(cols) + 1).min(cols);
-    let content_w = win_w.saturating_sub(1);
+    let win_w = (menu.effective_content_width(cols) + SCROLLBAR_WIDTH).min(cols);
+    let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
     let placement = MenuPlacement::from(menu_position);
 
     let win = layout_menu_inline(
@@ -268,7 +181,7 @@ fn build_menu_inline_pure(
         })
         .collect();
 
-    let scrollbar = build_scrollbar_pure(
+    let scrollbar = build_scrollbar(
         win.height,
         menu.items.len(),
         menu.columns,
@@ -317,7 +230,7 @@ fn build_menu_prompt_pure(
     }
 
     let grid_columns = vec![crate::element::GridColumn::flex(1.0); columns];
-    let scrollbar = build_scrollbar_pure(
+    let scrollbar = build_scrollbar(
         wh,
         menu.items.len(),
         menu.columns,
@@ -358,11 +271,11 @@ fn build_menu_search_pure(menu: &MenuSnapshot, cols: u16, screen_h: u16) -> Opti
         });
     }
 
-    let mut x = if has_prefix { 2 } else { 0 };
+    let mut x = if has_prefix { PREFIX_WIDTH } else { 0 };
     for idx in first..menu.items.len() {
         let item_w = line_display_width(&menu.items[idx]);
         let has_more = idx + 1 < menu.items.len();
-        let suffix_reserve = if has_more { 2 } else { 0 };
+        let suffix_reserve = if has_more { SUFFIX_RESERVE } else { 0 };
 
         if x + item_w + suffix_reserve > screen_w && x > 0 {
             if has_more {
@@ -424,10 +337,10 @@ fn build_menu_search_dropdown_pure(
     scrollbar_thumb: &str,
     scrollbar_track: &str,
 ) -> Option<Overlay> {
-    let max_h = 10u16.min(screen_h.saturating_sub(1));
+    let max_h = MAX_DROPDOWN_HEIGHT.min(screen_h.saturating_sub(1));
     let win_h = (menu.items.len() as u16).min(max_h).max(1);
-    let win_w = (menu.max_item_width + 1).min(cols);
-    let content_w = win_w.saturating_sub(1);
+    let win_w = (menu.max_item_width + SCROLLBAR_WIDTH).min(cols);
+    let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
     let y = screen_h.saturating_sub(win_h);
 
     let item_rows: Vec<FlexChild> = (0..win_h)
@@ -437,7 +350,7 @@ fn build_menu_search_dropdown_pure(
         })
         .collect();
 
-    let scrollbar = build_scrollbar_pure(
+    let scrollbar = build_scrollbar(
         win_h,
         menu.items.len(),
         menu.columns,

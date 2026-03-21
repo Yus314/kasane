@@ -2,6 +2,7 @@ mod backend;
 mod diagnostics_overlay;
 mod event_handler;
 mod input;
+mod paint_hooks;
 pub mod sgr;
 
 use std::io::Write;
@@ -39,10 +40,11 @@ use kasane_core::surface::pane_map::{PaneMap, PaneStates};
 use backend::TuiBackend;
 use diagnostics_overlay::paint_diagnostic_overlay;
 use event_handler::{
-    Event, EventProcessingContext, PaintHookState, TuiProcessEventSink, TuiSessionRuntime,
-    TuiTimerScheduler, process_event, spawn_session_reader,
+    Event, EventProcessingContext, TuiProcessEventSink, TuiSessionRuntime, TuiTimerScheduler,
+    process_event, spawn_session_reader,
 };
 use input::convert_event;
+use paint_hooks::PaintHookState;
 
 /// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {

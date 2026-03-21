@@ -1,10 +1,9 @@
-use unicode_width::UnicodeWidthStr;
-
 use crate::element::{
     BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
 };
 use crate::layout::{self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, MenuPlacement, layout_info};
-use crate::protocol::{Atom, Face, InfoStyle, MenuStyle};
+use crate::protocol::{InfoStyle, MenuStyle};
+use crate::render::builders::{build_content_column, wrap_content_lines};
 use crate::salsa_db::KasaneDb;
 use crate::salsa_inputs::*;
 use crate::salsa_queries;
@@ -212,7 +211,7 @@ fn build_info_prompt_pure(
     let assistant_col = Element::column(asst_rows);
 
     let frame_content_h = total_h.saturating_sub(2) as u16;
-    let wrapped_lines = wrap_content_lines_pure(trimmed, cw, frame_content_h, &info.face);
+    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &info.face);
     let frame_h = (wrapped_lines.len() as u16 + 2).min(total_h as u16);
 
     let content_rows: Vec<FlexChild> = wrapped_lines
@@ -268,7 +267,7 @@ fn build_info_framed_pure(
     let inner_w = win.width.saturating_sub(4).max(1);
     let inner_h = win.height.saturating_sub(2);
 
-    let content_col = build_content_column_pure(&info.content, inner_w, inner_h, &info.face);
+    let content_col = build_content_column(&info.content, inner_w, inner_h, &info.face);
 
     let framed = Element::Container {
         child: Box::new(content_col),
@@ -292,102 +291,6 @@ fn build_info_framed_pure(
 }
 
 fn build_info_nonframed_pure(info: &InfoSnapshot, win: &layout::FloatingWindow) -> Option<Element> {
-    let content_col = build_content_column_pure(&info.content, win.width, win.height, &info.face);
+    let content_col = build_content_column(&info.content, win.width, win.height, &info.face);
     Some(Element::container(content_col, Style::from(info.face)))
-}
-
-fn build_content_column_pure(
-    content: &[crate::protocol::Line],
-    max_w: u16,
-    max_h: u16,
-    face: &Face,
-) -> Element {
-    let wrapped_lines = wrap_content_lines_pure(content, max_w, max_h, face);
-    let content_rows: Vec<FlexChild> = wrapped_lines
-        .iter()
-        .map(|line| FlexChild::fixed(Element::StyledLine(line.clone())))
-        .collect();
-    Element::column(content_rows)
-}
-
-fn wrap_content_lines_pure(
-    content: &[crate::protocol::Line],
-    max_width: u16,
-    max_rows: u16,
-    base_face: &Face,
-) -> Vec<Vec<Atom>> {
-    if max_width == 0 {
-        return vec![];
-    }
-
-    let mut result = Vec::new();
-
-    for line in content {
-        if result.len() >= max_rows as usize {
-            break;
-        }
-
-        let mut graphemes: Vec<(&str, Face, u16)> = Vec::new();
-        for atom in line {
-            let face = crate::protocol::resolve_face(&atom.face, base_face);
-            for grapheme in atom.contents.split_inclusive(|_: char| true) {
-                if grapheme.is_empty() || grapheme.starts_with(|c: char| c.is_control()) {
-                    continue;
-                }
-                let w = UnicodeWidthStr::width(grapheme) as u16;
-                if w == 0 {
-                    continue;
-                }
-                graphemes.push((grapheme, face, w));
-            }
-        }
-
-        if graphemes.is_empty() {
-            result.push(vec![Atom {
-                face: *base_face,
-                contents: compact_str::CompactString::default(),
-            }]);
-            continue;
-        }
-
-        let metrics: Vec<(u16, bool)> = graphemes
-            .iter()
-            .map(|(text, _, w)| (*w, !layout::is_word_char(text)))
-            .collect();
-        let segments = layout::word_wrap_segments(&metrics, max_width);
-
-        for seg in &segments {
-            if result.len() >= max_rows as usize {
-                break;
-            }
-            let mut row_atoms = Vec::new();
-            let mut current_face: Option<Face> = None;
-            let mut current_text = compact_str::CompactString::default();
-
-            for &(grapheme, face, _) in &graphemes[seg.start..seg.end] {
-                if current_face == Some(face) {
-                    current_text.push_str(grapheme);
-                } else {
-                    if let Some(cf) = current_face {
-                        row_atoms.push(Atom {
-                            face: cf,
-                            contents: std::mem::take(&mut current_text),
-                        });
-                    }
-                    current_face = Some(face);
-                    current_text = compact_str::CompactString::from(grapheme);
-                }
-            }
-            if let Some(cf) = current_face {
-                row_atoms.push(Atom {
-                    face: cf,
-                    contents: current_text,
-                });
-            }
-
-            result.push(row_atoms);
-        }
-    }
-
-    result
 }

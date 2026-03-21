@@ -1,5 +1,6 @@
 //! Rendering pipeline: view construction, paint, cache, pipeline orchestration, scene.
 
+pub(crate) mod builders;
 pub mod cursor;
 mod grid;
 pub mod inline_decoration;

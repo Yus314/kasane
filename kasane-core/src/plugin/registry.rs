@@ -180,11 +180,6 @@ impl PluginRuntime {
         batch
     }
 
-    /// Notify all plugins that the active session is ready for transport-bound startup work.
-    pub fn notify_active_session_ready(&mut self, app: &AppView<'_>) -> ReadyBatch {
-        self.notify_active_session_ready_batch(app)
-    }
-
     /// Notify a single plugin that the active session is ready.
     pub fn notify_plugin_active_session_ready_batch(
         &mut self,
@@ -263,15 +258,6 @@ impl PluginRuntime {
             return batch;
         }
         InitBatch::default()
-    }
-
-    /// Reload a single plugin by replacing it in-place.
-    pub fn reload_plugin(
-        &mut self,
-        plugin: Box<dyn PluginBackend>,
-        app: &AppView<'_>,
-    ) -> InitBatch {
-        self.reload_plugin_batch(plugin, app)
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {

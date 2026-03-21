@@ -335,23 +335,44 @@ fn wasm_factory(
     })
 }
 
+fn bundled_plugin_specs() -> &'static [(&'static str, &'static [u8])] {
+    &[
+        ("cursor_line", BUNDLED_CURSOR_LINE),
+        ("color_preview", BUNDLED_COLOR_PREVIEW),
+        ("sel_badge", BUNDLED_SEL_BADGE),
+        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
+    ]
+}
+
+fn discover_wasm_files(plugins_dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+    let entries = std::fs::read_dir(plugins_dir)?;
+    let mut wasm_files: Vec<_> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+    wasm_files.sort();
+    Ok(wasm_files)
+}
+
+fn is_plugin_disabled(plugins_config: &kasane_core::config::PluginsConfig, name: &str) -> bool {
+    plugins_config.disabled.iter().any(|d| d == name)
+}
+
 fn resolve_bundled_plugins(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut Vec<ResolvedWasmPlugin>,
 ) {
-    let bundled = [
-        ("cursor_line", BUNDLED_CURSOR_LINE),
-        ("color_preview", BUNDLED_COLOR_PREVIEW),
-        ("sel_badge", BUNDLED_SEL_BADGE),
-        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
-    ];
-
-    for (name, bytes) in bundled {
-        if !plugins_config.is_bundled_enabled(name)
-            || plugins_config.disabled.iter().any(|d| d == name)
-        {
+    for (name, bytes) in bundled_plugin_specs() {
+        if !plugins_config.is_bundled_enabled(name) || is_plugin_disabled(plugins_config, name) {
             continue;
         }
         match loader.load(bytes, wasi_config) {
@@ -383,17 +404,8 @@ fn resolve_bundled_plugins_with_factories(
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
 ) {
-    let bundled = [
-        ("cursor_line", BUNDLED_CURSOR_LINE),
-        ("color_preview", BUNDLED_COLOR_PREVIEW),
-        ("sel_badge", BUNDLED_SEL_BADGE),
-        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
-    ];
-
-    for (name, bytes) in bundled {
-        if !plugins_config.is_bundled_enabled(name)
-            || plugins_config.disabled.iter().any(|d| d == name)
-        {
+    for (name, bytes) in bundled_plugin_specs() {
+        if !plugins_config.is_bundled_enabled(name) || is_plugin_disabled(plugins_config, name) {
             continue;
         }
         match loader.load_staged(bytes, wasi_config) {
@@ -435,8 +447,8 @@ fn resolve_filesystem_plugins(
     }
 
     let plugins_dir = plugins_config.plugins_dir();
-    let entries = match std::fs::read_dir(&plugins_dir) {
-        Ok(entries) => entries,
+    let wasm_files = match discover_wasm_files(&plugins_dir) {
+        Ok(files) => files,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!(
@@ -447,19 +459,6 @@ fn resolve_filesystem_plugins(
             return;
         }
     };
-
-    let mut wasm_files: Vec<_> = entries
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
-    wasm_files.sort();
 
     for path in &wasm_files {
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -474,7 +473,7 @@ fn resolve_filesystem_plugins(
         match loader.load(&bytes, wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
-                if plugins_config.disabled.contains(&id.0) {
+                if is_plugin_disabled(plugins_config, &id.0) {
                     tracing::info!("WASM plugin {id:?} ({file_name}) disabled by config");
                     continue;
                 }
@@ -509,8 +508,8 @@ fn resolve_filesystem_plugins_with_factories(
     }
 
     let plugins_dir = plugins_config.plugins_dir();
-    let entries = match std::fs::read_dir(&plugins_dir) {
-        Ok(entries) => entries,
+    let wasm_files = match discover_wasm_files(&plugins_dir) {
+        Ok(files) => files,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
                 resolved
@@ -526,19 +525,6 @@ fn resolve_filesystem_plugins_with_factories(
             return;
         }
     };
-
-    let mut wasm_files: Vec<_> = entries
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
-    wasm_files.sort();
 
     for path in &wasm_files {
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -560,7 +546,7 @@ fn resolve_filesystem_plugins_with_factories(
         match loader.load_staged(&bytes, wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
-                if plugins_config.disabled.contains(&id.0) {
+                if is_plugin_disabled(plugins_config, &id.0) {
                     tracing::info!("WASM plugin {id:?} ({file_name}) disabled by config");
                     continue;
                 }
