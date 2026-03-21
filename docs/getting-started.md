@@ -2,12 +2,32 @@
 
 ## Prerequisites
 
-- [Kakoune](https://kakoune.org/) 2024.12.09 or later
-- [Rust](https://rustup.rs/) stable toolchain (for building from source)
+- [Kakoune](https://kakoune.org/) 2024.12.09 or later (AUR package installs this automatically)
 
 ## Installation
 
-### From Source (recommended)
+### Arch Linux (AUR)
+
+```bash
+yay -S kasane-bin    # or: paru -S kasane-bin
+```
+
+Installs a prebuilt binary. Kakoune is pulled in automatically as a dependency.
+
+### Binary Release
+
+Download a prebuilt binary from [GitHub Releases](https://github.com/Yus314/kasane/releases/latest):
+
+```bash
+# x86_64 Linux (glibc)
+curl -LO https://github.com/Yus314/kasane/releases/latest/download/kasane-v0.1.1-x86_64-linux-gnu.tar.gz
+tar xzf kasane-v0.1.1-x86_64-linux-gnu.tar.gz
+install -Dm755 kasane ~/.local/bin/kasane
+```
+
+Other targets: `aarch64-linux-gnu`, `x86_64-linux-musl`, `x86_64-macos`, `aarch64-macos`. See the [releases page](https://github.com/Yus314/kasane/releases/latest) for all available archives.
+
+### From Source
 
 ```bash
 git clone https://github.com/Yus314/kasane.git
@@ -19,6 +39,8 @@ cargo install --path kasane
 # With GPU backend
 cargo install --path kasane --features gui
 ```
+
+Requires [Rust](https://rustup.rs/) stable toolchain.
 
 ### Nix
 

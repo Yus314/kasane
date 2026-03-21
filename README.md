@@ -37,6 +37,8 @@ kasane file.txt
 alias kak=kasane  # add to .bashrc / .zshrc
 ```
 
+Arch Linux: `yay -S kasane-bin`
+
 Nix: `nix run github:Yus314/kasane`
 
 GPU backend: `cargo install --path kasane --features gui`, then
