@@ -1,7 +1,7 @@
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::config::MenuPosition;
 use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
-use kasane_core::protocol::{InfoStyle, MenuStyle};
+use kasane_core::protocol::{InfoStyle, MenuStyle, StatusStyle};
 
 pub(crate) fn wit_overlay_anchor_to_overlay_anchor(wa: &wit::OverlayAnchor) -> OverlayAnchor {
     match wa {
@@ -62,6 +62,15 @@ pub(crate) fn menu_style_to_string(style: &MenuStyle) -> String {
         MenuStyle::Prompt => "prompt".into(),
         MenuStyle::Search => "search".into(),
         MenuStyle::Inline => "inline".into(),
+    }
+}
+
+pub(crate) fn status_style_to_string(style: &StatusStyle) -> String {
+    match style {
+        StatusStyle::Status => "status".into(),
+        StatusStyle::Command => "command".into(),
+        StatusStyle::Search => "search".into(),
+        StatusStyle::Prompt => "prompt".into(),
     }
 }
 

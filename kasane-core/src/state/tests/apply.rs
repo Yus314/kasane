@@ -1,4 +1,6 @@
-use crate::protocol::{Attributes, Coord, CursorMode, Face, InfoStyle, KakouneRequest, MenuStyle};
+use crate::protocol::{
+    Attributes, Coord, CursorMode, Face, InfoStyle, KakouneRequest, MenuStyle, StatusStyle,
+};
 use crate::state::{AppState, DirtyFlags, MenuState};
 use crate::test_utils::make_line;
 
@@ -62,6 +64,7 @@ fn test_draw_status_derives_cursor_mode_prompt() {
         content_cursor_pos: 4,
         mode_line: make_line("normal"),
         default_face: Face::default(),
+        style: StatusStyle::Command,
     });
     assert!(flags.contains(DirtyFlags::STATUS));
     assert!(flags.contains(DirtyFlags::BUFFER_CURSOR)); // mode changed
@@ -78,6 +81,7 @@ fn test_draw_status_derives_cursor_mode_buffer() {
         content_cursor_pos: -1,
         mode_line: make_line("normal"),
         default_face: Face::default(),
+        style: StatusStyle::Status,
     });
     assert!(flags.contains(DirtyFlags::STATUS));
     assert!(!flags.contains(DirtyFlags::BUFFER)); // mode unchanged (already Buffer)
@@ -93,6 +97,7 @@ fn test_apply_draw_status() {
         content_cursor_pos: 1,
         mode_line: make_line("insert"),
         default_face: Face::default(),
+        style: StatusStyle::Command,
     });
     assert!(flags.contains(DirtyFlags::STATUS));
     assert_eq!(state.status_prompt[0].contents, ":");

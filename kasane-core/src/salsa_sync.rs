@@ -41,7 +41,13 @@ impl SalsaInputHandles {
                 0,
             ),
             cursor: CursorInput::new(db, crate::protocol::CursorMode::Buffer, 0, vec![]),
-            status: StatusInput::new(db, vec![], vec![], crate::protocol::Face::default()),
+            status: StatusInput::new(
+                db,
+                vec![],
+                vec![],
+                crate::protocol::Face::default(),
+                crate::protocol::StatusStyle::default(),
+            ),
             menu: MenuInput::new(db, None),
             info: InfoInput::new(db, vec![]),
             config: ConfigInput::new(
@@ -118,6 +124,7 @@ pub fn sync_inputs_from_state(
         .status
         .set_status_default_face(db)
         .to(state.status_default_face);
+    inputs.status.set_status_style(db).to(state.status_style);
 
     // Menu
     let snapshot = state.menu.as_ref().map(MenuSnapshot::from_menu_state);

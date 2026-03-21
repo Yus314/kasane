@@ -4,7 +4,7 @@
 //! They follow the protocol message boundary grouping from `apply.rs`.
 
 use crate::config::MenuPosition;
-use crate::protocol::{Coord, CursorMode, Face, Line};
+use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 
 /// Buffer content from `KakouneRequest::Draw`.
@@ -35,6 +35,7 @@ pub struct StatusInput {
     #[returns(ref)]
     pub status_mode_line: Line,
     pub status_default_face: Face,
+    pub status_style: StatusStyle,
 }
 
 /// Menu from `KakouneRequest::MenuShow/Select/Hide`.

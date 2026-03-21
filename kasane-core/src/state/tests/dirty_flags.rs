@@ -398,6 +398,7 @@ fn test_field_dirty_map_matches_macro_analysis() {
         ("status_line", &["STATUS"]),
         ("status_mode_line", &["STATUS"]),
         ("status_default_face", &["STATUS"]),
+        ("status_style", &["STATUS"]),
         ("menu", &["MENU_STRUCTURE", "MENU_SELECTION"]),
         ("infos", &["INFO"]),
         ("ui_options", &["OPTIONS"]),

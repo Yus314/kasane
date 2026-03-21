@@ -258,7 +258,8 @@ fn test_parse_draw_status() {
         3,
         [{"face":{"fg":"default","bg":"default"},"contents":"insert"},
          {"face":{"fg":"default","bg":"default"},"contents":" 1 sel"}],
-        {"fg":"default","bg":"default"}
+        {"fg":"default","bg":"default"},
+        "status"
     ]}"#;
     let mut buf = json.as_bytes().to_vec();
     let req = parse_request(&mut buf).unwrap();
@@ -268,12 +269,54 @@ fn test_parse_draw_status() {
             content,
             content_cursor_pos,
             mode_line,
+            style,
             ..
         } => {
             assert_eq!(prompt[0].contents, ":");
             assert_eq!(content[0].contents, "hello");
             assert_eq!(content_cursor_pos, 3);
             assert_eq!(mode_line[0].contents, "insert");
+            assert_eq!(style, StatusStyle::Status);
+        }
+        _ => panic!("expected DrawStatus"),
+    }
+}
+
+#[test]
+fn test_parse_draw_status_backward_compat() {
+    // Pre-PR#5458 Kakoune sends 5 params (no style).
+    let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[
+        [{"face":{"fg":"default","bg":"default"},"contents":":"}],
+        [{"face":{"fg":"default","bg":"default"},"contents":"hello"}],
+        3,
+        [{"face":{"fg":"default","bg":"default"},"contents":"insert"}],
+        {"fg":"default","bg":"default"}
+    ]}"#;
+    let mut buf = json.as_bytes().to_vec();
+    let req = parse_request(&mut buf).unwrap();
+    match req {
+        KakouneRequest::DrawStatus { style, .. } => {
+            assert_eq!(style, StatusStyle::default());
+        }
+        _ => panic!("expected DrawStatus"),
+    }
+}
+
+#[test]
+fn test_parse_draw_status_command_style() {
+    let json = r#"{"jsonrpc":"2.0","method":"draw_status","params":[
+        [{"face":{"fg":"default","bg":"default"},"contents":":"}],
+        [{"face":{"fg":"default","bg":"default"},"contents":"quit"}],
+        4,
+        [{"face":{"fg":"default","bg":"default"},"contents":"normal"}],
+        {"fg":"default","bg":"default"},
+        "command"
+    ]}"#;
+    let mut buf = json.as_bytes().to_vec();
+    let req = parse_request(&mut buf).unwrap();
+    match req {
+        KakouneRequest::DrawStatus { style, .. } => {
+            assert_eq!(style, StatusStyle::Command);
         }
         _ => panic!("expected DrawStatus"),
     }

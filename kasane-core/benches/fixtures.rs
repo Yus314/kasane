@@ -625,7 +625,14 @@ pub fn draw_status_json() -> Vec<u8> {
     };
     to_json_bytes(
         "draw_status",
-        (&prompt, &content, -1i32, &mode_line, &default_face),
+        (
+            &prompt,
+            &content,
+            -1i32,
+            &mode_line,
+            &default_face,
+            "status",
+        ),
     )
 }
 

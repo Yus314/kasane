@@ -17,10 +17,12 @@ For implementation order, see [roadmap.md](./roadmap.md).
 
 ## 2. Current Snapshot
 
-Upstream status as of 2026-03-14:
+Upstream status as of 2026-03-22:
 - `PR #5455` was merged on 2026-03-11
+- `PR #5458` was merged on 2026-03-21 (adds `style` parameter to `draw_status`)
 - `PR #4707`, `PR #5304` are open
-- `#5428`, `#4686`, `#4687`, `#5294` are open
+- `#4686`, `#4687`, `#5294` are open
+- `#5428` is resolved by `PR #5458`
 - `#4138` is closed. P-060 / decoration extension use cases are not considered an upstream blocker; they are treated as Kasane-side rendering implementation and ecosystem-level issues
 - `PR #4737` was absorbed into `PR #5455` and is no longer tracked
 
@@ -39,21 +41,20 @@ Items where local implementation is possible, but are not treated as authoritati
 
 | ID | Item | Current Status | Why Not Adopted | Upstream | Next Step |
 |----|------|----------------|-----------------|----------|-----------|
-| D-003 | Status line context inference | Inference via face names or strings is possible | Breaks with custom faces or message compositions | [#5428](https://github.com/mawww/kakoune/issues/5428) | Deferred until context type is available |
 | D-001 | Startup info retention | Possibly avoidable with a local queue | Still isolating upstream startup behavior | [#5294](https://github.com/mawww/kakoune/issues/5294) | Reintegrate after confirming upstream behavior |
 | P-010 / P-011 | Full auxiliary region contribution | `widget_columns` is available. Partial proof-of-concept completed | No semantic type for atoms; cannot strictly distinguish line numbers / virtual text / code | [PR #4707](https://github.com/mawww/kakoune/pull/4707), [#4687](https://github.com/mawww/kakoune/issues/4687) | Reintegrate after semantic type is added |
 | P-001 | Overlay composition (full version) | Overlay itself is partially proven. `widget_columns` is also available | Semantic position within the buffer depends on atom ambiguity | [PR #4707](https://github.com/mawww/kakoune/pull/4707), [#4687](https://github.com/mawww/kakoune/issues/4687) | Reintegrate after semantic type is added |
 
 ## 5. Upstream Watchlist
 
-Upstream items being tracked as of 2026-03-14:
+Upstream items being tracked as of 2026-03-22:
 
 | Upstream ID | Description | Affected Items | Status |
 |-------------|-------------|----------------|--------|
 | [PR #4707](https://github.com/mawww/kakoune/pull/4707) | Addition of face / semantic type equivalent to JSON UI | P-001, P-010, P-011, C-008 family | Open |
 | [PR #5455](https://github.com/mawww/kakoune/pull/5455) | Addition of `widget_columns` to `draw` | P-001, P-010, P-011 | Merged (2026-03-11) |
 | [PR #5304](https://github.com/mawww/kakoune/pull/5304) | Scroll position protocol | D-004, P-012 | Open |
-| [#5428](https://github.com/mawww/kakoune/issues/5428) | `draw_status` context | D-003 | Open |
+| [PR #5458](https://github.com/mawww/kakoune/pull/5458) | `draw_status` style parameter | D-003 | Merged (2026-03-21) |
 | [#4686](https://github.com/mawww/kakoune/issues/4686) | Incremental `draw` | Upstream version of NF-004 | Open |
 | [#4687](https://github.com/mawww/kakoune/issues/4687) | Atom type ambiguity | P-001, P-010, P-011, C-008 family | Open |
 | [#5294](https://github.com/mawww/kakoune/issues/5294) | Startup `info` display | D-001 | Open |

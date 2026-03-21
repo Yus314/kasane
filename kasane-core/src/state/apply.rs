@@ -43,6 +43,7 @@ impl AppState {
                 content_cursor_pos,
                 mode_line,
                 default_face,
+                style,
             } => {
                 self.status_prompt = prompt.clone();
                 self.status_content = content.clone();
@@ -58,6 +59,7 @@ impl AppState {
 
                 self.status_mode_line = mode_line;
                 self.status_default_face = default_face;
+                self.status_style = style;
 
                 if mode_changed {
                     DirtyFlags::STATUS | DirtyFlags::BUFFER_CURSOR

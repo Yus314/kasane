@@ -33,6 +33,7 @@ pub(crate) struct HostState {
     pub status_line: Line,
     pub status_mode_line: Line,
     pub status_default_face: Face,
+    pub status_style: String,
 
     // --- v0.3.0 Tier 2: Menu / Info state ---
     pub has_menu: bool,
@@ -100,6 +101,7 @@ impl Default for HostState {
             status_line: Vec::new(),
             status_mode_line: Vec::new(),
             status_default_face: Face::default(),
+            status_style: "status".into(),
             has_menu: false,
             menu_items: Vec::new(),
             menu_selected: -1,
@@ -187,6 +189,9 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
     fn get_status_default_face(&mut self) -> bindings::kasane::plugin::types::Face {
         convert::face_to_wit(&self.status_default_face)
+    }
+    fn get_status_style(&mut self) -> String {
+        self.status_style.clone()
     }
 
     // --- v0.3.0 Tier 2: Menu / Info ---
@@ -614,6 +619,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     host.status_line = state.status_line.clone();
     host.status_mode_line = state.status_mode_line.clone();
     host.status_default_face = state.status_default_face;
+    host.status_style = convert::status_style_to_string(&state.status_style);
 
     // Tier 2: Menu / Info
     host.has_menu = state.has_menu();

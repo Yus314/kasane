@@ -7,7 +7,9 @@
 //! Uses proptest for mutation-based fuzzing from a rich base state.
 
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Color, Coord, Face, InfoStyle, KakouneRequest, MenuStyle, NamedColor};
+use kasane_core::protocol::{
+    Color, Coord, Face, InfoStyle, KakouneRequest, MenuStyle, NamedColor, StatusStyle,
+};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::test_support::{assert_grids_equal, make_line, render_to_grid, test_state_80x24};
 use proptest::prelude::*;
@@ -206,6 +208,7 @@ fn prompt_state() -> AppState {
         content_cursor_pos: 5,
         mode_line: make_line("prompt"),
         default_face: Face::default(),
+        style: StatusStyle::Command,
     });
     state
 }

@@ -444,6 +444,7 @@ fn bench_message_sequence(c: &mut Criterion) {
             contents: "insert".into(),
         }],
         default_face: kasane_core::protocol::Face::default(),
+        style: kasane_core::protocol::StatusStyle::Status,
     };
     let draw = draw_request(23);
     let base_state = typical_state(23);
@@ -556,6 +557,7 @@ fn bench_state_apply(c: &mut Criterion) {
                 contents: "normal".into(),
             }],
             default_face: kasane_core::protocol::Face::default(),
+            style: kasane_core::protocol::StatusStyle::Status,
         };
         let base_state = typical_state(23);
         group.bench_function("draw_status", |b| {

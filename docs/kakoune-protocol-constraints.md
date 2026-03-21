@@ -110,19 +110,11 @@ Step 4 checks whether the Atom content in the mode line matches the strings `"in
 
 ---
 
-### 4.3 Status Line Context Inference (Deferred)
+### 4.3 Status Line Context Inference (Resolved)
 
-**Constraint:** The `draw_status` message only sends two `Line` values, `status_line` and `mode_line`, without indicating whether they represent:
-- A command prompt (`:`)
-- A search prompt (`/`, `?`)
-- A message from `echo`
-- File information display
+**Constraint (historical):** The `draw_status` message only sent two `Line` values, `status_line` and `mode_line`, without indicating whether they represent a command prompt, search prompt, echo message, or file information.
 
-**Impact:** D-003 (status line context inference) is treated as degraded behavior. UI branching based on prompt type (command palette-style display, search highlighting, etc.) cannot be implemented as an exact core requirement.
-
-**Upstream:** [#5428](https://github.com/mawww/kakoune/issues/5428) — Proposal to add a `status_style` parameter to `draw_status`. Zero comments; discussion has not progressed.
-
-**Status of other frontends:** In [#2019](https://github.com/mawww/kakoune/issues/2019), casimir attempted detection of the `:` prefix but reported low reliability.
+**Resolution:** [PR #5458](https://github.com/mawww/kakoune/pull/5458) (merged 2026-03-21) adds a 6th parameter `style` to `draw_status` with values `"command"`, `"search"`, `"prompt"`, and `"status"`. Kasane parses this with backward compatibility for pre-#5458 Kakoune (defaults to `"status"`).
 
 ---
 
@@ -259,7 +251,7 @@ This section organizes which Kasane features each constraint blocks.
 |------|---------------------|---------|-------|
 | No cursor type distinction | R-050 multi-cursor rendering | Inference | **High** — If broken, all cursor rendering collapses |
 | No edit mode notification | Automatic cursor style switching | Inference | Medium — ui_option fallback available |
-| No status context | D-003 status line context inference | Inference | Medium — Degraded behavior |
+| ~~No status context~~ | ~~D-003 status line context inference~~ | ~~Inference~~ | Resolved — PR #5458 adds `style` parameter |
 | No info ID | Accurate management of multiple infos | Inference | Low — Collisions are rare cases |
 | No character width information | All text layout | Redundant computation | **High** — Divergence manifests as cursor position shifts |
 | No scroll position | Menu display | Redundant computation | Medium — Implemented but can break on Kakoune changes |

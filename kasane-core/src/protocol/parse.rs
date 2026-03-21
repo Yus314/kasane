@@ -1,7 +1,7 @@
 use simd_json::prelude::*;
 use thiserror::Error;
 
-use super::message::KakouneRequest;
+use super::message::{KakouneRequest, StatusStyle};
 
 // ---------------------------------------------------------------------------
 // JSON-RPC parsing
@@ -75,15 +75,33 @@ fn parse_method(
             }
         }
         "draw_status" => {
-            let (prompt, content, content_cursor_pos, mode_line, default_face) =
-                de_params(method, params)?;
-            Ok(KakouneRequest::DrawStatus {
-                prompt,
-                content,
-                content_cursor_pos,
-                mode_line,
-                default_face,
-            })
+            // PR #5458 (merged 2026-03-21) adds a 6th parameter `style` to
+            // draw_status.  Accept 5 params (pre-#5458) by defaulting style
+            // to StatusStyle::Status.
+            let arr = params.as_array().unwrap(); // validated above
+            if arr.len() >= 6 {
+                let (prompt, content, content_cursor_pos, mode_line, default_face, style) =
+                    de_params(method, params)?;
+                Ok(KakouneRequest::DrawStatus {
+                    prompt,
+                    content,
+                    content_cursor_pos,
+                    mode_line,
+                    default_face,
+                    style,
+                })
+            } else {
+                let (prompt, content, content_cursor_pos, mode_line, default_face) =
+                    de_params(method, params)?;
+                Ok(KakouneRequest::DrawStatus {
+                    prompt,
+                    content,
+                    content_cursor_pos,
+                    mode_line,
+                    default_face,
+                    style: StatusStyle::default(),
+                })
+            }
         }
         "menu_show" => {
             let (items, anchor, selected_item_face, menu_face, style) = de_params(method, params)?;

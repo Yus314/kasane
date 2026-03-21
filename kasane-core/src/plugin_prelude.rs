@@ -26,7 +26,7 @@ pub use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnch
 pub use crate::render::{InlineDecoration, InlineOp};
 
 // Protocol types
-pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor};
+pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor, StatusStyle};
 
 // Scroll policy types
 pub use crate::scroll::{

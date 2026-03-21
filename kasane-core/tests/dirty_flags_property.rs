@@ -6,7 +6,9 @@
 
 use proptest::prelude::*;
 
-use kasane_core::protocol::{Atom, Color, Coord, Face, KakouneRequest, MenuStyle, NamedColor};
+use kasane_core::protocol::{
+    Atom, Color, Coord, Face, KakouneRequest, MenuStyle, NamedColor, StatusStyle,
+};
 use kasane_core::state::{AppState, DirtyFlags};
 
 /// Generate a random Face.
@@ -87,6 +89,12 @@ proptest! {
         content_cursor_pos in -1i32..10,
         mode_line in arb_line(),
         default_face in arb_face(),
+        style in prop_oneof![
+            Just(StatusStyle::Status),
+            Just(StatusStyle::Command),
+            Just(StatusStyle::Search),
+            Just(StatusStyle::Prompt),
+        ],
     ) {
         let mut state = AppState::default();
         let flags = state.apply(KakouneRequest::DrawStatus {
@@ -95,6 +103,7 @@ proptest! {
             content_cursor_pos,
             mode_line,
             default_face,
+            style,
         });
         prop_assert!(flags.contains(DirtyFlags::STATUS));
         // May also contain BUFFER_CURSOR if cursor mode changed

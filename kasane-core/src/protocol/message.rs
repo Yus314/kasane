@@ -70,6 +70,17 @@ impl InfoStyle {
     }
 }
 
+/// Status bar context style sent by Kakoune's `draw_status` message (PR #5458).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StatusStyle {
+    #[default]
+    Status,
+    Command,
+    Search,
+    Prompt,
+}
+
 // ---------------------------------------------------------------------------
 // Kakoune → Kasane messages
 // ---------------------------------------------------------------------------
@@ -89,6 +100,7 @@ pub enum KakouneRequest {
         content_cursor_pos: i32,
         mode_line: Line,
         default_face: Face,
+        style: StatusStyle,
     },
     MenuShow {
         items: Vec<Line>,

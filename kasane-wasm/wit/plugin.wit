@@ -626,6 +626,7 @@ interface host-state {
     get-status-line: func() -> list<atom>;
     get-status-mode-line: func() -> list<atom>;
     get-status-default-face: func() -> face;
+    get-status-style: func() -> string;
 
     // --- v0.3.0 Tier 2: Menu / Info state ---
     has-menu: func() -> bool;

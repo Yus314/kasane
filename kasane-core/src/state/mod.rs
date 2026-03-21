@@ -18,7 +18,7 @@ use crate::DirtyTracked;
 use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
 use crate::layout::HitMap;
-use crate::protocol::{Coord, CursorMode, Face, Line};
+use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::scroll::{
     SMOOTH_SCROLL_CONFIG_KEY, is_smooth_scroll_config_key, set_smooth_scroll_enabled,
 };
@@ -133,6 +133,9 @@ pub struct AppState {
     /// Observed: default face for the status bar from `draw_status`.
     #[dirty(STATUS)]
     pub status_default_face: Face,
+    /// Observed: status bar context from `draw_status` (PR #5458).
+    #[dirty(STATUS)]
+    pub status_style: StatusStyle,
     /// Observed: number of widget columns from `draw`.
     #[dirty(BUFFER_CONTENT)]
     pub widget_columns: u16,
@@ -264,6 +267,7 @@ impl AppState {
             status_line,
             status_mode_line,
             status_default_face,
+            status_style,
             widget_columns,
             menu,
             infos,
@@ -303,6 +307,7 @@ impl AppState {
         self.status_line = status_line;
         self.status_mode_line = status_mode_line;
         self.status_default_face = status_default_face;
+        self.status_style = status_style;
         self.widget_columns = widget_columns;
         self.menu = menu;
         self.infos = infos;
@@ -383,6 +388,7 @@ impl Default for AppState {
             status_line: Vec::new(),
             status_mode_line: Vec::new(),
             status_default_face: Face::default(),
+            status_style: StatusStyle::default(),
             widget_columns: 0,
             menu: None,
             infos: Vec::new(),

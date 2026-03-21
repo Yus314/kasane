@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::protocol::{Coord, CursorMode, Face, Line};
+use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::session::SessionDescriptor;
 use crate::state::{AppState, InfoState, MenuState};
 
@@ -175,6 +175,12 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn status_content_cursor_pos(&self) -> i32 {
         self.state.status_content_cursor_pos
+    }
+
+    /// Status bar context style (command, search, prompt, or status).
+    #[inline]
+    pub fn status_style(&self) -> StatusStyle {
+        self.state.status_style
     }
 
     // =========================================================================
