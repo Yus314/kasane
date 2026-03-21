@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774085054050,
+  "lastUpdate": 1774085076508,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -39155,6 +39155,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20297760,
             "range": "± 195451",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "da0f3ae4a796abc5fa3f360fcb587f41a85723e3",
+          "message": "docs(semantics): fix inaccurate claims about Element PartialEq and other stale descriptions\n\nsemantics.md, decisions.md, and salsa_views/mod.rs claimed that\nElement does not implement PartialEq — it actually derives PartialEq.\nThe real reason for #[salsa::tracked(no_eq)] is that no downstream\ntracked functions depend on the view outputs, making output-level\ncomparison a net cost.\n\nAlso fixes:\n- §4.3: Pane(PaneCommand) → SpawnPaneClient/ClosePaneClient\n- §8.1: add missing extension points (display_directives,\n  cursor_style_override, handle_default_scroll)\n- §8.1/§8.11: clarify PaintHook is not available to WASM plugins\n- §10.4: replace non-existent surface_view_sections_cached() with\n  actual function paths\n- §11.1: clarify pipeline variant differences (DirtyFlags::ALL vs\n  explicit parameter)\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T18:08:22+09:00",
+          "tree_id": "5ea2d618edd1c2c7e80e65401b4c46d08d8da60a",
+          "url": "https://github.com/Yus314/kasane/commit/da0f3ae4a796abc5fa3f360fcb587f41a85723e3"
+        },
+        "date": 1774085075384,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4689532,
+            "range": "± 11317",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17264927,
+            "range": "± 64075",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1817344,
+            "range": "± 7515",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20295113,
+            "range": "± 72413",
             "unit": "ns/iter"
           }
         ]
