@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774070866285,
+  "lastUpdate": 1774077794262,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38867,6 +38867,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20482288,
             "range": "± 115441",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "fd2cb9ac7e7fb66f4e80b36051e19e0955a65fcf",
+          "message": "refactor(plugin): extract PluginEffects trait to decouple update() from PluginRuntime\n\nParametrize TEA update functions over a new PluginEffects trait that\ncaptures the 6 plugin operations update_inner() actually needs. This\nenables isolated testing with NullEffects/RecordingEffects mocks while\nrequiring zero changes at existing call sites (monomorphization resolves\nE = PluginRuntime transparently).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T16:06:42+09:00",
+          "tree_id": "2367db6e1782dd970836b830e329e0d811641910",
+          "url": "https://github.com/Yus314/kasane/commit/fd2cb9ac7e7fb66f4e80b36051e19e0955a65fcf"
+        },
+        "date": 1774077793585,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4713516,
+            "range": "± 12659",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17305641,
+            "range": "± 171644",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1826017,
+            "range": "± 59972",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20490675,
+            "range": "± 47044",
             "unit": "ns/iter"
           }
         ]
