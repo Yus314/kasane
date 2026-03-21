@@ -9,13 +9,14 @@ use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
+use crate::workspace::WorkspaceQuery;
 
 use super::state::{Plugin, PluginState};
 use super::{
     AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
-    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PluginBackend,
-    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
-    TransformTarget,
+    IoEvent, KeyHandleResult, LineAnnotation, OverlayContext, OverlayContribution,
+    PluginAuthorities, PluginBackend, PluginCapabilities, PluginId, RuntimeEffects,
+    SessionReadyEffects, SlotId, TransformContext, TransformTarget,
 };
 
 // =============================================================================
@@ -30,6 +31,7 @@ use super::{
 pub(crate) trait ErasedPlugin: Send {
     fn id(&self) -> PluginId;
     fn capabilities(&self) -> PluginCapabilities;
+    fn authorities(&self) -> PluginAuthorities;
     fn allows_process_spawn(&self) -> bool;
     fn transform_priority(&self) -> i16;
 
@@ -56,6 +58,7 @@ pub(crate) trait ErasedPlugin: Send {
         event: &IoEvent,
         app: &AppState,
     ) -> RuntimeEffects;
+    fn on_workspace_changed_erased(&self, state: &mut dyn PluginState, query: &WorkspaceQuery<'_>);
     fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppState);
     fn observe_mouse_erased(&self, state: &mut dyn PluginState, event: &MouseEvent, app: &AppState);
     fn handle_key_erased(
@@ -64,6 +67,12 @@ pub(crate) trait ErasedPlugin: Send {
         key: &KeyEvent,
         app: &AppState,
     ) -> Option<Vec<Command>>;
+    fn handle_key_middleware_erased(
+        &self,
+        state: &mut dyn PluginState,
+        key: &KeyEvent,
+        app: &AppState,
+    ) -> KeyHandleResult;
     fn handle_mouse_erased(
         &self,
         state: &mut dyn PluginState,
@@ -142,6 +151,9 @@ impl<P: Plugin> ErasedPlugin for P {
     fn capabilities(&self) -> PluginCapabilities {
         Plugin::capabilities(self)
     }
+    fn authorities(&self) -> PluginAuthorities {
+        Plugin::authorities(self)
+    }
     fn allows_process_spawn(&self) -> bool {
         Plugin::allows_process_spawn(self)
     }
@@ -195,6 +207,12 @@ impl<P: Plugin> ErasedPlugin for P {
         effects
     }
 
+    fn on_workspace_changed_erased(&self, state: &mut dyn PluginState, query: &WorkspaceQuery<'_>) {
+        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+        let new_state = self.on_workspace_changed(typed, query);
+        *typed = new_state;
+    }
+
     fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppState) {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let new_state = self.observe_key(typed, key, app);
@@ -223,6 +241,18 @@ impl<P: Plugin> ErasedPlugin for P {
             *typed = new_state;
             cmds
         })
+    }
+
+    fn handle_key_middleware_erased(
+        &self,
+        state: &mut dyn PluginState,
+        key: &KeyEvent,
+        app: &AppState,
+    ) -> KeyHandleResult {
+        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+        let (new_state, result) = self.handle_key_middleware(typed, key, app);
+        *typed = new_state;
+        result
     }
 
     fn handle_mouse_erased(
@@ -387,6 +417,10 @@ impl PluginBackend for PluginBridge {
         self.inner.capabilities()
     }
 
+    fn authorities(&self) -> PluginAuthorities {
+        self.inner.authorities()
+    }
+
     fn allows_process_spawn(&self) -> bool {
         self.inner.allows_process_spawn()
     }
@@ -435,6 +469,12 @@ impl PluginBackend for PluginBridge {
         effects
     }
 
+    fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
+        self.inner
+            .on_workspace_changed_erased(&mut *self.state, query);
+        self.check_state_change();
+    }
+
     // --- Input ---
 
     fn observe_key(&mut self, key: &KeyEvent, state: &AppState) {
@@ -450,6 +490,14 @@ impl PluginBackend for PluginBridge {
 
     fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>> {
         let result = self.inner.handle_key_erased(&mut *self.state, key, state);
+        self.check_state_change();
+        result
+    }
+
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyHandleResult {
+        let result = self
+            .inner
+            .handle_key_middleware_erased(&mut *self.state, key, state);
         self.check_state_change();
         result
     }
@@ -575,6 +623,7 @@ impl IsBridgedPlugin for PluginBridge {
 mod tests {
     use super::super::state::tests::{ColorPreviewPure, CursorLinePure, CursorLineState};
     use super::*;
+    use crate::layout::Rect;
     use crate::plugin::{AnnotateContext, PluginCapabilities, PluginId, PluginRuntime};
     use crate::scroll::{ResolvedScroll, ScrollPolicyResult};
     use crate::state::AppState;
@@ -633,6 +682,8 @@ mod tests {
             line_width: 80,
             gutter_width: 0,
             display_map: None,
+            pane_surface_id: None,
+            pane_focused: true,
         };
 
         assert!(bridge.annotate_line_with_ctx(3, &app, &ctx).is_some());
@@ -695,6 +746,45 @@ mod tests {
         assert_eq!(bridge.state_hash(), 1);
     }
 
+    #[test]
+    fn bridge_tracks_workspace_changed_state_updates() {
+        #[derive(Default)]
+        struct WorkspaceObserverPure;
+
+        impl Plugin for WorkspaceObserverPure {
+            type State = u32;
+
+            fn id(&self) -> PluginId {
+                PluginId("test.workspace-observer-pure".into())
+            }
+
+            fn capabilities(&self) -> PluginCapabilities {
+                PluginCapabilities::WORKSPACE_OBSERVER
+            }
+
+            fn on_workspace_changed(
+                &self,
+                state: &Self::State,
+                _query: &crate::workspace::WorkspaceQuery<'_>,
+            ) -> Self::State {
+                state + 1
+            }
+        }
+
+        let mut bridge = PluginBridge::new(WorkspaceObserverPure);
+        let workspace = crate::workspace::Workspace::default();
+        let query = workspace.query(Rect {
+            x: 0,
+            y: 0,
+            w: 80,
+            h: 24,
+        });
+
+        bridge.on_workspace_changed(&query);
+
+        assert_eq!(bridge.state_hash(), 1);
+    }
+
     // ---- Registry integration tests ----
 
     #[test]
@@ -750,6 +840,8 @@ mod tests {
             line_width: 80,
             gutter_width: 0,
             display_map: None,
+            pane_surface_id: None,
+            pane_focused: true,
         };
         let result = registry.collect_annotations(&app, &ctx);
         assert!(result.line_backgrounds.is_some());

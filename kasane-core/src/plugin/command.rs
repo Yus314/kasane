@@ -2,14 +2,45 @@ use std::any::Any;
 use std::io::Write;
 use std::time::Duration;
 
+use crate::input::InputEvent;
 use crate::protocol::{Face, KasaneRequest};
 use crate::session::SessionCommand;
 use crate::state::DirtyFlags;
+use crate::surface::Surface;
 use crate::surface::SurfaceId;
+use crate::surface::SurfacePlacementRequest;
 use crate::workspace::{Placement, WorkspaceCommand};
 
 use super::PluginId;
 use super::io::StdinMode;
+
+/// Buffer edit coordinates in Kakoune's editing coordinate space.
+///
+/// This type is intentionally separate from `protocol::Coord`.
+/// `protocol::Coord` represents observed protocol state in `AppState`;
+/// `BufferPosition` represents an outbound editing intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BufferPosition {
+    /// 1-indexed line number in Kakoune coordinate space.
+    pub line: u32,
+    /// 1-indexed column number in Kakoune coordinate space.
+    pub column: u32,
+}
+
+/// A structured buffer edit operation.
+///
+/// The framework translates this into a Kakoune-side editing transaction.
+/// Multiple edits in a single `EditBuffer` command are applied in one
+/// host-mediated translation pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BufferEdit {
+    /// Start position, 1-indexed in Kakoune coordinate space.
+    pub start: BufferPosition,
+    /// End position, 1-indexed and inclusive in Kakoune coordinate space.
+    pub end: BufferPosition,
+    /// Replacement text. Empty string means deletion.
+    pub replacement: String,
+}
 
 /// A post-paint hook that can modify the CellGrid after the standard paint pass.
 ///
@@ -64,6 +95,24 @@ pub enum Command {
     },
     /// Workspace layout command (add/remove surface, focus, split, float, etc.).
     Workspace(WorkspaceCommand),
+    /// Register a new plugin-owned surface and place it into the workspace.
+    RegisterSurface {
+        surface: Box<dyn Surface>,
+        placement: Placement,
+    },
+    /// Register a new plugin-owned surface using a keyed placement request.
+    RegisterSurfaceRequested {
+        surface: Box<dyn Surface>,
+        placement: SurfacePlacementRequest,
+    },
+    /// Unregister a plugin-owned surface previously created at runtime.
+    UnregisterSurface {
+        surface_id: SurfaceId,
+    },
+    /// Unregister a plugin-owned surface by stable surface key.
+    UnregisterSurfaceKey {
+        surface_key: String,
+    },
     /// Register custom theme tokens with default faces.
     RegisterThemeTokens(Vec<(String, Face)>),
     /// Spawn an external process.
@@ -88,6 +137,29 @@ pub enum Command {
     KillProcess {
         job_id: u64,
     },
+    /// Resize the PTY of a spawned process.
+    /// Only valid for processes spawned with `StdinMode::Pty`.
+    /// Ignored for piped/null processes.
+    ResizePty {
+        job_id: u64,
+        rows: u16,
+        cols: u16,
+    },
+    /// Apply structured edits to the Kakoune buffer.
+    ///
+    /// Edits are sorted by position (bottom-up) and applied atomically.
+    /// Each edit selects the range [start, end] and replaces it with `replacement`.
+    ///
+    /// The plugin must not issue conflicting edits (overlapping ranges).
+    EditBuffer {
+        edits: Vec<BufferEdit>,
+    },
+    /// Inject a synthetic input event into the event pipeline.
+    ///
+    /// The event is processed as if it came from the terminal/window system,
+    /// going through the full plugin middleware pipeline.
+    /// This enables macro playback and programmatic key injection.
+    InjectInput(InputEvent),
     /// Spawn a new pane backed by an independent Kakoune client connection.
     SpawnPaneClient {
         surface_id: SurfaceId,
@@ -105,7 +177,11 @@ impl Command {
     pub fn is_deferred(&self) -> bool {
         !matches!(
             self,
-            Command::SendToKakoune(_) | Command::Paste | Command::Quit | Command::RequestRedraw(_)
+            Command::SendToKakoune(_)
+                | Command::Paste
+                | Command::Quit
+                | Command::RequestRedraw(_)
+                | Command::EditBuffer { .. }
         )
     }
 }
@@ -146,6 +222,14 @@ pub fn execute_commands(
                     }
                 }
             }
+            Command::EditBuffer { edits } => {
+                if !edits.is_empty() {
+                    let keys = edits_to_keys(&edits);
+                    if !keys.is_empty() {
+                        crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));
+                    }
+                }
+            }
             Command::Quit => return CommandResult::Quit,
             Command::RequestRedraw(_) => {} // handled earlier by extract_redraw_flags
             // Deferred commands should be extracted before reaching execute_commands
@@ -153,17 +237,101 @@ pub fn execute_commands(
             | Command::PluginMessage { .. }
             | Command::SetConfig { .. }
             | Command::Workspace(_)
+            | Command::RegisterSurface { .. }
+            | Command::RegisterSurfaceRequested { .. }
+            | Command::UnregisterSurface { .. }
+            | Command::UnregisterSurfaceKey { .. }
             | Command::RegisterThemeTokens(_)
             | Command::SpawnProcess { .. }
             | Command::Session(_)
             | Command::WriteToProcess { .. }
             | Command::CloseProcessStdin { .. }
             | Command::KillProcess { .. }
+            | Command::ResizePty { .. }
+            | Command::InjectInput(_)
             | Command::SpawnPaneClient { .. }
             | Command::ClosePaneClient { .. } => {}
         }
     }
     CommandResult::Continue
+}
+
+/// Escape text for insertion into Kakoune's insert mode.
+///
+/// Characters with special meaning in Kakoune's key specification language
+/// are translated to their key name equivalents.
+pub fn escape_kakoune_insert_text(text: &str) -> Vec<String> {
+    text.chars()
+        .map(|c| match c {
+            '<' => "<lt>".to_string(),
+            '>' => "<gt>".to_string(),
+            '\n' => "<ret>".to_string(),
+            '\t' => "<tab>".to_string(),
+            '\x1b' => "<esc>".to_string(),
+            ' ' => "<space>".to_string(),
+            '-' => "<minus>".to_string(),
+            c => c.to_string(),
+        })
+        .collect()
+}
+
+/// Translate structured buffer edits into Kakoune key sequences.
+///
+/// Edits are sorted bottom-up (highest line first, then highest column first)
+/// to ensure earlier edits don't shift the coordinates of later ones.
+///
+/// # Panics
+///
+/// This function will panic if called before characterization tests against
+/// a real Kakoune instance have validated the translation strategy.
+/// See `docs/design-plugin-extensibility.md` §5.3.2 for details.
+pub fn edits_to_keys(edits: &[BufferEdit]) -> Vec<String> {
+    if edits.is_empty() {
+        return vec![];
+    }
+
+    let mut sorted: Vec<&BufferEdit> = edits.iter().collect();
+    sorted.sort_by(|a, b| {
+        b.start
+            .line
+            .cmp(&a.start.line)
+            .then(b.start.column.cmp(&a.start.column))
+    });
+
+    let mut keys = Vec::new();
+
+    // Ensure we start in normal mode
+    keys.push("<esc>".to_string());
+
+    for edit in &sorted {
+        // Select the range: move to start, then extend to end
+        // Using Kakoune's goto-line + goto-column + extend
+        keys.push(format!("{}g", edit.start.line));
+        keys.push(format!("{}l", edit.start.column));
+
+        if edit.start == edit.end && edit.replacement.is_empty() {
+            // Zero-width deletion at a point: nothing to delete
+            continue;
+        }
+
+        if edit.start != edit.end {
+            // Select from start to end (inclusive)
+            keys.push(format!("{}g", edit.end.line));
+            keys.push(format!("{}l", edit.end.column));
+        }
+
+        if edit.replacement.is_empty() {
+            // Deletion: select then delete
+            keys.push("d".to_string());
+        } else {
+            // Replace: change selection (enters insert mode), type text, exit
+            keys.push("c".to_string());
+            keys.extend(escape_kakoune_insert_text(&edit.replacement));
+            keys.push("<esc>".to_string());
+        }
+    }
+
+    keys
 }
 
 /// Extract RequestRedraw commands, merging their flags.

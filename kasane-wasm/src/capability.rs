@@ -21,6 +21,8 @@ pub struct WasiCapabilityConfig {
     pub cwd: PathBuf,
     /// Per-plugin capability denials. Key: plugin ID, Value: denied capability names.
     pub deny_capabilities: HashMap<String, Vec<String>>,
+    /// Per-plugin authority denials. Key: plugin ID, Value: denied authority names.
+    pub deny_authorities: HashMap<String, Vec<String>>,
 }
 
 impl Default for WasiCapabilityConfig {
@@ -29,6 +31,7 @@ impl Default for WasiCapabilityConfig {
             data_base_dir: default_plugins_data_dir(),
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             deny_capabilities: HashMap::new(),
+            deny_authorities: HashMap::new(),
         }
     }
 }
@@ -40,6 +43,7 @@ impl WasiCapabilityConfig {
             data_base_dir: config.plugins_dir(),
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             deny_capabilities: config.deny_capabilities.clone(),
+            deny_authorities: config.deny_authorities.clone(),
         }
     }
 }
@@ -188,6 +192,7 @@ mod tests {
             data_base_dir: tmp.clone(),
             cwd: std::env::current_dir().unwrap(),
             deny_capabilities: HashMap::new(),
+            deny_authorities: HashMap::new(),
         };
 
         let ctx = build_wasi_ctx("my_plugin", &[Capability::Filesystem], &config);

@@ -1,4 +1,36 @@
 use super::*;
+use kasane_core::display::SourceMapping;
+use kasane_core::layout::SplitDirection;
+use kasane_core::plugin::{KeyHandleResult, PluginAuthorities};
+use kasane_core::surface::SurfaceId;
+use std::collections::HashMap;
+
+#[test]
+fn requests_dynamic_surface_authority() {
+    let plugin = load_surface_probe_plugin();
+    assert!(
+        plugin
+            .authorities()
+            .contains(PluginAuthorities::DYNAMIC_SURFACE)
+    );
+}
+
+#[test]
+fn denied_dynamic_surface_authority_is_not_granted() {
+    let config = crate::WasiCapabilityConfig {
+        deny_authorities: HashMap::from([(
+            "surface_probe".to_string(),
+            vec!["dynamic-surface".to_string()],
+        )]),
+        ..Default::default()
+    };
+    let plugin = load_surface_probe_plugin_with_config(&config);
+    assert!(
+        !plugin
+            .authorities()
+            .contains(PluginAuthorities::DYNAMIC_SURFACE)
+    );
+}
 
 #[test]
 fn exposes_hosted_surface_descriptor() {
@@ -36,6 +68,7 @@ fn renders_abstract_tree_with_placeholder() {
         focused: true,
         registry: &registry.view(),
         surface_id: surface.id(),
+        pane_context: kasane_core::plugin::PaneContext::default(),
     };
 
     match surface.view(&ctx) {
@@ -60,6 +93,53 @@ fn renders_abstract_tree_with_placeholder() {
                     assert_eq!(*gap, 1);
                 }
                 other => panic!("expected slot placeholder, got {other:?}"),
+            }
+        }
+        other => panic!("expected column surface root, got {other:?}"),
+    }
+}
+
+#[test]
+fn workspace_changed_updates_surface_summary() {
+    let mut plugin = load_surface_probe_plugin();
+    let mut surfaces = plugin.surfaces();
+    let surface = surfaces.pop().expect("expected hosted surface");
+    let mut workspace = Workspace::new(surface.id());
+    workspace
+        .root_mut()
+        .split(surface.id(), SplitDirection::Vertical, 0.5, SurfaceId(77));
+    workspace.focus(SurfaceId(77));
+    let query = workspace.query(Rect {
+        x: 0,
+        y: 0,
+        w: 80,
+        h: 24,
+    });
+
+    plugin.on_workspace_changed(&query);
+
+    let state = AppState::default();
+    let registry = PluginRuntime::new();
+    let ctx = ViewContext {
+        state: &state,
+        global_state: &state,
+        rect: default_surface_rect(),
+        focused: true,
+        registry: &registry.view(),
+        surface_id: surface.id(),
+        pane_context: kasane_core::plugin::PaneContext::default(),
+    };
+
+    match surface.view(&ctx) {
+        Element::Flex {
+            direction: Direction::Column,
+            children,
+            ..
+        } => {
+            assert_eq!(children.len(), 3);
+            match &children[2].element {
+                Element::Text(label, _) => assert_eq!(label, "workspace:77:2:2"),
+                other => panic!("expected workspace summary text, got {other:?}"),
             }
         }
         other => panic!("expected column surface root, got {other:?}"),
@@ -281,6 +361,154 @@ fn routes_spawn_session_commands_to_host() {
 }
 
 #[test]
+fn routes_dynamic_register_surface_command_to_host() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(load_surface_probe_plugin()));
+
+    let mut surface_sets = registry.collect_plugin_surfaces();
+    let surface_set = surface_sets.pop().expect("expected hosted surface set");
+    let owner = surface_set.owner.clone();
+    let mut surfaces = surface_set.surfaces;
+    let hosted_surface = surfaces.pop().expect("expected hosted surface");
+    let hosted_id = hosted_surface.id();
+    let mut surface_registry = SurfaceRegistry::with_workspace(Workspace::new(hosted_id));
+    surface_registry
+        .try_register_for_owner(hosted_surface, Some(owner.clone()))
+        .expect("hosted surface should register");
+
+    let mut state = AppState::default();
+    state.cols = 80;
+    state.rows = 24;
+    let commands = surface_registry.route_event_with_sources(
+        SurfaceEvent::Key(KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::empty(),
+        }),
+        &state,
+        Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        },
+    );
+
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].source_plugin.as_ref(), Some(&owner));
+    assert_eq!(commands[0].commands.len(), 1);
+    match &commands[0].commands[0] {
+        Command::RegisterSurfaceRequested { surface, placement } => {
+            assert_eq!(surface.surface_key().as_str(), "surface_probe.dynamic");
+            assert_eq!(surface.size_hint().preferred_width, Some(18));
+            assert_eq!(*placement, SurfacePlacementRequest::Tab);
+        }
+        _ => panic!("expected RegisterSurfaceRequested"),
+    }
+}
+
+#[test]
+fn routes_dynamic_unregister_surface_command_to_host() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(load_surface_probe_plugin()));
+
+    let mut surface_sets = registry.collect_plugin_surfaces();
+    let surface_set = surface_sets.pop().expect("expected hosted surface set");
+    let owner = surface_set.owner.clone();
+    let mut surfaces = surface_set.surfaces;
+    let hosted_surface = surfaces.pop().expect("expected hosted surface");
+    let hosted_id = hosted_surface.id();
+    let mut surface_registry = SurfaceRegistry::with_workspace(Workspace::new(hosted_id));
+    surface_registry
+        .try_register_for_owner(hosted_surface, Some(owner.clone()))
+        .expect("hosted surface should register");
+
+    let mut state = AppState::default();
+    state.cols = 80;
+    state.rows = 24;
+    let commands = surface_registry.route_event_with_sources(
+        SurfaceEvent::Key(KeyEvent {
+            key: Key::Char('u'),
+            modifiers: Modifiers::empty(),
+        }),
+        &state,
+        Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        },
+    );
+
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].source_plugin.as_ref(), Some(&owner));
+    assert!(matches!(
+        commands[0].commands.as_slice(),
+        [Command::UnregisterSurfaceKey { surface_key }]
+        if surface_key == "surface_probe.dynamic"
+    ));
+}
+
+#[test]
+fn converts_fold_display_directive_from_guest() {
+    let plugin = load_surface_probe_plugin();
+    let state = make_state_with_lines(&["fold", "alpha", "beta", "gamma"]);
+
+    let directives = plugin.display_directives(&state);
+    assert_eq!(directives.len(), 1);
+
+    let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
+    assert_eq!(map.display_line_count(), 3);
+    assert_eq!(map.buffer_to_display(1), Some(1));
+    assert_eq!(map.buffer_to_display(2), Some(1));
+
+    let entry = map.entry(1).expect("fold summary line");
+    assert_eq!(entry.source, SourceMapping::LineRange(1..3));
+    assert_eq!(
+        entry.synthetic.as_ref().expect("fold summary content").text,
+        "surface-probe-fold"
+    );
+}
+
+#[test]
+fn converts_hide_display_directive_from_guest() {
+    let plugin = load_surface_probe_plugin();
+    let state = make_state_with_lines(&["hide", "alpha", "beta", "gamma"]);
+
+    let directives = plugin.display_directives(&state);
+    assert_eq!(directives.len(), 1);
+
+    let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
+    assert_eq!(map.display_line_count(), 2);
+    assert_eq!(map.buffer_to_display(1), None);
+    assert_eq!(map.buffer_to_display(2), None);
+    assert_eq!(map.display_to_buffer(0), Some(0));
+    assert_eq!(map.display_to_buffer(1), Some(3));
+}
+
+#[test]
+fn converts_insert_after_display_directive_from_guest() {
+    let plugin = load_surface_probe_plugin();
+    let state = make_state_with_lines(&["insert", "alpha", "beta"]);
+
+    let directives = plugin.display_directives(&state);
+    assert_eq!(directives.len(), 1);
+
+    let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
+    assert_eq!(map.display_line_count(), 4);
+    assert_eq!(map.display_to_buffer(0), Some(0));
+    assert_eq!(map.display_to_buffer(1), Some(1));
+    assert_eq!(map.display_to_buffer(2), None);
+    assert_eq!(map.display_to_buffer(3), Some(2));
+    assert_eq!(
+        map.entry(2)
+            .and_then(|entry| entry.synthetic.as_ref())
+            .expect("virtual line")
+            .text,
+        "surface-probe-virtual"
+    );
+}
+
+#[test]
 fn routes_close_session_commands_to_host() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(load_surface_probe_plugin()));
@@ -320,6 +548,51 @@ fn routes_close_session_commands_to_host() {
         [Command::Session(kasane_core::session::SessionCommand::Close { key })]
             if key.is_none()
     ));
+}
+
+#[test]
+fn converts_transformed_key_middleware_result_from_guest() {
+    let mut plugin = load_surface_probe_plugin();
+    let state = AppState::default();
+
+    match plugin.handle_key_middleware(
+        &KeyEvent {
+            key: Key::Char('m'),
+            modifiers: Modifiers::CTRL,
+        },
+        &state,
+    ) {
+        KeyHandleResult::Consumed(_) => panic!("expected transformed key"),
+        KeyHandleResult::Passthrough => panic!("expected transformed key"),
+        KeyHandleResult::Transformed(key) => {
+            assert_eq!(key.key, Key::Char('x'));
+            assert_eq!(key.modifiers, Modifiers::CTRL | Modifiers::SHIFT);
+        }
+    }
+}
+
+#[test]
+fn converts_consumed_key_middleware_result_from_guest() {
+    let mut plugin = load_surface_probe_plugin();
+    let state = AppState::default();
+
+    match plugin.handle_key_middleware(
+        &KeyEvent {
+            key: Key::Char('!'),
+            modifiers: Modifiers::empty(),
+        },
+        &state,
+    ) {
+        KeyHandleResult::Consumed(commands) => {
+            assert!(matches!(
+                commands.as_slice(),
+                [Command::SendToKakoune(kasane_core::protocol::KasaneRequest::Keys(keys))]
+                if keys == &vec!["middleware-consumed".to_string()]
+            ));
+        }
+        KeyHandleResult::Transformed(_) => panic!("expected consumed commands"),
+        KeyHandleResult::Passthrough => panic!("expected consumed commands"),
+    }
 }
 
 #[test]

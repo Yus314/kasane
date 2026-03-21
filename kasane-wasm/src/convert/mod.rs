@@ -2,16 +2,20 @@
 
 mod command;
 mod context;
+mod display;
 mod element;
 pub(crate) mod input;
+mod workspace;
 
 pub(crate) use command::*;
 pub(crate) use context::*;
+pub(crate) use display::*;
 pub(crate) use element::*;
 pub(crate) use input::{
     default_scroll_candidate_to_wit, io_event_to_wit, key_event_to_wit, mouse_event_to_wit,
-    wit_scroll_plan_to_scroll_plan, wit_scroll_policy_result_to_result,
+    wit_key_event_to_key_event, wit_scroll_plan_to_scroll_plan, wit_scroll_policy_result_to_result,
 };
+pub(crate) use workspace::*;
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::layout::Rect;

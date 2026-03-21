@@ -9,9 +9,9 @@ use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, BackgroundLayer, BlendMode, BootstrapEffects, Command, ContributeContext,
-    Contribution, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PluginBackend,
-    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
-    TransformTarget,
+    Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation, OverlayContext,
+    OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId,
+    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -20,8 +20,10 @@ use kasane_core::surface::{
     EventContext, SizeHint, SlotDeclaration, Surface, SurfaceEvent, SurfaceId,
     SurfacePlacementRequest, ViewContext,
 };
+use kasane_core::workspace::WorkspaceQuery;
 
 use crate::bindings;
+use crate::bindings::kasane::plugin::types as wit;
 use crate::convert;
 use crate::host::{self, HostState};
 
@@ -41,6 +43,7 @@ struct WasmPluginShared {
     plugin_id: PluginId,
     cached_state_hash: AtomicU64,
     process_allowed: bool,
+    authorities: PluginAuthorities,
 }
 
 impl WasmPluginShared {
@@ -98,6 +101,61 @@ impl WasmPluginShared {
 
     fn set_state_hash(&self, value: u64) {
         self.cached_state_hash.store(value, Ordering::Relaxed);
+    }
+
+    fn hosted_surface(
+        self: &Arc<Self>,
+        surface_key: String,
+        size_hint: wit::SurfaceSizeHint,
+        declared_slots: Vec<wit::DeclaredSlot>,
+        initial_placement: Option<SurfacePlacementRequest>,
+    ) -> Box<dyn Surface> {
+        let declared_slots = declared_slots
+            .into_iter()
+            .map(|slot| {
+                SlotDeclaration::new(slot.name, convert::wit_slot_kind_to_slot_kind(slot.kind))
+            })
+            .collect();
+        Box::new(WasmHostedSurface {
+            shared: Arc::clone(self),
+            id: next_wasm_surface_id(),
+            surface_key,
+            size_hint: convert::wit_surface_size_hint_to_size_hint(&size_hint),
+            declared_slots,
+            initial_placement,
+        })
+    }
+
+    fn convert_command(self: &Arc<Self>, command: &wit::Command) -> Vec<Command> {
+        match command {
+            wit::Command::RegisterSurface(config) => {
+                let placement = convert::wit_surface_placement_to_request(&config.placement);
+                vec![Command::RegisterSurfaceRequested {
+                    surface: self.hosted_surface(
+                        config.surface_key.clone(),
+                        config.size_hint,
+                        config.declared_slots.clone(),
+                        Some(placement.clone()),
+                    ),
+                    placement,
+                }]
+            }
+            _ => vec![convert::wit_command_to_command(command)],
+        }
+    }
+
+    fn convert_commands(self: &Arc<Self>, commands: &[wit::Command]) -> Vec<Command> {
+        commands
+            .iter()
+            .flat_map(|command| self.convert_command(command))
+            .collect()
+    }
+
+    fn convert_runtime_effects(self: &Arc<Self>, effects: &wit::RuntimeEffects) -> RuntimeEffects {
+        let shared = Arc::clone(self);
+        convert::wit_runtime_effects_to_effects_with(effects, move |command| {
+            shared.convert_command(command)
+        })
     }
 }
 
@@ -167,7 +225,8 @@ impl Surface for WasmHostedSurface {
                     if let Ok(hash) = plugin_api.call_state_hash(&mut runtime.store) {
                         self.shared.set_state_hash(hash);
                     }
-                    convert::wit_commands_to_commands(&commands)
+                    let shared = Arc::clone(&self.shared);
+                    shared.convert_commands(&commands)
                 }
                 Err(e) => {
                     tracing::error!(
@@ -194,7 +253,8 @@ impl Surface for WasmHostedSurface {
                     if let Ok(hash) = plugin_api.call_state_hash(&mut runtime.store) {
                         self.shared.set_state_hash(hash);
                     }
-                    convert::wit_commands_to_commands(&commands)
+                    let shared = Arc::clone(&self.shared);
+                    shared.convert_commands(&commands)
                 }
                 Err(e) => {
                     tracing::error!(
@@ -227,6 +287,7 @@ impl WasmPlugin {
         instance: bindings::KasanePlugin,
         id: String,
         process_allowed: bool,
+        authorities: PluginAuthorities,
     ) -> Self {
         Self {
             shared: Arc::new(WasmPluginShared {
@@ -234,6 +295,7 @@ impl WasmPlugin {
                 plugin_id: PluginId(id),
                 cached_state_hash: AtomicU64::new(0),
                 process_allowed,
+                authorities,
             }),
         }
     }
@@ -277,24 +339,43 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn on_state_changed_effects(&mut self, state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+        let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "on_state_changed_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(convert::wit_runtime_effects_to_effects(
+                Ok(shared.convert_runtime_effects(
                     &api.call_on_state_changed_effects(&mut rt.store, dirty.bits())?,
                 ))
             })
     }
 
     fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppState) -> RuntimeEffects {
+        let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "on_io_event_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 let wit_event = convert::io_event_to_wit(event);
-                Ok(convert::wit_runtime_effects_to_effects(
+                Ok(shared.convert_runtime_effects(
                     &api.call_on_io_event_effects(&mut rt.store, &wit_event)?,
                 ))
             })
+    }
+
+    fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
+        let snapshot = convert::workspace_query_to_snapshot(query);
+        self.shared.with_runtime(|runtime| {
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            if let Err(e) = plugin_api.call_on_workspace_changed(&mut runtime.store, &snapshot) {
+                tracing::error!(
+                    "WASM plugin {}.on_workspace_changed failed: {e}",
+                    self.shared.plugin_id.0
+                );
+                return;
+            }
+            if let Ok(hash) = plugin_api.call_state_hash(&mut runtime.store) {
+                self.shared.set_state_hash(hash);
+            }
+        });
     }
 
     fn state_hash(&self) -> u64 {
@@ -320,12 +401,13 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>> {
+        let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state);
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
             let result = match plugin_api.call_handle_key(&mut runtime.store, &wit_key) {
-                Ok(Some(cmds)) => Some(convert::wit_commands_to_commands(&cmds)),
+                Ok(Some(cmds)) => Some(shared.convert_commands(&cmds)),
                 Ok(None) => None,
                 Err(e) => {
                     tracing::error!(
@@ -346,18 +428,47 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyHandleResult {
+        let shared = Arc::clone(&self.shared);
+        self.shared
+            .call_synced_with_hash(state, "handle_key_middleware", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                let wit_key = convert::key_event_to_wit(key);
+                let result = api.call_handle_key_middleware(&mut rt.store, &wit_key)?;
+                Ok(match result {
+                    wit::KeyHandleResult::Consumed(commands) => {
+                        KeyHandleResult::Consumed(shared.convert_commands(&commands))
+                    }
+                    wit::KeyHandleResult::Transformed(next_key) => {
+                        match convert::wit_key_event_to_key_event(&next_key) {
+                            Ok(next_key) => KeyHandleResult::Transformed(next_key),
+                            Err(error) => {
+                                tracing::error!(
+                                    "WASM plugin {}.handle_key_middleware returned invalid key: {error}",
+                                    shared.plugin_id.0
+                                );
+                                KeyHandleResult::Passthrough
+                            }
+                        }
+                    }
+                    wit::KeyHandleResult::Passthrough => KeyHandleResult::Passthrough,
+                })
+            })
+    }
+
     fn handle_mouse(
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
         state: &AppState,
     ) -> Option<Vec<Command>> {
+        let shared = Arc::clone(&self.shared);
         self.shared.call_synced(state, "handle_mouse", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_event = convert::mouse_event_to_wit(event);
             Ok(api
                 .call_handle_mouse(&mut rt.store, wit_event, id.0)
-                .map(|opt| opt.map(|cmds| convert::wit_commands_to_commands(&cmds)))?)
+                .map(|opt| opt.map(|cmds| shared.convert_commands(&cmds)))?)
         })
     }
 
@@ -433,30 +544,16 @@ impl PluginBackend for WasmPlugin {
                 Ok(descriptors) => descriptors
                     .into_iter()
                     .map(|descriptor| {
-                        let declared_slots = descriptor
-                            .declared_slots
-                            .into_iter()
-                            .map(|slot| {
-                                SlotDeclaration::new(
-                                    slot.name,
-                                    convert::wit_slot_kind_to_slot_kind(slot.kind),
-                                )
-                            })
-                            .collect();
                         let initial_placement = descriptor
                             .initial_placement
                             .as_ref()
                             .map(convert::wit_surface_placement_to_request);
-                        Box::new(WasmHostedSurface {
-                            shared: Arc::clone(&shared),
-                            id: next_wasm_surface_id(),
-                            surface_key: descriptor.surface_key,
-                            size_hint: convert::wit_surface_size_hint_to_size_hint(
-                                &descriptor.size_hint,
-                            ),
-                            declared_slots,
+                        shared.hosted_surface(
+                            descriptor.surface_key,
+                            descriptor.size_hint,
+                            descriptor.declared_slots,
                             initial_placement,
-                        }) as Box<dyn Surface>
+                        )
                     })
                     .collect(),
                 Err(e) => {
@@ -576,6 +673,15 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn display_directives(&self, state: &AppState) -> Vec<DisplayDirective> {
+        self.shared.call_synced(state, "display_directives", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
+            Ok(convert::wit_display_directives_to_directives(
+                &api.call_display_directives(&mut rt.store)?,
+            ))
+        })
+    }
+
     fn contribute_overlay_with_ctx(
         &self,
         state: &AppState,
@@ -605,18 +711,22 @@ impl PluginBackend for WasmPlugin {
         PluginCapabilities::all()
     }
 
+    fn authorities(&self) -> PluginAuthorities {
+        self.shared.authorities
+    }
+
     fn allows_process_spawn(&self) -> bool {
         self.shared.process_allowed
     }
 
     fn update_effects(&mut self, msg: &mut dyn Any, state: &AppState) -> RuntimeEffects {
         if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
+            let shared = Arc::clone(&self.shared);
             self.shared
                 .call_synced_with_hash(state, "update_effects", |rt| {
                     let api = rt.instance.kasane_plugin_plugin_api();
-                    Ok(convert::wit_runtime_effects_to_effects(
-                        &api.call_update_effects(&mut rt.store, bytes)?,
-                    ))
+                    Ok(shared
+                        .convert_runtime_effects(&api.call_update_effects(&mut rt.store, bytes)?))
                 })
         } else {
             tracing::warn!(

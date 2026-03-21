@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::TestSurfaceBuilder;
 
 #[test]
 fn test_extract_redraw_flags_merges() {
@@ -145,4 +146,224 @@ fn test_partition_mixed_process_commands() {
     let (immediate, deferred) = partition_commands(commands);
     assert_eq!(immediate.len(), 2); // SendToKakoune + Paste
     assert_eq!(deferred.len(), 4); // SpawnProcess + WriteToProcess + CloseProcessStdin + KillProcess
+}
+
+#[test]
+fn test_partition_dynamic_surface_commands() {
+    let commands = vec![
+        Command::RegisterSurface {
+            surface: TestSurfaceBuilder::new(SurfaceId(250)).build(),
+            placement: Placement::SplitFocused {
+                direction: SplitDirection::Vertical,
+                ratio: 0.5,
+            },
+        },
+        Command::UnregisterSurface {
+            surface_id: SurfaceId(250),
+        },
+        Command::RegisterSurfaceRequested {
+            surface: TestSurfaceBuilder::new(SurfaceId(251)).build(),
+            placement: crate::surface::SurfacePlacementRequest::Tab,
+        },
+        Command::UnregisterSurfaceKey {
+            surface_key: "test.dynamic".into(),
+        },
+    ];
+    let (immediate, deferred) = partition_commands(commands);
+    assert!(immediate.is_empty());
+    assert_eq!(deferred.len(), 4);
+    assert!(matches!(deferred[0], Command::RegisterSurface { .. }));
+    assert!(matches!(
+        deferred[1],
+        Command::UnregisterSurface {
+            surface_id: SurfaceId(250)
+        }
+    ));
+    assert!(matches!(
+        deferred[2],
+        Command::RegisterSurfaceRequested { .. }
+    ));
+    assert!(matches!(deferred[3], Command::UnregisterSurfaceKey { .. }));
+}
+
+// --- G2: EditBuffer tests ---
+
+#[test]
+fn test_edit_buffer_is_immediate() {
+    let commands = vec![Command::EditBuffer {
+        edits: vec![BufferEdit {
+            start: BufferPosition { line: 1, column: 1 },
+            end: BufferPosition { line: 1, column: 5 },
+            replacement: "hello".into(),
+        }],
+    }];
+    let (immediate, deferred) = partition_commands(commands);
+    assert_eq!(immediate.len(), 1);
+    assert!(deferred.is_empty());
+}
+
+#[test]
+fn test_escape_kakoune_insert_text_special_chars() {
+    let escaped = escape_kakoune_insert_text("a<b>\nt\t\x1b -");
+    assert_eq!(
+        escaped,
+        vec![
+            "a", "<lt>", "b", "<gt>", "<ret>", "t", "<tab>", "<esc>", "<space>", "<minus>"
+        ]
+    );
+}
+
+#[test]
+fn test_escape_kakoune_insert_text_empty() {
+    let escaped = escape_kakoune_insert_text("");
+    assert!(escaped.is_empty());
+}
+
+#[test]
+fn test_escape_kakoune_insert_text_multibyte() {
+    let escaped = escape_kakoune_insert_text("日本語");
+    assert_eq!(escaped, vec!["日", "本", "語"]);
+}
+
+#[test]
+fn test_edits_to_keys_empty() {
+    let keys = edits_to_keys(&[]);
+    assert!(keys.is_empty());
+}
+
+#[test]
+fn test_edits_to_keys_single_replace() {
+    let edits = vec![BufferEdit {
+        start: BufferPosition { line: 3, column: 5 },
+        end: BufferPosition {
+            line: 3,
+            column: 10,
+        },
+        replacement: "hello".into(),
+    }];
+    let keys = edits_to_keys(&edits);
+    // Should start with <esc>, navigate to position, change, type text, exit
+    assert_eq!(keys[0], "<esc>");
+    assert!(keys.contains(&"3g".to_string()));
+    assert!(keys.contains(&"c".to_string()));
+    assert!(keys.contains(&"h".to_string()));
+    assert!(*keys.last().unwrap() == "<esc>");
+}
+
+#[test]
+fn test_edits_to_keys_deletion() {
+    let edits = vec![BufferEdit {
+        start: BufferPosition { line: 1, column: 1 },
+        end: BufferPosition { line: 1, column: 5 },
+        replacement: String::new(),
+    }];
+    let keys = edits_to_keys(&edits);
+    assert!(keys.contains(&"d".to_string()));
+    assert!(!keys.contains(&"c".to_string()));
+}
+
+#[test]
+fn test_edits_to_keys_multiple_sorted_bottom_up() {
+    let edits = vec![
+        BufferEdit {
+            start: BufferPosition { line: 1, column: 1 },
+            end: BufferPosition { line: 1, column: 3 },
+            replacement: "AA".into(),
+        },
+        BufferEdit {
+            start: BufferPosition {
+                line: 10,
+                column: 1,
+            },
+            end: BufferPosition {
+                line: 10,
+                column: 3,
+            },
+            replacement: "BB".into(),
+        },
+    ];
+    let keys = edits_to_keys(&edits);
+
+    // Line 10 should appear before line 1 in the key sequence (bottom-up)
+    let line10_pos = keys.iter().position(|k| k == "10g").unwrap();
+    let line1_pos = keys.iter().position(|k| k == "1g").unwrap();
+    assert!(
+        line10_pos < line1_pos,
+        "line 10 edit should come before line 1 edit (bottom-up order)"
+    );
+}
+
+#[test]
+fn test_edits_to_keys_insert_at_point() {
+    // Zero-width range (start == end) with replacement text = insertion
+    let edits = vec![BufferEdit {
+        start: BufferPosition { line: 5, column: 3 },
+        end: BufferPosition { line: 5, column: 3 },
+        replacement: "new".into(),
+    }];
+    let keys = edits_to_keys(&edits);
+    assert!(keys.contains(&"c".to_string()));
+    assert!(keys.contains(&"n".to_string()));
+    assert!(keys.contains(&"e".to_string()));
+    assert!(keys.contains(&"w".to_string()));
+}
+
+#[test]
+fn test_edits_to_keys_zero_width_empty_replacement_skipped() {
+    // Zero-width range with empty replacement = no-op
+    let edits = vec![BufferEdit {
+        start: BufferPosition { line: 1, column: 1 },
+        end: BufferPosition { line: 1, column: 1 },
+        replacement: String::new(),
+    }];
+    let keys = edits_to_keys(&edits);
+    // Should only have <esc> and navigation, no d or c
+    assert!(!keys.contains(&"d".to_string()));
+    assert!(!keys.contains(&"c".to_string()));
+}
+
+#[test]
+fn test_execute_commands_edit_buffer() {
+    let mut output = Vec::new();
+    let result = execute_commands(
+        vec![Command::EditBuffer {
+            edits: vec![BufferEdit {
+                start: BufferPosition { line: 1, column: 1 },
+                end: BufferPosition { line: 1, column: 3 },
+                replacement: "hi".into(),
+            }],
+        }],
+        &mut output,
+        &mut || None,
+    );
+    assert!(matches!(result, CommandResult::Continue));
+    // Output should contain a JSON-RPC keys request
+    let output_str = String::from_utf8(output).unwrap();
+    assert!(output_str.contains("\"method\":\"keys\""));
+}
+
+#[test]
+fn test_inject_input_is_deferred() {
+    use crate::input::{InputEvent, Key, KeyEvent, Modifiers};
+    let commands = vec![Command::InjectInput(InputEvent::Key(KeyEvent {
+        key: Key::Char('a'),
+        modifiers: Modifiers::empty(),
+    }))];
+    let (immediate, deferred) = partition_commands(commands);
+    assert!(immediate.is_empty());
+    assert_eq!(deferred.len(), 1);
+    assert!(matches!(deferred[0], Command::InjectInput(_)));
+}
+
+#[test]
+fn test_execute_commands_edit_buffer_empty_edits() {
+    let mut output = Vec::new();
+    let result = execute_commands(
+        vec![Command::EditBuffer { edits: vec![] }],
+        &mut output,
+        &mut || None,
+    );
+    assert!(matches!(result, CommandResult::Continue));
+    // No output for empty edits
+    assert!(output.is_empty());
 }

@@ -33,6 +33,14 @@ pub enum StdinMode {
     Null,
     /// stdin is piped — host can write data to the child.
     Piped,
+    /// Spawn the process in a pseudo-terminal.
+    /// The process receives stdin/stdout/stderr through the PTY.
+    /// ANSI escape sequences are passed through in ProcessEvent::Stdout.
+    Pty {
+        /// Initial terminal dimensions.
+        rows: u16,
+        cols: u16,
+    },
 }
 
 /// Abstraction for sending process events from ProcessManager to the event loop.
@@ -57,6 +65,9 @@ pub trait ProcessDispatcher {
     fn write(&mut self, plugin_id: &PluginId, job_id: u64, data: &[u8]);
     fn close_stdin(&mut self, plugin_id: &PluginId, job_id: u64);
     fn kill(&mut self, plugin_id: &PluginId, job_id: u64);
+    /// Resize the PTY of a spawned process.
+    /// No-op if the process was not spawned with `StdinMode::Pty`.
+    fn resize_pty(&mut self, plugin_id: &PluginId, job_id: u64, rows: u16, cols: u16);
     /// Remove a finished job from tracking after its Exited or SpawnFailed event
     /// has been delivered. This frees the per-plugin process count slot.
     fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64);
@@ -78,5 +89,6 @@ impl ProcessDispatcher for NullProcessDispatcher {
     fn write(&mut self, _plugin_id: &PluginId, _job_id: u64, _data: &[u8]) {}
     fn close_stdin(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
     fn kill(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
+    fn resize_pty(&mut self, _plugin_id: &PluginId, _job_id: u64, _rows: u16, _cols: u16) {}
     fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 }

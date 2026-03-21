@@ -1,6 +1,6 @@
 use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
-use crate::plugin::{Command, PluginId, PluginRuntime, extract_redraw_flags};
+use crate::plugin::{Command, KeyDispatchResult, PluginId, PluginRuntime, extract_redraw_flags};
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
 
@@ -119,29 +119,32 @@ fn update_inner(
                 plugin.observe_key(&key, state);
             }
 
-            // 2. Plugin handle_key chain (first-wins)
+            // 2. Plugin key middleware chain.
             // PageUp/PageDown are handled by BuiltinInputPlugin (lowest priority).
-            for plugin in registry.plugins_mut() {
-                if let Some(mut commands) = plugin.handle_key(&key, state) {
-                    let source = plugin.id();
+            match registry.dispatch_key_middleware(&key, state) {
+                KeyDispatchResult::Consumed {
+                    source_plugin,
+                    mut commands,
+                } => {
                     let flags = extract_redraw_flags(&mut commands);
-                    return UpdateResult {
+                    UpdateResult {
                         flags,
                         commands,
                         scroll_plans: vec![],
-                        source_plugin: Some(source),
-                    };
+                        source_plugin: Some(source_plugin),
+                    }
                 }
-            }
-
-            // 3. Forward to Kakoune
-            let kak_key = input::key_to_kakoune(&key);
-            let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
-            UpdateResult {
-                flags: DirtyFlags::empty(),
-                commands: vec![cmd],
-                scroll_plans: vec![],
-                source_plugin: None,
+                KeyDispatchResult::Passthrough(final_key) => {
+                    // 3. Forward the final transformed key to Kakoune.
+                    let kak_key = input::key_to_kakoune(&final_key);
+                    let cmd = Command::SendToKakoune(KasaneRequest::Keys(vec![kak_key]));
+                    UpdateResult {
+                        flags: DirtyFlags::empty(),
+                        commands: vec![cmd],
+                        scroll_plans: vec![],
+                        source_plugin: None,
+                    }
+                }
             }
         }
         Msg::Mouse(mouse) => {

@@ -153,6 +153,12 @@ pub mod capability {
     pub const PROCESS: u8 = 3;
 }
 
+/// Kasane host authority identifiers matching the WIT `plugin-authority` enum ordinals.
+pub mod authority {
+    pub const DYNAMIC_SURFACE: u8 = 0;
+    pub const PTY_PROCESS: u8 = 1;
+}
+
 /// Modifier key bitflags matching `kasane_core::input::Modifiers`.
 pub mod modifiers {
     pub const CTRL: u8 = 0b0000_0001;
@@ -396,7 +402,8 @@ macro_rules! default_contribute {
 }
 
 /// Default input handling stubs
-/// (`handle_mouse`, `handle_key`, `handle_default_scroll`, `observe_key`, `observe_mouse`).
+/// (`handle_mouse`, `handle_key`, `handle_key_middleware`,
+/// `handle_default_scroll`, `observe_key`, `observe_mouse`).
 #[macro_export]
 macro_rules! default_input {
     () => {
@@ -405,6 +412,12 @@ macro_rules! default_input {
         }
         fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
             None
+        }
+        fn handle_key_middleware(event: KeyEvent) -> KeyHandleResult {
+            match Self::handle_key(event) {
+                Some(commands) => KeyHandleResult::Consumed(commands),
+                None => KeyHandleResult::Passthrough,
+            }
         }
         fn handle_default_scroll(_candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
             None
@@ -569,6 +582,24 @@ macro_rules! default_annotate {
     };
 }
 
+/// Default display-directives stub (returns no directives).
+#[macro_export]
+macro_rules! default_display_directives {
+    () => {
+        fn display_directives() -> Vec<DisplayDirective> {
+            vec![]
+        }
+    };
+}
+
+/// Default workspace-changed stub (ignores workspace layout notifications).
+#[macro_export]
+macro_rules! default_workspace_changed {
+    () => {
+        fn on_workspace_changed(_snapshot: WorkspaceSnapshot) {}
+    };
+}
+
 /// Default contribute-overlay-v2 stub (returns None).
 #[macro_export]
 macro_rules! default_overlay_v2 {
@@ -684,6 +715,16 @@ macro_rules! __route_slot_ids_impl {
 macro_rules! default_capabilities {
     () => {
         fn requested_capabilities() -> Vec<Capability> {
+            vec![]
+        }
+    };
+}
+
+/// Default requested-authorities stub (returns empty list = no privileged host authorities).
+#[macro_export]
+macro_rules! default_authorities {
+    () => {
+        fn requested_authorities() -> Vec<PluginAuthority> {
             vec![]
         }
     };

@@ -1,15 +1,16 @@
 use std::time::Duration;
 
 use crate::bindings::kasane::plugin::types as wit;
+use kasane_core::input::InputEvent;
 use kasane_core::plugin::{
-    BootstrapEffects, Command, PluginId, RuntimeEffects, SessionReadyCommand, SessionReadyEffects,
-    StdinMode,
+    BootstrapEffects, BufferEdit, BufferPosition, Command, PluginId, RuntimeEffects,
+    SessionReadyCommand, SessionReadyEffects, StdinMode,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::session::SessionCommand as CoreSessionCommand;
 use kasane_core::state::DirtyFlags;
 
-use super::wit_scroll_plan_to_scroll_plan;
+use super::{wit_key_event_to_key_event, wit_scroll_plan_to_scroll_plan};
 
 pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
     match wc {
@@ -32,6 +33,12 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
             target: PluginId(mc.target_plugin.clone()),
             payload: Box::new(mc.payload.clone()),
         },
+        wit::Command::RegisterSurface(_) => {
+            unreachable!("register-surface commands require adapter context")
+        }
+        wit::Command::UnregisterSurface(surface_key) => Command::UnregisterSurfaceKey {
+            surface_key: surface_key.clone(),
+        },
         wit::Command::SpawnProcess(cfg) => Command::SpawnProcess {
             job_id: cfg.job_id,
             program: cfg.program.clone(),
@@ -39,6 +46,10 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
             stdin_mode: match cfg.stdin_mode {
                 wit::StdinMode::NullStdin => StdinMode::Null,
                 wit::StdinMode::Piped => StdinMode::Piped,
+                wit::StdinMode::Pty(ref size) => StdinMode::Pty {
+                    rows: size.rows,
+                    cols: size.cols,
+                },
             },
         },
         wit::Command::SpawnSession(cfg) => Command::Session(CoreSessionCommand::Spawn {
@@ -56,14 +67,60 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         },
         wit::Command::CloseProcessStdin(job_id) => Command::CloseProcessStdin { job_id: *job_id },
         wit::Command::KillProcess(job_id) => Command::KillProcess { job_id: *job_id },
+        wit::Command::ResizePty(cfg) => Command::ResizePty {
+            job_id: cfg.job_id,
+            rows: cfg.rows,
+            cols: cfg.cols,
+        },
+        wit::Command::InjectKey(key_event) => {
+            match wit_key_event_to_key_event(key_event) {
+                Ok(native_key) => Command::InjectInput(InputEvent::Key(native_key)),
+                Err(msg) => {
+                    tracing::warn!(error = %msg, "ignoring inject-key with invalid key event");
+                    // Return a no-op command
+                    Command::RequestRedraw(DirtyFlags::empty())
+                }
+            }
+        }
+        wit::Command::EditBuffer(edits) => Command::EditBuffer {
+            edits: edits
+                .iter()
+                .map(|e| BufferEdit {
+                    start: BufferPosition {
+                        line: e.start_line,
+                        column: e.start_column,
+                    },
+                    end: BufferPosition {
+                        line: e.end_line,
+                        column: e.end_column,
+                    },
+                    replacement: e.replacement.clone(),
+                })
+                .collect(),
+        },
         wit::Command::SwitchSession(key) => {
             Command::Session(CoreSessionCommand::Switch { key: key.clone() })
         }
     }
 }
 
-pub(crate) fn wit_commands_to_commands(wcs: &[wit::Command]) -> Vec<Command> {
-    wcs.iter().map(wit_command_to_command).collect()
+pub(crate) fn wit_runtime_effects_to_effects_with(
+    effects: &wit::RuntimeEffects,
+    mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
+) -> RuntimeEffects {
+    RuntimeEffects {
+        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
+        commands: effects
+            .commands
+            .iter()
+            .flat_map(&mut convert_command)
+            .collect(),
+        scroll_plans: effects
+            .scroll_plans
+            .iter()
+            .map(wit_scroll_plan_to_scroll_plan)
+            .collect(),
+    }
 }
 
 pub(crate) fn wit_bootstrap_effects_to_effects(
@@ -105,14 +162,7 @@ fn wit_session_ready_command_to_command(command: &wit::SessionReadyCommand) -> S
     }
 }
 
+#[cfg(test)]
 pub(crate) fn wit_runtime_effects_to_effects(effects: &wit::RuntimeEffects) -> RuntimeEffects {
-    RuntimeEffects {
-        redraw: DirtyFlags::from_bits_truncate(effects.redraw),
-        commands: wit_commands_to_commands(&effects.commands),
-        scroll_plans: effects
-            .scroll_plans
-            .iter()
-            .map(wit_scroll_plan_to_scroll_plan)
-            .collect(),
-    }
+    wit_runtime_effects_to_effects_with(effects, |command| vec![wit_command_to_command(command)])
 }

@@ -269,6 +269,8 @@ pub fn sync_plugin_contributions(
         line_width: state.cols,
         gutter_width: 0,
         display_map: Some(Arc::clone(&display_map)),
+        pane_surface_id: None,
+        pane_focused: true,
     };
     let result = registry.collect_annotations(state, &annotate_ctx);
     let next_gen = inputs.annotations.generation(db) + 1;
@@ -292,6 +294,7 @@ pub fn sync_plugin_contributions(
         screen_rows: state.rows,
         menu_rect: None,
         existing_overlays: vec![],
+        focused_surface_id: None,
     };
     let overlays: Vec<Overlay> = registry
         .collect_overlays_with_ctx(state, &overlay_ctx)

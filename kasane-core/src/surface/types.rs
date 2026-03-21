@@ -5,7 +5,7 @@ use compact_str::CompactString;
 use crate::input::KeyEvent;
 use crate::input::MouseEvent;
 use crate::layout::{Rect, SplitDirection};
-use crate::plugin::{Command, PluginId, PluginView};
+use crate::plugin::{Command, PaneContext, PluginId, PluginView};
 use crate::state::AppState;
 use crate::workspace::DockPosition;
 
@@ -102,6 +102,8 @@ pub struct ViewContext<'a> {
     pub registry: &'a PluginView<'a>,
     /// This surface's identifier.
     pub surface_id: SurfaceId,
+    /// Logical pane context for this surface render.
+    pub pane_context: PaneContext,
 }
 
 /// Context provided to a Surface when handling events.

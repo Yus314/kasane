@@ -1,16 +1,17 @@
 use super::*;
 use kasane_core::element::{BorderLineStyle, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
-use kasane_core::layout::flex::Constraints;
+use kasane_core::layout::{Rect, SplitDirection, flex::Constraints};
 use kasane_core::plugin::{Command, ContributeContext, IoEvent, ProcessEvent, StdinMode};
-use kasane_core::protocol::KasaneRequest;
+use kasane_core::protocol::{Face, KasaneRequest};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
     ScrollPlan, ScrollPolicyResult,
 };
 use kasane_core::session::SessionCommand;
 use kasane_core::state::{AppState, DirtyFlags};
-use kasane_core::surface::{EventContext, SurfaceEvent};
+use kasane_core::surface::{EventContext, SurfaceEvent, SurfaceId};
+use kasane_core::workspace::Workspace;
 
 #[test]
 fn convert_default_color() {
@@ -124,6 +125,16 @@ fn convert_command_paste() {
 }
 
 #[test]
+fn convert_command_unregister_surface() {
+    let wc = wit::Command::UnregisterSurface("dynamic.surface".into());
+    assert!(matches!(
+        wit_command_to_command(&wc),
+        Command::UnregisterSurfaceKey { surface_key }
+        if surface_key == "dynamic.surface"
+    ));
+}
+
+#[test]
 fn convert_default_scroll_candidate_to_wit() {
     let candidate = DefaultScrollCandidate::new(
         10,
@@ -211,6 +222,97 @@ fn convert_runtime_effects_from_wit() {
             ScrollCurve::Linear,
             ScrollAccumulationMode::Replace,
         )]
+    );
+}
+
+#[test]
+fn convert_display_directive_fold_roundtrip() {
+    let directive = kasane_core::display::DisplayDirective::Fold {
+        range: 2..5,
+        summary: "folded".into(),
+        face: Face::default(),
+    };
+
+    let wit = display_directive_to_wit(&directive);
+    let roundtrip = wit_display_directive_to_directive(&wit);
+
+    assert_eq!(roundtrip, directive);
+}
+
+#[test]
+fn convert_display_directive_insert_after_roundtrip() {
+    let directive = kasane_core::display::DisplayDirective::InsertAfter {
+        after: 3,
+        content: "virtual".into(),
+        face: Face::default(),
+    };
+
+    let wit = display_directive_to_wit(&directive);
+    let roundtrip = wit_display_directive_to_directive(&wit);
+
+    assert_eq!(roundtrip, directive);
+}
+
+#[test]
+fn convert_display_directive_hide_roundtrip() {
+    let directive = kasane_core::display::DisplayDirective::Hide { range: 4..7 };
+
+    let wit = display_directive_to_wit(&directive);
+    let roundtrip = wit_display_directive_to_directive(&wit);
+
+    assert_eq!(roundtrip, directive);
+}
+
+#[test]
+fn convert_display_directive_list_roundtrip() {
+    let directives = vec![
+        kasane_core::display::DisplayDirective::Hide { range: 1..3 },
+        kasane_core::display::DisplayDirective::InsertAfter {
+            after: 3,
+            content: "virtual".into(),
+            face: Face::default(),
+        },
+    ];
+
+    let wit = display_directives_to_wit(&directives);
+    let roundtrip = wit_display_directives_to_directives(&wit);
+
+    assert_eq!(roundtrip, directives);
+}
+
+#[test]
+fn convert_workspace_query_to_snapshot_preserves_surface_layout() {
+    let primary = SurfaceId(41);
+    let secondary = SurfaceId(42);
+    let mut workspace = Workspace::new(primary);
+    workspace
+        .root_mut()
+        .split(primary, SplitDirection::Vertical, 0.5, secondary);
+    workspace.focus(secondary);
+
+    let query = workspace.query(Rect {
+        x: 0,
+        y: 0,
+        w: 80,
+        h: 24,
+    });
+    let snapshot = workspace_query_to_snapshot(&query);
+
+    assert_eq!(snapshot.surfaces, vec![41, 42]);
+    assert_eq!(snapshot.focused, 42);
+    assert_eq!(snapshot.surface_count, 2);
+    assert_eq!(snapshot.rects.len(), 2);
+    assert!(
+        snapshot
+            .rects
+            .iter()
+            .any(|rect| { rect.surface_id == 41 && rect.x == 0 && rect.y == 0 && rect.h == 24 })
+    );
+    assert!(
+        snapshot
+            .rects
+            .iter()
+            .any(|rect| { rect.surface_id == 42 && rect.y == 0 && rect.h == 24 })
     );
 }
 
@@ -325,6 +427,19 @@ fn convert_key_event_roundtrip() {
     let wit_ev = key_event_to_wit(&native);
     assert!(matches!(wit_ev.key, wit::KeyCode::Character(ref s) if s == "x"));
     assert_eq!(wit_ev.modifiers, Modifiers::ALT.bits());
+    let roundtrip = wit_key_event_to_key_event(&wit_ev).expect("valid key event");
+    assert_eq!(roundtrip, native);
+}
+
+#[test]
+fn convert_key_event_rejects_invalid_multicharacter_key() {
+    let err = wit_key_event_to_key_event(&wit::KeyEvent {
+        key: wit::KeyCode::Character("xy".to_string()),
+        modifiers: 0,
+    })
+    .expect_err("invalid transformed key should be rejected");
+
+    assert!(err.contains("exactly one scalar"));
 }
 
 #[test]
@@ -883,5 +998,69 @@ fn convert_command_switch_session() {
             assert_eq!(key, "work");
         }
         _ => panic!("expected Session::Switch"),
+    }
+}
+
+#[test]
+fn convert_command_edit_buffer() {
+    use kasane_core::plugin::{BufferEdit, BufferPosition};
+
+    let wc = wit::Command::EditBuffer(vec![
+        wit::BufferEdit {
+            start_line: 3,
+            start_column: 5,
+            end_line: 3,
+            end_column: 10,
+            replacement: "hello".into(),
+        },
+        wit::BufferEdit {
+            start_line: 1,
+            start_column: 1,
+            end_line: 1,
+            end_column: 1,
+            replacement: String::new(),
+        },
+    ]);
+    match wit_command_to_command(&wc) {
+        Command::EditBuffer { edits } => {
+            assert_eq!(edits.len(), 2);
+            assert_eq!(
+                edits[0],
+                BufferEdit {
+                    start: BufferPosition { line: 3, column: 5 },
+                    end: BufferPosition {
+                        line: 3,
+                        column: 10
+                    },
+                    replacement: "hello".into(),
+                }
+            );
+            assert_eq!(
+                edits[1],
+                BufferEdit {
+                    start: BufferPosition { line: 1, column: 1 },
+                    end: BufferPosition { line: 1, column: 1 },
+                    replacement: String::new(),
+                }
+            );
+        }
+        _ => panic!("expected EditBuffer"),
+    }
+}
+
+#[test]
+fn convert_command_inject_key() {
+    use kasane_core::input::{InputEvent, Key, Modifiers};
+
+    let wc = wit::Command::InjectKey(wit::KeyEvent {
+        key: wit::KeyCode::Character("a".to_string()),
+        modifiers: Modifiers::CTRL.bits(),
+    });
+    match wit_command_to_command(&wc) {
+        Command::InjectInput(InputEvent::Key(key_event)) => {
+            assert_eq!(key_event.key, Key::Char('a'));
+            assert_eq!(key_event.modifiers, Modifiers::CTRL);
+        }
+        _ => panic!("expected InjectInput(Key(...))"),
     }
 }

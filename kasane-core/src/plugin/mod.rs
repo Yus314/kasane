@@ -21,7 +21,8 @@ use compact_str::CompactString;
 
 // Re-export command module
 pub use command::{
-    Command, CommandResult, PaintHook, execute_commands, extract_redraw_flags, partition_commands,
+    BufferEdit, BufferPosition, Command, CommandResult, PaintHook, edits_to_keys,
+    escape_kakoune_insert_text, execute_commands, extract_redraw_flags, partition_commands,
 };
 pub use diagnostics::{
     DEFAULT_PLUGIN_DIAGNOSTIC_OVERLAY_LINES, PLUGIN_ACTIVATION_OVERLAY_TITLE,
@@ -60,11 +61,11 @@ pub use io::{
 pub use context::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, ContribSizeHint,
     ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
-    SourcedContribution, TransformContext, TransformTarget,
+    PaneContext, SourcedContribution, TransformContext, TransformTarget,
 };
 
 // Re-export registry module
-pub use registry::{PluginRuntime, PluginSurfaceSet, PluginView};
+pub use registry::{KeyDispatchResult, PluginRuntime, PluginSurfaceSet, PluginView};
 
 /// Deprecated alias — use [`PluginRuntime`] instead.
 #[deprecated(note = "renamed to PluginRuntime")]
@@ -74,7 +75,7 @@ pub type PluginRegistry = PluginRuntime;
 pub use crate::display::{DisplayDirective, DisplayMapRef};
 
 // Re-export traits module
-pub use traits::PluginBackend;
+pub use traits::{KeyHandleResult, PluginBackend};
 
 // Re-export state and bridge modules
 pub use bridge::{IsBridgedPlugin, PluginBridge};
@@ -98,6 +99,18 @@ bitflags! {
         const IO_HANDLER         = 1 << 17;
         const DISPLAY_TRANSFORM  = 1 << 18;
         const SCROLL_POLICY      = 1 << 19;
+    }
+}
+
+bitflags! {
+    /// Host-resolved authority set for privileged plugin effects.
+    ///
+    /// Unlike [`PluginCapabilities`], these bits are a security boundary used
+    /// by the event loop when executing deferred commands.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PluginAuthorities: u32 {
+        const DYNAMIC_SURFACE = 1 << 0;
+        const PTY_PROCESS     = 1 << 1;
     }
 }
 

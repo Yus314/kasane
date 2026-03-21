@@ -10,10 +10,10 @@ use std::time::Duration;
 use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
-    AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, IoEvent, PluginDiagnostic,
-    PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent, ReadyBatch, RuntimeBatch,
-    RuntimeEffects, SessionReadyCommand, execute_commands, extract_redraw_flags,
-    partition_commands,
+    AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, IoEvent, PluginAuthorities,
+    PluginDiagnostic, PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent, ReadyBatch,
+    RuntimeBatch, RuntimeEffects, SessionReadyCommand, StdinMode, execute_commands,
+    extract_redraw_flags, partition_commands,
 };
 use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
@@ -30,6 +30,7 @@ pub struct EventResult {
     pub scroll_plans: Vec<ScrollPlan>,
     pub surface_commands: Vec<SourcedSurfaceCommands>,
     pub command_source: Option<PluginId>,
+    pub workspace_changed: bool,
 }
 
 impl EventResult {
@@ -40,6 +41,7 @@ impl EventResult {
             scroll_plans: vec![],
             surface_commands: vec![],
             command_source: None,
+            workspace_changed: false,
         }
     }
 
@@ -475,6 +477,21 @@ pub fn rebuild_hit_map(
     state.hit_map = crate::layout::build_hit_map(&element, &layout_result);
 }
 
+/// Notify workspace observers with a post-layout snapshot of the current workspace.
+pub fn notify_workspace_observers(
+    registry: &mut PluginRuntime,
+    surface_registry: &SurfaceRegistry,
+    state: &AppState,
+) {
+    let query = surface_registry.workspace().query(Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    });
+    registry.notify_workspace_changed(&query);
+}
+
 /// Convert an input event into a surface event.
 ///
 /// Shared between TUI and GUI backends for routing input through the surface system.
@@ -615,6 +632,9 @@ pub struct DeferredContext<'a> {
     pub session_ready_gate: Option<&'a mut SessionReadyGate>,
     pub scroll_plan_sink: &'a mut dyn FnMut(ScrollPlan),
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
+    pub workspace_changed: &'a mut bool,
+    /// Scroll quantum (lines per scroll event), needed for injected input re-dispatch.
+    pub scroll_amount: i32,
 }
 
 /// Maximum recursion depth for cascading deferred commands.
@@ -622,6 +642,12 @@ pub struct DeferredContext<'a> {
 /// Prevents infinite loops when plugins produce deferred commands that trigger
 /// further deferred commands (e.g., PluginMessage → PluginMessage chains).
 const MAX_COMMAND_CASCADE_DEPTH: usize = 8;
+
+/// Maximum recursion depth for injected input events.
+///
+/// Prevents unbounded recursion when plugins inject keys that trigger
+/// further injections (e.g., macro playback → key handler → inject another key).
+const MAX_INJECT_DEPTH: usize = 10;
 
 /// Resolve the writer for the focused pane, falling back to `active_writer()`.
 ///
@@ -724,10 +750,11 @@ fn handle_deferred_commands_inner(
                         crate::surface::buffer::ClientBufferSurface::new(*surface_id),
                     ));
                 }
+                let mut workspace_dirty = DirtyFlags::empty();
                 crate::workspace::dispatch_workspace_command_with_total(
                     ctx.surface_registry,
                     ws_cmd,
-                    ctx.dirty,
+                    &mut workspace_dirty,
                     Some(crate::layout::Rect {
                         x: 0,
                         y: 0,
@@ -735,6 +762,211 @@ fn handle_deferred_commands_inner(
                         h: ctx.state.rows,
                     }),
                 );
+                *ctx.dirty |= workspace_dirty;
+                if !workspace_dirty.is_empty() {
+                    *ctx.workspace_changed = true;
+                }
+            }
+            Command::RegisterSurface { surface, placement } => {
+                let Some(plugin_id) = command_source_plugin else {
+                    tracing::warn!("RegisterSurface ignored: missing command source plugin");
+                    continue;
+                };
+                if !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
+                {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        "RegisterSurface denied: dynamic surface authority not granted"
+                    );
+                    continue;
+                }
+
+                let surface_id = surface.id();
+                match ctx
+                    .surface_registry
+                    .try_register_for_owner(surface, Some(plugin_id.clone()))
+                {
+                    Ok(()) => {
+                        crate::workspace::dispatch_workspace_command_with_total(
+                            ctx.surface_registry,
+                            crate::workspace::WorkspaceCommand::AddSurface {
+                                surface_id,
+                                placement,
+                            },
+                            ctx.dirty,
+                            Some(crate::layout::Rect {
+                                x: 0,
+                                y: 0,
+                                w: ctx.state.cols,
+                                h: ctx.state.rows,
+                            }),
+                        );
+                        *ctx.dirty |= DirtyFlags::ALL;
+                        *ctx.workspace_changed = true;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            surface_id = surface_id.0,
+                            "RegisterSurface ignored: {err:?}"
+                        );
+                    }
+                }
+            }
+            Command::RegisterSurfaceRequested { surface, placement } => {
+                let Some(plugin_id) = command_source_plugin else {
+                    tracing::warn!(
+                        "RegisterSurfaceRequested ignored: missing command source plugin"
+                    );
+                    continue;
+                };
+                if !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
+                {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        "RegisterSurfaceRequested denied: dynamic surface authority not granted"
+                    );
+                    continue;
+                }
+
+                let surface_id = surface.id();
+                match ctx
+                    .surface_registry
+                    .try_register_for_owner(surface, Some(plugin_id.clone()))
+                {
+                    Ok(()) => {
+                        let Some(placement) =
+                            ctx.surface_registry.resolve_placement_request(&placement)
+                        else {
+                            let _ = ctx.surface_registry.remove(surface_id);
+                            tracing::warn!(
+                                plugin = plugin_id.0,
+                                surface_id = surface_id.0,
+                                "RegisterSurfaceRequested ignored: unresolved placement request"
+                            );
+                            continue;
+                        };
+
+                        crate::workspace::dispatch_workspace_command_with_total(
+                            ctx.surface_registry,
+                            crate::workspace::WorkspaceCommand::AddSurface {
+                                surface_id,
+                                placement,
+                            },
+                            ctx.dirty,
+                            Some(crate::layout::Rect {
+                                x: 0,
+                                y: 0,
+                                w: ctx.state.cols,
+                                h: ctx.state.rows,
+                            }),
+                        );
+                        *ctx.dirty |= DirtyFlags::ALL;
+                        *ctx.workspace_changed = true;
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            surface_id = surface_id.0,
+                            "RegisterSurfaceRequested ignored: {err:?}"
+                        );
+                    }
+                }
+            }
+            Command::UnregisterSurface { surface_id } => {
+                let Some(plugin_id) = command_source_plugin else {
+                    tracing::warn!("UnregisterSurface ignored: missing command source plugin");
+                    continue;
+                };
+                if !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
+                {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        "UnregisterSurface denied: dynamic surface authority not granted"
+                    );
+                    continue;
+                }
+
+                match ctx.surface_registry.surface_owner_plugin(surface_id) {
+                    Some(owner) if owner == plugin_id => {
+                        let _ = ctx.surface_registry.remove(surface_id);
+                        let _ = ctx.surface_registry.workspace_mut().close(surface_id);
+                        *ctx.dirty |= DirtyFlags::ALL;
+                        *ctx.workspace_changed = true;
+                    }
+                    Some(owner) => {
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            owner = owner.0,
+                            surface_id = surface_id.0,
+                            "UnregisterSurface ignored: surface owned by another plugin"
+                        );
+                    }
+                    None => {
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            surface_id = surface_id.0,
+                            "UnregisterSurface ignored: surface is not plugin-owned or missing"
+                        );
+                    }
+                }
+            }
+            Command::UnregisterSurfaceKey { surface_key } => {
+                let Some(plugin_id) = command_source_plugin else {
+                    tracing::warn!("UnregisterSurfaceKey ignored: missing command source plugin");
+                    continue;
+                };
+                if !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::DYNAMIC_SURFACE)
+                {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        "UnregisterSurfaceKey denied: dynamic surface authority not granted"
+                    );
+                    continue;
+                }
+
+                let Some(surface_id) = ctx.surface_registry.surface_id_by_key(&surface_key) else {
+                    tracing::warn!(
+                        plugin = plugin_id.0,
+                        surface_key,
+                        "UnregisterSurfaceKey ignored: unknown surface key"
+                    );
+                    continue;
+                };
+
+                match ctx.surface_registry.surface_owner_plugin(surface_id) {
+                    Some(owner) if owner == plugin_id => {
+                        let _ = ctx.surface_registry.remove(surface_id);
+                        let _ = ctx.surface_registry.workspace_mut().close(surface_id);
+                        *ctx.dirty |= DirtyFlags::ALL;
+                        *ctx.workspace_changed = true;
+                    }
+                    Some(owner) => {
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            owner = owner.0,
+                            surface_id = surface_id.0,
+                            surface_key,
+                            "UnregisterSurfaceKey ignored: surface owned by another plugin"
+                        );
+                    }
+                    None => {
+                        tracing::warn!(
+                            plugin = plugin_id.0,
+                            surface_id = surface_id.0,
+                            surface_key,
+                            "UnregisterSurfaceKey ignored: surface is not plugin-owned or missing"
+                        );
+                    }
+                }
             }
             Command::RegisterThemeTokens(_tokens) => {
                 // Theme token registration will be handled when Theme is
@@ -747,7 +979,27 @@ fn handle_deferred_commands_inner(
                 stdin_mode,
             } => {
                 if let Some(plugin_id) = command_source_plugin {
-                    if ctx.registry.plugin_allows_process_spawn(plugin_id) {
+                    // PTY mode requires PTY_PROCESS authority in addition to process spawn
+                    let pty_denied = matches!(stdin_mode, StdinMode::Pty { .. })
+                        && !ctx
+                            .registry
+                            .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS);
+                    if pty_denied {
+                        tracing::warn!(
+                            plugin = plugin_id.0.as_str(),
+                            "SpawnProcess denied: PTY_PROCESS authority not granted"
+                        );
+                        let fail_event = IoEvent::Process(ProcessEvent::SpawnFailed {
+                            job_id,
+                            error: "PTY_PROCESS authority not granted".to_string(),
+                        });
+                        let batch =
+                            ctx.registry
+                                .deliver_io_event_batch(plugin_id, &fail_event, ctx.state);
+                        if apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1) {
+                            return true;
+                        }
+                    } else if ctx.registry.plugin_allows_process_spawn(plugin_id) {
                         ctx.process_dispatcher
                             .spawn(plugin_id, job_id, &program, &args, stdin_mode);
                     } else {
@@ -781,6 +1033,22 @@ fn handle_deferred_commands_inner(
             Command::KillProcess { job_id } => {
                 if let Some(plugin_id) = command_source_plugin {
                     ctx.process_dispatcher.kill(plugin_id, job_id);
+                }
+            }
+            Command::ResizePty { job_id, rows, cols } => {
+                if let Some(plugin_id) = command_source_plugin {
+                    if !ctx
+                        .registry
+                        .plugin_has_authority(plugin_id, PluginAuthorities::PTY_PROCESS)
+                    {
+                        tracing::warn!(
+                            plugin = plugin_id.0.as_str(),
+                            "ResizePty rejected: plugin lacks PTY_PROCESS authority"
+                        );
+                    } else {
+                        ctx.process_dispatcher
+                            .resize_pty(plugin_id, job_id, rows, cols);
+                    }
                 }
             }
             Command::SpawnPaneClient {
@@ -831,6 +1099,7 @@ fn handle_deferred_commands_inner(
                     );
 
                     *ctx.dirty |= DirtyFlags::ALL;
+                    *ctx.workspace_changed = true;
                 } else {
                     tracing::warn!("SpawnPaneClient ignored: no server session name available");
                 }
@@ -849,6 +1118,7 @@ fn handle_deferred_commands_inner(
                 ctx.surface_registry.remove(surface_id);
                 let _ = ctx.surface_registry.workspace_mut().close(surface_id);
                 *ctx.dirty |= DirtyFlags::ALL;
+                *ctx.workspace_changed = true;
             }
             Command::Session(cmd) => {
                 match cmd {
@@ -906,11 +1176,42 @@ fn handle_deferred_commands_inner(
                     return true;
                 }
             }
+            Command::InjectInput(input_event) => {
+                if depth >= MAX_INJECT_DEPTH {
+                    tracing::warn!(
+                        depth,
+                        "inject input depth limit reached, dropping injected event"
+                    );
+                } else {
+                    use crate::state::{Msg, update};
+
+                    let msg = Msg::from(input_event);
+                    let state = std::mem::take(ctx.state);
+                    let (returned_state, result) =
+                        update(Box::new(state), msg, ctx.registry, ctx.scroll_amount);
+                    *ctx.state = *returned_state;
+                    *ctx.dirty |= result.flags;
+                    for plan in result.scroll_plans {
+                        (ctx.scroll_plan_sink)(plan);
+                    }
+                    if !result.commands.is_empty()
+                        && handle_command_batch_inner(
+                            result.commands,
+                            ctx,
+                            result.source_plugin.as_ref(),
+                            depth + 1,
+                        )
+                    {
+                        return true;
+                    }
+                }
+            }
             // Immediate commands should not reach the deferred handler
             Command::SendToKakoune(_)
             | Command::Paste
             | Command::Quit
-            | Command::RequestRedraw(_) => {}
+            | Command::RequestRedraw(_)
+            | Command::EditBuffer { .. } => {}
         }
     }
     false
@@ -1084,17 +1385,18 @@ mod tests {
 
     use crate::layout::SplitDirection;
     use crate::plugin::{
-        AppliedWinnerDelta, Command, PluginBackend, PluginDescriptor, PluginId, PluginRank,
-        PluginRevision, PluginSource, RuntimeEffects, StdinMode,
+        AppliedWinnerDelta, Command, PluginAuthorities, PluginBackend, PluginDescriptor, PluginId,
+        PluginRank, PluginRevision, PluginSource, RuntimeEffects, StdinMode,
     };
     use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
-    use crate::surface::{SurfaceId, SurfaceRegistrationError};
+    use crate::surface::{SurfaceId, SurfacePlacementRequest, SurfaceRegistrationError};
     use crate::test_support::TestSurfaceBuilder;
     use crate::workspace::Placement;
 
     struct TestPlugin {
         id: PluginId,
         allow_spawn: bool,
+        authorities: PluginAuthorities,
     }
 
     impl PluginBackend for TestPlugin {
@@ -1104,6 +1406,10 @@ mod tests {
 
         fn allows_process_spawn(&self) -> bool {
             self.allow_spawn
+        }
+
+        fn authorities(&self) -> PluginAuthorities {
+            self.authorities
         }
     }
 
@@ -1215,6 +1521,8 @@ mod tests {
         fn close_stdin(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 
         fn kill(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
+
+        fn resize_pty(&mut self, _plugin_id: &PluginId, _job_id: u64, _rows: u16, _cols: u16) {}
 
         fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
     }
@@ -1479,6 +1787,7 @@ mod tests {
         registry.register_backend(Box::new(TestPlugin {
             id: plugin_id.clone(),
             allow_spawn: true,
+            authorities: PluginAuthorities::empty(),
         }));
 
         let mut state = AppState::default();
@@ -1489,6 +1798,7 @@ mod tests {
         let mut sessions = NoopSessionRuntime::default();
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
 
         let quit = handle_sourced_surface_commands(
             vec![SourcedSurfaceCommands {
@@ -1513,6 +1823,8 @@ mod tests {
                 session_ready_gate: None,
                 scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
             },
         );
 
@@ -1538,6 +1850,7 @@ mod tests {
         let mut initial_resize_sent = true;
         let mut dispatcher = RecordingDispatcher::default();
         let mut plans = Vec::new();
+        let mut workspace_changed = false;
 
         let quit = handle_deferred_commands(
             vec![Command::PluginMessage {
@@ -1557,6 +1870,8 @@ mod tests {
                 session_ready_gate: None,
                 scroll_plan_sink: &mut |plan| plans.push(plan),
                 process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
             },
             None,
         );
@@ -1566,6 +1881,410 @@ mod tests {
         assert!(dirty.contains(DirtyFlags::STATUS));
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].total_amount, 2);
+    }
+
+    #[test]
+    fn register_surface_requires_dynamic_surface_authority() {
+        let plugin_id = PluginId("surface-owner".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::empty(),
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::RegisterSurface {
+                surface: TestSurfaceBuilder::new(SurfaceId(300))
+                    .key("dynamic.surface")
+                    .build(),
+                placement: Placement::SplitFocused {
+                    direction: SplitDirection::Vertical,
+                    ratio: 0.5,
+                },
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        assert!(surface_registry.get(SurfaceId(300)).is_none());
+        assert!(!surface_registry.workspace_contains(SurfaceId(300)));
+    }
+
+    #[test]
+    fn register_surface_adds_plugin_owned_surface_to_workspace() {
+        let plugin_id = PluginId("surface-owner".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::DYNAMIC_SURFACE,
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::RegisterSurface {
+                surface: TestSurfaceBuilder::new(SurfaceId(301))
+                    .key("dynamic.surface.authorized")
+                    .build(),
+                placement: Placement::SplitFocused {
+                    direction: SplitDirection::Vertical,
+                    ratio: 0.5,
+                },
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        assert!(surface_registry.get(SurfaceId(301)).is_some());
+        assert_eq!(
+            surface_registry.surface_owner_plugin(SurfaceId(301)),
+            Some(&plugin_id)
+        );
+        assert!(surface_registry.workspace_contains(SurfaceId(301)));
+        assert!(dirty.contains(DirtyFlags::ALL));
+    }
+
+    #[test]
+    fn register_surface_requested_resolves_keyed_placement() {
+        let plugin_id = PluginId("surface-owner".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::DYNAMIC_SURFACE,
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::RegisterSurfaceRequested {
+                surface: TestSurfaceBuilder::new(SurfaceId(304))
+                    .key("dynamic.surface.requested")
+                    .build(),
+                placement: SurfacePlacementRequest::TabIn {
+                    target_surface_key: "kasane.buffer".into(),
+                },
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        assert!(surface_registry.get(SurfaceId(304)).is_some());
+        assert_eq!(
+            surface_registry.surface_owner_plugin(SurfaceId(304)),
+            Some(&plugin_id)
+        );
+        assert!(surface_registry.workspace_contains(SurfaceId(304)));
+        assert!(dirty.contains(DirtyFlags::ALL));
+    }
+
+    #[test]
+    fn unregister_surface_rejects_non_owner_even_with_authority() {
+        let owner_id = PluginId("surface-owner".to_string());
+        let other_id = PluginId("other-owner".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: owner_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::DYNAMIC_SURFACE,
+        }));
+        registry.register_backend(Box::new(TestPlugin {
+            id: other_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::DYNAMIC_SURFACE,
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        surface_registry
+            .try_register_for_owner(
+                TestSurfaceBuilder::new(SurfaceId(302))
+                    .key("dynamic.surface.owned")
+                    .build(),
+                Some(owner_id.clone()),
+            )
+            .unwrap();
+        let mut bootstrap_dirty = DirtyFlags::empty();
+        crate::workspace::dispatch_workspace_command_with_total(
+            &mut surface_registry,
+            crate::workspace::WorkspaceCommand::AddSurface {
+                surface_id: SurfaceId(302),
+                placement: Placement::SplitFocused {
+                    direction: SplitDirection::Vertical,
+                    ratio: 0.5,
+                },
+            },
+            &mut bootstrap_dirty,
+            Some(crate::layout::Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            }),
+        );
+
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::UnregisterSurface {
+                surface_id: SurfaceId(302),
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&other_id),
+        );
+
+        assert!(!quit);
+        assert!(surface_registry.get(SurfaceId(302)).is_some());
+        assert!(surface_registry.workspace_contains(SurfaceId(302)));
+    }
+
+    #[test]
+    fn unregister_surface_removes_owned_surface() {
+        let plugin_id = PluginId("surface-owner".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::DYNAMIC_SURFACE,
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        surface_registry
+            .try_register_for_owner(
+                TestSurfaceBuilder::new(SurfaceId(303))
+                    .key("dynamic.surface.remove")
+                    .build(),
+                Some(plugin_id.clone()),
+            )
+            .unwrap();
+        let mut bootstrap_dirty = DirtyFlags::empty();
+        crate::workspace::dispatch_workspace_command_with_total(
+            &mut surface_registry,
+            crate::workspace::WorkspaceCommand::AddSurface {
+                surface_id: SurfaceId(303),
+                placement: Placement::SplitFocused {
+                    direction: SplitDirection::Vertical,
+                    ratio: 0.5,
+                },
+            },
+            &mut bootstrap_dirty,
+            Some(crate::layout::Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            }),
+        );
+
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::UnregisterSurface {
+                surface_id: SurfaceId(303),
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        assert!(surface_registry.get(SurfaceId(303)).is_none());
+        assert!(!surface_registry.workspace_contains(SurfaceId(303)));
+        assert!(dirty.contains(DirtyFlags::ALL));
+    }
+
+    #[test]
+    fn unregister_surface_key_removes_owned_surface() {
+        let plugin_id = PluginId("surface-owner".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: false,
+            authorities: PluginAuthorities::DYNAMIC_SURFACE,
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        surface_registry
+            .try_register_for_owner(
+                TestSurfaceBuilder::new(SurfaceId(305))
+                    .key("dynamic.surface.remove.by.key")
+                    .build(),
+                Some(plugin_id.clone()),
+            )
+            .unwrap();
+        let mut bootstrap_dirty = DirtyFlags::empty();
+        crate::workspace::dispatch_workspace_command_with_total(
+            &mut surface_registry,
+            crate::workspace::WorkspaceCommand::AddSurface {
+                surface_id: SurfaceId(305),
+                placement: Placement::SplitFocused {
+                    direction: SplitDirection::Vertical,
+                    ratio: 0.5,
+                },
+            },
+            &mut bootstrap_dirty,
+            Some(crate::layout::Rect {
+                x: 0,
+                y: 0,
+                w: state.cols,
+                h: state.rows,
+            }),
+        );
+
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::UnregisterSurfaceKey {
+                surface_key: "dynamic.surface.remove.by.key".into(),
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        assert!(surface_registry.get(SurfaceId(305)).is_none());
+        assert!(!surface_registry.workspace_contains(SurfaceId(305)));
+        assert!(dirty.contains(DirtyFlags::ALL));
     }
 
     #[derive(Default)]
@@ -1628,6 +2347,7 @@ mod tests {
         let mut sessions = RecordingSessionHost::default();
         let mut initial_resize_sent = true;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
 
         let quit = handle_deferred_commands(
             vec![Command::Session(crate::session::SessionCommand::Spawn {
@@ -1649,6 +2369,8 @@ mod tests {
                 session_ready_gate: None,
                 scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
             },
             None,
         );
@@ -1672,6 +2394,7 @@ mod tests {
         let mut sessions = RecordingSessionHost::default();
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
 
         let quit = handle_deferred_commands(
             vec![Command::Session(crate::session::SessionCommand::Close {
@@ -1690,6 +2413,8 @@ mod tests {
                 session_ready_gate: None,
                 scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
             },
             None,
         );
@@ -1712,6 +2437,7 @@ mod tests {
         };
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
 
         let quit = handle_deferred_commands(
             vec![Command::Session(crate::session::SessionCommand::Close {
@@ -1730,6 +2456,8 @@ mod tests {
                 session_ready_gate: None,
                 scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
             },
             None,
         );
@@ -1749,6 +2477,7 @@ mod tests {
         let mut sessions = RecordingSessionHost::default();
         let mut initial_resize_sent = false;
         let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
 
         let quit = handle_deferred_commands(
             vec![Command::Session(crate::session::SessionCommand::Switch {
@@ -1767,6 +2496,8 @@ mod tests {
                 session_ready_gate: None,
                 scroll_plan_sink: &mut |_| {},
                 process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
             },
             None,
         );
@@ -1813,5 +2544,251 @@ mod tests {
 
         gate.rearm_ready_notification();
         assert!(gate.should_notify_ready());
+    }
+
+    #[test]
+    fn pty_spawn_requires_pty_process_authority() {
+        let plugin_id = PluginId("pty-plugin".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: true,
+            authorities: PluginAuthorities::empty(), // no PTY_PROCESS authority
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = true;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::SpawnProcess {
+                job_id: 1,
+                program: "bash".to_string(),
+                args: vec![],
+                stdin_mode: StdinMode::Pty { rows: 24, cols: 80 },
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        // PTY spawn should be rejected — dispatcher should not receive the spawn
+        assert!(dispatcher.spawned.is_empty());
+    }
+
+    #[test]
+    fn pty_spawn_allowed_with_authority() {
+        let plugin_id = PluginId("pty-plugin".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: true,
+            authorities: PluginAuthorities::PTY_PROCESS,
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = true;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::SpawnProcess {
+                job_id: 1,
+                program: "bash".to_string(),
+                args: vec![],
+                stdin_mode: StdinMode::Pty { rows: 24, cols: 80 },
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        assert_eq!(dispatcher.spawned.len(), 1);
+        assert_eq!(
+            dispatcher.spawned[0].4,
+            StdinMode::Pty { rows: 24, cols: 80 }
+        );
+    }
+
+    #[test]
+    fn piped_spawn_does_not_require_pty_authority() {
+        let plugin_id = PluginId("piped-plugin".to_string());
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        registry.register_backend(Box::new(TestPlugin {
+            id: plugin_id.clone(),
+            allow_spawn: true,
+            authorities: PluginAuthorities::empty(), // no PTY_PROCESS authority
+        }));
+        let mut surface_registry = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut surface_registry);
+        let mut pane_map = PaneMap::new();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = true;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        let quit = handle_deferred_commands(
+            vec![Command::SpawnProcess {
+                job_id: 1,
+                program: "echo".to_string(),
+                args: vec!["test".to_string()],
+                stdin_mode: StdinMode::Piped,
+            }],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            Some(&plugin_id),
+        );
+
+        assert!(!quit);
+        // Piped spawn should succeed without PTY_PROCESS authority
+        assert_eq!(dispatcher.spawned.len(), 1);
+        assert_eq!(dispatcher.spawned[0].4, StdinMode::Piped);
+    }
+
+    #[test]
+    fn inject_input_dispatches_through_update() {
+        use crate::input::{InputEvent, Key, KeyEvent, Modifiers};
+
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut pane_map = PaneMap::default();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+        let mut scroll_plans = Vec::new();
+
+        let quit = handle_deferred_commands(
+            vec![Command::InjectInput(InputEvent::Key(KeyEvent {
+                key: Key::Char('a'),
+                modifiers: Modifiers::empty(),
+            }))],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |plan| scroll_plans.push(plan),
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            None,
+        );
+
+        // The injected key should have been processed through update()
+        // which sends it to Kakoune via SendToKakoune (immediate command)
+        assert!(!quit);
+    }
+
+    #[test]
+    fn inject_input_respects_depth_limit() {
+        use crate::input::{InputEvent, Key, KeyEvent, Modifiers};
+
+        let mut state = AppState::default();
+        let mut registry = PluginRuntime::new();
+        let mut surface_registry = SurfaceRegistry::new();
+        let mut pane_map = PaneMap::default();
+        let mut dirty = DirtyFlags::empty();
+        let timer = NoopTimer;
+        let mut sessions = NoopSessionRuntime::default();
+        let mut initial_resize_sent = false;
+        let mut dispatcher = RecordingDispatcher::default();
+        let mut workspace_changed = false;
+
+        // Call at MAX depth — should be dropped
+        let quit = handle_deferred_commands_inner(
+            vec![Command::InjectInput(InputEvent::Key(KeyEvent {
+                key: Key::Char('x'),
+                modifiers: Modifiers::empty(),
+            }))],
+            &mut DeferredContext {
+                state: &mut state,
+                registry: &mut registry,
+                surface_registry: &mut surface_registry,
+                pane_map: &mut pane_map,
+                clipboard_get: &mut || None,
+                dirty: &mut dirty,
+                timer: &timer,
+                session_host: &mut sessions,
+                initial_resize_sent: &mut initial_resize_sent,
+                session_ready_gate: None,
+                scroll_plan_sink: &mut |_| {},
+                process_dispatcher: &mut dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: 3,
+            },
+            None,
+            MAX_INJECT_DEPTH, // at limit — should be dropped
+        );
+
+        assert!(!quit);
     }
 }

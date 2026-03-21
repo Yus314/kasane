@@ -8,9 +8,10 @@ pub use crate::kasane_plugin;
 
 // Plugin trait and types
 pub use crate::plugin::{
-    AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, BootstrapEffects, Command,
-    ContribSizeHint, ContributeContext, Contribution, DisplayDirective, DisplayMapRef,
-    IsBridgedPlugin, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, Plugin,
+    AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, BootstrapEffects, BufferEdit,
+    BufferPosition, Command, ContribSizeHint, ContributeContext, Contribution, DisplayDirective,
+    DisplayMapRef, IsBridgedPlugin, KeyDispatchResult, KeyHandleResult, LineAnnotation,
+    OverlayContext, OverlayContribution, PaintHook, PaneContext, Plugin, PluginAuthorities,
     PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor, PluginFactory, PluginId,
     PluginManager, PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
     PluginState, RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId,

@@ -1,8 +1,15 @@
 use super::*;
-use crate::plugin::{BootstrapEffects, RuntimeEffects, SessionReadyCommand, SessionReadyEffects};
+use crate::display::DisplayDirective;
+use crate::input::{Key, KeyEvent, Modifiers};
+use crate::layout::Rect;
+use crate::plugin::{
+    BootstrapEffects, KeyDispatchResult, KeyHandleResult, RuntimeEffects, SessionReadyCommand,
+    SessionReadyEffects,
+};
 use crate::protocol::KasaneRequest;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TypedLifecyclePlugin;
@@ -87,6 +94,90 @@ impl PluginBackend for ShutdownProbePlugin {
 
     fn on_shutdown(&mut self) {
         self.shutdowns.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct AuthorityPlugin {
+    id: &'static str,
+    authorities: PluginAuthorities,
+}
+
+struct DisplayTransformPlugin {
+    id: &'static str,
+    directives: Vec<DisplayDirective>,
+}
+
+impl PluginBackend for DisplayTransformPlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::DISPLAY_TRANSFORM
+    }
+
+    fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
+        self.directives.clone()
+    }
+}
+
+struct WorkspaceObserverPlugin {
+    id: &'static str,
+    hits: Arc<AtomicUsize>,
+}
+
+impl PluginBackend for WorkspaceObserverPlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::WORKSPACE_OBSERVER
+    }
+
+    fn on_workspace_changed(&mut self, _query: &crate::workspace::WorkspaceQuery<'_>) {
+        self.hits.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+enum MiddlewareBehavior {
+    Passthrough,
+    Transform(KeyEvent),
+    Consume(String),
+}
+
+struct KeyMiddlewarePlugin {
+    id: &'static str,
+    seen: Arc<Mutex<Vec<KeyEvent>>>,
+    behavior: MiddlewareBehavior,
+}
+
+impl PluginBackend for KeyMiddlewarePlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+        self.seen.lock().unwrap().push(key.clone());
+        match &self.behavior {
+            MiddlewareBehavior::Passthrough => KeyHandleResult::Passthrough,
+            MiddlewareBehavior::Transform(next_key) => {
+                KeyHandleResult::Transformed(next_key.clone())
+            }
+            MiddlewareBehavior::Consume(keyspec) => KeyHandleResult::Consumed(vec![
+                Command::SendToKakoune(KasaneRequest::Keys(vec![keyspec.clone()])),
+            ]),
+        }
+    }
+}
+
+impl PluginBackend for AuthorityPlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.id.to_string())
+    }
+
+    fn authorities(&self) -> PluginAuthorities {
+        self.authorities
     }
 }
 
@@ -236,6 +327,194 @@ fn test_remove_plugin_removes_registered_plugin() {
     assert!(registry.remove_plugin(&PluginId("surface-plugin".to_string())));
     assert_eq!(registry.plugin_count(), 1);
     assert!(!registry.remove_plugin(&PluginId("surface-plugin".to_string())));
+}
+
+#[test]
+fn test_plugin_has_authority_uses_declared_authorities() {
+    let mut registry = PluginRuntime::new();
+    let plugin_id = PluginId("authority-probe".to_string());
+    registry.register_backend(Box::new(AuthorityPlugin {
+        id: "authority-probe",
+        authorities: PluginAuthorities::DYNAMIC_SURFACE,
+    }));
+
+    assert!(registry.plugin_has_authority(&plugin_id, PluginAuthorities::DYNAMIC_SURFACE));
+    assert!(!registry.plugin_has_authority(&plugin_id, PluginAuthorities::PTY_PROCESS));
+}
+
+#[test]
+fn test_register_backend_replacement_updates_authorities() {
+    let mut registry = PluginRuntime::new();
+    let plugin_id = PluginId("authority-probe".to_string());
+    registry.register_backend(Box::new(AuthorityPlugin {
+        id: "authority-probe",
+        authorities: PluginAuthorities::DYNAMIC_SURFACE,
+    }));
+    registry.register_backend(Box::new(AuthorityPlugin {
+        id: "authority-probe",
+        authorities: PluginAuthorities::PTY_PROCESS,
+    }));
+
+    assert!(!registry.plugin_has_authority(&plugin_id, PluginAuthorities::DYNAMIC_SURFACE));
+    assert!(registry.plugin_has_authority(&plugin_id, PluginAuthorities::PTY_PROCESS));
+}
+
+#[test]
+fn test_collect_display_directives_uses_first_non_empty_contributor() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "first",
+        directives: vec![DisplayDirective::Hide { range: 1..3 }],
+    }));
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "second",
+        directives: vec![DisplayDirective::InsertAfter {
+            after: 0,
+            content: "ignored".to_string(),
+            face: Face::default(),
+        }],
+    }));
+
+    let mut state = AppState::default();
+    state.lines = vec![vec![], vec![], vec![], vec![]];
+
+    assert_eq!(
+        registry.collect_display_directives(&state),
+        vec![DisplayDirective::Hide { range: 1..3 }]
+    );
+}
+
+#[test]
+fn test_collect_display_map_ignores_later_display_transform_plugins() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "first",
+        directives: vec![DisplayDirective::Hide { range: 1..3 }],
+    }));
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "second",
+        directives: vec![DisplayDirective::InsertAfter {
+            after: 0,
+            content: "ignored".to_string(),
+            face: Face::default(),
+        }],
+    }));
+
+    let mut state = AppState::default();
+    state.lines = vec![vec![], vec![], vec![], vec![]];
+
+    let display_map = registry.collect_display_map(&state);
+    assert_eq!(display_map.display_line_count(), 2);
+    assert_eq!(display_map.buffer_to_display(0), Some(0));
+    assert_eq!(display_map.buffer_to_display(1), None);
+    assert_eq!(display_map.buffer_to_display(2), None);
+    assert_eq!(display_map.buffer_to_display(3), Some(1));
+}
+
+#[test]
+fn test_notify_workspace_changed_dispatches_only_to_observers() {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(WorkspaceObserverPlugin {
+        id: "observer",
+        hits: hits.clone(),
+    }));
+    registry.register_backend(Box::new(TestPlugin));
+
+    let workspace = crate::workspace::Workspace::default();
+    let query = workspace.query(Rect {
+        x: 0,
+        y: 0,
+        w: 80,
+        h: 24,
+    });
+    registry.notify_workspace_changed(&query);
+
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_dispatch_key_middleware_passes_transformed_key_to_next_plugin() {
+    let first_seen = Arc::new(Mutex::new(Vec::new()));
+    let second_seen = Arc::new(Mutex::new(Vec::new()));
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+        id: "transformer",
+        seen: first_seen.clone(),
+        behavior: MiddlewareBehavior::Transform(KeyEvent {
+            key: Key::Char('b'),
+            modifiers: Modifiers::SHIFT,
+        }),
+    }));
+    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+        id: "consumer",
+        seen: second_seen.clone(),
+        behavior: MiddlewareBehavior::Consume("<esc>".to_string()),
+    }));
+
+    let state = AppState::default();
+    let result = registry.dispatch_key_middleware(
+        &KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::empty(),
+        },
+        &state,
+    );
+
+    let first_keys = first_seen.lock().unwrap().clone();
+    let second_keys = second_seen.lock().unwrap().clone();
+    assert_eq!(first_keys.len(), 1);
+    assert_eq!(first_keys[0].key, Key::Char('a'));
+    assert_eq!(second_keys.len(), 1);
+    assert_eq!(second_keys[0].key, Key::Char('b'));
+    assert_eq!(second_keys[0].modifiers, Modifiers::SHIFT);
+    match result {
+        KeyDispatchResult::Consumed {
+            source_plugin,
+            commands,
+        } => {
+            assert_eq!(source_plugin, PluginId("consumer".to_string()));
+            assert_eq!(commands.len(), 1);
+            assert!(matches!(
+                &commands[0],
+                Command::SendToKakoune(KasaneRequest::Keys(keys)) if keys == &vec!["<esc>".to_string()]
+            ));
+        }
+        KeyDispatchResult::Passthrough(_) => panic!("expected middleware consumer"),
+    }
+}
+
+#[test]
+fn test_dispatch_key_middleware_returns_final_passthrough_key() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+        id: "transformer",
+        seen: Arc::new(Mutex::new(Vec::new())),
+        behavior: MiddlewareBehavior::Transform(KeyEvent {
+            key: Key::PageDown,
+            modifiers: Modifiers::CTRL,
+        }),
+    }));
+    registry.register_backend(Box::new(KeyMiddlewarePlugin {
+        id: "passthrough",
+        seen: Arc::new(Mutex::new(Vec::new())),
+        behavior: MiddlewareBehavior::Passthrough,
+    }));
+
+    let state = AppState::default();
+    match registry.dispatch_key_middleware(
+        &KeyEvent {
+            key: Key::Char('x'),
+            modifiers: Modifiers::empty(),
+        },
+        &state,
+    ) {
+        KeyDispatchResult::Consumed { .. } => panic!("expected passthrough"),
+        KeyDispatchResult::Passthrough(key) => {
+            assert_eq!(key.key, Key::PageDown);
+            assert_eq!(key.modifiers, Modifiers::CTRL);
+        }
+    }
 }
 
 #[test]

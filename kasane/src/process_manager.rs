@@ -19,6 +19,8 @@ const READ_BUF_SIZE: usize = 8192;
 struct JobHandle {
     stdin_tx: Option<tokio::sync::mpsc::Sender<StdinCommand>>,
     abort_handle: tokio::task::AbortHandle,
+    /// PTY master handle for resize operations. None for piped/null processes.
+    pty_master: Option<Box<dyn portable_pty::MasterPty + Send>>,
 }
 
 enum StdinCommand {
@@ -94,6 +96,12 @@ impl ProcessManager {
             return;
         }
 
+        // Handle PTY mode separately
+        if let StdinMode::Pty { rows, cols } = stdin_mode {
+            self.spawn_pty_process(plugin_id, job_id, program, args, rows, cols);
+            return;
+        }
+
         let mut cmd = tokio::process::Command::new(program);
         cmd.args(args);
         cmd.stdout(std::process::Stdio::piped());
@@ -105,6 +113,7 @@ impl ProcessManager {
             StdinMode::Null => {
                 cmd.stdin(std::process::Stdio::null());
             }
+            StdinMode::Pty { .. } => unreachable!(),
         }
 
         let sink = self.sink.clone();
@@ -244,9 +253,156 @@ impl ProcessManager {
             JobHandle {
                 stdin_tx,
                 abort_handle,
+                pty_master: None,
             },
         );
         *self.per_plugin_count.entry(plugin_id.clone()).or_insert(0) += 1;
+    }
+
+    /// Spawn a child process in a pseudo-terminal.
+    fn spawn_pty_process(
+        &mut self,
+        plugin_id: &PluginId,
+        job_id: u64,
+        program: &str,
+        args: &[String],
+        rows: u16,
+        cols: u16,
+    ) {
+        let key = (plugin_id.clone(), job_id);
+
+        let pty_system = portable_pty::native_pty_system();
+        let pair = match pty_system.openpty(portable_pty::PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        }) {
+            Ok(pair) => pair,
+            Err(e) => {
+                self.send_spawn_failed(plugin_id, job_id, format!("PTY allocation failed: {e}"));
+                return;
+            }
+        };
+
+        let mut cmd = portable_pty::CommandBuilder::new(program);
+        cmd.args(args);
+
+        let child = match pair.slave.spawn_command(cmd) {
+            Ok(child) => child,
+            Err(e) => {
+                self.send_spawn_failed(plugin_id, job_id, e.to_string());
+                return;
+            }
+        };
+        // Drop the slave side — the child owns it now.
+        drop(pair.slave);
+
+        let reader = match pair.master.try_clone_reader() {
+            Ok(r) => r,
+            Err(e) => {
+                self.send_spawn_failed(plugin_id, job_id, format!("PTY reader clone failed: {e}"));
+                return;
+            }
+        };
+
+        let writer = match pair.master.take_writer() {
+            Ok(w) => w,
+            Err(e) => {
+                self.send_spawn_failed(plugin_id, job_id, format!("PTY writer clone failed: {e}"));
+                return;
+            }
+        };
+
+        let sink = self.sink.clone();
+        let pid = plugin_id.clone();
+
+        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<StdinCommand>(32);
+
+        let join_handle = self.rt.spawn(async move {
+            // PTY reader runs in a blocking thread since portable-pty uses sync I/O
+            let reader_sink = sink.clone();
+            let reader_pid = pid.clone();
+            let reader_handle = tokio::task::spawn_blocking(move || {
+                use std::io::Read;
+                let mut reader = reader;
+                let mut buf = vec![0u8; READ_BUF_SIZE];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            reader_sink.send_process_output(
+                                reader_pid.clone(),
+                                IoEvent::Process(ProcessEvent::Stdout {
+                                    job_id,
+                                    data: buf[..n].to_vec(),
+                                }),
+                            );
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            // PTY writer runs in another blocking thread, driven by the stdin channel
+            let writer_handle = tokio::task::spawn_blocking(move || {
+                use std::io::Write;
+                let mut writer = writer;
+                // We use a sync approach: recv via std channel adapter
+                // But since we're in a blocking context, we spin on try_recv
+                // Actually, we need a bridge. Use a std mpsc instead.
+                // For simplicity, use the tokio channel with block_on.
+                let rt = tokio::runtime::Handle::current();
+                while let Some(StdinCommand::Write(data)) = rt.block_on(stdin_rx.recv()) {
+                    let _ = writer.write_all(&data);
+                    let _ = writer.flush();
+                }
+            });
+
+            // Wait for reader to finish (indicates child exited or PTY closed)
+            let _ = reader_handle.await;
+
+            // Wait for child exit
+            let mut child = child;
+            let exit_code = match child.wait() {
+                Ok(status) => status.exit_code() as i32,
+                Err(_) => -1,
+            };
+
+            sink.send_process_output(
+                pid,
+                IoEvent::Process(ProcessEvent::Exited { job_id, exit_code }),
+            );
+
+            // Abort writer task (stdin channel will be dropped)
+            writer_handle.abort();
+        });
+
+        let abort_handle = join_handle.abort_handle();
+
+        self.jobs.insert(
+            key,
+            JobHandle {
+                stdin_tx: Some(stdin_tx),
+                abort_handle,
+                pty_master: Some(pair.master),
+            },
+        );
+        *self.per_plugin_count.entry(plugin_id.clone()).or_insert(0) += 1;
+    }
+
+    fn resize_pty_process(&mut self, plugin_id: &PluginId, job_id: u64, rows: u16, cols: u16) {
+        let key = (plugin_id.clone(), job_id);
+        if let Some(handle) = self.jobs.get(&key)
+            && let Some(ref master) = handle.pty_master
+        {
+            let _ = master.resize(portable_pty::PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
+        }
     }
 
     fn write_to_process(&self, plugin_id: &PluginId, job_id: u64, data: &[u8]) {
@@ -312,6 +468,10 @@ impl ProcessDispatcher for ProcessManager {
 
     fn kill(&mut self, plugin_id: &PluginId, job_id: u64) {
         self.kill_process(plugin_id, job_id);
+    }
+
+    fn resize_pty(&mut self, plugin_id: &PluginId, job_id: u64, rows: u16, cols: u16) {
+        self.resize_pty_process(plugin_id, job_id, rows, cols);
     }
 
     fn remove_finished_job(&mut self, plugin_id: &PluginId, job_id: u64) {

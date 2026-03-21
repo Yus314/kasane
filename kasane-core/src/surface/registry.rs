@@ -382,6 +382,7 @@ impl SurfaceRegistry {
             focused,
             registry: plugin_registry,
             surface_id: entry.descriptor.surface_id,
+            pane_context: crate::plugin::PaneContext::new(entry.descriptor.surface_id, focused),
         };
         let abstract_root = entry.surface.view(&ctx);
         resolve::resolve_surface_tree(
@@ -447,6 +448,7 @@ impl SurfaceRegistry {
                 screen_rows: state.rows,
                 menu_rect: None,
                 existing_overlays: vec![],
+                focused_surface_id: Some(self.workspace.focused()),
             };
             overlays.extend(
                 plugin_registry
@@ -498,6 +500,10 @@ impl SurfaceRegistry {
                 focused: focused == SurfaceId::STATUS,
                 registry: plugin_registry,
                 surface_id: entry.descriptor.surface_id,
+                pane_context: crate::plugin::PaneContext::new(
+                    entry.descriptor.surface_id,
+                    focused == SurfaceId::STATUS,
+                ),
             };
             let abstract_root = entry.surface.view(&ctx);
             let outcome = resolve::resolve_surface_tree(
@@ -554,6 +560,7 @@ impl SurfaceRegistry {
             screen_rows: state.rows,
             menu_rect: None,
             existing_overlays: vec![],
+            focused_surface_id: Some(self.workspace.focused()),
         };
         let plugin_overlays: Vec<crate::element::Overlay> = plugin_registry
             .collect_overlays_with_ctx(state, &overlay_ctx)

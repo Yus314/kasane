@@ -51,11 +51,15 @@ fn load_session_ui_plugin() -> crate::WasmPlugin {
 }
 
 fn load_surface_probe_plugin() -> crate::WasmPlugin {
+    load_surface_probe_plugin_with_config(&crate::WasiCapabilityConfig::default())
+}
+
+fn load_surface_probe_plugin_with_config(
+    config: &crate::WasiCapabilityConfig,
+) -> crate::WasmPlugin {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("surface-probe.wasm").expect("failed to load fixture");
-    loader
-        .load(&bytes, &crate::WasiCapabilityConfig::default())
-        .expect("failed to load plugin")
+    loader.load(&bytes, config).expect("failed to load plugin")
 }
 
 fn load_smooth_scroll_plugin() -> crate::WasmPlugin {
@@ -71,6 +75,8 @@ fn default_annotate_ctx() -> AnnotateContext {
         line_width: 80,
         gutter_width: 0,
         display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
     }
 }
 
@@ -84,6 +90,7 @@ fn default_overlay_ctx() -> OverlayContext {
         screen_rows: 24,
         menu_rect: None,
         existing_overlays: vec![],
+        focused_surface_id: None,
     }
 }
 

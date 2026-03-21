@@ -304,8 +304,11 @@ pub struct PluginsConfig {
     /// Applies to filesystem-discovered and user-registered plugins.
     pub disabled: Vec<String>,
     /// Per-plugin capability denials. Key: plugin ID, Value: list of denied capability names.
-    /// Valid capability names: "filesystem", "environment", "monotonic-clock".
+    /// Valid capability names: "filesystem", "environment", "monotonic-clock", "process".
     pub deny_capabilities: HashMap<String, Vec<String>>,
+    /// Per-plugin authority denials. Key: plugin ID, Value: list of denied authority names.
+    /// Valid authority names: "dynamic-surface", "pty-process".
+    pub deny_authorities: HashMap<String, Vec<String>>,
 }
 
 impl Default for PluginsConfig {
@@ -316,6 +319,7 @@ impl Default for PluginsConfig {
             enabled: Vec::new(),
             disabled: Vec::new(),
             deny_capabilities: HashMap::new(),
+            deny_authorities: HashMap::new(),
         }
     }
 }
@@ -530,6 +534,34 @@ another_plugin = ["monotonic-clock"]
     fn test_plugins_deny_capabilities_default_empty() {
         let config = Config::default();
         assert!(config.plugins.deny_capabilities.is_empty());
+    }
+
+    #[test]
+    fn test_plugins_deny_authorities() {
+        let toml_str = r#"
+[plugins]
+disabled = ["some_plugin"]
+
+[plugins.deny_authorities]
+untrusted_plugin = ["dynamic-surface"]
+another_plugin = ["pty-process"]
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.plugins.deny_authorities.get("untrusted_plugin"),
+            Some(&vec!["dynamic-surface".to_string()])
+        );
+        assert_eq!(
+            config.plugins.deny_authorities.get("another_plugin"),
+            Some(&vec!["pty-process".to_string()])
+        );
+        assert!(config.plugins.deny_authorities.get("missing").is_none());
+    }
+
+    #[test]
+    fn test_plugins_deny_authorities_default_empty() {
+        let config = Config::default();
+        assert!(config.plugins.deny_authorities.is_empty());
     }
 
     #[test]

@@ -8,8 +8,9 @@ use anyhow::Result;
 use kasane_core::event_loop::{
     DeferredContext, EventResult, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
     apply_ready_batch, handle_command_batch, handle_sourced_surface_commands,
-    handle_workspace_divider_input, maybe_flush_active_session_ready, reconcile_plugin_surfaces,
-    surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
+    handle_workspace_divider_input, maybe_flush_active_session_ready, notify_workspace_observers,
+    reconcile_plugin_surfaces, surface_event_from_input,
+    sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -415,6 +416,7 @@ where
                 scroll_plans,
                 surface_commands,
                 command_source: None,
+                workspace_changed: false,
             }
         }
         Event::Input(ref input_event) => {
@@ -439,9 +441,11 @@ where
                     scroll_plans: vec![],
                     surface_commands: vec![],
                     command_source: None,
+                    workspace_changed: !divider_dirty.is_empty(),
                 }
             } else {
                 let surface_event = surface_event_from_input(&input_event);
+                let workspace_changed = matches!(input_event, InputEvent::Resize(..));
                 let state = std::mem::take(ctx.state);
                 let (
                     state,
@@ -470,6 +474,7 @@ where
                     scroll_plans,
                     surface_commands,
                     command_source: source_plugin,
+                    workspace_changed,
                 }
             }
         }
@@ -489,6 +494,7 @@ where
             scroll_plans: vec![],
             surface_commands: vec![],
             command_source: None,
+            workspace_changed: false,
         },
         Event::ProcessOutput(plugin_id, io_event) => {
             let batch = ctx
@@ -521,6 +527,7 @@ where
                             scroll_plans: vec![],
                             surface_commands: vec![],
                             command_source: None,
+                            workspace_changed: false,
                         },
                         false,
                         ctx,
@@ -536,6 +543,7 @@ where
                 scroll_plans: vec![],
                 surface_commands: vec![],
                 command_source: None,
+                workspace_changed: false,
             }
         }
         Event::KakouneDied(session_id) => {
@@ -548,6 +556,7 @@ where
                     ctx.session_states.remove(session_id);
                     let _ = ctx.session_manager.close(session_id);
                     *ctx.dirty |= DirtyFlags::ALL;
+                    notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
                 }
                 return false;
             }
@@ -619,6 +628,9 @@ where
     sync_ready_gate(ctx.session_ready_gate, ctx.state);
 
     let ready_targets = reload.ready_targets().cloned().collect::<Vec<_>>();
+    if !reload.deltas.is_empty() {
+        notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
+    }
     let should_quit = *ctx.initial_resize_sent && flush_reloaded_plugins_ready(ctx, &ready_targets);
     tracing::info!("hot-reloaded plugins");
 
@@ -653,6 +665,7 @@ fn event_result_from_runtime_batch(
         scroll_plans: batch.effects.scroll_plans,
         surface_commands: vec![],
         command_source,
+        workspace_changed: false,
     }
 }
 
@@ -710,6 +723,9 @@ where
         })
     };
     if !should_quit {
+        if result.workspace_changed {
+            notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
+        }
         sync_ready_gate(ctx.session_ready_gate, ctx.state);
         if !*ctx.initial_resize_sent {
             ctx.session_ready_gate.clear_initial_resize();
@@ -769,21 +785,30 @@ where
         spawn_session: ctx.spawn_session,
     };
     let scroll_runtime = &mut *ctx.scroll_runtime;
-    let mut deferred_ctx = DeferredContext {
-        state: ctx.state,
-        registry: ctx.registry,
-        surface_registry: ctx.surface_registry,
-        pane_map: ctx.pane_map,
-        clipboard_get: &mut || ctx.backend.clipboard_get(),
-        dirty: ctx.dirty,
-        timer: ctx.timer,
-        session_host: &mut session_host,
-        initial_resize_sent: ctx.initial_resize_sent,
-        session_ready_gate: Some(&mut *ctx.session_ready_gate),
-        scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
-        process_dispatcher: ctx.process_dispatcher,
+    let mut workspace_changed = false;
+    let result = {
+        let mut deferred_ctx = DeferredContext {
+            state: ctx.state,
+            registry: ctx.registry,
+            surface_registry: ctx.surface_registry,
+            pane_map: ctx.pane_map,
+            clipboard_get: &mut || ctx.backend.clipboard_get(),
+            dirty: ctx.dirty,
+            timer: ctx.timer,
+            session_host: &mut session_host,
+            initial_resize_sent: ctx.initial_resize_sent,
+            session_ready_gate: Some(&mut *ctx.session_ready_gate),
+            scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
+            process_dispatcher: ctx.process_dispatcher,
+            workspace_changed: &mut workspace_changed,
+            scroll_amount: ctx.scroll_amount,
+        };
+        f(&mut deferred_ctx)
     };
-    f(&mut deferred_ctx)
+    if workspace_changed {
+        notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
+    }
+    result
 }
 
 #[cfg(test)]

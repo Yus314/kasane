@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
-use crate::plugin::{Command, PluginBackend, PluginId, PluginRuntime, RuntimeEffects};
+use crate::plugin::{
+    Command, KeyHandleResult, PluginBackend, PluginId, PluginRuntime, RuntimeEffects,
+};
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 use crate::state::update::{Msg, update_in_place};
@@ -120,6 +122,114 @@ fn test_update_plugin_handles_key() {
             );
         }
         _ => panic!("expected SendToKakoune from plugin"),
+    }
+}
+
+#[test]
+fn test_update_key_forwards_transformed_key_to_kakoune() {
+    struct TransformPlugin;
+    impl PluginBackend for TransformPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("transform".into())
+        }
+
+        fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+            if key.key == Key::Char('a') {
+                KeyHandleResult::Transformed(KeyEvent {
+                    key: Key::Char('b'),
+                    modifiers: Modifiers::SHIFT,
+                })
+            } else {
+                KeyHandleResult::Passthrough
+            }
+        }
+    }
+
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TransformPlugin));
+
+    let result = update_in_place(
+        &mut state,
+        Msg::Key(KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::empty(),
+        }),
+        &mut registry,
+        3,
+    );
+
+    assert!(result.flags.is_empty());
+    assert_eq!(result.source_plugin, None);
+    assert_eq!(result.commands.len(), 1);
+    match &result.commands[0] {
+        Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
+            assert_eq!(keys, &vec!["B".to_string()]);
+        }
+        _ => panic!("expected transformed key to be forwarded"),
+    }
+}
+
+#[test]
+fn test_update_key_transformed_then_consumed_by_next_plugin() {
+    struct TransformPlugin;
+    impl PluginBackend for TransformPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("transform".into())
+        }
+
+        fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+            if key.key == Key::Char('a') {
+                KeyHandleResult::Transformed(KeyEvent {
+                    key: Key::Char('b'),
+                    modifiers: Modifiers::empty(),
+                })
+            } else {
+                KeyHandleResult::Passthrough
+            }
+        }
+    }
+
+    struct ConsumePlugin;
+    impl PluginBackend for ConsumePlugin {
+        fn id(&self) -> PluginId {
+            PluginId("consume".into())
+        }
+
+        fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+            if key.key == Key::Char('b') {
+                KeyHandleResult::Consumed(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
+                    "consumed".to_string(),
+                ]))])
+            } else {
+                KeyHandleResult::Passthrough
+            }
+        }
+    }
+
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TransformPlugin));
+    registry.register_backend(Box::new(ConsumePlugin));
+
+    let result = update_in_place(
+        &mut state,
+        Msg::Key(KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::empty(),
+        }),
+        &mut registry,
+        3,
+    );
+
+    assert!(result.flags.is_empty());
+    assert_eq!(result.source_plugin, Some(PluginId("consume".into())));
+    assert_eq!(result.commands.len(), 1);
+    match &result.commands[0] {
+        Command::SendToKakoune(KasaneRequest::Keys(keys)) => {
+            assert_eq!(keys, &vec!["consumed".to_string()]);
+        }
+        _ => panic!("expected consumer command"),
     }
 }
 

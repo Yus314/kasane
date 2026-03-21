@@ -213,6 +213,7 @@ impl ProcessDispatcher for RecordingDispatcher {
     fn kill(&mut self, _plugin_id: &PluginId, job_id: u64) {
         self.kills.push(job_id);
     }
+    fn resize_pty(&mut self, _plugin_id: &PluginId, _job_id: u64, _rows: u16, _cols: u16) {}
     fn remove_finished_job(&mut self, _plugin_id: &PluginId, _job_id: u64) {}
 }
 

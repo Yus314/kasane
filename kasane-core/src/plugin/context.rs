@@ -7,8 +7,34 @@ use crate::protocol::Face;
 use crate::state::AppState;
 
 use crate::display::DisplayMapRef;
+use crate::surface::SurfaceId;
 
 use super::PluginId;
+
+/// Pane-specific rendering context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaneContext {
+    pub surface_id: Option<SurfaceId>,
+    pub focused: bool,
+}
+
+impl PaneContext {
+    pub fn new(surface_id: SurfaceId, focused: bool) -> Self {
+        Self {
+            surface_id: Some(surface_id),
+            focused,
+        }
+    }
+}
+
+impl Default for PaneContext {
+    fn default() -> Self {
+        Self {
+            surface_id: None,
+            focused: true,
+        }
+    }
+}
 
 /// Layout constraints passed to plugins during contribution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,23 +46,40 @@ pub struct ContributeContext {
     pub visible_lines: Range<usize>,
     pub screen_cols: u16,
     pub screen_rows: u16,
+    pub pane_surface_id: Option<SurfaceId>,
+    pub pane_focused: bool,
 }
 
 impl ContributeContext {
     /// Build from AppState and an optional surface rect.
     pub fn new(state: &AppState, rect: Option<&Rect>) -> Self {
+        Self::new_in_pane(state, rect, PaneContext::default())
+    }
+
+    /// Build from AppState and an optional surface rect for a pane.
+    pub fn new_in_pane(state: &AppState, rect: Option<&Rect>, pane: PaneContext) -> Self {
         if let Some(rect) = rect {
-            Self::from_constraints(state, Constraints::tight(rect.w, rect.h))
+            Self::from_constraints_in_pane(state, Constraints::tight(rect.w, rect.h), pane)
         } else {
-            Self::from_constraints(
+            Self::from_constraints_in_pane(
                 state,
                 Constraints::loose(state.cols, state.available_height()),
+                pane,
             )
         }
     }
 
     /// Build from layout constraints.
     pub fn from_constraints(state: &AppState, constraints: Constraints) -> Self {
+        Self::from_constraints_in_pane(state, constraints, PaneContext::default())
+    }
+
+    /// Build from layout constraints for a pane.
+    pub fn from_constraints_in_pane(
+        state: &AppState,
+        constraints: Constraints,
+        pane: PaneContext,
+    ) -> Self {
         ContributeContext {
             min_width: constraints.min_width,
             max_width: bounded_constraint(constraints.max_width),
@@ -45,6 +88,8 @@ impl ContributeContext {
             visible_lines: state.visible_line_range(),
             screen_cols: state.cols,
             screen_rows: state.rows,
+            pane_surface_id: pane.surface_id,
+            pane_focused: pane.focused,
         }
     }
 }
@@ -95,6 +140,8 @@ pub enum TransformTarget {
 pub struct TransformContext {
     pub is_default: bool,
     pub chain_position: usize,
+    pub pane_surface_id: Option<SurfaceId>,
+    pub pane_focused: bool,
 }
 
 /// Context for `annotate_line_with_ctx()`.
@@ -104,6 +151,8 @@ pub struct AnnotateContext {
     pub gutter_width: u16,
     /// The active DisplayMap, if any display transformations are in effect.
     pub display_map: Option<DisplayMapRef>,
+    pub pane_surface_id: Option<SurfaceId>,
+    pub pane_focused: bool,
 }
 
 /// A background layer with z-ordering and blend mode.
@@ -143,6 +192,7 @@ pub struct OverlayContext {
     pub screen_rows: u16,
     pub menu_rect: Option<Rect>,
     pub existing_overlays: Vec<Rect>,
+    pub focused_surface_id: Option<SurfaceId>,
 }
 
 /// Overlay contribution with z-index.

@@ -1,5 +1,5 @@
 use crate::bindings::kasane::plugin::types as wit;
-use kasane_core::input::{Key, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::plugin::{IoEvent, ProcessEvent};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
@@ -66,6 +66,13 @@ pub(crate) fn key_event_to_wit(event: &KeyEvent) -> wit::KeyEvent {
     }
 }
 
+pub(crate) fn wit_key_event_to_key_event(event: &wit::KeyEvent) -> Result<KeyEvent, String> {
+    Ok(KeyEvent {
+        key: wit_key_code_to_key(&event.key)?,
+        modifiers: Modifiers::from_bits_truncate(event.modifiers),
+    })
+}
+
 pub(crate) fn default_scroll_candidate_to_wit(
     candidate: &DefaultScrollCandidate,
 ) -> wit::DefaultScrollCandidate {
@@ -111,6 +118,37 @@ fn key_to_wit(key: &Key) -> wit::KeyCode {
         Key::PageUp => wit::KeyCode::PageUp,
         Key::PageDown => wit::KeyCode::PageDown,
         Key::F(n) => wit::KeyCode::FKey(*n),
+    }
+}
+
+fn wit_key_code_to_key(key: &wit::KeyCode) -> Result<Key, String> {
+    match key {
+        wit::KeyCode::Character(chars) => {
+            let mut iter = chars.chars();
+            let ch = iter
+                .next()
+                .ok_or_else(|| "character key must not be empty".to_string())?;
+            if iter.next().is_some() {
+                return Err(format!(
+                    "character key must contain exactly one scalar value: {chars:?}"
+                ));
+            }
+            Ok(Key::Char(ch))
+        }
+        wit::KeyCode::Backspace => Ok(Key::Backspace),
+        wit::KeyCode::Delete => Ok(Key::Delete),
+        wit::KeyCode::Enter => Ok(Key::Enter),
+        wit::KeyCode::Tab => Ok(Key::Tab),
+        wit::KeyCode::Escape => Ok(Key::Escape),
+        wit::KeyCode::Up => Ok(Key::Up),
+        wit::KeyCode::Down => Ok(Key::Down),
+        wit::KeyCode::LeftArrow => Ok(Key::Left),
+        wit::KeyCode::RightArrow => Ok(Key::Right),
+        wit::KeyCode::Home => Ok(Key::Home),
+        wit::KeyCode::End => Ok(Key::End),
+        wit::KeyCode::PageUp => Ok(Key::PageUp),
+        wit::KeyCode::PageDown => Ok(Key::PageDown),
+        wit::KeyCode::FKey(n) => Ok(Key::F(*n)),
     }
 }
 

@@ -12,11 +12,13 @@ use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
+use crate::workspace::WorkspaceQuery;
 
 use super::{
     AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
-    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PluginCapabilities, PluginId,
-    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
+    IoEvent, KeyHandleResult, LineAnnotation, OverlayContext, OverlayContribution,
+    PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
+    TransformContext, TransformTarget,
 };
 
 // =============================================================================
@@ -83,6 +85,10 @@ pub trait Plugin: Send + 'static {
         PluginCapabilities::empty()
     }
 
+    fn authorities(&self) -> PluginAuthorities {
+        PluginAuthorities::empty()
+    }
+
     fn allows_process_spawn(&self) -> bool {
         true
     }
@@ -127,6 +133,11 @@ pub trait Plugin: Send + 'static {
         (state.clone(), RuntimeEffects::default())
     }
 
+    fn on_workspace_changed(&self, state: &Self::State, query: &WorkspaceQuery<'_>) -> Self::State {
+        let _ = query;
+        state.clone()
+    }
+
     fn observe_key(&self, state: &Self::State, key: &KeyEvent, app: &AppState) -> Self::State {
         let _ = (key, app);
         state.clone()
@@ -150,6 +161,18 @@ pub trait Plugin: Send + 'static {
     ) -> Option<(Self::State, Vec<Command>)> {
         let _ = (state, key, app);
         None
+    }
+
+    fn handle_key_middleware(
+        &self,
+        state: &Self::State,
+        key: &KeyEvent,
+        app: &AppState,
+    ) -> (Self::State, KeyHandleResult) {
+        match self.handle_key(state, key, app) {
+            Some((new_state, commands)) => (new_state, KeyHandleResult::Consumed(commands)),
+            None => (state.clone(), KeyHandleResult::Passthrough),
+        }
     }
 
     fn handle_mouse(

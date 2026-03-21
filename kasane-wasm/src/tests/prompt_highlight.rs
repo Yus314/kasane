@@ -27,6 +27,8 @@ fn passthrough_in_buffer_mode() {
     let ctx = TransformContext {
         is_default: true,
         chain_position: 0,
+        pane_surface_id: None,
+        pane_focused: true,
     };
     let result = plugin.transform(&TransformTarget::StatusBar, element.clone(), &state, &ctx);
 
@@ -48,6 +50,8 @@ fn wraps_in_prompt_mode() {
     let ctx = TransformContext {
         is_default: true,
         chain_position: 0,
+        pane_surface_id: None,
+        pane_focused: true,
     };
     let result = plugin.transform(&TransformTarget::StatusBar, element, &state, &ctx);
 
@@ -80,6 +84,8 @@ fn ignores_non_status_targets() {
     let ctx = TransformContext {
         is_default: true,
         chain_position: 0,
+        pane_surface_id: None,
+        pane_focused: true,
     };
     // Buffer target should not be wrapped even in prompt mode
     let result = plugin.transform(&TransformTarget::Buffer, element.clone(), &state, &ctx);

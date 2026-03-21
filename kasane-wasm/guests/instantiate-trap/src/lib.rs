@@ -14,6 +14,7 @@ impl Guest for InstantiateTrapPlugin {
     kasane_plugin_sdk::default_render_surface!();
     kasane_plugin_sdk::default_handle_surface_event!();
     kasane_plugin_sdk::default_handle_surface_state_changed!();
+    kasane_plugin_sdk::default_workspace_changed!();
     kasane_plugin_sdk::default_line!();
     kasane_plugin_sdk::default_cache!();
     kasane_plugin_sdk::default_input!();
@@ -28,10 +29,12 @@ impl Guest for InstantiateTrapPlugin {
     kasane_plugin_sdk::default_transform!();
     kasane_plugin_sdk::default_transform_priority!();
     kasane_plugin_sdk::default_annotate!();
+    kasane_plugin_sdk::default_display_directives!();
     kasane_plugin_sdk::default_overlay_v2!();
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_contribute_to!();
     kasane_plugin_sdk::default_capabilities!();
+    kasane_plugin_sdk::default_authorities!();
 }
 
 export!(InstantiateTrapPlugin);

@@ -1,4 +1,5 @@
 mod adapter;
+mod authority;
 pub mod capability;
 mod convert;
 mod host;
@@ -57,9 +58,9 @@ impl WasmPluginLoader {
     /// Load a WASM plugin from raw bytes with WASI capability configuration.
     ///
     /// The plugin is first instantiated with an empty WASI context to query
-    /// its ID and requested capabilities. Then a proper WASI context is built
-    /// based on the plugin's requests and user configuration, and swapped in
-    /// before returning.
+    /// its ID, requested WASI capabilities, and requested host authorities.
+    /// Then a proper WASI context is built based on the plugin's requests and
+    /// user configuration, and swapped in before returning.
     pub fn load_staged(
         &self,
         wasm_bytes: &[u8],
@@ -92,14 +93,17 @@ impl WasmPluginLoader {
         let plugin_api = instance.kasane_plugin_plugin_api();
         let id = plugin_api.call_get_id(&mut store)?;
 
-        // Query requested capabilities and build per-plugin WasiCtx
+        // Query requested capabilities/authorities and build per-plugin WasiCtx.
         let requested = plugin_api.call_requested_capabilities(&mut store)?;
+        let requested_authorities = plugin_api.call_requested_authorities(&mut store)?;
         let process_allowed = capability::is_capability_granted(
             &id,
             &crate::bindings::kasane::plugin::types::Capability::Process,
             &requested,
             wasi_config,
         );
+        let resolved_authorities =
+            authority::resolve_authorities(&id, &requested_authorities, wasi_config);
         if !requested.is_empty() {
             let wasi_ctx = capability::build_wasi_ctx(&id, &requested, wasi_config)?;
             let data = store.data_mut();
@@ -107,7 +111,13 @@ impl WasmPluginLoader {
             data.table = wasmtime::component::ResourceTable::new();
         }
 
-        Ok(WasmPlugin::new(store, instance, id, process_allowed))
+        Ok(WasmPlugin::new(
+            store,
+            instance,
+            id,
+            process_allowed,
+            resolved_authorities,
+        ))
     }
 
     /// Load a WASM plugin from a file path.

@@ -30,6 +30,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         screen_rows: state.rows,
         menu_rect: None,
         existing_overlays: vec![],
+        focused_surface_id: None,
     };
     let plugin_overlays: Vec<crate::element::Overlay> = registry
         .collect_overlays_with_ctx(state, &overlay_ctx)
@@ -261,6 +262,8 @@ pub(crate) fn build_buffer_core_parts(
         line_width: state.cols,
         gutter_width: 0,
         display_map: Some(Arc::clone(&display_map)),
+        pane_surface_id: None,
+        pane_focused: true,
     };
     let annotations = registry.collect_annotations(state, &annotate_ctx);
     let line_backgrounds = annotations.line_backgrounds;

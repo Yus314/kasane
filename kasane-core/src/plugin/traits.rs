@@ -7,9 +7,19 @@ use crate::state::{AppState, DirtyFlags};
 
 use super::{
     AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
-    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, PluginCapabilities,
-    PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
+    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, PluginAuthorities,
+    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
+    TransformTarget,
 };
+
+/// Result of key middleware dispatch.
+#[derive(Default)]
+pub enum KeyHandleResult {
+    Consumed(Vec<Command>),
+    Transformed(KeyEvent),
+    #[default]
+    Passthrough,
+}
 
 /// Internal framework trait. Plugin authors should use [`Plugin`] instead.
 #[doc(hidden)]
@@ -51,6 +61,12 @@ pub trait PluginBackend: Any {
     }
     fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
         None
+    }
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyHandleResult {
+        match self.handle_key(key, state) {
+            Some(commands) => KeyHandleResult::Consumed(commands),
+            None => KeyHandleResult::Passthrough,
+        }
     }
     fn handle_mouse(
         &mut self,
@@ -100,6 +116,11 @@ pub trait PluginBackend: Any {
     /// Declare which capabilities this plugin supports.
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::all()
+    }
+
+    /// Host-level authorities required for privileged deferred effects.
+    fn authorities(&self) -> PluginAuthorities {
+        PluginAuthorities::empty()
     }
 
     /// Whether this plugin is allowed to spawn external processes.

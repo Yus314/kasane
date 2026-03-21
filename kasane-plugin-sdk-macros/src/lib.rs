@@ -41,8 +41,8 @@ use syn::{ImplItem, ItemImpl, parse_macro_input};
 ///
 /// All other typed `Guest` methods (`on_init_effects`,
 /// `on_active_session_ready_effects`, `on_shutdown`, `contribute`,
-/// `handle_key`, etc.) are automatically generated with their default
-/// implementations.
+/// `handle_key`, `handle_key_middleware`, etc.) are automatically generated
+/// with their default implementations.
 #[proc_macro_attribute]
 pub fn kasane_wasm_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut impl_block = parse_macro_input!(item as ItemImpl);
@@ -116,6 +116,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_input" => vec![
             "handle_mouse".into(),
             "handle_key".into(),
+            "handle_key_middleware".into(),
             "handle_default_scroll".into(),
             "observe_key".into(),
             "observe_mouse".into(),
@@ -132,6 +133,8 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_overlay" => vec!["contribute_overlay".into()],
         "default_overlay_v2" => vec!["contribute_overlay_v2".into()],
         "default_annotate" => vec!["annotate_line".into()],
+        "default_display_directives" => vec!["display_directives".into()],
+        "default_workspace_changed" => vec!["on_workspace_changed".into()],
         "default_named_slot" => vec!["contribute_named".into()],
         "default_transform" => vec!["transform_element".into()],
         "default_transform_priority" => vec!["transform_priority".into()],
@@ -145,6 +148,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_typed_update" => vec!["update_effects".into()],
         "default_typed_io_event" => vec!["on_io_event_effects".into()],
         "default_capabilities" => vec!["requested_capabilities".into()],
+        "default_authorities" => vec!["requested_authorities".into()],
         "default_io_event" => vec!["on_io_event_effects".into()],
         "slots" => vec!["contribute_to".into()],
         _ => vec![],
@@ -195,6 +199,13 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
             fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
                 RuntimeEffects::default()
             }
+        }
+    );
+
+    add_default!(
+        "on_workspace_changed",
+        quote! {
+            fn on_workspace_changed(_snapshot: WorkspaceSnapshot) {}
         }
     );
 
@@ -301,6 +312,15 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         }
     );
 
+    add_default!(
+        "display_directives",
+        quote! {
+            fn display_directives() -> Vec<DisplayDirective> {
+                vec![]
+            }
+        }
+    );
+
     // --- Element transformation (legacy) ---
 
     add_default!(
@@ -376,6 +396,18 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     );
 
     add_default!(
+        "handle_key_middleware",
+        quote! {
+            fn handle_key_middleware(event: KeyEvent) -> KeyHandleResult {
+                match Self::handle_key(event) {
+                    Some(commands) => KeyHandleResult::Consumed(commands),
+                    None => KeyHandleResult::Passthrough,
+                }
+            }
+        }
+    );
+
+    add_default!(
         "handle_default_scroll",
         quote! {
             fn handle_default_scroll(
@@ -422,6 +454,11 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     add_default!(
         "requested_capabilities",
         quote! { fn requested_capabilities() -> Vec<Capability> { vec![] } }
+    );
+
+    add_default!(
+        "requested_authorities",
+        quote! { fn requested_authorities() -> Vec<PluginAuthority> { vec![] } }
     );
 
     // --- I/O events ---
@@ -716,6 +753,26 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 Command::SendKeys(kasane_plugin_sdk::keys::command(cmd))
             }
 
+            /// Build a dynamic hosted surface registration command.
+            pub fn register_surface(
+                surface_key: &str,
+                size_hint: SurfaceSizeHint,
+                declared_slots: Vec<DeclaredSlot>,
+                placement: SurfacePlacement,
+            ) -> Command {
+                Command::RegisterSurface(DynamicSurfaceConfig {
+                    surface_key: surface_key.to_string(),
+                    size_hint,
+                    declared_slots,
+                    placement,
+                })
+            }
+
+            /// Build a dynamic hosted surface unregistration command.
+            pub fn unregister_surface(surface_key: &str) -> Command {
+                Command::UnregisterSurface(surface_key.to_string())
+            }
+
             // ----- Edges shortcuts -----
 
             /// Create edges with explicit values.
@@ -875,13 +932,17 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `on_state_changed_effects(dirty) { ... }` → `fn on_state_changed_effects() -> RuntimeEffects`
 /// - `slots { SLOT => expr, ... }` — simple form (auto-wraps in `auto_contribution()`)
 /// - `slots { SLOT(deps) => |ctx| { ... }, ... }` — full form with state access via `state.field`
+/// - `on_workspace_changed(snapshot) { ... }` → `fn on_workspace_changed()`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
+/// - `display_directives() { ... }` → `fn display_directives() -> Vec<DisplayDirective>`
 /// - `transform(target, element, ctx) { ... }` → `fn transform_element()`
 /// - `transform_priority: expr` → `fn transform_priority()`
 /// - `overlay(ctx) { ... }` → `fn contribute_overlay_v2()`
 /// - `handle_key(event) { ... }` → `fn handle_key()`
+/// - `handle_key_middleware(event) { ... }` → `fn handle_key_middleware()`
 /// - `handle_mouse(event, id) { ... }` → `fn handle_mouse()`
 /// - `capabilities: [Cap1, Cap2]` → `fn requested_capabilities()`
+/// - `authorities: [Auth1, Auth2]` → `fn requested_authorities()`
 /// - `update_effects(payload) { ... }` → `fn update_effects() -> RuntimeEffects`
 /// - `on_io_event_effects(event) { ... }` → `fn on_io_event_effects() -> RuntimeEffects`
 #[proc_macro]
@@ -1024,6 +1085,19 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         }
     };
 
+    let wrap_state_shared = |body: &proc_macro2::TokenStream| -> proc_macro2::TokenStream {
+        if has_state {
+            quote! {
+                STATE.with(|__s| {
+                    let state = __s.borrow();
+                    #body
+                })
+            }
+        } else {
+            body.clone()
+        }
+    };
+
     let on_init_method = if let Some(ref body) = def.on_init_effects {
         let wrapped = wrap_state(body);
         quote! { fn on_init_effects() -> BootstrapEffects { #wrapped } }
@@ -1031,15 +1105,15 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let on_active_session_ready_method =
-        if let Some(ref body) = def.on_active_session_ready_effects {
-            let wrapped = wrap_state(body);
-            quote! {
-                fn on_active_session_ready_effects() -> SessionReadyEffects { #wrapped }
-            }
-        } else {
-            quote! {}
-        };
+    let on_active_session_ready_method = if let Some(ref body) = def.on_active_session_ready_effects
+    {
+        let wrapped = wrap_state(body);
+        quote! {
+            fn on_active_session_ready_effects() -> SessionReadyEffects { #wrapped }
+        }
+    } else {
+        quote! {}
+    };
 
     // Generate auto-binding code from #[bind] attributes
     let auto_bindings: Vec<proc_macro2::TokenStream> = if let Some(ref state_def) = def.state {
@@ -1098,6 +1172,20 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         };
         quote! {
             fn on_state_changed_effects(#param_name: u16) -> RuntimeEffects {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let on_workspace_changed_method = if let Some(ref workspace_changed) = def.on_workspace_changed
+    {
+        let snapshot_param = &workspace_changed.param;
+        let body = &workspace_changed.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn on_workspace_changed(#snapshot_param: WorkspaceSnapshot) {
                 #wrapped
             }
         }
@@ -1170,6 +1258,17 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    let display_directives_method = if let Some(ref body) = def.display_directives {
+        let wrapped = wrap_state_shared(body);
+        quote! {
+            fn display_directives() -> Vec<DisplayDirective> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let transform_method = if let Some(ref tr) = def.transform {
         let target_param = &tr.target_param;
         let element_param = &tr.element_param;
@@ -1221,6 +1320,19 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    let handle_key_middleware_method = if let Some(ref hk) = def.handle_key_middleware {
+        let event_param = &hk.param;
+        let body = &hk.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn handle_key_middleware(#event_param: KeyEvent) -> KeyHandleResult {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let handle_mouse_method = if let Some(ref hm) = def.handle_mouse {
         let event_param = &hm.event_param;
         let id_param = &hm.id_param;
@@ -1254,6 +1366,16 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {
             fn requested_capabilities() -> Vec<Capability> {
                 vec![ #caps ]
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let authorities_method = if let Some(ref authorities) = def.authorities {
+        quote! {
+            fn requested_authorities() -> Vec<PluginAuthority> {
+                vec![ #authorities ]
             }
         }
     } else {
@@ -1304,16 +1426,20 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             #on_init_method
             #on_active_session_ready_method
             #on_state_changed_method
+            #on_workspace_changed_method
             #update_effects_method
             #slots_method
             #annotate_method
+            #display_directives_method
             #transform_method
             #transform_priority_method
             #overlay_method
             #handle_key_method
+            #handle_key_middleware_method
             #handle_mouse_method
             #handle_default_scroll_method
             #capabilities_method
+            #authorities_method
             #on_io_event_method
         }
 
@@ -1329,16 +1455,20 @@ struct PluginDef {
     on_init_effects: Option<proc_macro2::TokenStream>,
     on_active_session_ready_effects: Option<proc_macro2::TokenStream>,
     on_state_changed_effects: Option<OnStateChanged>,
+    on_workspace_changed: Option<ParamBodyDef>,
     update_effects: Option<ParamBodyDef>,
     slots: Option<Vec<SlotEntry>>,
     annotate: Option<AnnotateDef>,
+    display_directives: Option<proc_macro2::TokenStream>,
     transform: Option<TransformDef>,
     transform_priority: Option<proc_macro2::TokenStream>,
     overlay: Option<ParamBodyDef>,
     handle_key: Option<ParamBodyDef>,
+    handle_key_middleware: Option<ParamBodyDef>,
     handle_mouse: Option<HandleMouseDef>,
     handle_default_scroll: Option<ParamBodyDef>,
     capabilities: Option<proc_macro2::TokenStream>,
+    authorities: Option<proc_macro2::TokenStream>,
     on_io_event_effects: Option<ParamBodyDef>,
 }
 
@@ -1407,16 +1537,20 @@ impl syn::parse::Parse for PluginDef {
             on_init_effects: None,
             on_active_session_ready_effects: None,
             on_state_changed_effects: None,
+            on_workspace_changed: None,
             update_effects: None,
             slots: None,
             annotate: None,
+            display_directives: None,
             transform: None,
             transform_priority: None,
             overlay: None,
             handle_key: None,
+            handle_key_middleware: None,
             handle_mouse: None,
             handle_default_scroll: None,
             capabilities: None,
+            authorities: None,
             on_io_event_effects: None,
         };
 
@@ -1476,7 +1610,12 @@ impl syn::parse::Parse for PluginDef {
                         if !content.is_empty() {
                             content.parse::<syn::Token![,]>()?;
                         }
-                        fields.push(StateField { name, ty, default, bind });
+                        fields.push(StateField {
+                            name,
+                            ty,
+                            default,
+                            bind,
+                        });
                     }
                     def.state = Some(StateDef { fields });
                 }
@@ -1503,6 +1642,17 @@ impl syn::parse::Parse for PluginDef {
                     let body;
                     syn::braced!(body in input);
                     def.on_state_changed_effects = Some(OnStateChanged {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
+                "on_workspace_changed" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.on_workspace_changed = Some(ParamBodyDef {
                         param,
                         body: body.parse()?,
                     });
@@ -1537,6 +1687,14 @@ impl syn::parse::Parse for PluginDef {
                         ctx_param,
                         body: body.parse()?,
                     });
+                }
+                "display_directives" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let _ = params;
+                    let body;
+                    syn::braced!(body in input);
+                    def.display_directives = Some(body.parse()?);
                 }
                 "transform" => {
                     let params;
@@ -1581,6 +1739,17 @@ impl syn::parse::Parse for PluginDef {
                         body: body.parse()?,
                     });
                 }
+                "handle_key_middleware" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.handle_key_middleware = Some(ParamBodyDef {
+                        param,
+                        body: body.parse()?,
+                    });
+                }
                 "handle_mouse" => {
                     let params;
                     syn::parenthesized!(params in input);
@@ -1611,6 +1780,12 @@ impl syn::parse::Parse for PluginDef {
                     let content;
                     syn::bracketed!(content in input);
                     def.capabilities = Some(content.parse()?);
+                }
+                "authorities" => {
+                    input.parse::<syn::Token![:]>()?;
+                    let content;
+                    syn::bracketed!(content in input);
+                    def.authorities = Some(content.parse()?);
                 }
                 "on_io_event_effects" => {
                     let params;

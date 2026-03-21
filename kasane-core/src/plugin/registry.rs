@@ -3,17 +3,19 @@ use std::sync::Arc;
 
 use crate::display::{DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild};
+use crate::input::KeyEvent;
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::Placement;
+use crate::workspace::WorkspaceQuery;
 
 use super::bridge::PluginBridge;
 use super::state::Plugin;
 use super::{
-    AnnotateContext, AnnotationResult, BackgroundLayer, ContributeContext, Contribution, InitBatch,
-    IoEvent, OverlayContext, OverlayContribution, PaintHook, PluginBackend, PluginCapabilities,
-    PluginId, ReadyBatch, RuntimeBatch, SlotId, SourcedContribution, TransformContext,
-    TransformTarget,
+    AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
+    InitBatch, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution, PaintHook,
+    PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId, ReadyBatch,
+    RuntimeBatch, SlotId, SourcedContribution, TransformContext, TransformTarget,
 };
 
 pub struct PluginSurfaceSet {
@@ -25,6 +27,7 @@ pub struct PluginSurfaceSet {
 pub struct PluginRuntime {
     plugins: Vec<Box<dyn PluginBackend>>,
     capabilities: Vec<PluginCapabilities>,
+    authorities: Vec<PluginAuthorities>,
     any_plugin_state_changed: bool,
     last_state_hashes: Vec<u64>,
 }
@@ -39,11 +42,20 @@ pub struct PluginView<'a> {
     capabilities: &'a [PluginCapabilities],
 }
 
+pub enum KeyDispatchResult {
+    Consumed {
+        source_plugin: PluginId,
+        commands: Vec<Command>,
+    },
+    Passthrough(KeyEvent),
+}
+
 impl PluginRuntime {
     pub fn new() -> Self {
         PluginRuntime {
             plugins: Vec::new(),
             capabilities: Vec::new(),
+            authorities: Vec::new(),
             any_plugin_state_changed: false,
             last_state_hashes: Vec::new(),
         }
@@ -70,14 +82,17 @@ impl PluginRuntime {
     pub fn register_backend(&mut self, plugin: Box<dyn PluginBackend>) {
         let id = plugin.id();
         let caps = plugin.capabilities();
+        let authorities = plugin.authorities();
         if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
             self.plugins[pos] = plugin;
             self.capabilities[pos] = caps;
+            self.authorities[pos] = authorities;
             self.last_state_hashes[pos] = 0;
         } else {
             self.plugins.push(plugin);
             self.capabilities.push(caps);
+            self.authorities.push(authorities);
             self.last_state_hashes.push(0);
         }
     }
@@ -93,6 +108,7 @@ impl PluginRuntime {
         if let Some(pos) = self.plugins.iter().position(|plugin| plugin.id() == *id) {
             self.plugins.remove(pos);
             self.capabilities.remove(pos);
+            self.authorities.remove(pos);
             self.last_state_hashes.remove(pos);
             true
         } else {
@@ -106,6 +122,7 @@ impl PluginRuntime {
             self.plugins[pos].on_shutdown();
             self.plugins.remove(pos);
             self.capabilities.remove(pos);
+            self.authorities.remove(pos);
             self.last_state_hashes.remove(pos);
             true
         } else {
@@ -192,6 +209,16 @@ impl PluginRuntime {
                 .merge(plugin.on_state_changed_effects(state, dirty));
         }
         batch
+    }
+
+    /// Notify interested plugins that the workspace layout changed.
+    pub fn notify_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
+        for (i, plugin) in self.plugins.iter_mut().enumerate() {
+            if !self.capabilities[i].contains(PluginCapabilities::WORKSPACE_OBSERVER) {
+                continue;
+            }
+            plugin.on_workspace_changed(query);
+        }
     }
 
     /// Shut down all plugins. Call before application exit.
@@ -330,6 +357,28 @@ impl PluginRuntime {
         None
     }
 
+    pub fn dispatch_key_middleware(
+        &mut self,
+        key: &KeyEvent,
+        state: &AppState,
+    ) -> KeyDispatchResult {
+        let mut current_key = key.clone();
+        for plugin in &mut self.plugins {
+            match plugin.handle_key_middleware(&current_key, state) {
+                KeyHandleResult::Consumed(commands) => {
+                    return KeyDispatchResult::Consumed {
+                        source_plugin: plugin.id(),
+                        commands,
+                    };
+                }
+                KeyHandleResult::Transformed(next_key) => current_key = next_key,
+                KeyHandleResult::Passthrough => {}
+            }
+        }
+
+        KeyDispatchResult::Passthrough(current_key)
+    }
+
     // ===========================================================================
     // New dispatch API: Contribute / Transform / Annotate
     // ===========================================================================
@@ -361,8 +410,23 @@ impl PluginRuntime {
         default_element_fn: impl FnOnce() -> Element,
         state: &AppState,
     ) -> Element {
+        self.apply_transform_chain_in_pane(
+            target,
+            default_element_fn,
+            state,
+            PaneContext::default(),
+        )
+    }
+
+    pub fn apply_transform_chain_in_pane(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        state: &AppState,
+        pane_context: PaneContext,
+    ) -> Element {
         self.view()
-            .apply_transform_chain(target, default_element_fn, state)
+            .apply_transform_chain_in_pane(target, default_element_fn, state, pane_context)
     }
 
     /// Collect annotations from all annotating plugins for visible lines.
@@ -406,6 +470,15 @@ impl PluginRuntime {
             .iter()
             .find(|p| &p.id() == plugin_id)
             .is_some_and(|p| p.allows_process_spawn())
+    }
+
+    /// Check whether a plugin has a specific host-resolved authority.
+    pub fn plugin_has_authority(&self, plugin_id: &PluginId, authority: PluginAuthorities) -> bool {
+        self.plugins
+            .iter()
+            .zip(self.authorities.iter())
+            .find(|(plugin, _)| &plugin.id() == plugin_id)
+            .is_some_and(|(_, authorities)| authorities.contains(authority))
     }
 
     /// Deliver an I/O event to a specific plugin by ID.
@@ -518,6 +591,21 @@ impl<'a> PluginView<'a> {
         default_element_fn: impl FnOnce() -> Element,
         state: &AppState,
     ) -> Element {
+        self.apply_transform_chain_in_pane(
+            target,
+            default_element_fn,
+            state,
+            PaneContext::default(),
+        )
+    }
+
+    pub fn apply_transform_chain_in_pane(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        state: &AppState,
+        pane_context: PaneContext,
+    ) -> Element {
         let mut element = default_element_fn();
 
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
@@ -533,6 +621,8 @@ impl<'a> PluginView<'a> {
             let ctx = TransformContext {
                 is_default: true,
                 chain_position: pos,
+                pane_surface_id: pane_context.surface_id,
+                pane_focused: pane_context.focused,
             };
             element = self.plugins[*i].transform(&target, element, state, &ctx);
         }
@@ -642,26 +732,9 @@ impl<'a> PluginView<'a> {
             return Arc::new(DisplayMap::identity(line_count));
         }
 
-        let mut all_directives = Vec::new();
-        let mut contributor_count = 0;
-        for (i, plugin) in self.plugins.iter().enumerate() {
-            if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
-                continue;
-            }
-            let directives = plugin.display_directives(state);
-            if !directives.is_empty() {
-                all_directives.extend(directives);
-                contributor_count += 1;
-            }
-        }
-
-        debug_assert!(
-            contributor_count <= 1,
-            "DisplayMap: only one plugin may contribute display directives (got {contributor_count})"
-        );
-
         let line_count = state.visible_line_range().len();
-        let dm = DisplayMap::build(line_count, &all_directives);
+        let directives = self.collect_exclusive_display_directives(state);
+        let dm = DisplayMap::build(line_count, &directives);
         Arc::new(dm)
     }
 
@@ -674,17 +747,34 @@ impl<'a> PluginView<'a> {
             return Vec::new();
         }
 
-        let mut all_directives = Vec::new();
+        self.collect_exclusive_display_directives(state)
+    }
+
+    fn collect_exclusive_display_directives(
+        &self,
+        state: &AppState,
+    ) -> Vec<crate::display::DisplayDirective> {
+        let mut winner: Option<(PluginId, Vec<crate::display::DisplayDirective>)> = None;
         for (i, plugin) in self.plugins.iter().enumerate() {
             if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
                 continue;
             }
             let directives = plugin.display_directives(state);
             if !directives.is_empty() {
-                all_directives.extend(directives);
+                match &winner {
+                    None => winner = Some((plugin.id(), directives)),
+                    Some((existing, _)) => {
+                        let ignored = plugin.id();
+                        tracing::warn!(
+                            existing_plugin = existing.0.as_str(),
+                            ignored_plugin = ignored.0.as_str(),
+                            "ignoring display directives from additional plugin"
+                        );
+                    }
+                }
             }
         }
-        all_directives
+        winner.map_or_else(Vec::new, |(_, directives)| directives)
     }
 
     /// Collect overlay contributions with collision-avoidance context.

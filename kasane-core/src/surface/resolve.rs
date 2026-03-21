@@ -867,6 +867,8 @@ mod tests {
                 visible_lines: state.visible_line_range(),
                 screen_cols: state.cols,
                 screen_rows: state.rows,
+                pane_surface_id: None,
+                pane_focused: true,
             }
         );
     }
@@ -909,6 +911,8 @@ mod tests {
                 visible_lines: state.visible_line_range(),
                 screen_cols: state.cols,
                 screen_rows: state.rows,
+                pane_surface_id: None,
+                pane_focused: true,
             }
         );
     }
@@ -964,6 +968,8 @@ mod tests {
                 visible_lines: state.visible_line_range(),
                 screen_cols: state.cols,
                 screen_rows: state.rows,
+                pane_surface_id: None,
+                pane_focused: true,
             }
         );
     }

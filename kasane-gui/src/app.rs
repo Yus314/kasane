@@ -15,8 +15,8 @@ use kasane_core::config::Config;
 use kasane_core::event_loop::{
     DeferredContext, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
     handle_command_batch, handle_sourced_surface_commands, handle_workspace_divider_input,
-    maybe_flush_active_session_ready, register_builtin_surfaces, surface_event_from_input,
-    sync_session_ready_gate as sync_ready_gate,
+    maybe_flush_active_session_ready, notify_workspace_observers, register_builtin_surfaces,
+    surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -279,6 +279,11 @@ where
         let init_batch = registry.init_all_batch(&state);
         let mut initial_dirty = DirtyFlags::ALL;
         apply_bootstrap_effects(init_batch.effects, &mut initial_dirty);
+        kasane_core::event_loop::notify_workspace_observers(
+            &mut registry,
+            &surface_registry,
+            &state,
+        );
         let mut session_ready_gate = SessionReadyGate::default();
         sync_ready_gate(&mut session_ready_gate, &state);
 
@@ -519,6 +524,11 @@ where
                             self.session_states.remove(session_id);
                             let _ = self.session_manager.close(session_id);
                             self.dirty |= DirtyFlags::ALL;
+                            notify_workspace_observers(
+                                &mut self.registry,
+                                &self.surface_registry,
+                                &self.state,
+                            );
                         }
                         continue;
                     }
@@ -620,6 +630,13 @@ where
             if let Some(dirty) =
                 handle_workspace_divider_input(&input, &mut self.surface_registry, total)
             {
+                if !dirty.is_empty() {
+                    notify_workspace_observers(
+                        &mut self.registry,
+                        &self.surface_registry,
+                        &self.state,
+                    );
+                }
                 (dirty, vec![], None, vec![], vec![])
             } else {
                 let surface_event = surface_event_from_input(&input);
@@ -749,21 +766,30 @@ where
             spawn_session,
         };
         let scroll_runtime = &mut self.scroll_runtime;
-        let mut ctx = DeferredContext {
-            state: &mut self.state,
-            registry: &mut self.registry,
-            surface_registry: &mut self.surface_registry,
-            pane_map: &mut self.pane_map,
-            clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
-            dirty: &mut self.dirty,
-            timer: &self.timer_scheduler,
-            session_host: &mut session_runtime,
-            initial_resize_sent: &mut self.initial_resize_sent,
-            session_ready_gate: Some(&mut self.session_ready_gate),
-            scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
-            process_dispatcher: &mut *self.process_dispatcher,
+        let mut workspace_changed = false;
+        let result = {
+            let mut ctx = DeferredContext {
+                state: &mut self.state,
+                registry: &mut self.registry,
+                surface_registry: &mut self.surface_registry,
+                pane_map: &mut self.pane_map,
+                clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
+                dirty: &mut self.dirty,
+                timer: &self.timer_scheduler,
+                session_host: &mut session_runtime,
+                initial_resize_sent: &mut self.initial_resize_sent,
+                session_ready_gate: Some(&mut self.session_ready_gate),
+                scroll_plan_sink: &mut |plan| scroll_runtime.enqueue(plan),
+                process_dispatcher: &mut *self.process_dispatcher,
+                workspace_changed: &mut workspace_changed,
+                scroll_amount: self.scroll_amount,
+            };
+            f(&mut ctx)
         };
-        f(&mut ctx)
+        if workspace_changed {
+            notify_workspace_observers(&mut self.registry, &self.surface_registry, &self.state);
+        }
+        result
     }
 
     fn handle_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
@@ -800,6 +826,7 @@ where
         self.dirty = DirtyFlags::ALL;
         self.session_states
             .sync_active_from_manager(&self.session_manager, &self.state);
+        notify_workspace_observers(&mut self.registry, &self.surface_registry, &self.state);
     }
 
     fn render_frame(&mut self) {
