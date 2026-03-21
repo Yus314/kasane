@@ -41,5 +41,22 @@ jobs:
           test "$(readlink kasane-plugin-sdk/wit/plugin.wit)" = "../../kasane-wasm/wit/plugin.wit"
           test "$(readlink kasane-plugin-sdk-macros/wit/plugin.wit)" = "../../kasane-wasm/wit/plugin.wit"
 
+      - name: AUR SRCINFO consistency check
+        run: |
+          cd contrib/aur/kasane-bin
+          # Extract values from PKGBUILD
+          PKGVER=$(grep -m1 '^pkgver=' PKGBUILD | cut -d= -f2)
+          PKGREL=$(grep -m1 '^pkgrel=' PKGBUILD | cut -d= -f2)
+          X86_HASH=$(grep '^sha256sums_x86_64=' PKGBUILD | grep -oP "'[a-f0-9]{64}'" | tr -d "'")
+          AARCH64_HASH=$(grep '^sha256sums_aarch64=' PKGBUILD | grep -oP "'[a-f0-9]{64}'" | tr -d "'")
+
+          # Verify .SRCINFO matches
+          err=0
+          grep -q "pkgver = ${PKGVER}" .SRCINFO || { echo "FAIL: pkgver mismatch"; err=1; }
+          grep -q "pkgrel = ${PKGREL}" .SRCINFO || { echo "FAIL: pkgrel mismatch"; err=1; }
+          grep -q "sha256sums_x86_64 = ${X86_HASH}" .SRCINFO || { echo "FAIL: sha256sums_x86_64 mismatch"; err=1; }
+          grep -q "sha256sums_aarch64 = ${AARCH64_HASH}" .SRCINFO || { echo "FAIL: sha256sums_aarch64 mismatch"; err=1; }
+          exit $err
+
       - name: Format check
         run: nix develop --command cargo fmt --check

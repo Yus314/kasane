@@ -81,4 +81,8 @@ pkgbase = kasane-bin
 pkgname = kasane-bin
 SRCINFO_TEMPLATE
 
-echo "Updated PKGBUILD and .SRCINFO for kasane-bin ${VERSION}"
+# --- docs/getting-started.md version ---
+REPO_ROOT="$(cd "$DIR/../../.." && pwd)"
+sed -i "s/^VERSION=.*/VERSION=${VERSION}/" "$REPO_ROOT/docs/getting-started.md"
+
+echo "Updated PKGBUILD, .SRCINFO, and getting-started.md for kasane-bin ${VERSION}"
