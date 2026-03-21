@@ -13,6 +13,10 @@ impl Plugin for LineNumbersPlugin {
         PluginCapabilities::CONTRIBUTOR
     }
 
+    fn view_deps(&self) -> DirtyFlags {
+        DirtyFlags::BUFFER
+    }
+
     fn contribute_to(
         &self,
         _state: &(),

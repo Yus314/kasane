@@ -196,6 +196,10 @@ pub fn sync_plugin_contributions(
     registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
 ) {
+    if !registry.any_needs_recollect() {
+        return;
+    }
+
     use crate::display::DisplayMapRef;
     use crate::element::Overlay;
     use crate::plugin::{
@@ -319,6 +323,10 @@ pub fn sync_display_directives(
     registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
 ) {
+    if !registry.any_needs_recollect() {
+        return;
+    }
+
     let directives = registry.collect_display_directives(&AppView::new(state));
     let line_count = state.visible_line_range().len();
 

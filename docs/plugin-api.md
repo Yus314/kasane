@@ -667,9 +667,11 @@ The default for native plugins is `all()`, and the WASM adapter is configured fr
 
 ### 4.2 State hash and caching
 
-Plugin contribution caching is handled by Salsa incremental computation. The framework tracks dependencies automatically, so plugins do not need to declare `*_deps()` methods.
+Plugin contribution caching is handled by Salsa incremental computation. The framework tracks dependencies automatically via `PartialEq`-based early cutoff on Salsa inputs.
 
-The remaining plugin-side caching mechanism is `state_hash()`:
+The plugin-side caching mechanisms are:
+
+**`state_hash()`** — signals plugin-internal state changes:
 
 ```rust
 // WASM
@@ -678,9 +680,21 @@ fn state_hash() -> u64 {
 }
 ```
 
-`PluginBackend` implementors provide `state_hash()` to signal state changes.
+`PluginBackend` implementors provide `state_hash()` to signal state changes. `Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter.
 
-`Plugin` (state-externalized) eliminates manual `state_hash()` — the framework tracks state changes automatically via `PartialEq` comparison on the externalized state, using a generation counter.
+**`view_deps()`** — declares which `DirtyFlags` a plugin's view methods depend on:
+
+```rust
+fn view_deps(&self) -> DirtyFlags {
+    DirtyFlags::BUFFER
+}
+```
+
+When neither the plugin's `state_hash()` changed nor any of its declared `view_deps()` flags are dirty, the framework skips re-collecting that plugin's contributions, annotations, overlays, and display directives entirely. Salsa inputs retain their previous values, so downstream memoized queries remain valid.
+
+Default: `DirtyFlags::ALL` (always re-collect — safe fallback for backward compatibility). Override with the narrowest set of flags your view methods actually read. For example, a line-numbers plugin that only reads buffer content should return `DirtyFlags::BUFFER`.
+
+The correctness invariant is: declared deps must be a superset of actual deps. If `view_deps()` omits a flag that a view method actually depends on, stale contributions may persist until the next matching dirty event.
 
 ### 4.3 PaintHook
 

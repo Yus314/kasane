@@ -283,6 +283,15 @@ pub trait Plugin: Send + 'static {
         0
     }
 
+    /// Declare which `DirtyFlags` this plugin's view methods depend on.
+    ///
+    /// When the framework detects that neither the plugin's state nor any of the
+    /// declared flags have changed, it can skip re-collecting this plugin's view
+    /// contributions. Default: `DirtyFlags::ALL` (always re-collect, safe fallback).
+    fn view_deps(&self) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
+
     fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<DisplayDirective> {
         let _ = (state, app);
         vec![]

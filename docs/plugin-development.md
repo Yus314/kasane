@@ -448,6 +448,10 @@ impl Plugin for CursorLinePlugin {
         PluginCapabilities::ANNOTATOR
     }
 
+    fn view_deps(&self) -> DirtyFlags {
+        DirtyFlags::BUFFER
+    }
+
     fn on_state_changed_effects(
         &self,
         state: &Self::State,
@@ -504,6 +508,7 @@ fn main() {
 | Safety | Sandbox isolation | Same process as host |
 | Distribution | `.wasm` file placement | Custom binary |
 | State | Manual (`thread_local!` + `state_hash()`) | Automatic (`PartialEq` comparison) |
+| View deps | Not yet supported (default `ALL`) | `view_deps() -> DirtyFlags` for selective sync |
 | Registration | Auto-discovered or embedded | `host_plugin(...)` / `run_with_factories(...)` |
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}

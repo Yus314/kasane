@@ -35,6 +35,7 @@ pub(crate) trait ErasedPlugin: Send {
     fn allows_process_spawn(&self) -> bool;
     fn transform_priority(&self) -> i16;
     fn display_directive_priority(&self) -> i16;
+    fn view_deps(&self) -> DirtyFlags;
 
     // State transitions
     fn on_init_effects_erased(
@@ -168,6 +169,9 @@ impl<P: Plugin> ErasedPlugin for P {
     }
     fn display_directive_priority(&self) -> i16 {
         Plugin::display_directive_priority(self)
+    }
+    fn view_deps(&self) -> DirtyFlags {
+        Plugin::view_deps(self)
     }
 
     fn on_init_effects_erased(
@@ -444,6 +448,10 @@ impl PluginBackend for PluginBridge {
 
     fn display_directive_priority(&self) -> i16 {
         self.inner.display_directive_priority()
+    }
+
+    fn view_deps(&self) -> DirtyFlags {
+        self.inner.view_deps()
     }
 
     // --- Lifecycle ---
@@ -883,6 +891,97 @@ mod tests {
         // Same cursor → state still changes (generation increments)
         bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 2);
+    }
+
+    #[test]
+    fn needs_recollect_false_when_dirty_disjoint_from_view_deps() {
+        // Plugin that only depends on BUFFER
+        struct BufferOnlyPlugin;
+        impl Plugin for BufferOnlyPlugin {
+            type State = ();
+            fn id(&self) -> PluginId {
+                PluginId("test.buffer-only".into())
+            }
+            fn capabilities(&self) -> PluginCapabilities {
+                PluginCapabilities::CONTRIBUTOR
+            }
+            fn view_deps(&self) -> DirtyFlags {
+                DirtyFlags::BUFFER
+            }
+        }
+
+        let mut registry = PluginRuntime::new();
+        registry.register(BufferOnlyPlugin);
+
+        // First prepare: always needs recollect (first frame)
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert!(registry.any_needs_recollect());
+
+        // After first frame, no dirty flags and no state change → skip
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert!(!registry.any_needs_recollect());
+
+        // STATUS dirty is disjoint from BUFFER view_deps → still skip
+        registry.prepare_plugin_cache(DirtyFlags::STATUS);
+        assert!(!registry.any_needs_recollect());
+
+        // BUFFER dirty intersects view_deps → needs recollect
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
+        assert!(registry.any_needs_recollect());
+    }
+
+    #[test]
+    fn needs_recollect_true_when_state_hash_changes() {
+        let mut registry = PluginRuntime::new();
+        registry.register(CursorLinePure);
+
+        let mut app = AppState::default();
+        app.cursor_pos.line = 5;
+
+        // First frame
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert!(registry.any_needs_recollect());
+
+        // Mutate plugin state
+        registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
+
+        // State hash changed → needs recollect even without matching dirty
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert!(registry.any_needs_recollect());
+
+        // No further state change, no matching dirty → skip
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert!(!registry.any_needs_recollect());
+    }
+
+    #[test]
+    fn view_deps_exposed_through_plugin_view() {
+        // Plugin that only depends on BUFFER
+        struct BufferOnlyPlugin;
+        impl Plugin for BufferOnlyPlugin {
+            type State = ();
+            fn id(&self) -> PluginId {
+                PluginId("test.buffer-only-view".into())
+            }
+            fn view_deps(&self) -> DirtyFlags {
+                DirtyFlags::BUFFER
+            }
+        }
+
+        let mut registry = PluginRuntime::new();
+        registry.register(BufferOnlyPlugin);
+
+        // First frame
+        registry.prepare_plugin_cache(DirtyFlags::empty());
+        assert!(registry.view().any_needs_recollect());
+
+        // Second frame, STATUS only → skip
+        registry.prepare_plugin_cache(DirtyFlags::STATUS);
+        assert!(!registry.view().any_needs_recollect());
+
+        // BUFFER dirty → recollect
+        registry.prepare_plugin_cache(DirtyFlags::BUFFER);
+        assert!(registry.view().any_needs_recollect());
     }
 
     #[test]

@@ -26,12 +26,18 @@ pub struct PluginSurfaceSet {
     pub legacy_workspace_request: Option<Placement>,
 }
 
+/// Sentinel value for `last_state_hashes`: guarantees hash mismatch on first
+/// `prepare_plugin_cache()` after registration, so newly registered plugins
+/// are always collected on their first frame.
+const HASH_SENTINEL: u64 = u64::MAX;
+
 pub struct PluginRuntime {
     plugins: Vec<Box<dyn PluginBackend>>,
     capabilities: Vec<PluginCapabilities>,
     authorities: Vec<PluginAuthorities>,
     any_plugin_state_changed: bool,
     last_state_hashes: Vec<u64>,
+    needs_recollect: Vec<bool>,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -42,6 +48,7 @@ pub struct PluginRuntime {
 pub struct PluginView<'a> {
     plugins: &'a [Box<dyn PluginBackend>],
     capabilities: &'a [PluginCapabilities],
+    needs_recollect: &'a [bool],
 }
 
 pub enum KeyDispatchResult {
@@ -60,6 +67,7 @@ impl PluginRuntime {
             authorities: Vec::new(),
             any_plugin_state_changed: false,
             last_state_hashes: Vec::new(),
+            needs_recollect: Vec::new(),
         }
     }
 
@@ -72,6 +80,7 @@ impl PluginRuntime {
         PluginView {
             plugins: &self.plugins,
             capabilities: &self.capabilities,
+            needs_recollect: &self.needs_recollect,
         }
     }
 
@@ -90,12 +99,16 @@ impl PluginRuntime {
             self.plugins[pos] = plugin;
             self.capabilities[pos] = caps;
             self.authorities[pos] = authorities;
-            self.last_state_hashes[pos] = 0;
+            self.last_state_hashes[pos] = HASH_SENTINEL;
+            if pos < self.needs_recollect.len() {
+                self.needs_recollect[pos] = true;
+            }
         } else {
             self.plugins.push(plugin);
             self.capabilities.push(caps);
             self.authorities.push(authorities);
-            self.last_state_hashes.push(0);
+            self.last_state_hashes.push(HASH_SENTINEL);
+            self.needs_recollect.push(true);
         }
     }
 
@@ -112,6 +125,9 @@ impl PluginRuntime {
             self.capabilities.remove(pos);
             self.authorities.remove(pos);
             self.last_state_hashes.remove(pos);
+            if pos < self.needs_recollect.len() {
+                self.needs_recollect.remove(pos);
+            }
             true
         } else {
             false
@@ -126,28 +142,42 @@ impl PluginRuntime {
             self.capabilities.remove(pos);
             self.authorities.remove(pos);
             self.last_state_hashes.remove(pos);
+            if pos < self.needs_recollect.len() {
+                self.needs_recollect.remove(pos);
+            }
             true
         } else {
             false
         }
     }
 
-    /// Check whether any plugin's internal state changed since the last call.
-    /// Call once per frame before rendering (during the mutable phase).
-    pub fn prepare_plugin_cache(&mut self, _dirty: DirtyFlags) {
-        // Grow hash tracking if plugins were registered after last prepare
+    /// Check whether any plugin's internal state changed since the last call,
+    /// and compute per-plugin `needs_recollect` based on state hash changes
+    /// and the intersection of `dirty` flags with each plugin's `view_deps()`.
+    pub fn prepare_plugin_cache(&mut self, dirty: DirtyFlags) {
+        // Grow tracking vecs if plugins were registered after last prepare
         while self.last_state_hashes.len() < self.plugins.len() {
-            self.last_state_hashes.push(0);
+            self.last_state_hashes.push(HASH_SENTINEL);
+        }
+        while self.needs_recollect.len() < self.plugins.len() {
+            self.needs_recollect.push(true); // first frame → always collect
         }
 
         self.any_plugin_state_changed = false;
         for (i, plugin) in self.plugins.iter().enumerate() {
             let current_hash = plugin.state_hash();
-            if current_hash != self.last_state_hashes[i] {
+            let hash_changed = current_hash != self.last_state_hashes[i];
+            if hash_changed {
                 self.last_state_hashes[i] = current_hash;
                 self.any_plugin_state_changed = true;
             }
+            self.needs_recollect[i] = hash_changed || dirty.intersects(plugin.view_deps());
         }
+    }
+
+    /// Returns true if any plugin needs its view contributions re-collected.
+    pub fn any_needs_recollect(&self) -> bool {
+        self.needs_recollect.iter().any(|&r| r)
     }
 
     /// Initialize all plugins and collect typed bootstrap effects.
@@ -603,6 +633,11 @@ impl PluginEffects for PluginRuntime {
 }
 
 impl<'a> PluginView<'a> {
+    /// Returns true if any plugin needs its view contributions re-collected.
+    pub fn any_needs_recollect(&self) -> bool {
+        self.needs_recollect.iter().any(|&r| r)
+    }
+
     /// Check if any registered plugin has the given capability.
     fn has_capability(&self, cap: PluginCapabilities) -> bool {
         self.capabilities.iter().any(|c| c.contains(cap))

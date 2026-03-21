@@ -44,7 +44,7 @@ frame_cost(w, h, n) ≈ base_cpu(w,h) + salsa_sync(w,h) + plugin_overhead(n) + b
 ```
 
 - `base_cpu(80,24)` ≈ 57 μs, sub-linear with area
-- `salsa_sync` ≈ 0.2–7 μs (unconditional; cost depends on viewport size)
+- `salsa_sync` ≈ 0.2–7 μs (AppState sync is unconditional; plugin contribution sync is skipped when no plugin needs re-collection via `view_deps()`)
 - `plugin_overhead` ≈ 1.8 μs × n (WASM CM)
 - `backend_io` ≈ 44–228 μs (TUI, terminal I/O dominated)
 
@@ -60,7 +60,7 @@ Event batch processing (try_recv drains all pending)
 state.apply()           -- O(lines * atoms) for Draw; includes detect_cursors, compute_lines_dirty
   |
   v
-sync_inputs_from_state() -- Salsa incremental sync (unconditional)
+sync_inputs_from_state() -- Salsa incremental sync (unconditional for AppState; plugin contributions skipped when view_deps() disjoint from dirty)
   |
   v
 view(&state, &registry) -- Element tree construction (Salsa incremental memoization)

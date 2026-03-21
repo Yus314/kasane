@@ -92,6 +92,15 @@ pub trait PluginBackend: Any {
         0
     }
 
+    /// Declare which `DirtyFlags` this plugin's view methods depend on.
+    ///
+    /// When the framework detects that neither the plugin's state hash nor any
+    /// of the declared flags have changed, it can skip re-collecting this
+    /// plugin's view contributions. Default: `DirtyFlags::ALL` (always re-collect).
+    fn view_deps(&self) -> DirtyFlags {
+        DirtyFlags::ALL
+    }
+
     // --- Cursor style ---
 
     /// Override the cursor style. Return None to defer to the default logic.
