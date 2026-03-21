@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774077794262,
+  "lastUpdate": 1774080721880,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -38915,6 +38915,54 @@ window.BENCHMARK_DATA = {
             "name": "replay/mixed_session_200msg",
             "value": 20490675,
             "range": "± 47044",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "110d214276464e169f222ef2d3b61abb27b0684d",
+          "message": "feat(display): add multi-plugin display directive composition (P-031)\n\nReplace single-plugin exclusivity (first-non-empty-wins) with DirectiveSet\nmonoid and resolve() for deterministic, priority-based composition.\nMultiple plugins can now contribute display directives simultaneously.\n\nResolve rules:\n- InsertAfter: all kept, same-line sort by (priority, plugin_id)\n- Hide: set union (idempotent)\n- Fold overlap: higher (priority, plugin_id) wins; lower dropped whole\n- Fold-Hide partial overlap: fold removed (conservative)\n- Insert suppression: inserts targeting invisible lines removed\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-21T16:55:41+09:00",
+          "tree_id": "c02de0ee88536158210f6d800c03826c092e1e28",
+          "url": "https://github.com/Yus314/kasane/commit/110d214276464e169f222ef2d3b61abb27b0684d"
+        },
+        "date": 1774080721413,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4710935,
+            "range": "± 23383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17229079,
+            "range": "± 53303",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1821940,
+            "range": "± 72755",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20356608,
+            "range": "± 308513",
             "unit": "ns/iter"
           }
         ]
