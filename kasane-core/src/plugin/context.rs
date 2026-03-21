@@ -1,15 +1,13 @@
 use std::ops::Range;
 
+use crate::display::DisplayMapRef;
 use crate::element::{Element, OverlayAnchor};
 use crate::layout::Rect;
 use crate::layout::flex::Constraints;
 use crate::protocol::Face;
-use crate::state::AppState;
-
-use crate::display::DisplayMapRef;
 use crate::surface::SurfaceId;
 
-use super::PluginId;
+use super::{AppView, PluginId};
 
 /// Pane-specific rendering context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,32 +49,32 @@ pub struct ContributeContext {
 }
 
 impl ContributeContext {
-    /// Build from AppState and an optional surface rect.
-    pub fn new(state: &AppState, rect: Option<&Rect>) -> Self {
-        Self::new_in_pane(state, rect, PaneContext::default())
+    /// Build from AppView and an optional surface rect.
+    pub fn new(app: &AppView<'_>, rect: Option<&Rect>) -> Self {
+        Self::new_in_pane(app, rect, PaneContext::default())
     }
 
-    /// Build from AppState and an optional surface rect for a pane.
-    pub fn new_in_pane(state: &AppState, rect: Option<&Rect>, pane: PaneContext) -> Self {
+    /// Build from AppView and an optional surface rect for a pane.
+    pub fn new_in_pane(app: &AppView<'_>, rect: Option<&Rect>, pane: PaneContext) -> Self {
         if let Some(rect) = rect {
-            Self::from_constraints_in_pane(state, Constraints::tight(rect.w, rect.h), pane)
+            Self::from_constraints_in_pane(app, Constraints::tight(rect.w, rect.h), pane)
         } else {
             Self::from_constraints_in_pane(
-                state,
-                Constraints::loose(state.cols, state.available_height()),
+                app,
+                Constraints::loose(app.cols(), app.available_height()),
                 pane,
             )
         }
     }
 
     /// Build from layout constraints.
-    pub fn from_constraints(state: &AppState, constraints: Constraints) -> Self {
-        Self::from_constraints_in_pane(state, constraints, PaneContext::default())
+    pub fn from_constraints(app: &AppView<'_>, constraints: Constraints) -> Self {
+        Self::from_constraints_in_pane(app, constraints, PaneContext::default())
     }
 
     /// Build from layout constraints for a pane.
     pub fn from_constraints_in_pane(
-        state: &AppState,
+        app: &AppView<'_>,
         constraints: Constraints,
         pane: PaneContext,
     ) -> Self {
@@ -85,9 +83,9 @@ impl ContributeContext {
             max_width: bounded_constraint(constraints.max_width),
             min_height: constraints.min_height,
             max_height: bounded_constraint(constraints.max_height),
-            visible_lines: state.visible_line_range(),
-            screen_cols: state.cols,
-            screen_rows: state.rows,
+            visible_lines: app.visible_line_range(),
+            screen_cols: app.cols(),
+            screen_rows: app.rows(),
             pane_surface_id: pane.surface_id,
             pane_focused: pane.focused,
         }

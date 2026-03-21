@@ -293,9 +293,11 @@ fn my_plugin_contributes_gutter() {
     registry.register(MyPlugin);  // Plugin trait (state-externalized)
 
     let state = AppState::default();
-    let _ = registry.init_all(&state);
+    let view = AppView::new(&state);
+    let _ = registry.init_all(&view);
 
-    let contributions = registry.collect_contributions(&SlotId::BUFFER_LEFT, &state);
+    let ctx = ContributeContext::new(&view, None);
+    let contributions = registry.collect_contributions(&SlotId::BUFFER_LEFT, &view, &ctx);
     assert_eq!(contributions.len(), 1);
 }
 ```
@@ -421,7 +423,7 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 
 ## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
 
-For use cases that require full `&AppState` access, or features not yet available via WASM (such as `Surface` or `PaintHook`), you can write a native plugin. Native plugins are distributed as custom binaries.
+For use cases that require features not yet available via WASM (such as `Surface` or `PaintHook`), you can write a native plugin. Native plugins are distributed as custom binaries.
 
 The `Plugin` trait (state-externalized) is the recommended native API. The framework owns the state; all methods are pure functions receiving state as a parameter and returning new state + effects.
 
@@ -449,13 +451,13 @@ impl Plugin for CursorLinePlugin {
     fn on_state_changed_effects(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
         dirty: DirtyFlags,
     ) -> (Self::State, RuntimeEffects) {
         if dirty.intersects(DirtyFlags::BUFFER) {
             (
                 CursorLineState {
-                    active_line: app.cursor_pos.line,
+                    active_line: app.cursor_line(),
                 },
                 RuntimeEffects::default(),
             )
@@ -468,7 +470,7 @@ impl Plugin for CursorLinePlugin {
         &self,
         state: &Self::State,
         line: usize,
-        _app: &AppState,
+        _app: &AppView<'_>,
         _ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         if line as i32 == state.active_line {
@@ -525,14 +527,14 @@ impl PluginBackend for LineNumbersPlugin {
     fn contribute_to(
         &self,
         region: &SlotId,
-        state: &AppState,
+        app: &AppView<'_>,
         _ctx: &ContributeContext,
     ) -> Option<Contribution> {
         if region != &SlotId::BUFFER_LEFT {
             return None;
         }
 
-        let total = state.lines.len();
+        let total = app.line_count();
         let width = total.to_string().len().max(2);
 
         let children: Vec<_> = (0..total)
@@ -569,7 +571,7 @@ Register `PluginBackend` implementors via `host_plugin("id", || PluginType)` and
 |---|---|---|---|
 | Safety | Sandbox isolation | Same process as host | Same process as host |
 | Performance | WASM boundary crossing cost | Direct function calls | Direct function calls |
-| API access | `host-state` + `element-builder` | Direct `&AppState` + `&State` | Direct `&AppState` reference |
+| API access | `host-state` + `element-builder` | `&AppView<'_>` + `&State` | `&AppView<'_>` |
 | Distribution | `.wasm` file placement | Custom binary | Custom binary |
 | Developer experience | `define_plugin!` (3-line hello world) | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
 | `Surface` / `PaintHook` | Not supported ([details](./wasm-constraints.md)) | Not supported (use `PluginBackend`) | Supported |

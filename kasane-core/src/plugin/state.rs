@@ -11,8 +11,10 @@ use dyn_clone::DynClone;
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use crate::state::{AppState, DirtyFlags};
+use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
+
+use super::AppView;
 
 use super::{
     AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
@@ -98,7 +100,7 @@ pub trait Plugin: Send + 'static {
     fn on_init_effects(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> (Self::State, BootstrapEffects) {
         let _ = app;
         (state.clone(), BootstrapEffects::default())
@@ -107,7 +109,7 @@ pub trait Plugin: Send + 'static {
     fn on_active_session_ready_effects(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> (Self::State, SessionReadyEffects) {
         let _ = app;
         (state.clone(), SessionReadyEffects::default())
@@ -116,7 +118,7 @@ pub trait Plugin: Send + 'static {
     fn on_state_changed_effects(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
         dirty: DirtyFlags,
     ) -> (Self::State, RuntimeEffects) {
         let _ = (app, dirty);
@@ -127,7 +129,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         event: &IoEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> (Self::State, RuntimeEffects) {
         let _ = (event, app);
         (state.clone(), RuntimeEffects::default())
@@ -138,7 +140,7 @@ pub trait Plugin: Send + 'static {
         state.clone()
     }
 
-    fn observe_key(&self, state: &Self::State, key: &KeyEvent, app: &AppState) -> Self::State {
+    fn observe_key(&self, state: &Self::State, key: &KeyEvent, app: &AppView<'_>) -> Self::State {
         let _ = (key, app);
         state.clone()
     }
@@ -147,7 +149,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         event: &MouseEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Self::State {
         let _ = (event, app);
         state.clone()
@@ -157,7 +159,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         key: &KeyEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<(Self::State, Vec<Command>)> {
         let _ = (state, key, app);
         None
@@ -167,7 +169,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         key: &KeyEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> (Self::State, KeyHandleResult) {
         match self.handle_key(state, key, app) {
             Some((new_state, commands)) => (new_state, KeyHandleResult::Consumed(commands)),
@@ -180,7 +182,7 @@ pub trait Plugin: Send + 'static {
         state: &Self::State,
         event: &MouseEvent,
         id: InteractiveId,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<(Self::State, Vec<Command>)> {
         let _ = (state, event, id, app);
         None
@@ -190,7 +192,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         candidate: DefaultScrollCandidate,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<(Self::State, ScrollPolicyResult)> {
         let _ = (state, candidate, app);
         None
@@ -200,7 +202,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         msg: &mut dyn Any,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> (Self::State, RuntimeEffects) {
         let _ = (msg, app);
         (state.clone(), RuntimeEffects::default())
@@ -212,7 +214,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         region: &SlotId,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         let _ = (state, region, app, ctx);
@@ -224,7 +226,7 @@ pub trait Plugin: Send + 'static {
         state: &Self::State,
         target: &TransformTarget,
         element: Element,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Element {
         let _ = (state, target, app, ctx);
@@ -235,7 +237,7 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         line: usize,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         let _ = (state, line, app, ctx);
@@ -245,7 +247,7 @@ pub trait Plugin: Send + 'static {
     fn contribute_overlay_with_ctx(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         let _ = (state, app, ctx);
@@ -255,7 +257,7 @@ pub trait Plugin: Send + 'static {
     fn cursor_style_override(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<crate::render::CursorStyle> {
         let _ = (state, app);
         None
@@ -267,7 +269,7 @@ pub trait Plugin: Send + 'static {
         item: &[crate::protocol::Atom],
         index: usize,
         selected: bool,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         let _ = (state, item, index, selected, app);
         None
@@ -281,7 +283,7 @@ pub trait Plugin: Send + 'static {
         0
     }
 
-    fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
+    fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<DisplayDirective> {
         let _ = (state, app);
         vec![]
     }
@@ -296,7 +298,6 @@ pub(in crate::plugin) mod tests {
     use super::*;
     use crate::plugin::{BackgroundLayer, BlendMode, PluginCapabilities, PluginId, RuntimeEffects};
     use crate::protocol::{Color, Face, NamedColor};
-    use crate::state::AppState;
 
     // ---- CursorLinePure test double ----
 
@@ -321,12 +322,12 @@ pub(in crate::plugin) mod tests {
         fn on_state_changed_effects(
             &self,
             state: &Self::State,
-            app: &AppState,
+            app: &AppView<'_>,
             dirty: DirtyFlags,
         ) -> (Self::State, RuntimeEffects) {
             if dirty.intersects(DirtyFlags::BUFFER) {
                 let new_state = CursorLineState {
-                    active_line: app.cursor_pos.line,
+                    active_line: app.cursor_line(),
                 };
                 (new_state, RuntimeEffects::default())
             } else {
@@ -338,7 +339,7 @@ pub(in crate::plugin) mod tests {
             &self,
             state: &Self::State,
             line: usize,
-            _app: &AppState,
+            _app: &AppView<'_>,
             _ctx: &AnnotateContext,
         ) -> Option<LineAnnotation> {
             if line as i32 == state.active_line {
@@ -394,12 +395,12 @@ pub(in crate::plugin) mod tests {
         fn on_state_changed_effects(
             &self,
             state: &Self::State,
-            app: &AppState,
+            app: &AppView<'_>,
             dirty: DirtyFlags,
         ) -> (Self::State, RuntimeEffects) {
             if dirty.intersects(DirtyFlags::BUFFER) {
                 let mut new_state = state.clone();
-                new_state.active_line = app.cursor_pos.line;
+                new_state.active_line = app.cursor_line();
                 new_state.generation += 1;
                 (new_state, RuntimeEffects::default())
             } else {
@@ -411,7 +412,7 @@ pub(in crate::plugin) mod tests {
             &self,
             state: &Self::State,
             line: usize,
-            _app: &AppState,
+            _app: &AppView<'_>,
             _ctx: &AnnotateContext,
         ) -> Option<LineAnnotation> {
             if state.color_lines.contains_key(&line) {

@@ -5,7 +5,7 @@ use kasane_core::protocol::Face;
 use super::*;
 
 fn apply_prompt_state_change(plugin: &mut crate::WasmPlugin, state: &AppState, dirty: DirtyFlags) {
-    let effects = plugin.on_state_changed_effects(state, dirty);
+    let effects = plugin.on_state_changed_effects(&AppView::new(state), dirty);
     assert!(effects.redraw.is_empty());
     assert!(effects.commands.is_empty());
     assert!(effects.scroll_plans.is_empty());
@@ -30,7 +30,12 @@ fn passthrough_in_buffer_mode() {
         pane_surface_id: None,
         pane_focused: true,
     };
-    let result = plugin.transform(&TransformTarget::StatusBar, element.clone(), &state, &ctx);
+    let result = plugin.transform(
+        &TransformTarget::StatusBar,
+        element.clone(),
+        &AppView::new(&state),
+        &ctx,
+    );
 
     // In buffer mode, element should pass through unchanged
     match (&result, &element) {
@@ -53,7 +58,12 @@ fn wraps_in_prompt_mode() {
         pane_surface_id: None,
         pane_focused: true,
     };
-    let result = plugin.transform(&TransformTarget::StatusBar, element, &state, &ctx);
+    let result = plugin.transform(
+        &TransformTarget::StatusBar,
+        element,
+        &AppView::new(&state),
+        &ctx,
+    );
 
     // In prompt mode, should be wrapped in a Container
     match result {
@@ -88,7 +98,12 @@ fn ignores_non_status_targets() {
         pane_focused: true,
     };
     // Buffer target should not be wrapped even in prompt mode
-    let result = plugin.transform(&TransformTarget::Buffer, element.clone(), &state, &ctx);
+    let result = plugin.transform(
+        &TransformTarget::Buffer,
+        element.clone(),
+        &AppView::new(&state),
+        &ctx,
+    );
     match (&result, &element) {
         (Element::Text(a, _), Element::Text(b, _)) => assert_eq!(a, b),
         _ => panic!("expected passthrough for Buffer target, got {result:?}"),

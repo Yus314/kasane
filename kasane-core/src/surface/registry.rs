@@ -5,7 +5,7 @@ use compact_str::CompactString;
 use crate::element::Element;
 use crate::input::{MouseButton, MouseEventKind};
 use crate::layout::{Rect, SplitDirection};
-use crate::plugin::{Command, PluginId, PluginView};
+use crate::plugin::{AppView, Command, PluginId, PluginView};
 use crate::state::{AppState, DirtyFlags};
 use crate::workspace::{
     Placement, Workspace, WorkspaceCommand, WorkspaceDivider, WorkspaceDividerId,
@@ -452,7 +452,7 @@ impl SurfaceRegistry {
             };
             overlays.extend(
                 plugin_registry
-                    .collect_overlays_with_ctx(state, &overlay_ctx)
+                    .collect_overlays_with_ctx(&AppView::new(state), &overlay_ctx)
                     .into_iter()
                     .map(|oc| crate::element::Overlay {
                         element: oc.element,
@@ -562,8 +562,9 @@ impl SurfaceRegistry {
             existing_overlays: vec![],
             focused_surface_id: Some(self.workspace.focused()),
         };
+        let app_view = AppView::new(state);
         let plugin_overlays: Vec<crate::element::Overlay> = plugin_registry
-            .collect_overlays_with_ctx(state, &overlay_ctx)
+            .collect_overlays_with_ctx(&app_view, &overlay_ctx)
             .into_iter()
             .map(|oc| crate::element::Overlay {
                 element: oc.element,
@@ -571,7 +572,7 @@ impl SurfaceRegistry {
             })
             .collect();
 
-        let display_map = plugin_registry.collect_display_map(state);
+        let display_map = plugin_registry.collect_display_map(&app_view);
         let focused = self.workspace.focused();
         let focused_pane_rect = self.workspace.compute_rects(total).get(&focused).copied();
         let focused_pane_state = pane_states

@@ -134,7 +134,7 @@ impl Plugin for MyPlugin {
     fn on_state_changed_effects(
         &self,
         state: &Self::State,
-        app: &AppState,
+        app: &AppView<'_>,
         dirty: DirtyFlags
     ) -> (Self::State, RuntimeEffects)
     {
@@ -171,7 +171,7 @@ For detailed semantics, see `Plugin Composition Semantics` in [semantics.md](./s
 **Native:**
 
 ```rust
-fn contribute_to(&self, region: &SlotId, state: &AppState, _ctx: &ContributeContext) -> Option<Contribution> {
+fn contribute_to(&self, region: &SlotId, app: &AppView<'_>, _ctx: &ContributeContext) -> Option<Contribution> {
     if region != &SlotId::BUFFER_LEFT { return None; }
     Some(Contribution {
         element: Element::text("★", Face::default()),
@@ -208,8 +208,8 @@ The legacy `u8` constants from `slot::BUFFER_LEFT` through `slot::OVERLAY` remai
 **Native:**
 
 ```rust
-fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateContext) -> Option<LineAnnotation> {
-    if line == state.cursor_pos.line as usize {
+fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &AnnotateContext) -> Option<LineAnnotation> {
+    if line == app.cursor_line() as usize {
         Some(LineAnnotation {
             left_gutter: None,
             right_gutter: None,
@@ -235,7 +235,7 @@ fn annotate_line_with_ctx(&self, line: usize, state: &AppState, _ctx: &AnnotateC
 **Native:**
 
 ```rust
-fn contribute_overlay_with_ctx(&self, state: &AppState, _ctx: &OverlayContext) -> Option<OverlayContribution> {
+fn contribute_overlay_with_ctx(&self, app: &AppView<'_>, _ctx: &OverlayContext) -> Option<OverlayContribution> {
     Some(OverlayContribution {
         element: Element::container(child, style),
         anchor: OverlayAnchor::AnchorPoint { coord, prefer_above: true, avoid: vec![] },
@@ -269,7 +269,7 @@ fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
 **Native:**
 
 ```rust
-fn transform(&self, target: &TransformTarget, element: Element, state: &AppState, _ctx: &TransformContext) -> Element {
+fn transform(&self, target: &TransformTarget, element: Element, app: &AppView<'_>, _ctx: &TransformContext) -> Element {
     match target {
         TransformTarget::Buffer => Element::container(element, Style::from(Face::default())),
         _ => element,
@@ -315,7 +315,7 @@ Design principles:
 - `Fold` summary lines get `InteractionPolicy::ReadOnly` and `SourceMapping::LineRange`
 
 ```rust
-fn display_directives(&self, state: &Self::State, app: &AppState) -> Vec<DisplayDirective> {
+fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<DisplayDirective> {
     vec![DisplayDirective::InsertAfter {
         after: 2,
         content: "  ⚠ TODO — address before merge".into(),
@@ -383,7 +383,7 @@ let col = Element::column(vec![
 
 ### 3.1 AppState overview
 
-Native plugins can directly reference `&AppState`.
+Native plugins access application state through `&AppView<'_>`, a zero-cost wrapper providing method-based accessors (e.g. `app.cursor_line()`, `app.lines()`, `app.cols()`).
 
 | Field | Type | Description |
 |---|---|---|
@@ -794,7 +794,7 @@ Custom tokens can be created and registered by plugins.
 ```rust
 StyleToken::new("myplugin.highlight")
 
-fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+fn on_init_effects(&mut self, _app: &AppView<'_>) -> BootstrapEffects {
     BootstrapEffects {
         redraw: DirtyFlags::STATUS,
     }

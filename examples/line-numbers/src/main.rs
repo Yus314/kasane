@@ -17,14 +17,14 @@ impl Plugin for LineNumbersPlugin {
         &self,
         _state: &(),
         region: &SlotId,
-        app: &AppState,
+        app: &AppView<'_>,
         _ctx: &ContributeContext,
     ) -> Option<Contribution> {
         if region != &SlotId::BUFFER_LEFT {
             return None;
         }
 
-        let total = app.lines.len();
+        let total = app.line_count();
         let width = total.to_string().len().max(2);
 
         let children: Vec<_> = (0..total)

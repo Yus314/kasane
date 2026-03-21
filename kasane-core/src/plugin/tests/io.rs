@@ -87,7 +87,7 @@ impl PluginBackend for IoHandlerPlugin {
         PluginCapabilities::IO_HANDLER
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppState) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppView<'_>) -> RuntimeEffects {
         match event {
             IoEvent::Process(pe) => match pe {
                 ProcessEvent::Stdout { job_id, data } => {
@@ -136,8 +136,11 @@ fn test_deliver_io_event_dispatches_to_plugin() {
         job_id: 1,
         data: b"output".to_vec(),
     });
-    let batch =
-        registry.deliver_io_event_batch(&PluginId("io_handler".to_string()), &event, &state);
+    let batch = registry.deliver_io_event_batch(
+        &PluginId("io_handler".to_string()),
+        &event,
+        &AppView::new(&state),
+    );
     assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
     assert!(batch.effects.commands.is_empty());
     assert_eq!(batch.effects.scroll_plans.len(), 1);
@@ -153,8 +156,11 @@ fn test_deliver_io_event_unknown_target() {
         job_id: 1,
         data: vec![],
     });
-    let batch =
-        registry.deliver_io_event_batch(&PluginId("nonexistent".to_string()), &event, &state);
+    let batch = registry.deliver_io_event_batch(
+        &PluginId("nonexistent".to_string()),
+        &event,
+        &AppView::new(&state),
+    );
     assert!(batch.effects.redraw.is_empty());
     assert!(batch.effects.commands.is_empty());
     assert!(batch.effects.scroll_plans.is_empty());

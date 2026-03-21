@@ -7,7 +7,7 @@ mod tests;
 use crate::display::DisplayMapRef;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
-use crate::plugin::{AnnotateContext, PluginView, TransformTarget};
+use crate::plugin::{AnnotateContext, AppView, PluginView, TransformTarget};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::state::AppState;
 use crate::surface::{SurfaceComposeResult, SurfaceRenderReport};
@@ -22,7 +22,8 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
     crate::perf::perf_span!("view_sections");
 
     let base = legacy_surface_compose_result(state, registry);
-    let display_map = registry.collect_display_map(state);
+    let app_view = AppView::new(state);
+    let display_map = registry.collect_display_map(&app_view);
     let menu_overlay = build_menu_section(state, registry);
     let info_overlays = build_info_section(state, registry);
     let overlay_ctx = crate::plugin::OverlayContext {
@@ -33,7 +34,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         focused_surface_id: None,
     };
     let plugin_overlays: Vec<crate::element::Overlay> = registry
-        .collect_overlays_with_ctx(state, &overlay_ctx)
+        .collect_overlays_with_ctx(&app_view, &overlay_ctx)
         .into_iter()
         .map(|oc| crate::element::Overlay {
             element: oc.element,
@@ -122,13 +123,14 @@ fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Ove
     let menu_overlay = menu::build_menu_overlay(menu_state, state, registry);
     menu_overlay.map(|mut overlay| {
         // Apply transform chain (Menu generic + style-specific)
+        let app_view = AppView::new(state);
         overlay.element = registry.apply_transform_chain(
             TransformTarget::Menu,
             || overlay.element.clone(),
-            state,
+            &app_view,
         );
         overlay.element =
-            registry.apply_transform_chain(transform_target, || overlay.element.clone(), state);
+            registry.apply_transform_chain(transform_target, || overlay.element.clone(), &app_view);
         overlay
     })
 }
@@ -166,10 +168,11 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
                 });
             }
             // Apply transform chain (Info generic + style-specific)
+            let app_view = AppView::new(state);
             overlay.element = registry.apply_transform_chain(
                 TransformTarget::Info,
                 || overlay.element.clone(),
-                state,
+                &app_view,
             );
             if let Some(transform_target) = match info_state.style {
                 InfoStyle::Prompt => Some(TransformTarget::InfoPrompt),
@@ -179,7 +182,7 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
                 overlay.element = registry.apply_transform_chain(
                     transform_target,
                     || overlay.element.clone(),
-                    state,
+                    &app_view,
                 );
             }
             overlays.push(overlay);
@@ -210,7 +213,7 @@ pub(crate) fn build_status_surface_abstract(
     let transformed_core = registry.apply_transform_chain(
         TransformTarget::StatusBar,
         || build_status_core(state),
-        state,
+        &AppView::new(state),
     );
 
     let row = Element::container(
@@ -252,7 +255,8 @@ pub(crate) fn build_buffer_core_parts(
     let buffer_rows = state.available_height() as usize;
 
     // Collect display map before annotations (annotations may use it)
-    let display_map = registry.collect_display_map(state);
+    let app_view = AppView::new(state);
+    let display_map = registry.collect_display_map(&app_view);
     let dm_for_element = if display_map.is_identity() {
         None
     } else {
@@ -265,7 +269,7 @@ pub(crate) fn build_buffer_core_parts(
         pane_surface_id: None,
         pane_focused: true,
     };
-    let annotations = registry.collect_annotations(state, &annotate_ctx);
+    let annotations = registry.collect_annotations(&app_view, &annotate_ctx);
     let line_backgrounds = annotations.line_backgrounds;
     // When a non-identity DisplayMap is active, line_range must reflect
     // the display line count (which is fewer than buffer lines after fold).
@@ -285,7 +289,7 @@ pub(crate) fn build_buffer_core_parts(
         Element::buffer_ref(0..buffer_rows)
     };
     let transformed_buffer =
-        registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, state);
+        registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, &app_view);
     BufferCoreParts {
         left_gutter: annotations.left_gutter,
         buffer: transformed_buffer,

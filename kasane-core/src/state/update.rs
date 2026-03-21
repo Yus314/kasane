@@ -1,7 +1,8 @@
 use crate::input;
 use crate::input::{InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
-    Command, KeyDispatchResult, MouseHandleResult, PluginEffects, PluginId, extract_redraw_flags,
+    AppView, Command, KeyDispatchResult, MouseHandleResult, PluginEffects, PluginId,
+    extract_redraw_flags,
 };
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
@@ -96,7 +97,7 @@ fn update_inner<E: PluginEffects>(
             let mut commands = Vec::new();
             let mut scroll_plans = Vec::new();
             if !flags.is_empty() {
-                let mut batch = effects.notify_state_changed(state, flags);
+                let mut batch = effects.notify_state_changed(&AppView::new(state), flags);
                 scroll_plans.append(&mut batch.effects.scroll_plans);
                 commands.append(&mut batch.effects.commands);
                 let effect_flags = batch.effects.redraw;
@@ -117,11 +118,11 @@ fn update_inner<E: PluginEffects>(
         }
         Msg::Key(key) => {
             // 1. Notify all plugins (observe only, cannot consume)
-            effects.observe_key_all(&key, state);
+            effects.observe_key_all(&key, &AppView::new(state));
 
             // 2. Plugin key middleware chain.
             // PageUp/PageDown are handled by BuiltinInputPlugin (lowest priority).
-            match effects.dispatch_key_middleware(&key, state) {
+            match effects.dispatch_key_middleware(&key, &AppView::new(state)) {
                 KeyDispatchResult::Consumed {
                     source_plugin,
                     mut commands,
@@ -164,12 +165,12 @@ fn update_inner<E: PluginEffects>(
             }
 
             // Notify all plugins (observe only, independent of hit test)
-            effects.observe_mouse_all(&mouse, state);
+            effects.observe_mouse_all(&mouse, &AppView::new(state));
 
             // Plugin mouse handling: route click/press to plugins via hit test
             if let Some(id) = state.hit_map.test(mouse.column as u16, mouse.line as u16) {
                 tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
-                match effects.dispatch_mouse_handler(&mouse, id, state) {
+                match effects.dispatch_mouse_handler(&mouse, id, &AppView::new(state)) {
                     MouseHandleResult::Handled {
                         source_plugin,
                         mut commands,

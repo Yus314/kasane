@@ -200,7 +200,7 @@ fn gen_update_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
             fn update_effects(
                 &mut self,
                 _msg: &mut dyn ::std::any::Any,
-                _state: &kasane_core::state::AppState,
+                _state: &kasane_core::plugin::AppView<'_>,
             ) -> kasane_core::plugin::RuntimeEffects {
                 #mod_ident::update_effects(&mut self.state, _msg, _state)
             }
@@ -217,7 +217,7 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
 
     if def.has_on_init_effects {
         tokens.extend(quote! {
-            fn on_init_effects(&mut self, _state: &kasane_core::state::AppState) -> kasane_core::plugin::BootstrapEffects {
+            fn on_init_effects(&mut self, _state: &kasane_core::plugin::AppView<'_>) -> kasane_core::plugin::BootstrapEffects {
                 #mod_ident::on_init_effects(&mut self.state, _state)
             }
         });
@@ -227,7 +227,7 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
         tokens.extend(quote! {
             fn on_active_session_ready_effects(
                 &mut self,
-                _state: &kasane_core::state::AppState,
+                _state: &kasane_core::plugin::AppView<'_>,
             ) -> kasane_core::plugin::SessionReadyEffects {
                 #mod_ident::on_active_session_ready_effects(&mut self.state, _state)
             }
@@ -246,7 +246,7 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
         tokens.extend(quote! {
             fn on_state_changed_effects(
                 &mut self,
-                _state: &kasane_core::state::AppState,
+                _state: &kasane_core::plugin::AppView<'_>,
                 _dirty: kasane_core::state::DirtyFlags,
             ) -> kasane_core::plugin::RuntimeEffects {
                 #mod_ident::on_state_changed_effects(&mut self.state, _state, _dirty)
@@ -264,7 +264,7 @@ fn gen_input_impl(def: &PluginDef) -> TokenStream {
 
     if def.has_observe_key {
         tokens.extend(quote! {
-            fn observe_key(&mut self, _key: &kasane_core::input::KeyEvent, _state: &kasane_core::state::AppState) {
+            fn observe_key(&mut self, _key: &kasane_core::input::KeyEvent, _state: &kasane_core::plugin::AppView<'_>) {
                 #mod_ident::observe_key(&mut self.state, _key, _state)
             }
         });
@@ -272,7 +272,7 @@ fn gen_input_impl(def: &PluginDef) -> TokenStream {
 
     if def.has_observe_mouse {
         tokens.extend(quote! {
-            fn observe_mouse(&mut self, _event: &kasane_core::input::MouseEvent, _state: &kasane_core::state::AppState) {
+            fn observe_mouse(&mut self, _event: &kasane_core::input::MouseEvent, _state: &kasane_core::plugin::AppView<'_>) {
                 #mod_ident::observe_mouse(&mut self.state, _event, _state)
             }
         });
@@ -280,7 +280,7 @@ fn gen_input_impl(def: &PluginDef) -> TokenStream {
 
     if def.has_handle_key {
         tokens.extend(quote! {
-            fn handle_key(&mut self, _key: &kasane_core::input::KeyEvent, _state: &kasane_core::state::AppState) -> Option<Vec<kasane_core::plugin::Command>> {
+            fn handle_key(&mut self, _key: &kasane_core::input::KeyEvent, _state: &kasane_core::plugin::AppView<'_>) -> Option<Vec<kasane_core::plugin::Command>> {
                 #mod_ident::handle_key(&mut self.state, _key, _state)
             }
         });
@@ -288,7 +288,7 @@ fn gen_input_impl(def: &PluginDef) -> TokenStream {
 
     if def.has_handle_mouse {
         tokens.extend(quote! {
-            fn handle_mouse(&mut self, _event: &kasane_core::input::MouseEvent, _id: kasane_core::element::InteractiveId, _state: &kasane_core::state::AppState) -> Option<Vec<kasane_core::plugin::Command>> {
+            fn handle_mouse(&mut self, _event: &kasane_core::input::MouseEvent, _id: kasane_core::element::InteractiveId, _state: &kasane_core::plugin::AppView<'_>) -> Option<Vec<kasane_core::plugin::Command>> {
                 #mod_ident::handle_mouse(&mut self.state, _event, _id, _state)
             }
         });
@@ -307,7 +307,7 @@ fn gen_transform_menu_item_impl(def: &PluginDef) -> TokenStream {
                 _item: &[kasane_core::protocol::Atom],
                 _index: usize,
                 _selected: bool,
-                _state: &kasane_core::state::AppState,
+                _state: &kasane_core::plugin::AppView<'_>,
             ) -> Option<Vec<kasane_core::protocol::Atom>> {
                 #mod_ident::transform_menu_item(&self.state, _item, _index, _selected, _state)
             }
@@ -360,7 +360,7 @@ fn gen_transform_impl(def: &PluginDef) -> TokenStream {
             &self,
             _target: &kasane_core::plugin::TransformTarget,
             _element: kasane_core::element::Element,
-            _state: &kasane_core::state::AppState,
+            _state: &kasane_core::plugin::AppView<'_>,
             _ctx: &kasane_core::plugin::TransformContext,
         ) -> kasane_core::element::Element {
             match _target {
@@ -404,7 +404,7 @@ fn gen_annotate_line_impl(def: &PluginDef) -> TokenStream {
             fn annotate_line_with_ctx(
                 &self,
                 _line: usize,
-                _state: &kasane_core::state::AppState,
+                _state: &kasane_core::plugin::AppView<'_>,
                 _ctx: &kasane_core::plugin::AnnotateContext,
             ) -> Option<kasane_core::plugin::LineAnnotation> {
                 #mod_ident::annotate_line(&self.state, _line, _state, _ctx)

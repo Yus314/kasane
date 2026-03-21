@@ -20,7 +20,7 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use crate::element::{Element, FlexChild, Style};
 use crate::layout::Rect;
-use crate::plugin::{PaintHook, PluginView, TransformTarget};
+use crate::plugin::{AppView, PaintHook, PluginView, TransformTarget};
 use crate::protocol::MenuStyle;
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
@@ -155,11 +155,14 @@ impl ViewSource for SalsaViewSource<'_> {
                 overlay.element = registry.apply_transform_chain(
                     TransformTarget::Menu,
                     || overlay.element.clone(),
-                    state,
+                    &AppView::new(state),
                 );
                 if let Some(target) = transform_target {
-                    overlay.element =
-                        registry.apply_transform_chain(target, || overlay.element.clone(), state);
+                    overlay.element = registry.apply_transform_chain(
+                        target,
+                        || overlay.element.clone(),
+                        &AppView::new(state),
+                    );
                 }
                 overlay
             })
@@ -187,7 +190,7 @@ impl ViewSource for SalsaViewSource<'_> {
                     let mut el = registry.apply_transform_chain(
                         TransformTarget::Info,
                         || inner.clone(),
-                        state,
+                        &AppView::new(state),
                     );
 
                     if let Some(id) = interactive_id {
@@ -267,8 +270,11 @@ fn compose_base_from_salsa(
     };
 
     // Apply buffer transform chain (imperative)
-    let transformed_buffer =
-        registry.apply_transform_chain(TransformTarget::Buffer, || buffer_with_bg, state);
+    let transformed_buffer = registry.apply_transform_chain(
+        TransformTarget::Buffer,
+        || buffer_with_bg,
+        &AppView::new(state),
+    );
 
     // Read buffer slot contributions from Salsa input
     let buffer_left = handles.slot_contributions.buffer_left(db).clone();
@@ -301,8 +307,11 @@ fn compose_base_from_salsa(
     };
 
     // Apply status transform chain (imperative)
-    let transformed_status =
-        registry.apply_transform_chain(TransformTarget::StatusBar, || status_el, state);
+    let transformed_status = registry.apply_transform_chain(
+        TransformTarget::StatusBar,
+        || status_el,
+        &AppView::new(state),
+    );
 
     // Read status slot contributions from Salsa input
     let status_left = handles.slot_contributions.status_left(db).clone();

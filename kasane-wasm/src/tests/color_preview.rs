@@ -5,7 +5,7 @@ fn apply_color_preview_state_change(
     state: &AppState,
     dirty: DirtyFlags,
 ) {
-    let effects = plugin.on_state_changed_effects(state, dirty);
+    let effects = plugin.on_state_changed_effects(&AppView::new(state), dirty);
     assert!(effects.redraw.is_empty());
     assert!(effects.commands.is_empty());
     assert!(effects.scroll_plans.is_empty());
@@ -32,7 +32,7 @@ fn detects_colors_in_line() {
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
-    let ann = plugin.annotate_line_with_ctx(0, &state, &ctx);
+    let ann = plugin.annotate_line_with_ctx(0, &AppView::new(&state), &ctx);
     assert!(ann.is_some());
     let ann = ann.unwrap();
     assert!(ann.left_gutter.is_some());
@@ -46,7 +46,11 @@ fn no_decoration_without_colors() {
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
-    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
+    assert!(
+        plugin
+            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
+            .is_none()
+    );
 }
 
 #[test]
@@ -57,7 +61,7 @@ fn overlay_on_color_line() {
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_some());
 }
 
@@ -69,7 +73,11 @@ fn no_overlay_on_plain_line() {
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_overlay_ctx();
-    assert!(plugin.contribute_overlay_with_ctx(&state, &ctx).is_none());
+    assert!(
+        plugin
+            .contribute_overlay_with_ctx(&AppView::new(&state), &ctx)
+            .is_none()
+    );
 }
 
 #[test]
@@ -113,7 +121,7 @@ fn handle_mouse_increments() {
         column: 0,
         modifiers: Modifiers::empty(),
     };
-    let result = plugin.handle_mouse(&event, InteractiveId(2000), &state);
+    let result = plugin.handle_mouse(&event, InteractiveId(2000), &AppView::new(&state));
     assert!(result.is_some());
     let cmds = result.unwrap();
     assert_eq!(cmds.len(), 1);
@@ -145,7 +153,7 @@ fn handle_mouse_consumes_release() {
         column: 0,
         modifiers: Modifiers::empty(),
     };
-    let result = plugin.handle_mouse(&event, InteractiveId(2000), &state);
+    let result = plugin.handle_mouse(&event, InteractiveId(2000), &AppView::new(&state));
     assert!(result.is_some());
     assert!(result.unwrap().is_empty());
 }

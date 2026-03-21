@@ -48,7 +48,7 @@ fn apply_fuzzy_io_event(
     event: IoEvent,
     state: &AppState,
 ) -> kasane_core::plugin::RuntimeEffects {
-    let effects = plugin.on_io_event_effects(&event, state);
+    let effects = plugin.on_io_event_effects(&event, &AppView::new(state));
     assert!(effects.redraw.is_empty());
     assert!(effects.scroll_plans.is_empty());
     effects
@@ -82,10 +82,10 @@ fn inactive_passes_keys() {
     let state = AppState::default();
 
     // Regular keys pass through when inactive
-    let result = plugin.handle_key(&char_event('a'), &state);
+    let result = plugin.handle_key(&char_event('a'), &AppView::new(&state));
     assert!(result.is_none());
 
-    let result = plugin.handle_key(&key_event(Key::Enter), &state);
+    let result = plugin.handle_key(&key_event(Key::Enter), &AppView::new(&state));
     assert!(result.is_none());
 }
 
@@ -94,7 +94,7 @@ fn ctrl_p_returns_spawn_command() {
     let mut plugin = load_fuzzy_finder_plugin();
     let state = AppState::default();
 
-    let result = plugin.handle_key(&ctrl_p_event(), &state);
+    let result = plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     assert!(result.is_some());
     let cmds = result.unwrap();
 
@@ -111,13 +111,13 @@ fn consumes_keys_when_active() {
     let state = AppState::default();
 
     // Activate
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
 
     // All keys should be consumed (Some, not None)
-    let result = plugin.handle_key(&char_event('a'), &state);
+    let result = plugin.handle_key(&char_event('a'), &AppView::new(&state));
     assert!(result.is_some());
 
-    let result = plugin.handle_key(&key_event(Key::Escape), &state);
+    let result = plugin.handle_key(&key_event(Key::Escape), &AppView::new(&state));
     assert!(result.is_some());
 }
 
@@ -127,13 +127,13 @@ fn escape_deactivates() {
     let state = AppState::default();
 
     // Activate
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
 
     // Escape
-    plugin.handle_key(&key_event(Key::Escape), &state);
+    plugin.handle_key(&key_event(Key::Escape), &AppView::new(&state));
 
     // Should be inactive again — keys pass through
-    let result = plugin.handle_key(&char_event('a'), &state);
+    let result = plugin.handle_key(&char_event('a'), &AppView::new(&state));
     assert!(result.is_none());
 }
 
@@ -143,7 +143,7 @@ fn io_event_stdout_accumulation() {
     let state = AppState::default();
 
     // Activate (spawns fd with job_id=1)
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     let h1 = plugin.state_hash();
 
     // Simulate fd stdout in chunks
@@ -186,7 +186,7 @@ fn io_event_stdout_accumulation() {
 
     // Overlay should now show results
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(
         overlay.is_some(),
         "overlay should be visible after file list received"
@@ -198,7 +198,7 @@ fn typed_io_event_effects_accumulation() {
     let mut plugin = load_fuzzy_finder_plugin();
     let state = AppState::default();
 
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     let h1 = plugin.state_hash();
 
     let effects = plugin.on_io_event_effects(
@@ -206,7 +206,7 @@ fn typed_io_event_effects_accumulation() {
             job_id: 1,
             exit_code: 0,
         }),
-        &state,
+        &AppView::new(&state),
     );
 
     let h2 = plugin.state_hash();
@@ -230,7 +230,7 @@ fn overlay_uses_absolute_anchor() {
     let mut plugin = load_fuzzy_finder_plugin();
     let state = AppState::default();
 
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     apply_fuzzy_io_event(
         &mut plugin,
         IoEvent::Process(ProcessEvent::Stdout {
@@ -249,7 +249,7 @@ fn overlay_uses_absolute_anchor() {
     );
 
     let overlay = plugin
-        .contribute_overlay_with_ctx(&state, &default_overlay_ctx())
+        .contribute_overlay_with_ctx(&AppView::new(&state), &default_overlay_ctx())
         .expect("expected overlay");
     match overlay.anchor {
         OverlayAnchor::Absolute { w, h, .. } => {
@@ -266,7 +266,7 @@ fn spawn_failed_no_panic() {
     let state = AppState::default();
 
     // Activate
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
 
     // fd fails → should try find fallback
     let effects = apply_fuzzy_io_event(
@@ -303,7 +303,7 @@ fn spawn_failed_no_panic() {
     assert!(has_redraw);
 
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_some(), "overlay should show error");
 }
 
@@ -313,7 +313,7 @@ fn fzf_spawn_failed_shows_error() {
     let state = AppState::default();
 
     // Activate and provide file list
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     apply_fuzzy_io_event(
         &mut plugin,
         IoEvent::Process(ProcessEvent::Stdout {
@@ -332,7 +332,7 @@ fn fzf_spawn_failed_shows_error() {
     );
 
     // Type a character to trigger fzf
-    plugin.handle_key(&char_event('f'), &state);
+    plugin.handle_key(&char_event('f'), &AppView::new(&state));
 
     // fzf spawn fails (job_id = 100 + 1 = 101)
     apply_fuzzy_io_event(
@@ -346,7 +346,7 @@ fn fzf_spawn_failed_shows_error() {
 
     // Should still show overlay (with error)
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_some());
 }
 
@@ -356,7 +356,7 @@ fn enter_selects_file() {
     let state = AppState::default();
 
     // Activate and provide file list
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     apply_fuzzy_io_event(
         &mut plugin,
         IoEvent::Process(ProcessEvent::Stdout {
@@ -375,7 +375,7 @@ fn enter_selects_file() {
     );
 
     // Press Enter to select first file
-    let cmds = plugin.handle_key(&key_event(Key::Enter), &state);
+    let cmds = plugin.handle_key(&key_event(Key::Enter), &AppView::new(&state));
     assert!(cmds.is_some());
     let cmds = cmds.unwrap();
 
@@ -386,7 +386,7 @@ fn enter_selects_file() {
     assert!(has_send_keys, "expected SendToKakoune with edit keys");
 
     // Should be inactive after Enter
-    let result = plugin.handle_key(&char_event('a'), &state);
+    let result = plugin.handle_key(&char_event('a'), &AppView::new(&state));
     assert!(result.is_none(), "should be inactive after Enter");
 }
 
@@ -396,7 +396,7 @@ fn up_down_navigation() {
     let state = AppState::default();
 
     // Activate and provide file list
-    plugin.handle_key(&ctrl_p_event(), &state);
+    plugin.handle_key(&ctrl_p_event(), &AppView::new(&state));
     apply_fuzzy_io_event(
         &mut plugin,
         IoEvent::Process(ProcessEvent::Stdout {
@@ -417,17 +417,17 @@ fn up_down_navigation() {
     let h1 = plugin.state_hash();
 
     // Down
-    plugin.handle_key(&key_event(Key::Down), &state);
+    plugin.handle_key(&key_event(Key::Down), &AppView::new(&state));
     let h2 = plugin.state_hash();
     assert_ne!(h1, h2, "state_hash should change on Down");
 
     // Down again
-    plugin.handle_key(&key_event(Key::Down), &state);
+    plugin.handle_key(&key_event(Key::Down), &AppView::new(&state));
     let h3 = plugin.state_hash();
     assert_ne!(h2, h3);
 
     // Up
-    plugin.handle_key(&key_event(Key::Up), &state);
+    plugin.handle_key(&key_event(Key::Up), &AppView::new(&state));
     let h4 = plugin.state_hash();
     assert_ne!(h3, h4);
 }

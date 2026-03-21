@@ -2,8 +2,8 @@ use kasane_core::kasane_plugin;
 
 #[kasane_plugin]
 mod icon_plugin {
+    use kasane_core::plugin::AppView;
     use kasane_core::protocol::{Atom, Face};
-    use kasane_core::state::AppState;
 
     #[state]
     #[derive(Default)]
@@ -14,7 +14,7 @@ mod icon_plugin {
         item: &[Atom],
         _index: usize,
         _selected: bool,
-        _core: &AppState,
+        _core: &AppView<'_>,
     ) -> Option<Vec<Atom>> {
         let mut result = vec![Atom {
             face: Face::default(),
@@ -26,7 +26,7 @@ mod icon_plugin {
 }
 
 fn main() {
-    use kasane_core::plugin::PluginBackend;
+    use kasane_core::plugin::{AppView, PluginBackend};
     use kasane_core::protocol::{Atom, Face};
     use kasane_core::state::AppState;
 
@@ -36,7 +36,7 @@ fn main() {
         face: Face::default(),
         contents: "test".into(),
     }];
-    let result = plugin.transform_menu_item(&item, 0, false, &state);
+    let result = plugin.transform_menu_item(&item, 0, false, &AppView::new(&state));
     assert!(result.is_some());
     let result = result.unwrap();
     assert_eq!(result[0].contents.as_str(), "★ ");

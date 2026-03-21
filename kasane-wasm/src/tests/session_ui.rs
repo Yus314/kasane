@@ -4,7 +4,7 @@ use kasane_core::plugin::{Command, PluginBackend};
 use kasane_core::session::{SessionCommand, SessionDescriptor};
 
 fn apply_session_state_change(plugin: &mut crate::WasmPlugin, state: &AppState, dirty: DirtyFlags) {
-    let effects = plugin.on_state_changed_effects(state, dirty);
+    let effects = plugin.on_state_changed_effects(&AppView::new(state), dirty);
     assert!(effects.redraw.is_empty());
     assert!(effects.commands.is_empty());
     assert!(effects.scroll_plans.is_empty());
@@ -60,7 +60,7 @@ fn status_right_hidden_single_session() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     let ctx = default_contribute_ctx(&state);
-    let result = plugin.contribute_to(&SlotId::STATUS_RIGHT, &state, &ctx);
+    let result = plugin.contribute_to(&SlotId::STATUS_RIGHT, &AppView::new(&state), &ctx);
     assert!(result.is_none());
 }
 
@@ -71,7 +71,7 @@ fn status_right_shown_multiple_sessions() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     let ctx = default_contribute_ctx(&state);
-    let result = plugin.contribute_to(&SlotId::STATUS_RIGHT, &state, &ctx);
+    let result = plugin.contribute_to(&SlotId::STATUS_RIGHT, &AppView::new(&state), &ctx);
     assert!(result.is_some());
 }
 
@@ -81,7 +81,7 @@ fn ctrl_t_opens_switcher() {
     let state = state_with_sessions(2);
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
-    let result = plugin.handle_key(&ctrl_t_event(), &state);
+    let result = plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     assert!(result.is_some());
 }
 
@@ -92,11 +92,11 @@ fn overlay_present_when_open() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
 
     // Overlay should be present
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_some());
 }
 
@@ -108,7 +108,7 @@ fn overlay_absent_when_closed() {
 
     // Before opening, no overlay
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_none());
 }
 
@@ -119,11 +119,11 @@ fn enter_issues_switch_command() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     // Navigate down
-    plugin.handle_key(&key_event(Key::Down), &state);
+    plugin.handle_key(&key_event(Key::Down), &AppView::new(&state));
     // Select
-    let result = plugin.handle_key(&key_event(Key::Enter), &state);
+    let result = plugin.handle_key(&key_event(Key::Enter), &AppView::new(&state));
     assert!(result.is_some());
     let cmds = result.unwrap();
     let has_switch = cmds
@@ -139,13 +139,13 @@ fn escape_closes_switcher() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     // Close
-    plugin.handle_key(&key_event(Key::Escape), &state);
+    plugin.handle_key(&key_event(Key::Escape), &AppView::new(&state));
 
     // Overlay should be gone
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_none());
 }
 
@@ -173,9 +173,9 @@ fn enriched_descriptor_fields() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher — the overlay should contain elements for both sessions
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(
         overlay.is_some(),
         "overlay should be present with enriched descriptors"
@@ -189,9 +189,9 @@ fn d_closes_selected_session() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     // Press 'd' to close selected session
-    let result = plugin.handle_key(&char_event('d'), &state);
+    let result = plugin.handle_key(&char_event('d'), &AppView::new(&state));
     assert!(result.is_some());
     let cmds = result.unwrap();
     let has_close = cmds
@@ -207,9 +207,9 @@ fn d_does_not_close_last_session() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     // Press 'd' — should NOT close the last session
-    let result = plugin.handle_key(&char_event('d'), &state);
+    let result = plugin.handle_key(&char_event('d'), &AppView::new(&state));
     assert!(result.is_some());
     let cmds = result.unwrap();
     let has_close = cmds
@@ -225,9 +225,9 @@ fn n_spawns_new_session() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     // Press 'n' to create new session
-    let result = plugin.handle_key(&char_event('n'), &state);
+    let result = plugin.handle_key(&char_event('n'), &AppView::new(&state));
     assert!(result.is_some());
     let cmds = result.unwrap();
     let has_spawn = cmds
@@ -243,12 +243,12 @@ fn n_closes_switcher() {
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher
-    plugin.handle_key(&ctrl_t_event(), &state);
+    plugin.handle_key(&ctrl_t_event(), &AppView::new(&state));
     // Press 'n'
-    plugin.handle_key(&char_event('n'), &state);
+    plugin.handle_key(&char_event('n'), &AppView::new(&state));
 
     // Switcher should be closed
     let ctx = default_overlay_ctx();
-    let overlay = plugin.contribute_overlay_with_ctx(&state, &ctx);
+    let overlay = plugin.contribute_overlay_with_ctx(&AppView::new(&state), &ctx);
     assert!(overlay.is_none(), "switcher should close after 'n'");
 }

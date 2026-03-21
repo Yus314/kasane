@@ -5,7 +5,7 @@ fn apply_cursor_line_state_change(
     state: &AppState,
     dirty: DirtyFlags,
 ) {
-    let effects = plugin.on_state_changed_effects(state, dirty);
+    let effects = plugin.on_state_changed_effects(&AppView::new(state), dirty);
     assert!(effects.redraw.is_empty());
     assert!(effects.commands.is_empty());
     assert!(effects.scroll_plans.is_empty());
@@ -25,7 +25,7 @@ fn highlight_active_line() {
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
-    let ann = plugin.annotate_line_with_ctx(3, &state, &ctx);
+    let ann = plugin.annotate_line_with_ctx(3, &AppView::new(&state), &ctx);
     assert!(ann.is_some());
     let ann = ann.unwrap();
     assert!(ann.background.is_some());
@@ -48,9 +48,21 @@ fn no_highlight_on_other_lines() {
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
-    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
-    assert!(plugin.annotate_line_with_ctx(2, &state, &ctx).is_none());
-    assert!(plugin.annotate_line_with_ctx(4, &state, &ctx).is_none());
+    assert!(
+        plugin
+            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
+            .is_none()
+    );
+    assert!(
+        plugin
+            .annotate_line_with_ctx(2, &AppView::new(&state), &ctx)
+            .is_none()
+    );
+    assert!(
+        plugin
+            .annotate_line_with_ctx(4, &AppView::new(&state), &ctx)
+            .is_none()
+    );
 }
 
 #[test]
@@ -61,13 +73,29 @@ fn tracks_cursor_movement() {
 
     state.cursor_pos.line = 0;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
-    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_some());
-    assert!(plugin.annotate_line_with_ctx(5, &state, &ctx).is_none());
+    assert!(
+        plugin
+            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
+            .is_some()
+    );
+    assert!(
+        plugin
+            .annotate_line_with_ctx(5, &AppView::new(&state), &ctx)
+            .is_none()
+    );
 
     state.cursor_pos.line = 5;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
-    assert!(plugin.annotate_line_with_ctx(0, &state, &ctx).is_none());
-    assert!(plugin.annotate_line_with_ctx(5, &state, &ctx).is_some());
+    assert!(
+        plugin
+            .annotate_line_with_ctx(0, &AppView::new(&state), &ctx)
+            .is_none()
+    );
+    assert!(
+        plugin
+            .annotate_line_with_ctx(5, &AppView::new(&state), &ctx)
+            .is_some()
+    );
 }
 
 #[test]
@@ -90,7 +118,7 @@ fn typed_state_changed_effects_updates_state_hash() {
 
     let mut state = AppState::default();
     state.cursor_pos.line = 12;
-    let effects = plugin.on_state_changed_effects(&state, DirtyFlags::BUFFER);
+    let effects = plugin.on_state_changed_effects(&AppView::new(&state), DirtyFlags::BUFFER);
     let h2 = plugin.state_hash();
 
     assert_eq!(effects.redraw, DirtyFlags::empty());
@@ -103,7 +131,7 @@ fn typed_state_changed_effects_updates_state_hash() {
 fn on_init_and_shutdown_do_not_panic() {
     let mut plugin = load_cursor_line_plugin();
     let state = AppState::default();
-    let effects = plugin.on_init_effects(&state);
+    let effects = plugin.on_init_effects(&AppView::new(&state));
     assert!(effects.redraw.is_empty());
     plugin.on_shutdown();
 }
@@ -117,7 +145,7 @@ fn contribute_returns_none() {
     // cursor-line plugin has no slot contributions
     assert!(
         plugin
-            .contribute_to(&SlotId::BUFFER_LEFT, &state, &ctx)
+            .contribute_to(&SlotId::BUFFER_LEFT, &AppView::new(&state), &ctx)
             .is_none()
     );
 }

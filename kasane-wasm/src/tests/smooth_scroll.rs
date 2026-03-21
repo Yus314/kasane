@@ -23,7 +23,10 @@ fn passes_through_when_disabled() {
         ResolvedScroll::new(3, 10, 5),
     );
 
-    assert_eq!(plugin.handle_default_scroll(candidate, &state), None);
+    assert_eq!(
+        plugin.handle_default_scroll(candidate, &AppView::new(&state)),
+        None
+    );
 }
 
 #[test]
@@ -43,7 +46,7 @@ fn returns_legacy_plan_when_enabled() {
     );
 
     assert_eq!(
-        plugin.handle_default_scroll(candidate, &state),
+        plugin.handle_default_scroll(candidate, &AppView::new(&state)),
         Some(ScrollPolicyResult::Plan(ScrollPlan::new(
             3,
             10,
@@ -72,7 +75,7 @@ fn legacy_config_alias_enables_plan() {
     );
 
     assert_eq!(
-        plugin.handle_default_scroll(candidate, &state),
+        plugin.handle_default_scroll(candidate, &AppView::new(&state)),
         Some(ScrollPolicyResult::Plan(ScrollPlan::new(
             -3,
             4,

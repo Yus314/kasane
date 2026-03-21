@@ -670,7 +670,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     }
     host.config_values.insert(
         SMOOTH_SCROLL_CONFIG_KEY.into(),
-        smooth_scroll_enabled(state).to_string(),
+        smooth_scroll_enabled(&kasane_core::plugin::AppView::new(state)).to_string(),
     );
 
     // Tier 6: Info content

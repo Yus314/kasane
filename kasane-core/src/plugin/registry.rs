@@ -5,10 +5,11 @@ use crate::display::{DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use crate::state::{AppState, DirtyFlags};
+use crate::state::DirtyFlags;
 use crate::workspace::Placement;
 use crate::workspace::WorkspaceQuery;
 
+use super::AppView;
 use super::bridge::PluginBridge;
 use super::effects::{MouseHandleResult, PluginEffects};
 use super::state::Plugin;
@@ -150,47 +151,47 @@ impl PluginRuntime {
     }
 
     /// Initialize all plugins and collect typed bootstrap effects.
-    pub fn init_all_batch(&mut self, state: &AppState) -> InitBatch {
+    pub fn init_all_batch(&mut self, app: &AppView<'_>) -> InitBatch {
         let mut batch = InitBatch::default();
         for plugin in &mut self.plugins {
-            batch.effects.merge(plugin.on_init_effects(state));
+            batch.effects.merge(plugin.on_init_effects(app));
         }
         batch
     }
 
     /// Initialize all plugins.
-    pub fn init_all(&mut self, state: &AppState) -> InitBatch {
-        self.init_all_batch(state)
+    pub fn init_all(&mut self, app: &AppView<'_>) -> InitBatch {
+        self.init_all_batch(app)
     }
 
     /// Notify all plugins that the active session is ready for transport-bound startup work.
-    pub fn notify_active_session_ready_batch(&mut self, state: &AppState) -> ReadyBatch {
+    pub fn notify_active_session_ready_batch(&mut self, app: &AppView<'_>) -> ReadyBatch {
         let mut batch = ReadyBatch::default();
         for plugin in &mut self.plugins {
             batch
                 .effects
-                .merge(plugin.on_active_session_ready_effects(state));
+                .merge(plugin.on_active_session_ready_effects(app));
         }
         batch
     }
 
     /// Notify all plugins that the active session is ready for transport-bound startup work.
-    pub fn notify_active_session_ready(&mut self, state: &AppState) -> ReadyBatch {
-        self.notify_active_session_ready_batch(state)
+    pub fn notify_active_session_ready(&mut self, app: &AppView<'_>) -> ReadyBatch {
+        self.notify_active_session_ready_batch(app)
     }
 
     /// Notify a single plugin that the active session is ready.
     pub fn notify_plugin_active_session_ready_batch(
         &mut self,
         target: &PluginId,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> ReadyBatch {
         for plugin in &mut self.plugins {
             if &plugin.id() == target {
                 let mut batch = ReadyBatch::default();
                 batch
                     .effects
-                    .merge(plugin.on_active_session_ready_effects(state));
+                    .merge(plugin.on_active_session_ready_effects(app));
                 return batch;
             }
         }
@@ -200,14 +201,14 @@ impl PluginRuntime {
     /// Notify all plugins about a state change and collect typed runtime effects.
     pub fn notify_state_changed_batch(
         &mut self,
-        state: &AppState,
+        app: &AppView<'_>,
         dirty: DirtyFlags,
     ) -> RuntimeBatch {
         let mut batch = RuntimeBatch::default();
         for plugin in &mut self.plugins {
             batch
                 .effects
-                .merge(plugin.on_state_changed_effects(state, dirty));
+                .merge(plugin.on_state_changed_effects(app, dirty));
         }
         batch
     }
@@ -236,7 +237,7 @@ impl PluginRuntime {
     pub fn reload_plugin_batch(
         &mut self,
         plugin: Box<dyn PluginBackend>,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> InitBatch {
         let id = plugin.id();
         // Shut down old plugin if present
@@ -248,17 +249,19 @@ impl PluginRuntime {
         // Init the new plugin
         if let Some(pos) = self.plugins.iter().position(|p| p.id() == id) {
             let mut batch = InitBatch::default();
-            batch
-                .effects
-                .merge(self.plugins[pos].on_init_effects(state));
+            batch.effects.merge(self.plugins[pos].on_init_effects(app));
             return batch;
         }
         InitBatch::default()
     }
 
     /// Reload a single plugin by replacing it in-place.
-    pub fn reload_plugin(&mut self, plugin: Box<dyn PluginBackend>, state: &AppState) -> InitBatch {
-        self.reload_plugin_batch(plugin, state)
+    pub fn reload_plugin(
+        &mut self,
+        plugin: Box<dyn PluginBackend>,
+        app: &AppView<'_>,
+    ) -> InitBatch {
+        self.reload_plugin_batch(plugin, app)
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
@@ -328,30 +331,29 @@ impl PluginRuntime {
         item: &[crate::protocol::Atom],
         index: usize,
         selected: bool,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
-        self.view()
-            .transform_menu_item(item, index, selected, state)
+        self.view().transform_menu_item(item, index, selected, app)
     }
 
     // --- Cursor style override ---
 
     /// Query plugins for a cursor style override. Returns the first non-None.
-    pub fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
-        self.view().cursor_style_override(state)
+    pub fn cursor_style_override(&self, app: &AppView<'_>) -> Option<crate::render::CursorStyle> {
+        self.view().cursor_style_override(app)
     }
 
     /// Query plugins for a default buffer scroll policy. Returns the first non-None.
     pub fn handle_default_scroll(
         &mut self,
         candidate: DefaultScrollCandidate,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> Option<(PluginId, ScrollPolicyResult)> {
         for (i, plugin) in self.plugins.iter_mut().enumerate() {
             if !self.capabilities[i].contains(PluginCapabilities::SCROLL_POLICY) {
                 continue;
             }
-            if let Some(result) = plugin.handle_default_scroll(candidate, state) {
+            if let Some(result) = plugin.handle_default_scroll(candidate, app) {
                 return Some((plugin.id(), result));
             }
         }
@@ -361,11 +363,11 @@ impl PluginRuntime {
     pub fn dispatch_key_middleware(
         &mut self,
         key: &KeyEvent,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> KeyDispatchResult {
         let mut current_key = key.clone();
         for plugin in &mut self.plugins {
-            match plugin.handle_key_middleware(&current_key, state) {
+            match plugin.handle_key_middleware(&current_key, app) {
                 KeyHandleResult::Consumed(commands) => {
                     return KeyDispatchResult::Consumed {
                         source_plugin: plugin.id(),
@@ -388,20 +390,20 @@ impl PluginRuntime {
     pub fn collect_contributions(
         &self,
         region: &SlotId,
-        state: &AppState,
+        app: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Vec<Contribution> {
-        self.view().collect_contributions(region, state, ctx)
+        self.view().collect_contributions(region, app, ctx)
     }
 
     pub fn collect_contributions_with_sources(
         &self,
         region: &SlotId,
-        state: &AppState,
+        app: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Vec<SourcedContribution> {
         self.view()
-            .collect_contributions_with_sources(region, state, ctx)
+            .collect_contributions_with_sources(region, app, ctx)
     }
 
     /// Apply the transform chain for a given target.
@@ -409,53 +411,52 @@ impl PluginRuntime {
         &self,
         target: TransformTarget,
         default_element_fn: impl FnOnce() -> Element,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> Element {
-        self.apply_transform_chain_in_pane(
-            target,
-            default_element_fn,
-            state,
-            PaneContext::default(),
-        )
+        self.apply_transform_chain_in_pane(target, default_element_fn, app, PaneContext::default())
     }
 
     pub fn apply_transform_chain_in_pane(
         &self,
         target: TransformTarget,
         default_element_fn: impl FnOnce() -> Element,
-        state: &AppState,
+        app: &AppView<'_>,
         pane_context: PaneContext,
     ) -> Element {
         self.view()
-            .apply_transform_chain_in_pane(target, default_element_fn, state, pane_context)
+            .apply_transform_chain_in_pane(target, default_element_fn, app, pane_context)
     }
 
     /// Collect annotations from all annotating plugins for visible lines.
-    pub fn collect_annotations(&self, state: &AppState, ctx: &AnnotateContext) -> AnnotationResult {
-        self.view().collect_annotations(state, ctx)
+    pub fn collect_annotations(
+        &self,
+        app: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> AnnotationResult {
+        self.view().collect_annotations(app, ctx)
     }
 
     /// Collect display transformation directives from all plugins and build
     /// a `DisplayMapRef`.
-    pub fn collect_display_map(&self, state: &AppState) -> DisplayMapRef {
-        self.view().collect_display_map(state)
+    pub fn collect_display_map(&self, app: &AppView<'_>) -> DisplayMapRef {
+        self.view().collect_display_map(app)
     }
 
     /// Collect raw display directives from all plugins (without building a DisplayMap).
     pub fn collect_display_directives(
         &self,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> Vec<crate::display::DisplayDirective> {
-        self.view().collect_display_directives(state)
+        self.view().collect_display_directives(app)
     }
 
     /// Collect overlay contributions with collision-avoidance context.
     pub fn collect_overlays_with_ctx(
         &self,
-        state: &AppState,
+        app: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Vec<OverlayContribution> {
-        self.view().collect_overlays_with_ctx(state, ctx)
+        self.view().collect_overlays_with_ctx(app, ctx)
     }
 
     /// Check if any plugin has TRANSFORMER capability for a given target.
@@ -487,7 +488,7 @@ impl PluginRuntime {
         &mut self,
         target: &PluginId,
         event: &IoEvent,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> RuntimeBatch {
         crate::perf::perf_span!("deliver_io_event");
         for (i, plugin) in self.plugins.iter_mut().enumerate() {
@@ -496,9 +497,7 @@ impl PluginRuntime {
                     return RuntimeBatch::default();
                 }
                 let mut batch = RuntimeBatch::default();
-                batch
-                    .effects
-                    .merge(plugin.on_io_event_effects(event, state));
+                batch.effects.merge(plugin.on_io_event_effects(event, app));
                 return batch;
             }
         }
@@ -510,7 +509,7 @@ impl PluginRuntime {
         &mut self,
         target: &PluginId,
         payload: Box<dyn Any>,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> RuntimeBatch {
         let mut payload = payload;
         for plugin in &mut self.plugins {
@@ -518,7 +517,7 @@ impl PluginRuntime {
                 let mut batch = RuntimeBatch::default();
                 batch
                     .effects
-                    .merge(plugin.update_effects(payload.as_mut(), state));
+                    .merge(plugin.update_effects(payload.as_mut(), app));
                 return batch;
             }
         }
@@ -535,16 +534,16 @@ impl PluginRuntime {
     }
 
     /// Broadcast key observation to all plugins.
-    pub fn observe_key_all(&mut self, key: &KeyEvent, state: &AppState) {
+    pub fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
         for plugin in self.plugins_mut() {
-            plugin.observe_key(key, state);
+            plugin.observe_key(key, app);
         }
     }
 
     /// Broadcast mouse observation to all plugins.
-    pub fn observe_mouse_all(&mut self, event: &MouseEvent, state: &AppState) {
+    pub fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {
         for plugin in self.plugins_mut() {
-            plugin.observe_mouse(event, state);
+            plugin.observe_mouse(event, app);
         }
     }
 
@@ -553,10 +552,10 @@ impl PluginRuntime {
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> MouseHandleResult {
         for plugin in self.plugins_mut() {
-            if let Some(commands) = plugin.handle_mouse(event, id, state) {
+            if let Some(commands) = plugin.handle_mouse(event, id, app) {
                 let source = plugin.id();
                 return MouseHandleResult::Handled {
                     source_plugin: source,
@@ -569,37 +568,37 @@ impl PluginRuntime {
 }
 
 impl PluginEffects for PluginRuntime {
-    fn notify_state_changed(&mut self, state: &AppState, flags: DirtyFlags) -> RuntimeBatch {
-        self.notify_state_changed_batch(state, flags)
+    fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> RuntimeBatch {
+        self.notify_state_changed_batch(app, flags)
     }
 
-    fn observe_key_all(&mut self, key: &KeyEvent, state: &AppState) {
-        PluginRuntime::observe_key_all(self, key, state)
+    fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
+        PluginRuntime::observe_key_all(self, key, app)
     }
 
-    fn dispatch_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyDispatchResult {
-        PluginRuntime::dispatch_key_middleware(self, key, state)
+    fn dispatch_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyDispatchResult {
+        PluginRuntime::dispatch_key_middleware(self, key, app)
     }
 
-    fn observe_mouse_all(&mut self, event: &MouseEvent, state: &AppState) {
-        PluginRuntime::observe_mouse_all(self, event, state)
+    fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {
+        PluginRuntime::observe_mouse_all(self, event, app)
     }
 
     fn dispatch_mouse_handler(
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> MouseHandleResult {
-        PluginRuntime::dispatch_mouse_handler(self, event, id, state)
+        PluginRuntime::dispatch_mouse_handler(self, event, id, app)
     }
 
     fn handle_default_scroll(
         &mut self,
         candidate: DefaultScrollCandidate,
-        state: &AppState,
+        app: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
-        PluginRuntime::handle_default_scroll(self, candidate, state).map(|(_, result)| result)
+        PluginRuntime::handle_default_scroll(self, candidate, app).map(|(_, result)| result)
     }
 }
 
@@ -613,7 +612,7 @@ impl<'a> PluginView<'a> {
     pub fn collect_contributions(
         &self,
         region: &SlotId,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Vec<Contribution> {
         self.collect_contributions_with_sources(region, state, ctx)
@@ -625,7 +624,7 @@ impl<'a> PluginView<'a> {
     pub fn collect_contributions_with_sources(
         &self,
         region: &SlotId,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Vec<SourcedContribution> {
         use super::compose::{Composable, ContributionSet};
@@ -660,7 +659,7 @@ impl<'a> PluginView<'a> {
         &self,
         target: TransformTarget,
         default_element_fn: impl FnOnce() -> Element,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Element {
         self.apply_transform_chain_in_pane(
             target,
@@ -674,7 +673,7 @@ impl<'a> PluginView<'a> {
         &self,
         target: TransformTarget,
         default_element_fn: impl FnOnce() -> Element,
-        state: &AppState,
+        state: &AppView<'_>,
         pane_context: PaneContext,
     ) -> Element {
         let mut element = default_element_fn();
@@ -702,7 +701,11 @@ impl<'a> PluginView<'a> {
     }
 
     /// Collect annotations from all annotating plugins for visible lines.
-    pub fn collect_annotations(&self, state: &AppState, ctx: &AnnotateContext) -> AnnotationResult {
+    pub fn collect_annotations(
+        &self,
+        state: &AppView<'_>,
+        ctx: &AnnotateContext,
+    ) -> AnnotationResult {
         if !self.has_capability(PluginCapabilities::ANNOTATOR) {
             return AnnotationResult {
                 left_gutter: None,
@@ -797,7 +800,7 @@ impl<'a> PluginView<'a> {
 
     /// Collect display transformation directives from all plugins and build
     /// a `DisplayMapRef`.
-    pub fn collect_display_map(&self, state: &AppState) -> DisplayMapRef {
+    pub fn collect_display_map(&self, state: &AppView<'_>) -> DisplayMapRef {
         if !self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM) {
             let line_count = state.visible_line_range().len();
             return Arc::new(DisplayMap::identity(line_count));
@@ -816,7 +819,7 @@ impl<'a> PluginView<'a> {
     /// Collect raw display directives from all plugins (without building a DisplayMap).
     pub fn collect_display_directives(
         &self,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Vec<crate::display::DisplayDirective> {
         if !self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM) {
             return Vec::new();
@@ -834,7 +837,10 @@ impl<'a> PluginView<'a> {
     ///
     /// The resulting `DirectiveSet` forms a commutative monoid (see `compose::Composable`):
     /// plugin evaluation order does not affect the resolved output.
-    fn collect_tagged_display_directives(&self, state: &AppState) -> crate::display::DirectiveSet {
+    fn collect_tagged_display_directives(
+        &self,
+        state: &AppView<'_>,
+    ) -> crate::display::DirectiveSet {
         let mut set = crate::display::DirectiveSet::default();
         for (i, plugin) in self.plugins.iter().enumerate() {
             if !self.capabilities[i].contains(PluginCapabilities::DISPLAY_TRANSFORM) {
@@ -856,7 +862,7 @@ impl<'a> PluginView<'a> {
     /// Collect overlay contributions with collision-avoidance context.
     pub fn collect_overlays_with_ctx(
         &self,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Vec<OverlayContribution> {
         use super::compose::{Composable, OverlaySet};
@@ -888,7 +894,7 @@ impl<'a> PluginView<'a> {
         item: &[crate::protocol::Atom],
         index: usize,
         selected: bool,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         let mut current: Option<Vec<crate::protocol::Atom>> = None;
         for (i, plugin) in self.plugins.iter().enumerate() {
@@ -904,7 +910,7 @@ impl<'a> PluginView<'a> {
     }
 
     /// Query plugins for a cursor style override. Returns the first non-None.
-    pub fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
+    pub fn cursor_style_override(&self, state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
         for (i, plugin) in self.plugins.iter().enumerate() {
             if !self.capabilities[i].contains(PluginCapabilities::CURSOR_STYLE) {
                 continue;

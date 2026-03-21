@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
-use crate::plugin::PluginView;
+use crate::plugin::{AppView, PluginView};
 use crate::protocol::resolve_face;
 use crate::protocol::{Atom, Face, MenuStyle};
 use crate::state::{AppState, MenuColumns, MenuState};
@@ -65,7 +65,8 @@ fn build_menu_item_element(
     };
     let item = if item_idx < menu.items.len() {
         let atoms = &menu.items[item_idx];
-        let transformed = registry.transform_menu_item(atoms, item_idx, selected, state);
+        let transformed =
+            registry.transform_menu_item(atoms, item_idx, selected, &AppView::new(state));
         let line = transformed.as_ref().unwrap_or(atoms);
         build_styled_line_with_base(line, &face, width)
     } else {
@@ -161,7 +162,7 @@ fn build_split_item_element(
     }
 
     let item = &menu.items[item_idx];
-    let transformed = registry.transform_menu_item(item, item_idx, selected, state);
+    let transformed = registry.transform_menu_item(item, item_idx, selected, &AppView::new(state));
     let (effective_item, effective_split);
     let split = if let Some(ref t) = transformed {
         // Re-split after transform (icon atoms shift indices)

@@ -3,7 +3,7 @@ use kasane_core::element::{Direction, Element, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AnnotateContext, Command, ContribSizeHint, ContributeContext, Contribution, IoEvent,
+    AnnotateContext, AppView, Command, ContribSizeHint, ContributeContext, Contribution, IoEvent,
     OverlayContext, PluginBackend, PluginId, PluginRuntime, ProcessEvent, SlotId,
 };
 use kasane_core::protocol::Color;
@@ -81,7 +81,7 @@ fn default_annotate_ctx() -> AnnotateContext {
 }
 
 fn default_contribute_ctx(state: &AppState) -> ContributeContext {
-    ContributeContext::new(state, None)
+    ContributeContext::new(&AppView::new(state), None)
 }
 
 fn default_overlay_ctx() -> OverlayContext {
@@ -113,7 +113,7 @@ impl PluginBackend for SurfaceProbeContributor {
     fn contribute_to(
         &self,
         region: &SlotId,
-        _state: &AppState,
+        _state: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         if region.as_str() != "surface_probe.sidebar.top" {

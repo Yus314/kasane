@@ -8,14 +8,14 @@ use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
-    AnnotateContext, BackgroundLayer, BlendMode, BootstrapEffects, Command, ContributeContext,
-    Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation, OverlayContext,
-    OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId,
-    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
+    AnnotateContext, AppView, BackgroundLayer, BlendMode, BootstrapEffects, Command,
+    ContributeContext, Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation,
+    OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
+    PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use kasane_core::state::{AppState, DirtyFlags};
+use kasane_core::state::DirtyFlags;
 use kasane_core::surface::{
     EventContext, SizeHint, SlotDeclaration, Surface, SurfaceEvent, SurfaceId,
     SurfacePlacementRequest, ViewContext,
@@ -55,12 +55,12 @@ impl WasmPluginShared {
     /// Lock runtime, sync state, call function, log error on failure.
     fn call_synced<R: Default>(
         &self,
-        state: &AppState,
+        state: &AppView<'_>,
         method: &str,
         f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
     ) -> R {
         self.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
+            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -74,12 +74,12 @@ impl WasmPluginShared {
     /// Like call_synced but also updates the cached state hash afterwards.
     fn call_synced_with_hash<R: Default>(
         &self,
-        state: &AppState,
+        state: &AppView<'_>,
         method: &str,
         f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
     ) -> R {
         self.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
+            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             let result = match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -239,7 +239,11 @@ impl Surface for WasmHostedSurface {
         })
     }
 
-    fn on_state_changed(&mut self, state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
+    fn on_state_changed(
+        &mut self,
+        state: &kasane_core::state::AppState,
+        dirty: DirtyFlags,
+    ) -> Vec<Command> {
         let surface_key = self.surface_key.to_string();
         self.shared.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state);
@@ -306,7 +310,7 @@ impl PluginBackend for WasmPlugin {
         self.shared.plugin_id.clone()
     }
 
-    fn on_init_effects(&mut self, state: &AppState) -> BootstrapEffects {
+    fn on_init_effects(&mut self, state: &AppView<'_>) -> BootstrapEffects {
         self.shared
             .call_synced_with_hash(state, "on_init_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
@@ -328,7 +332,7 @@ impl PluginBackend for WasmPlugin {
         });
     }
 
-    fn on_active_session_ready_effects(&mut self, state: &AppState) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> SessionReadyEffects {
         self.shared
             .call_synced_with_hash(state, "on_active_session_ready_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
@@ -338,7 +342,11 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
-    fn on_state_changed_effects(&mut self, state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+    fn on_state_changed_effects(
+        &mut self,
+        state: &AppView<'_>,
+        dirty: DirtyFlags,
+    ) -> RuntimeEffects {
         let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "on_state_changed_effects", |rt| {
@@ -349,7 +357,7 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppState) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> RuntimeEffects {
         let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "on_io_event_effects", |rt| {
@@ -382,7 +390,7 @@ impl PluginBackend for WasmPlugin {
         self.shared.state_hash()
     }
 
-    fn observe_key(&mut self, key: &KeyEvent, state: &AppState) {
+    fn observe_key(&mut self, key: &KeyEvent, state: &AppView<'_>) {
         self.shared.call_synced(state, "observe_key", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
@@ -390,7 +398,7 @@ impl PluginBackend for WasmPlugin {
         });
     }
 
-    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppState) {
+    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppView<'_>) {
         self.shared.call_synced(state, "observe_mouse", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_event = convert::mouse_event_to_wit(event);
@@ -400,10 +408,10 @@ impl PluginBackend for WasmPlugin {
         });
     }
 
-    fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>> {
+    fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
+            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
             let result = match plugin_api.call_handle_key(&mut runtime.store, &wit_key) {
@@ -428,7 +436,7 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyHandleResult {
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult {
         let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "handle_key_middleware", |rt| {
@@ -460,7 +468,7 @@ impl PluginBackend for WasmPlugin {
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         let shared = Arc::clone(&self.shared);
         self.shared.call_synced(state, "handle_mouse", |rt| {
@@ -475,10 +483,10 @@ impl PluginBackend for WasmPlugin {
     fn handle_default_scroll(
         &mut self,
         candidate: DefaultScrollCandidate,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
+            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_candidate = convert::default_scroll_candidate_to_wit(&candidate);
             let result =
@@ -509,7 +517,7 @@ impl PluginBackend for WasmPlugin {
         item: &[Atom],
         index: usize,
         selected: bool,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<Vec<Atom>> {
         self.shared.call_synced(state, "transform_menu_item", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
@@ -520,7 +528,10 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn cursor_style_override(&self, state: &AppState) -> Option<kasane_core::render::CursorStyle> {
+    fn cursor_style_override(
+        &self,
+        state: &AppView<'_>,
+    ) -> Option<kasane_core::render::CursorStyle> {
         self.shared
             .call_synced(state, "cursor_style_override", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
@@ -570,7 +581,7 @@ impl PluginBackend for WasmPlugin {
     fn contribute_to(
         &self,
         region: &SlotId,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         let wit_region = convert::slot_id_to_wit(region);
@@ -595,11 +606,11 @@ impl PluginBackend for WasmPlugin {
         &self,
         target: &TransformTarget,
         element: Element,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Element {
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
+            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             runtime.store.data_mut().elements.clear();
             let original_handle = runtime.store.data_mut().inject_element(element);
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
@@ -648,7 +659,7 @@ impl PluginBackend for WasmPlugin {
     fn annotate_line_with_ctx(
         &self,
         line: usize,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         self.shared.call_synced(state, "annotate_line", |rt| {
@@ -679,7 +690,7 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn display_directives(&self, state: &AppState) -> Vec<DisplayDirective> {
+    fn display_directives(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
         self.shared.call_synced(state, "display_directives", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             Ok(convert::wit_display_directives_to_directives(
@@ -690,7 +701,7 @@ impl PluginBackend for WasmPlugin {
 
     fn contribute_overlay_with_ctx(
         &self,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         self.shared
@@ -725,7 +736,7 @@ impl PluginBackend for WasmPlugin {
         self.shared.process_allowed
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppState) -> RuntimeEffects {
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> RuntimeEffects {
         if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
             let shared = Arc::clone(&self.shared);
             self.shared

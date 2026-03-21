@@ -15,8 +15,8 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    IoEvent, PaintHook, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId, PluginManager,
-    PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch,
+    AppView, IoEvent, PaintHook, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId,
+    PluginManager, PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch,
     extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
@@ -480,7 +480,7 @@ where
         }
         Event::PluginTimer(target, payload) => event_result_from_runtime_batch(
             ctx.registry
-                .deliver_message_batch(&target, payload, ctx.state),
+                .deliver_message_batch(&target, payload, &AppView::new(ctx.state)),
             Some(target),
         ),
         Event::DiagnosticOverlayExpire(generation) => EventResult {
@@ -497,9 +497,11 @@ where
             workspace_changed: false,
         },
         Event::ProcessOutput(plugin_id, io_event) => {
-            let batch = ctx
-                .registry
-                .deliver_io_event_batch(&plugin_id, &io_event, ctx.state);
+            let batch = ctx.registry.deliver_io_event_batch(
+                &plugin_id,
+                &io_event,
+                &AppView::new(ctx.state),
+            );
             // Free per-plugin process count slot when a job finishes
             let IoEvent::Process(ref pe) = io_event;
             let finished_job = match pe {
@@ -592,7 +594,7 @@ where
             }
             let batch = ctx
                 .registry
-                .notify_state_changed_batch(ctx.state, DirtyFlags::SESSION);
+                .notify_state_changed_batch(&AppView::new(ctx.state), DirtyFlags::SESSION);
             let result = event_result_from_runtime_batch(batch, None);
             return process_event_result(result, false, ctx);
         }
@@ -609,9 +611,10 @@ where
     W: Write + Send + 'static,
     C: Send + 'static,
 {
-    let reload = ctx
-        .plugin_manager
-        .reload(ctx.registry, ctx.state, |result, registry| {
+    let reload = ctx.plugin_manager.reload(
+        ctx.registry,
+        &AppView::new(ctx.state),
+        |result, registry| {
             reconcile_reloaded_plugin_resources(
                 registry,
                 ctx.surface_registry,
@@ -619,7 +622,8 @@ where
                 ctx.paint_hooks,
                 result.deltas.as_slice(),
             )
-        })?;
+        },
+    )?;
     report_plugin_diagnostics(&reload.diagnostics);
     schedule_diagnostic_overlay(ctx.session_tx, ctx.diagnostic_overlay, &reload.diagnostics);
 
@@ -749,7 +753,10 @@ where
         for plugin_id in reloaded_plugins {
             let batch = deferred_ctx
                 .registry
-                .notify_plugin_active_session_ready_batch(plugin_id, deferred_ctx.state);
+                .notify_plugin_active_session_ready_batch(
+                    plugin_id,
+                    &AppView::new(deferred_ctx.state),
+                );
             if apply_ready_batch(batch, deferred_ctx) {
                 return true;
             }
@@ -817,8 +824,8 @@ mod tests {
     use kasane_core::event_loop::{register_builtin_surfaces, setup_plugin_surfaces};
     use kasane_core::layout::SplitDirection;
     use kasane_core::plugin::{
-        PaintHook, PluginBackend, PluginCapabilities, PluginDescriptor, PluginRank, PluginRevision,
-        PluginSource,
+        AppView, PaintHook, PluginBackend, PluginCapabilities, PluginDescriptor, PluginRank,
+        PluginRevision, PluginSource,
     };
     use kasane_core::surface::{Surface, SurfaceId};
     use kasane_core::test_support::TestSurfaceBuilder;
@@ -921,7 +928,7 @@ mod tests {
                 surface_id: SurfaceId(200),
                 hook_id: "hook-b",
             }),
-            &state,
+            &AppView::new(&state),
         );
 
         let disabled = reconcile_reloaded_plugin_resources(

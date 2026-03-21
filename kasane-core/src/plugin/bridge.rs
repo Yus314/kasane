@@ -8,15 +8,15 @@ use std::any::Any;
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use crate::state::{AppState, DirtyFlags};
+use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
 use super::state::{Plugin, PluginState};
 use super::{
-    AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
-    IoEvent, KeyHandleResult, LineAnnotation, OverlayContext, OverlayContribution,
-    PluginAuthorities, PluginBackend, PluginCapabilities, PluginId, RuntimeEffects,
-    SessionReadyEffects, SlotId, TransformContext, TransformTarget,
+    AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
+    DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation, OverlayContext,
+    OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId,
+    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
 };
 
 // =============================================================================
@@ -40,58 +40,63 @@ pub(crate) trait ErasedPlugin: Send {
     fn on_init_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> BootstrapEffects;
     fn on_active_session_ready_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> SessionReadyEffects;
     fn on_state_changed_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
         dirty: DirtyFlags,
     ) -> RuntimeEffects;
     fn on_io_event_effects_erased(
         &self,
         state: &mut dyn PluginState,
         event: &IoEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> RuntimeEffects;
     fn on_workspace_changed_erased(&self, state: &mut dyn PluginState, query: &WorkspaceQuery<'_>);
-    fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppState);
-    fn observe_mouse_erased(&self, state: &mut dyn PluginState, event: &MouseEvent, app: &AppState);
+    fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppView<'_>);
+    fn observe_mouse_erased(
+        &self,
+        state: &mut dyn PluginState,
+        event: &MouseEvent,
+        app: &AppView<'_>,
+    );
     fn handle_key_erased(
         &self,
         state: &mut dyn PluginState,
         key: &KeyEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<Command>>;
     fn handle_key_middleware_erased(
         &self,
         state: &mut dyn PluginState,
         key: &KeyEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> KeyHandleResult;
     fn handle_mouse_erased(
         &self,
         state: &mut dyn PluginState,
         event: &MouseEvent,
         id: InteractiveId,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<Command>>;
     fn handle_default_scroll_erased(
         &self,
         state: &mut dyn PluginState,
         candidate: DefaultScrollCandidate,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<ScrollPolicyResult>;
     fn update_effects_erased(
         &self,
         state: &mut dyn PluginState,
         msg: &mut dyn Any,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> RuntimeEffects;
 
     // Pure view methods
@@ -99,7 +104,7 @@ pub(crate) trait ErasedPlugin: Send {
         &self,
         state: &dyn PluginState,
         region: &SlotId,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Option<Contribution>;
     fn transform_erased(
@@ -107,26 +112,26 @@ pub(crate) trait ErasedPlugin: Send {
         state: &dyn PluginState,
         target: &TransformTarget,
         element: Element,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Element;
     fn annotate_line_erased(
         &self,
         state: &dyn PluginState,
         line: usize,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<LineAnnotation>;
     fn contribute_overlay_erased(
         &self,
         state: &dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution>;
     fn cursor_style_override_erased(
         &self,
         state: &dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<crate::render::CursorStyle>;
     fn transform_menu_item_erased(
         &self,
@@ -134,14 +139,14 @@ pub(crate) trait ErasedPlugin: Send {
         item: &[crate::protocol::Atom],
         index: usize,
         selected: bool,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>>;
 
     // Display transform
     fn display_directives_erased(
         &self,
         state: &dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Vec<DisplayDirective>;
 }
 
@@ -168,7 +173,7 @@ impl<P: Plugin> ErasedPlugin for P {
     fn on_init_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> BootstrapEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let (new_state, effects) = self.on_init_effects(typed, app);
@@ -179,7 +184,7 @@ impl<P: Plugin> ErasedPlugin for P {
     fn on_active_session_ready_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> SessionReadyEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let (new_state, effects) = self.on_active_session_ready_effects(typed, app);
@@ -190,7 +195,7 @@ impl<P: Plugin> ErasedPlugin for P {
     fn on_state_changed_effects_erased(
         &self,
         state: &mut dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
         dirty: DirtyFlags,
     ) -> RuntimeEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
@@ -203,7 +208,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &mut dyn PluginState,
         event: &IoEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> RuntimeEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let (new_state, effects) = self.on_io_event_effects(typed, event, app);
@@ -217,7 +222,7 @@ impl<P: Plugin> ErasedPlugin for P {
         *typed = new_state;
     }
 
-    fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppState) {
+    fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppView<'_>) {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let new_state = self.observe_key(typed, key, app);
         *typed = new_state;
@@ -227,7 +232,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &mut dyn PluginState,
         event: &MouseEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let new_state = self.observe_mouse(typed, event, app);
@@ -238,7 +243,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &mut dyn PluginState,
         key: &KeyEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         self.handle_key(typed, key, app).map(|(new_state, cmds)| {
@@ -251,7 +256,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &mut dyn PluginState,
         key: &KeyEvent,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> KeyHandleResult {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let (new_state, result) = self.handle_key_middleware(typed, key, app);
@@ -264,7 +269,7 @@ impl<P: Plugin> ErasedPlugin for P {
         state: &mut dyn PluginState,
         event: &MouseEvent,
         id: InteractiveId,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         self.handle_mouse(typed, event, id, app)
@@ -278,7 +283,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &mut dyn PluginState,
         candidate: DefaultScrollCandidate,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         self.handle_default_scroll(typed, candidate, app)
@@ -292,7 +297,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &mut dyn PluginState,
         msg: &mut dyn Any,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> RuntimeEffects {
         let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
         let (new_state, effects) = self.update_effects(typed, msg, app);
@@ -304,7 +309,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &dyn PluginState,
         region: &SlotId,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
@@ -316,7 +321,7 @@ impl<P: Plugin> ErasedPlugin for P {
         state: &dyn PluginState,
         target: &TransformTarget,
         element: Element,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Element {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
@@ -327,7 +332,7 @@ impl<P: Plugin> ErasedPlugin for P {
         &self,
         state: &dyn PluginState,
         line: usize,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
@@ -337,7 +342,7 @@ impl<P: Plugin> ErasedPlugin for P {
     fn contribute_overlay_erased(
         &self,
         state: &dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
@@ -347,7 +352,7 @@ impl<P: Plugin> ErasedPlugin for P {
     fn cursor_style_override_erased(
         &self,
         state: &dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<crate::render::CursorStyle> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
         self.cursor_style_override(typed, app)
@@ -359,7 +364,7 @@ impl<P: Plugin> ErasedPlugin for P {
         item: &[crate::protocol::Atom],
         index: usize,
         selected: bool,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
         self.transform_menu_item(typed, item, index, selected, app)
@@ -368,7 +373,7 @@ impl<P: Plugin> ErasedPlugin for P {
     fn display_directives_erased(
         &self,
         state: &dyn PluginState,
-        app: &AppState,
+        app: &AppView<'_>,
     ) -> Vec<DisplayDirective> {
         let typed = state.as_any().downcast_ref::<P::State>().unwrap();
         self.display_directives(typed, app)
@@ -443,13 +448,13 @@ impl PluginBackend for PluginBridge {
 
     // --- Lifecycle ---
 
-    fn on_init_effects(&mut self, state: &AppState) -> BootstrapEffects {
+    fn on_init_effects(&mut self, state: &AppView<'_>) -> BootstrapEffects {
         let effects = self.inner.on_init_effects_erased(&mut *self.state, state);
         self.check_state_change();
         effects
     }
 
-    fn on_active_session_ready_effects(&mut self, state: &AppState) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> SessionReadyEffects {
         let effects = self
             .inner
             .on_active_session_ready_effects_erased(&mut *self.state, state);
@@ -457,7 +462,11 @@ impl PluginBackend for PluginBridge {
         effects
     }
 
-    fn on_state_changed_effects(&mut self, state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+    fn on_state_changed_effects(
+        &mut self,
+        state: &AppView<'_>,
+        dirty: DirtyFlags,
+    ) -> RuntimeEffects {
         let effects = self
             .inner
             .on_state_changed_effects_erased(&mut *self.state, state, dirty);
@@ -469,7 +478,7 @@ impl PluginBackend for PluginBridge {
         // Plugin has no shutdown hook (pure functions don't need cleanup).
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppState) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> RuntimeEffects {
         let effects = self
             .inner
             .on_io_event_effects_erased(&mut *self.state, event, state);
@@ -485,24 +494,24 @@ impl PluginBackend for PluginBridge {
 
     // --- Input ---
 
-    fn observe_key(&mut self, key: &KeyEvent, state: &AppState) {
+    fn observe_key(&mut self, key: &KeyEvent, state: &AppView<'_>) {
         self.inner.observe_key_erased(&mut *self.state, key, state);
         self.check_state_change();
     }
 
-    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppState) {
+    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppView<'_>) {
         self.inner
             .observe_mouse_erased(&mut *self.state, event, state);
         self.check_state_change();
     }
 
-    fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>> {
+    fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
         let result = self.inner.handle_key_erased(&mut *self.state, key, state);
         self.check_state_change();
         result
     }
 
-    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyHandleResult {
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult {
         let result = self
             .inner
             .handle_key_middleware_erased(&mut *self.state, key, state);
@@ -514,7 +523,7 @@ impl PluginBackend for PluginBridge {
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         let result = self
             .inner
@@ -526,7 +535,7 @@ impl PluginBackend for PluginBridge {
     fn handle_default_scroll(
         &mut self,
         candidate: DefaultScrollCandidate,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         let result = self
             .inner
@@ -535,7 +544,7 @@ impl PluginBackend for PluginBridge {
         result
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppState) -> RuntimeEffects {
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> RuntimeEffects {
         let effects = self
             .inner
             .update_effects_erased(&mut *self.state, msg, state);
@@ -548,7 +557,7 @@ impl PluginBackend for PluginBridge {
     fn contribute_to(
         &self,
         region: &SlotId,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &ContributeContext,
     ) -> Option<Contribution> {
         self.inner
@@ -559,7 +568,7 @@ impl PluginBackend for PluginBridge {
         &self,
         target: &TransformTarget,
         element: Element,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Element {
         self.inner
@@ -569,27 +578,27 @@ impl PluginBackend for PluginBridge {
     fn annotate_line_with_ctx(
         &self,
         line: usize,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         self.inner
             .annotate_line_erased(&*self.state, line, state, ctx)
     }
 
-    fn display_directives(&self, state: &AppState) -> Vec<DisplayDirective> {
+    fn display_directives(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
         self.inner.display_directives_erased(&*self.state, state)
     }
 
     fn contribute_overlay_with_ctx(
         &self,
-        state: &AppState,
+        state: &AppView<'_>,
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         self.inner
             .contribute_overlay_erased(&*self.state, state, ctx)
     }
 
-    fn cursor_style_override(&self, state: &AppState) -> Option<crate::render::CursorStyle> {
+    fn cursor_style_override(&self, state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
         self.inner.cursor_style_override_erased(&*self.state, state)
     }
 
@@ -598,7 +607,7 @@ impl PluginBackend for PluginBridge {
         item: &[crate::protocol::Atom],
         index: usize,
         selected: bool,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         self.inner
             .transform_menu_item_erased(&*self.state, item, index, selected, state)
@@ -655,16 +664,16 @@ mod tests {
         assert_eq!(bridge.state_hash(), 0);
 
         // State changes: active_line 0 → 5
-        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1);
 
         // Same input → same state → no generation bump
-        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1);
 
         // Different input → different state → generation bumps
         app.cursor_pos.line = 10;
-        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 2);
     }
 
@@ -674,7 +683,7 @@ mod tests {
         let app = AppState::default();
 
         // STATUS dirty doesn't trigger CursorLinePure's on_state_changed logic
-        bridge.on_state_changed_effects(&app, DirtyFlags::STATUS);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::STATUS);
         assert_eq!(bridge.state_hash(), 0);
     }
 
@@ -684,8 +693,9 @@ mod tests {
         let mut app = AppState::default();
         app.cursor_pos.line = 3;
 
-        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
 
+        let view = AppView::new(&app);
         let ctx = AnnotateContext {
             line_width: 80,
             gutter_width: 0,
@@ -694,9 +704,9 @@ mod tests {
             pane_focused: true,
         };
 
-        assert!(bridge.annotate_line_with_ctx(3, &app, &ctx).is_some());
-        assert!(bridge.annotate_line_with_ctx(0, &app, &ctx).is_none());
-        assert!(bridge.annotate_line_with_ctx(5, &app, &ctx).is_none());
+        assert!(bridge.annotate_line_with_ctx(3, &view, &ctx).is_some());
+        assert!(bridge.annotate_line_with_ctx(0, &view, &ctx).is_none());
+        assert!(bridge.annotate_line_with_ctx(5, &view, &ctx).is_none());
     }
 
     #[test]
@@ -719,7 +729,7 @@ mod tests {
                 &self,
                 state: &Self::State,
                 candidate: DefaultScrollCandidate,
-                _app: &AppState,
+                _app: &AppView<'_>,
             ) -> Option<(Self::State, ScrollPolicyResult)> {
                 let mut next = state.clone();
                 next.active_line = candidate.screen_line as i32;
@@ -745,7 +755,7 @@ mod tests {
             ResolvedScroll::new(3, 10, 5),
         );
 
-        let result = bridge.handle_default_scroll(candidate, &state);
+        let result = bridge.handle_default_scroll(candidate, &AppView::new(&state));
 
         assert_eq!(
             result,
@@ -813,10 +823,10 @@ mod tests {
         app.cols = 80;
         app.rows = 24;
 
-        let _batch = registry.init_all_batch(&app);
+        let _batch = registry.init_all_batch(&AppView::new(&app));
 
         // Notify plugins of state change
-        let batch = registry.notify_state_changed_batch(&app, DirtyFlags::BUFFER);
+        let batch = registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
         assert!(batch.effects.commands.is_empty());
 
         // Prepare cache — should detect state change
@@ -840,8 +850,8 @@ mod tests {
         app.rows = 24;
 
         // Init and state change
-        let _ = registry.init_all_batch(&app);
-        let batch = registry.notify_state_changed_batch(&app, DirtyFlags::BUFFER);
+        let _ = registry.init_all_batch(&AppView::new(&app));
+        let batch = registry.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
         assert!(batch.effects.commands.is_empty());
 
         let ctx = AnnotateContext {
@@ -851,7 +861,7 @@ mod tests {
             pane_surface_id: None,
             pane_focused: true,
         };
-        let result = registry.collect_annotations(&app, &ctx);
+        let result = registry.collect_annotations(&AppView::new(&app), &ctx);
         assert!(result.line_backgrounds.is_some());
         let bgs = result.line_backgrounds.unwrap();
         assert!(bgs[0].is_none()); // line 0: no highlight
@@ -867,11 +877,11 @@ mod tests {
         let mut app = AppState::default();
         app.cursor_pos.line = 0;
 
-        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1); // generation bumped
 
         // Same cursor → state still changes (generation increments)
-        bridge.on_state_changed_effects(&app, DirtyFlags::BUFFER);
+        bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 2);
     }
 

@@ -9,8 +9,7 @@
 
 use crate::input::{Key, KeyEvent, Modifiers};
 use crate::layout::SplitDirection;
-use crate::plugin::{Command, PluginBackend, PluginCapabilities, PluginId};
-use crate::state::AppState;
+use crate::plugin::{AppView, Command, PluginBackend, PluginCapabilities, PluginId};
 use crate::surface::SurfaceId;
 use crate::workspace::{FocusDirection, Placement, WorkspaceCommand};
 
@@ -55,7 +54,7 @@ impl PluginBackend for WindowModePlugin {
         PluginCapabilities::INPUT_HANDLER
     }
 
-    fn handle_key(&mut self, key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+    fn handle_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
         if self.pending {
             self.pending = false;
             return match key.key {
@@ -129,6 +128,7 @@ impl PluginBackend for WindowModePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::AppState;
 
     fn ctrl_w() -> KeyEvent {
         KeyEvent {
@@ -148,11 +148,12 @@ mod tests {
     fn ctrl_w_v_splits_vertically() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        let r1 = plugin.handle_key(&ctrl_w(), &state);
+        let r1 = plugin.handle_key(&ctrl_w(), &view);
         assert!(r1.is_some_and(|v| v.is_empty())); // consumed, no commands
 
-        let r2 = plugin.handle_key(&plain('v'), &state);
+        let r2 = plugin.handle_key(&plain('v'), &view);
         let cmds = r2.unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(cmds[0], Command::SpawnPaneClient { .. }));
@@ -162,9 +163,10 @@ mod tests {
     fn ctrl_w_s_splits_horizontally() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('s'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('s'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(cmds[0], Command::SpawnPaneClient { .. }));
     }
@@ -173,9 +175,10 @@ mod tests {
     fn ctrl_w_w_focuses_next() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('w'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('w'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -187,14 +190,15 @@ mod tests {
     fn ctrl_w_q_removes_split() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
         // First split
-        plugin.handle_key(&ctrl_w(), &state);
-        plugin.handle_key(&plain('v'), &state);
+        plugin.handle_key(&ctrl_w(), &view);
+        plugin.handle_key(&plain('v'), &view);
 
         // Then close
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('q'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('q'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(cmds[0], Command::ClosePaneClient { .. }));
     }
@@ -203,9 +207,10 @@ mod tests {
     fn unknown_chord_not_consumed() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let result = plugin.handle_key(&plain('x'), &state);
+        plugin.handle_key(&ctrl_w(), &view);
+        let result = plugin.handle_key(&plain('x'), &view);
         assert!(result.is_none()); // not consumed
     }
 
@@ -213,25 +218,27 @@ mod tests {
     fn normal_keys_pass_through() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        assert!(plugin.handle_key(&plain('a'), &state).is_none());
-        assert!(plugin.handle_key(&plain('v'), &state).is_none());
+        assert!(plugin.handle_key(&plain('a'), &view).is_none());
+        assert!(plugin.handle_key(&plain('v'), &view).is_none());
     }
 
     #[test]
     fn ctrl_w_v_twice_creates_two_splits() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
         // First split
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds1 = plugin.handle_key(&plain('v'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds1 = plugin.handle_key(&plain('v'), &view).unwrap();
         assert_eq!(cmds1.len(), 1);
         assert!(matches!(cmds1[0], Command::SpawnPaneClient { .. }));
 
         // Second split — should also produce AddSurface, not FocusDirection
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds2 = plugin.handle_key(&plain('v'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds2 = plugin.handle_key(&plain('v'), &view).unwrap();
         assert_eq!(cmds2.len(), 1);
         assert!(matches!(cmds2[0], Command::SpawnPaneClient { .. }));
 
@@ -243,17 +250,18 @@ mod tests {
     fn ctrl_w_q_removes_most_recent() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
         // Create two splits
-        plugin.handle_key(&ctrl_w(), &state);
-        plugin.handle_key(&plain('v'), &state);
-        plugin.handle_key(&ctrl_w(), &state);
-        plugin.handle_key(&plain('v'), &state);
+        plugin.handle_key(&ctrl_w(), &view);
+        plugin.handle_key(&plain('v'), &view);
+        plugin.handle_key(&ctrl_w(), &view);
+        plugin.handle_key(&plain('v'), &view);
         let second_id = plugin.mirrors[1];
 
         // Close most recent
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('q'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('q'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -266,9 +274,10 @@ mod tests {
     fn ctrl_w_h_focuses_left() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('h'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('h'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -280,9 +289,10 @@ mod tests {
     fn ctrl_w_j_focuses_down() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('j'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('j'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -294,9 +304,10 @@ mod tests {
     fn ctrl_w_k_focuses_up() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('k'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('k'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -308,9 +319,10 @@ mod tests {
     fn ctrl_w_l_focuses_right() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('l'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('l'), &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -322,14 +334,15 @@ mod tests {
     fn ctrl_w_shift_w_focuses_prev() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
+        plugin.handle_key(&ctrl_w(), &view);
         // Shift+W comes as Key::Char('W') with SHIFT modifier (TUI)
         let shift_w = KeyEvent {
             key: Key::Char('W'),
             modifiers: Modifiers::SHIFT,
         };
-        let cmds = plugin.handle_key(&shift_w, &state).unwrap();
+        let cmds = plugin.handle_key(&shift_w, &view).unwrap();
         assert_eq!(cmds.len(), 1);
         assert!(matches!(
             cmds[0],
@@ -341,9 +354,10 @@ mod tests {
     fn ctrl_w_q_on_empty_does_nothing() {
         let mut plugin = WindowModePlugin::new();
         let state = AppState::default();
+        let view = AppView::new(&state);
 
-        plugin.handle_key(&ctrl_w(), &state);
-        let cmds = plugin.handle_key(&plain('q'), &state).unwrap();
+        plugin.handle_key(&ctrl_w(), &view);
+        let cmds = plugin.handle_key(&plain('q'), &view).unwrap();
         assert!(cmds.is_empty());
     }
 }

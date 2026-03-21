@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::state::AppState;
-
+use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
 use super::{
     BootstrapEffects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime,
@@ -110,7 +109,7 @@ struct PluginApplyPlan {
 
 enum PluginApplyMode<'a> {
     Initial,
-    Reload(&'a AppState),
+    Reload(&'a AppView<'a>),
 }
 
 struct PendingPluginCommit {
@@ -327,7 +326,7 @@ impl PluginManager {
     pub fn reload<F>(
         &mut self,
         registry: &mut PluginRuntime,
-        state: &AppState,
+        state: &AppView<'_>,
         collect_diagnostics: F,
     ) -> Result<PluginApplyResult>
     where
@@ -395,6 +394,7 @@ mod tests {
     use crate::plugin::{
         PluginBackend, PluginCollect, PluginRank, PluginRevision, PluginSource, plugin_factory,
     };
+    use crate::state::AppState;
     use crate::surface::SurfaceRegistrationError;
     use anyhow::anyhow;
     use std::sync::{Arc, Mutex};
@@ -633,8 +633,9 @@ mod tests {
         );
 
         provider.set_state(FactoryVariant::Err, "r2");
+        let state = AppState::default();
         let result = manager
-            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
 
         assert!(result.deltas.is_empty());

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::plugin::AppView;
 use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
 use crate::scroll::{SMOOTH_SCROLL_CONFIG_KEY, set_smooth_scroll_enabled, smooth_scroll_enabled};
 use crate::state::{AppState, DirtyFlags};
@@ -60,7 +61,7 @@ fn test_apply_set_config_smooth_scroll_alias_updates_plugin_config() {
     crate::state::apply_set_config(&mut state, &mut dirty, "smooth_scroll", "true");
 
     assert!(dirty.contains(DirtyFlags::OPTIONS));
-    assert!(smooth_scroll_enabled(&state));
+    assert!(smooth_scroll_enabled(&AppView::new(&state)));
     assert_eq!(
         state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
         Some(&"true".to_string())
@@ -77,7 +78,7 @@ fn test_apply_set_config_canonical_smooth_scroll_updates_plugin_config() {
     crate::state::apply_set_config(&mut state, &mut dirty, SMOOTH_SCROLL_CONFIG_KEY, "false");
 
     assert!(dirty.contains(DirtyFlags::OPTIONS));
-    assert!(!smooth_scroll_enabled(&state));
+    assert!(!smooth_scroll_enabled(&AppView::new(&state)));
     assert_eq!(
         state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
         Some(&"false".to_string())
@@ -348,7 +349,7 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert_eq!(state.assistant_art.as_ref().unwrap()[0], "art");
     assert_eq!(state.plugin_config.get("key").unwrap(), "value");
     assert_eq!(state.secondary_blend_ratio, 0.8);
-    assert!(smooth_scroll_enabled(&state));
+    assert!(smooth_scroll_enabled(&AppView::new(&state)));
     assert_eq!(
         state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
         Some(&"true".to_string())

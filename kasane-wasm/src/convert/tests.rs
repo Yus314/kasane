@@ -2,7 +2,7 @@ use super::*;
 use kasane_core::element::{BorderLineStyle, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::{Rect, SplitDirection, flex::Constraints};
-use kasane_core::plugin::{Command, ContributeContext, IoEvent, ProcessEvent, StdinMode};
+use kasane_core::plugin::{AppView, Command, ContributeContext, IoEvent, ProcessEvent, StdinMode};
 use kasane_core::protocol::{Face, KasaneRequest};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
@@ -91,7 +91,7 @@ fn convert_atom() {
 fn convert_contribute_context_preserves_unbounded_max() {
     let state = AppState::default();
     let ctx = ContributeContext::from_constraints(
-        &state,
+        &AppView::new(&state),
         Constraints {
             min_width: 2,
             max_width: u16::MAX,

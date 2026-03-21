@@ -21,8 +21,9 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    Command, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
-    ProcessDispatcher, ProcessEvent, extract_redraw_flags, report_plugin_diagnostics,
+    AppView, Command, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginManager,
+    PluginRuntime, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
+    report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -276,7 +277,7 @@ where
             &initial_plugins.diagnostics,
         );
 
-        let init_batch = registry.init_all_batch(&state);
+        let init_batch = registry.init_all_batch(&AppView::new(&state));
         let mut initial_dirty = DirtyFlags::ALL;
         apply_bootstrap_effects(init_batch.effects, &mut initial_dirty);
         kasane_core::event_loop::notify_workspace_observers(
@@ -563,9 +564,10 @@ where
                         }
                     }
                     // Notify plugins of session change so cached state is updated.
-                    let batch = self
-                        .registry
-                        .notify_state_changed_batch(&self.state, DirtyFlags::SESSION);
+                    let batch = self.registry.notify_state_changed_batch(
+                        &AppView::new(&self.state),
+                        DirtyFlags::SESSION,
+                    );
                     if self.apply_runtime_batch(batch, None) {
                         event_loop.exit();
                         return;
@@ -576,9 +578,11 @@ where
                     continue;
                 }
                 GuiEvent::PluginTimer(target, payload) => {
-                    let batch =
-                        self.registry
-                            .deliver_message_batch(&target, payload.0, &self.state);
+                    let batch = self.registry.deliver_message_batch(
+                        &target,
+                        payload.0,
+                        &AppView::new(&self.state),
+                    );
                     if self.apply_runtime_batch(batch, Some(&target)) {
                         event_loop.exit();
                         return;
@@ -588,9 +592,11 @@ where
                         .sync_active_from_manager(&self.session_manager, &self.state);
                 }
                 GuiEvent::ProcessOutput(plugin_id, io_event) => {
-                    let batch =
-                        self.registry
-                            .deliver_io_event_batch(&plugin_id, &io_event, &self.state);
+                    let batch = self.registry.deliver_io_event_batch(
+                        &plugin_id,
+                        &io_event,
+                        &AppView::new(&self.state),
+                    );
                     // Free per-plugin process count slot when a job finishes
                     let IoEvent::Process(ref pe) = io_event;
                     let finished_job = match pe {

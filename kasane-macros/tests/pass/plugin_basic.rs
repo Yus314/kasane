@@ -2,8 +2,7 @@ use kasane_core::kasane_plugin;
 
 #[kasane_plugin]
 mod my_plugin {
-    use kasane_core::plugin::RuntimeEffects;
-    use kasane_core::state::AppState;
+    use kasane_core::plugin::{AppView, RuntimeEffects};
 
     #[state]
     #[derive(Default)]
@@ -19,7 +18,7 @@ mod my_plugin {
     pub fn update_effects(
         state: &mut State,
         msg: &mut dyn std::any::Any,
-        _core: &AppState,
+        _core: &AppView<'_>,
     ) -> RuntimeEffects {
         if let Some(Msg::Increment) = msg.downcast_ref::<Msg>() {
             state.counter += 1;

@@ -2,7 +2,7 @@ use super::*;
 use std::collections::HashSet;
 
 use crate::element::{Direction, OverlayAnchor};
-use crate::plugin::{LineAnnotation, PluginBackend, PluginId, PluginRuntime, SlotId};
+use crate::plugin::{AppView, LineAnnotation, PluginBackend, PluginId, PluginRuntime, SlotId};
 use crate::protocol::{Atom, Color, Coord, Face, InfoStyle, MenuStyle, NamedColor};
 use crate::state::AppState;
 use crate::surface::{
@@ -185,7 +185,7 @@ fn test_status_left_slot_in_status_bar() {
         fn contribute_to(
             &self,
             region: &SlotId,
-            _state: &AppState,
+            _state: &AppView<'_>,
             _ctx: &ContributeContext,
         ) -> Option<Contribution> {
             if *region == SlotId::STATUS_LEFT {
@@ -510,7 +510,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
         fn annotate_line_with_ctx(
             &self,
             line: usize,
-            _state: &AppState,
+            _state: &AppView<'_>,
             _ctx: &crate::plugin::AnnotateContext,
         ) -> Option<LineAnnotation> {
             if line == 0 {

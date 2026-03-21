@@ -240,7 +240,9 @@ mod tests {
         reconcile_plugin_surfaces, register_builtin_surfaces, setup_plugin_surfaces,
     };
     use kasane_core::layout::SplitDirection;
-    use kasane_core::plugin::{PaintHook, PluginBackend, PluginCapabilities, SessionReadyEffects};
+    use kasane_core::plugin::{
+        AppView, PaintHook, PluginBackend, PluginCapabilities, SessionReadyEffects,
+    };
     use kasane_core::plugin::{
         PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
         PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
@@ -389,13 +391,16 @@ mod tests {
             PluginCapabilities::PAINT_HOOK
         }
 
-        fn on_init_effects(&mut self, _state: &AppState) -> kasane_core::plugin::BootstrapEffects {
+        fn on_init_effects(
+            &mut self,
+            _state: &AppView<'_>,
+        ) -> kasane_core::plugin::BootstrapEffects {
             kasane_core::plugin::BootstrapEffects {
                 redraw: self.variant.bootstrap_redraw(),
             }
         }
 
-        fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+        fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
             SessionReadyEffects {
                 redraw: self.variant.ready_redraw(),
                 commands: vec![],
@@ -538,8 +543,9 @@ mod tests {
         let mut manager = wasm_manager(&config);
         commit_initial_winners(&mut manager, &mut registry);
 
+        let state = AppState::default();
         let result = manager
-            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert!(result.deltas.is_empty());
         assert_eq!(registry.plugin_count(), 1);
@@ -557,8 +563,9 @@ mod tests {
 
         dir.remove("cursor-line.wasm");
 
+        let state = AppState::default();
         let result = manager
-            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_removed());
@@ -579,8 +586,9 @@ mod tests {
 
         dir.copy_fixture("smooth-scroll.wasm");
 
+        let state = AppState::default();
         let result = manager
-            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_added());
@@ -611,8 +619,9 @@ mod tests {
 
         dir.remove("cursor-line.wasm");
 
+        let state = AppState::default();
         let result = manager
-            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert!(
             result
@@ -642,8 +651,9 @@ mod tests {
 
         dir.copy_fixture("cursor-line.wasm");
 
+        let state = AppState::default();
         let result = manager
-            .reload(&mut registry, &AppState::default(), |_, _| vec![])
+            .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert!(
             result
@@ -685,7 +695,7 @@ mod tests {
         provider.set_variant(ReloadVariant::V2);
 
         let result = manager
-            .reload(&mut registry, &state, |result, registry| {
+            .reload(&mut registry, &AppView::new(&state), |result, registry| {
                 let disabled = reconcile_plugin_surfaces(
                     registry,
                     &mut surface_registry,
@@ -724,7 +734,7 @@ mod tests {
 
         let ready_batch = registry.notify_plugin_active_session_ready_batch(
             &PluginId("reload_owner".to_string()),
-            &state,
+            &AppView::new(&state),
         );
         assert_eq!(ready_batch.effects.redraw, ReloadVariant::V2.ready_redraw());
     }
@@ -796,7 +806,7 @@ mod tests {
         provider.set_variant(DiagnosticVariant::Invalid);
 
         let result = manager
-            .reload(&mut registry, &state, |result, registry| {
+            .reload(&mut registry, &AppView::new(&state), |result, registry| {
                 reconcile_plugin_surfaces(registry, &mut surface_registry, &state, &result.deltas)
             })
             .unwrap();

@@ -4,6 +4,7 @@ use crate::display::DisplayMap;
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
 use crate::layout::line_display_width;
+use crate::plugin::AppView;
 use crate::protocol::{Attributes, Color, CursorMode, Face};
 use crate::state::AppState;
 
@@ -236,7 +237,7 @@ pub fn cursor_position(
 ///
 /// Priority: plugin override > ui_option `kasane_cursor_style` > prompt mode > mode_line heuristic > Block.
 pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginView<'_>) -> CursorStyle {
-    if let Some(style) = registry.cursor_style_override(state) {
+    if let Some(style) = registry.cursor_style_override(&AppView::new(state)) {
         return style;
     }
     cursor_style_default(state)

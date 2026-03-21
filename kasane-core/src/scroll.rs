@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::input::Modifiers;
 use crate::input::{self, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::HitMap;
-use crate::plugin::PluginEffects;
+use crate::plugin::{AppView, PluginEffects};
 use crate::protocol::KasaneRequest;
 use crate::state::{AppState, DragState};
 
@@ -88,12 +88,11 @@ fn parse_bool_config(value: Option<&String>) -> bool {
         .unwrap_or(false)
 }
 
-pub fn smooth_scroll_enabled(state: &AppState) -> bool {
+pub fn smooth_scroll_enabled(app: &AppView<'_>) -> bool {
     parse_bool_config(
-        state
-            .plugin_config
+        app.plugin_config()
             .get(SMOOTH_SCROLL_CONFIG_KEY)
-            .or_else(|| state.plugin_config.get(SMOOTH_SCROLL_LEGACY_CONFIG_KEY)),
+            .or_else(|| app.plugin_config().get(SMOOTH_SCROLL_LEGACY_CONFIG_KEY)),
     )
 }
 
@@ -289,7 +288,7 @@ pub fn resolve_default_scroll_policy<E: PluginEffects>(
     state: &AppState,
     candidate: DefaultScrollCandidate,
 ) -> ScrollPolicyResult {
-    match effects.handle_default_scroll(candidate, state) {
+    match effects.handle_default_scroll(candidate, &AppView::new(state)) {
         Some(ScrollPolicyResult::Pass) | None => fallback_scroll_policy(candidate),
         Some(result) => result,
     }

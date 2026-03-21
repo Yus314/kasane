@@ -1,5 +1,6 @@
 //! Plugin infrastructure: `Plugin` trait, `PluginBackend` trait, registry, context, command, I/O.
 
+pub mod app_view;
 pub mod bridge;
 mod command;
 pub mod compose;
@@ -83,7 +84,8 @@ pub use compose::{
     CommutativeComposable, Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
 };
 
-// Re-export state and bridge modules
+// Re-export app_view, state, and bridge modules
+pub use app_view::AppView;
 pub use bridge::{IsBridgedPlugin, PluginBridge};
 pub use state::{Plugin, PluginState};
 

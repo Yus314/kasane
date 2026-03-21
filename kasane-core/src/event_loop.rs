@@ -10,9 +10,9 @@ use std::time::Duration;
 use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
-    AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, IoEvent, PluginAuthorities,
-    PluginDiagnostic, PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent, ReadyBatch,
-    RuntimeBatch, RuntimeEffects, SessionReadyCommand, StdinMode, execute_commands,
+    AppView, AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, IoEvent,
+    PluginAuthorities, PluginDiagnostic, PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent,
+    ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand, StdinMode, execute_commands,
     extract_redraw_flags, partition_commands,
 };
 use crate::scroll::ScrollPlan;
@@ -724,9 +724,9 @@ fn handle_deferred_commands_inner(
     for cmd in deferred {
         match cmd {
             Command::PluginMessage { target, payload } => {
-                let batch = ctx
-                    .registry
-                    .deliver_message_batch(&target, payload, ctx.state);
+                let batch =
+                    ctx.registry
+                        .deliver_message_batch(&target, payload, &AppView::new(ctx.state));
                 if apply_runtime_batch(batch, ctx, Some(&target), depth + 1) {
                     return true;
                 }
@@ -993,9 +993,11 @@ fn handle_deferred_commands_inner(
                             job_id,
                             error: "PTY_PROCESS authority not granted".to_string(),
                         });
-                        let batch =
-                            ctx.registry
-                                .deliver_io_event_batch(plugin_id, &fail_event, ctx.state);
+                        let batch = ctx.registry.deliver_io_event_batch(
+                            plugin_id,
+                            &fail_event,
+                            &AppView::new(ctx.state),
+                        );
                         if apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1) {
                             return true;
                         }
@@ -1011,9 +1013,11 @@ fn handle_deferred_commands_inner(
                             job_id,
                             error: "process capability not granted".to_string(),
                         });
-                        let batch =
-                            ctx.registry
-                                .deliver_io_event_batch(plugin_id, &fail_event, ctx.state);
+                        let batch = ctx.registry.deliver_io_event_batch(
+                            plugin_id,
+                            &fail_event,
+                            &AppView::new(ctx.state),
+                        );
                         if apply_runtime_batch(batch, ctx, Some(plugin_id), depth + 1) {
                             return true;
                         }
@@ -1171,7 +1175,7 @@ fn handle_deferred_commands_inner(
                 // until the next Kakoune Draw triggers on_state_changed.
                 let batch = ctx
                     .registry
-                    .notify_state_changed_batch(ctx.state, DirtyFlags::SESSION);
+                    .notify_state_changed_batch(&AppView::new(ctx.state), DirtyFlags::SESSION);
                 if apply_runtime_batch_without_session_deferred(batch, ctx, None, depth + 1) {
                     return true;
                 }
@@ -1309,7 +1313,9 @@ pub fn maybe_flush_active_session_ready(ctx: &mut DeferredContext<'_>) -> bool {
         return false;
     }
 
-    let batch = ctx.registry.notify_active_session_ready_batch(ctx.state);
+    let batch = ctx
+        .registry
+        .notify_active_session_ready_batch(&AppView::new(ctx.state));
     let should_quit = apply_ready_batch(batch, ctx);
     if let Some(gate) = ctx.session_ready_gate.as_deref_mut() {
         gate.mark_ready_notified();
@@ -1347,9 +1353,9 @@ pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bo
                 }
             }
             SessionReadyCommand::PluginMessage { target, payload } => {
-                let batch = ctx
-                    .registry
-                    .deliver_message_batch(&target, payload, ctx.state);
+                let batch =
+                    ctx.registry
+                        .deliver_message_batch(&target, payload, &AppView::new(ctx.state));
                 if apply_runtime_batch(batch, ctx, Some(&target), 0) {
                     return true;
                 }
@@ -1385,8 +1391,8 @@ mod tests {
 
     use crate::layout::SplitDirection;
     use crate::plugin::{
-        AppliedWinnerDelta, Command, PluginAuthorities, PluginBackend, PluginDescriptor, PluginId,
-        PluginRank, PluginRevision, PluginSource, RuntimeEffects, StdinMode,
+        AppView, AppliedWinnerDelta, Command, PluginAuthorities, PluginBackend, PluginDescriptor,
+        PluginId, PluginRank, PluginRevision, PluginSource, RuntimeEffects, StdinMode,
     };
     use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
     use crate::surface::{SurfaceId, SurfacePlacementRequest, SurfaceRegistrationError};
@@ -1420,7 +1426,7 @@ mod tests {
             PluginId("runtime-message".to_string())
         }
 
-        fn update_effects(&mut self, msg: &mut dyn Any, _state: &AppState) -> RuntimeEffects {
+        fn update_effects(&mut self, msg: &mut dyn Any, _state: &AppView<'_>) -> RuntimeEffects {
             if msg.downcast_ref::<u32>() != Some(&11) {
                 return RuntimeEffects::default();
             }
@@ -1690,7 +1696,8 @@ mod tests {
             1
         );
 
-        let _ = registry.reload_plugin_batch(Box::new(ReplacementSurfacePlugin), &state);
+        let _ =
+            registry.reload_plugin_batch(Box::new(ReplacementSurfacePlugin), &AppView::new(&state));
         let disabled_plugins = reconcile_plugin_surfaces(
             &mut registry,
             &mut surface_registry,
@@ -1747,7 +1754,7 @@ mod tests {
         let diagnostics = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
         assert!(diagnostics.is_empty());
 
-        let _ = registry.reload_plugin_batch(Box::new(InvalidSurfacePlugin), &state);
+        let _ = registry.reload_plugin_batch(Box::new(InvalidSurfacePlugin), &AppView::new(&state));
         let diagnostics = reconcile_plugin_surfaces(
             &mut registry,
             &mut surface_registry,
@@ -2801,7 +2808,7 @@ mod tests {
             PluginId("cascading".to_string())
         }
 
-        fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppState) -> RuntimeEffects {
+        fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> RuntimeEffects {
             RuntimeEffects {
                 redraw: DirtyFlags::empty(),
                 commands: vec![Command::PluginMessage {
@@ -2873,7 +2880,7 @@ mod tests {
         fn handle_key(
             &mut self,
             _key: &crate::input::KeyEvent,
-            _state: &AppState,
+            _state: &AppView<'_>,
         ) -> Option<Vec<Command>> {
             Some(vec![Command::InjectInput(crate::input::InputEvent::Key(
                 crate::input::KeyEvent {

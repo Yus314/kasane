@@ -20,8 +20,8 @@ use kasane_core::event_loop::{
     sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::plugin::{
-    CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRuntime, ProcessDispatcher,
-    ProcessEventSink, execute_commands, report_plugin_diagnostics,
+    AppView, CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
+    ProcessDispatcher, ProcessEventSink, execute_commands, report_plugin_diagnostics,
 };
 use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, RenderBackend};
@@ -208,7 +208,7 @@ where
     let process_sink: Arc<dyn ProcessEventSink> = Arc::new(TuiProcessEventSink(tx.clone()));
     let mut process_dispatcher = create_process_dispatcher(process_sink);
 
-    let init_batch = registry.init_all_batch(&state);
+    let init_batch = registry.init_all_batch(&AppView::new(&state));
     let mut session_ready_gate = SessionReadyGate::default();
     let mut bootstrap_dirty = DirtyFlags::empty();
     sync_ready_gate(&mut session_ready_gate, &state);

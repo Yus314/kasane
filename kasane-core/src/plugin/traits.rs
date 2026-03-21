@@ -3,13 +3,13 @@ use std::any::Any;
 use crate::element::{Element, InteractiveId};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use crate::state::{AppState, DirtyFlags};
+use crate::state::DirtyFlags;
 
 use super::{
-    AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
-    IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook, PluginAuthorities,
-    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
-    TransformTarget,
+    AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
+    DisplayDirective, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook,
+    PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
+    TransformContext, TransformTarget,
 };
 
 /// Result of key middleware dispatch.
@@ -28,41 +28,41 @@ pub trait PluginBackend: Any {
 
     // --- Lifecycle hooks ---
 
-    fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+    fn on_init_effects(&mut self, _state: &AppView<'_>) -> BootstrapEffects {
         BootstrapEffects::default()
     }
-    fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
         SessionReadyEffects::default()
     }
     fn on_shutdown(&mut self) {}
     fn on_state_changed_effects(
         &mut self,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _dirty: DirtyFlags,
     ) -> RuntimeEffects {
         RuntimeEffects::default()
     }
     /// Handle an I/O event (process output, etc.).
-    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppState) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> RuntimeEffects {
         RuntimeEffects::default()
     }
 
     // --- Input hooks ---
 
     /// Observe a key event (notification only, cannot consume).
-    fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {}
+    fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {}
     /// Observe a mouse event (notification only, cannot consume).
-    fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppState) {}
+    fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppView<'_>) {}
 
     // --- Update / Input handling ---
 
-    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppState) -> RuntimeEffects {
+    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> RuntimeEffects {
         RuntimeEffects::default()
     }
-    fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+    fn handle_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
         None
     }
-    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppState) -> KeyHandleResult {
+    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult {
         match self.handle_key(key, state) {
             Some(commands) => KeyHandleResult::Consumed(commands),
             None => KeyHandleResult::Passthrough,
@@ -72,14 +72,14 @@ pub trait PluginBackend: Any {
         &mut self,
         _event: &MouseEvent,
         _id: InteractiveId,
-        _state: &AppState,
+        _state: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         None
     }
     fn handle_default_scroll(
         &mut self,
         _candidate: DefaultScrollCandidate,
-        _state: &AppState,
+        _state: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         None
     }
@@ -96,7 +96,7 @@ pub trait PluginBackend: Any {
 
     /// Override the cursor style. Return None to defer to the default logic.
     /// First non-None result from any plugin is used.
-    fn cursor_style_override(&self, _state: &AppState) -> Option<crate::render::CursorStyle> {
+    fn cursor_style_override(&self, _state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
         None
     }
 
@@ -108,7 +108,7 @@ pub trait PluginBackend: Any {
         _item: &[crate::protocol::Atom],
         _index: usize,
         _selected: bool,
-        _state: &AppState,
+        _state: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         None
     }
@@ -164,7 +164,7 @@ pub trait PluginBackend: Any {
     fn contribute_to(
         &self,
         _region: &SlotId,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _ctx: &ContributeContext,
     ) -> Option<Contribution> {
         None
@@ -180,7 +180,7 @@ pub trait PluginBackend: Any {
         &self,
         _target: &TransformTarget,
         element: Element,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _ctx: &TransformContext,
     ) -> Element {
         element
@@ -197,7 +197,7 @@ pub trait PluginBackend: Any {
     fn annotate_line_with_ctx(
         &self,
         _line: usize,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         None
@@ -211,7 +211,7 @@ pub trait PluginBackend: Any {
     }
 
     /// Return display transformation directives (fold, hide, insert virtual text).
-    fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
+    fn display_directives(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
         vec![]
     }
 
@@ -220,7 +220,7 @@ pub trait PluginBackend: Any {
     /// Contribute an overlay with collision-avoidance context.
     fn contribute_overlay_with_ctx(
         &self,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         None

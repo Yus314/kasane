@@ -43,7 +43,7 @@ impl PluginBackend for LifecyclePlugin {
         PluginId("lifecycle".to_string())
     }
 
-    fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+    fn on_init_effects(&mut self, _state: &AppView<'_>) -> BootstrapEffects {
         self.init_called = true;
         BootstrapEffects {
             redraw: DirtyFlags::BUFFER,
@@ -54,7 +54,11 @@ impl PluginBackend for LifecyclePlugin {
         self.shutdown_called = true;
     }
 
-    fn on_state_changed_effects(&mut self, _state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+    fn on_state_changed_effects(
+        &mut self,
+        _state: &AppView<'_>,
+        dirty: DirtyFlags,
+    ) -> RuntimeEffects {
         self.state_changes.push(dirty);
         RuntimeEffects::default()
     }

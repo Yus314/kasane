@@ -8,8 +8,8 @@ use kasane_core::element::Element;
 use kasane_core::input::{Key, KeyEvent, Modifiers};
 use kasane_core::kasane_plugin;
 use kasane_core::plugin::{
-    Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
-    PluginId, PluginRuntime, SlotId,
+    AppView, Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend,
+    PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
 use kasane_core::render::{CursorStyle, cursor_style, cursor_style_default};
@@ -36,8 +36,8 @@ fn setup_state(lines: Vec<Line>) -> AppState {
 #[kasane_plugin]
 mod key_consumer_plugin {
     use kasane_core::input::KeyEvent;
-    use kasane_core::plugin::Command;
-    use kasane_core::state::{AppState, DirtyFlags};
+    use kasane_core::plugin::{AppView, Command};
+    use kasane_core::state::DirtyFlags;
 
     #[state]
     #[derive(Default)]
@@ -46,7 +46,7 @@ mod key_consumer_plugin {
     pub fn handle_key(
         _state: &mut State,
         key: &KeyEvent,
-        _core: &AppState,
+        _core: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         // Consume Ctrl+S
         if key.key == kasane_core::input::Key::Char('s')
@@ -64,7 +64,7 @@ fn handle_key_first_wins() {
     let mut state = Box::new(setup_state(vec![make_line("text")]));
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(KeyConsumerPluginPlugin::new()));
-    let _ = registry.init_all_batch(&state);
+    let _ = registry.init_all_batch(&AppView::new(&state));
 
     // Case 1: Ctrl+S should be consumed by the plugin
     let ctrl_s = KeyEvent {
@@ -107,8 +107,8 @@ fn handle_key_first_wins() {
 
 #[kasane_plugin]
 mod msg_receiver_plugin {
-    use kasane_core::plugin::RuntimeEffects;
-    use kasane_core::state::{AppState, DirtyFlags};
+    use kasane_core::plugin::{AppView, RuntimeEffects};
+    use kasane_core::state::DirtyFlags;
 
     #[state]
     #[derive(Default)]
@@ -124,7 +124,7 @@ mod msg_receiver_plugin {
     pub fn update_effects(
         state: &mut State,
         msg: &mut dyn std::any::Any,
-        _core: &AppState,
+        _core: &AppView<'_>,
     ) -> RuntimeEffects {
         let msg = msg
             .downcast_ref::<Msg>()
@@ -148,11 +148,11 @@ fn plugin_message_delivery() {
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(MsgReceiverPluginPlugin::new()));
-    let _ = registry.init_all_batch(&state);
+    let _ = registry.init_all_batch(&AppView::new(&state));
 
     let target_id = kasane_core::plugin::PluginId("msg_receiver_plugin".into());
     let payload: Box<dyn std::any::Any> = Box::new(msg_receiver_plugin::Msg::SetValue(42));
-    let batch = registry.deliver_message_batch(&target_id, payload, &state);
+    let batch = registry.deliver_message_batch(&target_id, payload, &AppView::new(&state));
 
     assert!(
         batch.effects.redraw.contains(DirtyFlags::STATUS),
@@ -171,8 +171,8 @@ fn plugin_message_delivery() {
 
 #[kasane_plugin]
 mod prefix_plugin {
+    use kasane_core::plugin::AppView;
     use kasane_core::protocol::{Atom, Face};
-    use kasane_core::state::AppState;
 
     #[state]
     #[derive(Default)]
@@ -183,7 +183,7 @@ mod prefix_plugin {
         item: &[Atom],
         _index: usize,
         _selected: bool,
-        _core: &AppState,
+        _core: &AppView<'_>,
     ) -> Option<Vec<Atom>> {
         let mut result = vec![Atom {
             face: Face::default(),
@@ -221,7 +221,7 @@ fn menu_transform_adds_prefix() {
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(PrefixPluginPlugin::new()));
-    let _ = registry.init_all_batch(&state);
+    let _ = registry.init_all_batch(&AppView::new(&state));
     registry.prepare_plugin_cache(DirtyFlags::ALL);
 
     let grid = render_with_registry(&state, &registry);
@@ -242,7 +242,7 @@ fn menu_transform_adds_prefix() {
         face: Face::default(),
         contents: "alpha".into(),
     }];
-    let transformed = registry.transform_menu_item(&item, 0, false, &state);
+    let transformed = registry.transform_menu_item(&item, 0, false, &AppView::new(&state));
     assert!(transformed.is_some(), "transform should return Some");
     let transformed = transformed.unwrap();
     assert_eq!(
@@ -264,17 +264,17 @@ fn menu_transform_adds_prefix() {
 #[kasane_plugin]
 mod buffer_banner {
     use kasane_core::element::{Element, FlexChild};
+    use kasane_core::plugin::AppView;
     #[allow(unused_imports)]
     use kasane_core::plugin::TransformTarget;
     use kasane_core::protocol::Face;
-    use kasane_core::state::AppState;
 
     #[state]
     #[derive(Default)]
     pub struct State;
 
     #[transform(TransformTarget::Buffer)]
-    pub fn wrap_buffer(_state: &State, element: Element, _core: &AppState) -> Element {
+    pub fn wrap_buffer(_state: &State, element: Element, _core: &AppView<'_>) -> Element {
         Element::column(vec![
             FlexChild::fixed(Element::text("[buffer transformed]", Face::default())),
             FlexChild::flexible(element, 1.0),
@@ -288,12 +288,12 @@ fn buffer_transform_adds_banner() {
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferBannerPlugin::new()));
-    let _ = registry.init_all_batch(&state);
+    let _ = registry.init_all_batch(&AppView::new(&state));
 
     let transformed = registry.apply_transform_chain(
         kasane_core::plugin::TransformTarget::Buffer,
         || Element::buffer_ref(0..2),
-        &state,
+        &AppView::new(&state),
     );
     match transformed {
         Element::Flex { children, .. } => {
@@ -330,7 +330,7 @@ impl PluginBackend for VerticalBandsPlugin {
     fn contribute_to(
         &self,
         region: &SlotId,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _ctx: &ContributeContext,
     ) -> Option<Contribution> {
         let label = if region == &SlotId::ABOVE_BUFFER {
@@ -355,7 +355,7 @@ fn above_and_below_buffer_slots_render() {
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(VerticalBandsPlugin));
-    let _ = registry.init_all_batch(&state);
+    let _ = registry.init_all_batch(&AppView::new(&state));
 
     let grid = render_with_registry(&state, &registry);
     let rows: Vec<String> = (0..state.rows).map(|y| row_text(&grid, y)).collect();
@@ -385,7 +385,7 @@ impl PluginBackend for UnderlineCursorPlugin {
         kasane_core::plugin::PluginCapabilities::CURSOR_STYLE
     }
 
-    fn cursor_style_override(&self, _state: &AppState) -> Option<CursorStyle> {
+    fn cursor_style_override(&self, _state: &AppView<'_>) -> Option<CursorStyle> {
         Some(CursorStyle::Underline)
     }
 }
@@ -399,10 +399,10 @@ fn cursor_style_override_wins_over_default_logic() {
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(UnderlineCursorPlugin));
-    let _ = registry.init_all_batch(&state);
+    let _ = registry.init_all_batch(&AppView::new(&state));
 
     assert_eq!(
-        registry.cursor_style_override(&state),
+        registry.cursor_style_override(&AppView::new(&state)),
         Some(CursorStyle::Underline)
     );
     assert_eq!(

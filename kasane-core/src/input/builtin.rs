@@ -4,12 +4,11 @@
 //! can override these keys via `handle_key()`.
 
 use crate::input::{Key, KeyEvent};
-use crate::plugin::{Command, PluginBackend, PluginCapabilities, PluginId};
+use crate::plugin::{AppView, Command, PluginBackend, PluginCapabilities, PluginId};
 use crate::protocol::KasaneRequest;
 use crate::scroll::{
     DefaultScrollCandidate, ScrollPolicyResult, legacy_smooth_scroll_plan, smooth_scroll_enabled,
 };
-use crate::state::AppState;
 
 /// Built-in plugin for default key bindings and the production scroll policy fallback.
 ///
@@ -26,7 +25,7 @@ impl PluginBackend for BuiltinInputPlugin {
         PluginCapabilities::INPUT_HANDLER | PluginCapabilities::SCROLL_POLICY
     }
 
-    fn handle_key(&mut self, key: &KeyEvent, state: &AppState) -> Option<Vec<Command>> {
+    fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
         if !key.modifiers.is_empty() {
             return None;
         }
@@ -34,16 +33,16 @@ impl PluginBackend for BuiltinInputPlugin {
             Key::PageUp => {
                 let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
                     amount: -(state.available_height() as i32),
-                    line: state.cursor_pos.line as u32,
-                    column: state.cursor_pos.column as u32,
+                    line: state.cursor_line() as u32,
+                    column: state.cursor_col() as u32,
                 });
                 Some(vec![cmd])
             }
             Key::PageDown => {
                 let cmd = Command::SendToKakoune(KasaneRequest::Scroll {
                     amount: state.available_height() as i32,
-                    line: state.cursor_pos.line as u32,
-                    column: state.cursor_pos.column as u32,
+                    line: state.cursor_line() as u32,
+                    column: state.cursor_col() as u32,
                 });
                 Some(vec![cmd])
             }
@@ -54,7 +53,7 @@ impl PluginBackend for BuiltinInputPlugin {
     fn handle_default_scroll(
         &mut self,
         candidate: DefaultScrollCandidate,
-        state: &AppState,
+        state: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         Some(if smooth_scroll_enabled(state) {
             ScrollPolicyResult::Plan(legacy_smooth_scroll_plan(candidate))
@@ -69,16 +68,18 @@ mod tests {
     use super::*;
     use crate::input::Modifiers;
     use crate::scroll::resolve_default_scroll_policy;
+    use crate::state::AppState;
 
     #[test]
     fn test_builtin_handles_pageup() {
         let mut plugin = BuiltinInputPlugin;
         let state = AppState::default();
+        let view = AppView::new(&state);
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::empty(),
         };
-        let result = plugin.handle_key(&key, &state);
+        let result = plugin.handle_key(&key, &view);
         assert!(result.is_some());
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
@@ -91,11 +92,12 @@ mod tests {
     fn test_builtin_handles_pagedown() {
         let mut plugin = BuiltinInputPlugin;
         let state = AppState::default();
+        let view = AppView::new(&state);
         let key = KeyEvent {
             key: Key::PageDown,
             modifiers: Modifiers::empty(),
         };
-        let result = plugin.handle_key(&key, &state);
+        let result = plugin.handle_key(&key, &view);
         assert!(result.is_some());
         let cmds = result.unwrap();
         assert_eq!(cmds.len(), 1);
@@ -108,22 +110,24 @@ mod tests {
     fn test_builtin_ignores_modified_pageup() {
         let mut plugin = BuiltinInputPlugin;
         let state = AppState::default();
+        let view = AppView::new(&state);
         let key = KeyEvent {
             key: Key::PageUp,
             modifiers: Modifiers::CTRL,
         };
-        assert!(plugin.handle_key(&key, &state).is_none());
+        assert!(plugin.handle_key(&key, &view).is_none());
     }
 
     #[test]
     fn test_builtin_ignores_other_keys() {
         let mut plugin = BuiltinInputPlugin;
         let state = AppState::default();
+        let view = AppView::new(&state);
         let key = KeyEvent {
             key: Key::Char('a'),
             modifiers: Modifiers::empty(),
         };
-        assert!(plugin.handle_key(&key, &state).is_none());
+        assert!(plugin.handle_key(&key, &view).is_none());
     }
 
     #[test]
@@ -137,7 +141,7 @@ mod tests {
             fn id(&self) -> PluginId {
                 PluginId("custom_pageup".into())
             }
-            fn handle_key(&mut self, key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+            fn handle_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
                 if key.key == Key::PageUp {
                     Some(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
                         "custom".to_string(),
@@ -202,6 +206,7 @@ mod tests {
     fn test_builtin_scroll_policy_immediate_when_smooth_disabled() {
         let mut plugin = BuiltinInputPlugin;
         let state = AppState::default();
+        let view = AppView::new(&state);
         let candidate = DefaultScrollCandidate::new(
             10,
             5,
@@ -211,7 +216,7 @@ mod tests {
             crate::scroll::ResolvedScroll::new(3, 10, 5),
         );
 
-        let result = plugin.handle_default_scroll(candidate, &state);
+        let result = plugin.handle_default_scroll(candidate, &view);
 
         assert_eq!(
             result,
@@ -226,6 +231,7 @@ mod tests {
         let mut plugin = BuiltinInputPlugin;
         let mut state = AppState::default();
         crate::scroll::set_smooth_scroll_enabled(&mut state.plugin_config, true);
+        let view = AppView::new(&state);
         let candidate = DefaultScrollCandidate::new(
             10,
             5,
@@ -235,7 +241,7 @@ mod tests {
             crate::scroll::ResolvedScroll::new(3, 10, 5),
         );
 
-        let result = plugin.handle_default_scroll(candidate, &state);
+        let result = plugin.handle_default_scroll(candidate, &view);
 
         assert_eq!(
             result,
@@ -278,7 +284,7 @@ mod tests {
             fn handle_default_scroll(
                 &mut self,
                 _candidate: DefaultScrollCandidate,
-                _state: &AppState,
+                _state: &AppView<'_>,
             ) -> Option<ScrollPolicyResult> {
                 Some(ScrollPolicyResult::Suppress)
             }

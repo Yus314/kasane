@@ -127,7 +127,7 @@ fn plugin_hit_mouse_press_consumes_before_default_mouse_forwarding() {
             &mut self,
             _event: &kasane_core::input::MouseEvent,
             _id: InteractiveId,
-            _state: &kasane_core::state::AppState,
+            _state: &kasane_core::plugin::AppView<'_>,
         ) -> Option<Vec<Command>> {
             Some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
         }

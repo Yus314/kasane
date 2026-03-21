@@ -3,9 +3,9 @@ use kasane_core::state::DirtyFlags;
 
 #[kasane_plugin]
 mod lifecycle_effects_plugin {
-    use kasane_core::plugin::{BootstrapEffects, SessionReadyCommand, SessionReadyEffects};
+    use kasane_core::plugin::{AppView, BootstrapEffects, SessionReadyCommand, SessionReadyEffects};
     use kasane_core::protocol::KasaneRequest;
-    use kasane_core::state::{AppState, DirtyFlags};
+    use kasane_core::state::DirtyFlags;
 
     #[state]
     #[derive(Default)]
@@ -14,7 +14,7 @@ mod lifecycle_effects_plugin {
         pub ready: bool,
     }
 
-    pub fn on_init_effects(state: &mut State, _core: &AppState) -> BootstrapEffects {
+    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> BootstrapEffects {
         state.initialized = true;
         BootstrapEffects {
             redraw: DirtyFlags::STATUS,
@@ -23,7 +23,7 @@ mod lifecycle_effects_plugin {
 
     pub fn on_active_session_ready_effects(
         state: &mut State,
-        _core: &AppState,
+        _core: &AppView<'_>,
     ) -> SessionReadyEffects {
         state.ready = true;
         SessionReadyEffects {
@@ -39,17 +39,18 @@ mod lifecycle_effects_plugin {
 }
 
 fn main() {
-    use kasane_core::plugin::PluginBackend;
+    use kasane_core::plugin::{AppView, PluginBackend};
     use kasane_core::state::AppState;
 
     let mut plugin = LifecycleEffectsPluginPlugin::new();
     let state = AppState::default();
+    let view = AppView::new(&state);
 
-    let init = plugin.on_init_effects(&state);
+    let init = plugin.on_init_effects(&view);
     assert!(plugin.state.initialized);
     assert!(init.redraw.contains(DirtyFlags::STATUS));
 
-    let ready = plugin.on_active_session_ready_effects(&state);
+    let ready = plugin.on_active_session_ready_effects(&view);
     assert!(plugin.state.ready);
     assert!(ready.redraw.contains(DirtyFlags::BUFFER));
     assert_eq!(ready.commands.len(), 1);

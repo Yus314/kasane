@@ -19,13 +19,13 @@ impl PluginBackend for TypedLifecyclePlugin {
         PluginId("typed-lifecycle".to_string())
     }
 
-    fn on_init_effects(&mut self, _state: &AppState) -> BootstrapEffects {
+    fn on_init_effects(&mut self, _state: &AppView<'_>) -> BootstrapEffects {
         BootstrapEffects {
             redraw: DirtyFlags::STATUS,
         }
     }
 
-    fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
         SessionReadyEffects {
             redraw: DirtyFlags::BUFFER,
             commands: vec![SessionReadyCommand::SendToKakoune(KasaneRequest::Scroll {
@@ -45,7 +45,11 @@ impl PluginBackend for TypedRuntimePlugin {
         PluginId("typed-runtime".to_string())
     }
 
-    fn on_state_changed_effects(&mut self, _state: &AppState, dirty: DirtyFlags) -> RuntimeEffects {
+    fn on_state_changed_effects(
+        &mut self,
+        _state: &AppView<'_>,
+        dirty: DirtyFlags,
+    ) -> RuntimeEffects {
         if !dirty.contains(DirtyFlags::BUFFER) {
             return RuntimeEffects::default();
         }
@@ -63,7 +67,11 @@ impl PluginBackend for TypedRuntimePlugin {
         }
     }
 
-    fn update_effects(&mut self, msg: &mut dyn std::any::Any, _state: &AppState) -> RuntimeEffects {
+    fn update_effects(
+        &mut self,
+        msg: &mut dyn std::any::Any,
+        _state: &AppView<'_>,
+    ) -> RuntimeEffects {
         if msg.downcast_ref::<u32>() != Some(&7) {
             return RuntimeEffects::default();
         }
@@ -117,7 +125,7 @@ impl PluginBackend for DisplayTransformPlugin {
         PluginCapabilities::DISPLAY_TRANSFORM
     }
 
-    fn display_directives(&self, _state: &AppState) -> Vec<DisplayDirective> {
+    fn display_directives(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
         self.directives.clone()
     }
 
@@ -162,7 +170,7 @@ impl PluginBackend for KeyMiddlewarePlugin {
         PluginId(self.id.to_string())
     }
 
-    fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+    fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> KeyHandleResult {
         self.seen.lock().unwrap().push(key.clone());
         match &self.behavior {
             MiddlewareBehavior::Passthrough => KeyHandleResult::Passthrough,
@@ -196,7 +204,7 @@ impl PluginBackend for TargetedReadyPlugin {
         PluginId(self.id.to_string())
     }
 
-    fn on_active_session_ready_effects(&mut self, _state: &AppState) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
         SessionReadyEffects {
             redraw: self.redraw,
             commands: vec![],
@@ -223,7 +231,7 @@ fn test_init_all_batch_collects_bootstrap_effects() {
     registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
 
-    let batch = registry.init_all_batch(&state);
+    let batch = registry.init_all_batch(&AppView::new(&state));
     assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
 }
 
@@ -233,7 +241,7 @@ fn test_notify_active_session_ready_batch_collects_effects() {
     registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
 
-    let batch = registry.notify_active_session_ready_batch(&state);
+    let batch = registry.notify_active_session_ready_batch(&AppView::new(&state));
     assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
     assert_eq!(batch.effects.commands.len(), 1);
     assert!(matches!(
@@ -257,8 +265,10 @@ fn test_notify_plugin_active_session_ready_batch_targets_only_requested_plugin()
     }));
     let state = AppState::default();
 
-    let batch =
-        registry.notify_plugin_active_session_ready_batch(&PluginId("beta".to_string()), &state);
+    let batch = registry.notify_plugin_active_session_ready_batch(
+        &PluginId("beta".to_string()),
+        &AppView::new(&state),
+    );
     assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
     assert!(!batch.effects.redraw.contains(DirtyFlags::STATUS));
 }
@@ -269,7 +279,7 @@ fn test_notify_state_changed_batch_collects_runtime_effects() {
     registry.register_backend(Box::new(TypedRuntimePlugin));
     let state = AppState::default();
 
-    let batch = registry.notify_state_changed_batch(&state, DirtyFlags::BUFFER);
+    let batch = registry.notify_state_changed_batch(&AppView::new(&state), DirtyFlags::BUFFER);
     assert!(batch.effects.redraw.contains(DirtyFlags::INFO));
     assert_eq!(batch.effects.commands.len(), 1);
     assert_eq!(batch.effects.scroll_plans.len(), 1);
@@ -284,7 +294,7 @@ fn test_deliver_message_batch_collects_runtime_effects() {
     let batch = registry.deliver_message_batch(
         &PluginId("typed-runtime".to_string()),
         Box::new(7u32),
-        &state,
+        &AppView::new(&state),
     );
     assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
     assert_eq!(batch.effects.commands.len(), 1);
@@ -385,7 +395,7 @@ fn test_collect_display_directives_composes_multi_plugin() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    let directives = registry.collect_display_directives(&state);
+    let directives = registry.collect_display_directives(&AppView::new(&state));
     // Both plugins' directives are present (Hide + InsertAfter)
     assert!(
         directives
@@ -420,7 +430,7 @@ fn test_collect_display_map_composes_multi_plugin() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    let display_map = registry.collect_display_map(&state);
+    let display_map = registry.collect_display_map(&AppView::new(&state));
     // 4 lines - 2 hidden + 1 virtual = 3 display lines
     assert_eq!(display_map.display_line_count(), 3);
     assert_eq!(display_map.buffer_to_display(0), Some(0));
@@ -456,7 +466,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
 
-    let directives = registry.collect_display_directives(&state);
+    let directives = registry.collect_display_directives(&AppView::new(&state));
     let fold_summaries: Vec<&str> = directives
         .iter()
         .filter_map(|d| match d {
@@ -486,7 +496,7 @@ fn test_collect_display_directives_single_plugin_unchanged() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    let directives = registry.collect_display_directives(&state);
+    let directives = registry.collect_display_directives(&AppView::new(&state));
     assert!(
         directives
             .iter()
@@ -544,7 +554,7 @@ fn test_dispatch_key_middleware_passes_transformed_key_to_next_plugin() {
             key: Key::Char('a'),
             modifiers: Modifiers::empty(),
         },
-        &state,
+        &AppView::new(&state),
     );
 
     let first_keys = first_seen.lock().unwrap().clone();
@@ -593,7 +603,7 @@ fn test_dispatch_key_middleware_returns_final_passthrough_key() {
             key: Key::Char('x'),
             modifiers: Modifiers::empty(),
         },
-        &state,
+        &AppView::new(&state),
     ) {
         KeyDispatchResult::Consumed { .. } => panic!("expected passthrough"),
         KeyDispatchResult::Passthrough(key) => {
@@ -627,9 +637,10 @@ fn test_on_state_changed_dispatched_with_flags() {
     let state = AppState::default();
 
     // Simulate what update() does for Msg::Kakoune
+    let view = AppView::new(&state);
     let flags = DirtyFlags::BUFFER | DirtyFlags::STATUS;
     for plugin in registry.plugins_mut() {
-        let _ = plugin.on_state_changed_effects(&state, flags);
+        let _ = plugin.on_state_changed_effects(&view, flags);
     }
     // No panic, default implementations work
 }
@@ -641,7 +652,7 @@ fn test_lifecycle_defaults() {
     registry.register_backend(Box::new(TestPlugin));
     let state = AppState::default();
 
-    let batch = registry.init_all_batch(&state);
+    let batch = registry.init_all_batch(&AppView::new(&state));
     assert!(batch.effects.redraw.is_empty());
 
     registry.shutdown_all();
@@ -654,7 +665,7 @@ fn test_init_all_batch_collects_lifecycle_bootstrap_effects() {
     registry.register_backend(Box::new(LifecyclePlugin::new()));
     let state = AppState::default();
 
-    let batch = registry.init_all_batch(&state);
+    let batch = registry.init_all_batch(&AppView::new(&state));
     assert!(batch.effects.redraw.contains(DirtyFlags::BUFFER));
 }
 
@@ -664,7 +675,7 @@ fn test_reload_plugin_batch_collects_bootstrap_effects() {
     registry.register_backend(Box::new(TypedLifecyclePlugin));
     let state = AppState::default();
 
-    let batch = registry.reload_plugin_batch(Box::new(TypedLifecyclePlugin), &state);
+    let batch = registry.reload_plugin_batch(Box::new(TypedLifecyclePlugin), &AppView::new(&state));
     assert!(batch.effects.redraw.contains(DirtyFlags::STATUS));
 }
 
@@ -688,8 +699,11 @@ fn test_any_plugin_state_changed_flag() {
 fn test_deliver_message_unknown_target() {
     let mut registry = PluginRuntime::new();
     let state = AppState::default();
-    let batch =
-        registry.deliver_message_batch(&PluginId("unknown".to_string()), Box::new(42u32), &state);
+    let batch = registry.deliver_message_batch(
+        &PluginId("unknown".to_string()),
+        Box::new(42u32),
+        &AppView::new(&state),
+    );
     assert!(batch.effects.redraw.is_empty());
     assert!(batch.effects.commands.is_empty());
     assert!(batch.effects.scroll_plans.is_empty());

@@ -6,7 +6,8 @@ use crate::element::{Direction, Element, FlexChild, ResolvedSlotInstanceId};
 use crate::layout::Rect;
 use crate::layout::flex::{self, Constraints, LayoutResult};
 use crate::plugin::{
-    ContribSizeHint, ContributeContext, Contribution, PluginView, SlotId, SourcedContribution,
+    AppView, ContribSizeHint, ContributeContext, Contribution, PluginView, SlotId,
+    SourcedContribution,
 };
 use crate::state::AppState;
 
@@ -501,10 +502,12 @@ impl Resolver<'_> {
         }
 
         let slot_id = SlotId::new(slot.name.clone());
-        let ctx = ContributeContext::from_constraints(self.state, constraints);
-        let sourced = self
-            .registry
-            .collect_contributions_with_sources(&slot_id, self.state, &ctx);
+        let ctx = ContributeContext::from_constraints(&AppView::new(self.state), constraints);
+        let sourced = self.registry.collect_contributions_with_sources(
+            &slot_id,
+            &AppView::new(self.state),
+            &ctx,
+        );
 
         let instance_id = self.allocate_instance_id();
         let mut children = Vec::new();
@@ -684,13 +687,11 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use compact_str::CompactString;
-
     use super::*;
     use crate::element::FlexChild;
     use crate::element::{Edges, Style};
     use crate::layout::flex;
-    use crate::plugin::{PluginBackend, PluginCapabilities, PluginId, PluginRuntime};
+    use crate::plugin::{AppView, PluginBackend, PluginCapabilities, PluginId, PluginRuntime};
     use crate::protocol::Face;
     use crate::state::AppState;
     use crate::surface::{SlotDeclaration, SlotKind, SurfaceId, SurfaceRegistry};
@@ -773,7 +774,7 @@ mod tests {
         fn contribute_to(
             &self,
             region: &SlotId,
-            _state: &AppState,
+            _state: &AppView<'_>,
             ctx: &ContributeContext,
         ) -> Option<Contribution> {
             if region.as_str() == "test.surface.slot" {

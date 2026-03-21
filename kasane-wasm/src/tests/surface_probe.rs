@@ -155,7 +155,7 @@ fn state_hash_tracks_plugin_state() {
 
     let mut state = AppState::default();
     state.cursor_pos.line = 7;
-    let effects = plugin.on_state_changed_effects(&state, DirtyFlags::BUFFER_CURSOR);
+    let effects = plugin.on_state_changed_effects(&AppView::new(&state), DirtyFlags::BUFFER_CURSOR);
     assert!(effects.redraw.is_empty());
     assert!(effects.commands.is_empty());
     assert!(effects.scroll_plans.is_empty());
@@ -453,7 +453,7 @@ fn converts_fold_display_directive_from_guest() {
     let plugin = load_surface_probe_plugin();
     let state = make_state_with_lines(&["fold", "alpha", "beta", "gamma"]);
 
-    let directives = plugin.display_directives(&state);
+    let directives = plugin.display_directives(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
 
     let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
@@ -474,7 +474,7 @@ fn converts_hide_display_directive_from_guest() {
     let plugin = load_surface_probe_plugin();
     let state = make_state_with_lines(&["hide", "alpha", "beta", "gamma"]);
 
-    let directives = plugin.display_directives(&state);
+    let directives = plugin.display_directives(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
 
     let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
@@ -490,7 +490,7 @@ fn converts_insert_after_display_directive_from_guest() {
     let plugin = load_surface_probe_plugin();
     let state = make_state_with_lines(&["insert", "alpha", "beta"]);
 
-    let directives = plugin.display_directives(&state);
+    let directives = plugin.display_directives(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
 
     let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
@@ -560,7 +560,7 @@ fn converts_transformed_key_middleware_result_from_guest() {
             key: Key::Char('m'),
             modifiers: Modifiers::CTRL,
         },
-        &state,
+        &AppView::new(&state),
     ) {
         KeyHandleResult::Consumed(_) => panic!("expected transformed key"),
         KeyHandleResult::Passthrough => panic!("expected transformed key"),
@@ -581,7 +581,7 @@ fn converts_consumed_key_middleware_result_from_guest() {
             key: Key::Char('!'),
             modifiers: Modifiers::empty(),
         },
-        &state,
+        &AppView::new(&state),
     ) {
         KeyHandleResult::Consumed(commands) => {
             assert!(matches!(

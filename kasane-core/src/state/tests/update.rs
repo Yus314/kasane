@@ -5,7 +5,7 @@ use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{
-    Command, KeyHandleResult, NullEffects, PluginBackend, PluginId, PluginRuntime,
+    AppView, Command, KeyHandleResult, NullEffects, PluginBackend, PluginId, PluginRuntime,
     RecordingEffects, RuntimeEffects,
 };
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
@@ -94,7 +94,7 @@ fn test_update_plugin_handles_key() {
         fn handle_key(
             &mut self,
             _key: &crate::input::KeyEvent,
-            _state: &AppState,
+            _state: &AppView<'_>,
         ) -> Option<Vec<Command>> {
             Some(vec![Command::SendToKakoune(
                 crate::protocol::KasaneRequest::Keys(vec!["<esc>".to_string()]),
@@ -134,7 +134,11 @@ fn test_update_key_forwards_transformed_key_to_kakoune() {
             PluginId("transform".into())
         }
 
-        fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+        fn handle_key_middleware(
+            &mut self,
+            key: &KeyEvent,
+            _state: &AppView<'_>,
+        ) -> KeyHandleResult {
             if key.key == Key::Char('a') {
                 KeyHandleResult::Transformed(KeyEvent {
                     key: Key::Char('b'),
@@ -179,7 +183,11 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
             PluginId("transform".into())
         }
 
-        fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+        fn handle_key_middleware(
+            &mut self,
+            key: &KeyEvent,
+            _state: &AppView<'_>,
+        ) -> KeyHandleResult {
             if key.key == Key::Char('a') {
                 KeyHandleResult::Transformed(KeyEvent {
                     key: Key::Char('b'),
@@ -197,7 +205,11 @@ fn test_update_key_transformed_then_consumed_by_next_plugin() {
             PluginId("consume".into())
         }
 
-        fn handle_key_middleware(&mut self, key: &KeyEvent, _state: &AppState) -> KeyHandleResult {
+        fn handle_key_middleware(
+            &mut self,
+            key: &KeyEvent,
+            _state: &AppView<'_>,
+        ) -> KeyHandleResult {
             if key.key == Key::Char('b') {
                 KeyHandleResult::Consumed(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
                     "consumed".to_string(),
@@ -245,7 +257,7 @@ fn test_update_mouse_routes_to_plugin() {
             &mut self,
             _event: &MouseEvent,
             _id: InteractiveId,
-            _state: &AppState,
+            _state: &AppView<'_>,
         ) -> Option<Vec<Command>> {
             Some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
         }
@@ -320,7 +332,7 @@ fn test_observe_key_called_for_all_plugins() {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
-        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {
+        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {
             self.0.store(true, Ordering::Relaxed);
         }
     }
@@ -347,7 +359,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
         fn id(&self) -> PluginId {
             PluginId("observer".into())
         }
-        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppState) {
+        fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {
             self.0.store(true, Ordering::Relaxed);
         }
     }
@@ -357,7 +369,7 @@ fn test_observe_key_called_even_when_plugin_handles() {
         fn id(&self) -> PluginId {
             PluginId("handler".into())
         }
-        fn handle_key(&mut self, _key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+        fn handle_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
             Some(vec![])
         }
     }
@@ -382,7 +394,7 @@ fn test_plugin_can_override_pageup() {
         fn id(&self) -> PluginId {
             PluginId("pageup_override".into())
         }
-        fn handle_key(&mut self, key: &KeyEvent, _state: &AppState) -> Option<Vec<Command>> {
+        fn handle_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
             if key.key == Key::PageUp {
                 Some(vec![Command::SendToKakoune(KasaneRequest::Keys(vec![
                     "custom_pageup".to_string(),
@@ -420,7 +432,7 @@ fn test_observe_mouse_called_without_hit_test() {
         fn id(&self) -> PluginId {
             PluginId("mouse_observer".into())
         }
-        fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppState) {
+        fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppView<'_>) {
             self.0.store(true, Ordering::Relaxed);
         }
     }
@@ -453,7 +465,7 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         }
         fn on_state_changed_effects(
             &mut self,
-            _state: &AppState,
+            _state: &AppView<'_>,
             dirty: DirtyFlags,
         ) -> RuntimeEffects {
             if dirty.contains(DirtyFlags::BUFFER) {
@@ -495,7 +507,7 @@ fn test_on_state_changed_effects_return_scroll_plans() {
 
         fn on_state_changed_effects(
             &mut self,
-            _state: &AppState,
+            _state: &AppView<'_>,
             dirty: DirtyFlags,
         ) -> RuntimeEffects {
             if !dirty.contains(DirtyFlags::BUFFER) {

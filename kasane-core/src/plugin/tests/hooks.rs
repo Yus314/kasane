@@ -19,7 +19,7 @@ impl PluginBackend for ObservingPlugin {
         PluginId("observer".to_string())
     }
 
-    fn observe_key(&mut self, key: &KeyEvent, _state: &AppState) {
+    fn observe_key(&mut self, key: &KeyEvent, _state: &AppView<'_>) {
         self.observed_keys
             .borrow_mut()
             .push(format!("{:?}", key.key));
@@ -35,8 +35,9 @@ fn test_observe_key_called() {
         key: crate::input::Key::Char('a'),
         modifiers: crate::input::Modifiers::empty(),
     };
+    let view = AppView::new(&state);
     for plugin in registry.plugins_mut() {
-        plugin.observe_key(&key, &state);
+        plugin.observe_key(&key, &view);
     }
     // No panic = success, since we can't downcast
 }
@@ -55,7 +56,7 @@ impl PluginBackend for IconPlugin {
         item: &[crate::protocol::Atom],
         _index: usize,
         _selected: bool,
-        _state: &AppState,
+        _state: &AppView<'_>,
     ) -> Option<Vec<crate::protocol::Atom>> {
         let mut result = vec![crate::protocol::Atom {
             face: Face::default(),
@@ -75,7 +76,7 @@ fn test_transform_menu_item() {
         face: Face::default(),
         contents: "foo".into(),
     }];
-    let result = registry.transform_menu_item(&item, 0, false, &state);
+    let result = registry.transform_menu_item(&item, 0, false, &AppView::new(&state));
     assert!(result.is_some());
     let result = result.unwrap();
     assert_eq!(result[0].contents.as_str(), "★ ");
@@ -92,7 +93,7 @@ fn test_transform_menu_item_no_plugin() {
     }];
     assert!(
         registry
-            .transform_menu_item(&item, 0, false, &state)
+            .transform_menu_item(&item, 0, false, &AppView::new(&state))
             .is_none()
     );
 }

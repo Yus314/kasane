@@ -118,7 +118,7 @@ fn parity_plugin_hit_then_miss_trace() {
             &mut self,
             _event: &kasane_core::input::MouseEvent,
             _id: InteractiveId,
-            _state: &kasane_core::state::AppState,
+            _state: &kasane_core::plugin::AppView<'_>,
         ) -> Option<Vec<Command>> {
             Some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
         }

@@ -7,7 +7,7 @@
 
 use salsa::{Durability, Setter};
 
-use crate::plugin::{PluginRuntime, PluginView};
+use crate::plugin::{AppView, PluginRuntime, PluginView};
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_inputs::*;
 use crate::state::AppState;
@@ -223,14 +223,15 @@ pub fn sync_plugin_contributions(
         ctx: &ContributeContext,
     ) -> Vec<crate::element::FlexChild> {
         registry
-            .collect_contributions(slot, state, ctx)
+            .collect_contributions(slot, &AppView::new(state), ctx)
             .into_iter()
             .map(contribution_to_flex_child)
             .collect()
     }
 
     // Slot contributions
-    let ctx = ContributeContext::new(state, None);
+    let view = AppView::new(state);
+    let ctx = ContributeContext::new(&view, None);
     let next_gen = inputs.slot_contributions.generation(db) + 1;
     inputs.slot_contributions.set_generation(db).to(next_gen);
     inputs
@@ -272,7 +273,7 @@ pub fn sync_plugin_contributions(
         pane_surface_id: None,
         pane_focused: true,
     };
-    let result = registry.collect_annotations(state, &annotate_ctx);
+    let result = registry.collect_annotations(&AppView::new(state), &annotate_ctx);
     let next_gen = inputs.annotations.generation(db) + 1;
     inputs.annotations.set_generation(db).to(next_gen);
     inputs
@@ -297,7 +298,7 @@ pub fn sync_plugin_contributions(
         focused_surface_id: None,
     };
     let overlays: Vec<Overlay> = registry
-        .collect_overlays_with_ctx(state, &overlay_ctx)
+        .collect_overlays_with_ctx(&AppView::new(state), &overlay_ctx)
         .into_iter()
         .map(|oc| Overlay {
             element: oc.element,
@@ -318,7 +319,7 @@ pub fn sync_display_directives(
     registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
 ) {
-    let directives = registry.collect_display_directives(state);
+    let directives = registry.collect_display_directives(&AppView::new(state));
     let line_count = state.visible_line_range().len();
 
     inputs.display_directives.set_directives(db).to(directives);
