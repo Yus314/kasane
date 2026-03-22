@@ -10,7 +10,9 @@ use crossterm::{
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
-use kasane_core::protocol::{Atom, Attributes, Color, Face, Line, NamedColor, parse_request};
+use kasane_core::protocol::{
+    Atom, Attributes, Color, Coord, Face, Line, NamedColor, parse_request,
+};
 use kasane_core::render::paint;
 use kasane_core::render::view;
 use kasane_core::render::{CellDiff, CellGrid, render_pipeline};
@@ -691,7 +693,16 @@ fn draw_json(line_count: usize) -> Vec<u8> {
         ..Face::default()
     };
     let padding_face = default_face;
-    to_json_bytes("draw", (&lines, &default_face, &padding_face))
+    to_json_bytes(
+        "draw",
+        (
+            &lines,
+            &Coord::default(),
+            &default_face,
+            &padding_face,
+            0u16,
+        ),
+    )
 }
 
 fn draw_realistic_json(line_count: usize) -> Vec<u8> {
@@ -702,7 +713,16 @@ fn draw_realistic_json(line_count: usize) -> Vec<u8> {
         ..Face::default()
     };
     let padding_face = default_face;
-    to_json_bytes("draw", (&lines, &default_face, &padding_face))
+    to_json_bytes(
+        "draw",
+        (
+            &lines,
+            &Coord::default(),
+            &default_face,
+            &padding_face,
+            0u16,
+        ),
+    )
 }
 
 // ---------------------------------------------------------------------------
