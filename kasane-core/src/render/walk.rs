@@ -9,7 +9,10 @@ use std::ops::Range;
 
 use super::CursorStyle;
 use super::grid::CellGrid;
-use super::paint::{paint_border, paint_border_title, paint_buffer_ref, paint_shadow, paint_text};
+use super::paint::{
+    BufferLineAction, BufferRefParams, analyze_buffer_line, paint_border, paint_border_title,
+    paint_buffer_ref, paint_shadow, paint_text,
+};
 use super::scene::{
     CellSize, DrawCommand, PixelPos, PixelRect, clear_cursor_atom, dim_cursor_atom, resolve_atoms,
     to_pixel_rect,
@@ -351,16 +354,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
     ) {
         let cs = self.cell_size;
-        let lines = buffer_state.map(|s| &s.lines).unwrap_or(&state.lines);
-        let default_face = buffer_state
-            .map(|s| s.default_face)
-            .unwrap_or(state.default_face);
-        let padding_face = buffer_state
-            .map(|s| s.padding_face)
-            .unwrap_or(state.padding_face);
-        let padding_char = buffer_state
-            .map(|s| s.padding_char.as_str())
-            .unwrap_or(&state.padding_char);
+        let params = BufferRefParams::resolve(state, buffer_state);
 
         for y_offset in 0..area.h {
             let display_line = line_range.start + y_offset as usize;
@@ -368,123 +362,100 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
             let px = area.x as f32 * cs.width;
             let row_w = area.w as f32 * cs.width;
 
-            // Resolve display line → buffer line via DisplayMap
-            let (buffer_line_idx, synthetic) = if let Some(dm) = display_map {
-                if let Some(entry) = dm.entry(display_line) {
-                    let buf_line = match &entry.source {
-                        crate::display::SourceMapping::BufferLine(l) => Some(*l),
-                        crate::display::SourceMapping::LineRange(r) => Some(r.start),
-                        crate::display::SourceMapping::None => None,
-                    };
-                    (buf_line, entry.synthetic.as_ref())
-                } else {
-                    // Beyond display map range — render padding, not a buffer line
-                    (None, None)
+            match analyze_buffer_line(
+                &params,
+                display_line,
+                display_map,
+                line_backgrounds,
+                inline_decorations,
+                false, // GPU never skips clean lines
+            ) {
+                BufferLineAction::Skip => continue,
+                BufferLineAction::Synthetic { text, face } => {
+                    self.out.push(DrawCommand::FillRect {
+                        rect: PixelRect {
+                            x: px,
+                            y: py,
+                            w: row_w,
+                            h: cs.height,
+                        },
+                        face,
+                        elevated: false,
+                    });
+                    self.out.push(DrawCommand::DrawText {
+                        pos: PixelPos { x: px, y: py },
+                        text: text.to_string(),
+                        face,
+                        max_width: row_w,
+                    });
                 }
-            } else {
-                (Some(display_line), None)
-            };
-
-            // Render synthetic content (fold summary, virtual text)
-            if let Some(syn) = synthetic {
-                self.out.push(DrawCommand::FillRect {
-                    rect: PixelRect {
-                        x: px,
-                        y: py,
-                        w: row_w,
-                        h: cs.height,
-                    },
-                    face: syn.face,
-                    elevated: false,
-                });
-                self.out.push(DrawCommand::DrawText {
-                    pos: PixelPos { x: px, y: py },
-                    text: syn.text.clone(),
-                    face: syn.face,
-                    max_width: row_w,
-                });
-                continue;
-            }
-
-            let line_idx = match buffer_line_idx {
-                Some(idx) => idx,
-                None => continue, // virtual text with no buffer source
-            };
-
-            if let Some(line) = lines.get(line_idx) {
-                // Background fill for the row (with optional per-line override)
-                let base_face = line_backgrounds
-                    .and_then(|bgs| bgs.get(line_idx).copied().flatten())
-                    .unwrap_or(default_face);
-                self.out.push(DrawCommand::FillRect {
-                    rect: PixelRect {
-                        x: px,
-                        y: py,
-                        w: row_w,
-                        h: cs.height,
-                    },
-                    face: base_face,
-                    elevated: false,
-                });
-                // Apply inline decorations if present
-                let decorated;
-                let line_to_render: &[Atom] = match inline_decorations
-                    .and_then(|ds| ds.get(line_idx))
-                    .and_then(|d| d.as_ref())
-                {
-                    Some(deco) if !deco.is_empty() => {
-                        decorated = crate::render::inline_decoration::apply_inline_ops(line, deco);
-                        decorated.as_slice()
-                    }
-                    _ => line,
-                };
-                // Atoms — clear PrimaryCursor face at the cursor cell in
-                // non-block cursor modes so the thin bar/underline is visible.
-                let mut resolved = resolve_atoms(line_to_render, Some(&base_face));
-                if !matches!(self.cursor_style, CursorStyle::Block | CursorStyle::Outline)
-                    && state.cursor_mode == crate::protocol::CursorMode::Buffer
-                    && line_idx == state.cursor_pos.line as usize
-                {
-                    clear_cursor_atom(&mut resolved, state.cursor_pos.column as u16, &base_face);
-                }
-                // Differentiate secondary cursor faces
-                for coord in &state.secondary_cursors {
-                    if coord.line as usize == line_idx {
-                        dim_cursor_atom(
+                BufferLineAction::BufferLine {
+                    line_idx,
+                    line,
+                    base_face,
+                    decorated,
+                } => {
+                    self.out.push(DrawCommand::FillRect {
+                        rect: PixelRect {
+                            x: px,
+                            y: py,
+                            w: row_w,
+                            h: cs.height,
+                        },
+                        face: base_face,
+                        elevated: false,
+                    });
+                    let atoms = decorated.as_deref().unwrap_or(line);
+                    // GPU-specific: resolve atoms with base face, then apply
+                    // cursor face operations (not shared with TUI).
+                    let mut resolved = resolve_atoms(atoms, Some(&base_face));
+                    // Clear PrimaryCursor face at cursor cell in non-block modes
+                    // so the thin bar/underline is visible.
+                    if !matches!(self.cursor_style, CursorStyle::Block | CursorStyle::Outline)
+                        && state.cursor_mode == crate::protocol::CursorMode::Buffer
+                        && line_idx == state.cursor_pos.line as usize
+                    {
+                        clear_cursor_atom(
                             &mut resolved,
-                            coord.column as u16,
+                            state.cursor_pos.column as u16,
                             &base_face,
-                            state.secondary_blend_ratio,
                         );
                     }
+                    // Differentiate secondary cursor faces
+                    for coord in &state.secondary_cursors {
+                        if coord.line as usize == line_idx {
+                            dim_cursor_atom(
+                                &mut resolved,
+                                coord.column as u16,
+                                &base_face,
+                                state.secondary_blend_ratio,
+                            );
+                        }
+                    }
+                    self.out.push(DrawCommand::DrawAtoms {
+                        pos: PixelPos { x: px, y: py },
+                        atoms: resolved,
+                        max_width: row_w,
+                    });
                 }
-                self.out.push(DrawCommand::DrawAtoms {
-                    pos: PixelPos { x: px, y: py },
-                    atoms: resolved,
-                    max_width: row_w,
-                });
-            } else {
-                // Padding row
-                self.out.push(DrawCommand::FillRect {
-                    rect: PixelRect {
-                        x: px,
-                        y: py,
-                        w: row_w,
-                        h: cs.height,
-                    },
-                    face: padding_face,
-                    elevated: false,
-                });
-                let mut pad_face = padding_face;
-                if pad_face.fg == pad_face.bg {
-                    pad_face.fg = default_face.fg;
+                BufferLineAction::Padding { face, char_face } => {
+                    self.out.push(DrawCommand::FillRect {
+                        rect: PixelRect {
+                            x: px,
+                            y: py,
+                            w: row_w,
+                            h: cs.height,
+                        },
+                        face,
+                        elevated: false,
+                    });
+                    self.out.push(DrawCommand::DrawPaddingRow {
+                        pos: PixelPos { x: px, y: py },
+                        width: row_w,
+                        ch: params.padding_char.to_string(),
+                        face: char_face,
+                    });
                 }
-                self.out.push(DrawCommand::DrawPaddingRow {
-                    pos: PixelPos { x: px, y: py },
-                    width: row_w,
-                    ch: padding_char.to_string(),
-                    face: pad_face,
-                });
             }
         }
     }

@@ -3,10 +3,12 @@ use unicode_width::UnicodeWidthStr;
 
 use super::grid::CellGrid;
 use super::theme::Theme;
-use crate::element::{BorderLineStyle, Element};
+use crate::display::{DisplayMap, SourceMapping, SyntheticContent};
+use crate::element::{BorderLineStyle, BufferRefState, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::{Attributes, Color, Face};
+use crate::protocol::{Atom, Attributes, Color, Face};
+use crate::render::InlineDecoration;
 use crate::state::AppState;
 
 /// Paint an element tree into a CellGrid using pre-computed layout results.
@@ -49,111 +51,206 @@ pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Fa
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn paint_buffer_ref(
-    grid: &mut CellGrid,
-    area: &Rect,
-    line_range: std::ops::Range<usize>,
-    state: &AppState,
-    buffer_state: Option<&crate::element::BufferRefState>,
+// ---------------------------------------------------------------------------
+// BufferRefParams + BufferLineAction: shared decision logic for buffer painting
+// ---------------------------------------------------------------------------
+
+/// Common parameters resolved from AppState / BufferRefState for buffer painting.
+/// Used by both TUI (CellGrid) and GPU (DrawCommand) backends.
+pub(crate) struct BufferRefParams<'a> {
+    pub lines: &'a [Vec<Atom>],
+    pub lines_dirty: &'a [bool],
+    pub default_face: Face,
+    pub padding_face: Face,
+    pub padding_char: &'a str,
+}
+
+impl<'a> BufferRefParams<'a> {
+    pub fn resolve(state: &'a AppState, buffer_state: Option<&'a BufferRefState>) -> Self {
+        Self {
+            lines: buffer_state.map(|s| &s.lines[..]).unwrap_or(&state.lines),
+            lines_dirty: buffer_state
+                .map(|s| &s.lines_dirty[..])
+                .unwrap_or(&state.lines_dirty),
+            default_face: buffer_state
+                .map(|s| s.default_face)
+                .unwrap_or(state.default_face),
+            padding_face: buffer_state
+                .map(|s| s.padding_face)
+                .unwrap_or(state.padding_face),
+            padding_char: buffer_state
+                .map(|s| s.padding_char.as_str())
+                .unwrap_or(&state.padding_char),
+        }
+    }
+}
+
+/// Describes *what* to render for a single buffer display line.
+/// Backends pattern-match on this to produce backend-specific output.
+#[derive(Debug)]
+pub(crate) enum BufferLineAction<'a> {
+    /// Skip this line (TUI line-dirty optimization or no content to render).
+    Skip,
+    /// Render synthetic content (fold summary, virtual text).
+    Synthetic { text: &'a str, face: Face },
+    /// Render a buffer line with optional per-line background and inline decorations.
+    BufferLine {
+        /// Buffer line index (for cursor coordinate matching).
+        line_idx: usize,
+        line: &'a [Atom],
+        base_face: Face,
+        /// Pre-computed decorated atoms if inline decorations apply.
+        decorated: Option<Vec<Atom>>,
+    },
+    /// Render a padding row (beyond buffer content).
+    Padding {
+        /// Background fill face.
+        face: Face,
+        /// Face for the padding character (fg adjusted if same as bg).
+        char_face: Face,
+    },
+}
+
+/// Analyze a single display line and return a `BufferLineAction` describing what to render.
+///
+/// This captures the shared decision logic between TUI and GPU buffer painting:
+/// DisplayMap resolution, dirty-line skipping, synthetic detection, inline decoration.
+///
+/// - `skip_clean`: when `true` (TUI), clean lines return `Skip`. GPU always passes `false`.
+pub(crate) fn analyze_buffer_line<'a>(
+    params: &'a BufferRefParams<'a>,
+    display_line: usize,
+    display_map: Option<&'a DisplayMap>,
     line_backgrounds: Option<&[Option<Face>]>,
-    display_map: Option<&crate::display::DisplayMap>,
-    inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
-) {
-    let lines = buffer_state.map(|s| &s.lines).unwrap_or(&state.lines);
-    let lines_dirty = buffer_state
-        .map(|s| &s.lines_dirty)
-        .unwrap_or(&state.lines_dirty);
-    let default_face = buffer_state
-        .map(|s| s.default_face)
-        .unwrap_or(state.default_face);
-    let padding_face = buffer_state
-        .map(|s| s.padding_face)
-        .unwrap_or(state.padding_face);
-    let padding_char = buffer_state
-        .map(|s| s.padding_char.as_str())
-        .unwrap_or(&state.padding_char);
-
-    let has_line_dirty = !lines_dirty.is_empty();
-    for y_offset in 0..area.h {
-        let display_line = line_range.start + y_offset as usize;
-        let y = area.y + y_offset;
-
-        // Resolve display line → buffer line via DisplayMap
-        let (buffer_line_idx, synthetic) = if let Some(dm) = display_map {
+    inline_decorations: Option<&[Option<InlineDecoration>]>,
+    skip_clean: bool,
+) -> BufferLineAction<'a> {
+    // Step 1: Resolve display line → buffer line via DisplayMap
+    let (buffer_line_idx, synthetic): (Option<usize>, Option<&SyntheticContent>) =
+        if let Some(dm) = display_map {
             if let Some(entry) = dm.entry(display_line) {
                 let buf_line = match &entry.source {
-                    crate::display::SourceMapping::BufferLine(l) => Some(*l),
-                    crate::display::SourceMapping::LineRange(r) => Some(r.start),
-                    crate::display::SourceMapping::None => None,
+                    SourceMapping::BufferLine(l) => Some(*l),
+                    SourceMapping::LineRange(r) => Some(r.start),
+                    SourceMapping::None => None,
                 };
                 (buf_line, entry.synthetic.as_ref())
             } else {
-                // Beyond display map range — render padding, not a buffer line
+                // Beyond display map range
                 (None, None)
             }
         } else {
             (Some(display_line), None)
         };
 
-        // Skip clean lines — grid retains valid content from previous frame.
-        // Synthetic lines (virtual text, fold summaries) are always repainted:
-        // lines_dirty tracks buffer lines only, so SourceMapping::None lines
-        // would be incorrectly skipped after a grid.clear().
-        if has_line_dirty && synthetic.is_none() {
-            let is_dirty = if let Some(dm) = display_map {
-                dm.is_display_line_dirty(display_line, lines_dirty)
-            } else {
-                lines_dirty.get(display_line).copied().unwrap_or(true)
-            };
-            if !is_dirty {
-                continue;
-            }
-        }
-
-        // Render synthetic content (fold summary, virtual text)
-        if let Some(syn) = synthetic {
-            grid.fill_region(y, area.x, area.w, &syn.face);
-            let atom = crate::protocol::Atom {
-                face: syn.face,
-                contents: syn.text.clone().into(),
-            };
-            grid.put_line_with_base(y, area.x, &[atom], area.w, Some(&syn.face));
-            continue;
-        }
-
-        let line_idx = match buffer_line_idx {
-            Some(idx) => idx,
-            None => continue,
-        };
-
-        if let Some(line) = lines.get(line_idx) {
-            // Use plugin background override if available, otherwise default_face
-            let base_face = line_backgrounds
-                .and_then(|bgs| bgs.get(line_idx).copied().flatten())
-                .unwrap_or(default_face);
-            grid.fill_region(y, area.x, area.w, &base_face);
-            // Apply inline decorations if present
-            let decorated;
-            let line_to_render: &[crate::protocol::Atom] = match inline_decorations
-                .and_then(|ds| ds.get(line_idx))
-                .and_then(|d| d.as_ref())
-            {
-                Some(deco) if !deco.is_empty() => {
-                    decorated = crate::render::inline_decoration::apply_inline_ops(line, deco);
-                    decorated.as_slice()
-                }
-                _ => line,
-            };
-            grid.put_line_with_base(y, area.x, line_to_render, area.w, Some(&base_face));
+    // Step 2: Skip clean lines (TUI optimization).
+    // Synthetic lines are always repainted: lines_dirty tracks buffer lines only.
+    if skip_clean && synthetic.is_none() {
+        let is_dirty = if let Some(dm) = display_map {
+            dm.is_display_line_dirty(display_line, params.lines_dirty)
         } else {
-            // Padding row
-            grid.fill_region(y, area.x, area.w, &padding_face);
-            let mut pad_face = padding_face;
-            if pad_face.fg == pad_face.bg {
-                pad_face.fg = default_face.fg;
+            params
+                .lines_dirty
+                .get(display_line)
+                .copied()
+                .unwrap_or(true)
+        };
+        if !is_dirty {
+            return BufferLineAction::Skip;
+        }
+    }
+
+    // Step 3: Synthetic content (fold summary, virtual text)
+    if let Some(syn) = synthetic {
+        return BufferLineAction::Synthetic {
+            text: &syn.text,
+            face: syn.face,
+        };
+    }
+
+    // Step 4: No buffer source line
+    let line_idx = match buffer_line_idx {
+        Some(idx) => idx,
+        None => return BufferLineAction::Skip,
+    };
+
+    // Step 5: Buffer line or padding
+    if let Some(line) = params.lines.get(line_idx) {
+        let base_face = line_backgrounds
+            .and_then(|bgs| bgs.get(line_idx).copied().flatten())
+            .unwrap_or(params.default_face);
+        let decorated = inline_decorations
+            .and_then(|ds| ds.get(line_idx))
+            .and_then(|d| d.as_ref())
+            .filter(|deco| !deco.is_empty())
+            .map(|deco| crate::render::inline_decoration::apply_inline_ops(line, deco));
+        BufferLineAction::BufferLine {
+            line_idx,
+            line,
+            base_face,
+            decorated,
+        }
+    } else {
+        let mut char_face = params.padding_face;
+        if char_face.fg == char_face.bg {
+            char_face.fg = params.default_face.fg;
+        }
+        BufferLineAction::Padding {
+            face: params.padding_face,
+            char_face,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_buffer_ref(
+    grid: &mut CellGrid,
+    area: &Rect,
+    line_range: std::ops::Range<usize>,
+    state: &AppState,
+    buffer_state: Option<&BufferRefState>,
+    line_backgrounds: Option<&[Option<Face>]>,
+    display_map: Option<&DisplayMap>,
+    inline_decorations: Option<&[Option<InlineDecoration>]>,
+) {
+    let params = BufferRefParams::resolve(state, buffer_state);
+    let skip_clean = !params.lines_dirty.is_empty();
+
+    for y_offset in 0..area.h {
+        let display_line = line_range.start + y_offset as usize;
+        let y = area.y + y_offset;
+
+        match analyze_buffer_line(
+            &params,
+            display_line,
+            display_map,
+            line_backgrounds,
+            inline_decorations,
+            skip_clean,
+        ) {
+            BufferLineAction::Skip => continue,
+            BufferLineAction::Synthetic { text, face } => {
+                grid.fill_region(y, area.x, area.w, &face);
+                let atom = Atom {
+                    face,
+                    contents: text.into(),
+                };
+                grid.put_line_with_base(y, area.x, &[atom], area.w, Some(&face));
             }
-            grid.put_char(area.x, y, padding_char, &pad_face);
+            BufferLineAction::BufferLine {
+                line,
+                base_face,
+                decorated,
+                ..
+            } => {
+                grid.fill_region(y, area.x, area.w, &base_face);
+                let atoms = decorated.as_deref().unwrap_or(line);
+                grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_face));
+            }
+            BufferLineAction::Padding { face, char_face } => {
+                grid.fill_region(y, area.x, area.w, &face);
+                grid.put_char(area.x, y, params.padding_char, &char_face);
+            }
         }
     }
 }
@@ -538,5 +635,158 @@ mod tests {
         assert_eq!(grid.get(5, 3).unwrap().grapheme, "p");
         assert_eq!(grid.get(6, 3).unwrap().grapheme, "o");
         assert_eq!(grid.get(7, 3).unwrap().grapheme, "p");
+    }
+
+    // -----------------------------------------------------------------------
+    // analyze_buffer_line unit tests
+    // -----------------------------------------------------------------------
+
+    fn make_params<'a>(
+        lines: &'a [Vec<crate::protocol::Atom>],
+        lines_dirty: &'a [bool],
+    ) -> BufferRefParams<'a> {
+        BufferRefParams {
+            lines,
+            lines_dirty,
+            default_face: Face::default(),
+            padding_face: Face::default(),
+            padding_char: "~",
+        }
+    }
+
+    #[test]
+    fn analyze_identity_no_display_map() {
+        let lines = vec![make_line("hello"), make_line("world")];
+        let params = make_params(&lines, &[]);
+        match analyze_buffer_line(&params, 0, None, None, None, false) {
+            BufferLineAction::BufferLine {
+                line_idx,
+                base_face,
+                decorated,
+                ..
+            } => {
+                assert_eq!(line_idx, 0);
+                assert_eq!(base_face, Face::default());
+                assert!(decorated.is_none());
+            }
+            other => panic!("expected BufferLine, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_display_map_with_synthetic() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        let lines = vec![make_line("line0"), make_line("line1"), make_line("line2")];
+        let params = make_params(&lines, &[]);
+        let syn_face = Face {
+            fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
+            ..Face::default()
+        };
+        let dm = DisplayMap::build(
+            3,
+            &[DisplayDirective::Fold {
+                range: 0..2,
+                summary: "folded".to_string(),
+                face: syn_face,
+            }],
+        );
+        // Display line 0 should be the fold summary (synthetic)
+        match analyze_buffer_line(&params, 0, Some(&dm), None, None, false) {
+            BufferLineAction::Synthetic { text, face } => {
+                assert_eq!(text, "folded");
+                assert_eq!(face, syn_face);
+            }
+            other => panic!("expected Synthetic, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_display_map_beyond_range() {
+        use crate::display::DisplayMap;
+        let lines = vec![make_line("only")];
+        let params = make_params(&lines, &[]);
+        let dm = DisplayMap::build(1, &[]);
+        // Display line 5 is beyond the map
+        match analyze_buffer_line(&params, 5, Some(&dm), None, None, false) {
+            BufferLineAction::Skip => {}
+            other => panic!("expected Skip for beyond-range, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_lines_dirty_skip_when_skip_clean() {
+        let lines = vec![make_line("line0"), make_line("line1")];
+        let lines_dirty = vec![false, true]; // line 0 clean, line 1 dirty
+        let params = make_params(&lines, &lines_dirty);
+        // skip_clean=true → clean line should Skip
+        match analyze_buffer_line(&params, 0, None, None, None, true) {
+            BufferLineAction::Skip => {}
+            other => panic!("expected Skip for clean line, got {other:?}"),
+        }
+        // skip_clean=true → dirty line should render
+        match analyze_buffer_line(&params, 1, None, None, None, true) {
+            BufferLineAction::BufferLine { line_idx, .. } => assert_eq!(line_idx, 1),
+            other => panic!("expected BufferLine for dirty line, got {other:?}"),
+        }
+        // skip_clean=false → clean line should still render (GPU mode)
+        match analyze_buffer_line(&params, 0, None, None, None, false) {
+            BufferLineAction::BufferLine { line_idx, .. } => assert_eq!(line_idx, 0),
+            other => panic!("expected BufferLine with skip_clean=false, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_inline_decoration_applied() {
+        use crate::render::InlineDecoration;
+        use crate::render::inline_decoration::InlineOp;
+        let lines = vec![make_line("hello")];
+        let params = make_params(&lines, &[]);
+        let deco_face = Face {
+            fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
+            ..Face::default()
+        };
+        let deco = InlineDecoration::new(vec![InlineOp::Style {
+            range: 0..5,
+            face: deco_face,
+        }]);
+        let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
+        match analyze_buffer_line(&params, 0, None, None, Some(&decos), false) {
+            BufferLineAction::BufferLine { decorated, .. } => {
+                assert!(decorated.is_some(), "expected decorated atoms");
+            }
+            other => panic!("expected BufferLine with decoration, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_padding_row() {
+        let lines = vec![make_line("only")];
+        let params = make_params(&lines, &[]);
+        // Line index 1 is beyond the buffer → padding
+        match analyze_buffer_line(&params, 1, None, None, None, false) {
+            BufferLineAction::Padding { face, char_face } => {
+                assert_eq!(face, Face::default());
+                // When fg == bg, char_face.fg gets default_face.fg
+                assert_eq!(char_face.fg, params.default_face.fg);
+            }
+            other => panic!("expected Padding, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_line_background_override() {
+        let lines = vec![make_line("hello")];
+        let params = make_params(&lines, &[]);
+        let bg_face = Face {
+            bg: crate::protocol::Color::Rgb { r: 0, g: 0, b: 128 },
+            ..Face::default()
+        };
+        let bgs: Vec<Option<Face>> = vec![Some(bg_face)];
+        match analyze_buffer_line(&params, 0, None, Some(&bgs), None, false) {
+            BufferLineAction::BufferLine { base_face, .. } => {
+                assert_eq!(base_face, bg_face);
+            }
+            other => panic!("expected BufferLine with bg override, got {other:?}"),
+        }
     }
 }

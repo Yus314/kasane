@@ -155,6 +155,70 @@ fn backfill_surface_report_areas(
 }
 
 // ---------------------------------------------------------------------------
+// PreparedFrame: shared pipeline orchestration
+// ---------------------------------------------------------------------------
+
+/// Pre-computed frame data shared between TUI and GPU pipelines.
+///
+/// Captures the common orchestration: source.prepare → view_sections → display_map
+/// extraction → backfill_surface_report_areas → buffer offset computation.
+pub(crate) struct PreparedFrame {
+    pub sections: view::ViewSections,
+    pub base_layout: flex::LayoutResult,
+    pub display_map: DisplayMapRef,
+    pub root_area: Rect,
+    pub buffer_x_offset: u16,
+    pub buffer_y_offset: u16,
+    pub focused_pane_rect: Option<Rect>,
+    pub focused_pane_state: Option<Box<AppState>>,
+}
+
+/// Run the shared pipeline orchestration, returning a `PreparedFrame`.
+///
+/// Both `render_cached_core` (TUI) and `scene_render_core` (GPU) call this
+/// to avoid duplicating ~70% of their setup code.
+pub(crate) fn prepare_frame(
+    source: &mut impl ViewSource,
+    state: &AppState,
+    registry: &PluginView<'_>,
+    dirty: DirtyFlags,
+) -> PreparedFrame {
+    source.prepare(dirty, registry);
+    let mut sections = source.view_sections(state, registry);
+    let display_map = std::sync::Arc::clone(&sections.display_map);
+    let root_area = Rect {
+        x: 0,
+        y: 0,
+        w: state.cols,
+        h: state.rows,
+    };
+    let focused_pane_rect = sections.focused_pane_rect;
+    let focused_pane_state = sections.focused_pane_state.take();
+    let base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
+
+    // Compute buffer offset from the base element+layout.
+    // This is correct regardless of overlays (which don't shift buffer position).
+    let (buffer_x_offset, buffer_y_offset) = match focused_pane_rect {
+        Some(ref focus_rect) => {
+            find_buffer_origin_in_rect(&sections.base, &base_layout, focus_rect)
+                .unwrap_or((find_buffer_x_offset(&sections.base, &base_layout), 0))
+        }
+        None => (find_buffer_x_offset(&sections.base, &base_layout), 0),
+    };
+
+    PreparedFrame {
+        sections,
+        base_layout,
+        display_map,
+        root_area,
+        buffer_x_offset,
+        buffer_y_offset,
+        focused_pane_rect,
+        focused_pane_state,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Generic core pipeline functions
 // ---------------------------------------------------------------------------
 
@@ -169,20 +233,11 @@ pub(crate) fn render_cached_core(
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
-    source.prepare(dirty, registry);
-    let mut sections = source.view_sections(state, registry);
-    let display_map = std::sync::Arc::clone(&sections.display_map);
-    let dm = dm_ref(&display_map);
-    let root_area = Rect {
-        x: 0,
-        y: 0,
-        w: state.cols,
-        h: state.rows,
-    };
-    let focused_pane_rect = sections.focused_pane_rect;
-    let sections_focused_pane_state = sections.focused_pane_state.take();
-    let _base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
-    let element = sections.into_element();
+    let frame = prepare_frame(source, state, registry, dirty);
+    let dm = dm_ref(&frame.display_map);
+    let root_area = frame.root_area;
+
+    let element = frame.sections.into_element();
     let layout_result = flex::place(&element, root_area, state);
 
     // Line-level dirty optimization: when BUFFER is dirty and some lines
@@ -197,33 +252,39 @@ pub(crate) fn render_cached_core(
         apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
     }
 
-    let (buffer_x_offset, buffer_y_offset) = match focused_pane_rect {
-        Some(ref focus_rect) => find_buffer_origin_in_rect(&element, &layout_result, focus_rect)
-            .unwrap_or((find_buffer_x_offset(&element, &layout_result), 0)),
-        None => (find_buffer_x_offset(&element, &layout_result), 0),
-    };
-
     // Use focused pane state for cursor operations in multi-pane mode
-    let cursor_state = sections_focused_pane_state.as_deref().unwrap_or(state);
+    let cursor_state = frame.focused_pane_state.as_deref().unwrap_or(state);
 
     // In multi-pane mode, remove cursor highlighting from unfocused panes
-    if let Some(ref focus_rect) = focused_pane_rect {
+    if let Some(ref focus_rect) = frame.focused_pane_rect {
         neutralize_unfocused_cursors(cursor_state, &element, &layout_result, grid, focus_rect, dm);
     }
 
     // Differentiate secondary cursor faces before clearing primary cursor
-    apply_secondary_cursor_faces(cursor_state, grid, buffer_x_offset, dm, buffer_y_offset);
+    apply_secondary_cursor_faces(
+        cursor_state,
+        grid,
+        frame.buffer_x_offset,
+        dm,
+        frame.buffer_y_offset,
+    );
 
     let style = cursor_style(cursor_state, registry);
     clear_block_cursor_face(
         cursor_state,
         grid,
         style,
-        buffer_x_offset,
+        frame.buffer_x_offset,
         dm,
-        buffer_y_offset,
+        frame.buffer_y_offset,
     );
-    let (cx, cy) = cursor_position(cursor_state, grid, buffer_x_offset, dm, buffer_y_offset);
+    let (cx, cy) = cursor_position(
+        cursor_state,
+        grid,
+        frame.buffer_x_offset,
+        dm,
+        frame.buffer_y_offset,
+    );
 
     RenderResult {
         cursor_x: cx,
@@ -246,37 +307,21 @@ pub(crate) fn scene_render_core<'a>(
 ) -> (&'a [DrawCommand], RenderResult) {
     crate::perf::perf_span!("scene_render_pipeline");
 
-    // Invalidate caches
-    source.prepare(dirty, registry);
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
-    // Get view sections — needed for buffer_x_offset even on fast path
-    let mut sections = source.view_sections(state, registry);
+    let frame = prepare_frame(source, state, registry, dirty);
+    let dm = dm_ref(&frame.display_map);
+    let root_area = frame.root_area;
 
-    let root_area = Rect {
-        x: 0,
-        y: 0,
-        w: state.cols,
-        h: state.rows,
-    };
-
-    // Compute buffer_x_offset from the base layout
-    let display_map = std::sync::Arc::clone(&sections.display_map);
-    let dm = dm_ref(&display_map);
-    let focused_pane_rect = sections.focused_pane_rect;
-    let focused_pane_state = sections.focused_pane_state.take();
-    let base_layout = backfill_surface_report_areas(&mut sections, root_area, state);
-    let (buffer_x_offset, buffer_y_offset) = match focused_pane_rect {
-        Some(ref focus_rect) => {
-            find_buffer_origin_in_rect(&sections.base, &base_layout, focus_rect)
-                .unwrap_or((find_buffer_x_offset(&sections.base, &base_layout), 0))
-        }
-        None => (find_buffer_x_offset(&sections.base, &base_layout), 0),
-    };
     // Use focused pane state for cursor computation in multi-pane mode
-    let cursor_state = focused_pane_state.as_deref().unwrap_or(state);
-    let result =
-        compute_render_result(cursor_state, registry, buffer_x_offset, dm, buffer_y_offset);
+    let cursor_state = frame.focused_pane_state.as_deref().unwrap_or(state);
+    let result = compute_render_result(
+        cursor_state,
+        registry,
+        frame.buffer_x_offset,
+        dm,
+        frame.buffer_y_offset,
+    );
 
     // Fast path: all sections cached
     if scene_cache.is_fully_cached() {
@@ -289,8 +334,8 @@ pub(crate) fn scene_render_core<'a>(
     // Base section
     if scene_cache.base_commands.is_none() {
         let cmds = walk::walk_paint_scene_section(
-            &sections.base,
-            &base_layout,
+            &frame.sections.base,
+            &frame.base_layout,
             state,
             &theme,
             cell_size,
@@ -301,7 +346,7 @@ pub(crate) fn scene_render_core<'a>(
 
     // Menu section
     if scene_cache.menu_commands.is_none() {
-        let cmds = if let Some(ref overlay) = sections.menu_overlay {
+        let cmds = if let Some(ref overlay) = frame.sections.menu_overlay {
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
             walk::walk_paint_scene_section(
                 &overlay.element,
@@ -320,10 +365,11 @@ pub(crate) fn scene_render_core<'a>(
     // Info + plugin overlays section
     if scene_cache.info_commands.is_none() {
         let mut cmds = Vec::new();
-        for overlay in sections
+        for overlay in frame
+            .sections
             .info_overlays
             .iter()
-            .chain(sections.plugin_overlays.iter())
+            .chain(frame.sections.plugin_overlays.iter())
         {
             cmds.push(DrawCommand::BeginOverlay);
             let overlay_layout = crate::layout::layout_single_overlay(overlay, root_area, state);
