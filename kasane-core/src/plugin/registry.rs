@@ -825,12 +825,15 @@ impl<'a> PluginView<'a> {
                         bg_layers.push((bg, pid));
                     }
                     if let Some(inline) = ann.inline {
-                        debug_assert!(
-                            inline_decorations[line].is_none(),
-                            "Phase 1: only one plugin may provide inline decoration per line"
-                        );
-                        inline_decorations[line] = Some(inline);
-                        has_inline = true;
+                        if inline_decorations[line].is_some() {
+                            tracing::warn!(
+                                line,
+                                "multiple plugins provide inline decoration for same line; first wins"
+                            );
+                        } else {
+                            inline_decorations[line] = Some(inline);
+                            has_inline = true;
+                        }
                     }
                 }
             }
