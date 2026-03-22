@@ -1,9 +1,9 @@
 //! Input conversion from frontend key/mouse events to Kakoune protocol input.
 
 pub mod builtin;
-pub mod window;
+pub mod pane_manager;
 pub use builtin::BuiltinInputPlugin;
-pub use window::WindowModePlugin;
+pub use pane_manager::PaneManagerPlugin;
 
 use bitflags::bitflags;
 
