@@ -9,7 +9,7 @@
 use proptest::prelude::*;
 
 use kasane_core::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, NamedColor};
-use kasane_core::state::derived;
+use kasane_core::state::derived::{self, CursorCache};
 
 // ---------------------------------------------------------------------------
 // Strategies (reuse patterns from dirty_flags_property.rs)
@@ -149,6 +149,32 @@ proptest! {
             "I-1 violated: count={count}, secondaries={}, primary={primary:?}",
             secondaries.len(),
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// I-1: detect_cursors_incremental ≡ detect_cursors (all-dirty)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    /// detect_cursors_incremental with all-true dirty flags produces identical
+    /// results to detect_cursors for arbitrary inputs.
+    #[test]
+    fn detect_cursors_incremental_matches_full(
+        lines in arb_lines(),
+        cursor_line in 0i32..30,
+        cursor_col in 0i32..50,
+    ) {
+        let pos = Coord { line: cursor_line, column: cursor_col };
+        let all_dirty = vec![true; lines.len()];
+        let mut cache = CursorCache::default();
+
+        let (inc_count, inc_sec) =
+            derived::detect_cursors_incremental(&lines, pos, &all_dirty, &mut cache);
+        let (full_count, full_sec) = derived::detect_cursors(&lines, pos);
+
+        prop_assert_eq!(inc_count, full_count);
+        prop_assert_eq!(inc_sec, full_sec);
     }
 }
 

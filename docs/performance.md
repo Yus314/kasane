@@ -57,7 +57,7 @@ Event received
 Event batch processing (try_recv drains all pending)
   |
   v
-state.apply()           -- O(lines * atoms) for Draw; includes detect_cursors, compute_lines_dirty
+state.apply()           -- O(dirty lines * atoms) for Draw with warm CursorCache; O(lines * atoms) on first frame / resize / scroll
   |
   v
 sync_inputs_from_state() -- Salsa incremental sync (unconditional for AppState; plugin contributions skipped when view_deps() disjoint from dirty)
@@ -107,6 +107,8 @@ Note: paint-only cost is derived from the `paint/80x24` benchmark (which include
 | dirty_rows | CellGrid | Row-level dirty tracking skips unchanged rows in present() |
 | Salsa incremental | render pipeline | Incremental recomputation of view, layout, plugin contributions, and overlays |
 | detect_cursors two-strategy | state.apply | Attribute heuristic (fast path) + face-matching fallback |
+| CursorCache incremental | state.apply | Per-line cursor cache; only dirty lines re-scanned on cursor-move frames |
+| Layout reuse | render pipeline | Base layout from `backfill_surface_report_areas` reused in TUI path, avoiding redundant `flex::place()` |
 
 ## Declarative Pipeline Overhead
 
@@ -186,7 +188,7 @@ The view() cost includes Salsa incremental sync, plugin registry preparation, se
 | `state_apply/menu_show_50` | state.apply(MenuShow) | 4.8 us |  |
 <!-- /BENCH:state_apply -->
 
-The `state_apply/draw_lines` cost is dominated by `detect_cursors()`, which scans all atoms for cursor attributes (FINAL_FG+REVERSE) and computes display widths via `UnicodeWidthStr`. Kakoune sends only viewport lines (24-80), so the worst case in practice is ~132 μs (100 lines).
+The `state_apply/draw_lines` numbers above reflect the cold-cache / all-lines-dirty path (first frame, resize, scroll, file open). On typical cursor-move frames, `detect_cursors_incremental` re-scans only the 2 dirty lines (~1.2 μs for 23-line viewport), reducing the Draw cost from ~31 μs to ~17 μs. The full-scan path remains unchanged and dominates when Kakoune sends a new viewport (24-80 lines); the worst practical case is still ~132 μs (100 lines).
 
 ### Scaling Characteristics
 
@@ -399,20 +401,20 @@ Ranked by severity with current measurements.
 
 #### `detect_cursors()` Cost in state.apply(Draw)
 
-`detect_cursors()` scans all draw atoms for cursor attributes (FINAL_FG+REVERSE) and computes per-atom display widths via `UnicodeWidthStr::width()`. This is O(lines × atoms) per Draw message.
+`detect_cursors_incremental()` maintains a per-line `CursorCache` so that only dirty lines are re-scanned. On cursor-move frames (2 dirty lines), the attribute scan drops from ~15.6 μs to ~1.2 μs. The cache falls back to a full scan when line count changes, `lines_dirty` is unavailable, or the face-matching fallback was used on the previous frame.
 
 <!-- BENCH:bottleneck_detect_cursors -->
 | Lines | state_apply(Draw) | Notes |
 |---|---|---|
-| `state_apply/draw_lines/23` | 31.3 us | Typical viewport |
-| `state_apply/draw_lines/100` | 131.5 us | Large viewport |
+| `state_apply/draw_lines/23` | 31.3 us | Full-scan path (first frame / all dirty) |
+| `state_apply/draw_lines/100` | 131.5 us | Full-scan path |
 | `state_apply/draw_lines/500` | 701.2 us | Exceeds 200 μs budget |
+| `detect_cursors/incremental_2_dirty` | 1.2 us | Warm cache, 2 dirty lines (cursor move) |
+| `detect_cursors/incremental_all_dirty` | 14.6 us | Warm cache, all lines dirty |
 <!-- /BENCH:bottleneck_detect_cursors -->
 
-Kakoune sends only viewport lines (24-80), so the worst practical case is ~132 μs (100 lines), within the latency budget. However, future optimization opportunities exist:
-- Early exit when attribute heuristic succeeds (already implemented)
-- Lazy detection scoped to cursor_pos neighborhood
-- Display width caching
+Kakoune sends only viewport lines (24-80), so the worst practical case is ~132 μs (100 lines), within the latency budget. Remaining optimization opportunity:
+- Display width caching (per-atom `atom_display_width` still dominates the per-line scan cost)
 
 For resolved bottlenecks (Buffer Line Cloning, Container Fill Loop, diff() Allocation Dominance, grid.diff() Exceeds Target), see [ADR-015 in decisions.md](./decisions.md#adr-015-rendering-pipeline-performance-improvements).
 

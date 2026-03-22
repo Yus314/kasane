@@ -236,8 +236,10 @@ pub(crate) fn render_cached_core(
     let dm = dm_ref(&frame.display_map);
     let root_area = frame.root_area;
 
-    let element = frame.sections.into_element();
-    let layout_result = flex::place(&element, root_area, state);
+    let (element, layout_result) =
+        frame
+            .sections
+            .into_element_and_layout(frame.base_layout, root_area, state);
 
     // Line-level dirty optimization: when BUFFER is dirty and some lines
     // are clean, skip full grid.clear() and only clear non-buffer sections.

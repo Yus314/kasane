@@ -248,6 +248,10 @@ pub struct AppState {
     #[epistemic(runtime)]
     #[dirty(free)]
     pub hit_map: HitMap,
+    /// Cached per-line cursor positions for incremental `detect_cursors`.
+    #[epistemic(runtime)]
+    #[dirty(free)]
+    pub cursor_cache: derived::CursorCache,
 }
 
 impl AppState {
@@ -329,6 +333,7 @@ impl AppState {
             rows: _,
             focused: _,
             hit_map: _,
+            cursor_cache,
             shadow_enabled: _,
             padding_char: _,
             menu_max_height: _,
@@ -366,6 +371,7 @@ impl AppState {
         self.secondary_cursors = secondary_cursors;
         self.color_context = color_context;
         self.drag = drag;
+        self.cursor_cache = cursor_cache;
     }
 }
 
@@ -466,6 +472,7 @@ impl Default for AppState {
             cols: 80,
             rows: 24,
             hit_map: HitMap::new(),
+            cursor_cache: derived::CursorCache::default(),
         }
     }
 }

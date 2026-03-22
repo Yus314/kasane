@@ -15,8 +15,24 @@ impl AppState {
             } => {
                 self.cursor_pos = cursor_pos;
 
-                // Heuristic cursor detection via pure function
-                let (cursor_count, secondary_cursors) = derived::detect_cursors(&lines, cursor_pos);
+                // Line-level dirty tracking via pure function (computed FIRST
+                // so incremental cursor detection can use dirty flags)
+                self.lines_dirty = derived::compute_lines_dirty(
+                    &self.lines,
+                    &lines,
+                    &self.default_face,
+                    &default_face,
+                    &self.padding_face,
+                    &padding_face,
+                );
+
+                // Heuristic cursor detection — incremental when possible
+                let (cursor_count, secondary_cursors) = derived::detect_cursors_incremental(
+                    &lines,
+                    cursor_pos,
+                    &self.lines_dirty,
+                    &mut self.cursor_cache,
+                );
 
                 // I-1: primary cursor in detected set (self-consistency)
                 debug_assert!(
@@ -82,16 +98,6 @@ impl AppState {
                 self.secondary_cursors = secondary_cursors;
 
                 self.widget_columns = widget_columns;
-
-                // Line-level dirty tracking via pure function
-                self.lines_dirty = derived::compute_lines_dirty(
-                    &self.lines,
-                    &lines,
-                    &self.default_face,
-                    &default_face,
-                    &self.padding_face,
-                    &padding_face,
-                );
 
                 self.lines = lines;
                 self.default_face = default_face;

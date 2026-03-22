@@ -904,6 +904,81 @@ fn bench_apply_draw_line_comparison(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
+// Incremental cursor detection benchmarks
+// ---------------------------------------------------------------------------
+
+fn bench_detect_cursors_incremental(c: &mut Criterion) {
+    use kasane_core::protocol::{Atom, Attributes, Coord, Face};
+    use kasane_core::state::derived::{self, CursorCache};
+
+    let mut state = typical_state(23);
+    // Add a cursor atom on line 5 (simulates Kakoune's baked cursor face)
+    let cursor_face = Face {
+        attributes: Attributes::FINAL_FG | Attributes::REVERSE,
+        ..Face::default()
+    };
+    state.lines[5] = vec![
+        Atom {
+            face: Face::default(),
+            contents: "hel".into(),
+        },
+        Atom {
+            face: cursor_face,
+            contents: "l".into(),
+        },
+        Atom {
+            face: Face::default(),
+            contents: "o world".into(),
+        },
+    ];
+    let primary = Coord { line: 5, column: 3 };
+
+    let mut group = c.benchmark_group("detect_cursors");
+
+    // Full scan (baseline)
+    group.bench_function("full_scan_23_lines", |b| {
+        b.iter(|| derived::detect_cursors(&state.lines, primary));
+    });
+
+    // Incremental with warm cache + 2 dirty lines
+    group.bench_function("incremental_2_dirty", |b| {
+        b.iter_batched(
+            || {
+                let mut cache = CursorCache::default();
+                let all_dirty = vec![true; state.lines.len()];
+                derived::detect_cursors_incremental(&state.lines, primary, &all_dirty, &mut cache);
+                let mut lines_dirty = vec![false; state.lines.len()];
+                lines_dirty[5] = true;
+                lines_dirty[6] = true;
+                (cache, lines_dirty)
+            },
+            |(mut cache, lines_dirty)| {
+                derived::detect_cursors_incremental(&state.lines, primary, &lines_dirty, &mut cache)
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    // Incremental with warm cache + all dirty (worst case)
+    group.bench_function("incremental_all_dirty", |b| {
+        b.iter_batched(
+            || {
+                let mut cache = CursorCache::default();
+                let all_dirty = vec![true; state.lines.len()];
+                derived::detect_cursors_incremental(&state.lines, primary, &all_dirty, &mut cache);
+                (cache, all_dirty)
+            },
+            |(mut cache, all_dirty)| {
+                derived::detect_cursors_incremental(&state.lines, primary, &all_dirty, &mut cache)
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
 // Salsa pipeline benchmarks
 // ---------------------------------------------------------------------------
 
@@ -1574,6 +1649,7 @@ criterion_group!(
     bench_line_dirty_all_changed,
     bench_apply_draw_line_comparison,
     bench_line_dirty_buffer_status,
+    bench_detect_cursors_incremental,
 );
 
 criterion_group!(salsa_sync, salsa_benches::bench_sync_inputs,);

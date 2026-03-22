@@ -77,20 +77,29 @@ pub fn detect_cursors(lines: &[Line], primary_cursor_pos: Coord) -> (usize, Vec<
 fn detect_cursors_by_attributes(lines: &[Line]) -> Vec<Coord> {
     let mut cursors = Vec::new();
     for (line_idx, line) in lines.iter().enumerate() {
-        let mut col: u32 = 0;
-        for atom in line.iter() {
-            let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
-                && atom.face.attributes.contains(Attributes::REVERSE);
-            if is_cursor {
-                cursors.push(Coord {
-                    line: line_idx as i32,
-                    column: col as i32,
-                });
-            }
-            col += atom_display_width(atom);
-        }
+        scan_line_cursors_by_attributes(line, line_idx, &mut cursors);
     }
     cursors
+}
+
+/// Scan a single line for cursor atoms (FINAL_FG + REVERSE pattern).
+///
+/// Appends cursor positions to `out`. This is the per-line primitive used by
+/// both `detect_cursors_by_attributes` (full scan) and `detect_cursors_incremental`
+/// (dirty-line scan).
+fn scan_line_cursors_by_attributes(line: &[Atom], line_idx: usize, out: &mut Vec<Coord>) {
+    let mut col: u32 = 0;
+    for atom in line.iter() {
+        let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
+            && atom.face.attributes.contains(Attributes::REVERSE);
+        if is_cursor {
+            out.push(Coord {
+                line: line_idx as i32,
+                column: col as i32,
+            });
+        }
+        col += atom_display_width(atom);
+    }
 }
 
 /// Find the face at a given coordinate, then scan for atoms with matching fg.
@@ -131,6 +140,109 @@ fn detect_cursors_by_face(lines: &[Line], primary_pos: Coord) -> Vec<Coord> {
     } else {
         cursors
     }
+}
+
+// ---------------------------------------------------------------------------
+// CursorCache: incremental cursor detection
+// ---------------------------------------------------------------------------
+
+/// Per-line cursor position cache for incremental `detect_cursors`.
+///
+/// Stores the attribute-scan results per line so that only dirty lines need
+/// re-scanning on each frame.
+#[derive(Debug, Clone, Default)]
+pub struct CursorCache {
+    /// Column positions of cursor atoms per line (attribute scan results).
+    per_line: Vec<Vec<u32>>,
+    /// Whether the last detection fell back to face-matching (not incrementable).
+    used_fallback: bool,
+}
+
+/// Incremental cursor detection: re-scan only dirty lines, reuse cached results
+/// for clean lines.
+///
+/// Falls back to a full scan when the cache is invalid (line count changed,
+/// face-matching fallback was used, or no dirty info is available).
+///
+/// Returns `(cursor_count, secondary_cursors)` — same contract as `detect_cursors`.
+pub fn detect_cursors_incremental(
+    lines: &[Line],
+    primary_cursor_pos: Coord,
+    lines_dirty: &[bool],
+    cache: &mut CursorCache,
+) -> (usize, Vec<Coord>) {
+    let needs_full_scan = cache.per_line.len() != lines.len()
+        || cache.used_fallback
+        || lines_dirty.is_empty()
+        || lines_dirty.len() != lines.len();
+
+    if needs_full_scan {
+        // Full scan: rebuild entire cache
+        cache.per_line.clear();
+        cache.per_line.resize(lines.len(), Vec::new());
+        cache.used_fallback = false;
+
+        for (i, line) in lines.iter().enumerate() {
+            let cols = &mut cache.per_line[i];
+            cols.clear();
+            let mut col: u32 = 0;
+            for atom in line.iter() {
+                let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
+                    && atom.face.attributes.contains(Attributes::REVERSE);
+                if is_cursor {
+                    cols.push(col);
+                }
+                col += atom_display_width(atom);
+            }
+        }
+    } else {
+        // Incremental: only re-scan dirty lines
+        for (i, &dirty) in lines_dirty.iter().enumerate() {
+            if dirty {
+                let cols = &mut cache.per_line[i];
+                cols.clear();
+                let mut col: u32 = 0;
+                for atom in lines[i].iter() {
+                    let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
+                        && atom.face.attributes.contains(Attributes::REVERSE);
+                    if is_cursor {
+                        cols.push(col);
+                    }
+                    col += atom_display_width(atom);
+                }
+            }
+        }
+    }
+
+    // Reconstruct all cursor positions from cache
+    let mut all_cursors = Vec::new();
+    for (line_idx, cols) in cache.per_line.iter().enumerate() {
+        for &col in cols {
+            all_cursors.push(Coord {
+                line: line_idx as i32,
+                column: col as i32,
+            });
+        }
+    }
+
+    if !all_cursors.is_empty() {
+        let cursor_count = all_cursors.len();
+        let secondary_cursors: Vec<Coord> = all_cursors
+            .into_iter()
+            .filter(|c| *c != primary_cursor_pos)
+            .collect();
+        return (cursor_count, secondary_cursors);
+    }
+
+    // Attribute scan found nothing — fall back to face-matching (not incrementable)
+    cache.used_fallback = true;
+    let all_cursors = detect_cursors_by_face(lines, primary_cursor_pos);
+    let cursor_count = all_cursors.len();
+    let secondary_cursors = all_cursors
+        .into_iter()
+        .filter(|c| *c != primary_cursor_pos)
+        .collect();
+    (cursor_count, secondary_cursors)
 }
 
 /// Look up the face of the atom at a given (line, column) coordinate.
@@ -717,5 +829,137 @@ mod tests {
     #[test]
     fn primary_in_set_empty_buffer() {
         assert!(check_primary_cursor_in_set(0, &[], Coord::default(),));
+    }
+
+    // --- detect_cursors_incremental tests ---
+
+    #[test]
+    fn detect_cursors_incremental_matches_full_on_all_dirty() {
+        let lines = vec![
+            vec![make_cursor_atom("h"), make_atom("ello")],
+            vec![make_atom("wor"), make_cursor_atom("l"), make_atom("d")],
+        ];
+        let primary = Coord { line: 0, column: 0 };
+        let all_dirty = vec![true; lines.len()];
+        let mut cache = CursorCache::default();
+
+        let (inc_count, inc_sec) =
+            detect_cursors_incremental(&lines, primary, &all_dirty, &mut cache);
+        let (full_count, full_sec) = detect_cursors(&lines, primary);
+
+        assert_eq!(inc_count, full_count);
+        assert_eq!(inc_sec, full_sec);
+    }
+
+    #[test]
+    fn detect_cursors_incremental_with_partial_dirty() {
+        // Initial: cursors on lines 0 and 1
+        let lines_v1 = vec![
+            vec![make_cursor_atom("h"), make_atom("ello")],
+            vec![make_atom("wor"), make_cursor_atom("l"), make_atom("d")],
+            vec![make_atom("line3")],
+        ];
+        let primary = Coord { line: 0, column: 0 };
+        let mut cache = CursorCache::default();
+
+        // Warm the cache with a full scan
+        let all_dirty = vec![true; lines_v1.len()];
+        detect_cursors_incremental(&lines_v1, primary, &all_dirty, &mut cache);
+
+        // Now change only line 1 (move cursor away)
+        let lines_v2 = vec![
+            vec![make_cursor_atom("h"), make_atom("ello")],
+            vec![make_atom("world")],
+            vec![make_atom("line3")],
+        ];
+        let partial_dirty = vec![false, true, false];
+        let (count, sec) =
+            detect_cursors_incremental(&lines_v2, primary, &partial_dirty, &mut cache);
+
+        // Only line 0 should have a cursor now
+        assert_eq!(count, 1);
+        assert!(sec.is_empty());
+
+        // Verify matches full scan
+        let (full_count, full_sec) = detect_cursors(&lines_v2, primary);
+        assert_eq!(count, full_count);
+        assert_eq!(sec, full_sec);
+    }
+
+    #[test]
+    fn detect_cursors_incremental_line_count_change_forces_full_scan() {
+        let lines_v1 = vec![
+            vec![make_cursor_atom("a"), make_atom("bc")],
+            vec![make_atom("def")],
+        ];
+        let primary = Coord { line: 0, column: 0 };
+        let mut cache = CursorCache::default();
+
+        // Warm cache
+        let all_dirty = vec![true; lines_v1.len()];
+        detect_cursors_incremental(&lines_v1, primary, &all_dirty, &mut cache);
+        assert_eq!(cache.per_line.len(), 2);
+
+        // Change to 3 lines — should force full scan
+        let lines_v2 = vec![
+            vec![make_cursor_atom("a"), make_atom("bc")],
+            vec![make_atom("def")],
+            vec![make_cursor_atom("g")],
+        ];
+        let dirty_2 = vec![false, false, true]; // wrong length vs cache
+        let (count, sec) = detect_cursors_incremental(&lines_v2, primary, &dirty_2, &mut cache);
+
+        assert_eq!(count, 2); // cursors on line 0 and 2
+        assert_eq!(sec.len(), 1);
+        assert_eq!(cache.per_line.len(), 3);
+    }
+
+    #[test]
+    fn detect_cursors_incremental_face_fallback_forces_full_rescan() {
+        // Lines with no FINAL_FG+REVERSE — will trigger face fallback
+        let dark = Color::Rgb {
+            r: 0x1e,
+            g: 0x21,
+            b: 0x27,
+        };
+        let purple = Color::Rgb {
+            r: 0xc6,
+            g: 0x78,
+            b: 0xdd,
+        };
+        let lines = vec![vec![
+            make_atom("hel"),
+            make_themed_cursor_atom("l", dark, purple),
+            make_atom("o"),
+        ]];
+        let primary = Coord { line: 0, column: 3 };
+        let mut cache = CursorCache::default();
+
+        let all_dirty = vec![true];
+        let (count, _sec) = detect_cursors_incremental(&lines, primary, &all_dirty, &mut cache);
+
+        // Face fallback should be used
+        assert!(cache.used_fallback);
+        assert_eq!(count, 1);
+
+        // Next call should force full scan since used_fallback is set
+        let (count2, _sec2) = detect_cursors_incremental(&lines, primary, &[false], &mut cache);
+        assert_eq!(count2, 1);
+    }
+
+    #[test]
+    fn scan_line_cursors_by_attributes_per_line() {
+        // "hel" (3) + cursor "l" (1) + "o" (1) + cursor "!" (1) = columns 0..6
+        let line = vec![
+            make_atom("hel"),
+            make_cursor_atom("l"),
+            make_atom("o"),
+            make_cursor_atom("!"),
+        ];
+        let mut out = Vec::new();
+        scan_line_cursors_by_attributes(&line, 5, &mut out);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], Coord { line: 5, column: 3 });
+        assert_eq!(out[1], Coord { line: 5, column: 5 }); // 3+1+1 = 5
     }
 }

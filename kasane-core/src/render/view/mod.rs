@@ -86,6 +86,41 @@ impl ViewSections {
             Element::stack(self.base, overlays)
         }
     }
+
+    /// Assemble sections into an Element tree AND layout, reusing a pre-computed
+    /// base layout to avoid a redundant `flex::place()` call.
+    ///
+    /// The base layout was already computed during `backfill_surface_report_areas`.
+    /// Overlays are positioned via `layout_single_overlay` (absolute positioning, cheap).
+    pub fn into_element_and_layout(
+        self,
+        base_layout: crate::layout::flex::LayoutResult,
+        root_area: crate::layout::Rect,
+        state: &AppState,
+    ) -> (Element, crate::layout::flex::LayoutResult) {
+        let mut overlays = Vec::new();
+        if let Some(overlay) = self.menu_overlay {
+            overlays.push(overlay);
+        }
+        overlays.extend(self.info_overlays);
+        overlays.extend(self.plugin_overlays);
+
+        if overlays.is_empty() {
+            (self.base, base_layout)
+        } else {
+            let mut layout_children = vec![base_layout];
+            for overlay in &overlays {
+                layout_children.push(crate::layout::layout_single_overlay(
+                    overlay, root_area, state,
+                ));
+            }
+            let layout = crate::layout::flex::LayoutResult {
+                area: root_area,
+                children: layout_children,
+            };
+            (Element::stack(self.base, overlays), layout)
+        }
+    }
 }
 
 fn legacy_surface_compose_result(
