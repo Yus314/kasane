@@ -14,6 +14,9 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.actor != 'renovate[bot]'
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@v6
 

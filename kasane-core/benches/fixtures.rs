@@ -5,8 +5,8 @@ use std::any::Any;
 use kasane_core::element::{Element, InteractiveId};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
-    Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend, PluginCapabilities,
-    PluginId, PluginRuntime, SlotId,
+    AppView, Command, ContribSizeHint, ContributeContext, Contribution, PluginBackend,
+    PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{
     Atom, Attributes, Color, Coord, Face, KakouneRequest, Line, MenuStyle, NamedColor,
@@ -34,7 +34,7 @@ impl PluginBackend for BenchPlugin {
     fn contribute_to(
         &self,
         region: &SlotId,
-        _state: &AppState,
+        _state: &AppView<'_>,
         _ctx: &ContributeContext,
     ) -> Option<Contribution> {
         if region == &SlotId::STATUS_RIGHT {

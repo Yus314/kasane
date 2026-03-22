@@ -31,13 +31,13 @@ fn bench_element_construct(c: &mut Criterion) {
     // No plugins
     let registry_0 = PluginRuntime::new();
     group.bench_function("plugins_0", |b| {
-        b.iter(|| view::view(&state, &registry_0));
+        b.iter(|| view::view(&state, &registry_0.view()));
     });
 
     // 10 plugins
     let registry_10 = registry_with_plugins(10);
     group.bench_function("plugins_10", |b| {
-        b.iter(|| view::view(&state, &registry_10));
+        b.iter(|| view::view(&state, &registry_10.view()));
     });
 
     group.finish();
@@ -261,7 +261,7 @@ fn bench_line_dirty_buffer_status(c: &mut Criterion) {
             |mut g| {
                 render_pipeline_direct(
                     &edited,
-                    &registry,
+                    &registry.view(),
                     &mut g,
                     DirtyFlags::BUFFER | DirtyFlags::STATUS,
                 );
@@ -1044,7 +1044,7 @@ mod salsa_benches {
                             &db,
                             &handles,
                             &state,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
@@ -1062,7 +1062,7 @@ mod salsa_benches {
                     |mut grid| {
                         kasane_core::render::render_pipeline_direct(
                             &state,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
                         );
@@ -1084,7 +1084,7 @@ mod salsa_benches {
                     &db,
                     &handles,
                     &state,
-                    &registry,
+                    &registry.view(),
                     &mut grid,
                     DirtyFlags::ALL,
                     &paint_hooks,
@@ -1098,7 +1098,7 @@ mod salsa_benches {
                         &db,
                         &handles,
                         &state,
-                        &registry,
+                        &registry.view(),
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
                         &paint_hooks,
@@ -1112,7 +1112,7 @@ mod salsa_benches {
                 let mut grid = CellGrid::new(state.cols, state.rows);
                 kasane_core::render::render_pipeline_direct(
                     &state,
-                    &registry,
+                    &registry.view(),
                     &mut grid,
                     DirtyFlags::ALL,
                 );
@@ -1121,7 +1121,7 @@ mod salsa_benches {
                 b.iter(|| {
                     kasane_core::render::render_pipeline_direct(
                         &state,
-                        &registry,
+                        &registry.view(),
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
                     );
@@ -1144,7 +1144,7 @@ mod salsa_benches {
                             &db,
                             &handles,
                             &state,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
@@ -1160,7 +1160,7 @@ mod salsa_benches {
                             &db,
                             &handles,
                             &edited,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::BUFFER,
                             &paint_hooks,
@@ -1178,7 +1178,7 @@ mod salsa_benches {
                         let mut grid = CellGrid::new(state.cols, state.rows);
                         kasane_core::render::render_pipeline_direct(
                             &state,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
                         );
@@ -1188,7 +1188,7 @@ mod salsa_benches {
                     |mut grid| {
                         kasane_core::render::render_pipeline_direct(
                             &edited,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::BUFFER,
                         );
@@ -1225,7 +1225,7 @@ mod salsa_benches {
                         &db,
                         &handles,
                         &state,
-                        &registry,
+                        &registry.view(),
                         cell_size,
                         DirtyFlags::ALL,
                         &mut scene_cache,
@@ -1245,7 +1245,7 @@ mod salsa_benches {
                 &db,
                 &handles,
                 &state,
-                &registry,
+                &registry.view(),
                 cell_size,
                 DirtyFlags::ALL,
                 &mut scene_cache,
@@ -1259,7 +1259,7 @@ mod salsa_benches {
                         &db,
                         &handles,
                         &state,
-                        &registry,
+                        &registry.view(),
                         cell_size,
                         DirtyFlags::MENU_SELECTION,
                         &mut scene_cache,
@@ -1297,7 +1297,7 @@ mod salsa_benches {
                             &db,
                             &handles,
                             &state,
-                            &registry,
+                            &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
