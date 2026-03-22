@@ -4,6 +4,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
+use kasane_core::clipboard::SystemClipboard;
 use kasane_core::event_loop::{
     DeferredContext, EventResult, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
     apply_ready_batch, handle_command_batch, handle_sourced_surface_commands,
@@ -19,7 +20,7 @@ use kasane_core::plugin::{
     extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
-use kasane_core::render::{CellGrid, RenderBackend};
+use kasane_core::render::CellGrid;
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
@@ -212,6 +213,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
     pub grid: &'a mut CellGrid,
     pub scroll_amount: i32,
+    pub clipboard: &'a mut SystemClipboard,
     pub backend: &'a mut TuiBackend,
     pub initial_resize_sent: &'a mut bool,
     pub dirty: &'a mut DirtyFlags,
@@ -391,7 +393,7 @@ where
         ),
         Event::DiagnosticOverlayExpire(generation) => EventResult {
             flags: if ctx.diagnostic_overlay.dismiss(generation) {
-                ctx.grid.invalidate_all();
+                ctx.backend.invalidate();
                 DirtyFlags::ALL
             } else {
                 DirtyFlags::empty()
@@ -593,7 +595,7 @@ where
 
     if result.flags.contains(DirtyFlags::ALL) {
         ctx.grid.resize(ctx.state.cols, ctx.state.rows);
-        ctx.grid.invalidate_all();
+        ctx.backend.invalidate();
     }
     *ctx.dirty |= result.flags;
     let active_session = ctx.session_manager.active_session_id();
@@ -700,7 +702,7 @@ where
             state: ctx.state,
             registry: ctx.registry,
             surface_registry: ctx.surface_registry,
-            clipboard_get: &mut || ctx.backend.clipboard_get(),
+            clipboard: ctx.clipboard,
             dirty: ctx.dirty,
             timer: ctx.timer,
             session_host: &mut session_host,

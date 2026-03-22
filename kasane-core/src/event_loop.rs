@@ -640,7 +640,7 @@ pub struct DeferredContext<'a> {
     pub state: &'a mut AppState,
     pub registry: &'a mut PluginRuntime,
     pub surface_registry: &'a mut SurfaceRegistry,
-    pub clipboard_get: &'a mut dyn FnMut() -> Option<String>,
+    pub clipboard: &'a mut crate::clipboard::SystemClipboard,
     pub dirty: &'a mut DirtyFlags,
     pub timer: &'a dyn TimerScheduler,
     pub session_host: &'a mut dyn SessionHost,
@@ -817,7 +817,7 @@ fn handle_command_batch_inner(
     // Route commands to the focused pane's Kakoune client when in multi-pane mode.
     let writer = focused_writer!(ctx);
     if matches!(
-        execute_commands(immediate, writer, ctx.clipboard_get),
+        execute_commands(immediate, writer, ctx.clipboard),
         CommandResult::Quit
     ) {
         return true;
@@ -1428,7 +1428,7 @@ fn apply_runtime_batch_without_session_deferred(
 
     let (immediate, nested_deferred) = partition_commands(commands);
     if matches!(
-        execute_commands(immediate, focused_writer!(ctx), ctx.clipboard_get),
+        execute_commands(immediate, focused_writer!(ctx), ctx.clipboard),
         CommandResult::Quit
     ) {
         return true;
@@ -1473,7 +1473,7 @@ pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bo
                     execute_commands(
                         vec![Command::SendToKakoune(request)],
                         focused_writer!(ctx),
-                        ctx.clipboard_get,
+                        ctx.clipboard,
                     ),
                     CommandResult::Quit
                 ) {
@@ -1482,11 +1482,7 @@ pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bo
             }
             SessionReadyCommand::Paste => {
                 if matches!(
-                    execute_commands(
-                        vec![Command::Paste],
-                        focused_writer!(ctx),
-                        ctx.clipboard_get,
-                    ),
+                    execute_commands(vec![Command::Paste], focused_writer!(ctx), ctx.clipboard,),
                     CommandResult::Quit
                 ) {
                     return true;
@@ -2000,7 +1996,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2047,7 +2043,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2103,7 +2099,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2157,7 +2153,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2215,7 +2211,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2300,7 +2296,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2374,7 +2370,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2449,7 +2445,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2543,7 +2539,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2587,7 +2583,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2630,7 +2626,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2670,7 +2666,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2760,7 +2756,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2811,7 +2807,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2865,7 +2861,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2911,7 +2907,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -2956,7 +2952,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -3020,7 +3016,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,
@@ -3338,7 +3334,7 @@ mod tests {
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
 
-                clipboard_get: &mut || None,
+                clipboard: &mut crate::clipboard::SystemClipboard::noop(),
                 dirty: &mut dirty,
                 timer: &timer,
                 session_host: &mut sessions,

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+arboard = { workspace = true }
 kasane-macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

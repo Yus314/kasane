@@ -10,7 +10,6 @@ winit = { workspace = true }
 wgpu = { workspace = true }
 glyphon = { workspace = true }
 pollster = { workspace = true }
-arboard = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 bytemuck = { workspace = true }

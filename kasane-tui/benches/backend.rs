@@ -1,10 +1,7 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use crossterm::{
     cursor, queue,
-    style::{
-        self, Attribute as CtAttribute, SetAttribute, SetBackgroundColor, SetForegroundColor,
-        SetUnderlineColor,
-    },
+    style::{self, Attribute as CtAttribute, SetAttribute},
     terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
 };
 use kasane_core::layout::Rect;
@@ -15,116 +12,133 @@ use kasane_core::protocol::{
 };
 use kasane_core::render::paint;
 use kasane_core::render::view;
-use kasane_core::render::{CellDiff, CellGrid, render_pipeline};
+use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult, render_pipeline};
 use kasane_core::state::AppState;
-use kasane_tui::sgr::{convert_attribute, convert_color, emit_sgr_diff};
+use kasane_tui::sgr::emit_sgr_diff;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
-// MockBackend — same escape-sequence logic as TuiBackend, but writes to Vec<u8>
+// MockBackend — same diff+escape logic as TuiBackend, writes to Vec<u8>
 // ---------------------------------------------------------------------------
 
 struct MockBackend {
     buf: Vec<u8>,
+    previous: Vec<Cell>,
 }
 
 impl MockBackend {
     fn new() -> Self {
         Self {
             buf: Vec::with_capacity(1 << 16),
+            previous: Vec::new(),
         }
     }
 
-    fn begin_frame(&mut self) -> anyhow::Result<()> {
-        queue!(self.buf, BeginSynchronizedUpdate, cursor::Hide)?;
-        Ok(())
-    }
+    fn present(&mut self, grid: &mut CellGrid, result: RenderResult) {
+        queue!(self.buf, BeginSynchronizedUpdate, cursor::Hide).unwrap();
 
-    fn end_frame(&mut self) -> anyhow::Result<()> {
-        queue!(self.buf, EndSynchronizedUpdate)?;
-        Ok(())
-    }
+        let cells = grid.cells();
+        let dirty_rows = grid.dirty_rows();
+        let w = grid.width() as usize;
+        let full_redraw = self.previous.is_empty();
 
-    fn draw(&mut self, diffs: &[CellDiff]) -> anyhow::Result<()> {
-        let mut last_face: Option<Face> = None;
-
-        for diff in diffs {
-            queue!(self.buf, cursor::MoveTo(diff.x, diff.y))?;
-
-            let face = &diff.cell.face;
-            let need_style_update = last_face.as_ref() != Some(face);
-
-            if need_style_update {
-                queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
-                queue!(
-                    self.buf,
-                    SetForegroundColor(convert_color(face.fg)),
-                    SetBackgroundColor(convert_color(face.bg))
-                )?;
-
-                if face.underline != Color::Default {
-                    queue!(self.buf, SetUnderlineColor(convert_color(face.underline)))?;
-                }
-
-                for attr in face.attributes.iter() {
-                    if let Some(ct_attr) = convert_attribute(attr) {
-                        queue!(self.buf, SetAttribute(ct_attr))?;
-                    }
-                }
-
-                last_face = Some(*face);
-            }
-
-            let s = if diff.cell.grapheme.is_empty() {
-                " "
-            } else {
-                &diff.cell.grapheme
-            };
-            queue!(self.buf, style::Print(s))?;
-        }
-
-        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
-        Ok(())
-    }
-
-    fn draw_grid(&mut self, grid: &CellGrid) -> anyhow::Result<()> {
         let mut last_face: Option<Face> = None;
         let mut last_x: u16 = u16::MAX;
         let mut last_y: u16 = u16::MAX;
 
-        for (x, y, cell) in grid.iter_diffs() {
-            let expected_x = if last_y == y { last_x } else { u16::MAX };
-            if x != expected_x {
-                queue!(self.buf, cursor::MoveTo(x, y))?;
+        for row in 0..grid.height() as usize {
+            if !full_redraw && !dirty_rows[row] {
+                continue;
             }
+            let row_start = row * w;
+            let row_end = row_start + w;
+            for i in row_start..row_end {
+                let cell = &cells[i];
+                if cell.width == 0 {
+                    continue;
+                }
+                if !full_redraw && *cell == self.previous[i] {
+                    continue;
+                }
 
-            let face = &cell.face;
-            if last_face.as_ref() != Some(face) {
-                emit_sgr_diff(&mut self.buf, last_face.as_ref(), face)?;
-                last_face = Some(*face);
+                let x = (i % w) as u16;
+                let y = row as u16;
+
+                let expected_x = if last_y == y { last_x } else { u16::MAX };
+                if x != expected_x {
+                    queue!(self.buf, cursor::MoveTo(x, y)).unwrap();
+                }
+
+                let face = &cell.face;
+                if last_face.as_ref() != Some(face) {
+                    emit_sgr_diff(&mut self.buf, last_face.as_ref(), face).unwrap();
+                    last_face = Some(*face);
+                }
+
+                let s = if cell.grapheme.is_empty() {
+                    " "
+                } else {
+                    &cell.grapheme
+                };
+                queue!(self.buf, style::Print(s)).unwrap();
+
+                last_x = x + cell.width.max(1) as u16;
+                last_y = y;
             }
-
-            let s = if cell.grapheme.is_empty() {
-                " "
-            } else {
-                &cell.grapheme
-            };
-            queue!(self.buf, style::Print(s))?;
-
-            last_x = x + cell.width.max(1) as u16;
-            last_y = y;
         }
 
-        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
-        Ok(())
+        queue!(self.buf, SetAttribute(CtAttribute::Reset)).unwrap();
+
+        let ct_style = match result.cursor_style {
+            CursorStyle::Block => cursor::SetCursorStyle::SteadyBlock,
+            CursorStyle::Bar => cursor::SetCursorStyle::SteadyBar,
+            CursorStyle::Underline => cursor::SetCursorStyle::SteadyUnderScore,
+            CursorStyle::Outline => cursor::SetCursorStyle::DefaultUserShape,
+        };
+        queue!(
+            self.buf,
+            cursor::MoveTo(result.cursor_x, result.cursor_y),
+            ct_style,
+            cursor::Show
+        )
+        .unwrap();
+
+        queue!(self.buf, EndSynchronizedUpdate).unwrap();
+
+        // Update previous
+        let size = w * grid.height() as usize;
+        if self.previous.len() != size {
+            self.previous = cells.to_vec();
+        } else {
+            for y in 0..grid.height() as usize {
+                if dirty_rows[y] {
+                    let start = y * w;
+                    let end = start + w;
+                    self.previous[start..end].clone_from_slice(&cells[start..end]);
+                }
+            }
+        }
+        grid.clear_dirty();
+    }
+
+    fn invalidate(&mut self) {
+        self.previous.clear();
+    }
+
+    fn bytes_generated(&self) -> usize {
+        self.buf.len()
     }
 
     fn flush(&mut self) {
         self.buf.clear();
     }
+}
 
-    fn bytes_generated(&self) -> usize {
-        self.buf.len()
+fn default_result() -> RenderResult {
+    RenderResult {
+        cursor_x: 0,
+        cursor_y: 0,
+        cursor_style: CursorStyle::Block,
     }
 }
 
@@ -299,70 +313,6 @@ fn generate_realistic_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid 
     grid.clear(&state.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     grid
-}
-
-/// Render a full frame and return the diffs (full redraw — previous buffer is empty).
-fn generate_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<CellDiff> {
-    let mut state = typical_state(line_count);
-    state.cols = cols;
-    state.rows = rows;
-    let registry = PluginRuntime::new();
-    let area = Rect {
-        x: 0,
-        y: 0,
-        w: cols,
-        h: rows,
-    };
-    let element = view::view(&state, &registry.view());
-    let layout = flex::place(&element, area, &state);
-    let mut grid = CellGrid::new(cols, rows);
-    grid.clear(&state.default_face);
-    paint::paint(&element, &layout, &mut grid, &state);
-    grid.diff()
-}
-
-/// Generate diffs for an incremental 1-line edit (previous buffer populated, 1 line changed).
-fn generate_incremental_diffs() -> Vec<CellDiff> {
-    let state = typical_state(23);
-    let registry = PluginRuntime::new();
-    let area = Rect {
-        x: 0,
-        y: 0,
-        w: state.cols,
-        h: state.rows,
-    };
-
-    let mut grid = CellGrid::new(state.cols, state.rows);
-
-    // "before" frame
-    let element = view::view(&state, &registry.view());
-    let layout = flex::place(&element, area, &state);
-    grid.clear(&state.default_face);
-    paint::paint(&element, &layout, &mut grid, &state);
-    grid.swap();
-
-    // "after" state: modify 1 line
-    let mut edited_state = state.clone();
-    edited_state.lines[10] = vec![
-        Atom {
-            face: Face {
-                fg: Color::Rgb { r: 255, g: 0, b: 0 },
-                bg: Color::Default,
-                ..Face::default()
-            },
-            contents: "edited_line_10".into(),
-        },
-        Atom {
-            face: Face::default(),
-            contents: " // modified".into(),
-        },
-    ];
-
-    let element = view::view(&edited_state, &registry.view());
-    let layout = flex::place(&element, area, &edited_state);
-    grid.clear(&edited_state.default_face);
-    paint::paint(&element, &layout, &mut grid, &edited_state);
-    grid.diff()
 }
 
 // ---------------------------------------------------------------------------
@@ -645,26 +595,6 @@ fn realistic_state(line_count: usize) -> AppState {
     state
 }
 
-/// Render a full frame with realistic data and return the diffs.
-fn generate_realistic_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<CellDiff> {
-    let mut state = realistic_state(line_count);
-    state.cols = cols;
-    state.rows = rows;
-    let registry = PluginRuntime::new();
-    let area = Rect {
-        x: 0,
-        y: 0,
-        w: cols,
-        h: rows,
-    };
-    let element = view::view(&state, &registry.view());
-    let layout = flex::place(&element, area, &state);
-    let mut grid = CellGrid::new(cols, rows);
-    grid.clear(&state.default_face);
-    paint::paint(&element, &layout, &mut grid, &state);
-    grid.diff()
-}
-
 // ---------------------------------------------------------------------------
 // JSON fixture builders (for E2E benchmarks)
 // ---------------------------------------------------------------------------
@@ -729,73 +659,19 @@ fn draw_realistic_json(line_count: usize) -> Vec<u8> {
 // Benchmarks
 // ---------------------------------------------------------------------------
 
-fn bench_backend_draw(c: &mut Criterion) {
-    let mut group = c.benchmark_group("backend_draw");
+/// Benchmark present() — integrated diff + escape sequence generation
+fn bench_present(c: &mut Criterion) {
+    let mut group = c.benchmark_group("present");
 
     // Full redraw at various sizes
     for (cols, rows, lines, label) in [(80, 24, 23, "80x24"), (200, 60, 59, "200x60")] {
-        let diffs = generate_diffs(cols, rows, lines);
         group.bench_function(BenchmarkId::new("full_redraw", label), |b| {
+            let mut grid = generate_grid(cols, rows, lines);
             let mut backend = MockBackend::new();
             b.iter(|| {
-                backend.begin_frame().unwrap();
-                backend.draw(&diffs).unwrap();
-                backend.end_frame().unwrap();
-                let bytes = backend.bytes_generated();
-                backend.flush();
-                criterion::black_box(bytes)
-            });
-        });
-    }
-
-    // Incremental: 1 line changed (~80 diffs)
-    {
-        let diffs = generate_incremental_diffs();
-        group.bench_function("incremental_1line", |b| {
-            let mut backend = MockBackend::new();
-            b.iter(|| {
-                backend.begin_frame().unwrap();
-                backend.draw(&diffs).unwrap();
-                backend.end_frame().unwrap();
-                let bytes = backend.bytes_generated();
-                backend.flush();
-                criterion::black_box(bytes)
-            });
-        });
-    }
-
-    // Full redraw with realistic data (diverse faces → more style changes)
-    {
-        let diffs = generate_realistic_diffs(80, 24, 23);
-        group.bench_function(BenchmarkId::new("full_redraw_realistic", "80x24"), |b| {
-            let mut backend = MockBackend::new();
-            b.iter(|| {
-                backend.begin_frame().unwrap();
-                backend.draw(&diffs).unwrap();
-                backend.end_frame().unwrap();
-                let bytes = backend.bytes_generated();
-                backend.flush();
-                criterion::black_box(bytes)
-            });
-        });
-    }
-
-    group.finish();
-}
-
-/// Benchmark draw_grid (optimized path with cursor auto-advance + incremental SGR)
-fn bench_draw_grid(c: &mut Criterion) {
-    let mut group = c.benchmark_group("draw_grid");
-
-    // Full redraw
-    for (cols, rows, lines, label) in [(80, 24, 23, "80x24"), (200, 60, 59, "200x60")] {
-        let grid = generate_grid(cols, rows, lines);
-        group.bench_function(BenchmarkId::new("full_redraw", label), |b| {
-            let mut backend = MockBackend::new();
-            b.iter(|| {
-                backend.begin_frame().unwrap();
-                backend.draw_grid(&grid).unwrap();
-                backend.end_frame().unwrap();
+                backend.invalidate();
+                grid.mark_all_dirty();
+                backend.present(&mut grid, default_result());
                 let bytes = backend.bytes_generated();
                 backend.flush();
                 criterion::black_box(bytes)
@@ -805,29 +681,43 @@ fn bench_draw_grid(c: &mut Criterion) {
 
     // Incremental: 1 line changed
     {
-        let grid = generate_incremental_grid();
         group.bench_function("incremental_1line", |b| {
+            let mut grid = generate_incremental_grid();
             let mut backend = MockBackend::new();
-            b.iter(|| {
-                backend.begin_frame().unwrap();
-                backend.draw_grid(&grid).unwrap();
-                backend.end_frame().unwrap();
-                let bytes = backend.bytes_generated();
-                backend.flush();
-                criterion::black_box(bytes)
-            });
+            // Populate previous from the grid's built-in previous (set by swap)
+            // The incremental grid was produced by: paint frame 1 → swap → paint frame 2.
+            // iter_diffs works because the grid carries its own previous buffer.
+            // For MockBackend, we need to seed `previous` from the grid's swap state.
+            // Do one full present to seed, then on each iteration re-mark and re-present.
+            grid.mark_all_dirty();
+            backend.present(&mut grid, default_result());
+            backend.flush();
+            // Now the grid's dirty is cleared but content is the "edited" state.
+            // For incremental bench we want to diff the "before→after" each iteration.
+            // Re-generate each time since present mutates dirty state:
+            b.iter_batched(
+                || generate_incremental_grid(),
+                |mut g| {
+                    // MockBackend already has "before" as previous from the first present.
+                    backend.present(&mut g, default_result());
+                    let bytes = backend.bytes_generated();
+                    backend.flush();
+                    criterion::black_box(bytes)
+                },
+                BatchSize::SmallInput,
+            );
         });
     }
 
     // Realistic data
     {
-        let grid = generate_realistic_grid(80, 24, 23);
         group.bench_function(BenchmarkId::new("full_redraw_realistic", "80x24"), |b| {
+            let mut grid = generate_realistic_grid(80, 24, 23);
             let mut backend = MockBackend::new();
             b.iter(|| {
-                backend.begin_frame().unwrap();
-                backend.draw_grid(&grid).unwrap();
-                backend.end_frame().unwrap();
+                backend.invalidate();
+                grid.mark_all_dirty();
+                backend.present(&mut grid, default_result());
                 let bytes = backend.bytes_generated();
                 backend.flush();
                 criterion::black_box(bytes)
@@ -838,43 +728,13 @@ fn bench_draw_grid(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark: compare escape byte output between draw() and draw_grid()
-fn bench_sgr_bytes(c: &mut Criterion) {
-    let mut group = c.benchmark_group("sgr_bytes");
-
-    let diffs = generate_realistic_diffs(80, 24, 23);
-    let grid = generate_realistic_grid(80, 24, 23);
-
-    group.bench_function("draw_old", |b| {
-        let mut backend = MockBackend::new();
-        b.iter(|| {
-            backend.draw(&diffs).unwrap();
-            let bytes = backend.bytes_generated();
-            backend.flush();
-            criterion::black_box(bytes)
-        });
-    });
-
-    group.bench_function("draw_grid_new", |b| {
-        let mut backend = MockBackend::new();
-        b.iter(|| {
-            backend.draw_grid(&grid).unwrap();
-            let bytes = backend.bytes_generated();
-            backend.flush();
-            criterion::black_box(bytes)
-        });
-    });
-
-    group.finish();
-}
-
-/// E2E pipeline: JSON bytes → parse → apply → render → diff → backend.draw → escape bytes
+/// E2E pipeline: JSON bytes → parse → apply → render → present → escape bytes
 fn bench_e2e_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("e2e_pipeline");
 
     let registry = PluginRuntime::new();
 
-    // E2E: parse JSON → apply → render → diff → backend.draw (uniform data)
+    // E2E: parse JSON → apply → render → present (uniform data)
     {
         let json = draw_json(23);
         let base_state = typical_state(23);
@@ -887,14 +747,10 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let _result = render_pipeline(&state, &registry.view(), &mut grid);
-                    let diffs = grid.diff();
-                    backend.begin_frame().unwrap();
-                    backend.draw(&diffs).unwrap();
-                    backend.end_frame().unwrap();
+                    let result = render_pipeline(&state, &registry.view(), &mut grid);
+                    backend.present(&mut grid, result);
                     let bytes = backend.bytes_generated();
                     backend.flush();
-                    grid.swap();
                     bytes
                 },
                 BatchSize::SmallInput,
@@ -915,14 +771,10 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let _result = render_pipeline(&state, &registry.view(), &mut grid);
-                    let diffs = grid.diff();
-                    backend.begin_frame().unwrap();
-                    backend.draw(&diffs).unwrap();
-                    backend.end_frame().unwrap();
+                    let result = render_pipeline(&state, &registry.view(), &mut grid);
+                    backend.present(&mut grid, result);
                     let bytes = backend.bytes_generated();
                     backend.flush();
-                    grid.swap();
                     bytes
                 },
                 BatchSize::SmallInput,
@@ -933,11 +785,5 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_backend_draw,
-    bench_draw_grid,
-    bench_sgr_bytes,
-    bench_e2e_pipeline
-);
+criterion_group!(benches, bench_present, bench_e2e_pipeline);
 criterion_main!(benches);

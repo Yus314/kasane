@@ -1,7 +1,7 @@
-//! TUI implementation of `RenderBackend` using crossterm.
+//! TUI backend using crossterm.
 //!
 //! Changes here should be coordinated with `kasane-core/src/render/` which defines
-//! the pipeline, `CellGrid`, and `CellDiff` types consumed by this backend.
+//! the pipeline, `CellGrid`, and `Cell` types consumed by this backend.
 
 use std::io::{Stdout, Write};
 
@@ -12,19 +12,16 @@ use crossterm::{
         EnableFocusChange, EnableMouseCapture,
     },
     execute, queue,
-    style::{
-        self, Attribute as CtAttribute, SetAttribute, SetBackgroundColor, SetForegroundColor,
-        SetUnderlineColor,
-    },
+    style::{self, Attribute as CtAttribute, SetAttribute},
     terminal::{
         self, BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen,
         LeaveAlternateScreen,
     },
 };
-use kasane_core::protocol::{Color, Face};
-use kasane_core::render::{CellDiff, CellGrid, CursorStyle, RenderBackend};
+use kasane_core::protocol::Face;
+use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult};
 
-use crate::sgr::{convert_attribute, convert_color, emit_sgr_diff};
+use crate::sgr::emit_sgr_diff;
 
 pub struct TuiBackend {
     stdout: Stdout,
@@ -33,7 +30,8 @@ pub struct TuiBackend {
     /// the 8 KB auto-flush of `BufWriter` which caused the terminal to render
     /// partial frames (visible as cursor-like blocks at line ends).
     buf: Vec<u8>,
-    clipboard: Option<arboard::Clipboard>,
+    /// Previous frame's cell buffer for incremental diff.
+    previous: Vec<Cell>,
 }
 
 impl TuiBackend {
@@ -48,12 +46,112 @@ impl TuiBackend {
             EnableBracketedPaste,
             cursor::Hide
         )?;
-        let clipboard = arboard::Clipboard::new().ok();
         Ok(TuiBackend {
             stdout,
             buf: Vec::with_capacity(1 << 16),
-            clipboard,
+            previous: Vec::new(),
         })
+    }
+
+    pub fn size(&self) -> (u16, u16) {
+        terminal::size().unwrap_or((80, 24))
+    }
+
+    /// Render the grid to the terminal, diffing against the previous frame.
+    ///
+    /// This replaces the old `begin_frame` + `draw_grid` + `show_cursor` +
+    /// `end_frame` + `flush` + `grid.swap_with_dirty()` sequence.
+    #[allow(clippy::needless_range_loop)]
+    pub fn present(&mut self, grid: &mut CellGrid, result: RenderResult) -> anyhow::Result<()> {
+        queue!(self.buf, BeginSynchronizedUpdate, cursor::Hide)?;
+
+        let cells = grid.cells();
+        let dirty_rows = grid.dirty_rows();
+        let w = grid.width() as usize;
+        let full_redraw = self.previous.is_empty();
+
+        let mut last_face: Option<Face> = None;
+        let mut last_x: u16 = u16::MAX;
+        let mut last_y: u16 = u16::MAX;
+
+        for row in 0..grid.height() as usize {
+            if !full_redraw && !dirty_rows[row] {
+                continue;
+            }
+            let row_start = row * w;
+            let row_end = row_start + w;
+            for i in row_start..row_end {
+                let cell = &cells[i];
+                if cell.width == 0 {
+                    continue;
+                }
+                if !full_redraw && *cell == self.previous[i] {
+                    continue;
+                }
+
+                let x = (i % w) as u16;
+                let y = row as u16;
+
+                // Cursor auto-advance: skip MoveTo when the terminal cursor is
+                // already at the right position (previous print advanced it).
+                let expected_x = if last_y == y { last_x } else { u16::MAX };
+                if x != expected_x {
+                    queue!(self.buf, cursor::MoveTo(x, y))?;
+                }
+
+                let face = &cell.face;
+                if last_face.as_ref() != Some(face) {
+                    emit_sgr_diff(&mut self.buf, last_face.as_ref(), face)?;
+                    last_face = Some(*face);
+                }
+
+                let s = if cell.grapheme.is_empty() {
+                    " "
+                } else {
+                    &cell.grapheme
+                };
+                queue!(self.buf, style::Print(s))?;
+
+                last_x = x + cell.width.max(1) as u16;
+                last_y = y;
+            }
+        }
+
+        // Reset SGR
+        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
+
+        // Show cursor
+        let ct_style = match result.cursor_style {
+            CursorStyle::Block => cursor::SetCursorStyle::SteadyBlock,
+            CursorStyle::Bar => cursor::SetCursorStyle::SteadyBar,
+            CursorStyle::Underline => cursor::SetCursorStyle::SteadyUnderScore,
+            CursorStyle::Outline => cursor::SetCursorStyle::DefaultUserShape,
+        };
+        queue!(
+            self.buf,
+            cursor::MoveTo(result.cursor_x, result.cursor_y),
+            ct_style,
+            cursor::Show
+        )?;
+
+        queue!(self.buf, EndSynchronizedUpdate)?;
+
+        // Flush to terminal
+        self.stdout.write_all(&self.buf)?;
+        self.stdout.flush()?;
+        self.buf.clear();
+
+        // Update previous buffer (dirty rows only)
+        self.update_previous(grid);
+        grid.clear_dirty();
+
+        Ok(())
+    }
+
+    /// Invalidate the previous frame buffer, forcing a full redraw on the next
+    /// `present()` call. Call this after terminal resize.
+    pub fn invalidate(&mut self) {
+        self.previous.clear();
     }
 
     pub fn cleanup(&mut self) {
@@ -67,142 +165,33 @@ impl TuiBackend {
         );
         let _ = terminal::disable_raw_mode();
     }
+
+    /// Copy dirty rows from `grid.cells()` into `self.previous`.
+    #[allow(clippy::needless_range_loop)]
+    fn update_previous(&mut self, grid: &CellGrid) {
+        let cells = grid.cells();
+        let dirty_rows = grid.dirty_rows();
+        let w = grid.width() as usize;
+        let size = w * grid.height() as usize;
+
+        if self.previous.len() != size {
+            // First frame or resize: full copy
+            self.previous = cells.to_vec();
+            return;
+        }
+
+        for y in 0..grid.height() as usize {
+            if dirty_rows[y] {
+                let start = y * w;
+                let end = start + w;
+                self.previous[start..end].clone_from_slice(&cells[start..end]);
+            }
+        }
+    }
 }
 
 impl Drop for TuiBackend {
     fn drop(&mut self) {
         self.cleanup();
-    }
-}
-
-impl RenderBackend for TuiBackend {
-    fn size(&self) -> (u16, u16) {
-        terminal::size().unwrap_or((80, 24))
-    }
-
-    fn begin_frame(&mut self) -> anyhow::Result<()> {
-        queue!(self.buf, BeginSynchronizedUpdate, cursor::Hide)?;
-        Ok(())
-    }
-
-    fn end_frame(&mut self) -> anyhow::Result<()> {
-        queue!(self.buf, EndSynchronizedUpdate)?;
-        Ok(())
-    }
-
-    fn draw(&mut self, diffs: &[CellDiff]) -> anyhow::Result<()> {
-        let mut last_face: Option<Face> = None;
-
-        for diff in diffs {
-            queue!(self.buf, cursor::MoveTo(diff.x, diff.y))?;
-
-            let face = &diff.cell.face;
-            let need_style_update = last_face.as_ref() != Some(face);
-
-            if need_style_update {
-                // Reset attributes first
-                queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
-
-                queue!(
-                    self.buf,
-                    SetForegroundColor(convert_color(face.fg)),
-                    SetBackgroundColor(convert_color(face.bg))
-                )?;
-
-                if face.underline != Color::Default {
-                    queue!(self.buf, SetUnderlineColor(convert_color(face.underline)))?;
-                }
-
-                for attr in face.attributes.iter() {
-                    if let Some(ct_attr) = convert_attribute(attr) {
-                        queue!(self.buf, SetAttribute(ct_attr))?;
-                    }
-                }
-
-                last_face = Some(*face);
-            }
-
-            let s = if diff.cell.grapheme.is_empty() {
-                " "
-            } else {
-                &diff.cell.grapheme
-            };
-            queue!(self.buf, style::Print(s))?;
-        }
-
-        // Reset at the end
-        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
-        Ok(())
-    }
-
-    fn draw_grid(&mut self, grid: &CellGrid) -> anyhow::Result<()> {
-        let mut last_face: Option<Face> = None;
-        let mut last_x: u16 = u16::MAX;
-        let mut last_y: u16 = u16::MAX;
-
-        for (x, y, cell) in grid.iter_diffs() {
-            // Cursor auto-advance: skip MoveTo when the terminal cursor is
-            // already at the right position (previous print advanced it).
-            let expected_x = if last_y == y { last_x } else { u16::MAX };
-            if x != expected_x {
-                queue!(self.buf, cursor::MoveTo(x, y))?;
-            }
-
-            let face = &cell.face;
-            if last_face.as_ref() != Some(face) {
-                emit_sgr_diff(&mut self.buf, last_face.as_ref(), face)?;
-                last_face = Some(*face);
-            }
-
-            let s = if cell.grapheme.is_empty() {
-                " "
-            } else {
-                &cell.grapheme
-            };
-            queue!(self.buf, style::Print(s))?;
-
-            // Track cursor position after print
-            last_x = x + cell.width.max(1) as u16;
-            last_y = y;
-        }
-
-        // Reset at the end
-        queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
-        Ok(())
-    }
-
-    fn flush(&mut self) -> anyhow::Result<()> {
-        self.stdout.write_all(&self.buf)?;
-        self.stdout.flush()?;
-        self.buf.clear();
-        Ok(())
-    }
-
-    fn show_cursor(&mut self, x: u16, y: u16, style: CursorStyle) -> anyhow::Result<()> {
-        let ct_style = match style {
-            CursorStyle::Block => cursor::SetCursorStyle::SteadyBlock,
-            CursorStyle::Bar => cursor::SetCursorStyle::SteadyBar,
-            CursorStyle::Underline => cursor::SetCursorStyle::SteadyUnderScore,
-            CursorStyle::Outline => cursor::SetCursorStyle::DefaultUserShape,
-        };
-        queue!(self.buf, cursor::MoveTo(x, y), ct_style, cursor::Show)?;
-        Ok(())
-    }
-
-    fn hide_cursor(&mut self) -> anyhow::Result<()> {
-        queue!(self.buf, cursor::Hide)?;
-        Ok(())
-    }
-
-    fn clipboard_get(&mut self) -> Option<String> {
-        self.clipboard.as_mut()?.get_text().ok()
-    }
-
-    fn clipboard_set(&mut self, text: &str) -> bool {
-        if let Some(cb) = self.clipboard.as_mut() {
-            cb.set_text(text.to_string()).is_ok()
-        } else {
-            false
-        }
     }
 }

@@ -11,6 +11,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
+use kasane_core::clipboard::SystemClipboard;
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
     DeferredContext, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
@@ -26,7 +27,7 @@ use kasane_core::plugin::{
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
-use kasane_core::render::{CellGrid, RenderBackend, RenderResult, SceneCache};
+use kasane_core::render::{RenderResult, SceneCache};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
@@ -186,7 +187,7 @@ where
     state: Box<AppState>,
     registry: PluginRuntime,
     surface_registry: SurfaceRegistry,
-    grid: CellGrid, // used for resize tracking
+    clipboard: SystemClipboard,
     backend: Option<GuiBackend>,
 
     // Kakoune communication
@@ -313,7 +314,7 @@ where
             state,
             registry,
             surface_registry,
-            grid: CellGrid::new(1, 1),
+            clipboard: SystemClipboard::new(),
             backend: None,
             session_manager,
             session_states,
@@ -501,10 +502,6 @@ where
                             acc | extract_redraw_flags(&mut entry.commands)
                         });
                     let flags = flags | extra_flags;
-                    if flags.contains(DirtyFlags::ALL) {
-                        self.grid.resize(self.state.cols, self.state.rows);
-                        self.grid.invalidate_all();
-                    }
                     self.dirty |= flags;
                     self.enqueue_scroll_plans(scroll_plans);
                     if self.exec_commands(commands) {
@@ -671,10 +668,6 @@ where
         for entry in &mut surface_command_groups {
             flags |= extract_redraw_flags(&mut entry.commands);
         }
-        if flags.contains(DirtyFlags::ALL) {
-            self.grid.resize(self.state.cols, self.state.rows);
-            self.grid.invalidate_all();
-        }
         self.dirty |= flags;
         // Suppress commands to Kakoune until initialization is complete.
         // Data sent before m_on_key is set may be misinterpreted as raw key input.
@@ -774,7 +767,7 @@ where
                 state: &mut self.state,
                 registry: &mut self.registry,
                 surface_registry: &mut self.surface_registry,
-                clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
+                clipboard: &mut self.clipboard,
                 dirty: &mut self.dirty,
                 timer: &self.timer_scheduler,
                 session_host: &mut session_runtime,
@@ -1142,7 +1135,7 @@ where
             kasane_core::plugin::execute_commands(
                 vec![Command::SendToKakoune(resolved.to_kakoune_request())],
                 writer,
-                &mut || None, // GUI doesn't have clipboard_get in this context
+                &mut self.clipboard,
             );
             if let Some(ref window) = self.window {
                 window.request_redraw();

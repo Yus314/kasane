@@ -15,6 +15,7 @@ use crossbeam_channel::unbounded;
 /// Global session name for panic hook reconnect message.
 static SESSION_NAME: OnceLock<String> = OnceLock::new();
 
+use kasane_core::clipboard::SystemClipboard;
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
     SessionReadyGate, apply_bootstrap_effects, register_builtin_surfaces,
@@ -24,8 +25,8 @@ use kasane_core::plugin::{
     AppView, CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
     ProcessDispatcher, ProcessEventSink, execute_commands, report_plugin_diagnostics,
 };
+use kasane_core::render::CellGrid;
 use kasane_core::render::render_pipeline_cached;
-use kasane_core::render::{CellGrid, RenderBackend};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
@@ -122,6 +123,7 @@ where
 
     // Initialize TUI backend
     let mut backend = TuiBackend::new()?;
+    let mut clipboard = SystemClipboard::new();
     let (cols, rows) = backend.size();
 
     // Application state
@@ -256,7 +258,7 @@ where
                                 resolved.to_kakoune_request(),
                             )],
                             writer,
-                            &mut || backend.clipboard_get(),
+                            &mut clipboard,
                         ),
                         CommandResult::Quit
                     ) {
@@ -290,6 +292,7 @@ where
                 spawn_session,
                 grid: &mut grid,
                 scroll_amount,
+                clipboard: &mut clipboard,
                 backend: &mut backend,
                 initial_resize_sent: &mut initial_resize_sent,
                 dirty: &mut dirty,
@@ -384,8 +387,6 @@ where
             sync_display_directives(&mut salsa_db, &state, &view, &salsa_handles);
             sync_plugin_contributions(&mut salsa_db, &state, &view, &salsa_handles);
 
-            backend.begin_frame()?;
-
             let pane_states_val;
             let pane_states_opt = if surface_registry.is_multi_pane() {
                 pane_states_val = PaneStates::from_registry(
@@ -413,11 +414,7 @@ where
             if diagnostic_overlay.is_active() {
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
             }
-            backend.draw_grid(&grid)?;
-            backend.show_cursor(result.cursor_x, result.cursor_y, result.cursor_style)?;
-            backend.end_frame()?;
-            backend.flush()?;
-            grid.swap_with_dirty();
+            backend.present(&mut grid, result)?;
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
 
             let frame_ms = render_start.elapsed().as_secs_f64() * 1000.0;

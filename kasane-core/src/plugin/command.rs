@@ -217,7 +217,7 @@ pub enum CommandResult {
 pub fn execute_commands(
     commands: Vec<Command>,
     kak_writer: &mut (impl Write + ?Sized),
-    clipboard_get: &mut dyn FnMut() -> Option<String>,
+    clipboard: &mut crate::clipboard::SystemClipboard,
 ) -> CommandResult {
     use crate::input::paste_text_to_keys;
 
@@ -227,7 +227,7 @@ pub fn execute_commands(
                 crate::io::send_request(kak_writer, &req);
             }
             Command::Paste => {
-                if let Some(text) = clipboard_get() {
+                if let Some(text) = clipboard.get() {
                     let keys = paste_text_to_keys(&text);
                     if !keys.is_empty() {
                         crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));

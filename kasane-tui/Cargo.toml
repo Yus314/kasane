@@ -8,7 +8,6 @@ license.workspace = true
 kasane-core = { workspace = true }
 crossterm = { workspace = true }
 crossbeam-channel = { workspace = true }
-arboard = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 

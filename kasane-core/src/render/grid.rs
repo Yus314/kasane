@@ -248,6 +248,7 @@ impl CellGrid {
     }
 
     /// Same logic as `diff()` but reuses the provided buffer, avoiding per-frame allocation.
+    #[doc(hidden)]
     pub fn diff_into(&self, buf: &mut Vec<CellDiff>) {
         crate::perf::perf_span!("grid_diff_into");
         buf.clear();
@@ -291,6 +292,7 @@ impl CellGrid {
     /// Zero-copy iterator yielding `(x, y, &Cell)` for changed cells.
     /// Uses the same dirty-row and previous-comparison logic as `diff()`,
     /// but yields references instead of cloning.
+    #[doc(hidden)]
     pub fn iter_diffs(&self) -> impl Iterator<Item = (u16, u16, &Cell)> + '_ {
         let w = self.width as usize;
         let full_redraw = self.previous.is_empty();
@@ -318,10 +320,12 @@ impl CellGrid {
     }
 
     /// Returns true if this is the first frame (no previous buffer yet).
+    #[doc(hidden)]
     pub fn is_first_frame(&self) -> bool {
         self.previous.is_empty()
     }
 
+    #[doc(hidden)]
     pub fn diff(&self) -> Vec<CellDiff> {
         crate::perf::perf_span!("grid_diff");
         if self.previous.is_empty() {
@@ -370,6 +374,7 @@ impl CellGrid {
     /// in both buffers. After this call, `current` retains all painted content
     /// (clean rows keep valid data from the previous frame for paint to skip),
     /// and `previous` is updated only for dirty rows.
+    #[doc(hidden)]
     pub fn swap_with_dirty(&mut self) {
         let w = self.width as usize;
         let size = w * self.height as usize;
@@ -390,6 +395,7 @@ impl CellGrid {
         }
     }
 
+    #[doc(hidden)]
     pub fn swap(&mut self) {
         crate::perf::perf_span!("grid_swap");
         std::mem::swap(&mut self.previous, &mut self.current);
@@ -409,8 +415,33 @@ impl CellGrid {
         }
     }
 
+    #[doc(hidden)]
     pub fn invalidate_all(&mut self) {
         self.previous.clear();
+        for d in &mut self.dirty_rows {
+            *d = true;
+        }
+    }
+
+    /// Access the raw cell buffer (read-only).
+    pub fn cells(&self) -> &[Cell] {
+        &self.current
+    }
+
+    /// Per-row dirty flags set by paint operations.
+    pub fn dirty_rows(&self) -> &[bool] {
+        &self.dirty_rows
+    }
+
+    /// Clear all dirty-row flags.
+    pub fn clear_dirty(&mut self) {
+        for d in &mut self.dirty_rows {
+            *d = false;
+        }
+    }
+
+    /// Mark all rows as dirty (e.g. after resize).
+    pub fn mark_all_dirty(&mut self) {
         for d in &mut self.dirty_rows {
             *d = true;
         }

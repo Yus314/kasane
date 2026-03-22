@@ -2164,6 +2164,7 @@ name = "kasane-core"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "arboard",
  "bitflags 2.11.0",
  "compact_str",
  "criterion",
@@ -2189,7 +2190,6 @@ name = "kasane-gui"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "arboard",
  "bytemuck",
  "criterion",
  "glyphon",
@@ -2216,7 +2216,6 @@ name = "kasane-tui"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "arboard",
  "criterion",
  "crossbeam-channel",
  "crossterm",

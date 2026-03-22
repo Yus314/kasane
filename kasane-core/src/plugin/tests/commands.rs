@@ -334,7 +334,7 @@ fn test_execute_commands_edit_buffer() {
             }],
         }],
         &mut output,
-        &mut || None,
+        &mut crate::clipboard::SystemClipboard::noop(),
     );
     assert!(matches!(result, CommandResult::Continue));
     // Output should contain a JSON-RPC keys request
@@ -361,7 +361,7 @@ fn test_execute_commands_edit_buffer_empty_edits() {
     let result = execute_commands(
         vec![Command::EditBuffer { edits: vec![] }],
         &mut output,
-        &mut || None,
+        &mut crate::clipboard::SystemClipboard::noop(),
     );
     assert!(matches!(result, CommandResult::Continue));
     // No output for empty edits
