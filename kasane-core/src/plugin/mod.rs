@@ -63,7 +63,8 @@ pub use io::{
 pub use context::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, ContribSizeHint,
     ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
-    PaneContext, SourcedContribution, TransformContext, TransformTarget,
+    PaneContext, SourcedContribution, TransformContext, TransformDescriptor, TransformScope,
+    TransformTarget,
 };
 
 // Re-export registry module
@@ -82,6 +83,7 @@ pub use traits::{KeyHandleResult, PluginBackend};
 // Re-export compose module
 pub use compose::{
     CommutativeComposable, Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
+    TransformChain, TransformChainEntry,
 };
 
 // Re-export app_view, state, and bridge modules

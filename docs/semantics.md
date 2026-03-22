@@ -445,7 +445,11 @@ These extension points are available to both native plugins (`Plugin` / `PluginB
 
 `transform()` is a mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
 
-Element-level transforms are unified in the plugin composition pipeline as `apply_transform_chain`.
+Element-level transforms are unified in the plugin composition pipeline as `apply_transform_chain`. The transform chain is modeled as a non-commutative monoid (`TransformChain` in `plugin/compose.rs`): chain membership can be composed algebraically, though the chain's *application* (executing each transform function in sequence) remains imperative.
+
+**Target hierarchy**: `TransformTarget` variants form a two-level refinement hierarchy. Style-specific targets (e.g. `MenuPrompt`, `InfoModal`) refine their generic parent (`Menu`, `Info`). `apply_transform_chain_hierarchical` applies the generic parent chain first, then the specific target chain, replacing the former manual two-step pattern at each call site.
+
+**Declarative properties**: Plugins may optionally declare a `TransformDescriptor` specifying their `TransformScope` (Identity, Wrapper, Prepend, Append, Attribute, Replacement, Structural) and target list. In debug builds, the framework emits `tracing::warn!` when multiple plugins declare `Replacement` scope for the same target, or when non-identity transforms precede a replacement (since they will be absorbed).
 
 `transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of `apply_transform_chain`.
 
@@ -471,7 +475,7 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Cursor style override | registration order | first non-None wins | Single winner |
 | Scroll policy override | registration order | first non-None wins | Single winner |
 
-> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). Transform chains and `resolve()` are not monoidal and are intentionally not modeled.
+> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). Transform chains are modeled as a non-commutative monoid (`TransformChain`). `resolve()` remains unmodeled.
 
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 

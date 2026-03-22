@@ -16,7 +16,8 @@ use super::{
     AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
     DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation, OverlayContext,
     OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId,
-    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
+    RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformDescriptor,
+    TransformTarget,
 };
 
 // =============================================================================
@@ -34,6 +35,7 @@ pub(crate) trait ErasedPlugin: Send {
     fn authorities(&self) -> PluginAuthorities;
     fn allows_process_spawn(&self) -> bool;
     fn transform_priority(&self) -> i16;
+    fn transform_descriptor(&self) -> Option<TransformDescriptor>;
     fn display_directive_priority(&self) -> i16;
     fn view_deps(&self) -> DirtyFlags;
 
@@ -227,6 +229,9 @@ impl<P: Plugin> ErasedPlugin for P {
     fn transform_priority(&self) -> i16 {
         Plugin::transform_priority(self)
     }
+    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
+        Plugin::transform_descriptor(self)
+    }
     fn display_directive_priority(&self) -> i16 {
         Plugin::display_directive_priority(self)
     }
@@ -362,6 +367,10 @@ impl PluginBackend for PluginBridge {
 
     fn transform_priority(&self) -> i16 {
         self.inner.transform_priority()
+    }
+
+    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
+        self.inner.transform_descriptor()
     }
 
     fn display_directive_priority(&self) -> i16 {

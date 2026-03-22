@@ -20,7 +20,7 @@ use super::{
     AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
     IoEvent, KeyHandleResult, LineAnnotation, OverlayContext, OverlayContribution,
     PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
-    TransformContext, TransformTarget,
+    TransformContext, TransformDescriptor, TransformTarget,
 };
 
 // =============================================================================
@@ -277,6 +277,15 @@ pub trait Plugin: Send + 'static {
 
     fn transform_priority(&self) -> i16 {
         0
+    }
+
+    /// Declare the transform scope and targets for debug-time conflict detection.
+    ///
+    /// Returns `None` by default (no descriptor declared). Plugins that implement
+    /// `transform()` may optionally return a descriptor to enable collision warnings
+    /// in debug builds.
+    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
+        None
     }
 
     fn display_directive_priority(&self) -> i16 {

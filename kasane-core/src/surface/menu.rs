@@ -49,17 +49,12 @@ impl Surface for MenuSurface {
                 MenuStyle::Inline => TransformTarget::MenuInline,
                 MenuStyle::Search => TransformTarget::MenuSearch,
             };
-            // Build default; apply_transform_chain handles replacement internally.
+            // Build default; apply hierarchical transform chain (Menu → style-specific).
             let menu_overlay = menu::build_menu_overlay(menu_state, ctx.state, ctx.registry);
             match menu_overlay {
                 Some(mut overlay) => {
                     let app_view = AppView::new(ctx.state);
-                    overlay.element = ctx.registry.apply_transform_chain(
-                        TransformTarget::Menu,
-                        || overlay.element.clone(),
-                        &app_view,
-                    );
-                    overlay.element = ctx.registry.apply_transform_chain(
+                    overlay.element = ctx.registry.apply_transform_chain_hierarchical(
                         transform_target,
                         || overlay.element.clone(),
                         &app_view,

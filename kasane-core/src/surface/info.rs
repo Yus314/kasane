@@ -77,29 +77,23 @@ impl Surface for InfoSurface {
                 }
             }
 
-            // Build default; apply_transform_chain handles replacement internally.
+            // Build default; apply hierarchical transform chain (Info → style-specific).
             let info_overlay =
                 info::build_info_overlay_indexed(info_state, ctx.state, &avoid_rects, self.index);
             match info_overlay {
                 Some(mut overlay) => {
                     use crate::plugin::TransformTarget;
                     let app_view = AppView::new(ctx.state);
-                    overlay.element = ctx.registry.apply_transform_chain(
-                        TransformTarget::Info,
+                    let info_target = match info_state.style {
+                        InfoStyle::Prompt => TransformTarget::InfoPrompt,
+                        InfoStyle::Modal => TransformTarget::InfoModal,
+                        _ => TransformTarget::Info,
+                    };
+                    overlay.element = ctx.registry.apply_transform_chain_hierarchical(
+                        info_target,
                         || overlay.element.clone(),
                         &app_view,
                     );
-                    if let Some(tt) = match info_state.style {
-                        InfoStyle::Prompt => Some(TransformTarget::InfoPrompt),
-                        InfoStyle::Modal => Some(TransformTarget::InfoModal),
-                        _ => None,
-                    } {
-                        overlay.element = ctx.registry.apply_transform_chain(
-                            tt,
-                            || overlay.element.clone(),
-                            &app_view,
-                        );
-                    }
                     overlay.element
                 }
                 None => Element::Empty,

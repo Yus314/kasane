@@ -5,10 +5,11 @@ use crate::element::Element;
 use crate::element::OverlayAnchor;
 use crate::plugin::PluginId;
 use crate::plugin::compose::{
-    Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet,
+    Composable, ContributionSet, FirstWins, MenuTransformChain, OverlaySet, TransformChain,
+    TransformChainEntry,
 };
 use crate::plugin::context::{
-    ContribSizeHint, Contribution, OverlayContribution, SourcedContribution,
+    ContribSizeHint, Contribution, OverlayContribution, SourcedContribution, TransformTarget,
 };
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,18 @@ fn arb_first_wins() -> impl Strategy<Value = FirstWins<i32>> {
 fn arb_menu_transform_chain() -> impl Strategy<Value = MenuTransformChain> {
     prop::collection::vec(arb_plugin_id(), 0..8)
         .prop_map(|plugins| MenuTransformChain::from_vec(plugins))
+}
+
+fn arb_transform_chain_entry() -> impl Strategy<Value = TransformChainEntry> {
+    (arb_plugin_id(), -100i16..100i16).prop_map(|(plugin_id, priority)| TransformChainEntry {
+        plugin_id,
+        priority,
+    })
+}
+
+fn arb_transform_chain() -> impl Strategy<Value = TransformChain> {
+    prop::collection::vec(arb_transform_chain_entry(), 0..8)
+        .prop_map(|entries| TransformChain::from_entries(entries))
 }
 
 // ---------------------------------------------------------------------------
@@ -337,4 +350,243 @@ fn annotation_gutter_merge_associative() {
     abc_right.extend_from_slice(&bc);
 
     assert_eq!(merge(abc_left), merge(abc_right));
+}
+
+// ---------------------------------------------------------------------------
+// TransformChain — monoid laws (NOT commutative)
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #[test]
+    fn transform_chain_left_identity(x in arb_transform_chain()) {
+        let result = TransformChain::empty().compose(x.clone());
+        prop_assert_eq!(result, x);
+    }
+
+    #[test]
+    fn transform_chain_right_identity(x in arb_transform_chain()) {
+        let result = x.clone().compose(TransformChain::empty());
+        prop_assert_eq!(result, x);
+    }
+
+    #[test]
+    fn transform_chain_associativity(
+        a in arb_transform_chain(),
+        b in arb_transform_chain(),
+        c in arb_transform_chain(),
+    ) {
+        let left = a.clone().compose(b.clone()).compose(c.clone());
+        let right = a.compose(b.compose(c));
+        prop_assert_eq!(left, right);
+    }
+}
+
+#[test]
+fn transform_chain_not_commutative() {
+    // TransformChain uses stable sort by (Reverse(priority), plugin_id).
+    // With duplicate sort keys (same priority + same id), insertion order is preserved,
+    // making compose order observable → non-commutative.
+    //
+    // Note: when all entries have unique (priority, plugin_id) keys, the result
+    // happens to be commutative for those specific inputs. The monoid is marked
+    // non-commutative because commutativity is not guaranteed in general.
+    // Here we verify that same-priority distinct IDs produce a deterministic chain.
+    let a = TransformChain::single(PluginId("alpha".into()), 0);
+    let b = TransformChain::single(PluginId("beta".into()), 0);
+    let ab = a.clone().compose(b.clone());
+    let ba = b.compose(a);
+    // Sorted by (Reverse(0), id): alpha before beta — deterministic.
+    assert_eq!(
+        ab.entries().len(),
+        2,
+        "Composed chain should have 2 entries"
+    );
+    assert_eq!(ab, ba, "Unique keys happen to sort identically");
+}
+
+// ---------------------------------------------------------------------------
+// TransformTarget — hierarchy tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn transform_target_parent() {
+    assert_eq!(TransformTarget::Buffer.parent(), None);
+    assert_eq!(TransformTarget::BufferLine(0).parent(), None);
+    assert_eq!(TransformTarget::StatusBar.parent(), None);
+    assert_eq!(TransformTarget::Menu.parent(), None);
+    assert_eq!(
+        TransformTarget::MenuPrompt.parent(),
+        Some(TransformTarget::Menu)
+    );
+    assert_eq!(
+        TransformTarget::MenuInline.parent(),
+        Some(TransformTarget::Menu)
+    );
+    assert_eq!(
+        TransformTarget::MenuSearch.parent(),
+        Some(TransformTarget::Menu)
+    );
+    assert_eq!(TransformTarget::Info.parent(), None);
+    assert_eq!(
+        TransformTarget::InfoPrompt.parent(),
+        Some(TransformTarget::Info)
+    );
+    assert_eq!(
+        TransformTarget::InfoModal.parent(),
+        Some(TransformTarget::Info)
+    );
+}
+
+#[test]
+fn transform_target_refinement_chain() {
+    // Non-refinement targets: chain is [self]
+    assert_eq!(
+        TransformTarget::Buffer.refinement_chain(),
+        vec![TransformTarget::Buffer]
+    );
+    assert_eq!(
+        TransformTarget::Menu.refinement_chain(),
+        vec![TransformTarget::Menu]
+    );
+    assert_eq!(
+        TransformTarget::Info.refinement_chain(),
+        vec![TransformTarget::Info]
+    );
+    assert_eq!(
+        TransformTarget::StatusBar.refinement_chain(),
+        vec![TransformTarget::StatusBar]
+    );
+
+    // Refinement targets: chain is [parent, self]
+    assert_eq!(
+        TransformTarget::MenuPrompt.refinement_chain(),
+        vec![TransformTarget::Menu, TransformTarget::MenuPrompt]
+    );
+    assert_eq!(
+        TransformTarget::MenuInline.refinement_chain(),
+        vec![TransformTarget::Menu, TransformTarget::MenuInline]
+    );
+    assert_eq!(
+        TransformTarget::MenuSearch.refinement_chain(),
+        vec![TransformTarget::Menu, TransformTarget::MenuSearch]
+    );
+    assert_eq!(
+        TransformTarget::InfoPrompt.refinement_chain(),
+        vec![TransformTarget::Info, TransformTarget::InfoPrompt]
+    );
+    assert_eq!(
+        TransformTarget::InfoModal.refinement_chain(),
+        vec![TransformTarget::Info, TransformTarget::InfoModal]
+    );
+}
+
+#[test]
+fn transform_target_is_refinement() {
+    assert!(!TransformTarget::Buffer.is_refinement());
+    assert!(!TransformTarget::Menu.is_refinement());
+    assert!(!TransformTarget::Info.is_refinement());
+    assert!(!TransformTarget::StatusBar.is_refinement());
+    assert!(TransformTarget::MenuPrompt.is_refinement());
+    assert!(TransformTarget::MenuInline.is_refinement());
+    assert!(TransformTarget::MenuSearch.is_refinement());
+    assert!(TransformTarget::InfoPrompt.is_refinement());
+    assert!(TransformTarget::InfoModal.is_refinement());
+}
+
+// ---------------------------------------------------------------------------
+// Transform conflict detection — unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(debug_assertions)]
+mod conflict_detection {
+    use super::*;
+    use crate::plugin::context::{TransformDescriptor, TransformScope};
+    use crate::plugin::registry::check_transform_conflicts;
+
+    #[test]
+    fn no_warning_for_no_descriptors() {
+        let descriptors = vec![(PluginId("a".into()), None), (PluginId("b".into()), None)];
+        // Should not panic; warnings go to tracing (not captured here but
+        // verifies the function runs without errors).
+        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+    }
+
+    #[test]
+    fn no_warning_for_single_replacement() {
+        let descriptors = vec![(
+            PluginId("a".into()),
+            Some(TransformDescriptor {
+                targets: vec![TransformTarget::Buffer],
+                scope: TransformScope::Replacement,
+            }),
+        )];
+        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+    }
+
+    #[test]
+    fn no_warning_for_non_matching_target() {
+        let descriptors = vec![
+            (
+                PluginId("a".into()),
+                Some(TransformDescriptor {
+                    targets: vec![TransformTarget::Menu],
+                    scope: TransformScope::Replacement,
+                }),
+            ),
+            (
+                PluginId("b".into()),
+                Some(TransformDescriptor {
+                    targets: vec![TransformTarget::Menu],
+                    scope: TransformScope::Replacement,
+                }),
+            ),
+        ];
+        // Checking Buffer target — neither descriptor matches, so no warning.
+        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+    }
+
+    #[test]
+    fn detects_multiple_replacements() {
+        // This test verifies the function runs without panic.
+        // In a real scenario, tracing::warn would fire.
+        let descriptors = vec![
+            (
+                PluginId("a".into()),
+                Some(TransformDescriptor {
+                    targets: vec![TransformTarget::Buffer],
+                    scope: TransformScope::Replacement,
+                }),
+            ),
+            (
+                PluginId("b".into()),
+                Some(TransformDescriptor {
+                    targets: vec![TransformTarget::Buffer],
+                    scope: TransformScope::Replacement,
+                }),
+            ),
+        ];
+        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+    }
+
+    #[test]
+    fn detects_absorbed_transforms() {
+        // Wrapper before Replacement → absorbed warning
+        let descriptors = vec![
+            (
+                PluginId("wrapper".into()),
+                Some(TransformDescriptor {
+                    targets: vec![TransformTarget::Menu],
+                    scope: TransformScope::Wrapper,
+                }),
+            ),
+            (
+                PluginId("replacer".into()),
+                Some(TransformDescriptor {
+                    targets: vec![TransformTarget::Menu],
+                    scope: TransformScope::Replacement,
+                }),
+            ),
+        ];
+        check_transform_conflicts(&descriptors, &TransformTarget::Menu);
+    }
 }

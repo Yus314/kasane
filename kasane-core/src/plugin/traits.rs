@@ -9,7 +9,7 @@ use super::{
     AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
     DisplayDirective, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook,
     PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
-    TransformContext, TransformTarget,
+    TransformContext, TransformDescriptor, TransformTarget,
 };
 
 /// Result of key middleware dispatch.
@@ -198,6 +198,11 @@ pub trait PluginBackend: Any {
     /// Priority for transform chain ordering (higher = applied earlier / inner).
     fn transform_priority(&self) -> i16 {
         0
+    }
+
+    /// Declare the transform scope and targets for debug-time conflict detection.
+    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
+        None
     }
 
     // === Annotate ===

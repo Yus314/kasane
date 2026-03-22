@@ -134,6 +134,68 @@ pub enum TransformTarget {
     InfoModal,
 }
 
+impl TransformTarget {
+    /// Return the parent target in the refinement hierarchy, if any.
+    ///
+    /// Style-specific menu/info targets refine their generic parent:
+    /// `MenuPrompt → Menu`, `InfoPrompt → Info`, etc.
+    pub fn parent(&self) -> Option<TransformTarget> {
+        match self {
+            Self::MenuPrompt | Self::MenuInline | Self::MenuSearch => Some(Self::Menu),
+            Self::InfoPrompt | Self::InfoModal => Some(Self::Info),
+            _ => None,
+        }
+    }
+
+    /// Return the refinement chain: `[parent, self]` if a parent exists, otherwise `[self]`.
+    ///
+    /// Used by `apply_transform_chain_hierarchical` to apply transforms from
+    /// generic to specific.
+    pub fn refinement_chain(&self) -> Vec<TransformTarget> {
+        match self.parent() {
+            Some(parent) => vec![parent, *self],
+            None => vec![*self],
+        }
+    }
+
+    /// Returns true if this target is a style-specific refinement of a generic target.
+    pub fn is_refinement(&self) -> bool {
+        self.parent().is_some()
+    }
+}
+
+/// Scope of a transform's effect on the element tree.
+///
+/// Used by `TransformDescriptor` for declarative conflict detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransformScope {
+    /// Pass-through (no-op transform).
+    Identity,
+    /// Wraps the element in a container/decorator.
+    Wrapper,
+    /// Prepends content before the element.
+    Prepend,
+    /// Appends content after the element.
+    Append,
+    /// Modifies element attributes (face, style) without changing structure.
+    Attribute,
+    /// Replaces the element entirely. Absorbs all prior transforms.
+    Replacement,
+    /// Changes the element structure (e.g., reorders children).
+    Structural,
+}
+
+/// Declarative description of a plugin's transform behavior.
+///
+/// Plugins may optionally declare their transform descriptor for debug-time
+/// conflict detection. When two plugins both declare `Replacement` scope for
+/// the same target, a warning is emitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransformDescriptor {
+    pub targets: Vec<TransformTarget>,
+    pub scope: TransformScope,
+}
+
 /// Context passed to `transform()`.
 #[derive(Debug, Clone)]
 pub struct TransformContext {

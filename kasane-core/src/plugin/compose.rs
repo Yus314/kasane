@@ -16,11 +16,12 @@
 //! | Menu item transforms  | Yes     | No           | `MenuTransformChain`          |
 //! | Key dispatch          | Yes     | No           | `FirstWins<T>`                |
 //! | Cursor style override | Yes     | No           | `FirstWins<T>`                |
-//! | Transform chain       | **No**  | N/A          | (not modeled)                 |
+//! | Transform chain       | Yes     | No           | `TransformChain`              |
 //! | `resolve()`           | **No**  | N/A          | (not modeled)                 |
 //!
-//! The **resolution** phase (`resolve()`, `apply_transform_chain`) is
-//! fundamentally non-compositional and is intentionally not modeled here.
+//! The **resolution** phase (`resolve()`) is fundamentally non-compositional
+//! and is intentionally not modeled here. Transform chains are modeled as a
+//! non-commutative monoid for algebraic composition of chain membership.
 
 use super::{OverlayContribution, PluginId, SourcedContribution};
 use crate::display::DirectiveSet;
@@ -186,6 +187,78 @@ impl Composable for MenuTransformChain {
         self
     }
 }
+
+// ---------------------------------------------------------------------------
+// TransformChain
+// ---------------------------------------------------------------------------
+
+/// An entry in the transform chain: a plugin with its priority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransformChainEntry {
+    pub plugin_id: PluginId,
+    pub priority: i16,
+}
+
+/// Non-commutative monoid over transform chain entries.
+///
+/// Compose = append + sort by `(Reverse(priority), plugin_id)`, matching
+/// the sort order used in `apply_transform_chain_in_pane`. This is **not**
+/// commutative because entries with equal `(priority, plugin_id)` pairs but
+/// different plugin identities yield different chains depending on insertion
+/// order when stable-sorted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransformChain {
+    entries: Vec<TransformChainEntry>,
+}
+
+impl TransformChain {
+    /// Construct from entries, normalizing to sorted order.
+    pub fn from_entries(mut entries: Vec<TransformChainEntry>) -> Self {
+        entries.sort_by_key(|e| (std::cmp::Reverse(e.priority), e.plugin_id.clone()));
+        Self { entries }
+    }
+
+    /// Single-entry chain.
+    pub fn single(plugin_id: PluginId, priority: i16) -> Self {
+        Self {
+            entries: vec![TransformChainEntry {
+                plugin_id,
+                priority,
+            }],
+        }
+    }
+
+    /// Borrow the sorted entries.
+    pub fn entries(&self) -> &[TransformChainEntry] {
+        &self.entries
+    }
+
+    /// Consume into the inner vec (sorted).
+    pub fn into_entries(self) -> Vec<TransformChainEntry> {
+        self.entries
+    }
+
+    fn sort(&mut self) {
+        self.entries
+            .sort_by_key(|e| (std::cmp::Reverse(e.priority), e.plugin_id.clone()));
+    }
+}
+
+impl Composable for TransformChain {
+    fn empty() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    fn compose(mut self, other: Self) -> Self {
+        self.entries.extend(other.entries);
+        self.sort();
+        self
+    }
+}
+
+// TransformChain is intentionally NOT CommutativeComposable.
 
 // ---------------------------------------------------------------------------
 // FirstWins<T>

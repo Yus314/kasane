@@ -11,6 +11,7 @@ use crate::workspace::WorkspaceQuery;
 
 use super::AppView;
 use super::bridge::PluginBridge;
+use super::context::TransformScope;
 use super::effects::{MouseHandleResult, PluginEffects};
 use super::state::Plugin;
 use super::{
@@ -426,6 +427,36 @@ impl PluginRuntime {
             .apply_transform_chain_in_pane(target, default_element_fn, app, pane_context)
     }
 
+    /// Apply the hierarchical transform chain for a target with refinement.
+    ///
+    /// For style-specific targets (e.g. `MenuPrompt`), this applies the generic
+    /// parent target (`Menu`) first, then the specific target (`MenuPrompt`).
+    /// For non-refinement targets, this is equivalent to `apply_transform_chain`.
+    pub fn apply_transform_chain_hierarchical(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        app: &AppView<'_>,
+    ) -> Element {
+        self.view()
+            .apply_transform_chain_hierarchical(target, default_element_fn, app)
+    }
+
+    pub fn apply_transform_chain_hierarchical_in_pane(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        app: &AppView<'_>,
+        pane_context: PaneContext,
+    ) -> Element {
+        self.view().apply_transform_chain_hierarchical_in_pane(
+            target,
+            default_element_fn,
+            app,
+            pane_context,
+        )
+    }
+
     /// Collect annotations from all annotating plugins for visible lines.
     pub fn collect_annotations(
         &self,
@@ -690,6 +721,9 @@ impl<'a> PluginView<'a> {
         }
         chain.sort_by_key(|(_, prio, id)| (std::cmp::Reverse(*prio), id.clone()));
 
+        #[cfg(debug_assertions)]
+        detect_transform_conflicts(&chain, self.slots, &target);
+
         for (pos, (i, _, _)) in chain.iter().enumerate() {
             let ctx = TransformContext {
                 is_default: true,
@@ -702,6 +736,41 @@ impl<'a> PluginView<'a> {
                 .transform(&target, element, state, &ctx);
         }
 
+        element
+    }
+
+    /// Apply the hierarchical transform chain for a target with refinement.
+    ///
+    /// For style-specific targets (e.g. `MenuPrompt`), applies the generic parent
+    /// target first, then the specific target. For non-refinement targets, this is
+    /// equivalent to `apply_transform_chain`.
+    pub fn apply_transform_chain_hierarchical(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        state: &AppView<'_>,
+    ) -> Element {
+        self.apply_transform_chain_hierarchical_in_pane(
+            target,
+            default_element_fn,
+            state,
+            PaneContext::default(),
+        )
+    }
+
+    pub fn apply_transform_chain_hierarchical_in_pane(
+        &self,
+        target: TransformTarget,
+        default_element_fn: impl FnOnce() -> Element,
+        state: &AppView<'_>,
+        pane_context: PaneContext,
+    ) -> Element {
+        let chain = target.refinement_chain();
+        let mut element = default_element_fn();
+        for step_target in chain {
+            let el = element;
+            element = self.apply_transform_chain_in_pane(step_target, || el, state, pane_context);
+        }
         element
     }
 
@@ -990,6 +1059,82 @@ impl<'a> PluginView<'a> {
         self.slots
             .iter()
             .any(|s| s.capabilities.contains(PluginCapabilities::TRANSFORMER))
+    }
+}
+
+/// Debug-only: detect potential transform conflicts in a chain.
+///
+/// Warns when:
+/// - Multiple plugins declare `Replacement` scope for the same target
+/// - Non-Identity transforms appear before a Replacement (they'll be absorbed)
+#[cfg(debug_assertions)]
+fn detect_transform_conflicts(
+    chain: &[(usize, i16, PluginId)],
+    slots: &[PluginSlot],
+    target: &TransformTarget,
+) {
+    let descriptors: Vec<(PluginId, Option<super::TransformDescriptor>)> = chain
+        .iter()
+        .map(|(i, _, _)| {
+            let slot = &slots[*i];
+            (slot.backend.id(), slot.backend.transform_descriptor())
+        })
+        .collect();
+    check_transform_conflicts(&descriptors, target);
+}
+
+/// Check for transform conflicts given a list of (plugin_id, descriptor) pairs.
+///
+/// Extracted as a free function for unit-testability.
+#[cfg(debug_assertions)]
+pub(crate) fn check_transform_conflicts(
+    descriptors: &[(PluginId, Option<super::TransformDescriptor>)],
+    target: &TransformTarget,
+) {
+    let mut replacement_count = 0;
+    let mut replacement_plugin: Option<&PluginId> = None;
+    let mut has_non_identity_before_replacement = false;
+    let mut seen_non_identity = false;
+
+    for (plugin_id, desc) in descriptors {
+        let Some(desc) = desc else {
+            continue;
+        };
+        // Only consider descriptors that mention this target
+        if !desc.targets.contains(target) {
+            continue;
+        }
+        match desc.scope {
+            TransformScope::Replacement => {
+                replacement_count += 1;
+                if seen_non_identity {
+                    has_non_identity_before_replacement = true;
+                }
+                replacement_plugin = Some(plugin_id);
+            }
+            TransformScope::Identity => {}
+            _ => {
+                seen_non_identity = true;
+            }
+        }
+    }
+
+    if replacement_count > 1 {
+        tracing::warn!(
+            target: "kasane::plugin::transform",
+            "Multiple plugins declare Replacement scope for {:?} — \
+             only the last in the chain will take effect",
+            target,
+        );
+    }
+    if has_non_identity_before_replacement && let Some(pid) = replacement_plugin {
+        tracing::warn!(
+            target: "kasane::plugin::transform",
+            "Non-identity transforms appear before Replacement by {:?} for {:?} — \
+             those transforms will be absorbed",
+            pid,
+            target,
+        );
     }
 }
 

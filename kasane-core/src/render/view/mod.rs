@@ -122,15 +122,13 @@ fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Ove
     // replacement internally (Phase 1) so no explicit get_replacement() needed.
     let menu_overlay = menu::build_menu_overlay(menu_state, state, registry);
     menu_overlay.map(|mut overlay| {
-        // Apply transform chain (Menu generic + style-specific)
+        // Apply hierarchical transform chain (Menu generic → style-specific)
         let app_view = AppView::new(state);
-        overlay.element = registry.apply_transform_chain(
-            TransformTarget::Menu,
+        overlay.element = registry.apply_transform_chain_hierarchical(
+            transform_target,
             || overlay.element.clone(),
             &app_view,
         );
-        overlay.element =
-            registry.apply_transform_chain(transform_target, || overlay.element.clone(), &app_view);
         overlay
     })
 }
@@ -167,24 +165,18 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
                     h: *h,
                 });
             }
-            // Apply transform chain (Info generic + style-specific)
+            // Apply hierarchical transform chain (Info generic → style-specific)
             let app_view = AppView::new(state);
-            overlay.element = registry.apply_transform_chain(
-                TransformTarget::Info,
+            let info_target = match info_state.style {
+                InfoStyle::Prompt => TransformTarget::InfoPrompt,
+                InfoStyle::Modal => TransformTarget::InfoModal,
+                _ => TransformTarget::Info,
+            };
+            overlay.element = registry.apply_transform_chain_hierarchical(
+                info_target,
                 || overlay.element.clone(),
                 &app_view,
             );
-            if let Some(transform_target) = match info_state.style {
-                InfoStyle::Prompt => Some(TransformTarget::InfoPrompt),
-                InfoStyle::Modal => Some(TransformTarget::InfoModal),
-                _ => None,
-            } {
-                overlay.element = registry.apply_transform_chain(
-                    transform_target,
-                    || overlay.element.clone(),
-                    &app_view,
-                );
-            }
             overlays.push(overlay);
         }
     }

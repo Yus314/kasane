@@ -74,9 +74,7 @@ impl ViewSource for SalsaViewSource<'_> {
         let db = self.db;
         let h = self.handles;
 
-        let is_multi_pane = self
-            .surface_registry
-            .is_some_and(|sr| sr.workspace().surface_count() > 1);
+        let is_multi_pane = self.surface_registry.is_some_and(|sr| sr.is_multi_pane());
 
         // --- Base section (buffer + status + slots + annotations) ---
         let (base_el, surface_reports, focused_pane_rect, focused_pane_state) = if is_multi_pane {
@@ -146,24 +144,19 @@ impl ViewSource for SalsaViewSource<'_> {
             let pure = salsa_views::pure_menu_overlay(db, h.menu, h.config);
             pure.map(|mut overlay| {
                 let menu_state = state.menu.as_ref();
-                let transform_target = menu_state.map(|m| match m.style {
-                    MenuStyle::Prompt => TransformTarget::MenuPrompt,
-                    MenuStyle::Inline => TransformTarget::MenuInline,
-                    MenuStyle::Search => TransformTarget::MenuSearch,
-                });
+                let target = menu_state
+                    .map(|m| match m.style {
+                        MenuStyle::Prompt => TransformTarget::MenuPrompt,
+                        MenuStyle::Inline => TransformTarget::MenuInline,
+                        MenuStyle::Search => TransformTarget::MenuSearch,
+                    })
+                    .unwrap_or(TransformTarget::Menu);
 
-                overlay.element = registry.apply_transform_chain(
-                    TransformTarget::Menu,
+                overlay.element = registry.apply_transform_chain_hierarchical(
+                    target,
                     || overlay.element.clone(),
                     &AppView::new(state),
                 );
-                if let Some(target) = transform_target {
-                    overlay.element = registry.apply_transform_chain(
-                        target,
-                        || overlay.element.clone(),
-                        &AppView::new(state),
-                    );
-                }
                 overlay
             })
         };

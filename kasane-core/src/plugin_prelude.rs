@@ -15,8 +15,8 @@ pub use crate::plugin::{
     Plugin, PluginAuthorities, PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor,
     PluginEffects, PluginFactory, PluginId, PluginManager, PluginProvider, PluginRank,
     PluginRevision, PluginRuntime, PluginSource, PluginState, RuntimeEffects, SessionReadyCommand,
-    SessionReadyEffects, SlotId, TransformContext, TransformTarget, builtin_plugin, host_plugin,
-    host_plugin_with_provider,
+    SessionReadyEffects, SlotId, TransformContext, TransformDescriptor, TransformScope,
+    TransformTarget, builtin_plugin, host_plugin, host_plugin_with_provider,
 };
 
 // Element tree
@@ -50,7 +50,11 @@ pub use crate::workspace::{
 };
 
 // Surface
+pub use crate::surface::buffer::ClientBufferSurface;
 pub use crate::surface::{
     EventContext, SizeHint, SlotDeclaration, SlotKind, Surface, SurfaceEvent, SurfaceId,
     SurfacePlacementRequest, SurfaceRegistry, ViewContext,
 };
+
+// Session
+pub use crate::session::SessionId;
