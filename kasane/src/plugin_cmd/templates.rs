@@ -131,17 +131,24 @@ fn transform_template(id: &str) -> String {
         cursor_mode: u8 = 0,
     }},
 
-    transform(target, element, _ctx) {{
+    transform(target, subject, _ctx) {{
         if !matches!(target, TransformTarget::StatusBarT) {{
-            return element;
+            return subject;
         }}
         if state.cursor_mode != 1 {{
-            return element;
+            return subject;
         }}
         // Wrap the status bar in a container with a distinct background
-        container(element)
-            .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
-            .build()
+        match subject {{
+            TransformSubject::ElementS(element) => {{
+                TransformSubject::ElementS(
+                    container(element)
+                        .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+                        .build(),
+                )
+            }}
+            other => other,
+        }}
     }},
 
     transform_priority: 0,

@@ -9,7 +9,7 @@
 //! for the Salsa pipeline. Future consolidation should extract shared helpers.
 
 use crate::element::Element;
-use crate::plugin::{AppView, Command};
+use crate::plugin::{AppView, Command, TransformSubject};
 use crate::state::{AppState, DirtyFlags};
 use compact_str::CompactString;
 
@@ -52,14 +52,15 @@ impl Surface for MenuSurface {
             // Build default; apply hierarchical transform chain (Menu → style-specific).
             let menu_overlay = menu::build_menu_overlay(menu_state, ctx.state, ctx.registry);
             match menu_overlay {
-                Some(mut overlay) => {
+                Some(overlay) => {
                     let app_view = AppView::new(ctx.state);
-                    overlay.element = ctx.registry.apply_transform_chain_hierarchical(
-                        transform_target,
-                        || overlay.element.clone(),
-                        &app_view,
-                    );
-                    overlay.element
+                    ctx.registry
+                        .apply_transform_chain_hierarchical(
+                            transform_target,
+                            TransformSubject::Overlay(overlay),
+                            &app_view,
+                        )
+                        .into_element()
                 }
                 None => Element::Empty,
             }

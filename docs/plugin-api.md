@@ -296,16 +296,18 @@ fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
 
 ### 1.7 Transform (`transform`)
 
-`transform()` is a unified mechanism that receives an existing `Element`, transforms it, and returns the result. It serves as both decoration (formerly Decorator) and replacement (formerly Replacement).
+`transform()` is a unified mechanism that receives a `TransformSubject` (either an `Element` or an `Overlay`), transforms it, and returns the result. It serves as both decoration (formerly Decorator) and replacement (formerly Replacement). For non-overlay targets (Buffer, StatusBar), the subject is `Element`; for overlay targets (Menu, Info), it is `Overlay` (Element + OverlayAnchor), allowing plugins to modify overlay position and size.
 
 **Native:**
 
 ```rust
-fn transform(&self, target: &TransformTarget, element: Element, app: &AppView<'_>, _ctx: &TransformContext) -> Element {
-    match target {
-        TransformTarget::Buffer => Element::container(element, Style::from(Face::default())),
-        _ => element,
-    }
+fn transform(&self, target: &TransformTarget, subject: TransformSubject, app: &AppView<'_>, _ctx: &TransformContext) -> TransformSubject {
+    subject.map_element(|element| {
+        match target {
+            TransformTarget::Buffer => Element::container(element, Style::from(Face::default())),
+            _ => element,
+        }
+    })
 }
 
 fn transform_priority(&self) -> i16 { 100 }
@@ -314,11 +316,16 @@ fn transform_priority(&self) -> i16 { 100 }
 **WASM:**
 
 ```rust
-fn transform_element(target: TransformTarget, element: ElementHandle, _ctx: TransformContext) -> ElementHandle {
-    element_builder::create_container(element, Some(BorderLineStyle::Single), false, edges)
+fn transform(target: TransformTarget, subject: TransformSubject, _ctx: TransformContext) -> TransformSubject {
+    match subject {
+        TransformSubject::ElementS(element) => {
+            TransformSubject::ElementS(container(element).border(BorderLineStyle::Single).build())
+        }
+        other => other,
+    }
 }
 
-fn transform_priority() -> s16 { 100 }
+fn transform_priority() -> i16 { 100 }
 ```
 
 `TransformTarget` includes `Buffer`, `StatusBar`, `Menu`, `Info`, and others.

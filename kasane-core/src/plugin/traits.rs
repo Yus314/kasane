@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::element::{Element, InteractiveId};
+use crate::element::InteractiveId;
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -9,7 +9,7 @@ use super::{
     AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
     DisplayDirective, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook,
     PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
-    TransformContext, TransformDescriptor, TransformTarget,
+    TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
 };
 
 /// Result of key middleware dispatch.
@@ -181,18 +181,19 @@ pub trait PluginBackend: Any {
 
     // === Transform ===
 
-    /// Transform an element for the given target. The element may be the default
-    /// or a result from a previous plugin in the chain.
+    /// Transform a subject for the given target. The subject may be an Element
+    /// or an Overlay (for menu/info targets), and may be the default or a result
+    /// from a previous plugin in the chain.
     ///
     /// Default: pass through unchanged.
     fn transform(
         &self,
         _target: &TransformTarget,
-        element: Element,
+        subject: TransformSubject,
         _state: &AppView<'_>,
         _ctx: &TransformContext,
-    ) -> Element {
-        element
+    ) -> TransformSubject {
+        subject
     }
 
     /// Priority for transform chain ordering (higher = applied earlier / inner).

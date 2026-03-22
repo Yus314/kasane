@@ -350,7 +350,7 @@ fn gen_transform_impl(def: &PluginDef) -> TokenStream {
             let target_path = &tb.target_path;
             let fn_name = &tb.fn_name;
             quote! {
-                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _element, _state),
+                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _subject, _state),
             }
         })
         .collect();
@@ -359,13 +359,13 @@ fn gen_transform_impl(def: &PluginDef) -> TokenStream {
         fn transform(
             &self,
             _target: &kasane_core::plugin::TransformTarget,
-            _element: kasane_core::element::Element,
+            _subject: kasane_core::plugin::TransformSubject,
             _state: &kasane_core::plugin::AppView<'_>,
             _ctx: &kasane_core::plugin::TransformContext,
-        ) -> kasane_core::element::Element {
+        ) -> kasane_core::plugin::TransformSubject {
             match _target {
                 #(#transform_arms)*
-                _ => _element,
+                _ => _subject,
             }
         }
     };

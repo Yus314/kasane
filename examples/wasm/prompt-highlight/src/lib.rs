@@ -41,23 +41,31 @@ impl Guest for PromptHighlightPlugin {
         CURSOR_MODE.get() as u64
     }
 
-    fn transform_element(
+    fn transform(
         target: TransformTarget,
-        element: ElementHandle,
+        subject: TransformSubject,
         _ctx: TransformContext,
-    ) -> ElementHandle {
+    ) -> TransformSubject {
         if !matches!(target, TransformTarget::StatusBarT) {
-            return element;
+            return subject;
         }
 
         if CURSOR_MODE.get() != MODE_PROMPT {
-            return element;
+            return subject;
         }
 
-        // Wrap the status bar in a container with a distinct background
-        container(element)
-            .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
-            .build()
+        // Wrap the status bar in a container with a distinct background.
+        // StatusBar is always an Element variant, so map_element is appropriate.
+        match subject {
+            TransformSubject::ElementS(element) => {
+                TransformSubject::ElementS(
+                    container(element)
+                        .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+                        .build(),
+                )
+            }
+            other => other,
+        }
     }
 
     fn transform_priority() -> i16 {

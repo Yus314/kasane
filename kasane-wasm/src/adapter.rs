@@ -11,7 +11,8 @@ use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, BootstrapEffects, Command,
     ContributeContext, Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformTarget,
+    PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformSubject,
+    TransformTarget,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -605,30 +606,54 @@ impl PluginBackend for WasmPlugin {
     fn transform(
         &self,
         target: &TransformTarget,
-        element: Element,
+        subject: TransformSubject,
         state: &AppView<'_>,
         ctx: &TransformContext,
-    ) -> Element {
+    ) -> TransformSubject {
         self.shared.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             runtime.store.data_mut().elements.clear();
-            let original_handle = runtime.store.data_mut().inject_element(element);
+
+            // Convert TransformSubject → WIT transform-subject
+            let wit_subject = match &subject {
+                TransformSubject::Element(el) => {
+                    let handle = runtime.store.data_mut().inject_element(el.clone());
+                    wit::TransformSubject::ElementS(handle)
+                }
+                TransformSubject::Overlay(overlay) => {
+                    let handle = runtime
+                        .store
+                        .data_mut()
+                        .inject_element(overlay.element.clone());
+                    let wit_anchor = convert::overlay_anchor_to_wit(&overlay.anchor);
+                    wit::TransformSubject::OverlayS(wit::OverlaySubject {
+                        element: handle,
+                        anchor: wit_anchor,
+                    })
+                }
+            };
+
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_target = convert::transform_target_to_wit(target);
             let wit_ctx = convert::transform_context_to_wit(ctx);
-            match plugin_api.call_transform_element(
-                &mut runtime.store,
-                wit_target,
-                original_handle,
-                wit_ctx,
-            ) {
-                Ok(result_handle) => runtime.store.data_mut().take_root_element(result_handle),
+            match plugin_api.call_transform(&mut runtime.store, wit_target, &wit_subject, wit_ctx) {
+                Ok(result) => match result {
+                    wit::TransformSubject::ElementS(handle) => TransformSubject::Element(
+                        runtime.store.data_mut().take_root_element(handle),
+                    ),
+                    wit::TransformSubject::OverlayS(os) => {
+                        let element = runtime.store.data_mut().take_root_element(os.element);
+                        let anchor = convert::wit_overlay_anchor_to_overlay_anchor(&os.anchor);
+                        TransformSubject::Overlay(kasane_core::element::Overlay { element, anchor })
+                    }
+                },
                 Err(e) => {
                     tracing::error!(
                         "WASM plugin {}.transform failed: {e}",
                         self.shared.plugin_id.0
                     );
-                    runtime.store.data_mut().take_root_element(original_handle)
+                    // Fallback: return original subject
+                    subject
                 }
             }
         })

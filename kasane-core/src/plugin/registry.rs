@@ -18,7 +18,7 @@ use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     InitBatch, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution, PaintHook,
     PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId, ReadyBatch,
-    RuntimeBatch, SlotId, SourcedContribution, TransformContext, TransformTarget,
+    RuntimeBatch, SlotId, SourcedContribution, TransformContext, TransformSubject, TransformTarget,
 };
 
 pub struct PluginSurfaceSet {
@@ -410,21 +410,21 @@ impl PluginRuntime {
     pub fn apply_transform_chain(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         app: &AppView<'_>,
-    ) -> Element {
-        self.apply_transform_chain_in_pane(target, default_element_fn, app, PaneContext::default())
+    ) -> TransformSubject {
+        self.apply_transform_chain_in_pane(target, subject, app, PaneContext::default())
     }
 
     pub fn apply_transform_chain_in_pane(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         app: &AppView<'_>,
         pane_context: PaneContext,
-    ) -> Element {
+    ) -> TransformSubject {
         self.view()
-            .apply_transform_chain_in_pane(target, default_element_fn, app, pane_context)
+            .apply_transform_chain_in_pane(target, subject, app, pane_context)
     }
 
     /// Apply the hierarchical transform chain for a target with refinement.
@@ -435,26 +435,22 @@ impl PluginRuntime {
     pub fn apply_transform_chain_hierarchical(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         app: &AppView<'_>,
-    ) -> Element {
+    ) -> TransformSubject {
         self.view()
-            .apply_transform_chain_hierarchical(target, default_element_fn, app)
+            .apply_transform_chain_hierarchical(target, subject, app)
     }
 
     pub fn apply_transform_chain_hierarchical_in_pane(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         app: &AppView<'_>,
         pane_context: PaneContext,
-    ) -> Element {
-        self.view().apply_transform_chain_hierarchical_in_pane(
-            target,
-            default_element_fn,
-            app,
-            pane_context,
-        )
+    ) -> TransformSubject {
+        self.view()
+            .apply_transform_chain_hierarchical_in_pane(target, subject, app, pane_context)
     }
 
     /// Collect annotations from all annotating plugins for visible lines.
@@ -687,30 +683,25 @@ impl<'a> PluginView<'a> {
     ///
     /// Plugins with the `TRANSFORMER` capability are collected into a chain,
     /// sorted by priority in **descending** order (high priority = inner =
-    /// applied first). The `default_element_fn` is evaluated lazily as the
-    /// seed element, then each transformer is applied in order.
+    /// applied first). The `subject` is the seed, then each transformer is
+    /// applied in order.
     pub fn apply_transform_chain(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         state: &AppView<'_>,
-    ) -> Element {
-        self.apply_transform_chain_in_pane(
-            target,
-            default_element_fn,
-            state,
-            PaneContext::default(),
-        )
+    ) -> TransformSubject {
+        self.apply_transform_chain_in_pane(target, subject, state, PaneContext::default())
     }
 
     pub fn apply_transform_chain_in_pane(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         state: &AppView<'_>,
         pane_context: PaneContext,
-    ) -> Element {
-        let mut element = default_element_fn();
+    ) -> TransformSubject {
+        let mut result = subject;
 
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
@@ -731,12 +722,12 @@ impl<'a> PluginView<'a> {
                 pane_surface_id: pane_context.surface_id,
                 pane_focused: pane_context.focused,
             };
-            element = self.slots[*i]
+            result = self.slots[*i]
                 .backend
-                .transform(&target, element, state, &ctx);
+                .transform(&target, result, state, &ctx);
         }
 
-        element
+        result
     }
 
     /// Apply the hierarchical transform chain for a target with refinement.
@@ -747,12 +738,12 @@ impl<'a> PluginView<'a> {
     pub fn apply_transform_chain_hierarchical(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         state: &AppView<'_>,
-    ) -> Element {
+    ) -> TransformSubject {
         self.apply_transform_chain_hierarchical_in_pane(
             target,
-            default_element_fn,
+            subject,
             state,
             PaneContext::default(),
         )
@@ -761,17 +752,16 @@ impl<'a> PluginView<'a> {
     pub fn apply_transform_chain_hierarchical_in_pane(
         &self,
         target: TransformTarget,
-        default_element_fn: impl FnOnce() -> Element,
+        subject: TransformSubject,
         state: &AppView<'_>,
         pane_context: PaneContext,
-    ) -> Element {
+    ) -> TransformSubject {
         let chain = target.refinement_chain();
-        let mut element = default_element_fn();
+        let mut result = subject;
         for step_target in chain {
-            let el = element;
-            element = self.apply_transform_chain_in_pane(step_target, || el, state, pane_context);
+            result = self.apply_transform_chain_in_pane(step_target, result, state, pane_context);
         }
-        element
+        result
     }
 
     /// Collect annotations from all annotating plugins for visible lines.

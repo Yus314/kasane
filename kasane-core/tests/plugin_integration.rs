@@ -264,9 +264,9 @@ fn menu_transform_adds_prefix() {
 #[kasane_plugin]
 mod buffer_banner {
     use kasane_core::element::{Element, FlexChild};
-    use kasane_core::plugin::AppView;
     #[allow(unused_imports)]
     use kasane_core::plugin::TransformTarget;
+    use kasane_core::plugin::{AppView, TransformSubject};
     use kasane_core::protocol::Face;
 
     #[state]
@@ -274,11 +274,17 @@ mod buffer_banner {
     pub struct State;
 
     #[transform(TransformTarget::Buffer)]
-    pub fn wrap_buffer(_state: &State, element: Element, _core: &AppView<'_>) -> Element {
-        Element::column(vec![
-            FlexChild::fixed(Element::text("[buffer transformed]", Face::default())),
-            FlexChild::flexible(element, 1.0),
-        ])
+    pub fn wrap_buffer(
+        _state: &State,
+        subject: TransformSubject,
+        _core: &AppView<'_>,
+    ) -> TransformSubject {
+        subject.map_element(|element| {
+            Element::column(vec![
+                FlexChild::fixed(Element::text("[buffer transformed]", Face::default())),
+                FlexChild::flexible(element, 1.0),
+            ])
+        })
     }
 }
 
@@ -290,11 +296,13 @@ fn buffer_transform_adds_banner() {
     registry.register_backend(Box::new(BufferBannerPlugin::new()));
     let _ = registry.init_all_batch(&AppView::new(&state));
 
-    let transformed = registry.apply_transform_chain(
-        kasane_core::plugin::TransformTarget::Buffer,
-        || Element::buffer_ref(0..2),
-        &AppView::new(&state),
-    );
+    let transformed = registry
+        .apply_transform_chain(
+            kasane_core::plugin::TransformTarget::Buffer,
+            kasane_core::plugin::TransformSubject::Element(Element::buffer_ref(0..2)),
+            &AppView::new(&state),
+        )
+        .into_element();
     match transformed {
         Element::Flex { children, .. } => {
             assert_eq!(

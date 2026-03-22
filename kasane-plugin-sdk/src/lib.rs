@@ -548,16 +548,16 @@ macro_rules! default_contribute_to {
     };
 }
 
-/// Default transform-element stub (passes through element unchanged).
+/// Default transform stub (passes through subject unchanged).
 #[macro_export]
 macro_rules! default_transform {
     () => {
-        fn transform_element(
+        fn transform(
             _target: TransformTarget,
-            element: ElementHandle,
+            subject: TransformSubject,
             _ctx: TransformContext,
-        ) -> ElementHandle {
-            element
+        ) -> TransformSubject {
+            subject
         }
     };
 }

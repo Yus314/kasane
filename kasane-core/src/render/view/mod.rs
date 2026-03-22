@@ -7,7 +7,7 @@ mod tests;
 use crate::display::DisplayMapRef;
 use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
 use crate::layout::line_display_width;
-use crate::plugin::{AnnotateContext, AppView, PluginView, TransformTarget};
+use crate::plugin::{AnnotateContext, AppView, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
 use crate::state::AppState;
 use crate::surface::{SurfaceComposeResult, SurfaceRenderReport};
@@ -121,15 +121,17 @@ fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Ove
     // Build the default menu overlay; apply_transform_chain handles
     // replacement internally (Phase 1) so no explicit get_replacement() needed.
     let menu_overlay = menu::build_menu_overlay(menu_state, state, registry);
-    menu_overlay.map(|mut overlay| {
+    menu_overlay.map(|overlay| {
         // Apply hierarchical transform chain (Menu generic → style-specific)
         let app_view = AppView::new(state);
-        overlay.element = registry.apply_transform_chain_hierarchical(
+        let result = registry.apply_transform_chain_hierarchical(
             transform_target,
-            || overlay.element.clone(),
+            TransformSubject::Overlay(overlay),
             &app_view,
         );
-        overlay
+        result
+            .into_overlay()
+            .expect("overlay transform preserves variant")
     })
 }
 
@@ -155,16 +157,7 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
         // replacement internally (Phase 1) so no explicit get_replacement() needed.
         let info_overlay =
             info::build_info_overlay_indexed(info_state, state, &avoid_rects, info_idx);
-        if let Some(mut overlay) = info_overlay {
-            // Track this overlay's rect for subsequent infos to avoid
-            if let OverlayAnchor::Absolute { x, y, w, h } = &overlay.anchor {
-                avoid_rects.push(crate::layout::Rect {
-                    x: *x,
-                    y: *y,
-                    w: *w,
-                    h: *h,
-                });
-            }
+        if let Some(overlay) = info_overlay {
             // Apply hierarchical transform chain (Info generic → style-specific)
             let app_view = AppView::new(state);
             let info_target = match info_state.style {
@@ -172,12 +165,25 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
                 InfoStyle::Modal => TransformTarget::InfoModal,
                 _ => TransformTarget::Info,
             };
-            overlay.element = registry.apply_transform_chain_hierarchical(
+            let result = registry.apply_transform_chain_hierarchical(
                 info_target,
-                || overlay.element.clone(),
+                TransformSubject::Overlay(overlay),
                 &app_view,
             );
-            overlays.push(overlay);
+            let transformed = result
+                .into_overlay()
+                .expect("overlay transform preserves variant");
+            // Track this overlay's rect for subsequent infos to avoid
+            // (using post-transform anchor, since transform may modify it)
+            if let OverlayAnchor::Absolute { x, y, w, h } = &transformed.anchor {
+                avoid_rects.push(crate::layout::Rect {
+                    x: *x,
+                    y: *y,
+                    w: *w,
+                    h: *h,
+                });
+            }
+            overlays.push(transformed);
         }
     }
     overlays
@@ -202,11 +208,13 @@ pub(crate) fn build_status_surface_abstract(
     state: &AppState,
     registry: &PluginView<'_>,
 ) -> Element {
-    let transformed_core = registry.apply_transform_chain(
-        TransformTarget::StatusBar,
-        || build_status_core(state),
-        &AppView::new(state),
-    );
+    let transformed_core = registry
+        .apply_transform_chain(
+            TransformTarget::StatusBar,
+            TransformSubject::Element(build_status_core(state)),
+            &AppView::new(state),
+        )
+        .into_element();
 
     let row = Element::container(
         Element::row(vec![
@@ -283,8 +291,13 @@ pub(crate) fn build_buffer_core_parts(
         } else {
             Element::buffer_ref(0..buffer_rows)
         };
-    let transformed_buffer =
-        registry.apply_transform_chain(TransformTarget::Buffer, || buffer_element, &app_view);
+    let transformed_buffer = registry
+        .apply_transform_chain(
+            TransformTarget::Buffer,
+            TransformSubject::Element(buffer_element),
+            &app_view,
+        )
+        .into_element();
     BufferCoreParts {
         left_gutter: annotations.left_gutter,
         buffer: transformed_buffer,

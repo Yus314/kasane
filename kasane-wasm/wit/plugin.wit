@@ -1,4 +1,4 @@
-package kasane:plugin@0.12.0;
+package kasane:plugin@0.13.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -494,6 +494,18 @@ interface types {
         info-modal-t,
     }
 
+    /// Subject passed through the transform chain — either a bare element
+    /// or an overlay (element + anchor) for menu/info targets.
+    record overlay-subject {
+        element: element-handle,
+        anchor: overlay-anchor,
+    }
+
+    variant transform-subject {
+        element-s(element-handle),
+        overlay-s(overlay-subject),
+    }
+
     record transform-context {
         is-default: bool,
         chain-position: u32,
@@ -745,7 +757,7 @@ interface element-builder {
 interface plugin-api {
     use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
                atom, decorate-target, replace-target,
-               slot-id, contribute-context, contribution, transform-target, transform-context,
+               slot-id, contribute-context, contribution, transform-target, transform-subject, transform-context,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
                display-directive, workspace-snapshot, key-handle-result,
                capability, plugin-authority, io-event, surface-view-context,
@@ -860,8 +872,9 @@ interface plugin-api {
     /// Contribute an element to a region with layout context.
     contribute-to: func(region: slot-id, ctx: contribute-context) -> option<contribution>;
 
-    /// Transform an element for a given target (replaces decorate + replace).
-    transform-element: func(target: transform-target, element: element-handle, ctx: transform-context) -> element-handle;
+    /// Transform a subject for a given target (replaces decorate + replace).
+    /// The subject is either a bare element or an overlay (element + anchor).
+    transform: func(target: transform-target, subject: transform-subject, ctx: transform-context) -> transform-subject;
 
     /// Priority for transform chain ordering.
     transform-priority: func() -> s16;

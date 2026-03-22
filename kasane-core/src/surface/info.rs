@@ -9,7 +9,7 @@
 //! for the Salsa pipeline. Future consolidation should extract shared helpers.
 
 use crate::element::Element;
-use crate::plugin::{AppView, Command};
+use crate::plugin::{AppView, Command, TransformSubject};
 use crate::state::{AppState, DirtyFlags};
 use compact_str::CompactString;
 
@@ -81,7 +81,7 @@ impl Surface for InfoSurface {
             let info_overlay =
                 info::build_info_overlay_indexed(info_state, ctx.state, &avoid_rects, self.index);
             match info_overlay {
-                Some(mut overlay) => {
+                Some(overlay) => {
                     use crate::plugin::TransformTarget;
                     let app_view = AppView::new(ctx.state);
                     let info_target = match info_state.style {
@@ -89,12 +89,13 @@ impl Surface for InfoSurface {
                         InfoStyle::Modal => TransformTarget::InfoModal,
                         _ => TransformTarget::Info,
                     };
-                    overlay.element = ctx.registry.apply_transform_chain_hierarchical(
-                        info_target,
-                        || overlay.element.clone(),
-                        &app_view,
-                    );
-                    overlay.element
+                    ctx.registry
+                        .apply_transform_chain_hierarchical(
+                            info_target,
+                            TransformSubject::Overlay(overlay),
+                            &app_view,
+                        )
+                        .into_element()
                 }
                 None => Element::Empty,
             }

@@ -1,5 +1,5 @@
 use kasane_core::element::{Element, Style};
-use kasane_core::plugin::{TransformContext, TransformTarget};
+use kasane_core::plugin::{TransformContext, TransformSubject, TransformTarget};
 use kasane_core::protocol::Face;
 
 use super::*;
@@ -32,15 +32,16 @@ fn passthrough_in_buffer_mode() {
     };
     let result = plugin.transform(
         &TransformTarget::StatusBar,
-        element.clone(),
+        TransformSubject::Element(element.clone()),
         &AppView::new(&state),
         &ctx,
     );
 
     // In buffer mode, element should pass through unchanged
-    match (&result, &element) {
+    let result_el = result.into_element();
+    match (&result_el, &element) {
         (Element::Text(a, _), Element::Text(b, _)) => assert_eq!(a, b),
-        _ => panic!("expected passthrough, got {result:?}"),
+        _ => panic!("expected passthrough, got {result_el:?}"),
     }
 }
 
@@ -60,13 +61,14 @@ fn wraps_in_prompt_mode() {
     };
     let result = plugin.transform(
         &TransformTarget::StatusBar,
-        element,
+        TransformSubject::Element(element),
         &AppView::new(&state),
         &ctx,
     );
 
     // In prompt mode, should be wrapped in a Container
-    match result {
+    let result_el = result.into_element();
+    match result_el {
         Element::Container { style, .. } => {
             // Should have yellow background
             match style {
@@ -100,13 +102,14 @@ fn ignores_non_status_targets() {
     // Buffer target should not be wrapped even in prompt mode
     let result = plugin.transform(
         &TransformTarget::Buffer,
-        element.clone(),
+        TransformSubject::Element(element.clone()),
         &AppView::new(&state),
         &ctx,
     );
-    match (&result, &element) {
+    let result_el = result.into_element();
+    match (&result_el, &element) {
         (Element::Text(a, _), Element::Text(b, _)) => assert_eq!(a, b),
-        _ => panic!("expected passthrough for Buffer target, got {result:?}"),
+        _ => panic!("expected passthrough for Buffer target, got {result_el:?}"),
     }
 }
 

@@ -8,7 +8,7 @@ use std::any::Any;
 
 use dyn_clone::DynClone;
 
-use crate::element::{Element, InteractiveId};
+use crate::element::InteractiveId;
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -20,7 +20,7 @@ use super::{
     AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
     IoEvent, KeyHandleResult, LineAnnotation, OverlayContext, OverlayContribution,
     PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
-    TransformContext, TransformDescriptor, TransformTarget,
+    TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
 };
 
 // =============================================================================
@@ -225,12 +225,12 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         target: &TransformTarget,
-        element: Element,
+        subject: TransformSubject,
         app: &AppView<'_>,
         ctx: &TransformContext,
-    ) -> Element {
+    ) -> TransformSubject {
         let _ = (state, target, app, ctx);
-        element
+        subject
     }
 
     fn annotate_line_with_ctx(

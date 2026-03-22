@@ -5,7 +5,7 @@
 
 use std::any::Any;
 
-use crate::element::{Element, InteractiveId};
+use crate::element::InteractiveId;
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -17,7 +17,7 @@ use super::{
     DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation, OverlayContext,
     OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId,
     RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformDescriptor,
-    TransformTarget,
+    TransformSubject, TransformTarget,
 };
 
 // =============================================================================
@@ -114,10 +114,10 @@ pub(crate) trait ErasedPlugin: Send {
         &self,
         state: &dyn PluginState,
         target: &TransformTarget,
-        element: Element,
+        subject: TransformSubject,
         app: &AppView<'_>,
         ctx: &TransformContext,
-    ) -> Element;
+    ) -> TransformSubject;
     fn annotate_line_erased(
         &self,
         state: &dyn PluginState,
@@ -259,7 +259,7 @@ impl<P: Plugin> ErasedPlugin for P {
 
     // Pattern D — ref + return
     erased_ref!(contribute_to_erased => contribute_to(region: &SlotId, app: &AppView<'_>, ctx: &ContributeContext) -> Option<Contribution>);
-    erased_ref!(transform_erased => transform(target: &TransformTarget, element: Element, app: &AppView<'_>, ctx: &TransformContext) -> Element);
+    erased_ref!(transform_erased => transform(target: &TransformTarget, subject: TransformSubject, app: &AppView<'_>, ctx: &TransformContext) -> TransformSubject);
     erased_ref!(annotate_line_erased => annotate_line_with_ctx(line: usize, app: &AppView<'_>, ctx: &AnnotateContext) -> Option<LineAnnotation>);
     erased_ref!(contribute_overlay_erased => contribute_overlay_with_ctx(app: &AppView<'_>, ctx: &OverlayContext) -> Option<OverlayContribution>);
     erased_ref!(cursor_style_override_erased => cursor_style_override(app: &AppView<'_>) -> Option<crate::render::CursorStyle>);
@@ -406,7 +406,7 @@ impl PluginBackend for PluginBridge {
     // --- View contributions (bridge_ref) ---
 
     bridge_ref!(contribute_to => contribute_to_erased(region: &SlotId, state: &AppView<'_>, ctx: &ContributeContext) -> Option<Contribution>);
-    bridge_ref!(transform => transform_erased(target: &TransformTarget, element: Element, state: &AppView<'_>, ctx: &TransformContext) -> Element);
+    bridge_ref!(transform => transform_erased(target: &TransformTarget, subject: TransformSubject, state: &AppView<'_>, ctx: &TransformContext) -> TransformSubject);
     bridge_ref!(annotate_line_with_ctx => annotate_line_erased(line: usize, state: &AppView<'_>, ctx: &AnnotateContext) -> Option<LineAnnotation>);
     bridge_ref!(display_directives => display_directives_erased(state: &AppView<'_>) -> Vec<DisplayDirective>);
     bridge_ref!(contribute_overlay_with_ctx => contribute_overlay_erased(state: &AppView<'_>, ctx: &OverlayContext) -> Option<OverlayContribution>);

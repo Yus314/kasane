@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use crate::display::DisplayMapRef;
-use crate::element::{Element, OverlayAnchor};
+use crate::element::{Element, Overlay, OverlayAnchor};
 use crate::layout::Rect;
 use crate::layout::flex::Constraints;
 use crate::protocol::Face;
@@ -9,6 +9,70 @@ use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
 use super::{AppView, PluginId};
+
+/// Sum type for transform chain subjects — either a bare Element or an Overlay
+/// (Element + OverlayAnchor).
+///
+/// Overlay targets (Menu, Info) carry their anchor through the transform chain
+/// so plugins can modify positioning. Non-overlay targets use the `Element` variant.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransformSubject {
+    Element(Element),
+    Overlay(Overlay),
+}
+
+impl TransformSubject {
+    /// Returns `true` if this is an `Overlay` variant.
+    pub fn is_overlay(&self) -> bool {
+        matches!(self, Self::Overlay(_))
+    }
+
+    /// Apply a function to the contained element, preserving the variant.
+    pub fn map_element(self, f: impl FnOnce(Element) -> Element) -> Self {
+        match self {
+            Self::Element(el) => Self::Element(f(el)),
+            Self::Overlay(Overlay { element, anchor }) => Self::Overlay(Overlay {
+                element: f(element),
+                anchor,
+            }),
+        }
+    }
+
+    /// Apply a function to the overlay anchor. No-op for `Element` variant.
+    pub fn map_anchor(self, f: impl FnOnce(OverlayAnchor) -> OverlayAnchor) -> Self {
+        match self {
+            Self::Element(_) => self,
+            Self::Overlay(Overlay { element, anchor }) => Self::Overlay(Overlay {
+                element,
+                anchor: f(anchor),
+            }),
+        }
+    }
+
+    /// Apply a function to the overlay. No-op for `Element` variant.
+    pub fn map_overlay(self, f: impl FnOnce(Overlay) -> Overlay) -> Self {
+        match self {
+            Self::Element(_) => self,
+            Self::Overlay(overlay) => Self::Overlay(f(overlay)),
+        }
+    }
+
+    /// Extract the element, discarding the anchor if present.
+    pub fn into_element(self) -> Element {
+        match self {
+            Self::Element(el) => el,
+            Self::Overlay(Overlay { element, .. }) => element,
+        }
+    }
+
+    /// Extract the overlay if this is an `Overlay` variant.
+    pub fn into_overlay(self) -> Option<Overlay> {
+        match self {
+            Self::Element(_) => None,
+            Self::Overlay(overlay) => Some(overlay),
+        }
+    }
+}
 
 /// Pane-specific rendering context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,4 +340,96 @@ pub struct AnnotationResult {
     pub line_backgrounds: Option<Vec<Option<Face>>>,
     /// Per-line inline decorations (indexed by visible line).
     pub inline_decorations: Option<Vec<Option<InlineDecoration>>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::element::{Element, Overlay, OverlayAnchor};
+    use crate::protocol::Face;
+
+    fn sample_element() -> Element {
+        Element::text("hello", Face::default())
+    }
+
+    fn sample_overlay() -> Overlay {
+        Overlay {
+            element: Element::text("menu", Face::default()),
+            anchor: OverlayAnchor::Absolute {
+                x: 1,
+                y: 2,
+                w: 10,
+                h: 5,
+            },
+        }
+    }
+
+    #[test]
+    fn map_element_preserves_variant() {
+        let subj = TransformSubject::Element(sample_element());
+        let mapped = subj.map_element(|_| Element::Empty);
+        assert!(matches!(mapped, TransformSubject::Element(Element::Empty)));
+
+        let subj = TransformSubject::Overlay(sample_overlay());
+        let mapped = subj.map_element(|_| Element::Empty);
+        assert!(matches!(
+            mapped,
+            TransformSubject::Overlay(Overlay {
+                element: Element::Empty,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn map_anchor_noop_for_element() {
+        let subj = TransformSubject::Element(sample_element());
+        let mapped = subj.clone().map_anchor(|_| OverlayAnchor::Fill);
+        assert_eq!(subj, mapped);
+    }
+
+    #[test]
+    fn map_anchor_modifies_overlay() {
+        let subj = TransformSubject::Overlay(sample_overlay());
+        let mapped = subj.map_anchor(|_| OverlayAnchor::Fill);
+        match mapped {
+            TransformSubject::Overlay(o) => assert_eq!(o.anchor, OverlayAnchor::Fill),
+            _ => panic!("expected Overlay"),
+        }
+    }
+
+    #[test]
+    fn map_overlay_noop_for_element() {
+        let subj = TransformSubject::Element(sample_element());
+        let mapped = subj.clone().map_overlay(|mut o| {
+            o.anchor = OverlayAnchor::Fill;
+            o
+        });
+        assert_eq!(subj, mapped);
+    }
+
+    #[test]
+    fn into_element_from_both_variants() {
+        let el = sample_element();
+        let subj = TransformSubject::Element(el.clone());
+        assert_eq!(subj.into_element(), el);
+
+        let overlay = sample_overlay();
+        let expected_el = overlay.element.clone();
+        let subj = TransformSubject::Overlay(overlay);
+        assert_eq!(subj.into_element(), expected_el);
+    }
+
+    #[test]
+    fn into_overlay_element_returns_none() {
+        let subj = TransformSubject::Element(sample_element());
+        assert!(subj.into_overlay().is_none());
+    }
+
+    #[test]
+    fn into_overlay_returns_some() {
+        let overlay = sample_overlay();
+        let subj = TransformSubject::Overlay(overlay.clone());
+        assert_eq!(subj.into_overlay(), Some(overlay));
+    }
 }

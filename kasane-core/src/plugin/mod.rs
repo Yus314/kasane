@@ -64,7 +64,7 @@ pub use context::{
     AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, ContribSizeHint,
     ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
     PaneContext, SourcedContribution, TransformContext, TransformDescriptor, TransformScope,
-    TransformTarget,
+    TransformSubject, TransformTarget,
 };
 
 // Re-export registry module

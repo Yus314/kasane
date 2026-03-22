@@ -356,18 +356,23 @@ impl PluginBackend for BufferTransformPlugin {
 
     fn transform(
         &self,
-        target: &TransformTarget,
-        element: Element,
+        target: &kasane_core::plugin::TransformTarget,
+        subject: kasane_core::plugin::TransformSubject,
         _state: &kasane_core::plugin::AppView<'_>,
         _ctx: &TransformContext,
-    ) -> Element {
+    ) -> kasane_core::plugin::TransformSubject {
         if *target == TransformTarget::Buffer {
-            Element::column(vec![
-                kasane_core::element::FlexChild::fixed(Element::text("~banner~", Face::default())),
-                kasane_core::element::FlexChild::flexible(element, 1.0),
-            ])
+            subject.map_element(|element| {
+                Element::column(vec![
+                    kasane_core::element::FlexChild::fixed(Element::text(
+                        "~banner~",
+                        Face::default(),
+                    )),
+                    kasane_core::element::FlexChild::flexible(element, 1.0),
+                ])
+            })
         } else {
-            element
+            subject
         }
     }
 }

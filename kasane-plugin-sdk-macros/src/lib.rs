@@ -136,7 +136,7 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "default_display_directives" => vec!["display_directives".into()],
         "default_workspace_changed" => vec!["on_workspace_changed".into()],
         "default_named_slot" => vec!["contribute_named".into()],
-        "default_transform" => vec!["transform_element".into()],
+        "default_transform" => vec!["transform".into()],
         "default_transform_priority" => vec!["transform_priority".into()],
         "default_menu_transform" => vec!["transform_menu_item".into()],
         "default_replace" => vec!["replace".into()],
@@ -345,14 +345,14 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     // --- Element transformation (current) ---
 
     add_default!(
-        "transform_element",
+        "transform",
         quote! {
-            fn transform_element(
+            fn transform(
                 _target: TransformTarget,
-                element: ElementHandle,
+                subject: TransformSubject,
                 _ctx: TransformContext,
-            ) -> ElementHandle {
-                element
+            ) -> TransformSubject {
+                subject
             }
         }
     );
@@ -955,7 +955,7 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `on_workspace_changed(snapshot) { ... }` → `fn on_workspace_changed()`
 /// - `annotate(line, ctx) { ... }` → `fn annotate_line()`
 /// - `display_directives() { ... }` → `fn display_directives() -> Vec<DisplayDirective>`
-/// - `transform(target, element, ctx) { ... }` → `fn transform_element()`
+/// - `transform(target, subject, ctx) { ... }` → `fn transform()`
 /// - `transform_priority: expr` → `fn transform_priority()`
 /// - `overlay(ctx) { ... }` → `fn contribute_overlay_v2()`
 /// - `handle_key(event) { ... }` → `fn handle_key()`
@@ -1296,11 +1296,11 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         let body = &tr.body;
         let wrapped = wrap_state(body);
         quote! {
-            fn transform_element(
+            fn transform(
                 #target_param: TransformTarget,
-                #element_param: ElementHandle,
+                #element_param: TransformSubject,
                 #ctx_param: TransformContext,
-            ) -> ElementHandle {
+            ) -> TransformSubject {
                 #wrapped
             }
         }

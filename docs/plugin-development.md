@@ -16,7 +16,7 @@ For API details, see [plugin-api.md](./plugin-api.md). For composition semantics
 | `contribute_to()` | Line numbers, git markers, status bar widgets |
 | `annotate_line()` | Cursor line highlight, indent guides |
 | `contribute_overlay_v2()` | Color picker, tooltips, diagnostic popups |
-| `transform_element()` | Status bar customization, menu layout changes |
+| `transform()` | Status bar customization, menu layout changes, overlay repositioning |
 | `display_directives()` | Code folding, line hiding, virtual text insertion |
 | `handle_key()` + `handle_mouse()` | Interactive pickers, dialogs |
 | `handle_default_scroll()` | Wheel policy, smooth scrolling |
@@ -170,7 +170,7 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@0.12.0`. Rebuild and reinstall any plugin that was built
+`kasane:plugin@0.13.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
 To see installed plugins or diagnose environment issues:
@@ -206,16 +206,23 @@ kasane_plugin_sdk::define_plugin! {
         cursor_mode: u8 = 0,
     },
 
-    transform(target, element, _ctx) {
+    transform(target, subject, _ctx) {
         if !matches!(target, TransformTarget::StatusBarT) {
-            return element;
+            return subject;
         }
         if state.cursor_mode != 1 {
-            return element;
+            return subject;
         }
-        container(element)
-            .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
-            .build()
+        match subject {
+            TransformSubject::ElementS(element) => {
+                TransformSubject::ElementS(
+                    container(element)
+                        .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
+                        .build(),
+                )
+            }
+            other => other,
+        }
     },
 
     transform_priority: 0,
@@ -224,7 +231,7 @@ kasane_plugin_sdk::define_plugin! {
 
 **Key points:**
 
-- **`transform(target, element, ctx)`** receives an opaque `ElementHandle` for the target element. Return it unchanged for passthrough, or wrap it with `container().build()`.
+- **`transform(target, subject, ctx)`** receives a `TransformSubject` — either `ElementS(ElementHandle)` for non-overlay targets or `OverlayS(OverlaySubject)` for overlay targets. Return it unchanged for passthrough, or pattern-match and wrap.
 - **`TransformTarget`** selects which UI component to transform (e.g., `StatusBarT`, `Buffer`, `MenuT`). Ignore targets your plugin doesn't handle.
 - **`transform_priority`** (default `0`) controls ordering in the transform chain. Higher priority = applied first (inner).
 
@@ -413,7 +420,7 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 |---|---|---|
 | cursor-line | `examples/wasm/cursor-line/` | `annotate_line()`, `state_hash()` |
 | sel-badge | `examples/wasm/sel-badge/` | `contribute_to()` (`STATUS_RIGHT`) |
-| prompt-highlight | `examples/wasm/prompt-highlight/` | `transform_element()` (`StatusBarT`) |
+| prompt-highlight | `examples/wasm/prompt-highlight/` | `transform()` (`StatusBarT`) |
 | color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |

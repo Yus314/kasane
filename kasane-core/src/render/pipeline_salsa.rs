@@ -20,7 +20,7 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use crate::element::{Element, FlexChild, Style};
 use crate::layout::Rect;
-use crate::plugin::{AppView, PaintHook, PluginView, TransformTarget};
+use crate::plugin::{AppView, PaintHook, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::MenuStyle;
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
@@ -142,7 +142,7 @@ impl ViewSource for SalsaViewSource<'_> {
             overlay
         } else {
             let pure = salsa_views::pure_menu_overlay(db, h.menu, h.config);
-            pure.map(|mut overlay| {
+            pure.map(|overlay| {
                 let menu_state = state.menu.as_ref();
                 let target = menu_state
                     .map(|m| match m.style {
@@ -152,12 +152,14 @@ impl ViewSource for SalsaViewSource<'_> {
                     })
                     .unwrap_or(TransformTarget::Menu);
 
-                overlay.element = registry.apply_transform_chain_hierarchical(
-                    target,
-                    || overlay.element.clone(),
-                    &AppView::new(state),
-                );
-                overlay
+                registry
+                    .apply_transform_chain_hierarchical(
+                        target,
+                        TransformSubject::Overlay(overlay),
+                        &AppView::new(state),
+                    )
+                    .into_overlay()
+                    .expect("overlay transform preserves variant")
             })
         };
 
@@ -174,27 +176,15 @@ impl ViewSource for SalsaViewSource<'_> {
         } else {
             let pure = salsa_views::pure_info_overlays(db, h.info, h.menu, h.buffer, h.config);
             pure.into_iter()
-                .map(|mut overlay| {
-                    let (inner, interactive_id) = match overlay.element {
-                        Element::Interactive { child, id } => (*child, Some(id)),
-                        other => (other, None),
-                    };
-
-                    let mut el = registry.apply_transform_chain(
-                        TransformTarget::Info,
-                        || inner.clone(),
-                        &AppView::new(state),
-                    );
-
-                    if let Some(id) = interactive_id {
-                        el = Element::Interactive {
-                            child: Box::new(el),
-                            id,
-                        };
-                    }
-
-                    overlay.element = el;
-                    overlay
+                .map(|overlay| {
+                    registry
+                        .apply_transform_chain_hierarchical(
+                            TransformTarget::Info,
+                            TransformSubject::Overlay(overlay),
+                            &AppView::new(state),
+                        )
+                        .into_overlay()
+                        .expect("overlay transform preserves variant")
                 })
                 .collect()
         };
@@ -266,11 +256,13 @@ fn compose_base_from_salsa(
         };
 
     // Apply buffer transform chain (imperative)
-    let transformed_buffer = registry.apply_transform_chain(
-        TransformTarget::Buffer,
-        || buffer_with_bg,
-        &AppView::new(state),
-    );
+    let transformed_buffer = registry
+        .apply_transform_chain(
+            TransformTarget::Buffer,
+            TransformSubject::Element(buffer_with_bg),
+            &AppView::new(state),
+        )
+        .into_element();
 
     // Read buffer slot contributions from Salsa input
     let buffer_left = handles.slot_contributions.buffer_left(db).clone();
@@ -303,11 +295,13 @@ fn compose_base_from_salsa(
     };
 
     // Apply status transform chain (imperative)
-    let transformed_status = registry.apply_transform_chain(
-        TransformTarget::StatusBar,
-        || status_el,
-        &AppView::new(state),
-    );
+    let transformed_status = registry
+        .apply_transform_chain(
+            TransformTarget::StatusBar,
+            TransformSubject::Element(status_el),
+            &AppView::new(state),
+        )
+        .into_element();
 
     // Read status slot contributions from Salsa input
     let status_left = handles.slot_contributions.status_left(db).clone();

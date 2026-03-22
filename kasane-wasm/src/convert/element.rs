@@ -19,6 +19,41 @@ pub(crate) fn wit_overlay_anchor_to_overlay_anchor(wa: &wit::OverlayAnchor) -> O
     }
 }
 
+pub(crate) fn overlay_anchor_to_wit(anchor: &OverlayAnchor) -> wit::OverlayAnchor {
+    match anchor {
+        OverlayAnchor::Absolute { x, y, w, h } => {
+            wit::OverlayAnchor::Absolute(wit::AbsoluteAnchor {
+                x: *x,
+                y: *y,
+                w: *w,
+                h: *h,
+            })
+        }
+        OverlayAnchor::AnchorPoint {
+            coord,
+            prefer_above,
+            avoid,
+        } => wit::OverlayAnchor::AnchorPoint(wit::AnchorPointConfig {
+            coord: wit::Coord {
+                line: coord.line,
+                column: coord.column,
+            },
+            prefer_above: *prefer_above,
+            avoid: avoid.iter().map(super::rect_to_wit).collect(),
+        }),
+        OverlayAnchor::Fill => {
+            // WIT OverlayAnchor doesn't have a Fill variant; use Absolute(0,0,0,0)
+            // as a sentinel. This path is unlikely for transform subjects.
+            wit::OverlayAnchor::Absolute(wit::AbsoluteAnchor {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            })
+        }
+    }
+}
+
 pub(crate) fn wit_border_to_border_config(b: &wit::BorderLineStyle) -> BorderConfig {
     let style = match b {
         wit::BorderLineStyle::Single => BorderLineStyle::Single,

@@ -30,7 +30,7 @@ Kasane embeds a small set of WASM plugins in the binary. Their source is in
 | Color Preview | `color_preview` | Line annotation + overlay + mouse input |
 | Selection Badge | `sel_badge` | Slot contribution (`contribute_to`) |
 | Fuzzy Finder | `fuzzy_finder` | Overlay + key input + external process I/O |
-| Prompt Highlight | `prompt_highlight` | Element transform (`transform_element`) |
+| Prompt Highlight | `prompt_highlight` | Element transform (`transform`) |
 | Session UI | `session_ui` | Slot contribution + overlay + session commands |
 
 A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
@@ -79,7 +79,7 @@ auto_discover = false
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@0.12.0`. If you are upgrading from an older build,
+`kasane:plugin@0.13.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
 will not load.
 
