@@ -56,14 +56,43 @@ fn arb_lines() -> impl Strategy<Value = Vec<Vec<Atom>>> {
     prop::collection::vec(arb_line(), 1..30)
 }
 
+/// Generate lines together with a cursor position that is consistent with the
+/// line content (satisfies the R-1 width invariant in `apply()`).
+///
+/// Since `arb_line()` generates only ASCII atoms (`[a-z]{1,10}`), the display
+/// width of each atom equals `contents.len()`.
+fn arb_lines_with_cursor() -> impl Strategy<Value = (Vec<Vec<Atom>>, Coord)> {
+    arb_lines()
+        .prop_flat_map(|lines| {
+            let widths: Vec<u32> = lines
+                .iter()
+                .map(|line| line.iter().map(|a| a.contents.len() as u32).sum::<u32>())
+                .collect();
+            let n = lines.len();
+            (Just(lines), Just(widths), 0..n)
+        })
+        .prop_flat_map(|(lines, widths, line_idx)| {
+            let max_col = widths[line_idx];
+            (Just(lines), Just(line_idx as i32), 0..=max_col)
+        })
+        .prop_map(|(lines, line, col)| {
+            (
+                lines,
+                Coord {
+                    line,
+                    column: col as i32,
+                },
+            )
+        })
+}
+
 // --- Tests for each apply() match arm ---
 
 proptest! {
     /// Draw always returns BUFFER (BUFFER_CONTENT | BUFFER_CURSOR).
     #[test]
     fn draw_returns_buffer(
-        lines in arb_lines(),
-        cursor_pos in arb_coord(),
+        (lines, cursor_pos) in arb_lines_with_cursor(),
         default_face in arb_face(),
         padding_face in arb_face(),
         widget_columns in 0u16..10,
