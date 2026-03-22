@@ -266,6 +266,22 @@ impl<'a> AppView<'a> {
     }
 
     // =========================================================================
+    // Tier 9: Theme / Color context
+    // =========================================================================
+
+    /// Look up a theme token face.
+    #[inline]
+    pub fn theme_face(&self, token: &crate::element::StyleToken) -> Option<crate::protocol::Face> {
+        self.state.theme.get(token).copied()
+    }
+
+    /// Whether the background is dark.
+    #[inline]
+    pub fn is_dark_background(&self) -> bool {
+        self.state.color_context.is_dark
+    }
+
+    // =========================================================================
     // Derived methods
     // =========================================================================
 

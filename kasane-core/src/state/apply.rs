@@ -96,6 +96,13 @@ impl AppState {
                 self.lines = lines;
                 self.default_face = default_face;
                 self.padding_face = padding_face;
+                // Re-derive color context when default_face changes
+                let new_ctx =
+                    crate::render::color_context::ColorContext::derive(&self.default_face);
+                if new_ctx != self.color_context {
+                    self.color_context = new_ctx;
+                    self.theme.apply_color_context(&self.color_context);
+                }
                 DirtyFlags::BUFFER
             }
             KakouneRequest::DrawStatus {

@@ -738,6 +738,24 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 }
             }
 
+            // ----- Theme helpers -----
+
+            /// Query the host theme for a face associated with a token name.
+            /// Returns `None` if the token is not in the theme.
+            pub fn get_theme_face(token: &str) -> Option<Face> {
+                super::kasane::plugin::host_state::get_theme_face(token)
+            }
+
+            /// Whether the current editor background is dark.
+            pub fn is_dark_background() -> bool {
+                super::kasane::plugin::host_state::is_dark_background()
+            }
+
+            /// Query the host theme for a face, falling back to `fallback` if not found.
+            pub fn theme_face_or(token: &str, fallback: Face) -> Face {
+                get_theme_face(token).unwrap_or(fallback)
+            }
+
             // ----- Command shortcuts -----
 
             /// Request a full redraw (all dirty flags).

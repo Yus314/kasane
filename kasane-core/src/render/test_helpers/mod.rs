@@ -161,7 +161,13 @@ pub(super) fn draw_shadow(grid: &mut CellGrid, win: &crate::layout::FloatingWind
         w: win.width,
         h: win.height,
     };
-    super::paint::paint_shadow(grid, &rect);
+    let shadow_face = crate::protocol::Face {
+        fg: crate::protocol::Color::Default,
+        bg: crate::protocol::Color::Default,
+        underline: crate::protocol::Color::Default,
+        attributes: crate::protocol::Attributes::DIM,
+    };
+    super::paint::paint_shadow(grid, &rect, &shadow_face);
 }
 
 /// Standard 80×24 AppState with reasonable default faces.

@@ -20,11 +20,17 @@ kasane_plugin_sdk::state! {
 // ---------------------------------------------------------------------------
 
 fn highlight_face() -> Face {
-    face(named(NamedColor::White), rgb(4, 57, 94))
+    theme_face_or(
+        "session_ui.highlight",
+        face(named(NamedColor::White), rgb(4, 57, 94)),
+    )
 }
 
 fn active_face() -> Face {
-    face_fg(named(NamedColor::Green))
+    theme_face_or(
+        "session_ui.active",
+        face_fg(named(NamedColor::Green)),
+    )
 }
 
 // ---------------------------------------------------------------------------

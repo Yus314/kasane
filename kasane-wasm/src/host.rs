@@ -69,6 +69,10 @@ pub(crate) struct HostState {
     pub session_descriptors: Vec<SessionDescriptorCache>,
     pub active_session_key: Option<String>,
 
+    // --- v0.8.0 Tier 9: Theme / Color context ---
+    pub theme: kasane_core::render::theme::Theme,
+    pub is_dark: bool,
+
     /// Element arena: WASM plugins build elements via host calls, stored here.
     /// Cleared before each `contribute()` call.
     pub elements: Vec<Element>,
@@ -122,6 +126,8 @@ impl Default for HostState {
             menu_selected_face: None,
             session_descriptors: Vec::new(),
             active_session_key: None,
+            theme: kasane_core::render::theme::Theme::default_theme(),
+            is_dark: true,
             elements: Vec::new(),
             wasi: WasiCtxBuilder::new().build(),
             table: wasmtime::component::ResourceTable::new(),
@@ -315,6 +321,16 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     }
     fn get_active_session_key(&mut self) -> Option<String> {
         self.active_session_key.clone()
+    }
+
+    // --- v0.8.0 Tier 9: Theme / Color context ---
+    fn get_theme_face(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Face> {
+        let st = kasane_core::element::StyleToken::new(token);
+        self.theme.get(&st).map(convert::face_to_wit)
+    }
+
+    fn is_dark_background(&mut self) -> bool {
+        self.is_dark
     }
 }
 
@@ -707,4 +723,8 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
         })
         .collect();
     host.active_session_key = state.active_session_key.clone();
+
+    // Tier 9: Theme / Color context
+    host.theme = state.theme.clone();
+    host.is_dark = state.color_context.is_dark;
 }

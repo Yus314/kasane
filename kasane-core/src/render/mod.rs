@@ -1,6 +1,7 @@
 //! Rendering pipeline: view construction, paint, cache, pipeline orchestration, scene.
 
 pub(crate) mod builders;
+pub mod color_context;
 pub mod cursor;
 mod grid;
 pub mod inline_decoration;
@@ -11,7 +12,7 @@ mod pipeline_salsa;
 pub mod scene;
 #[cfg(test)]
 pub(crate) mod test_helpers;
-pub(crate) mod theme;
+pub mod theme;
 pub mod view;
 pub(crate) mod walk;
 

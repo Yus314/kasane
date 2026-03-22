@@ -163,11 +163,17 @@ fn kill_active_processes(state: &PluginState) -> Vec<Command> {
 // ---------------------------------------------------------------------------
 
 fn highlight_face() -> Face {
-    face(named(NamedColor::White), rgb(4, 57, 94))
+    theme_face_or(
+        "fuzzy_finder.highlight",
+        face(named(NamedColor::White), rgb(4, 57, 94)),
+    )
 }
 
 fn dim_face() -> Face {
-    face_fg(named(NamedColor::BrightBlack))
+    theme_face_or(
+        "fuzzy_finder.dim",
+        face_fg(named(NamedColor::BrightBlack)),
+    )
 }
 
 fn error_face() -> Face {

@@ -83,6 +83,12 @@ interface types {
         edit-buffer(list<buffer-edit>),
         inject-key(key-event),
         switch-session(string),
+        register-theme-tokens(list<theme-token-default>),
+    }
+
+    record theme-token-default {
+        token: string,
+        face: face,
     }
 
     record resize-pty-config {
@@ -667,6 +673,14 @@ interface host-state {
     get-session-count: func() -> u32;
     get-session: func(index: u32) -> option<session-descriptor>;
     get-active-session-key: func() -> option<string>;
+
+    // --- v0.8.0 Tier 9: Theme / Color context ---
+    /// Resolve a theme token to a face. Returns none if token is not in the theme.
+    get-theme-face: func(token: string) -> option<face>;
+
+    /// Whether the current background is dark (true) or light (false).
+    /// Based on Kakoune's default_face. Defaults to true when unknown.
+    is-dark-background: func() -> bool;
 }
 
 /// Host-provided functions for building Element trees.

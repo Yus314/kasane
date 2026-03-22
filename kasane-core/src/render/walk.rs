@@ -218,11 +218,12 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
 /// PaintVisitor that writes to a CellGrid (TUI rendering).
 pub(crate) struct GridPaintVisitor<'a> {
     grid: &'a mut CellGrid,
+    theme: &'a Theme,
 }
 
 impl<'a> GridPaintVisitor<'a> {
-    pub fn new(grid: &'a mut CellGrid) -> Self {
-        Self { grid }
+    pub fn new(grid: &'a mut CellGrid, theme: &'a Theme) -> Self {
+        Self { grid, theme }
     }
 }
 
@@ -261,7 +262,14 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     fn visit_container_pre(&mut self, info: &ContainerPaintInfo) {
         // Shadow (drawn first, behind the container)
         if info.shadow {
-            paint_shadow(self.grid, &info.area);
+            let shadow_face = self.theme.resolve(
+                &crate::element::Style::Token(crate::element::StyleToken::SHADOW),
+                &Face {
+                    attributes: crate::protocol::Attributes::DIM,
+                    ..Face::default()
+                },
+            );
+            paint_shadow(self.grid, &info.area, &shadow_face);
         }
 
         // Fill entire container area with face
@@ -557,7 +565,7 @@ pub(crate) fn walk_paint_grid(
     state: &AppState,
     theme: &Theme,
 ) {
-    let mut visitor = GridPaintVisitor::new(grid);
+    let mut visitor = GridPaintVisitor::new(grid, theme);
     walk_paint(&mut visitor, element, layout, state, theme);
 }
 

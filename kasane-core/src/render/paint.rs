@@ -7,15 +7,15 @@ use crate::display::{DisplayMap, SourceMapping, SyntheticContent};
 use crate::element::{BorderLineStyle, BufferRefState, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
-use crate::protocol::{Atom, Attributes, Color, Face};
+use crate::protocol::{Atom, Face};
 use crate::render::InlineDecoration;
 use crate::state::AppState;
 
 /// Paint an element tree into a CellGrid using pre-computed layout results.
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
     crate::perf::perf_span!("paint");
-    let theme = Theme::default_theme();
-    super::walk::walk_paint_grid(element, layout, grid, state, &theme);
+    let theme = &state.theme;
+    super::walk::walk_paint_grid(element, layout, grid, state, theme);
 }
 
 /// Paint with an explicit theme for style resolution.
@@ -361,20 +361,13 @@ pub(crate) fn paint_border_title(
     }
 }
 
-pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
-    let dim_face = Face {
-        fg: Color::Default,
-        bg: Color::Default,
-        underline: Color::Default,
-        attributes: Attributes::DIM,
-    };
-
+pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect, shadow_face: &Face) {
     // Right shadow (1 cell wide)
     let sx = area.x + area.w;
     if sx < grid.width() {
         for y in (area.y + 1)..=(area.y + area.h) {
             if y < grid.height() {
-                grid.put_char(sx, y, " ", &dim_face);
+                grid.put_char(sx, y, " ", shadow_face);
             }
         }
     }
@@ -384,7 +377,7 @@ pub(crate) fn paint_shadow(grid: &mut CellGrid, area: &Rect) {
     if sy < grid.height() {
         for x in (area.x + 1)..=(area.x + area.w) {
             if x < grid.width() {
-                grid.put_char(x, sy, " ", &dim_face);
+                grid.put_char(x, sy, " ", shadow_face);
             }
         }
     }

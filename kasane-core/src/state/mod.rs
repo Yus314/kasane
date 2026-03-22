@@ -19,6 +19,8 @@ use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::input::MouseButton;
 use crate::layout::HitMap;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
+use crate::render::color_context::ColorContext;
+use crate::render::theme::Theme;
 use crate::scroll::{
     SMOOTH_SCROLL_CONFIG_KEY, is_smooth_scroll_config_key, set_smooth_scroll_enabled,
 };
@@ -213,6 +215,12 @@ pub struct AppState {
     #[epistemic(config)]
     #[dirty(BUFFER_CONTENT)]
     pub secondary_blend_ratio: f32,
+    #[epistemic(config)]
+    #[dirty(OPTIONS)]
+    pub theme: Theme,
+    #[epistemic(derived, source = "default_face luminance analysis")]
+    #[dirty(BUFFER_CONTENT)]
+    pub color_context: ColorContext,
 
     // -- Session metadata (from SessionManager, preserved across session switches) --
     #[epistemic(session)]
@@ -282,6 +290,8 @@ impl AppState {
         self.search_dropdown = config.search.dropdown;
         self.status_at_top = config.ui.status_position() == StatusPosition::Top;
         set_smooth_scroll_enabled(&mut self.plugin_config, config.scroll.smooth);
+        self.theme = Theme::from_config(&config.theme);
+        self.theme.apply_color_context(&self.color_context);
     }
 
     /// Reset session-owned UI state while preserving frontend configuration and dimensions.
@@ -312,6 +322,7 @@ impl AppState {
             ui_options,
             cursor_count,
             secondary_cursors,
+            color_context,
             drag,
             // === PRESERVE: discard defaults, keep current values ===
             cols: _,
@@ -329,6 +340,7 @@ impl AppState {
             assistant_art: _,
             plugin_config: _,
             secondary_blend_ratio: _,
+            theme: _,
             session_descriptors: _,
             active_session_key: _,
         } = d;
@@ -352,6 +364,7 @@ impl AppState {
         self.ui_options = ui_options;
         self.cursor_count = cursor_count;
         self.secondary_cursors = secondary_cursors;
+        self.color_context = color_context;
         self.drag = drag;
     }
 }
@@ -448,6 +461,8 @@ impl Default for AppState {
             active_session_key: None,
             drag: DragState::None,
             secondary_blend_ratio: 0.4,
+            theme: Theme::default_theme(),
+            color_context: ColorContext::default(),
             cols: 80,
             rows: 24,
             hit_map: HitMap::new(),

@@ -4,7 +4,6 @@ use super::cursor::{
 };
 use super::grid::CellGrid;
 use super::scene::{self, DrawCommand, SceneCache};
-use super::theme::Theme;
 use super::walk;
 use super::{RenderResult, view};
 use crate::display::{DisplayMap, DisplayMapRef};
@@ -244,8 +243,8 @@ pub(crate) fn render_cached_core(
     // are clean, skip full grid.clear() and only clear non-buffer sections.
     // paint_buffer_ref() skips clean lines, reusing previous frame content.
     selective_clear(grid, state, dirty);
-    let theme = Theme::default_theme();
-    walk::walk_paint_grid(&element, &layout_result, grid, state, &theme);
+    let theme = &state.theme;
+    walk::walk_paint_grid(&element, &layout_result, grid, state, theme);
 
     // Apply plugin paint hooks after standard paint
     if !paint_hooks.is_empty() {
@@ -329,7 +328,7 @@ pub(crate) fn scene_render_core<'a>(
         return (scene_cache.composed_ref(), result);
     }
 
-    let theme = Theme::default_theme();
+    let theme = &state.theme;
 
     // Base section
     if scene_cache.base_commands.is_none() {
@@ -337,7 +336,7 @@ pub(crate) fn scene_render_core<'a>(
             &frame.sections.base,
             &frame.base_layout,
             state,
-            &theme,
+            theme,
             cell_size,
             result.cursor_style,
         );
@@ -352,7 +351,7 @@ pub(crate) fn scene_render_core<'a>(
                 &overlay.element,
                 &overlay_layout,
                 state,
-                &theme,
+                theme,
                 cell_size,
                 result.cursor_style,
             )
@@ -377,7 +376,7 @@ pub(crate) fn scene_render_core<'a>(
                 &overlay.element,
                 &overlay_layout,
                 state,
-                &theme,
+                theme,
                 cell_size,
                 result.cursor_style,
             );

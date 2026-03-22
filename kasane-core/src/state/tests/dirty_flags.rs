@@ -413,6 +413,8 @@ fn test_field_dirty_map_matches_macro_analysis() {
         ("assistant_art", &["OPTIONS"]),
         ("plugin_config", &["OPTIONS"]),
         ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
+        ("theme", &["OPTIONS"]),
+        ("color_context", &["BUFFER_CONTENT"]),
         ("session_descriptors", &["SESSION"]),
         ("active_session_key", &["SESSION"]),
     ];
@@ -481,14 +483,15 @@ fn test_field_epistemic_map_complete() {
         ("menu", "observed"),
         ("infos", "observed"),
         ("ui_options", "observed"),
-        // Derived (3)
+        // Derived (4)
         ("lines_dirty", "derived"),
         ("cursor_mode", "derived"),
         ("status_line", "derived"),
+        ("color_context", "derived"),
         // Heuristic (2)
         ("cursor_count", "heuristic"),
         ("secondary_cursors", "heuristic"),
-        // Config (11)
+        // Config (12)
         ("shadow_enabled", "config"),
         ("padding_char", "config"),
         ("menu_max_height", "config"),
@@ -500,6 +503,7 @@ fn test_field_epistemic_map_complete() {
         ("assistant_art", "config"),
         ("plugin_config", "config"),
         ("secondary_blend_ratio", "config"),
+        ("theme", "config"),
         // Session (2)
         ("session_descriptors", "session"),
         ("active_session_key", "session"),
@@ -557,6 +561,7 @@ fn test_derived_fields_match() {
         ("lines_dirty", "line equality diff (R-3)"),
         ("cursor_mode", "content_cursor_pos sign (I-3)"),
         ("status_line", "prompt + content concatenation"),
+        ("color_context", "default_face luminance analysis"),
     ]);
 
     let actual: HashSet<(&str, &str)> = AppState::DERIVED_FIELDS.iter().copied().collect();

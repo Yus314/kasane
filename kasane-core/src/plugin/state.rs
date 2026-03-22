@@ -292,6 +292,14 @@ pub trait Plugin: Send + 'static {
         0
     }
 
+    /// Declare theme token defaults for this plugin.
+    ///
+    /// Called when the plugin is registered. Returns a list of (token_name, default_face)
+    /// pairs. User config.toml settings take priority over these defaults.
+    fn theme_defaults(&self) -> Vec<(&'static str, crate::protocol::Face)> {
+        vec![]
+    }
+
     /// Declare which `DirtyFlags` this plugin's view methods depend on.
     ///
     /// When the framework detects that neither the plugin's state nor any of the

@@ -34,7 +34,18 @@ impl Guest for CursorLinePlugin {
 
     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
         let active = ACTIVE_LINE.get();
-        (line as i32 == active).then(|| bg_annotation(face_bg(rgb(40, 40, 50))))
+        if line as i32 != active {
+            return None;
+        }
+        let bg = theme_face_or(
+            "cursor.line.bg",
+            if is_dark_background() {
+                face_bg(rgb(40, 40, 50))
+            } else {
+                face_bg(rgb(220, 220, 235))
+            },
+        );
+        Some(bg_annotation(bg))
     }
 }
 

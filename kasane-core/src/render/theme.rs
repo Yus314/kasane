@@ -5,7 +5,7 @@ use crate::element::{Style, StyleToken};
 use crate::protocol::{Attributes, Color, Face, NamedColor};
 
 /// Theme maps StyleTokens to Faces for consistent visual styling.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     map: HashMap<StyleToken, Face>,
 }
@@ -157,6 +157,44 @@ impl Theme {
             }
         }
         theme
+    }
+
+    /// Apply derived color context to the theme.
+    ///
+    /// Overwrites tokens that are still at their default (Color::Default) values
+    /// with derived colors from the color context. User-specified config values
+    /// are preserved.
+    pub fn apply_color_context(&mut self, ctx: &crate::render::color_context::ColorContext) {
+        if let Some(ref palette) = ctx.chrome {
+            self.set_if_still_default(
+                StyleToken::SHADOW,
+                Face {
+                    fg: palette.dim_fg,
+                    bg: Color::Default,
+                    underline: Color::Default,
+                    attributes: Attributes::DIM,
+                },
+            );
+            self.set_if_still_default(
+                StyleToken::SPLIT_DIVIDER,
+                Face {
+                    fg: Color::Default,
+                    bg: palette.chrome_bg,
+                    ..Face::default()
+                },
+            );
+        }
+    }
+
+    fn set_if_still_default(&mut self, token: StyleToken, derived: Face) {
+        match self.map.get(&token) {
+            Some(existing) if existing.fg != Color::Default || existing.bg != Color::Default => {
+                // User explicitly configured -- don't override
+            }
+            _ => {
+                self.map.insert(token, derived);
+            }
+        }
     }
 }
 
@@ -369,5 +407,90 @@ mod tests {
         // Unknown keys are normalized and stored
         let token = StyleToken::new("my.plugin.highlight");
         assert!(theme.get(&token).is_some());
+    }
+
+    #[test]
+    fn test_apply_color_context_k3() {
+        use crate::render::color_context::{ChromePalette, ColorContext, ColorKnowledge};
+        let mut theme = Theme::default_theme();
+        let ctx = ColorContext {
+            is_dark: true,
+            knowledge: ColorKnowledge::K3,
+            chrome: Some(ChromePalette {
+                chrome_bg: Color::Rgb {
+                    r: 50,
+                    g: 50,
+                    b: 50,
+                },
+                dim_fg: Color::Rgb {
+                    r: 150,
+                    g: 150,
+                    b: 150,
+                },
+                subtle_highlight: Color::Rgb {
+                    r: 45,
+                    g: 45,
+                    b: 45,
+                },
+            }),
+        };
+        theme.apply_color_context(&ctx);
+        let shadow = theme.get(&StyleToken::SHADOW).unwrap();
+        assert_eq!(
+            shadow.fg,
+            Color::Rgb {
+                r: 150,
+                g: 150,
+                b: 150
+            }
+        );
+    }
+
+    #[test]
+    fn test_apply_color_context_preserves_user_config() {
+        use crate::render::color_context::{ChromePalette, ColorContext, ColorKnowledge};
+        let mut config = ThemeConfig::default();
+        config.faces.insert("shadow".into(), "cyan,default".into());
+        let mut theme = Theme::from_config(&config);
+
+        let ctx = ColorContext {
+            is_dark: true,
+            knowledge: ColorKnowledge::K3,
+            chrome: Some(ChromePalette {
+                chrome_bg: Color::Rgb {
+                    r: 50,
+                    g: 50,
+                    b: 50,
+                },
+                dim_fg: Color::Rgb {
+                    r: 150,
+                    g: 150,
+                    b: 150,
+                },
+                subtle_highlight: Color::Rgb {
+                    r: 45,
+                    g: 45,
+                    b: 45,
+                },
+            }),
+        };
+        theme.apply_color_context(&ctx);
+        // User's cyan should be preserved
+        let shadow = theme.get(&StyleToken::SHADOW).unwrap();
+        assert_eq!(shadow.fg, Color::Named(NamedColor::Cyan));
+    }
+
+    #[test]
+    fn test_apply_color_context_k1_noop() {
+        use crate::render::color_context::{ColorContext, ColorKnowledge};
+        let mut theme = Theme::default_theme();
+        let original_shadow = *theme.get(&StyleToken::SHADOW).unwrap();
+        let ctx = ColorContext {
+            is_dark: true,
+            knowledge: ColorKnowledge::K1,
+            chrome: None,
+        };
+        theme.apply_color_context(&ctx);
+        assert_eq!(*theme.get(&StyleToken::SHADOW).unwrap(), original_shadow);
     }
 }

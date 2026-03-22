@@ -1097,9 +1097,14 @@ fn handle_workspace_command(
                 *ctx.workspace_changed = true;
             }
         }
-        Command::RegisterThemeTokens(_tokens) => {
-            // Theme token registration will be handled when Theme is
-            // accessible from the event loop (Phase 1 completion).
+        Command::RegisterThemeTokens(tokens) => {
+            for (name, face) in tokens {
+                let token = crate::element::StyleToken::new(name);
+                if ctx.state.theme.get(&token).is_none() {
+                    ctx.state.theme.set(token, face);
+                }
+            }
+            *ctx.dirty |= DirtyFlags::OPTIONS;
         }
         _ => unreachable!(),
     }

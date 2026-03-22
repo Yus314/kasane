@@ -101,6 +101,12 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         wit::Command::SwitchSession(key) => {
             Command::Session(CoreSessionCommand::Switch { key: key.clone() })
         }
+        wit::Command::RegisterThemeTokens(tokens) => Command::RegisterThemeTokens(
+            tokens
+                .iter()
+                .map(|t| (t.token.clone(), super::wit_face_to_face(&t.face)))
+                .collect(),
+        ),
     }
 }
 
