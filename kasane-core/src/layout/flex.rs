@@ -511,7 +511,7 @@ fn distribute_flex_space(
             let share = if flex_idx == flex_count {
                 remaining - distributed
             } else {
-                (remaining as f32 * child.flex / measure.total_flex) as u16
+                (remaining as f32 * child.flex / measure.total_flex).round() as u16
             };
             let share = apply_min_max(share, child.min_size, child.max_size);
             child_main_sizes[i] = share;
