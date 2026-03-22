@@ -690,9 +690,9 @@ The current implementation has at least the following constraints.
 
 ### 10.7 Meaning of Session
 
-A Session represents a single managed Kakoune process and its associated UI state. `SessionManager` assigns a stable `SessionId` to each session and tracks multiple sessions concurrently. At any given time, exactly one session is active and rendered; inactive sessions are held in the background with their Kakoune readers still alive.
+A Session represents a single managed Kakoune client process and its associated UI state. `SessionManager` assigns a stable `SessionId` to each session and tracks multiple sessions concurrently. At any given time, exactly one session is active and rendered; inactive sessions are held in the background with their Kakoune readers still alive. The Kakoune server runs as a separate headless daemon (`kak -d`); sessions correspond to client connections (`kak -ui json -c`), not to the server process itself.
 
-A session is not a Surface, a Workspace layout, or a buffer. It is the runtime container that binds a Kakoune process, an `AppState` snapshot, and (in the future) a set of session-bound surfaces into a single switchable unit.
+A session is not a Surface, a Workspace layout, or a buffer. It is the runtime container that binds a Kakoune client process, an `AppState` snapshot, and (in the future) a set of session-bound surfaces into a single switchable unit.
 
 ### 10.8 Session State Preservation
 

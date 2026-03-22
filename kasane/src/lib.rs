@@ -12,7 +12,7 @@ pub use kasane_wasm;
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use kasane_core::config::Config;
 use kasane_core::plugin::{
     PluginFactory, PluginManager, PluginProvider, ProcessDispatcher, ProcessEventSink,
@@ -144,16 +144,25 @@ fn run_inner(
         ))
     };
 
-    // Auto-generate a server session name for multi-pane support.
-    // When the user didn't specify -s/-c, start kak with -s kasane-{pid}
-    // so that additional clients can connect with -c later.
-    let (session, kak_args) = if session.is_none() {
-        let server_name = format!("kasane-{}", std::process::id());
-        let mut args = vec!["-s".to_string(), server_name.clone()];
-        args.extend(kak_args);
-        (Some(server_name), args)
+    // Daemon mode: separate server (kak -d) and client (kak -c) processes.
+    // In -c mode (connecting to an existing session), no daemon is spawned.
+    let connect_mode = cli::is_connect_mode(&kak_args);
+
+    let (session, kak_args, daemon) = if connect_mode {
+        (session, kak_args, None)
     } else {
-        (session, kak_args)
+        let server_name = session.unwrap_or_else(|| format!("kasane-{}", std::process::id()));
+        let (daemon_args, client_args) = cli::partition_kak_args(&kak_args);
+
+        let mut daemon = process::spawn_kakoune_daemon(&server_name, &daemon_args)?;
+        daemon
+            .wait_ready(std::time::Duration::from_secs(5))
+            .context("kakoune daemon failed to start")?;
+
+        let mut primary_args = vec!["-c".to_string(), server_name.clone()];
+        primary_args.extend(client_args);
+
+        (Some(server_name), primary_args, Some(daemon))
     };
 
     let mut session_manager = SessionManager::new();
@@ -188,6 +197,11 @@ fn run_inner(
         }
     };
 
+    // Clean up the daemon before propagating errors.
+    if let Some(mut d) = daemon {
+        d.kill();
+    }
+
     result?;
 
     // Propagate Kakoune's exit code for EDITOR= use case
@@ -215,9 +229,11 @@ fn build_plugin_manager(
     }
     providers.push(Box::new(provider));
     providers.push(Box::new(StaticPluginProvider::new([
-        builtin_plugin("builtin-window", "kasane.builtin.window", || {
-            kasane_core::input::WindowModePlugin::new()
-        }),
+        builtin_plugin(
+            "builtin-pane-manager",
+            "kasane.builtin.pane-manager",
+            kasane_core::input::PaneManagerPlugin::new,
+        ),
         builtin_plugin("builtin-input", "kasane.builtin.input", || {
             kasane_core::input::BuiltinInputPlugin
         }),

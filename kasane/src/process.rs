@@ -3,8 +3,9 @@
 use std::cell::Cell;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use kasane_core::session::SessionSpec;
 
 thread_local! {
@@ -115,6 +116,85 @@ pub fn spawn_kakoune_for_spec(
     let mut cmd = Command::new("kak");
     cmd.args(kak_command_argv(spec));
     start_kakoune(cmd)
+}
+
+/// Handle to a headless Kakoune daemon (`kak -d`).
+///
+/// Does **not** kill the daemon on drop — if kasane panics, the daemon
+/// survives and the user can reconnect with `kasane -c <session>`.
+/// Normal shutdown calls [`DaemonHandle::kill`] explicitly.
+pub struct DaemonHandle {
+    child: Child,
+    session_name: String,
+}
+
+impl DaemonHandle {
+    /// Poll until the daemon's session appears in `kak -l` output.
+    pub fn wait_ready(&mut self, timeout: Duration) -> Result<()> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let output = Command::new("kak").arg("-l").output()?;
+            let listing = String::from_utf8_lossy(&output.stdout);
+            if listing.lines().any(|line| line.trim() == self.session_name) {
+                return Ok(());
+            }
+            if let Some(status) = self.child.try_wait()? {
+                bail!("kakoune daemon exited immediately ({status})");
+            }
+            if Instant::now() >= deadline {
+                bail!(
+                    "timeout waiting for kakoune daemon session '{}'",
+                    self.session_name
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Gracefully shut down the daemon, falling back to kill.
+    pub fn kill(&mut self) {
+        // Try graceful shutdown via `kak -p <session> <<< kill-session`
+        let _ = Command::new("kak")
+            .arg("-p")
+            .arg(&self.session_name)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .and_then(|mut p| {
+                if let Some(ref mut stdin) = p.stdin {
+                    let _ = stdin.write_all(b"kill-session\n");
+                }
+                p.wait()
+            });
+
+        // Fallback: forcibly kill and reap
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+
+    pub fn session_name(&self) -> &str {
+        &self.session_name
+    }
+}
+
+/// Spawn a headless Kakoune daemon: `kak -d -s <session_name> [daemon_args...]`.
+pub fn spawn_kakoune_daemon(session_name: &str, daemon_args: &[String]) -> Result<DaemonHandle> {
+    let mut cmd = Command::new("kak");
+    cmd.arg("-d")
+        .arg("-s")
+        .arg(session_name)
+        .args(daemon_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit());
+
+    let child = cmd.spawn().context("failed to spawn kakoune daemon")?;
+
+    Ok(DaemonHandle {
+        child,
+        session_name: session_name.to_string(),
+    })
 }
 
 /// Replace the current process with kak, passing through all arguments.

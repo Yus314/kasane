@@ -254,6 +254,68 @@ fn parse_plugin_args<'a>(
     }
 }
 
+/// Check if kak_args contains `-c` (connect to existing session).
+pub fn is_connect_mode(kak_args: &[String]) -> bool {
+    let mut iter = kak_args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "-c" {
+            return true;
+        }
+        // Skip the argument of flags that take one
+        if KAK_FLAGS_WITH_ARG.contains(&arg.as_str()) || ["-s", "-c"].contains(&arg.as_str()) {
+            let _ = iter.next();
+        }
+    }
+    false
+}
+
+/// Partition kak_args into daemon-side and client-side arguments.
+///
+/// - daemon: `-E`, `-n`, `-debug`, `-i` (server-level settings)
+/// - client: `-e`, `-ro`, files, `+line:col` (client opens files to avoid `*stdin*` on piped stdin)
+/// - stripped: `-s` (the caller provides `-s` separately via `spawn_kakoune_daemon`)
+pub fn partition_kak_args(kak_args: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut daemon_args = Vec::new();
+    let mut client_args = Vec::new();
+    let mut iter = kak_args.iter();
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            // -s is stripped: daemon spawn provides it separately
+            "-s" => {
+                let _ = iter.next(); // consume the session name
+            }
+            // Flags with arguments that go to daemon (server-level)
+            "-E" | "-debug" | "-i" => {
+                daemon_args.push(arg.clone());
+                if let Some(val) = iter.next() {
+                    daemon_args.push(val.clone());
+                }
+            }
+            // Simple flags that go to daemon (server-level)
+            "-n" => {
+                daemon_args.push(arg.clone());
+            }
+            // -e and -ro go to client
+            "-e" => {
+                client_args.push(arg.clone());
+                if let Some(val) = iter.next() {
+                    client_args.push(val.clone());
+                }
+            }
+            "-ro" => {
+                client_args.push(arg.clone());
+            }
+            // Files and +line:col go to client (prevents *stdin* buffer on piped stdin)
+            _ => {
+                client_args.push(arg.clone());
+            }
+        }
+    }
+
+    (daemon_args, client_args)
+}
+
 pub fn print_help() {
     println!(
         "\
@@ -699,5 +761,109 @@ mod tests {
                 template: PluginTemplate::Process,
             }))
         );
+    }
+
+    // --- is_connect_mode tests ---
+
+    #[test]
+    fn is_connect_mode_true() {
+        assert!(is_connect_mode(&args(&["-c", "project"])));
+    }
+
+    #[test]
+    fn is_connect_mode_false_no_flags() {
+        assert!(!is_connect_mode(&args(&["file.txt"])));
+    }
+
+    #[test]
+    fn is_connect_mode_false_named_session() {
+        assert!(!is_connect_mode(&args(&["-s", "myses", "file.txt"])));
+    }
+
+    #[test]
+    fn is_connect_mode_false_e_flag_with_c_value() {
+        // -c is the argument to -e, not a standalone flag
+        assert!(!is_connect_mode(&args(&["-e", "-c"])));
+    }
+
+    // --- partition_kak_args tests ---
+
+    #[test]
+    fn partition_files_go_to_client() {
+        let (daemon, client) = partition_kak_args(&args(&["file.txt", "other.rs"]));
+        assert!(daemon.is_empty());
+        assert_eq!(client, args(&["file.txt", "other.rs"]));
+    }
+
+    #[test]
+    fn partition_line_col_goes_to_client() {
+        let (daemon, client) = partition_kak_args(&args(&["+5:3", "file.txt"]));
+        assert!(daemon.is_empty());
+        assert_eq!(client, args(&["+5:3", "file.txt"]));
+    }
+
+    #[test]
+    fn partition_e_goes_to_client() {
+        let (daemon, client) = partition_kak_args(&args(&["-e", "buffer-next", "file.txt"]));
+        assert!(daemon.is_empty());
+        assert_eq!(client, args(&["-e", "buffer-next", "file.txt"]));
+    }
+
+    #[test]
+    fn partition_big_e_goes_to_daemon() {
+        let (daemon, client) = partition_kak_args(&args(&["-E", "hook global ..."]));
+        assert_eq!(daemon, args(&["-E", "hook global ..."]));
+        assert!(client.is_empty());
+    }
+
+    #[test]
+    fn partition_s_is_stripped() {
+        let (daemon, client) = partition_kak_args(&args(&["-s", "myses", "file.txt"]));
+        assert!(daemon.is_empty());
+        assert_eq!(client, args(&["file.txt"]));
+    }
+
+    #[test]
+    fn partition_n_goes_to_daemon() {
+        let (daemon, client) = partition_kak_args(&args(&["-n", "file.txt"]));
+        assert_eq!(daemon, args(&["-n"]));
+        assert_eq!(client, args(&["file.txt"]));
+    }
+
+    #[test]
+    fn partition_ro_goes_to_client() {
+        let (daemon, client) = partition_kak_args(&args(&["-ro", "file.txt"]));
+        assert!(daemon.is_empty());
+        assert_eq!(client, args(&["-ro", "file.txt"]));
+    }
+
+    #[test]
+    fn partition_debug_goes_to_daemon() {
+        let (daemon, client) = partition_kak_args(&args(&["-debug", "shell", "file.txt"]));
+        assert_eq!(daemon, args(&["-debug", "shell"]));
+        assert_eq!(client, args(&["file.txt"]));
+    }
+
+    #[test]
+    fn partition_i_goes_to_daemon() {
+        let (daemon, client) = partition_kak_args(&args(&["-i", ".bak", "file.txt"]));
+        assert_eq!(daemon, args(&["-i", ".bak"]));
+        assert_eq!(client, args(&["file.txt"]));
+    }
+
+    #[test]
+    fn partition_mixed_args() {
+        let (daemon, client) = partition_kak_args(&args(&[
+            "-s",
+            "myses",
+            "-E",
+            "hook global ...",
+            "-e",
+            "buffer-next",
+            "-n",
+            "file.txt",
+        ]));
+        assert_eq!(daemon, args(&["-E", "hook global ...", "-n"]));
+        assert_eq!(client, args(&["-e", "buffer-next", "file.txt"]));
     }
 }
