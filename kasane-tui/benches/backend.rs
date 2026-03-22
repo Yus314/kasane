@@ -227,7 +227,7 @@ fn generate_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid {
         w: cols,
         h: rows,
     };
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
     grid.clear(&state.default_face);
@@ -249,7 +249,7 @@ fn generate_incremental_grid() -> CellGrid {
     let mut grid = CellGrid::new(state.cols, state.rows);
 
     // "before" frame
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     grid.clear(&state.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
@@ -272,7 +272,7 @@ fn generate_incremental_grid() -> CellGrid {
         },
     ];
 
-    let element = view::view(&edited, &registry);
+    let element = view::view(&edited, &registry.view());
     let layout = flex::place(&element, area, &edited);
     grid.clear(&edited.default_face);
     paint::paint(&element, &layout, &mut grid, &edited);
@@ -291,7 +291,7 @@ fn generate_realistic_grid(cols: u16, rows: u16, line_count: usize) -> CellGrid 
         w: cols,
         h: rows,
     };
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
     grid.clear(&state.default_face);
@@ -311,7 +311,7 @@ fn generate_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<CellDiff> {
         w: cols,
         h: rows,
     };
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
     grid.clear(&state.default_face);
@@ -333,7 +333,7 @@ fn generate_incremental_diffs() -> Vec<CellDiff> {
     let mut grid = CellGrid::new(state.cols, state.rows);
 
     // "before" frame
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     grid.clear(&state.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
@@ -356,7 +356,7 @@ fn generate_incremental_diffs() -> Vec<CellDiff> {
         },
     ];
 
-    let element = view::view(&edited_state, &registry);
+    let element = view::view(&edited_state, &registry.view());
     let layout = flex::place(&element, area, &edited_state);
     grid.clear(&edited_state.default_face);
     paint::paint(&element, &layout, &mut grid, &edited_state);
@@ -655,7 +655,7 @@ fn generate_realistic_diffs(cols: u16, rows: u16, line_count: usize) -> Vec<Cell
         w: cols,
         h: rows,
     };
-    let element = view::view(&state, &registry);
+    let element = view::view(&state, &registry.view());
     let layout = flex::place(&element, area, &state);
     let mut grid = CellGrid::new(cols, rows);
     grid.clear(&state.default_face);
@@ -867,7 +867,7 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let _result = render_pipeline(&state, &registry, &mut grid);
+                    let _result = render_pipeline(&state, &registry.view(), &mut grid);
                     let diffs = grid.diff();
                     backend.begin_frame().unwrap();
                     backend.draw(&diffs).unwrap();
@@ -895,7 +895,7 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let _result = render_pipeline(&state, &registry, &mut grid);
+                    let _result = render_pipeline(&state, &registry.view(), &mut grid);
                     let diffs = grid.diff();
                     backend.begin_frame().unwrap();
                     backend.draw(&diffs).unwrap();

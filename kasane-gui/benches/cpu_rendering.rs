@@ -94,7 +94,7 @@ fn setup_grid() -> (CellGrid, ColorResolver) {
 
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
-    let _ = render_pipeline(&state, &registry, &mut grid);
+    let _ = render_pipeline(&state, &registry.view(), &mut grid);
 
     let resolver = ColorResolver::from_config(&ColorsConfig::default());
     (grid, resolver)
