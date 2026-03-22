@@ -51,7 +51,7 @@ fn plugin_diagnostic_overlay_layout_with_title(
         .map(|line| line.display_text().chars().count() as u16)
         .max()
         .unwrap_or(0);
-    let inner_width = body_width
+    let inner_width = (body_width + 2) // +2 for tag (1) + space (1) between tag and text
         .max(header.chars().count() as u16)
         .min(cols.saturating_sub(4));
     let width = (inner_width + 2).min(cols);
