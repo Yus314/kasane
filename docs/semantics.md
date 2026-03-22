@@ -440,6 +440,8 @@ These extension points are available to both native plugins (`Plugin` / `PluginB
 
 `annotate_line_with_ctx()` is a mechanism for extending the gutter and background of each buffer line. It does not modify the buffer content itself but provides per-line visual contributions (`LineAnnotation`). Contributions from multiple plugins are composed through `BackgroundLayer` and `z_order`.
 
+**Inline decoration uniqueness**: At most one plugin may provide an inline decoration per buffer line. This constraint is enforced in both debug and release builds with first-wins semantics: the first plugin (by registration order) that provides an inline decoration for a given line wins, and subsequent providers are dropped with a `tracing::warn!` diagnostic.
+
 ### 8.4 Overlay
 
 `contribute_overlay_with_ctx()` is a floating element overlaid separately from the normal layout flow. Overlays add display layers but do not modify the underlying protocol state. Display order is controlled via `z_index`.
@@ -473,12 +475,12 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Annotation gutter | `(priority, plugin_id)` | ASC | Lower priority → leftmost |
 | Annotation background | `(z_order, plugin_id)` | ASC, **last wins** | Highest z_order takes the line background |
 | Overlay | `(z_index, plugin_id)` | ASC | Lower z_index → behind; higher → front |
-| Display directive | `(priority, plugin_id)` | `resolve()` composition | Multi-plugin composable (P-031) |
+| Display directive | `(priority, plugin_id, variant, anchor)` | `resolve()` composition | Multi-plugin composable (P-031) |
 | Menu item transform | registration order | sequential chain | Output of previous = input of next |
 | Cursor style override | registration order | first non-None wins | Single winner |
 | Scroll policy override | registration order | first non-None wins | Single winner |
 
-> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). Transform chains are modeled as a non-commutative monoid (`TransformChain`). `resolve()` remains unmodeled.
+> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). Transform chains are modeled as a non-commutative monoid (`TransformChain`). Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an imperative Kleisli-style chain over `(Consumed, Ignored, Forward)` and is not modeled as `Composable`. `resolve()` remains unmodeled.
 
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 
@@ -494,6 +496,8 @@ Plugin input handling follows a defined dispatch order.
 4. If no built-in handler matches, the key is forwarded to Kakoune
 
 This is a first-wins dispatch model. Plugin registration order determines priority for key consumption. `observe_key` is always exhaustive; `handle_key` is short-circuiting.
+
+**Algebraic characterization**: Key middleware forms a Kleisli-style chain over a 3-variant result type (`Consumed`, `Ignored`, `Forward`). Each plugin receives the key and returns one of these variants; the chain threads through plugins sequentially, short-circuiting on `Consumed`. This is fundamentally imperative and order-dependent, so it is not modeled as `Composable` in `plugin/compose.rs`.
 
 ### 8.8 Inter-Plugin Messaging
 
