@@ -231,7 +231,7 @@ impl MenuState {
     /// Inline & Prompt: column-based scrolling (stride = win_height).
     /// Matches Kakoune terminal_ui.cc menu_select.
     fn scroll_column_based(&mut self) {
-        let selected = self.selected.unwrap(); // caller guarantees Some
+        let selected = self.selected.expect("select() guarantees Some");
         let stride = self.win_height as usize;
         let selected_col = selected / stride;
         let first_col = self.first_item / stride;
@@ -251,7 +251,7 @@ impl MenuState {
     /// start to that item. This produces a deterministic `first_item` that
     /// depends only on `selected`, not on previous scroll state.
     fn scroll_search(&mut self) {
-        let selected = self.selected.unwrap(); // caller guarantees Some
+        let selected = self.selected.expect("select() guarantees Some");
         // Reserve 3 columns for "< " prefix (2) and ">" suffix (1),
         // matching Kakoune's `m_menu.size.column - 3`.
         let width = self.screen_w.saturating_sub(3) as usize;

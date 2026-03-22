@@ -24,7 +24,9 @@ pub fn build_bg_instances(
     for row in 0..grid.height() {
         let y = row as f32 * cell_h;
         for col in 0..grid.width() {
-            let cell = grid.get(col, row).unwrap();
+            let cell = grid
+                .get(col, row)
+                .expect("grid bounds in build_bg_instances");
             let bg = color_resolver.resolve(cell.face.bg, false);
             let x = col as f32 * cell_w;
             out.extend_from_slice(&[x, y, cell_w, cell_h, bg[0], bg[1], bg[2], bg[3]]);
@@ -65,7 +67,7 @@ pub fn build_bg_instances(
 pub fn compute_row_hash(grid: &CellGrid, row: u16, color_resolver: &ColorResolver) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for col in 0..grid.width() {
-        let cell = grid.get(col, row).unwrap();
+        let cell = grid.get(col, row).expect("grid bounds in compute_row_hash");
         cell.grapheme.hash(&mut hasher);
         std::mem::discriminant(&cell.face.fg).hash(&mut hasher);
         let fg_bits = color_resolver.resolve(cell.face.fg, true);
@@ -91,7 +93,7 @@ pub fn build_row_spans(
     span_ranges.clear();
 
     for col in 0..grid.width() {
-        let cell = grid.get(col, row).unwrap();
+        let cell = grid.get(col, row).expect("grid bounds in build_row_spans");
         if cell.width == 0 {
             continue;
         }

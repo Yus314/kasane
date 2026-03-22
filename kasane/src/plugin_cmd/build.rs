@@ -42,7 +42,7 @@ pub fn build_plugin(project_dir: &str, release: bool) -> Result<PathBuf> {
         .spawn()
         .context("failed to run `cargo build`")?;
 
-    let stdout = child.stdout.take().unwrap();
+    let stdout = child.stdout.take().expect("stdout piped in Command setup");
     let reader = std::io::BufReader::new(stdout);
 
     let mut wasm_path: Option<PathBuf> = None;

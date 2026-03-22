@@ -115,7 +115,10 @@ pub fn convert_window_event(
             keys.into_iter()
                 .filter_map(|k| {
                     if k.len() == 1 {
-                        let ch = k.chars().next().unwrap();
+                        let ch = k
+                            .chars()
+                            .next()
+                            .expect("len==1 guarantees at least one char");
                         Some(InputEvent::Key(KeyEvent {
                             key: Key::Char(ch),
                             modifiers: Modifiers::empty(),

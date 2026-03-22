@@ -824,10 +824,14 @@ where
     }
 
     fn render_frame(&mut self) {
-        if self.gpu.is_none() || self.color_resolver.is_none() {
+        let Some(ref gpu) = self.gpu else {
             tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
             return;
-        }
+        };
+        let Some(ref resolver) = self.color_resolver else {
+            tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
+            return;
+        };
         tracing::debug!(
             "[app] render_frame start ({}x{})",
             self.state.cols,
@@ -908,8 +912,6 @@ where
             );
             let frame_commands = append_overlay_commands(commands, overlay_commands);
 
-            let gpu = self.gpu.as_ref().unwrap();
-            let resolver = self.color_resolver.as_ref().unwrap();
             let (cw, ch) = (sr.metrics().cell_width, sr.metrics().cell_height);
             submit_render(
                 sr,
@@ -931,8 +933,6 @@ where
             );
         } else if let Some(result) = self.last_render_result {
             // Cursor-only frame: reuse cached scene commands
-            let gpu = self.gpu.as_ref().unwrap();
-            let resolver = self.color_resolver.as_ref().unwrap();
             let commands = self.scene_cache.composed_ref();
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,

@@ -78,7 +78,9 @@ impl ViewSource for SalsaViewSource<'_> {
 
         // --- Base section (buffer + status + slots + annotations) ---
         let (base_el, surface_reports, focused_pane_rect, focused_pane_state) = if is_multi_pane {
-            let sr = self.surface_registry.unwrap();
+            let sr = self
+                .surface_registry
+                .expect("surface_registry present when is_multi_pane");
             let total = Rect {
                 x: 0,
                 y: 0,

@@ -170,7 +170,8 @@ pub(crate) trait ErasedPlugin: Send {
 macro_rules! erased_mut_effects {
     ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*) -> $ret:ty) => {
         fn $erased(&self, state: &mut dyn PluginState, $($p: $pt),*) -> $ret {
-            let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+            let typed = state.as_any_mut().downcast_mut::<P::State>()
+                .expect("PluginBridge: state type mismatch (framework bug)");
             let (new_state, effects) = self.$typed(typed, $($p),*);
             *typed = new_state;
             effects
@@ -182,7 +183,8 @@ macro_rules! erased_mut_effects {
 macro_rules! erased_mut_void {
     ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*)) => {
         fn $erased(&self, state: &mut dyn PluginState, $($p: $pt),*) {
-            let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+            let typed = state.as_any_mut().downcast_mut::<P::State>()
+                .expect("PluginBridge: state type mismatch (framework bug)");
             let new_state = self.$typed(typed, $($p),*);
             *typed = new_state;
         }
@@ -193,7 +195,8 @@ macro_rules! erased_mut_void {
 macro_rules! erased_mut_option {
     ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*) -> Option<$ret:ty>) => {
         fn $erased(&self, state: &mut dyn PluginState, $($p: $pt),*) -> Option<$ret> {
-            let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+            let typed = state.as_any_mut().downcast_mut::<P::State>()
+                .expect("PluginBridge: state type mismatch (framework bug)");
             self.$typed(typed, $($p),*).map(|(new_state, val)| {
                 *typed = new_state;
                 val
@@ -206,7 +209,8 @@ macro_rules! erased_mut_option {
 macro_rules! erased_ref {
     ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*) -> $ret:ty) => {
         fn $erased(&self, state: &dyn PluginState, $($p: $pt),*) -> $ret {
-            let typed = state.as_any().downcast_ref::<P::State>().unwrap();
+            let typed = state.as_any().downcast_ref::<P::State>()
+                .expect("PluginBridge: state type mismatch (framework bug)");
             self.$typed(typed, $($p),*)
         }
     };
