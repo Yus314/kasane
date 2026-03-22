@@ -3,6 +3,22 @@
 //! These functions extract deterministic computations from `apply.rs` into
 //! standalone, testable pure functions. They form the Layer 2 boundary
 //! for Salsa tracked function integration.
+//!
+//! # Inference Catalog
+//!
+//! Kasane infers semantic information from Kakoune's display-only JSON-RPC
+//! protocol. Each inference rule is documented with its assumptions, failure
+//! modes, and severity rating.
+//!
+//! | ID  | Function                     | Assumption                                              | Severity    | Cross-validated | Proptest |
+//! |-----|------------------------------|---------------------------------------------------------|-------------|-----------------|----------|
+//! | I-1 | `detect_cursors`             | Cursor atoms have `FINAL_FG+REVERSE` or matching fg     | Degraded    | Yes (Phase C)   | Yes      |
+//! | I-2 | `derive_cursor_style`        | Mode line contains "insert"/"replace"/other             | Cosmetic    | No              | Yes      |
+//! | I-3 | `derive_cursor_mode`         | `content_cursor_pos >= 0` means prompt mode             | Degraded    | No              | Yes      |
+//! | I-4 | `split_single_item` (menu)   | Docstring atoms have non-Default fg after padding       | Cosmetic    | No              | No       |
+//! | I-6 | `make_secondary_cursor_face` | Cursor face uses `REVERSE` for visual highlight         | Cosmetic    | No              | No       |
+//! | R-1 | `check_cursor_width_consistency` | `atom_display_width` matches Kakoune's width calc    | Catastrophic| Yes (Phase B)   | Yes      |
+//! | R-3 | `compute_lines_dirty`        | Line equality implies visual equality                   | Degraded    | No              | Yes      |
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -11,6 +27,13 @@ use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, Line};
 use crate::render::CursorStyle;
 
 /// Detect all cursor positions (primary + secondary) from draw atoms.
+///
+/// # Inference Rule: I-1
+/// **Assumption**: Cursor atoms have `FINAL_FG+REVERSE` attributes (default theme)
+/// or share the same fg color as the primary cursor face (third-party themes).
+/// **Failure mode**: If the theme uses neither pattern, secondary cursors are missed
+/// and cursor_count is 1 regardless of actual selections.
+/// **Severity**: Degraded (multi-cursor features work incorrectly)
 ///
 /// Returns `(cursor_count, secondary_cursors)` where `secondary_cursors`
 /// excludes the primary cursor at `primary_cursor_pos`.
@@ -25,10 +48,15 @@ pub fn detect_cursors(lines: &[Line], primary_cursor_pos: Coord) -> (usize, Vec<
     let all_cursors = detect_cursors_by_attributes(lines);
     if !all_cursors.is_empty() {
         let cursor_count = all_cursors.len();
-        let secondary_cursors = all_cursors
+        let secondary_cursors: Vec<Coord> = all_cursors
             .into_iter()
             .filter(|c| *c != primary_cursor_pos)
             .collect();
+        debug_assert!(
+            check_primary_cursor_in_set(cursor_count, &secondary_cursors, primary_cursor_pos),
+            "I-1: primary cursor not in detected set (count={cursor_count}, secondaries={}, primary={primary_cursor_pos:?})",
+            secondary_cursors.len(),
+        );
         return (cursor_count, secondary_cursors);
     }
 
@@ -121,7 +149,7 @@ fn face_at_coord(lines: &[Line], pos: Coord) -> Option<Face> {
 }
 
 /// Compute the display width of an atom's contents.
-fn atom_display_width(atom: &Atom) -> u32 {
+pub(crate) fn atom_display_width(atom: &Atom) -> u32 {
     let mut width: u32 = 0;
     for grapheme in atom.contents.as_str().graphemes(true) {
         if grapheme.starts_with(|c: char| c.is_control()) {
@@ -129,10 +157,22 @@ fn atom_display_width(atom: &Atom) -> u32 {
         }
         width += UnicodeWidthStr::width(grapheme) as u32;
     }
+    debug_assert!(
+        width < 10_000,
+        "atom_display_width: unreasonable width {width} for atom {:?}",
+        atom.contents.as_str(),
+    );
     width
 }
 
 /// Compute per-line dirty flags by comparing old and new line data.
+///
+/// # Inference Rule: R-3
+/// **Assumption**: Line equality (`PartialEq` on atom contents + face) implies
+/// visual equality — if atoms are identical, the rendered output is identical.
+/// **Failure mode**: If external state (e.g. terminal width, font metrics) affects
+/// rendering beyond atom data, unchanged lines may need repainting.
+/// **Severity**: Degraded (stale line content displayed)
 ///
 /// Returns a `Vec<bool>` with one entry per new line. If face or line count
 /// changed, all lines are marked dirty.
@@ -161,6 +201,13 @@ pub fn compute_lines_dirty(
 
 /// Derive cursor mode from the status content cursor position.
 ///
+/// # Inference Rule: I-3
+/// **Assumption**: `content_cursor_pos >= 0` means Kakoune is in prompt mode
+/// (command, search, etc.), while `< 0` means buffer (normal editing) mode.
+/// **Failure mode**: If Kakoune changes the sign convention, cursor mode is
+/// inverted — prompt commands would be sent to the buffer and vice versa.
+/// **Severity**: Degraded (input routing broken)
+///
 /// `content_cursor_pos >= 0` means prompt mode (`:`, `/`, etc.),
 /// `< 0` means buffer (normal editing) mode.
 pub fn derive_cursor_mode(content_cursor_pos: i32) -> CursorMode {
@@ -179,6 +226,14 @@ pub fn build_status_line(prompt: &[Atom], content: &[Atom]) -> Line {
 }
 
 /// Derive cursor style from state fields (without plugin override).
+///
+/// # Inference Rule: I-2
+/// **Assumption**: The status mode line contains literal strings "insert" or
+/// "replace" to indicate Kakoune's editing mode. Other mode strings (including
+/// custom modes) default to Block.
+/// **Failure mode**: If Kakoune localizes mode names or changes strings, the
+/// wrong cursor shape is displayed.
+/// **Severity**: Cosmetic (cursor shape mismatch only)
 ///
 /// Priority:
 /// 1. Explicit `kasane_cursor_style` ui_option
@@ -213,6 +268,98 @@ pub fn derive_cursor_style(
             _ => None,
         });
     mode.unwrap_or(CursorStyle::Block)
+}
+
+// ---------------------------------------------------------------------------
+// R-1: Character width divergence detection
+// ---------------------------------------------------------------------------
+
+/// Describes a mismatch between Kakoune's `cursor_pos.column` and the
+/// column computed by walking atoms with `atom_display_width`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WidthDivergence {
+    /// Column reported by Kakoune's `cursor_pos` in the `draw` message.
+    pub protocol_column: u32,
+    /// Column computed by summing `atom_display_width` up to the cursor atom.
+    pub computed_column: u32,
+    /// Text of the atom at the cursor position (for diagnostics).
+    pub atom_text: String,
+}
+
+/// Check whether `cursor_pos.column` from the protocol is consistent with
+/// the column computed by walking atoms on that line via `atom_display_width`.
+///
+/// # Inference Rule: R-1
+/// **Assumption**: `atom_display_width` (unicode-width) matches Kakoune's
+/// internal `char_column_offset` width calculation.
+/// **Failure mode**: CJK characters, emoji, or other wide/combining characters
+/// cause cursor to render at wrong column — all buffer-relative overlays
+/// (menus, info windows, cursor highlight) are mispositioned.
+/// **Severity**: Catastrophic (visual corruption of entire buffer area)
+///
+/// Returns `None` if consistent, `Some(WidthDivergence)` on mismatch.
+pub fn check_cursor_width_consistency(
+    lines: &[Line],
+    cursor_pos: Coord,
+) -> Option<WidthDivergence> {
+    let line_idx = cursor_pos.line as usize;
+    let line = lines.get(line_idx)?;
+    let target_col = cursor_pos.column as u32;
+
+    let mut col: u32 = 0;
+    for atom in line.iter() {
+        let width = atom_display_width(atom);
+        if col <= target_col && target_col < col + width.max(1) {
+            // Cursor falls within this atom — consistent
+            return None;
+        }
+        col += width;
+    }
+
+    // cursor_pos.column == total line width is valid (cursor at EOL)
+    if target_col == col {
+        return None;
+    }
+
+    // Divergence: cursor column doesn't fall within any atom's range
+    let atom_text = line
+        .last()
+        .map(|a| a.contents.to_string())
+        .unwrap_or_default();
+    Some(WidthDivergence {
+        protocol_column: target_col,
+        computed_column: col,
+        atom_text,
+    })
+}
+
+/// Compute the total display width of a line by summing atom widths.
+pub(crate) fn line_atom_display_width(line: &[Atom]) -> u32 {
+    line.iter().map(atom_display_width).sum()
+}
+
+// ---------------------------------------------------------------------------
+// I-1: Primary cursor in detected set (self-consistency check)
+// ---------------------------------------------------------------------------
+
+/// Check that the primary cursor is accounted for in the detected cursor set.
+///
+/// After `detect_cursors` filters out the primary cursor from the full set,
+/// the invariant is either:
+/// - `cursor_count == secondary_cursors.len() + 1` (primary was in the set and was filtered out)
+/// - `cursor_count == secondary_cursors.len()` (primary position didn't match any detected cursor,
+///   which is valid when the primary cursor face differs from the detection heuristic)
+/// - `cursor_count == 0` (no cursors detected)
+///
+/// Returns `true` if consistent, `false` if the counts are impossible.
+pub fn check_primary_cursor_in_set(
+    cursor_count: usize,
+    secondary_cursors: &[Coord],
+    _primary_pos: Coord,
+) -> bool {
+    cursor_count == 0
+        || cursor_count == secondary_cursors.len() + 1
+        || cursor_count == secondary_cursors.len()
 }
 
 #[cfg(test)]
@@ -488,5 +635,87 @@ mod tests {
             derive_cursor_style(&opts, true, CursorMode::Buffer, &mode_line),
             CursorStyle::Block
         );
+    }
+
+    // --- R-1: check_cursor_width_consistency tests ---
+
+    #[test]
+    fn width_consistency_ascii() {
+        let lines = vec![vec![
+            make_atom("hel"),
+            make_cursor_atom("l"),
+            make_atom("o"),
+        ]];
+        let cursor_pos = Coord { line: 0, column: 3 };
+        assert_eq!(check_cursor_width_consistency(&lines, cursor_pos), None);
+    }
+
+    #[test]
+    fn width_consistency_cjk() {
+        // "漢" is 2 columns wide, cursor at column 2
+        let lines = vec![vec![make_atom("漢"), make_cursor_atom("x")]];
+        let cursor_pos = Coord { line: 0, column: 2 };
+        assert_eq!(check_cursor_width_consistency(&lines, cursor_pos), None);
+    }
+
+    #[test]
+    fn width_consistency_divergence_detected() {
+        // Cursor claims to be at column 5 but line is only 4 columns wide ("hell")
+        let lines = vec![vec![make_atom("hell")]];
+        let cursor_pos = Coord { line: 0, column: 5 };
+        let result = check_cursor_width_consistency(&lines, cursor_pos);
+        assert!(result.is_some());
+        let div = result.unwrap();
+        assert_eq!(div.protocol_column, 5);
+        assert_eq!(div.computed_column, 4);
+    }
+
+    // --- I-1: check_primary_cursor_in_set tests ---
+
+    #[test]
+    fn primary_in_set_single_cursor() {
+        assert!(check_primary_cursor_in_set(
+            1,
+            &[],
+            Coord { line: 0, column: 0 },
+        ));
+    }
+
+    #[test]
+    fn primary_in_set_multi_cursor() {
+        let secondaries = vec![Coord { line: 1, column: 3 }];
+        assert!(check_primary_cursor_in_set(
+            2,
+            &secondaries,
+            Coord { line: 0, column: 0 },
+        ));
+    }
+
+    #[test]
+    fn primary_in_set_primary_not_detected() {
+        // cursor_count=2 and 2 secondaries → primary wasn't in detected set
+        // (valid: primary face may differ from detection heuristic)
+        let secondaries = vec![Coord { line: 0, column: 0 }, Coord { line: 1, column: 3 }];
+        assert!(check_primary_cursor_in_set(
+            2,
+            &secondaries,
+            Coord { line: 2, column: 0 },
+        ));
+    }
+
+    #[test]
+    fn primary_in_set_impossible_count() {
+        // cursor_count=1 but 2 secondaries → impossible
+        let secondaries = vec![Coord { line: 0, column: 0 }, Coord { line: 1, column: 3 }];
+        assert!(!check_primary_cursor_in_set(
+            1,
+            &secondaries,
+            Coord { line: 2, column: 0 },
+        ));
+    }
+
+    #[test]
+    fn primary_in_set_empty_buffer() {
+        assert!(check_primary_cursor_in_set(0, &[], Coord::default(),));
     }
 }

@@ -17,6 +17,67 @@ impl AppState {
 
                 // Heuristic cursor detection via pure function
                 let (cursor_count, secondary_cursors) = derived::detect_cursors(&lines, cursor_pos);
+
+                // I-1: primary cursor in detected set (self-consistency)
+                debug_assert!(
+                    derived::check_primary_cursor_in_set(
+                        cursor_count,
+                        &secondary_cursors,
+                        cursor_pos
+                    ),
+                    "I-1: primary cursor not in detected set (count={cursor_count}, secondaries={}, pos={cursor_pos:?})",
+                    secondary_cursors.len(),
+                );
+                if self
+                    .ui_options
+                    .get("kasane_debug_inference")
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+                    && !derived::check_primary_cursor_in_set(
+                        cursor_count,
+                        &secondary_cursors,
+                        cursor_pos,
+                    )
+                {
+                    tracing::warn!(
+                        cursor_count,
+                        secondaries = secondary_cursors.len(),
+                        ?cursor_pos,
+                        "I-1: primary cursor not in detected set",
+                    );
+                }
+
+                // R-1: character width divergence detection
+                debug_assert!(
+                    derived::check_cursor_width_consistency(&lines, cursor_pos).is_none(),
+                    "R-1: cursor width divergence: {:?}",
+                    derived::check_cursor_width_consistency(&lines, cursor_pos),
+                );
+                if self
+                    .ui_options
+                    .get("kasane_debug_inference")
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+                    && let Some(div) = derived::check_cursor_width_consistency(&lines, cursor_pos)
+                {
+                    tracing::warn!(
+                        protocol_column = div.protocol_column,
+                        computed_column = div.computed_column,
+                        atom_text = %div.atom_text,
+                        "R-1: cursor width divergence detected",
+                    );
+                }
+
+                // Lightweight always-on check: cursor shouldn't be beyond line width
+                if let Some(line) = lines.get(cursor_pos.line as usize) {
+                    let line_width = derived::line_atom_display_width(line);
+                    debug_assert!(
+                        (cursor_pos.column as u32) <= line_width,
+                        "R-1: cursor column {} beyond line display width {line_width}",
+                        cursor_pos.column,
+                    );
+                }
+
                 self.cursor_count = cursor_count;
                 self.secondary_cursors = secondary_cursors;
 

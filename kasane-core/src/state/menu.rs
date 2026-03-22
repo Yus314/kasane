@@ -44,6 +44,14 @@ fn atoms_display_width(atoms: &[Atom]) -> usize {
 
 /// Split a single menu item into candidate and docstring columns.
 ///
+/// # Inference Rule: I-4
+/// **Assumption**: Kakoune inserts a whitespace-only padding atom between the
+/// candidate text and the docstring, and the docstring atom has a non-Default
+/// fg color. This pattern is stable across Kakoune versions.
+/// **Failure mode**: If the padding/color convention changes, all items appear
+/// as single-column (candidate only) — the docstring column is not shown.
+/// **Severity**: Cosmetic (completion menu loses type annotations)
+///
 /// Detection heuristic: find the first atom with non-Default fg color,
 /// preceded by a whitespace-only atom (the alignment padding Kakoune inserts).
 pub fn split_single_item(item: &Line) -> ItemSplit {

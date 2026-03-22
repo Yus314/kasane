@@ -316,6 +316,14 @@ fn blend_rgb(a: (u8, u8, u8), b: (u8, u8, u8), ratio: f32) -> (u8, u8, u8) {
 
 /// Generate a face for secondary cursors.
 ///
+/// # Inference Rule: I-6
+/// **Assumption**: The cursor face uses `REVERSE` attribute for visual highlighting.
+/// Under REVERSE, `face.fg` is displayed as background (the cursor color) and
+/// `face.bg` is displayed as foreground (the text color).
+/// **Failure mode**: If a theme sets cursor faces without REVERSE, the blending
+/// logic produces incorrect colors (fg/bg swap is wrong).
+/// **Severity**: Cosmetic (secondary cursors have wrong colors)
+///
 /// Removes REVERSE from the cursor face and sets bg to a blended color
 /// using the given blend ratio (default 0.4 = 40% cursor color + 60% background)
 /// to visually differentiate from primary.
