@@ -222,7 +222,7 @@ A frame is one iteration of the backend event loop. Each frame processes input a
 1. **Event batch**: Drain channel up to 256 events or 16ms deadline, whichever comes first. Each event is processed sequentially via `update()`, accumulating `DirtyFlags` via bitwise OR.
 2. **Plugin cache**: `prepare_plugin_cache(dirty)` — compare each plugin's generation counter against previous frame to set `any_plugin_state_changed`.
 3. **Salsa sync**: `sync_inputs_from_state()` unconditionally projects all `AppState` fields to Salsa inputs (PartialEq early-cutoff). `sync_plugin_epoch()` increments epoch if any plugin changed. `sync_plugin_contributions()` and `sync_display_directives()` refresh Salsa-tracked extension point data.
-4. **Render**: `render_pipeline_cached()` (Salsa demand-driven) → `draw_grid()` → `rebuild_hit_map()`.
+4. **Render**: `render_pipeline_cached()` (Salsa demand-driven) → `backend.present()` → `rebuild_hit_map()`.
 
 If dirty flags are empty after the batch phase, phases 2–4 are skipped entirely.
 
@@ -310,14 +310,13 @@ This invariant does not apply to Extended Frontend Semantics, where Observed-eli
 
 ### 5.7 Diff and Incremental Drawing
 
-In TUI, the output of the rendering pipeline is not drawn in full each frame. Instead, `CellGrid` maintains both the current and previous frame states.
+In TUI, the output of the rendering pipeline is not drawn in full each frame. Instead, `TuiBackend` maintains a previous frame buffer and diffs against the current `CellGrid`.
 
-1. `paint` writes into the current grid
-2. `diff()` computes the set of changed cells between current and previous grids
-3. The backend emits terminal I/O only for changed cells
-4. `swap()` promotes the current grid to become the previous grid for the next frame
+1. `paint` writes into the current grid (with row-level dirty tracking)
+2. `backend.present()` diffs dirty rows against the previous buffer, emitting terminal I/O only for changed cells
+3. `present()` copies dirty rows into the previous buffer and clears dirty flags
 
-Correctness of this cycle requires that `diff()` detects all cells that have changed and that `swap()` is called exactly once per frame.
+On terminal resize, `backend.invalidate()` clears the previous buffer, forcing a full redraw on the next `present()` call.
 
 ## 6. Invalidation and Caching
 

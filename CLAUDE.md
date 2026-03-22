@@ -60,7 +60,7 @@ Kakoune (kak -ui json)
   → view(&state, &registry)   # state → Element tree (with plugin contributions)
   → place(&element, rect)     # Element tree → Layout (flexbox + overlay positioning)
   → paint(&element, &layout)  # Layout → CellGrid (2D cell buffer)
-  → backend.draw_grid()       # TUI: zero-copy diff + incremental SGR (or GPU: wgpu)
+  → backend.present()          # TUI: incremental diff + SGR (or GPU: wgpu)
 ```
 
 ### Key Module Locations

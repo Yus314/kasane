@@ -72,11 +72,7 @@ place(&element, area)   -- Layout calculation (flexbox + grid + overlay)
 grid.clear() + paint()  -- CellGrid rendering
   |
   v
-backend.draw_grid(&grid) -- O(changed_cells) -- diff + escape gen + I/O (dominant cost)
-backend.flush()
-  |
-  v
-grid.swap()             -- O(w*h) buffer swap
+backend.present(&mut grid, result) -- O(changed_cells) -- diff + escape gen + I/O (dominant cost)
 ```
 
 ## Per-Frame Cost (80x24 Terminal)
@@ -90,15 +86,13 @@ Measured with `cargo bench --bench rendering_pipeline`.
 | `place()` | O(nodes) | 1.2 us |  |
 | `grid.clear()` | O(w*h) | 4.5 us |  |
 | `paint()` | O(w*h) | 27.6 us | paint-only = clear+paint − clear |
-| `grid.diff()` (incremental) | O(w*h) = 1,920 cells | 12.1 us |  |
-| `grid.diff()` (full redraw) | O(w*h) | 39.1 us | First frame only; builds all CellDiffs |
 | **CPU pipeline total** |  | **58.7 us** |  |
-| `backend.draw_grid()` | O(changed_cells) | **14.5-49.1 us** | Zero-copy diff + incremental SGR + I/O |
+| `backend.present()` | O(changed_cells) | **14.5-49.1 us** | Incremental diff + SGR + I/O |
 <!-- /BENCH:per_frame_cost -->
 
-Note: paint-only cost is derived from the `paint/80x24` benchmark (which includes `grid.clear()`) minus `grid_clear/80x24`. `backend.flush()` adds 50–500 μs (stdout write, not benchmarked by criterion).
+Note: paint-only cost is derived from the `paint/80x24` benchmark (which includes `grid.clear()`) minus `grid_clear/80x24`. `backend.present()` includes stdout write (50–500 μs, not benchmarked by criterion).
 
-**Dominant cost: terminal I/O (`backend.draw_grid()` + `backend.flush()`).**
+**Dominant cost: terminal I/O (`backend.present()`).**
 
 ## Existing Optimizations
 
@@ -106,12 +100,11 @@ Note: paint-only cost is derived from the `paint/80x24` benchmark (which include
 |---|---|---|
 | CompactString | Cell.grapheme | Avoids heap allocation for short strings (<=24B inline) |
 | bitflags Attributes | Face.attributes | `Vec<Attribute>` -> u16. Copy-type eliminates allocation |
-| Double buffering | CellGrid | `std::mem::swap()` pointer exchange. O(1) |
-| Differential rendering | CellGrid.diff() | Only changed cells sent to terminal. Minimizes I/O |
+| Differential rendering | TuiBackend.present() | Only changed cells sent to terminal. Minimizes I/O |
 | Event batching | main.rs | `try_recv()` drains all pending events, then renders once |
 | SIMD JSON | protocol.rs | High-speed JSON parsing via simd_json |
 | BufferRef | Element tree | Buffer lines referenced, not cloned. Zero-copy in view() |
-| dirty_rows | CellGrid | Row-level dirty tracking skips unchanged rows in diff() |
+| dirty_rows | CellGrid | Row-level dirty tracking skips unchanged rows in present() |
 | Salsa incremental | render pipeline | Incremental recomputation of view, layout, plugin contributions, and overlays |
 | detect_cursors two-strategy | state.apply | Attribute heuristic (fast path) + face-matching fallback |
 
@@ -216,33 +209,19 @@ Full frame scales sub-linearly with area (cache effects). diff() scales linearly
 
 Measured with `kasane-tui/benches/backend.rs` using MockBackend (no real terminal I/O).
 
-### draw_grid (ADR-015 optimized path)
+### present (TuiBackend)
 
-<!-- BENCH:draw_grid -->
+<!-- BENCH:present -->
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
-| `draw_grid/full_redraw/80x24` | 80x24 all cells | 49.1 us | Cursor auto-advance + incremental SGR |
-| `draw_grid/full_redraw/200x60` | 200x60 all cells | 254.7 us | Large screen |
-| `draw_grid/incremental_1line` | 1 line changed | 14.5 us | Diff + SGR for changed row |
-| `draw_grid/full_redraw_realistic/80x24` | Realistic data at 80x24 | 47.0 us | Diverse Face values |
-<!-- /BENCH:draw_grid -->
-
-### draw (legacy CellDiff path)
-
-<!-- BENCH:backend_draw -->
-| Benchmark | What It Measures | Measured | Notes |
-|---|---|---|---|
-| `backend_draw/full_redraw/80x24` | 80x24 all cells | 141.5 us | Escape sequence generation |
-| `backend_draw/full_redraw/200x60` | 200x60 all cells | 813.4 us | Large screen |
-| `backend_draw/incremental_1line` | 1 line changed | 2.0 us | Most common pattern |
-| `backend_draw/full_redraw_realistic/80x24` | Realistic data at 80x24 | 133.0 us | Diverse Face values |
-<!-- /BENCH:backend_draw -->
-
-**ADR-015 improvement:** `draw_grid()` is **3.1x faster** than the legacy `draw()` path at 80×24 (44.5 μs vs 138 μs) by eliminating per-cell `MoveTo` commands via cursor auto-advance and reducing SGR escape volume via incremental diff (`emit_sgr_diff`).
+| `present/full_redraw/80x24` | 80x24 all cells | 49.1 us | Cursor auto-advance + incremental SGR |
+| `present/incremental_1line` | 1 line changed | 14.5 us | Diff + SGR for changed row |
+| `present/realistic/80x24` | Realistic data at 80x24 | 47.0 us | Diverse Face values |
+<!-- /BENCH:present -->
 
 ## E2E Pipeline Benchmarks
 
-JSON bytes -> parse -> apply -> render -> diff -> backend.draw -> escape bytes.
+JSON bytes -> parse -> apply -> render -> backend.present -> escape bytes.
 
 <!-- BENCH:e2e_pipeline -->
 | Benchmark | What It Measures | Measured | Notes |
@@ -261,13 +240,11 @@ Measured with `--features bench-alloc` (debug profile, single frame at 80x24).
 | view | 57 | 17344 | Element tree construction |
 | place | 29 | 1052 | Layout result vectors |
 | paint | 3 | 1196 | Atom-to-cell conversion |
-| diff | 10 | 196416 | CellDiff vector + Cell clones |
-| swap | 1 | 76800 | Previous buffer allocation |
 | **full_frame total** | **100** | **292808** | |
 | parse_request (100 lines) | 1851 | 276066 | JSON parsing dominates |
 <!-- /BENCH:alloc_breakdown -->
 
-**Key finding**: The TUI event loop uses `draw_grid()` with `iter_diffs()` (zero-copy, zero allocation), so diff() allocation does not impact the production path. JSON parsing allocates heavily but is amortized by simd_json's speed.
+**Key finding**: `TuiBackend::present()` performs incremental diff internally (zero allocation for the diff phase). JSON parsing allocates heavily but is amortized by simd_json's speed.
 
 ## Allocation Hotspots (Code Analysis)
 
