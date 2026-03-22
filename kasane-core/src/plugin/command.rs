@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::input::InputEvent;
 use crate::protocol::{Face, KasaneRequest};
-use crate::session::SessionCommand;
+use crate::session::{SessionCommand, SessionId};
 use crate::state::DirtyFlags;
 use crate::surface::Surface;
 use crate::surface::SurfaceId;
@@ -169,6 +169,18 @@ pub enum Command {
     ClosePaneClient {
         surface_id: SurfaceId,
     },
+    /// Bind a surface to a Kakoune session (low-level).
+    ///
+    /// Plugins can use this to control the Surface→Session mapping directly.
+    /// For the common case of spawning a new pane, prefer `SpawnPaneClient`.
+    BindSurfaceSession {
+        surface_id: SurfaceId,
+        session_id: SessionId,
+    },
+    /// Unbind a surface from its Kakoune session (low-level).
+    UnbindSurfaceSession {
+        surface_id: SurfaceId,
+    },
 }
 
 impl Command {
@@ -250,7 +262,9 @@ pub fn execute_commands(
             | Command::ResizePty { .. }
             | Command::InjectInput(_)
             | Command::SpawnPaneClient { .. }
-            | Command::ClosePaneClient { .. } => {}
+            | Command::ClosePaneClient { .. }
+            | Command::BindSurfaceSession { .. }
+            | Command::UnbindSurfaceSession { .. } => {}
         }
     }
     CommandResult::Continue

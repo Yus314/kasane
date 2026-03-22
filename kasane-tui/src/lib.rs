@@ -34,7 +34,7 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags};
 use kasane_core::surface::SurfaceRegistry;
-use kasane_core::surface::pane_map::{PaneMap, PaneStates};
+use kasane_core::surface::pane_map::PaneStates;
 
 use backend::TuiBackend;
 use diagnostics_overlay::paint_diagnostic_overlay;
@@ -140,13 +140,12 @@ where
     // Surface registry
     let mut surface_registry = SurfaceRegistry::new();
     register_builtin_surfaces(&mut surface_registry);
-    // PaneMap: bind initial session to the primary buffer surface
-    let mut pane_map = PaneMap::new();
-    pane_map.bind(kasane_core::surface::SurfaceId::BUFFER, active_session);
+    // Bind initial session to the primary buffer surface
+    surface_registry.bind_session(kasane_core::surface::SurfaceId::BUFFER, active_session);
     if let Some(spec) = session_manager.active_spec()
         && let Some(ref name) = spec.session
     {
-        pane_map.set_server_session_name(name.clone());
+        surface_registry.set_server_session_name(name.clone());
     }
     let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
@@ -243,7 +242,7 @@ where
                 scroll_runtime.set_initial_resize_complete(initial_resize_sent);
                 if let Some(resolved) = scroll_runtime.tick() {
                     let focused_surface = surface_registry.workspace().focused();
-                    let focused_sid = pane_map.session_for_surface(focused_surface);
+                    let focused_sid = surface_registry.session_for_surface(focused_surface);
                     let writer =
                         match focused_sid.and_then(|sid| session_manager.writer_mut(sid).ok()) {
                             Some(w) => w,
@@ -285,7 +284,6 @@ where
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
                 session_manager: &mut session_manager,
                 session_states: &mut session_states,
                 session_tx: &tx,
@@ -354,7 +352,7 @@ where
         }
 
         // Send resize commands to pane clients when layout may have changed
-        if !dirty.is_empty() && pane_map.len() > 1 {
+        if !dirty.is_empty() && surface_registry.is_multi_pane() {
             let total = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,
@@ -368,8 +366,7 @@ where
                 spawn_session,
             };
             kasane_core::event_loop::send_pane_resizes(
-                &surface_registry,
-                &mut pane_map,
+                &mut surface_registry,
                 &mut session_host,
                 total,
             );
@@ -390,9 +387,9 @@ where
             backend.begin_frame()?;
 
             let pane_states_val;
-            let pane_states_opt = if pane_map.len() > 1 {
-                pane_states_val = PaneStates::new(
-                    &pane_map,
+            let pane_states_opt = if surface_registry.is_multi_pane() {
+                pane_states_val = PaneStates::from_registry(
+                    &surface_registry,
                     &session_states,
                     &state,
                     session_manager.active_session_id(),

@@ -6,10 +6,25 @@ use crate::input::KeyEvent;
 use crate::input::MouseEvent;
 use crate::layout::{Rect, SplitDirection};
 use crate::plugin::{Command, PaneContext, PluginId, PluginView};
+use crate::session::SessionId;
 use crate::state::AppState;
 use crate::workspace::DockPosition;
 
 use super::Surface;
+
+/// Per-surface state tracking a bound Kakoune session.
+///
+/// Stored inside `RegisteredSurface` to let `SurfaceRegistry` own the
+/// Surface→Session mapping, resize deduplication, and deferred-resize flag
+/// that were previously kept in `PaneMap`.
+#[derive(Debug, Clone)]
+pub(crate) struct SessionBindingState {
+    pub(crate) session_id: SessionId,
+    /// Whether the first Kakoune event hasn't arrived yet (Resize deferred).
+    pub(crate) pending_initial_resize: bool,
+    /// Last Resize dimensions sent to this session (for deduplication).
+    pub(crate) last_resize: Option<(u16, u16)>,
+}
 
 /// Unique identifier for a surface within a [`Workspace`](crate::workspace::Workspace).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

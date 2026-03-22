@@ -314,9 +314,17 @@ fn test_dirty_flags_session_set_on_lifecycle_events() {
         .insert(SessionSpec::new("c", None, vec![]), (), vec![], ())
         .unwrap();
     store.ensure_session(id_c, &state);
-    // death
-    let quit = kasane_core::event_loop::handle_session_death(
+    // death — use handle_pane_death which also cleans up surfaces
+    let mut surface_registry = SurfaceRegistry::new();
+    surface_registry
+        .try_register(Box::new(KakouneBufferSurface::new()))
+        .unwrap();
+    surface_registry
+        .try_register(Box::new(StatusBarSurface::new()))
+        .unwrap();
+    let quit = kasane_core::event_loop::handle_pane_death(
         id_b,
+        &mut surface_registry,
         &mut kasane_core::event_loop::SessionMutContext {
             session_manager: &mut mgr,
             session_states: &mut store,
@@ -326,7 +334,7 @@ fn test_dirty_flags_session_set_on_lifecycle_events() {
         },
     );
     assert!(!quit);
-    assert!(dirty.contains(DirtyFlags::SESSION));
+    assert!(dirty.contains(DirtyFlags::ALL));
 }
 
 // ===========================================================================

@@ -35,7 +35,7 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
-use kasane_core::surface::pane_map::{PaneMap, PaneStates};
+use kasane_core::surface::pane_map::PaneStates;
 
 use crate::animation::CursorAnimation;
 use crate::backend::GuiBackend;
@@ -186,7 +186,6 @@ where
     state: Box<AppState>,
     registry: PluginRuntime,
     surface_registry: SurfaceRegistry,
-    pane_map: PaneMap,
     grid: CellGrid, // used for resize tracking
     backend: Option<GuiBackend>,
 
@@ -297,15 +296,14 @@ where
         };
         let scroll_runtime_session = session_manager.active_session_id();
 
-        // Initialize PaneMap and bind initial session
-        let mut pane_map = PaneMap::new();
+        // Bind initial session to the primary buffer surface
         if let Some(active) = session_manager.active_session_id() {
-            pane_map.bind(kasane_core::surface::SurfaceId::BUFFER, active);
+            surface_registry.bind_session(kasane_core::surface::SurfaceId::BUFFER, active);
         }
         if let Some(spec) = session_manager.active_spec()
             && let Some(ref name) = spec.session
         {
-            pane_map.set_server_session_name(name.clone());
+            surface_registry.set_server_session_name(name.clone());
         }
 
         Ok(App {
@@ -315,7 +313,6 @@ where
             state,
             registry,
             surface_registry,
-            pane_map,
             grid: CellGrid::new(1, 1),
             backend: None,
             session_manager,
@@ -425,8 +422,9 @@ where
                             .apply(req);
                         // Send the deferred initial Resize now that the kak process
                         // has proven it's initialized (it sent its first event).
-                        if self.pane_map.take_pending_resize(session_id)
-                            && let Some(surface_id) = self.pane_map.surface_for_session(session_id)
+                        if self.surface_registry.take_pending_resize(session_id)
+                            && let Some(surface_id) =
+                                self.surface_registry.surface_for_session(session_id)
                         {
                             let total = Rect {
                                 x: 0,
@@ -445,11 +443,16 @@ where
                                         cols: rect.w,
                                     },
                                 );
-                                self.pane_map.record_resize(session_id, rect.h, rect.w);
+                                self.surface_registry
+                                    .record_resize(session_id, rect.h, rect.w);
                             }
                         }
                         // If the session is a visible pane, trigger a redraw
-                        if self.pane_map.surface_for_session(session_id).is_some() {
+                        if self
+                            .surface_registry
+                            .surface_for_session(session_id)
+                            .is_some()
+                        {
                             self.dirty |= DirtyFlags::ALL;
                         }
                         continue;
@@ -517,23 +520,6 @@ where
                         .sync_active_from_manager(&self.session_manager, &self.state);
                 }
                 GuiEvent::KakouneDied(session_id) => {
-                    // If this is a secondary pane client (not the primary session),
-                    // clean up the pane without exiting Kasane.
-                    if self.pane_map.is_pane_client(session_id) {
-                        if let Some(surface_id) = self.pane_map.unbind_session(session_id) {
-                            self.surface_registry.remove(surface_id);
-                            let _ = self.surface_registry.workspace_mut().close(surface_id);
-                            self.session_states.remove(session_id);
-                            let _ = self.session_manager.close(session_id);
-                            self.dirty |= DirtyFlags::ALL;
-                            notify_workspace_observers(
-                                &mut self.registry,
-                                &self.surface_registry,
-                                &self.state,
-                            );
-                        }
-                        continue;
-                    }
                     let mut session_ctx = kasane_core::event_loop::SessionMutContext {
                         session_manager: &mut self.session_manager,
                         session_states: &mut self.session_states,
@@ -541,11 +527,15 @@ where
                         dirty: &mut self.dirty,
                         initial_resize_sent: &mut self.initial_resize_sent,
                     };
-                    if kasane_core::event_loop::handle_session_death(session_id, &mut session_ctx) {
+                    if kasane_core::event_loop::handle_pane_death(
+                        session_id,
+                        &mut self.surface_registry,
+                        &mut session_ctx,
+                    ) {
                         event_loop.exit();
                         return;
                     }
-                    // handle_session_death may have reset initial_resize_sent.
+                    // handle_pane_death may have reset initial_resize_sent.
                     if !self.initial_resize_sent {
                         kasane_core::io::send_initial_resize(
                             self.session_manager
@@ -564,6 +554,11 @@ where
                             return;
                         }
                     }
+                    notify_workspace_observers(
+                        &mut self.registry,
+                        &self.surface_registry,
+                        &self.state,
+                    );
                     // Notify plugins of session change so cached state is updated.
                     let batch = self.registry.notify_state_changed_batch(
                         &AppView::new(&self.state),
@@ -779,7 +774,6 @@ where
                 state: &mut self.state,
                 registry: &mut self.registry,
                 surface_registry: &mut self.surface_registry,
-                pane_map: &mut self.pane_map,
                 clipboard_get: &mut || self.backend.as_mut().and_then(|b| b.clipboard_get()),
                 dirty: &mut self.dirty,
                 timer: &self.timer_scheduler,
@@ -854,7 +848,7 @@ where
         let cell_size = sr.cell_size();
 
         // Send resize commands to pane clients when layout may have changed
-        if !self.dirty.is_empty() && self.pane_map.len() > 1 {
+        if !self.dirty.is_empty() && self.surface_registry.is_multi_pane() {
             let total = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,
@@ -870,8 +864,7 @@ where
                 spawn_session,
             };
             kasane_core::event_loop::send_pane_resizes(
-                &self.surface_registry,
-                &mut self.pane_map,
+                &mut self.surface_registry,
                 &mut session_runtime,
                 total,
             );
@@ -890,9 +883,9 @@ where
             sync_plugin_contributions(&mut self.salsa_db, &self.state, &view, &self.salsa_handles);
 
             let pane_states_val;
-            let pane_states_opt = if self.pane_map.len() > 1 {
-                pane_states_val = PaneStates::new(
-                    &self.pane_map,
+            let pane_states_opt = if self.surface_registry.is_multi_pane() {
+                pane_states_val = PaneStates::from_registry(
+                    &self.surface_registry,
                     &self.session_states,
                     &self.state,
                     self.session_manager.active_session_id(),
@@ -1137,7 +1130,7 @@ where
         // Host-owned smooth scroll runtime tick
         if let Some(resolved) = self.scroll_runtime.tick() {
             let focused_surface = self.surface_registry.workspace().focused();
-            let focused_sid = self.pane_map.session_for_surface(focused_surface);
+            let focused_sid = self.surface_registry.session_for_surface(focused_surface);
             let writer = match focused_sid.and_then(|sid| self.session_manager.writer_mut(sid).ok())
             {
                 Some(w) => w,

@@ -19,7 +19,6 @@ use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::buffer::KakouneBufferSurface;
-use crate::surface::pane_map::PaneMap;
 use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceId, SurfaceRegistry};
 use crate::workspace::{Placement, Workspace};
 
@@ -258,20 +257,19 @@ fn prune_missing_workspace_surfaces(surface_registry: &mut SurfaceRegistry) {
 ///
 /// Should be called after terminal resize, split creation/deletion, or divider drag.
 pub fn send_pane_resizes(
-    surface_registry: &SurfaceRegistry,
-    pane_map: &mut PaneMap,
+    surface_registry: &mut SurfaceRegistry,
     session_host: &mut dyn SessionHost,
     total: Rect,
 ) {
     let rects = surface_registry.workspace().compute_rects(total);
     for (surface_id, rect) in &rects {
-        if let Some(session_id) = pane_map.session_for_surface(*surface_id)
+        if let Some(session_id) = surface_registry.session_for_surface(*surface_id)
             // Skip sessions whose kak process hasn't finished initializing.
             // The initial Resize is sent when their first Kakoune event arrives.
-            && !pane_map.has_pending_resize(session_id)
+            && !surface_registry.has_pending_resize(session_id)
             // Only send when dimensions actually changed to avoid an infinite
             // Resize → Draw → dirty → Resize feedback loop.
-            && pane_map.needs_resize(session_id, rect.h, rect.w)
+            && surface_registry.needs_resize(session_id, rect.h, rect.w)
             && let Some(writer) = session_host.writer_for_session(session_id)
         {
             crate::io::send_request(
@@ -304,21 +302,43 @@ pub struct SessionMutContext<'a, R, W, C> {
     pub initial_resize_sent: &'a mut bool,
 }
 
-/// Handle a Kakoune session death event.
+/// Handle the death of any Kakoune session (pane or primary).
 ///
-/// Closes the session, removes its state, and restores the next active session
-/// if needed. Returns `true` if the application should quit (no sessions remain).
-pub fn handle_session_death<R, W, C>(
+/// Unbinds and cleans up the surface, closes the session, and restores the
+/// next active session if needed. Non-BUFFER surfaces are removed from the
+/// registry; BUFFER is only removed from the workspace tree (the registry
+/// entry must survive for `register_builtin_surfaces` invariants).
+///
+/// Returns `true` if the application should quit (no sessions remain).
+pub fn handle_pane_death<R, W, C>(
     session_id: SessionId,
+    surface_registry: &mut SurfaceRegistry,
     ctx: &mut SessionMutContext<'_, R, W, C>,
 ) -> bool {
+    // 1. Surface unbind
+    let surface_id = surface_registry.unbind_session_by_session(session_id);
+
+    if let Some(surface_id) = surface_id {
+        // 2. Non-BUFFER surfaces are removed from the registry entirely
+        if surface_id != SurfaceId::BUFFER {
+            surface_registry.remove(surface_id);
+        }
+        // 3. Remove from workspace tree (last-leaf close returns false — safe)
+        let _ = surface_registry.workspace_mut().close(surface_id);
+    }
+
+    // 4. Session lifecycle cleanup (mirrors handle_session_death)
     let was_active = ctx.session_manager.active_session_id() == Some(session_id);
     let _ = ctx.session_manager.close(session_id);
-    *ctx.dirty |= DirtyFlags::SESSION;
     ctx.session_states.remove(session_id);
+    *ctx.dirty |= DirtyFlags::ALL;
+
+    // 5. All sessions gone → quit
     if ctx.session_manager.is_empty() {
         return true;
     }
+
+    // 6. Active session switched — restore state
     if was_active {
         let restored = ctx
             .session_manager
@@ -327,9 +347,9 @@ pub fn handle_session_death<R, W, C>(
         if !restored {
             ctx.state.reset_for_session_switch();
         }
-        *ctx.dirty |= DirtyFlags::ALL;
         *ctx.initial_resize_sent = false;
     }
+
     sync_session_metadata(ctx.session_manager, ctx.session_states, ctx.state);
     false
 }
@@ -620,7 +640,6 @@ pub struct DeferredContext<'a> {
     pub state: &'a mut AppState,
     pub registry: &'a mut PluginRuntime,
     pub surface_registry: &'a mut SurfaceRegistry,
-    pub pane_map: &'a mut PaneMap,
     pub clipboard_get: &'a mut dyn FnMut() -> Option<String>,
     pub dirty: &'a mut DirtyFlags,
     pub timer: &'a dyn TimerScheduler,
@@ -649,11 +668,11 @@ const MAX_INJECT_DEPTH: usize = 10;
 /// Resolve the writer for the focused pane, falling back to `active_writer()`.
 ///
 /// This is a macro rather than a function because it needs split borrows on
-/// `DeferredContext` fields (`surface_registry`, `pane_map`, `session_host`).
+/// `DeferredContext` fields (`surface_registry`, `session_host`).
 macro_rules! focused_writer {
     ($ctx:expr) => {{
         let focused_surface = $ctx.surface_registry.workspace().focused();
-        let focused_session = $ctx.pane_map.session_for_surface(focused_surface);
+        let focused_session = $ctx.surface_registry.session_for_surface(focused_surface);
         match focused_session {
             Some(sid) => match $ctx.session_host.writer_for_session(sid) {
                 Some(w) => w,
@@ -1189,7 +1208,11 @@ fn handle_session_pane_command(
             surface_id,
             placement,
         } => {
-            if let Some(server_name) = ctx.pane_map.server_session_name().map(str::to_owned) {
+            if let Some(server_name) = ctx
+                .surface_registry
+                .server_session_name()
+                .map(str::to_owned)
+            {
                 let key = format!("pane-{}", surface_id.0);
                 let spec = SessionSpec::new(
                     key.clone(),
@@ -1205,16 +1228,16 @@ fn handle_session_pane_command(
                     ctx.initial_resize_sent,
                 );
 
-                // Bind surface -> session in PaneMap and defer initial resize
-                if let Some(session_id) = ctx.session_host.session_id_by_key(&key) {
-                    ctx.pane_map.bind(surface_id, session_id);
-                    ctx.pane_map.mark_pending_resize(session_id);
-                }
-
-                // Register ClientBufferSurface
+                // Register ClientBufferSurface (must exist before bind_session)
                 let _ = ctx.surface_registry.try_register(Box::new(
                     crate::surface::buffer::ClientBufferSurface::new(surface_id),
                 ));
+
+                // Bind surface -> session and defer initial resize
+                if let Some(session_id) = ctx.session_host.session_id_by_key(&key) {
+                    ctx.surface_registry.bind_session(surface_id, session_id);
+                    ctx.surface_registry.mark_pending_resize(session_id);
+                }
 
                 // Add to workspace
                 dispatch_add_surface(ctx, surface_id, placement);
@@ -1223,7 +1246,7 @@ fn handle_session_pane_command(
             }
         }
         Command::ClosePaneClient { surface_id } => {
-            if let Some(_session_id) = ctx.pane_map.unbind_surface(surface_id) {
+            if let Some(_session_id) = ctx.surface_registry.unbind_session_by_surface(surface_id) {
                 // Close the Kakoune client session by key
                 let key = format!("pane-{}", surface_id.0);
                 ctx.session_host.close_session(
@@ -1237,6 +1260,15 @@ fn handle_session_pane_command(
             let _ = ctx.surface_registry.workspace_mut().close(surface_id);
             *ctx.dirty |= DirtyFlags::ALL;
             *ctx.workspace_changed = true;
+        }
+        Command::BindSurfaceSession {
+            surface_id,
+            session_id,
+        } => {
+            ctx.surface_registry.bind_session(surface_id, session_id);
+        }
+        Command::UnbindSurfaceSession { surface_id } => {
+            ctx.surface_registry.unbind_session_by_surface(surface_id);
         }
         Command::Session(cmd) => {
             match cmd {
@@ -1945,7 +1977,7 @@ mod tests {
 
         let mut state = AppState::default();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -1967,7 +1999,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -1996,7 +2028,7 @@ mod tests {
         let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(RuntimeMessagePlugin));
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2014,7 +2046,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2048,7 +2080,7 @@ mod tests {
         }));
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2070,7 +2102,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2102,7 +2134,7 @@ mod tests {
         }));
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2124,7 +2156,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2161,7 +2193,7 @@ mod tests {
         }));
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2182,7 +2214,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2252,7 +2284,6 @@ mod tests {
             }),
         );
 
-        let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2268,7 +2299,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2327,7 +2358,6 @@ mod tests {
             }),
         );
 
-        let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2343,7 +2373,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2403,7 +2433,6 @@ mod tests {
             }),
         );
 
-        let mut pane_map = PaneMap::new();
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2419,7 +2448,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2494,7 +2523,7 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = RecordingSessionHost::default();
@@ -2513,7 +2542,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2541,7 +2570,7 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = RecordingSessionHost::default();
@@ -2557,7 +2586,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2581,7 +2610,7 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = RecordingSessionHost {
@@ -2600,7 +2629,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2624,7 +2653,7 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = RecordingSessionHost::default();
@@ -2640,7 +2669,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2711,7 +2740,7 @@ mod tests {
         }));
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2730,7 +2759,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2762,7 +2791,7 @@ mod tests {
         }));
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2781,7 +2810,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2816,7 +2845,7 @@ mod tests {
         }));
         let mut surface_registry = SurfaceRegistry::new();
         register_builtin_surfaces(&mut surface_registry);
-        let mut pane_map = PaneMap::new();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2835,7 +2864,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2863,7 +2892,7 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::default();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2881,7 +2910,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2908,7 +2937,7 @@ mod tests {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::default();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2926,7 +2955,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -2972,7 +3001,7 @@ mod tests {
         let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(CascadingMessagePlugin));
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::default();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -2990,7 +3019,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,
@@ -3037,13 +3066,257 @@ mod tests {
         }
     }
 
+    // ── handle_pane_death tests ──────────────────────────────────────
+
+    type TestSessionManager = crate::session::SessionManager<(), Vec<u8>, ()>;
+
+    fn setup_pane_death_env() -> (
+        AppState,
+        TestSessionManager,
+        crate::session::SessionStateStore,
+        SurfaceRegistry,
+    ) {
+        let state = AppState::default();
+        let mgr = TestSessionManager::new();
+        let store = crate::session::SessionStateStore::new();
+        let mut sr = SurfaceRegistry::new();
+        register_builtin_surfaces(&mut sr);
+        (state, mgr, store, sr)
+    }
+
+    #[test]
+    fn test_buffer_pane_death_with_remaining_pane() {
+        let (mut state, mut mgr, mut store, mut sr) = setup_pane_death_env();
+        let mut dirty = DirtyFlags::empty();
+        let mut initial_resize_sent = true;
+
+        // Create primary (BUFFER) session
+        let primary = mgr
+            .insert(
+                crate::session::SessionSpec::new("primary", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(primary, &state);
+        sr.bind_session(SurfaceId::BUFFER, primary);
+
+        // Create secondary pane session
+        let pane_surface = SurfaceId(100);
+        sr.register(TestSurfaceBuilder::new(pane_surface).build());
+        sr.workspace_mut().root_mut().split(
+            SurfaceId::BUFFER,
+            crate::layout::SplitDirection::Vertical,
+            0.5,
+            pane_surface,
+        );
+        let pane = mgr
+            .insert(
+                crate::session::SessionSpec::new("pane", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(pane, &state);
+        sr.bind_session(pane_surface, pane);
+
+        // Kill primary (BUFFER) session
+        let quit = handle_pane_death(
+            primary,
+            &mut sr,
+            &mut SessionMutContext {
+                session_manager: &mut mgr,
+                session_states: &mut store,
+                state: &mut state,
+                dirty: &mut dirty,
+                initial_resize_sent: &mut initial_resize_sent,
+            },
+        );
+
+        assert!(!quit);
+        // BUFFER surface stays in registry but is removed from workspace
+        assert!(sr.get(SurfaceId::BUFFER).is_some());
+        assert!(
+            !sr.workspace()
+                .root()
+                .collect_ids()
+                .contains(&SurfaceId::BUFFER)
+        );
+        // Pane surface remains in both
+        assert!(sr.get(pane_surface).is_some());
+        assert!(sr.workspace().root().collect_ids().contains(&pane_surface));
+        // Pane session promoted to active
+        assert_eq!(mgr.active_session_id(), Some(pane));
+    }
+
+    #[test]
+    fn test_secondary_pane_death() {
+        let (mut state, mut mgr, mut store, mut sr) = setup_pane_death_env();
+        let mut dirty = DirtyFlags::empty();
+        let mut initial_resize_sent = true;
+
+        // Create primary session
+        let primary = mgr
+            .insert(
+                crate::session::SessionSpec::new("primary", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(primary, &state);
+        sr.bind_session(SurfaceId::BUFFER, primary);
+
+        // Create secondary pane
+        let pane_surface = SurfaceId(100);
+        sr.register(TestSurfaceBuilder::new(pane_surface).build());
+        sr.workspace_mut().root_mut().split(
+            SurfaceId::BUFFER,
+            crate::layout::SplitDirection::Vertical,
+            0.5,
+            pane_surface,
+        );
+        let pane = mgr
+            .insert(
+                crate::session::SessionSpec::new("pane", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(pane, &state);
+        sr.bind_session(pane_surface, pane);
+
+        // Kill secondary pane
+        let quit = handle_pane_death(
+            pane,
+            &mut sr,
+            &mut SessionMutContext {
+                session_manager: &mut mgr,
+                session_states: &mut store,
+                state: &mut state,
+                dirty: &mut dirty,
+                initial_resize_sent: &mut initial_resize_sent,
+            },
+        );
+
+        assert!(!quit);
+        // Pane surface removed from both registry and workspace
+        assert!(sr.get(pane_surface).is_none());
+        assert!(!sr.workspace().root().collect_ids().contains(&pane_surface));
+        // BUFFER stays
+        assert!(sr.get(SurfaceId::BUFFER).is_some());
+        assert_eq!(mgr.active_session_id(), Some(primary));
+    }
+
+    #[test]
+    fn test_last_session_death_quits() {
+        let (mut state, mut mgr, mut store, mut sr) = setup_pane_death_env();
+        let mut dirty = DirtyFlags::empty();
+        let mut initial_resize_sent = true;
+
+        let only = mgr
+            .insert(
+                crate::session::SessionSpec::new("only", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(only, &state);
+        sr.bind_session(SurfaceId::BUFFER, only);
+
+        let quit = handle_pane_death(
+            only,
+            &mut sr,
+            &mut SessionMutContext {
+                session_manager: &mut mgr,
+                session_states: &mut store,
+                state: &mut state,
+                dirty: &mut dirty,
+                initial_resize_sent: &mut initial_resize_sent,
+            },
+        );
+
+        assert!(quit);
+    }
+
+    #[test]
+    fn test_idempotent_double_death() {
+        let (mut state, mut mgr, mut store, mut sr) = setup_pane_death_env();
+        let mut dirty = DirtyFlags::empty();
+        let mut initial_resize_sent = true;
+
+        // Two sessions so first death doesn't quit
+        let s1 = mgr
+            .insert(
+                crate::session::SessionSpec::new("s1", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(s1, &state);
+        sr.bind_session(SurfaceId::BUFFER, s1);
+
+        let pane_surface = SurfaceId(100);
+        sr.register(TestSurfaceBuilder::new(pane_surface).build());
+        sr.workspace_mut().root_mut().split(
+            SurfaceId::BUFFER,
+            crate::layout::SplitDirection::Vertical,
+            0.5,
+            pane_surface,
+        );
+        let s2 = mgr
+            .insert(
+                crate::session::SessionSpec::new("s2", None, vec![]),
+                (),
+                vec![],
+                (),
+            )
+            .unwrap();
+        store.ensure_session(s2, &state);
+        sr.bind_session(pane_surface, s2);
+
+        // First death
+        let quit1 = handle_pane_death(
+            s2,
+            &mut sr,
+            &mut SessionMutContext {
+                session_manager: &mut mgr,
+                session_states: &mut store,
+                state: &mut state,
+                dirty: &mut dirty,
+                initial_resize_sent: &mut initial_resize_sent,
+            },
+        );
+        assert!(!quit1);
+
+        // Second death of same session — idempotent no-op
+        dirty = DirtyFlags::empty();
+        let quit2 = handle_pane_death(
+            s2,
+            &mut sr,
+            &mut SessionMutContext {
+                session_manager: &mut mgr,
+                session_states: &mut store,
+                state: &mut state,
+                dirty: &mut dirty,
+                initial_resize_sent: &mut initial_resize_sent,
+            },
+        );
+        assert!(!quit2);
+    }
+
     #[test]
     fn inject_cascade_terminates_at_depth_limit() {
         let mut state = AppState::default();
         let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(CascadingInjectPlugin));
         let mut surface_registry = SurfaceRegistry::new();
-        let mut pane_map = PaneMap::default();
+
         let mut dirty = DirtyFlags::empty();
         let timer = NoopTimer;
         let mut sessions = NoopSessionRuntime::default();
@@ -3064,7 +3337,7 @@ mod tests {
                 state: &mut state,
                 registry: &mut registry,
                 surface_registry: &mut surface_registry,
-                pane_map: &mut pane_map,
+
                 clipboard_get: &mut || None,
                 dirty: &mut dirty,
                 timer: &timer,

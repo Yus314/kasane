@@ -24,7 +24,6 @@ use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
-use kasane_core::surface::pane_map::PaneMap;
 
 use crate::backend::TuiBackend;
 use crate::paint_hooks::PaintHookState;
@@ -207,7 +206,6 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub state: &'a mut Box<AppState>,
     pub registry: &'a mut PluginRuntime,
     pub surface_registry: &'a mut SurfaceRegistry,
-    pub pane_map: &'a mut PaneMap,
     pub session_manager: &'a mut SessionManager<R, W, C>,
     pub session_states: &'a mut SessionStateStore,
     pub session_tx: &'a crossbeam_channel::Sender<Event>,
@@ -252,8 +250,8 @@ where
                     .apply(req);
                 // Send the deferred initial Resize now that the kak process
                 // has proven it's initialized (it sent its first event).
-                if ctx.pane_map.take_pending_resize(session_id)
-                    && let Some(surface_id) = ctx.pane_map.surface_for_session(session_id)
+                if ctx.surface_registry.take_pending_resize(session_id)
+                    && let Some(surface_id) = ctx.surface_registry.surface_for_session(session_id)
                 {
                     let total = kasane_core::layout::Rect {
                         x: 0,
@@ -272,11 +270,16 @@ where
                                 cols: rect.w,
                             },
                         );
-                        ctx.pane_map.record_resize(session_id, rect.h, rect.w);
+                        ctx.surface_registry
+                            .record_resize(session_id, rect.h, rect.w);
                     }
                 }
                 // If the session is a visible pane, trigger a redraw
-                if ctx.pane_map.surface_for_session(session_id).is_some() {
+                if ctx
+                    .surface_registry
+                    .surface_for_session(session_id)
+                    .is_some()
+                {
                     *ctx.dirty |= DirtyFlags::ALL;
                 }
                 return false;
@@ -452,19 +455,6 @@ where
             }
         }
         Event::KakouneDied(session_id) => {
-            // If this is a secondary pane client (not the primary session),
-            // clean up the pane without exiting Kasane.
-            if ctx.pane_map.is_pane_client(session_id) {
-                if let Some(surface_id) = ctx.pane_map.unbind_session(session_id) {
-                    ctx.surface_registry.remove(surface_id);
-                    let _ = ctx.surface_registry.workspace_mut().close(surface_id);
-                    ctx.session_states.remove(session_id);
-                    let _ = ctx.session_manager.close(session_id);
-                    *ctx.dirty |= DirtyFlags::ALL;
-                    notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
-                }
-                return false;
-            }
             let mut session_ctx = kasane_core::event_loop::SessionMutContext {
                 session_manager: ctx.session_manager,
                 session_states: ctx.session_states,
@@ -472,10 +462,14 @@ where
                 dirty: ctx.dirty,
                 initial_resize_sent: ctx.initial_resize_sent,
             };
-            if kasane_core::event_loop::handle_session_death(session_id, &mut session_ctx) {
+            if kasane_core::event_loop::handle_pane_death(
+                session_id,
+                ctx.surface_registry,
+                &mut session_ctx,
+            ) {
                 return true;
             }
-            // handle_session_death may have reset initial_resize_sent when
+            // handle_pane_death may have reset initial_resize_sent when
             // switching to the next active session.  Send the resize now so
             // the new session is unblocked.
             if !*ctx.initial_resize_sent {
@@ -495,6 +489,7 @@ where
                     return true;
                 }
             }
+            notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
             let batch = ctx
                 .registry
                 .notify_state_changed_batch(&AppView::new(ctx.state), DirtyFlags::SESSION);
@@ -705,7 +700,6 @@ where
             state: ctx.state,
             registry: ctx.registry,
             surface_registry: ctx.surface_registry,
-            pane_map: ctx.pane_map,
             clipboard_get: &mut || ctx.backend.clipboard_get(),
             dirty: ctx.dirty,
             timer: ctx.timer,
