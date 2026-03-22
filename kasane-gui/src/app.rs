@@ -21,9 +21,8 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AppView, Command, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginManager,
-    PluginRuntime, ProcessDispatcher, ProcessEvent, extract_redraw_flags,
-    report_plugin_diagnostics,
+    AppView, Command, IoEvent, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
+    ProcessDispatcher, ProcessEvent, extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
@@ -91,14 +90,17 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) {
-        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
-            &spec,
-            activate,
-            self.session_manager,
-            self.session_states,
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
             state,
             dirty,
             initial_resize_sent,
+        };
+        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
+            &spec,
+            activate,
+            &mut ctx,
             self.spawn_session,
         ) {
             spawn_session_reader(session_id, reader, self.proxy.clone());
@@ -112,14 +114,14 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) -> bool {
-        kasane_core::event_loop::close_session_core(
-            key,
-            self.session_manager,
-            self.session_states,
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
             state,
             dirty,
             initial_resize_sent,
-        )
+        };
+        kasane_core::event_loop::close_session_core(key, &mut ctx)
     }
 
     fn switch_session(
@@ -129,14 +131,14 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) {
-        kasane_core::event_loop::switch_session_core(
-            key,
-            self.session_manager,
-            self.session_states,
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
             state,
             dirty,
             initial_resize_sent,
-        );
+        };
+        kasane_core::event_loop::switch_session_core(key, &mut ctx);
     }
 
     fn session_id_by_key(&self, key: &str) -> Option<kasane_core::session::SessionId> {
@@ -270,8 +272,8 @@ where
         })?;
         let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
         report_plugin_diagnostics(&initial_plugins.diagnostics);
-        schedule_diagnostic_overlay(
-            &event_proxy,
+        kasane_core::event_loop::schedule_diagnostic_overlay(
+            &GuiDiagnosticScheduler(event_proxy.clone()),
             &mut diagnostic_overlay,
             &initial_plugins.diagnostics,
         );
@@ -532,14 +534,14 @@ where
                         }
                         continue;
                     }
-                    if kasane_core::event_loop::handle_session_death(
-                        session_id,
-                        &mut self.session_manager,
-                        &mut self.session_states,
-                        &mut self.state,
-                        &mut self.dirty,
-                        &mut self.initial_resize_sent,
-                    ) {
+                    let mut session_ctx = kasane_core::event_loop::SessionMutContext {
+                        session_manager: &mut self.session_manager,
+                        session_states: &mut self.session_states,
+                        state: &mut self.state,
+                        dirty: &mut self.dirty,
+                        initial_resize_sent: &mut self.initial_resize_sent,
+                    };
+                    if kasane_core::event_loop::handle_session_death(session_id, &mut session_ctx) {
                         event_loop.exit();
                         return;
                     }
@@ -1004,23 +1006,17 @@ fn append_overlay_commands(
     Cow::Owned(combined)
 }
 
-fn schedule_diagnostic_overlay(
-    proxy: &winit::event_loop::EventLoopProxy<GuiEvent>,
-    overlay: &mut PluginDiagnosticOverlayState,
-    diagnostics: &[PluginDiagnostic],
-) {
-    let Some(generation) = overlay.record(diagnostics) else {
-        return;
-    };
-    let Some(delay) = overlay.dismiss_after() else {
-        return;
-    };
+/// Newtype wrapper for winit EventLoopProxy to implement `DiagnosticOverlayScheduler`.
+struct GuiDiagnosticScheduler(winit::event_loop::EventLoopProxy<GuiEvent>);
 
-    let proxy = proxy.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(delay);
-        let _ = proxy.send_event(GuiEvent::DiagnosticOverlayExpire(generation));
-    });
+impl kasane_core::event_loop::DiagnosticOverlayScheduler for GuiDiagnosticScheduler {
+    fn schedule_expiry(&self, delay: std::time::Duration, generation: u64) {
+        let proxy = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            let _ = proxy.send_event(GuiEvent::DiagnosticOverlayExpire(generation));
+        });
+    }
 }
 
 impl<R, W, C> Drop for App<R, W, C>

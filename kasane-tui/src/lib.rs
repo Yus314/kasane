@@ -58,14 +58,9 @@ fn install_panic_hook() {
             crossterm::terminal::LeaveAlternateScreen
         );
         default_hook(info);
-        eprintln!();
-        eprintln!("Your Kakoune session is still running.");
-        if let Some(name) = SESSION_NAME.get() {
-            eprintln!("Reconnect with: kasane -c {name}");
-        } else {
-            eprintln!("List sessions with: kak -l");
-            eprintln!("Reconnect with:     kasane -c <session_name>");
-        }
+        kasane_core::event_loop::print_session_recovery_hint(
+            SESSION_NAME.get().map(|s| s.as_str()),
+        );
     }));
 }
 
@@ -161,7 +156,11 @@ where
         kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
     })?;
     report_plugin_diagnostics(&initial_plugins.diagnostics);
-    schedule_diagnostic_overlay(&tx, &mut diagnostic_overlay, &initial_plugins.diagnostics);
+    kasane_core::event_loop::schedule_diagnostic_overlay(
+        &TuiDiagnosticScheduler(tx.clone()),
+        &mut diagnostic_overlay,
+        &initial_plugins.diagnostics,
+    );
 
     // NOTE: We do NOT send the initial resize here. Kakoune's JSON UI
     // registers its stdin FD watcher in EventMode::Urgent. During
@@ -447,21 +446,15 @@ where
     Ok(())
 }
 
-pub(crate) fn schedule_diagnostic_overlay(
-    tx: &crossbeam_channel::Sender<Event>,
-    overlay: &mut PluginDiagnosticOverlayState,
-    diagnostics: &[kasane_core::plugin::PluginDiagnostic],
-) {
-    let Some(generation) = overlay.record(diagnostics) else {
-        return;
-    };
-    let Some(delay) = overlay.dismiss_after() else {
-        return;
-    };
+/// Newtype wrapper for crossbeam Sender to implement `DiagnosticOverlayScheduler`.
+pub(crate) struct TuiDiagnosticScheduler(pub(crate) crossbeam_channel::Sender<Event>);
 
-    let tx = tx.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(delay);
-        let _ = tx.send(Event::DiagnosticOverlayExpire(generation));
-    });
+impl kasane_core::event_loop::DiagnosticOverlayScheduler for TuiDiagnosticScheduler {
+    fn schedule_expiry(&self, delay: std::time::Duration, generation: u64) {
+        let tx = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            let _ = tx.send(Event::DiagnosticOverlayExpire(generation));
+        });
+    }
 }

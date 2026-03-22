@@ -11,9 +11,9 @@ use crate::input::InputEvent;
 use crate::layout::Rect;
 use crate::plugin::{
     AppView, AppliedWinnerDelta, BootstrapEffects, Command, CommandResult, IoEvent,
-    PluginAuthorities, PluginDiagnostic, PluginId, PluginRuntime, ProcessDispatcher, ProcessEvent,
-    ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand, StdinMode, execute_commands,
-    extract_redraw_flags, partition_commands,
+    PluginAuthorities, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId, PluginRuntime,
+    ProcessDispatcher, ProcessEvent, ReadyBatch, RuntimeBatch, RuntimeEffects, SessionReadyCommand,
+    StdinMode, execute_commands, extract_redraw_flags, partition_commands,
 };
 use crate::scroll::ScrollPlan;
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
@@ -89,22 +89,12 @@ pub fn setup_plugin_surfaces(
                 err.clone(),
             ));
         } else {
-            let mut bootstrap_dirty = DirtyFlags::empty();
-            for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+            apply_surface_initial_placements(
+                surface_registry,
                 &registered_ids,
                 surface_set.legacy_workspace_request.as_ref(),
-                &mut bootstrap_dirty,
-                Some(Rect {
-                    x: 0,
-                    y: 0,
-                    w: state.cols,
-                    h: state.rows,
-                }),
-            ) {
-                tracing::warn!(
-                    "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
-                );
-            }
+                state,
+            );
         }
     }
     diagnostics
@@ -117,6 +107,31 @@ pub fn register_builtin_surfaces(surface_registry: &mut SurfaceRegistry) {
     surface_registry
         .try_register(Box::new(crate::surface::status::StatusBarSurface::new()))
         .expect("failed to register built-in surface kasane.status");
+}
+
+/// Apply initial surface placements and log any unresolved ones.
+fn apply_surface_initial_placements(
+    surface_registry: &mut SurfaceRegistry,
+    surface_ids: &[SurfaceId],
+    legacy_request: Option<&Placement>,
+    state: &AppState,
+) {
+    let mut bootstrap_dirty = DirtyFlags::empty();
+    for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+        surface_ids,
+        legacy_request,
+        &mut bootstrap_dirty,
+        Some(Rect {
+            x: 0,
+            y: 0,
+            w: state.cols,
+            h: state.rows,
+        }),
+    ) {
+        tracing::warn!(
+            "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
+        );
+    }
 }
 
 pub fn rebuild_plugin_surface_registry(
@@ -198,22 +213,12 @@ pub fn reconcile_plugin_surfaces(
         }
 
         if !new_workspace_surfaces.is_empty() {
-            let mut bootstrap_dirty = DirtyFlags::empty();
-            for (surface_id, request) in surface_registry.apply_initial_placements_with_total(
+            apply_surface_initial_placements(
+                surface_registry,
                 &new_workspace_surfaces,
                 surface_set.legacy_workspace_request.as_ref(),
-                &mut bootstrap_dirty,
-                Some(Rect {
-                    x: 0,
-                    y: 0,
-                    w: state.cols,
-                    h: state.rows,
-                }),
-            ) {
-                tracing::warn!(
-                    "skipping unresolved initial placement for surface {surface_id:?}: {request:?}"
-                );
-            }
+                state,
+            );
         }
     }
 
@@ -290,36 +295,42 @@ pub fn sync_session_metadata<R, W, C>(
     state.active_session_key = session_manager.active_session_key().map(str::to_owned);
 }
 
+/// Groups the five `&mut` parameters shared by session lifecycle functions.
+pub struct SessionMutContext<'a, R, W, C> {
+    pub session_manager: &'a mut SessionManager<R, W, C>,
+    pub session_states: &'a mut SessionStateStore,
+    pub state: &'a mut AppState,
+    pub dirty: &'a mut DirtyFlags,
+    pub initial_resize_sent: &'a mut bool,
+}
+
 /// Handle a Kakoune session death event.
 ///
 /// Closes the session, removes its state, and restores the next active session
 /// if needed. Returns `true` if the application should quit (no sessions remain).
 pub fn handle_session_death<R, W, C>(
     session_id: SessionId,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    state: &mut AppState,
-    dirty: &mut DirtyFlags,
-    initial_resize_sent: &mut bool,
+    ctx: &mut SessionMutContext<'_, R, W, C>,
 ) -> bool {
-    let was_active = session_manager.active_session_id() == Some(session_id);
-    let _ = session_manager.close(session_id);
-    *dirty |= DirtyFlags::SESSION;
-    session_states.remove(session_id);
-    if session_manager.is_empty() {
+    let was_active = ctx.session_manager.active_session_id() == Some(session_id);
+    let _ = ctx.session_manager.close(session_id);
+    *ctx.dirty |= DirtyFlags::SESSION;
+    ctx.session_states.remove(session_id);
+    if ctx.session_manager.is_empty() {
         return true;
     }
     if was_active {
-        let restored = session_manager
+        let restored = ctx
+            .session_manager
             .active_session_id()
-            .is_some_and(|active| session_states.restore_into(active, state));
+            .is_some_and(|active| ctx.session_states.restore_into(active, ctx.state));
         if !restored {
-            state.reset_for_session_switch();
+            ctx.state.reset_for_session_switch();
         }
-        *dirty |= DirtyFlags::ALL;
-        *initial_resize_sent = false;
+        *ctx.dirty |= DirtyFlags::ALL;
+        *ctx.initial_resize_sent = false;
     }
-    sync_session_metadata(session_manager, session_states, state);
+    sync_session_metadata(ctx.session_manager, ctx.session_states, ctx.state);
     false
 }
 
@@ -327,25 +338,20 @@ pub fn handle_session_death<R, W, C>(
 ///
 /// The reader is returned so the backend can wire it up to its specific event
 /// channel. The activation logic (state restore, dirty flags) is handled here.
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_session_core<R, W, C>(
     spec: &SessionSpec,
     activate: bool,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    state: &mut AppState,
-    dirty: &mut DirtyFlags,
-    initial_resize_sent: &mut bool,
+    ctx: &mut SessionMutContext<'_, R, W, C>,
     spawn_fn: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
 ) -> Option<(SessionId, R)> {
     // Deduplicate the session key before spawning the process to avoid
     // orphaning a Kakoune process when insert() rejects a duplicate key.
-    let spec = if session_manager.session_id_by_key(&spec.key).is_some() {
+    let spec = if ctx.session_manager.session_id_by_key(&spec.key).is_some() {
         let base = &spec.key;
         let mut deduped = None;
         for i in 2..=100 {
             let candidate = format!("{base}-{i}");
-            if session_manager.session_id_by_key(&candidate).is_none() {
+            if ctx.session_manager.session_id_by_key(&candidate).is_none() {
                 deduped = Some(SessionSpec::new(
                     candidate,
                     spec.session.clone(),
@@ -368,27 +374,28 @@ pub fn spawn_session_core<R, W, C>(
         tracing::error!("failed to spawn session {}", spec.key);
         return None;
     };
-    let Ok(session_id) = session_manager.insert(spec, reader, writer, child) else {
+    let Ok(session_id) = ctx.session_manager.insert(spec, reader, writer, child) else {
         tracing::error!("failed to register spawned session");
         return None;
     };
-    session_states.ensure_session(session_id, state);
-    *dirty |= DirtyFlags::SESSION;
-    let reader = session_manager
+    ctx.session_states.ensure_session(session_id, ctx.state);
+    *ctx.dirty |= DirtyFlags::SESSION;
+    let reader = ctx
+        .session_manager
         .take_reader(session_id)
         .expect("spawned session reader missing");
     if activate {
-        session_manager
-            .sync_and_activate(session_states, session_id, state)
+        ctx.session_manager
+            .sync_and_activate(ctx.session_states, session_id, ctx.state)
             .expect("spawned session must be activeable");
-        if !session_states.restore_into(session_id, state) {
-            state.reset_for_session_switch();
+        if !ctx.session_states.restore_into(session_id, ctx.state) {
+            ctx.state.reset_for_session_switch();
         }
-        *dirty |= DirtyFlags::ALL;
-        *initial_resize_sent = false;
-        sync_session_metadata(session_manager, session_states, state);
+        *ctx.dirty |= DirtyFlags::ALL;
+        *ctx.initial_resize_sent = false;
+        sync_session_metadata(ctx.session_manager, ctx.session_states, ctx.state);
     }
-    sync_session_metadata(session_manager, session_states, state);
+    sync_session_metadata(ctx.session_manager, ctx.session_states, ctx.state);
     Some((session_id, reader))
 }
 
@@ -397,65 +404,55 @@ pub fn spawn_session_core<R, W, C>(
 /// Returns `true` when the application should exit because no sessions remain.
 pub fn close_session_core<R, W, C>(
     key: Option<&str>,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    state: &mut AppState,
-    dirty: &mut DirtyFlags,
-    initial_resize_sent: &mut bool,
+    ctx: &mut SessionMutContext<'_, R, W, C>,
 ) -> bool {
     let target = key
-        .and_then(|k| session_manager.session_id_by_key(k))
-        .or_else(|| session_manager.active_session_id());
+        .and_then(|k| ctx.session_manager.session_id_by_key(k))
+        .or_else(|| ctx.session_manager.active_session_id());
     let Some(target) = target else {
         return false;
     };
-    let was_active = session_manager.active_session_id() == Some(target);
-    let _ = session_manager.close(target);
-    session_states.remove(target);
-    *dirty |= DirtyFlags::SESSION;
-    if session_manager.is_empty() {
+    let was_active = ctx.session_manager.active_session_id() == Some(target);
+    let _ = ctx.session_manager.close(target);
+    ctx.session_states.remove(target);
+    *ctx.dirty |= DirtyFlags::SESSION;
+    if ctx.session_manager.is_empty() {
         return true;
     }
     if was_active {
-        let restored = session_manager
+        let restored = ctx
+            .session_manager
             .active_session_id()
-            .is_some_and(|active| session_states.restore_into(active, state));
+            .is_some_and(|active| ctx.session_states.restore_into(active, ctx.state));
         if !restored {
-            state.reset_for_session_switch();
+            ctx.state.reset_for_session_switch();
         }
-        *dirty |= DirtyFlags::ALL;
-        *initial_resize_sent = false;
+        *ctx.dirty |= DirtyFlags::ALL;
+        *ctx.initial_resize_sent = false;
     }
-    sync_session_metadata(session_manager, session_states, state);
+    sync_session_metadata(ctx.session_manager, ctx.session_states, ctx.state);
     false
 }
 
 /// Switch to an existing managed session by key.
 ///
 /// No-op if the key doesn't exist or is already active.
-pub fn switch_session_core<R, W, C>(
-    key: &str,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    state: &mut AppState,
-    dirty: &mut DirtyFlags,
-    initial_resize_sent: &mut bool,
-) {
-    let Some(target) = session_manager.session_id_by_key(key) else {
+pub fn switch_session_core<R, W, C>(key: &str, ctx: &mut SessionMutContext<'_, R, W, C>) {
+    let Some(target) = ctx.session_manager.session_id_by_key(key) else {
         return;
     };
-    if session_manager.active_session_id() == Some(target) {
+    if ctx.session_manager.active_session_id() == Some(target) {
         return;
     }
-    session_manager
-        .sync_and_activate(session_states, target, state)
+    ctx.session_manager
+        .sync_and_activate(ctx.session_states, target, ctx.state)
         .expect("switch target must be valid");
-    if !session_states.restore_into(target, state) {
-        state.reset_for_session_switch();
+    if !ctx.session_states.restore_into(target, ctx.state) {
+        ctx.state.reset_for_session_switch();
     }
-    *dirty |= DirtyFlags::ALL | DirtyFlags::SESSION;
-    *initial_resize_sent = false;
-    sync_session_metadata(session_manager, session_states, state);
+    *ctx.dirty |= DirtyFlags::ALL | DirtyFlags::SESSION;
+    *ctx.initial_resize_sent = false;
+    sync_session_metadata(ctx.session_manager, ctx.session_states, ctx.state);
 }
 
 /// Rebuild the HitMap from the current view tree for plugin mouse routing.
@@ -1493,6 +1490,45 @@ pub fn handle_workspace_divider_input(
     match input {
         InputEvent::Mouse(mouse) => surface_registry.handle_workspace_divider_mouse(mouse, total),
         _ => None,
+    }
+}
+
+/// Trait for scheduling diagnostic overlay expiry.
+///
+/// Implemented by TUI (crossbeam_channel::Sender) and GUI (EventLoopProxy)
+/// to avoid duplicating the overlay scheduling logic.
+pub trait DiagnosticOverlayScheduler {
+    fn schedule_expiry(&self, delay: std::time::Duration, generation: u64);
+}
+
+/// Schedule a diagnostic overlay display with auto-dismiss.
+///
+/// Common logic shared by TUI and GUI backends.
+pub fn schedule_diagnostic_overlay(
+    scheduler: &impl DiagnosticOverlayScheduler,
+    overlay: &mut PluginDiagnosticOverlayState,
+    diagnostics: &[PluginDiagnostic],
+) {
+    let Some(generation) = overlay.record(diagnostics) else {
+        return;
+    };
+    let Some(delay) = overlay.dismiss_after() else {
+        return;
+    };
+    scheduler.schedule_expiry(delay, generation);
+}
+
+/// Print a hint about reconnecting to a running Kakoune session.
+///
+/// Called from panic hooks in both TUI and GUI backends.
+pub fn print_session_recovery_hint(session_name: Option<&str>) {
+    eprintln!();
+    eprintln!("Your Kakoune session is still running.");
+    if let Some(name) = session_name {
+        eprintln!("Reconnect with: kasane -c {name}");
+    } else {
+        eprintln!("List sessions with: kak -l");
+        eprintln!("Reconnect with:     kasane -c <session_name>");
     }
 }
 

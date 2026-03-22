@@ -19,14 +19,9 @@ fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default_hook(info);
-        eprintln!();
-        eprintln!("Your Kakoune session is still running.");
-        if let Some(name) = SESSION_NAME.get() {
-            eprintln!("Reconnect with: kasane -c {name}");
-        } else {
-            eprintln!("List sessions with: kak -l");
-            eprintln!("Reconnect with:     kasane -c <session_name>");
-        }
+        kasane_core::event_loop::print_session_recovery_hint(
+            SESSION_NAME.get().map(|s| s.as_str()),
+        );
     }));
 }
 use kasane_core::config::Config;

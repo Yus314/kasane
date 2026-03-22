@@ -151,7 +151,67 @@ pub(crate) trait ErasedPlugin: Send {
     ) -> Vec<DisplayDirective>;
 }
 
+// ---------------------------------------------------------------------------
+// Type-erasure macros — reduce boilerplate in `impl<P: Plugin> ErasedPlugin for P`.
+//
+// Each macro captures a recurring pattern (A–D) from the erased→typed bridge:
+//
+//   A  erased_mut_effects  — downcast_mut, call returning (new_state, T), store, return T
+//   B  erased_mut_void     — downcast_mut, call returning new_state, store
+//   C  erased_mut_option   — downcast_mut, call returning Option<(new_state, T)>, conditional store
+//   D  erased_ref          — downcast_ref, call, return value
+//
+// Pattern E (trivial 1-line delegation) is kept inline.
+// ---------------------------------------------------------------------------
+
+/// Pattern A: downcast_mut → call returning (new_state, effects) → store → return effects
+macro_rules! erased_mut_effects {
+    ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*) -> $ret:ty) => {
+        fn $erased(&self, state: &mut dyn PluginState, $($p: $pt),*) -> $ret {
+            let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+            let (new_state, effects) = self.$typed(typed, $($p),*);
+            *typed = new_state;
+            effects
+        }
+    };
+}
+
+/// Pattern B: downcast_mut → call returning new_state → store
+macro_rules! erased_mut_void {
+    ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*)) => {
+        fn $erased(&self, state: &mut dyn PluginState, $($p: $pt),*) {
+            let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+            let new_state = self.$typed(typed, $($p),*);
+            *typed = new_state;
+        }
+    };
+}
+
+/// Pattern C: downcast_mut → call returning Option<(new_state, T)> → conditional store
+macro_rules! erased_mut_option {
+    ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*) -> Option<$ret:ty>) => {
+        fn $erased(&self, state: &mut dyn PluginState, $($p: $pt),*) -> Option<$ret> {
+            let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
+            self.$typed(typed, $($p),*).map(|(new_state, val)| {
+                *typed = new_state;
+                val
+            })
+        }
+    };
+}
+
+/// Pattern D: downcast_ref → call → return value
+macro_rules! erased_ref {
+    ($erased:ident => $typed:ident ($($p:ident : $pt:ty),*) -> $ret:ty) => {
+        fn $erased(&self, state: &dyn PluginState, $($p: $pt),*) -> $ret {
+            let typed = state.as_any().downcast_ref::<P::State>().unwrap();
+            self.$typed(typed, $($p),*)
+        }
+    };
+}
+
 impl<P: Plugin> ErasedPlugin for P {
+    // Pattern E — trivial 1-line delegations
     fn id(&self) -> PluginId {
         Plugin::id(self)
     }
@@ -174,214 +234,32 @@ impl<P: Plugin> ErasedPlugin for P {
         Plugin::view_deps(self)
     }
 
-    fn on_init_effects_erased(
-        &self,
-        state: &mut dyn PluginState,
-        app: &AppView<'_>,
-    ) -> BootstrapEffects {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, effects) = self.on_init_effects(typed, app);
-        *typed = new_state;
-        effects
-    }
+    // Pattern A — mut + effects return
+    erased_mut_effects!(on_init_effects_erased => on_init_effects(app: &AppView<'_>) -> BootstrapEffects);
+    erased_mut_effects!(on_active_session_ready_effects_erased => on_active_session_ready_effects(app: &AppView<'_>) -> SessionReadyEffects);
+    erased_mut_effects!(on_state_changed_effects_erased => on_state_changed_effects(app: &AppView<'_>, dirty: DirtyFlags) -> RuntimeEffects);
+    erased_mut_effects!(on_io_event_effects_erased => on_io_event_effects(event: &IoEvent, app: &AppView<'_>) -> RuntimeEffects);
+    erased_mut_effects!(handle_key_middleware_erased => handle_key_middleware(key: &KeyEvent, app: &AppView<'_>) -> KeyHandleResult);
+    erased_mut_effects!(update_effects_erased => update_effects(msg: &mut dyn Any, app: &AppView<'_>) -> RuntimeEffects);
 
-    fn on_active_session_ready_effects_erased(
-        &self,
-        state: &mut dyn PluginState,
-        app: &AppView<'_>,
-    ) -> SessionReadyEffects {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, effects) = self.on_active_session_ready_effects(typed, app);
-        *typed = new_state;
-        effects
-    }
+    // Pattern B — mut + void
+    erased_mut_void!(on_workspace_changed_erased => on_workspace_changed(query: &WorkspaceQuery<'_>));
+    erased_mut_void!(observe_key_erased => observe_key(key: &KeyEvent, app: &AppView<'_>));
+    erased_mut_void!(observe_mouse_erased => observe_mouse(event: &MouseEvent, app: &AppView<'_>));
 
-    fn on_state_changed_effects_erased(
-        &self,
-        state: &mut dyn PluginState,
-        app: &AppView<'_>,
-        dirty: DirtyFlags,
-    ) -> RuntimeEffects {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, effects) = self.on_state_changed_effects(typed, app, dirty);
-        *typed = new_state;
-        effects
-    }
+    // Pattern C — mut + Option
+    erased_mut_option!(handle_key_erased => handle_key(key: &KeyEvent, app: &AppView<'_>) -> Option<Vec<Command>>);
+    erased_mut_option!(handle_mouse_erased => handle_mouse(event: &MouseEvent, id: InteractiveId, app: &AppView<'_>) -> Option<Vec<Command>>);
+    erased_mut_option!(handle_default_scroll_erased => handle_default_scroll(candidate: DefaultScrollCandidate, app: &AppView<'_>) -> Option<ScrollPolicyResult>);
 
-    fn on_io_event_effects_erased(
-        &self,
-        state: &mut dyn PluginState,
-        event: &IoEvent,
-        app: &AppView<'_>,
-    ) -> RuntimeEffects {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, effects) = self.on_io_event_effects(typed, event, app);
-        *typed = new_state;
-        effects
-    }
-
-    fn on_workspace_changed_erased(&self, state: &mut dyn PluginState, query: &WorkspaceQuery<'_>) {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let new_state = self.on_workspace_changed(typed, query);
-        *typed = new_state;
-    }
-
-    fn observe_key_erased(&self, state: &mut dyn PluginState, key: &KeyEvent, app: &AppView<'_>) {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let new_state = self.observe_key(typed, key, app);
-        *typed = new_state;
-    }
-
-    fn observe_mouse_erased(
-        &self,
-        state: &mut dyn PluginState,
-        event: &MouseEvent,
-        app: &AppView<'_>,
-    ) {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let new_state = self.observe_mouse(typed, event, app);
-        *typed = new_state;
-    }
-
-    fn handle_key_erased(
-        &self,
-        state: &mut dyn PluginState,
-        key: &KeyEvent,
-        app: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        self.handle_key(typed, key, app).map(|(new_state, cmds)| {
-            *typed = new_state;
-            cmds
-        })
-    }
-
-    fn handle_key_middleware_erased(
-        &self,
-        state: &mut dyn PluginState,
-        key: &KeyEvent,
-        app: &AppView<'_>,
-    ) -> KeyHandleResult {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, result) = self.handle_key_middleware(typed, key, app);
-        *typed = new_state;
-        result
-    }
-
-    fn handle_mouse_erased(
-        &self,
-        state: &mut dyn PluginState,
-        event: &MouseEvent,
-        id: InteractiveId,
-        app: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        self.handle_mouse(typed, event, id, app)
-            .map(|(new_state, cmds)| {
-                *typed = new_state;
-                cmds
-            })
-    }
-
-    fn handle_default_scroll_erased(
-        &self,
-        state: &mut dyn PluginState,
-        candidate: DefaultScrollCandidate,
-        app: &AppView<'_>,
-    ) -> Option<ScrollPolicyResult> {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        self.handle_default_scroll(typed, candidate, app)
-            .map(|(new_state, result)| {
-                *typed = new_state;
-                result
-            })
-    }
-
-    fn update_effects_erased(
-        &self,
-        state: &mut dyn PluginState,
-        msg: &mut dyn Any,
-        app: &AppView<'_>,
-    ) -> RuntimeEffects {
-        let typed = state.as_any_mut().downcast_mut::<P::State>().unwrap();
-        let (new_state, effects) = self.update_effects(typed, msg, app);
-        *typed = new_state;
-        effects
-    }
-
-    fn contribute_to_erased(
-        &self,
-        state: &dyn PluginState,
-        region: &SlotId,
-        app: &AppView<'_>,
-        ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.contribute_to(typed, region, app, ctx)
-    }
-
-    fn transform_erased(
-        &self,
-        state: &dyn PluginState,
-        target: &TransformTarget,
-        element: Element,
-        app: &AppView<'_>,
-        ctx: &TransformContext,
-    ) -> Element {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.transform(typed, target, element, app, ctx)
-    }
-
-    fn annotate_line_erased(
-        &self,
-        state: &dyn PluginState,
-        line: usize,
-        app: &AppView<'_>,
-        ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.annotate_line_with_ctx(typed, line, app, ctx)
-    }
-
-    fn contribute_overlay_erased(
-        &self,
-        state: &dyn PluginState,
-        app: &AppView<'_>,
-        ctx: &OverlayContext,
-    ) -> Option<OverlayContribution> {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.contribute_overlay_with_ctx(typed, app, ctx)
-    }
-
-    fn cursor_style_override_erased(
-        &self,
-        state: &dyn PluginState,
-        app: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyle> {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.cursor_style_override(typed, app)
-    }
-
-    fn transform_menu_item_erased(
-        &self,
-        state: &dyn PluginState,
-        item: &[crate::protocol::Atom],
-        index: usize,
-        selected: bool,
-        app: &AppView<'_>,
-    ) -> Option<Vec<crate::protocol::Atom>> {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.transform_menu_item(typed, item, index, selected, app)
-    }
-
-    fn display_directives_erased(
-        &self,
-        state: &dyn PluginState,
-        app: &AppView<'_>,
-    ) -> Vec<DisplayDirective> {
-        let typed = state.as_any().downcast_ref::<P::State>().unwrap();
-        self.display_directives(typed, app)
-    }
+    // Pattern D — ref + return
+    erased_ref!(contribute_to_erased => contribute_to(region: &SlotId, app: &AppView<'_>, ctx: &ContributeContext) -> Option<Contribution>);
+    erased_ref!(transform_erased => transform(target: &TransformTarget, element: Element, app: &AppView<'_>, ctx: &TransformContext) -> Element);
+    erased_ref!(annotate_line_erased => annotate_line_with_ctx(line: usize, app: &AppView<'_>, ctx: &AnnotateContext) -> Option<LineAnnotation>);
+    erased_ref!(contribute_overlay_erased => contribute_overlay_with_ctx(app: &AppView<'_>, ctx: &OverlayContext) -> Option<OverlayContribution>);
+    erased_ref!(cursor_style_override_erased => cursor_style_override(app: &AppView<'_>) -> Option<crate::render::CursorStyle>);
+    erased_ref!(transform_menu_item_erased => transform_menu_item(item: &[crate::protocol::Atom], index: usize, selected: bool, app: &AppView<'_>) -> Option<Vec<crate::protocol::Atom>>);
+    erased_ref!(display_directives_erased => display_directives(app: &AppView<'_>) -> Vec<DisplayDirective>);
 }
 
 /// Adapts a `Plugin` to the internal `PluginBackend` trait.
@@ -421,7 +299,47 @@ impl PluginBridge {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Bridge delegation macros — reduce boilerplate in `impl PluginBackend for PluginBridge`.
+//
+//   bridge_mut  — call erased method on mutable state, check_state_change, return
+//   bridge_ref  — call erased method on shared state, return (no state check)
+//
+// Hand-written methods (property delegates without erased state):
+//   id, capabilities, authorities, allows_process_spawn, state_hash,
+//   transform_priority, display_directive_priority, view_deps, on_shutdown
+// ---------------------------------------------------------------------------
+
+/// Mutating delegation: call erased → check_state_change → return
+macro_rules! bridge_mut {
+    ($method:ident => $erased:ident ($($p:ident : $pt:ty),*) -> $ret:ty) => {
+        fn $method(&mut self, $($p: $pt),*) -> $ret {
+            let result = self.inner.$erased(&mut *self.state, $($p),*);
+            self.check_state_change();
+            result
+        }
+    };
+    // void variant (no return value)
+    ($method:ident => $erased:ident ($($p:ident : $pt:ty),*)) => {
+        fn $method(&mut self, $($p: $pt),*) {
+            self.inner.$erased(&mut *self.state, $($p),*);
+            self.check_state_change();
+        }
+    };
+}
+
+/// Read-only delegation: call erased → return (no state check)
+macro_rules! bridge_ref {
+    ($method:ident => $erased:ident ($($p:ident : $pt:ty),*) -> $ret:ty) => {
+        fn $method(&self, $($p: $pt),*) -> $ret {
+            self.inner.$erased(&*self.state, $($p),*)
+        }
+    };
+}
+
 impl PluginBackend for PluginBridge {
+    // --- Property delegates (hand-written, no erased state) ---
+
     fn id(&self) -> PluginId {
         self.inner.id()
     }
@@ -454,172 +372,37 @@ impl PluginBackend for PluginBridge {
         self.inner.view_deps()
     }
 
-    // --- Lifecycle ---
-
-    fn on_init_effects(&mut self, state: &AppView<'_>) -> BootstrapEffects {
-        let effects = self.inner.on_init_effects_erased(&mut *self.state, state);
-        self.check_state_change();
-        effects
-    }
-
-    fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> SessionReadyEffects {
-        let effects = self
-            .inner
-            .on_active_session_ready_effects_erased(&mut *self.state, state);
-        self.check_state_change();
-        effects
-    }
-
-    fn on_state_changed_effects(
-        &mut self,
-        state: &AppView<'_>,
-        dirty: DirtyFlags,
-    ) -> RuntimeEffects {
-        let effects = self
-            .inner
-            .on_state_changed_effects_erased(&mut *self.state, state, dirty);
-        self.check_state_change();
-        effects
-    }
-
     fn on_shutdown(&mut self) {
         // Plugin has no shutdown hook (pure functions don't need cleanup).
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> RuntimeEffects {
-        let effects = self
-            .inner
-            .on_io_event_effects_erased(&mut *self.state, event, state);
-        self.check_state_change();
-        effects
-    }
+    // --- Lifecycle (bridge_mut) ---
 
-    fn on_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
-        self.inner
-            .on_workspace_changed_erased(&mut *self.state, query);
-        self.check_state_change();
-    }
+    bridge_mut!(on_init_effects => on_init_effects_erased(state: &AppView<'_>) -> BootstrapEffects);
+    bridge_mut!(on_active_session_ready_effects => on_active_session_ready_effects_erased(state: &AppView<'_>) -> SessionReadyEffects);
+    bridge_mut!(on_state_changed_effects => on_state_changed_effects_erased(state: &AppView<'_>, dirty: DirtyFlags) -> RuntimeEffects);
+    bridge_mut!(on_io_event_effects => on_io_event_effects_erased(event: &IoEvent, state: &AppView<'_>) -> RuntimeEffects);
+    bridge_mut!(on_workspace_changed => on_workspace_changed_erased(query: &WorkspaceQuery<'_>));
 
-    // --- Input ---
+    // --- Input (bridge_mut) ---
 
-    fn observe_key(&mut self, key: &KeyEvent, state: &AppView<'_>) {
-        self.inner.observe_key_erased(&mut *self.state, key, state);
-        self.check_state_change();
-    }
+    bridge_mut!(observe_key => observe_key_erased(key: &KeyEvent, state: &AppView<'_>));
+    bridge_mut!(observe_mouse => observe_mouse_erased(event: &MouseEvent, state: &AppView<'_>));
+    bridge_mut!(handle_key => handle_key_erased(key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>>);
+    bridge_mut!(handle_key_middleware => handle_key_middleware_erased(key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult);
+    bridge_mut!(handle_mouse => handle_mouse_erased(event: &MouseEvent, id: InteractiveId, state: &AppView<'_>) -> Option<Vec<Command>>);
+    bridge_mut!(handle_default_scroll => handle_default_scroll_erased(candidate: DefaultScrollCandidate, state: &AppView<'_>) -> Option<ScrollPolicyResult>);
+    bridge_mut!(update_effects => update_effects_erased(msg: &mut dyn Any, state: &AppView<'_>) -> RuntimeEffects);
 
-    fn observe_mouse(&mut self, event: &MouseEvent, state: &AppView<'_>) {
-        self.inner
-            .observe_mouse_erased(&mut *self.state, event, state);
-        self.check_state_change();
-    }
+    // --- View contributions (bridge_ref) ---
 
-    fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
-        let result = self.inner.handle_key_erased(&mut *self.state, key, state);
-        self.check_state_change();
-        result
-    }
-
-    fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult {
-        let result = self
-            .inner
-            .handle_key_middleware_erased(&mut *self.state, key, state);
-        self.check_state_change();
-        result
-    }
-
-    fn handle_mouse(
-        &mut self,
-        event: &MouseEvent,
-        id: InteractiveId,
-        state: &AppView<'_>,
-    ) -> Option<Vec<Command>> {
-        let result = self
-            .inner
-            .handle_mouse_erased(&mut *self.state, event, id, state);
-        self.check_state_change();
-        result
-    }
-
-    fn handle_default_scroll(
-        &mut self,
-        candidate: DefaultScrollCandidate,
-        state: &AppView<'_>,
-    ) -> Option<ScrollPolicyResult> {
-        let result = self
-            .inner
-            .handle_default_scroll_erased(&mut *self.state, candidate, state);
-        self.check_state_change();
-        result
-    }
-
-    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> RuntimeEffects {
-        let effects = self
-            .inner
-            .update_effects_erased(&mut *self.state, msg, state);
-        self.check_state_change();
-        effects
-    }
-
-    // --- View contributions ---
-
-    fn contribute_to(
-        &self,
-        region: &SlotId,
-        state: &AppView<'_>,
-        ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        self.inner
-            .contribute_to_erased(&*self.state, region, state, ctx)
-    }
-
-    fn transform(
-        &self,
-        target: &TransformTarget,
-        element: Element,
-        state: &AppView<'_>,
-        ctx: &TransformContext,
-    ) -> Element {
-        self.inner
-            .transform_erased(&*self.state, target, element, state, ctx)
-    }
-
-    fn annotate_line_with_ctx(
-        &self,
-        line: usize,
-        state: &AppView<'_>,
-        ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        self.inner
-            .annotate_line_erased(&*self.state, line, state, ctx)
-    }
-
-    fn display_directives(&self, state: &AppView<'_>) -> Vec<DisplayDirective> {
-        self.inner.display_directives_erased(&*self.state, state)
-    }
-
-    fn contribute_overlay_with_ctx(
-        &self,
-        state: &AppView<'_>,
-        ctx: &OverlayContext,
-    ) -> Option<OverlayContribution> {
-        self.inner
-            .contribute_overlay_erased(&*self.state, state, ctx)
-    }
-
-    fn cursor_style_override(&self, state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
-        self.inner.cursor_style_override_erased(&*self.state, state)
-    }
-
-    fn transform_menu_item(
-        &self,
-        item: &[crate::protocol::Atom],
-        index: usize,
-        selected: bool,
-        state: &AppView<'_>,
-    ) -> Option<Vec<crate::protocol::Atom>> {
-        self.inner
-            .transform_menu_item_erased(&*self.state, item, index, selected, state)
-    }
+    bridge_ref!(contribute_to => contribute_to_erased(region: &SlotId, state: &AppView<'_>, ctx: &ContributeContext) -> Option<Contribution>);
+    bridge_ref!(transform => transform_erased(target: &TransformTarget, element: Element, state: &AppView<'_>, ctx: &TransformContext) -> Element);
+    bridge_ref!(annotate_line_with_ctx => annotate_line_erased(line: usize, state: &AppView<'_>, ctx: &AnnotateContext) -> Option<LineAnnotation>);
+    bridge_ref!(display_directives => display_directives_erased(state: &AppView<'_>) -> Vec<DisplayDirective>);
+    bridge_ref!(contribute_overlay_with_ctx => contribute_overlay_erased(state: &AppView<'_>, ctx: &OverlayContext) -> Option<OverlayContribution>);
+    bridge_ref!(cursor_style_override => cursor_style_override_erased(state: &AppView<'_>) -> Option<crate::render::CursorStyle>);
+    bridge_ref!(transform_menu_item => transform_menu_item_erased(item: &[crate::protocol::Atom], index: usize, selected: bool, state: &AppView<'_>) -> Option<Vec<crate::protocol::Atom>>);
 }
 
 /// Marker trait for runtime detection of `Plugin`-backed plugins.

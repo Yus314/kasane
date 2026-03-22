@@ -282,11 +282,13 @@ fn test_dirty_flags_session_set_on_lifecycle_events() {
     dirty = DirtyFlags::empty();
     kasane_core::event_loop::switch_session_core(
         "b",
-        &mut mgr,
-        &mut store,
-        &mut state,
-        &mut dirty,
-        &mut initial_resize_sent,
+        &mut kasane_core::event_loop::SessionMutContext {
+            session_manager: &mut mgr,
+            session_states: &mut store,
+            state: &mut state,
+            dirty: &mut dirty,
+            initial_resize_sent: &mut initial_resize_sent,
+        },
     );
     assert!(dirty.contains(DirtyFlags::SESSION));
     assert!(dirty.contains(DirtyFlags::ALL));
@@ -295,11 +297,13 @@ fn test_dirty_flags_session_set_on_lifecycle_events() {
     dirty = DirtyFlags::empty();
     let quit = kasane_core::event_loop::close_session_core(
         Some("a"),
-        &mut mgr,
-        &mut store,
-        &mut state,
-        &mut dirty,
-        &mut initial_resize_sent,
+        &mut kasane_core::event_loop::SessionMutContext {
+            session_manager: &mut mgr,
+            session_states: &mut store,
+            state: &mut state,
+            dirty: &mut dirty,
+            initial_resize_sent: &mut initial_resize_sent,
+        },
     );
     assert!(!quit);
     assert!(dirty.contains(DirtyFlags::SESSION));
@@ -313,11 +317,13 @@ fn test_dirty_flags_session_set_on_lifecycle_events() {
     // death
     let quit = kasane_core::event_loop::handle_session_death(
         id_b,
-        &mut mgr,
-        &mut store,
-        &mut state,
-        &mut dirty,
-        &mut initial_resize_sent,
+        &mut kasane_core::event_loop::SessionMutContext {
+            session_manager: &mut mgr,
+            session_states: &mut store,
+            state: &mut state,
+            dirty: &mut dirty,
+            initial_resize_sent: &mut initial_resize_sent,
+        },
     );
     assert!(!quit);
     assert!(dirty.contains(DirtyFlags::SESSION));
@@ -358,22 +364,26 @@ fn test_session_metadata_consistent_after_operations() {
     let mut initial_resize_sent = true;
     kasane_core::event_loop::switch_session_core(
         "play",
-        &mut mgr,
-        &mut store,
-        &mut state,
-        &mut dirty,
-        &mut initial_resize_sent,
+        &mut kasane_core::event_loop::SessionMutContext {
+            session_manager: &mut mgr,
+            session_states: &mut store,
+            state: &mut state,
+            dirty: &mut dirty,
+            initial_resize_sent: &mut initial_resize_sent,
+        },
     );
     assert_eq!(state.active_session_key.as_deref(), Some("play"));
 
     // Close second — should promote to first
     kasane_core::event_loop::close_session_core(
         Some("play"),
-        &mut mgr,
-        &mut store,
-        &mut state,
-        &mut dirty,
-        &mut initial_resize_sent,
+        &mut kasane_core::event_loop::SessionMutContext {
+            session_manager: &mut mgr,
+            session_states: &mut store,
+            state: &mut state,
+            dirty: &mut dirty,
+            initial_resize_sent: &mut initial_resize_sent,
+        },
     );
     assert_eq!(state.session_descriptors.len(), 1);
     assert_eq!(state.session_descriptors[0].key, "work");

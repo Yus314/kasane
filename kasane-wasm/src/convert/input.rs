@@ -51,12 +51,9 @@ fn mouse_event_kind_to_wit(kind: &MouseEventKind) -> wit::MouseEventKind {
     }
 }
 
-fn mouse_button_to_wit(b: MouseButton) -> wit::MouseButton {
-    match b {
-        MouseButton::Left => wit::MouseButton::Left,
-        MouseButton::Middle => wit::MouseButton::Middle,
-        MouseButton::Right => wit::MouseButton::Right,
-    }
+enum_convert! {
+    mouse_button_to_wit: MouseButton => wit::MouseButton,
+    { Left, Middle, Right }
 }
 
 pub(crate) fn key_event_to_wit(event: &KeyEvent) -> wit::KeyEvent {
@@ -152,12 +149,9 @@ fn wit_key_code_to_key(key: &wit::KeyCode) -> Result<Key, String> {
     }
 }
 
-fn scroll_granularity_to_wit(granularity: ScrollGranularity) -> wit::ScrollGranularity {
-    match granularity {
-        ScrollGranularity::Line => wit::ScrollGranularity::Line,
-        ScrollGranularity::Page => wit::ScrollGranularity::Page,
-        ScrollGranularity::Pixel => wit::ScrollGranularity::Pixel,
-    }
+enum_convert! {
+    scroll_granularity_to_wit: ScrollGranularity => wit::ScrollGranularity,
+    { Line, Page, Pixel }
 }
 
 fn resolved_scroll_to_wit(resolved: ResolvedScroll) -> wit::ResolvedScroll {
@@ -183,18 +177,12 @@ pub(crate) fn wit_scroll_plan_to_scroll_plan(plan: &wit::ScrollPlan) -> ScrollPl
     )
 }
 
-fn wit_scroll_curve_to_scroll_curve(curve: wit::ScrollCurve) -> ScrollCurve {
-    match curve {
-        wit::ScrollCurve::Instant => ScrollCurve::Instant,
-        wit::ScrollCurve::Linear => ScrollCurve::Linear,
-    }
+enum_convert! {
+    wit_scroll_curve_to_scroll_curve: wit::ScrollCurve => ScrollCurve,
+    { Instant, Linear }
 }
 
-fn wit_scroll_accumulation_to_scroll_accumulation(
-    mode: wit::ScrollAccumulationMode,
-) -> ScrollAccumulationMode {
-    match mode {
-        wit::ScrollAccumulationMode::Add => ScrollAccumulationMode::Add,
-        wit::ScrollAccumulationMode::Replace => ScrollAccumulationMode::Replace,
-    }
+enum_convert! {
+    wit_scroll_accumulation_to_scroll_accumulation: wit::ScrollAccumulationMode => ScrollAccumulationMode,
+    { Add, Replace }
 }

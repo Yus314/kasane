@@ -1,5 +1,32 @@
 //! Type conversions between WIT-generated types and kasane-core types.
 
+// ---------------------------------------------------------------------------
+// Enum conversion macros (defined before `mod` so submodules can use them)
+// ---------------------------------------------------------------------------
+
+/// Generate two functions that map 1:1 between a WIT enum and a native enum.
+macro_rules! bidirectional_enum {
+    ($to_native:ident: $wit_ty:ty => $native_ty:ty,
+     $to_wit:ident: $native_ty2:ty => $wit_ty2:ty,
+     { $($variant:ident),* $(,)? }) => {
+        fn $to_native(w: $wit_ty) -> $native_ty {
+            match w { $( <$wit_ty>::$variant => <$native_ty>::$variant, )* }
+        }
+        fn $to_wit(n: $native_ty) -> $wit_ty {
+            match n { $( <$native_ty>::$variant => <$wit_ty>::$variant, )* }
+        }
+    };
+}
+
+/// Generate a single function that maps 1:1 between two enums with identical variant names.
+macro_rules! enum_convert {
+    ($vis:vis $fn_name:ident: $from_ty:ty => $to_ty:ty, { $($variant:ident),* $(,)? }) => {
+        $vis fn $fn_name(v: $from_ty) -> $to_ty {
+            match v { $( <$from_ty>::$variant => <$to_ty>::$variant, )* }
+        }
+    };
+}
+
 mod command;
 mod context;
 mod display;
@@ -20,24 +47,6 @@ pub(crate) use workspace::*;
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::layout::Rect;
 use kasane_core::protocol::{Atom, Attributes, Color, Face, NamedColor};
-
-// ---------------------------------------------------------------------------
-// Bidirectional enum conversion macro
-// ---------------------------------------------------------------------------
-
-/// Generate two functions that map 1:1 between a WIT enum and a native enum.
-macro_rules! bidirectional_enum {
-    ($to_native:ident: $wit_ty:ty => $native_ty:ty,
-     $to_wit:ident: $native_ty2:ty => $wit_ty2:ty,
-     { $($variant:ident),* $(,)? }) => {
-        fn $to_native(w: $wit_ty) -> $native_ty {
-            match w { $( <$wit_ty>::$variant => <$native_ty>::$variant, )* }
-        }
-        fn $to_wit(n: $native_ty) -> $wit_ty {
-            match n { $( <$native_ty>::$variant => <$wit_ty>::$variant, )* }
-        }
-    };
-}
 
 // ---------------------------------------------------------------------------
 // Face / Color conversions (WIT ↔ native)

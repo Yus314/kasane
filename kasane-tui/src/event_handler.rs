@@ -28,7 +28,9 @@ use kasane_core::surface::pane_map::PaneMap;
 
 use crate::backend::TuiBackend;
 use crate::paint_hooks::PaintHookState;
-use crate::schedule_diagnostic_overlay;
+use kasane_core::event_loop::schedule_diagnostic_overlay;
+
+use crate::TuiDiagnosticScheduler;
 
 pub(crate) enum Event {
     Kakoune(SessionId, KakouneRequest),
@@ -124,14 +126,17 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) {
-        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
-            &spec,
-            activate,
-            self.session_manager,
-            self.session_states,
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
             state,
             dirty,
             initial_resize_sent,
+        };
+        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
+            &spec,
+            activate,
+            &mut ctx,
             self.spawn_session,
         ) {
             spawn_session_reader(session_id, reader, self.tx.clone());
@@ -145,14 +150,14 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) -> bool {
-        kasane_core::event_loop::close_session_core(
-            key,
-            self.session_manager,
-            self.session_states,
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
             state,
             dirty,
             initial_resize_sent,
-        )
+        };
+        kasane_core::event_loop::close_session_core(key, &mut ctx)
     }
 
     fn switch_session(
@@ -162,14 +167,14 @@ where
         dirty: &mut DirtyFlags,
         initial_resize_sent: &mut bool,
     ) {
-        kasane_core::event_loop::switch_session_core(
-            key,
-            self.session_manager,
-            self.session_states,
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
             state,
             dirty,
             initial_resize_sent,
-        );
+        };
+        kasane_core::event_loop::switch_session_core(key, &mut ctx);
     }
 
     fn session_id_by_key(&self, key: &str) -> Option<SessionId> {
@@ -460,14 +465,14 @@ where
                 }
                 return false;
             }
-            if kasane_core::event_loop::handle_session_death(
-                session_id,
-                ctx.session_manager,
-                ctx.session_states,
-                ctx.state,
-                ctx.dirty,
-                ctx.initial_resize_sent,
-            ) {
+            let mut session_ctx = kasane_core::event_loop::SessionMutContext {
+                session_manager: ctx.session_manager,
+                session_states: ctx.session_states,
+                state: ctx.state,
+                dirty: ctx.dirty,
+                initial_resize_sent: ctx.initial_resize_sent,
+            };
+            if kasane_core::event_loop::handle_session_death(session_id, &mut session_ctx) {
                 return true;
             }
             // handle_session_death may have reset initial_resize_sent when
@@ -523,7 +528,11 @@ where
         },
     )?;
     report_plugin_diagnostics(&reload.diagnostics);
-    schedule_diagnostic_overlay(ctx.session_tx, ctx.diagnostic_overlay, &reload.diagnostics);
+    schedule_diagnostic_overlay(
+        &TuiDiagnosticScheduler(ctx.session_tx.clone()),
+        ctx.diagnostic_overlay,
+        &reload.diagnostics,
+    );
 
     let mut flags = DirtyFlags::all();
     apply_bootstrap_effects(reload.bootstrap, &mut flags);

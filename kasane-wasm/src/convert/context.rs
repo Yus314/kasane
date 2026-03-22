@@ -43,21 +43,14 @@ pub(crate) fn wit_slot_id_to_slot_id(slot_id: &wit::SlotId) -> SlotId {
     }
 }
 
-pub(crate) fn wit_layout_direction_to_direction(direction: wit::LayoutDirection) -> Direction {
-    match direction {
-        wit::LayoutDirection::Row => Direction::Row,
-        wit::LayoutDirection::Column => Direction::Column,
-    }
+enum_convert! {
+    pub(crate) wit_layout_direction_to_direction: wit::LayoutDirection => Direction,
+    { Row, Column }
 }
 
-pub(crate) fn wit_slot_kind_to_slot_kind(kind: wit::SlotKind) -> SlotKind {
-    match kind {
-        wit::SlotKind::AboveBand => SlotKind::AboveBand,
-        wit::SlotKind::BelowBand => SlotKind::BelowBand,
-        wit::SlotKind::LeftRail => SlotKind::LeftRail,
-        wit::SlotKind::RightRail => SlotKind::RightRail,
-        wit::SlotKind::Overlay => SlotKind::Overlay,
-    }
+enum_convert! {
+    pub(crate) wit_slot_kind_to_slot_kind: wit::SlotKind => SlotKind,
+    { AboveBand, BelowBand, LeftRail, RightRail, Overlay }
 }
 
 pub(crate) fn wit_surface_size_hint_to_size_hint(hint: &wit::SurfaceSizeHint) -> SizeHint {
@@ -120,20 +113,14 @@ pub(crate) fn surface_event_to_wit(event: &SurfaceEvent) -> wit::SurfaceEvent {
     }
 }
 
-fn wit_split_direction_to_split_direction(direction: wit::SplitDirection) -> SplitDirection {
-    match direction {
-        wit::SplitDirection::Horizontal => SplitDirection::Horizontal,
-        wit::SplitDirection::Vertical => SplitDirection::Vertical,
-    }
+enum_convert! {
+    wit_split_direction_to_split_direction: wit::SplitDirection => SplitDirection,
+    { Horizontal, Vertical }
 }
 
-fn wit_dock_position_to_dock_position(position: wit::DockPosition) -> DockPosition {
-    match position {
-        wit::DockPosition::Left => DockPosition::Left,
-        wit::DockPosition::Right => DockPosition::Right,
-        wit::DockPosition::Bottom => DockPosition::Bottom,
-        wit::DockPosition::Panel => DockPosition::Panel,
-    }
+enum_convert! {
+    wit_dock_position_to_dock_position: wit::DockPosition => DockPosition,
+    { Left, Right, Bottom, Panel }
 }
 
 pub(crate) fn contribute_context_to_wit(ctx: &ContributeContext) -> wit::ContributeContext {
