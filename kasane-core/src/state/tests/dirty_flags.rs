@@ -460,3 +460,180 @@ fn test_free_read_fields_match() {
     let actual_free: HashSet<&str> = AppState::FREE_READ_FIELDS.iter().copied().collect();
     assert_eq!(actual_free, expected_free);
 }
+
+// --- Epistemic classification tests ---
+
+#[test]
+fn test_field_epistemic_map_complete() {
+    let expected: HashMap<&str, &str> = HashMap::from([
+        // Observed (14)
+        ("lines", "observed"),
+        ("default_face", "observed"),
+        ("padding_face", "observed"),
+        ("cursor_pos", "observed"),
+        ("status_prompt", "observed"),
+        ("status_content", "observed"),
+        ("status_content_cursor_pos", "observed"),
+        ("status_mode_line", "observed"),
+        ("status_default_face", "observed"),
+        ("status_style", "observed"),
+        ("widget_columns", "observed"),
+        ("menu", "observed"),
+        ("infos", "observed"),
+        ("ui_options", "observed"),
+        // Derived (3)
+        ("lines_dirty", "derived"),
+        ("cursor_mode", "derived"),
+        ("status_line", "derived"),
+        // Heuristic (2)
+        ("cursor_count", "heuristic"),
+        ("secondary_cursors", "heuristic"),
+        // Config (11)
+        ("shadow_enabled", "config"),
+        ("padding_char", "config"),
+        ("menu_max_height", "config"),
+        ("menu_position", "config"),
+        ("search_dropdown", "config"),
+        ("status_at_top", "config"),
+        ("scrollbar_thumb", "config"),
+        ("scrollbar_track", "config"),
+        ("assistant_art", "config"),
+        ("plugin_config", "config"),
+        ("secondary_blend_ratio", "config"),
+        // Session (2)
+        ("session_descriptors", "session"),
+        ("active_session_key", "session"),
+        // Runtime (5)
+        ("focused", "runtime"),
+        ("drag", "runtime"),
+        ("cols", "runtime"),
+        ("rows", "runtime"),
+        ("hit_map", "runtime"),
+    ]);
+
+    let actual: HashMap<&str, &str> = AppState::FIELD_EPISTEMIC_MAP.iter().copied().collect();
+
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "field count mismatch: actual={}, expected={}. \
+         actual_only={:?}, expected_only={:?}",
+        actual.len(),
+        expected.len(),
+        actual
+            .keys()
+            .filter(|k| !expected.contains_key(*k))
+            .collect::<Vec<_>>(),
+        expected
+            .keys()
+            .filter(|k| !actual.contains_key(*k))
+            .collect::<Vec<_>>(),
+    );
+
+    for (field, cat) in &expected {
+        assert_eq!(
+            actual.get(field),
+            Some(cat),
+            "category mismatch for field `{field}`"
+        );
+    }
+}
+
+#[test]
+fn test_heuristic_fields_have_rule_and_severity() {
+    let expected: HashSet<(&str, &str, &str)> = HashSet::from([
+        ("cursor_count", "I-1", "degraded"),
+        ("secondary_cursors", "I-1", "degraded"),
+    ]);
+
+    let actual: HashSet<(&str, &str, &str)> = AppState::HEURISTIC_FIELDS.iter().copied().collect();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn test_derived_fields_match() {
+    let expected: HashSet<(&str, &str)> = HashSet::from([
+        ("lines_dirty", "line equality diff (R-3)"),
+        ("cursor_mode", "content_cursor_pos sign (I-3)"),
+        ("status_line", "prompt + content concatenation"),
+    ]);
+
+    let actual: HashSet<(&str, &str)> = AppState::DERIVED_FIELDS.iter().copied().collect();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn test_fields_by_category_partition() {
+    // Collect all fields from FIELDS_BY_CATEGORY
+    let mut all_fields_from_categories: Vec<&str> = Vec::new();
+    let mut seen_categories: HashSet<&str> = HashSet::new();
+
+    for (cat, fields) in AppState::FIELDS_BY_CATEGORY {
+        assert!(
+            seen_categories.insert(cat),
+            "duplicate category `{cat}` in FIELDS_BY_CATEGORY"
+        );
+        all_fields_from_categories.extend_from_slice(fields);
+    }
+
+    // Should be a complete partition: every field in FIELD_EPISTEMIC_MAP appears exactly once
+    let epistemic_fields: HashSet<&str> = AppState::FIELD_EPISTEMIC_MAP
+        .iter()
+        .map(|(f, _)| *f)
+        .collect();
+
+    let category_fields: HashSet<&str> = all_fields_from_categories.iter().copied().collect();
+
+    // No duplicates
+    assert_eq!(
+        all_fields_from_categories.len(),
+        category_fields.len(),
+        "duplicate fields in FIELDS_BY_CATEGORY"
+    );
+
+    // Complete
+    assert_eq!(
+        category_fields,
+        epistemic_fields,
+        "FIELDS_BY_CATEGORY is not a complete partition of FIELD_EPISTEMIC_MAP. \
+         missing={:?}, extra={:?}",
+        epistemic_fields
+            .difference(&category_fields)
+            .collect::<Vec<_>>(),
+        category_fields
+            .difference(&epistemic_fields)
+            .collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn test_epistemic_dirty_cross_consistency() {
+    let free_set: HashSet<&str> = AppState::FREE_READ_FIELDS.iter().copied().collect();
+    let dirty_map: HashMap<&str, &[&str]> = AppState::FIELD_DIRTY_MAP
+        .iter()
+        .map(|(f, flags)| (*f, *flags))
+        .collect();
+
+    for (field, cat) in AppState::FIELD_EPISTEMIC_MAP {
+        match *cat {
+            "runtime" => {
+                assert!(
+                    free_set.contains(field),
+                    "runtime field `{field}` should be #[dirty(free)]"
+                );
+            }
+            "session" => {
+                let flags = dirty_map.get(field).unwrap_or_else(|| {
+                    panic!("session field `{field}` not found in FIELD_DIRTY_MAP")
+                });
+                assert!(
+                    flags.contains(&"SESSION"),
+                    "session field `{field}` should have dirty(SESSION), got {flags:?}"
+                );
+            }
+            _ => {}
+        }
+    }
+}

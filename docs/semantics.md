@@ -153,6 +153,10 @@ Heuristics follow these principles.
 
 In Default Frontend Semantics, heuristic failure should be treated as graceful degradation rather than UI collapse. Even when heuristics do not hold, Kasane prioritizes maintaining its meaning as a core frontend, with only extended features degrading.
 
+### 3.9 Compile-Time Enforcement
+
+Epistemological categories are enforced at compile time via `#[epistemic(...)]` attributes on `AppState` fields. Every field must carry exactly one classification. The `DirtyTracked` derive macro validates completeness and generates constants (`FIELD_EPISTEMIC_MAP`, `HEURISTIC_FIELDS`, `DERIVED_FIELDS`, `FIELDS_BY_CATEGORY`) for test validation.
+
 ## 4. Update Semantics
 
 ### 4.1 From External Input to State Update

@@ -39,7 +39,7 @@ pub fn kasane_component(attr: TokenStream, input: TokenStream) -> TokenStream {
 /// Missing annotations produce a compile error.
 ///
 /// Generates `AppState::FIELD_DIRTY_MAP` and `AppState::FREE_READ_FIELDS` constants.
-#[proc_macro_derive(DirtyTracked, attributes(dirty))]
+#[proc_macro_derive(DirtyTracked, attributes(dirty, epistemic))]
 pub fn derive_dirty_tracked(input: TokenStream) -> TokenStream {
     dirty_tracked::expand_dirty_tracked(input.into())
         .unwrap_or_else(|e| e.to_compile_error())

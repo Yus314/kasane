@@ -91,115 +91,153 @@ pub enum DragState {
 ///   certain UI elements (e.g., cursor face attributes) and may break if Kakoune changes its
 ///   rendering behavior in future versions.
 ///
-/// Every field carries a `#[dirty(...)]` annotation that maps it to DirtyFlags.
-/// The `DirtyTracked` derive enforces this at compile time: adding a field without
-/// `#[dirty(FLAG)]` or `#[dirty(free)]` is a compile error.
+/// Every field carries a `#[dirty(...)]` annotation that maps it to DirtyFlags
+/// and an `#[epistemic(...)]` annotation classifying its epistemological category.
+/// The `DirtyTracked` derive enforces both at compile time: adding a field without
+/// either annotation is a compile error.
 #[derive(Debug, Clone, DirtyTracked)]
 pub struct AppState {
     // -- Protocol State (from Kakoune JSON-RPC) --
     /// Observed: buffer lines from `draw`.
+    #[epistemic(observed)]
     #[dirty(BUFFER_CONTENT)]
     pub lines: Vec<Line>,
     /// Observed: default face from `draw`.
+    #[epistemic(observed)]
     #[dirty(BUFFER_CONTENT)]
     pub default_face: Face,
     /// Observed: padding face from `draw`.
+    #[epistemic(observed)]
     #[dirty(BUFFER_CONTENT)]
     pub padding_face: Face,
     /// Derived: per-line dirty flags computed by diffing old vs new `lines`.
+    #[epistemic(derived, source = "line equality diff (R-3)")]
     #[dirty(BUFFER_CONTENT)]
     pub lines_dirty: Vec<bool>,
     /// Derived: inferred from `status_content_cursor_pos >= 0` (Buffer vs Prompt).
+    #[epistemic(derived, source = "content_cursor_pos sign (I-3)")]
     #[dirty(BUFFER_CURSOR)]
     pub cursor_mode: CursorMode,
     /// Observed: cursor position from `draw` (`cursor_pos` field).
+    #[epistemic(observed)]
     #[dirty(BUFFER_CURSOR)]
     pub cursor_pos: Coord,
     /// Observed: status prompt atoms from `draw_status`.
+    #[epistemic(observed)]
     #[dirty(STATUS)]
     pub status_prompt: Line,
     /// Observed: status content atoms from `draw_status`.
+    #[epistemic(observed)]
     #[dirty(STATUS)]
     pub status_content: Line,
     /// Observed: cursor position within status content from `draw_status`.
+    #[epistemic(observed)]
     #[dirty(STATUS)]
     pub status_content_cursor_pos: i32,
     /// Derived: concatenation of `status_prompt` + `status_content` for rendering.
+    #[epistemic(derived, source = "prompt + content concatenation")]
     #[dirty(STATUS)]
     pub status_line: Line,
     /// Observed: mode line atoms from `draw_status`.
+    #[epistemic(observed)]
     #[dirty(STATUS)]
     pub status_mode_line: Line,
     /// Observed: default face for the status bar from `draw_status`.
+    #[epistemic(observed)]
     #[dirty(STATUS)]
     pub status_default_face: Face,
     /// Observed: status bar context from `draw_status` (PR #5458).
+    #[epistemic(observed)]
     #[dirty(STATUS)]
     pub status_style: StatusStyle,
     /// Observed: number of widget columns from `draw`.
+    #[epistemic(observed)]
     #[dirty(BUFFER_CONTENT)]
     pub widget_columns: u16,
     /// Observed: completion menu state from `menu_show` / `menu_select` / `menu_hide`.
+    #[epistemic(observed)]
     #[dirty(MENU_STRUCTURE, MENU_SELECTION)]
     pub menu: Option<MenuState>,
     /// Observed: info popup state from `info_show` / `info_hide`.
+    #[epistemic(observed)]
     #[dirty(INFO)]
     pub infos: Vec<InfoState>,
     /// Observed: UI options from `set_ui_options`.
+    #[epistemic(observed)]
     #[dirty(OPTIONS)]
     pub ui_options: HashMap<String, String>,
     /// Heuristic: total cursor count (primary + secondary), detected via FINAL_FG + REVERSE
     /// attribute pattern in `draw` atoms. Not part of the protocol specification.
+    #[epistemic(heuristic, rule = "I-1", severity = "degraded")]
     #[dirty(BUFFER_CURSOR)]
     pub cursor_count: usize,
     /// Heuristic: positions of secondary cursors (all cursors except primary).
     /// Extracted from `draw` atoms whose face has FINAL_FG + REVERSE attributes, then
     /// filtered to exclude the primary `cursor_pos`. This relies on Kakoune's internal
     /// rendering of multi-cursor selections and may change in future versions.
+    #[epistemic(heuristic, rule = "I-1", severity = "degraded")]
     #[dirty(BUFFER_CURSOR)]
     pub secondary_cursors: Vec<Coord>,
 
     // -- Frontend Config (from user config / SetConfig commands) --
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub shadow_enabled: bool,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub padding_char: String,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub menu_max_height: u16,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub menu_position: MenuPosition,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub search_dropdown: bool,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub status_at_top: bool,
+    #[epistemic(config)]
     #[dirty(MENU_STRUCTURE)]
     pub scrollbar_thumb: String,
+    #[epistemic(config)]
     #[dirty(MENU_STRUCTURE)]
     pub scrollbar_track: String,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub assistant_art: Option<Vec<String>>,
+    #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub plugin_config: HashMap<String, String>,
+    #[epistemic(config)]
     #[dirty(BUFFER_CONTENT)]
     pub secondary_blend_ratio: f32,
 
     // -- Session metadata (from SessionManager, preserved across session switches) --
+    #[epistemic(session)]
     #[dirty(SESSION)]
     pub session_descriptors: Vec<SessionDescriptor>,
+    #[epistemic(session)]
     #[dirty(SESSION)]
     pub active_session_key: Option<String>,
 
     // -- Runtime / Ephemeral (not part of protocol or config) --
+    #[epistemic(runtime)]
     #[dirty(free)]
     pub focused: bool,
+    #[epistemic(runtime)]
     #[dirty(free)]
     pub drag: DragState,
+    #[epistemic(runtime)]
     #[dirty(free)]
     pub cols: u16,
+    #[epistemic(runtime)]
     #[dirty(free)]
     pub rows: u16,
     /// Post-render hit map for interactive element mouse routing.
     /// Updated after each frame by `rebuild_hit_map()`.
+    #[epistemic(runtime)]
     #[dirty(free)]
     pub hit_map: HitMap,
 }

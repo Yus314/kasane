@@ -1,12 +1,20 @@
-//! `#[derive(DirtyTracked)]` — compile-time enforcement of field → DirtyFlags mapping.
+//! `#[derive(DirtyTracked)]` — compile-time enforcement of field → DirtyFlags mapping
+//! and epistemological classification.
 //!
 //! Every field in the annotated struct must carry exactly one of:
 //! - `#[dirty(FLAG1, FLAG2, ...)]` — this field requires the listed DirtyFlags
 //! - `#[dirty(free)]` — this field is a free read (no DirtyFlag needed)
 //!
-//! The derive generates two public constants:
+//! Every field must also carry exactly one `#[epistemic(...)]` annotation classifying
+//! it as `observed`, `derived`, `heuristic`, `config`, `session`, or `runtime`.
+//!
+//! The derive generates public constants:
 //! - `FIELD_DIRTY_MAP: &[(&str, &[&str])]` — field→flags for tracked fields
 //! - `FREE_READ_FIELDS: &[&str]` — field names marked as free reads
+//! - `FIELD_EPISTEMIC_MAP: &[(&str, &str)]` — field→category
+//! - `HEURISTIC_FIELDS: &[(&str, &str, &str)]` — (field, rule, severity) for heuristics
+//! - `DERIVED_FIELDS: &[(&str, &str)]` — (field, source) for derived fields
+//! - `FIELDS_BY_CATEGORY: &[(&str, &[&str])]` — category→fields
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -18,6 +26,42 @@ enum DirtyAnnotation {
     Flags(Vec<String>),
     /// `#[dirty(free)]`
     Free,
+}
+
+/// Known epistemological categories.
+const KNOWN_CATEGORIES: &[&str] = &[
+    "observed",
+    "derived",
+    "heuristic",
+    "config",
+    "session",
+    "runtime",
+];
+
+/// Known severity levels for heuristic fields.
+const KNOWN_SEVERITIES: &[&str] = &["catastrophic", "degraded", "cosmetic"];
+
+/// Parsed epistemic annotation for one field.
+enum EpistemicCategory {
+    Observed,
+    Derived { source: Option<String> },
+    Heuristic { rule: String, severity: String },
+    Config,
+    Session,
+    Runtime,
+}
+
+impl EpistemicCategory {
+    fn name(&self) -> &'static str {
+        match self {
+            EpistemicCategory::Observed => "observed",
+            EpistemicCategory::Derived { .. } => "derived",
+            EpistemicCategory::Heuristic { .. } => "heuristic",
+            EpistemicCategory::Config => "config",
+            EpistemicCategory::Session => "session",
+            EpistemicCategory::Runtime => "runtime",
+        }
+    }
 }
 
 pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
@@ -50,6 +94,7 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
 
     let mut field_entries = Vec::new(); // (field_name, &[flag_names])
     let mut free_fields = Vec::new(); // field_name
+    let mut epistemic_entries = Vec::new(); // (field_name, EpistemicCategory)
 
     for field in &fields.named {
         let field_name = field
@@ -57,6 +102,7 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
             .as_ref()
             .ok_or_else(|| Error::new_spanned(field, "expected named field"))?;
 
+        // Parse dirty annotation
         let annotation = parse_dirty_attr(field_name, &field.attrs)?;
         let Some(annotation) = annotation else {
             return Err(Error::new_spanned(
@@ -90,6 +136,21 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
                 free_fields.push(field_name.to_string());
             }
         }
+
+        // Parse epistemic annotation
+        let epistemic = parse_epistemic_attr(field_name, &field.attrs)?;
+        let Some(epistemic) = epistemic else {
+            return Err(Error::new_spanned(
+                field_name,
+                format!(
+                    "field `{}` is missing an `#[epistemic(...)]` annotation. \
+                     Add e.g. `#[epistemic(observed)]` or `#[epistemic(config)]`",
+                    field_name
+                ),
+            ));
+        };
+
+        epistemic_entries.push((field_name.to_string(), epistemic));
     }
 
     // Generate the FIELD_DIRTY_MAP constant
@@ -100,6 +161,53 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
 
     let free_entries = free_fields.iter().map(|name| {
         quote! { #name }
+    });
+
+    // Generate FIELD_EPISTEMIC_MAP
+    let epistemic_map_entries = epistemic_entries.iter().map(|(name, cat)| {
+        let cat_str = cat.name();
+        quote! { (#name, #cat_str) }
+    });
+
+    // Generate HEURISTIC_FIELDS
+    let heuristic_entries = epistemic_entries.iter().filter_map(|(name, cat)| {
+        if let EpistemicCategory::Heuristic { rule, severity } = cat {
+            Some(quote! { (#name, #rule, #severity) })
+        } else {
+            None
+        }
+    });
+
+    // Generate DERIVED_FIELDS
+    let derived_entries = epistemic_entries.iter().filter_map(|(name, cat)| {
+        if let EpistemicCategory::Derived { source } = cat {
+            let source_str = source.as_deref().unwrap_or("");
+            Some(quote! { (#name, #source_str) })
+        } else {
+            None
+        }
+    });
+
+    // Generate FIELDS_BY_CATEGORY — collect fields per category
+    let fields_by_cat = {
+        let mut by_cat: Vec<(&str, Vec<&str>)> =
+            KNOWN_CATEGORIES.iter().map(|&c| (c, Vec::new())).collect();
+
+        for (name, cat) in &epistemic_entries {
+            let cat_name = cat.name();
+            for (c, fields) in &mut by_cat {
+                if *c == cat_name {
+                    fields.push(name.as_str());
+                    break;
+                }
+            }
+        }
+
+        by_cat
+    };
+
+    let fields_by_cat_entries = fields_by_cat.iter().map(|(cat, fields)| {
+        quote! { (#cat, &[#(#fields),*] as &[&str]) }
     });
 
     let struct_name = &input.ident;
@@ -118,6 +226,26 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
             /// Fields that are free reads (no DirtyFlag needed).
             pub const FREE_READ_FIELDS: &[&str] = &[
                 #(#free_entries),*
+            ];
+
+            /// Field → epistemological category, generated by `#[derive(DirtyTracked)]`.
+            pub const FIELD_EPISTEMIC_MAP: &[(&str, &str)] = &[
+                #(#epistemic_map_entries),*
+            ];
+
+            /// Heuristic fields: `(field, rule, severity)`.
+            pub const HEURISTIC_FIELDS: &[(&str, &str, &str)] = &[
+                #(#heuristic_entries),*
+            ];
+
+            /// Derived fields: `(field, source_description)`.
+            pub const DERIVED_FIELDS: &[(&str, &str)] = &[
+                #(#derived_entries),*
+            ];
+
+            /// Fields grouped by epistemological category.
+            pub const FIELDS_BY_CATEGORY: &[(&str, &[&str])] = &[
+                #(#fields_by_cat_entries),*
             ];
         }
     };
@@ -207,4 +335,232 @@ fn parse_dirty_attr(
     }
 
     Ok(Some(DirtyAnnotation::Flags(flags)))
+}
+
+/// Parse the `#[epistemic(...)]` attribute from a field's attributes.
+fn parse_epistemic_attr(
+    field_name: &Ident,
+    attrs: &[syn::Attribute],
+) -> syn::Result<Option<EpistemicCategory>> {
+    let epistemic_attrs: Vec<_> = attrs
+        .iter()
+        .filter(|a| a.path().is_ident("epistemic"))
+        .collect();
+
+    if epistemic_attrs.is_empty() {
+        return Ok(None);
+    }
+
+    if epistemic_attrs.len() > 1 {
+        return Err(Error::new_spanned(
+            field_name,
+            "multiple #[epistemic(...)] annotations on the same field",
+        ));
+    }
+
+    let attr = epistemic_attrs[0];
+
+    let Meta::List(meta_list) = &attr.meta else {
+        return Err(Error::new_spanned(
+            attr,
+            "expected #[epistemic(category, ...)]",
+        ));
+    };
+
+    let tokens: Vec<proc_macro2::TokenTree> = meta_list.tokens.clone().into_iter().collect();
+
+    if tokens.is_empty() {
+        return Err(Error::new_spanned(
+            attr,
+            "empty #[epistemic()]: specify a category",
+        ));
+    }
+
+    // First token must be the category ident
+    let proc_macro2::TokenTree::Ident(ref category_ident) = tokens[0] else {
+        return Err(Error::new_spanned(
+            &tokens[0],
+            "expected category name in #[epistemic(...)]",
+        ));
+    };
+
+    let category_str = category_ident.to_string();
+    if !KNOWN_CATEGORIES.contains(&category_str.as_str()) {
+        return Err(Error::new_spanned(
+            category_ident,
+            format!(
+                "unknown epistemic category `{category_str}`. \
+                 Expected one of: {}",
+                KNOWN_CATEGORIES.join(", ")
+            ),
+        ));
+    }
+
+    // Parse remaining tokens as key-value pairs: `, key = "value"`
+    let kvs = parse_key_value_pairs(&tokens[1..])?;
+
+    match category_str.as_str() {
+        "observed" | "config" | "session" | "runtime" => {
+            if !kvs.is_empty() {
+                return Err(Error::new_spanned(
+                    attr,
+                    format!("#[epistemic({category_str})] does not accept extra parameters"),
+                ));
+            }
+            match category_str.as_str() {
+                "observed" => Ok(Some(EpistemicCategory::Observed)),
+                "config" => Ok(Some(EpistemicCategory::Config)),
+                "session" => Ok(Some(EpistemicCategory::Session)),
+                "runtime" => Ok(Some(EpistemicCategory::Runtime)),
+                _ => unreachable!(),
+            }
+        }
+        "derived" => {
+            let source = kvs
+                .iter()
+                .find(|(k, _)| k == "source")
+                .map(|(_, v)| v.clone());
+            // Reject unknown keys
+            for (k, _) in &kvs {
+                if k != "source" {
+                    return Err(Error::new_spanned(
+                        attr,
+                        format!(
+                            "unknown key `{k}` in #[epistemic(derived, ...)]. \
+                             Allowed: source"
+                        ),
+                    ));
+                }
+            }
+            Ok(Some(EpistemicCategory::Derived { source }))
+        }
+        "heuristic" => {
+            let rule = kvs
+                .iter()
+                .find(|(k, _)| k == "rule")
+                .map(|(_, v)| v.clone());
+            let severity = kvs
+                .iter()
+                .find(|(k, _)| k == "severity")
+                .map(|(_, v)| v.clone());
+            // Reject unknown keys
+            for (k, _) in &kvs {
+                if k != "rule" && k != "severity" {
+                    return Err(Error::new_spanned(
+                        attr,
+                        format!(
+                            "unknown key `{k}` in #[epistemic(heuristic, ...)]. \
+                             Allowed: rule, severity"
+                        ),
+                    ));
+                }
+            }
+            let Some(rule) = rule else {
+                return Err(Error::new_spanned(
+                    attr,
+                    format!(
+                        "field `{field_name}`: #[epistemic(heuristic)] requires `rule = \"...\"`"
+                    ),
+                ));
+            };
+            let Some(severity) = severity else {
+                return Err(Error::new_spanned(
+                    attr,
+                    format!(
+                        "field `{field_name}`: #[epistemic(heuristic)] requires `severity = \"...\"`"
+                    ),
+                ));
+            };
+            if !KNOWN_SEVERITIES.contains(&severity.as_str()) {
+                return Err(Error::new_spanned(
+                    attr,
+                    format!(
+                        "unknown severity `{severity}` in #[epistemic(heuristic, ...)]. \
+                         Expected one of: {}",
+                        KNOWN_SEVERITIES.join(", ")
+                    ),
+                ));
+            }
+            Ok(Some(EpistemicCategory::Heuristic { rule, severity }))
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Parse `, key = "value"` pairs from a token slice.
+/// Returns `Vec<(key, value)>`.
+fn parse_key_value_pairs(tokens: &[proc_macro2::TokenTree]) -> syn::Result<Vec<(String, String)>> {
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < tokens.len() {
+        // Expect comma
+        match &tokens[i] {
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == ',' => {
+                i += 1;
+            }
+            other => {
+                return Err(Error::new_spanned(
+                    other,
+                    "expected `,` before key-value pair",
+                ));
+            }
+        }
+
+        if i >= tokens.len() {
+            break; // trailing comma is ok
+        }
+
+        // Expect key ident
+        let proc_macro2::TokenTree::Ident(ref key) = tokens[i] else {
+            return Err(Error::new_spanned(&tokens[i], "expected key identifier"));
+        };
+        let key_str = key.to_string();
+        i += 1;
+
+        // Expect `=`
+        if i >= tokens.len() {
+            return Err(Error::new_spanned(
+                key,
+                format!("expected `= \"...\"` after `{key_str}`"),
+            ));
+        }
+        match &tokens[i] {
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '=' => {
+                i += 1;
+            }
+            other => {
+                return Err(Error::new_spanned(
+                    other,
+                    format!("expected `=` after `{key_str}`"),
+                ));
+            }
+        }
+
+        // Expect string literal
+        if i >= tokens.len() {
+            return Err(Error::new_spanned(
+                key,
+                format!("expected string literal after `{key_str} =`"),
+            ));
+        }
+        let proc_macro2::TokenTree::Literal(ref lit) = tokens[i] else {
+            return Err(Error::new_spanned(&tokens[i], "expected string literal"));
+        };
+        // Parse the literal — it should be a string like `"I-1"`
+        let lit_str = lit.to_string();
+        let value = if lit_str.starts_with('"') && lit_str.ends_with('"') && lit_str.len() >= 2 {
+            lit_str[1..lit_str.len() - 1].to_string()
+        } else {
+            return Err(Error::new_spanned(
+                lit,
+                "expected a string literal (e.g. \"...\") as value",
+            ));
+        };
+        i += 1;
+
+        result.push((key_str, value));
+    }
+
+    Ok(result)
 }

@@ -1,0 +1,5 @@
+error: field `x` is missing an `#[epistemic(...)]` annotation. Add e.g. `#[epistemic(observed)]` or `#[epistemic(config)]`
+ --> tests/fail/missing_epistemic.rs:6:9
+  |
+6 |     pub x: u32,
+  |         ^
