@@ -19,6 +19,22 @@ pub struct TaggedDirective {
     pub plugin_id: PluginId,
 }
 
+impl TaggedDirective {
+    /// Total-order sort key for deterministic composition.
+    ///
+    /// The 4-tuple `(priority, plugin_id, variant_ordinal, positional_anchor)`
+    /// is unique even when the same plugin emits multiple directives at the
+    /// same priority, ensuring `DirectiveSet::compose()` is commutative.
+    pub fn sort_key(&self) -> (i16, &PluginId, u8, usize) {
+        let (variant, anchor) = match &self.directive {
+            DisplayDirective::Hide { range } => (0, range.start),
+            DisplayDirective::Fold { range, .. } => (1, range.start),
+            DisplayDirective::InsertAfter { after, .. } => (2, *after),
+        };
+        (self.priority, &self.plugin_id, variant, anchor)
+    }
+}
+
 /// Accumulator for tagged directives from multiple plugins.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DirectiveSet {

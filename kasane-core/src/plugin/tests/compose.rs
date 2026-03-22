@@ -11,6 +11,7 @@ use crate::plugin::compose::{
 use crate::plugin::context::{
     ContribSizeHint, Contribution, OverlayContribution, SourcedContribution, TransformTarget,
 };
+use crate::protocol::Face;
 
 // ---------------------------------------------------------------------------
 // Strategies
@@ -50,29 +51,35 @@ fn arb_overlay_set() -> impl Strategy<Value = OverlaySet> {
         .prop_map(|items| OverlaySet::from_vec(items))
 }
 
+fn arb_display_directive() -> impl Strategy<Value = DisplayDirective> {
+    prop_oneof![
+        (0usize..100, 1usize..50).prop_map(|(s, len)| DisplayDirective::Hide { range: s..s + len }),
+        (0usize..100, 1usize..50).prop_map(|(s, len)| DisplayDirective::Fold {
+            range: s..s + len,
+            summary: String::new(),
+            face: Face::default(),
+        }),
+        (0usize..200).prop_map(|after| DisplayDirective::InsertAfter {
+            after,
+            content: String::new(),
+            face: Face::default(),
+        }),
+    ]
+}
+
 fn arb_tagged_directive() -> impl Strategy<Value = TaggedDirective> {
-    (
-        arb_plugin_id(),
-        -100i16..100i16,
-        0usize..20usize,
-        1usize..5usize,
-    )
-        .prop_map(|(id, priority, start, len)| TaggedDirective {
-            directive: DisplayDirective::Hide {
-                range: start..start + len,
-            },
+    (arb_plugin_id(), -100i16..100i16, arb_display_directive()).prop_map(
+        |(id, priority, directive)| TaggedDirective {
+            directive,
             priority,
             plugin_id: id,
-        })
+        },
+    )
 }
 
 fn arb_directive_set() -> impl Strategy<Value = DirectiveSet> {
     prop::collection::vec(arb_tagged_directive(), 0..8).prop_map(|mut directives| {
-        directives.sort_by(|a, b| {
-            a.priority
-                .cmp(&b.priority)
-                .then_with(|| a.plugin_id.cmp(&b.plugin_id))
-        });
+        directives.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         DirectiveSet { directives }
     })
 }
@@ -216,6 +223,37 @@ proptest! {
         let ba = b.compose(a);
         prop_assert_eq!(ab, ba);
     }
+}
+
+/// Same plugin_id + same priority with multiple directive variants must
+/// compose commutatively thanks to the 4-element sort key.
+#[test]
+fn directive_set_commutativity_same_plugin_same_priority() {
+    let pid = PluginId("p".into());
+    let a = DirectiveSet {
+        directives: vec![TaggedDirective {
+            directive: DisplayDirective::Hide { range: 0..5 },
+            priority: 0,
+            plugin_id: pid.clone(),
+        }],
+    };
+    let b = DirectiveSet {
+        directives: vec![TaggedDirective {
+            directive: DisplayDirective::InsertAfter {
+                after: 3,
+                content: String::new(),
+                face: Face::default(),
+            },
+            priority: 0,
+            plugin_id: pid.clone(),
+        }],
+    };
+    let ab = a.clone().compose(b.clone());
+    let ba = b.compose(a);
+    assert_eq!(
+        ab, ba,
+        "same plugin+priority with different variants must commute"
+    );
 }
 
 // ---------------------------------------------------------------------------

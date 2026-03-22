@@ -17,11 +17,14 @@
 //! | Key dispatch          | Yes     | No           | `FirstWins<T>`                |
 //! | Cursor style override | Yes     | No           | `FirstWins<T>`                |
 //! | Transform chain       | Yes     | No           | `TransformChain`              |
+//! | Key middleware         | N/A     | N/A          | Imperative Kleisli chain      |
 //! | `resolve()`           | **No**  | N/A          | (not modeled)                 |
 //!
 //! The **resolution** phase (`resolve()`) is fundamentally non-compositional
 //! and is intentionally not modeled here. Transform chains are modeled as a
 //! non-commutative monoid for algebraic composition of chain membership.
+//! Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an
+//! imperative Kleisli-style chain and is not modeled as `Composable`.
 
 use super::{OverlayContribution, PluginId, SourcedContribution};
 use crate::display::DirectiveSet;
@@ -141,11 +144,8 @@ impl Composable for DirectiveSet {
 
     fn compose(mut self, other: Self) -> Self {
         self.directives.extend(other.directives);
-        self.directives.sort_by(|a, b| {
-            a.priority
-                .cmp(&b.priority)
-                .then_with(|| a.plugin_id.cmp(&b.plugin_id))
-        });
+        self.directives
+            .sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         self
     }
 }
