@@ -77,6 +77,17 @@ fn named_color_index(c: NamedColor) -> usize {
     }
 }
 
+/// Convert a single sRGB component (0.0–1.0) to linear light.
+///
+/// Uses the ITU-R BT.709 transfer function (same as glyphon's shader).
+pub fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 /// Parse a `#rrggbb` hex string into `[f32; 4]`. Falls back to opaque black on error.
 fn parse_hex_color(hex: &str) -> [f32; 4] {
     let hex = hex.strip_prefix('#').unwrap_or(hex);
@@ -113,6 +124,13 @@ mod tests {
     fn test_parse_hex_invalid() {
         let c = parse_hex_color("nope");
         assert_eq!(c, [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_srgb_to_linear() {
+        assert!((srgb_to_linear(0.0) - 0.0).abs() < 1e-6);
+        assert!((srgb_to_linear(1.0) - 1.0).abs() < 1e-6);
+        assert!((srgb_to_linear(0.5) - 0.214).abs() < 0.001);
     }
 
     #[test]

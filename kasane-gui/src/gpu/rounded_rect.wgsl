@@ -25,6 +25,18 @@ struct VertexOutput {
 // [6..10] fill_color: r, g, b, a
 // [10..14] border_color: r, g, b, a
 
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        return c / 12.92;
+    } else {
+        return pow((c + 0.055) / 1.055, 2.4);
+    }
+}
+
+fn srgb_color_to_linear(c: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b), c.a);
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
@@ -50,8 +62,8 @@ fn vs_main(
     out.rect_size = vec2<f32>(rect.z, rect.w);
     out.corner_radius = params.x;
     out.border_width = params.y;
-    out.fill_color = fill_color;
-    out.border_color = border_color;
+    out.fill_color = srgb_color_to_linear(fill_color);
+    out.border_color = srgb_color_to_linear(border_color);
     return out;
 }
 

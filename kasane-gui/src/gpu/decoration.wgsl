@@ -27,6 +27,18 @@ struct VertexOutput {
 // [4..8] color: r, g, b, a (sRGB)
 // [8]    decoration type: 0=solid, 1=curly, 2=double
 // [9]    stroke thickness (pixels)
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        return c / 12.92;
+    } else {
+        return pow((c + 0.055) / 1.055, 2.4);
+    }
+}
+
+fn srgb_color_to_linear(c: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b), c.a);
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
@@ -50,7 +62,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.color = color;
+    out.color = srgb_color_to_linear(color);
     out.local_pos = vec2<f32>(lx, ly);
     out.rect_size = vec2<f32>(w, h);
     out.deco_type = u32(params.x);

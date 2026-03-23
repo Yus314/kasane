@@ -13,6 +13,18 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
 }
 
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        return c / 12.92;
+    } else {
+        return pow((c + 0.055) / 1.055, 2.4);
+    }
+}
+
+fn srgb_color_to_linear(c: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b), c.a);
+}
+
 // rect: (x, y, w, h) in pixels
 // color: (r, g, b, a) in sRGB
 @vertex
@@ -32,7 +44,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.color = color;
+    out.color = srgb_color_to_linear(color);
     return out;
 }
 
