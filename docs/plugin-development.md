@@ -170,7 +170,7 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@0.17.0`. Rebuild and reinstall any plugin that was built
+`kasane:plugin@0.18.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
 To see installed plugins or diagnose environment issues:

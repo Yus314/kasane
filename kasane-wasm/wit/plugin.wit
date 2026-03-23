@@ -1,4 +1,4 @@
-package kasane:plugin@0.17.0;
+package kasane:plugin@0.18.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -673,6 +673,14 @@ interface host-state {
     // --- Buffer line access ---
     get-line-text: func(line: u32) -> option<string>;
     is-line-dirty: func(line: u32) -> bool;
+
+    /// Bulk retrieval of buffer line text. Range is [start, end) clamped to line count.
+    /// Returns empty list when start >= end or start >= line count.
+    get-lines-text: func(start: u32, end: u32) -> list<string>;
+
+    /// Bulk retrieval of buffer line atoms (styled). Range is [start, end) clamped to line count.
+    /// Returns empty list when start >= end or start >= line count.
+    get-lines-atoms: func(start: u32, end: u32) -> list<list<atom>>;
 
     // --- v0.3.0 Tier 1: Status bar state ---
     get-status-prompt: func() -> list<atom>;

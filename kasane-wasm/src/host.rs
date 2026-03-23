@@ -180,6 +180,36 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
         self.lines_dirty.get(idx).copied().unwrap_or(false)
     }
 
+    fn get_lines_text(&mut self, start: u32, end: u32) -> Vec<String> {
+        let len = self.lines.len();
+        let s = (start as usize).min(len);
+        let e = (end as usize).min(len);
+        if s >= e {
+            return Vec::new();
+        }
+        self.lines[s..e]
+            .iter()
+            .map(|line| line.iter().map(|atom| atom.contents.as_str()).collect())
+            .collect()
+    }
+
+    fn get_lines_atoms(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Vec<Vec<bindings::kasane::plugin::types::Atom>> {
+        let len = self.lines.len();
+        let s = (start as usize).min(len);
+        let e = (end as usize).min(len);
+        if s >= e {
+            return Vec::new();
+        }
+        self.lines[s..e]
+            .iter()
+            .map(|line| convert::atoms_to_wit(line))
+            .collect()
+    }
+
     // --- v0.3.0 Tier 1: Status bar ---
     fn get_status_prompt(&mut self) -> Vec<bindings::kasane::plugin::types::Atom> {
         convert::atoms_to_wit(&self.status_prompt)

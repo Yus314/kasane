@@ -17,6 +17,7 @@ use kasane_core::workspace::Workspace;
 
 use crate::WasmPluginLoader;
 
+mod bulk_buffer;
 mod color_preview;
 mod cursor_line;
 mod discovery;
