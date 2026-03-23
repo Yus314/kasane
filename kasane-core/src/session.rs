@@ -243,7 +243,13 @@ impl<R, W, C> SessionManager<R, W, C> {
                 Some(SessionDescriptor {
                     key: session.spec.key.clone(),
                     session_name: session.spec.session.clone(),
-                    buffer_name: app_state.and_then(|s| extract_atom_text(&s.status_content)),
+                    buffer_name: app_state.and_then(|s| {
+                        s.ui_options
+                            .get("kasane_bufname")
+                            .filter(|v| !v.is_empty())
+                            .cloned()
+                            .or_else(|| extract_atom_text(&s.status_content))
+                    }),
                     mode_line: app_state.and_then(|s| extract_atom_text(&s.status_mode_line)),
                 })
             })
@@ -664,6 +670,82 @@ mod tests {
         // "second" is active, gets metadata from active_state (empty)
         assert_eq!(descriptors[1].buffer_name, None);
         assert_eq!(descriptors[1].mode_line, None);
+    }
+
+    #[test]
+    fn test_enriched_descriptors_prefers_ui_options_bufname() {
+        use crate::protocol::{Atom, Face};
+
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        sessions
+            .insert(SessionSpec::new("work", None, vec![]), (), (), ())
+            .unwrap();
+
+        let store = SessionStateStore::new();
+        let mut active_state = AppState::default();
+        // status_content contains full status bar text (e.g. "main.rs 42:10")
+        active_state.status_content = vec![
+            Atom {
+                face: Face::default(),
+                contents: "main.rs".into(),
+            },
+            Atom {
+                face: Face::default(),
+                contents: " 42:10".into(),
+            },
+        ];
+        // ui_options has the accurate bufname from the hook
+        active_state
+            .ui_options
+            .insert("kasane_bufname".into(), "main.rs".into());
+
+        let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
+        assert_eq!(descriptors[0].buffer_name.as_deref(), Some("main.rs"));
+    }
+
+    #[test]
+    fn test_enriched_descriptors_falls_back_to_status_content() {
+        use crate::protocol::{Atom, Face};
+
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        sessions
+            .insert(SessionSpec::new("work", None, vec![]), (), (), ())
+            .unwrap();
+
+        let store = SessionStateStore::new();
+        let mut active_state = AppState::default();
+        // No ui_options set (hook hasn't fired yet) — falls back to status_content
+        active_state.status_content = vec![Atom {
+            face: Face::default(),
+            contents: "main.rs".into(),
+        }];
+
+        let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
+        assert_eq!(descriptors[0].buffer_name.as_deref(), Some("main.rs"));
+    }
+
+    #[test]
+    fn test_enriched_descriptors_empty_bufname_falls_back() {
+        use crate::protocol::{Atom, Face};
+
+        let mut sessions = SessionManager::<(), (), ()>::new();
+        sessions
+            .insert(SessionSpec::new("work", None, vec![]), (), (), ())
+            .unwrap();
+
+        let store = SessionStateStore::new();
+        let mut active_state = AppState::default();
+        active_state.status_content = vec![Atom {
+            face: Face::default(),
+            contents: "*scratch*".into(),
+        }];
+        // Empty bufname from ui_options (special buffer) → falls back to status_content
+        active_state
+            .ui_options
+            .insert("kasane_bufname".into(), "".into());
+
+        let descriptors = sessions.enriched_session_descriptors(&store, &active_state);
+        assert_eq!(descriptors[0].buffer_name.as_deref(), Some("*scratch*"));
     }
 
     #[test]

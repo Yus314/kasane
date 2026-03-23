@@ -339,6 +339,14 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn is_dark_background(&mut self) -> bool {
         self.is_dark
     }
+
+    // --- v0.9.0 Tier 10: Buffer file metadata ---
+    fn get_buffer_file_path(&mut self) -> Option<String> {
+        self.ui_options
+            .get("kasane_buffile")
+            .filter(|v| !v.is_empty())
+            .cloned()
+    }
 }
 
 impl bindings::kasane::plugin::element_builder::Host for HostState {

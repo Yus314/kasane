@@ -222,8 +222,12 @@ impl AppState {
                 DirtyFlags::INFO | DirtyFlags::BUFFER_CONTENT
             }
             KakouneRequest::SetUiOptions { options } => {
-                self.ui_options = options;
-                DirtyFlags::OPTIONS
+                if self.ui_options == options {
+                    DirtyFlags::empty()
+                } else {
+                    self.ui_options = options;
+                    DirtyFlags::OPTIONS
+                }
             }
             KakouneRequest::Refresh { force } => {
                 self.lines_dirty = vec![true; self.lines.len()];

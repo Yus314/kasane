@@ -193,9 +193,15 @@ fn test_apply_set_ui_options() {
     let mut state = AppState::default();
     let mut opts = std::collections::HashMap::new();
     opts.insert("key".to_string(), "value".to_string());
-    let flags = state.apply(KakouneRequest::SetUiOptions { options: opts });
+    let flags = state.apply(KakouneRequest::SetUiOptions {
+        options: opts.clone(),
+    });
     assert!(flags.contains(DirtyFlags::OPTIONS));
     assert_eq!(state.ui_options.get("key"), Some(&"value".to_string()));
+
+    // Same options again → no dirty flags (change detection)
+    let flags = state.apply(KakouneRequest::SetUiOptions { options: opts });
+    assert_eq!(flags, DirtyFlags::empty());
 }
 
 #[test]

@@ -1,4 +1,4 @@
-package kasane:plugin@0.14.0;
+package kasane:plugin@0.15.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -722,6 +722,12 @@ interface host-state {
     /// Whether the current background is dark (true) or light (false).
     /// Based on Kakoune's default_face. Defaults to true when unknown.
     is-dark-background: func() -> bool;
+
+    // --- v0.9.0 Tier 10: Buffer file metadata ---
+
+    /// Get the buffer's absolute file path from `%val{buffile}` via ui_options.
+    /// Returns none for special buffers (e.g. `*scratch*`) where buffile is empty.
+    get-buffer-file-path: func() -> option<string>;
 }
 
 /// Host-provided functions for building Element trees.

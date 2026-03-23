@@ -103,8 +103,25 @@ pub fn spawn_kakoune(args: &[String]) -> Result<(KakouneReader, KakouneWriter, K
     spawn_kakoune_for_spec(&SessionSpec::primary(None, args.to_vec()))
 }
 
+/// Kakoune init command injected via `-e` to propagate buffer metadata through `ui_options`.
+///
+/// - `remove-hooks` + `hook -group`: idempotent (safe on `-c` reconnect)
+/// - `WinDisplay`: fires on every buffer switch (`:edit`, `:buffer`)
+/// - `set-option -add`: preserves existing ui_options (e.g. kak-lsp filetype)
+/// - Quoted values: handles paths with spaces
+const KASANE_INIT_COMMAND: &str = "\
+    remove-hooks global kasane-meta; \
+    hook -group kasane-meta global WinDisplay .* %{ \
+        set-option -add window ui_options \
+            \"kasane_buffile=%val{buffile}\" \
+            \"kasane_bufname=%val{bufname}\" \
+    }";
+
 fn kak_command_argv(spec: &SessionSpec) -> Vec<String> {
     let mut argv = vec!["-ui".to_string(), "json".to_string()];
+    // Kasane's -e comes first so user -e args run after (can override)
+    argv.push("-e".to_string());
+    argv.push(KASANE_INIT_COMMAND.to_string());
     argv.extend(spec.args.iter().cloned());
     argv
 }
@@ -224,8 +241,14 @@ mod tests {
     #[test]
     fn primary_session_spec_does_not_add_connect_flag() {
         let spec = SessionSpec::primary(None, vec!["file.txt".to_string()]);
+        let argv = kak_command_argv(&spec);
 
-        assert_eq!(kak_command_argv(&spec), vec!["-ui", "json", "file.txt"]);
+        assert_eq!(argv[0], "-ui");
+        assert_eq!(argv[1], "json");
+        assert_eq!(argv[2], "-e");
+        assert_eq!(argv[3], KASANE_INIT_COMMAND);
+        assert_eq!(argv[4], "file.txt");
+        assert_eq!(argv.len(), 5);
     }
 
     #[test]
@@ -238,11 +261,10 @@ mod tests {
                 "file.txt".to_string(),
             ],
         );
+        let argv = kak_command_argv(&spec);
 
-        assert_eq!(
-            kak_command_argv(&spec),
-            vec!["-ui", "json", "-c", "project", "file.txt"]
-        );
+        assert_eq!(&argv[0..4], &["-ui", "json", "-e", KASANE_INIT_COMMAND]);
+        assert_eq!(&argv[4..], &["-c", "project", "file.txt"]);
     }
 
     #[test]
@@ -255,17 +277,38 @@ mod tests {
                 "file.txt".to_string(),
             ],
         );
+        let argv = kak_command_argv(&spec);
 
-        assert_eq!(
-            kak_command_argv(&spec),
-            vec!["-ui", "json", "-s", "myses", "file.txt"]
-        );
+        assert_eq!(&argv[0..4], &["-ui", "json", "-e", KASANE_INIT_COMMAND]);
+        assert_eq!(&argv[4..], &["-s", "myses", "file.txt"]);
     }
 
     #[test]
     fn plain_file_open_has_no_session_flags() {
         let spec = SessionSpec::primary(None, vec!["file.txt".to_string()]);
+        let argv = kak_command_argv(&spec);
 
-        assert_eq!(kak_command_argv(&spec), vec!["-ui", "json", "file.txt"]);
+        assert_eq!(&argv[0..4], &["-ui", "json", "-e", KASANE_INIT_COMMAND]);
+        assert_eq!(&argv[4..], &["file.txt"]);
+    }
+
+    #[test]
+    fn kasane_init_command_comes_before_user_args() {
+        let spec = SessionSpec::primary(
+            None,
+            vec![
+                "-e".to_string(),
+                "colorscheme gruvbox".to_string(),
+                "file.txt".to_string(),
+            ],
+        );
+        let argv = kak_command_argv(&spec);
+
+        // Kasane's -e is at index 2-3, user's -e is at index 4-5
+        assert_eq!(argv[2], "-e");
+        assert_eq!(argv[3], KASANE_INIT_COMMAND);
+        assert_eq!(argv[4], "-e");
+        assert_eq!(argv[5], "colorscheme gruvbox");
+        assert_eq!(argv[6], "file.txt");
     }
 }
