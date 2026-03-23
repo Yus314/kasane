@@ -1002,3 +1002,82 @@ fn test_split_rect_horizontal() {
     assert_eq!(a.y, 0);
     assert_eq!(b.y, 13);
 }
+
+// -----------------------------------------------------------------------
+// Edge adjacency tests
+// -----------------------------------------------------------------------
+
+/// Split_V(A, B): A is on trailing edge, B is on leading edge.
+#[test]
+fn test_edge_simple_vertical_split() {
+    let a = SurfaceId(1);
+    let b = SurfaceId(2);
+    let node = WorkspaceNode::Split {
+        direction: SplitDirection::Vertical,
+        ratio: 0.5,
+        first: Box::new(WorkspaceNode::leaf(a)),
+        second: Box::new(WorkspaceNode::leaf(b)),
+    };
+
+    // For the vertical divider between first(A) and second(B),
+    // check the subtrees directly (as compose_node_with_reports does):
+    let (first, second) = match &node {
+        WorkspaceNode::Split { first, second, .. } => (first.as_ref(), second.as_ref()),
+        _ => unreachable!(),
+    };
+    assert!(first.has_on_trailing_edge(a, SplitDirection::Vertical));
+    assert!(!first.has_on_trailing_edge(b, SplitDirection::Vertical));
+    assert!(second.has_on_leading_edge(b, SplitDirection::Vertical));
+    assert!(!second.has_on_leading_edge(a, SplitDirection::Vertical));
+}
+
+/// Split_V(Split_V(A, B), C): |A|B|C| — B is on trailing edge of first subtree.
+#[test]
+fn test_edge_nested_same_direction() {
+    let a = SurfaceId(1);
+    let b = SurfaceId(2);
+    let inner = WorkspaceNode::Split {
+        direction: SplitDirection::Vertical,
+        ratio: 0.5,
+        first: Box::new(WorkspaceNode::leaf(a)),
+        second: Box::new(WorkspaceNode::leaf(b)),
+    };
+    // For the outer vertical divider, first=inner, second=Leaf(C)
+    // Trailing edge of inner (V direction): only second child = B
+    assert!(inner.has_on_trailing_edge(b, SplitDirection::Vertical));
+    assert!(!inner.has_on_trailing_edge(a, SplitDirection::Vertical));
+}
+
+/// Split_V(Split_H(A, B), C): A and B stack vertically in the left pane.
+/// Both A and B are on the trailing edge of the left subtree (cross direction).
+#[test]
+fn test_edge_nested_cross_direction() {
+    let a = SurfaceId(1);
+    let b = SurfaceId(2);
+    let inner = WorkspaceNode::Split {
+        direction: SplitDirection::Horizontal,
+        ratio: 0.5,
+        first: Box::new(WorkspaceNode::leaf(a)),
+        second: Box::new(WorkspaceNode::leaf(b)),
+    };
+    // For a vertical divider, the inner split is horizontal (cross direction),
+    // so BOTH children are on the trailing edge.
+    assert!(inner.has_on_trailing_edge(a, SplitDirection::Vertical));
+    assert!(inner.has_on_trailing_edge(b, SplitDirection::Vertical));
+}
+
+/// Split_V(A, Split_V(B, C)): |A|B|C| — B is on leading edge of second subtree.
+#[test]
+fn test_edge_leading_nested_same_direction() {
+    let b = SurfaceId(2);
+    let c = SurfaceId(3);
+    let inner = WorkspaceNode::Split {
+        direction: SplitDirection::Vertical,
+        ratio: 0.5,
+        first: Box::new(WorkspaceNode::leaf(b)),
+        second: Box::new(WorkspaceNode::leaf(c)),
+    };
+    // Leading edge of inner (V direction): only first child = B
+    assert!(inner.has_on_leading_edge(b, SplitDirection::Vertical));
+    assert!(!inner.has_on_leading_edge(c, SplitDirection::Vertical));
+}

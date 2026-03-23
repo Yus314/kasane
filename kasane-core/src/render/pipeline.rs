@@ -270,6 +270,7 @@ pub(crate) fn render_cached_core(
     grid: &mut CellGrid,
     dirty: DirtyFlags,
     paint_hooks: &[Box<dyn PaintHook>],
+    halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
@@ -288,7 +289,14 @@ pub(crate) fn render_cached_core(
     // paint_buffer_ref() skips clean lines, reusing previous frame content.
     selective_clear(grid, state, dirty);
     let theme = &state.theme;
-    walk::walk_paint_grid(&element, &layout_result, grid, state, theme);
+    walk::walk_paint_grid(
+        &element,
+        &layout_result,
+        grid,
+        state,
+        theme,
+        halfblock_cache,
+    );
 
     // Apply plugin paint hooks after standard paint
     if !paint_hooks.is_empty() {
@@ -493,7 +501,15 @@ pub fn render_pipeline(
     grid: &mut CellGrid,
 ) -> RenderResult {
     let mut source = DirectViewSource;
-    render_cached_core(&mut source, state, registry, grid, DirtyFlags::ALL, &[])
+    render_cached_core(
+        &mut source,
+        state,
+        registry,
+        grid,
+        DirtyFlags::ALL,
+        &[],
+        None,
+    )
 }
 
 /// Declarative rendering pipeline with explicit dirty flags for incremental rendering.
@@ -505,5 +521,5 @@ pub fn render_pipeline_direct(
     dirty: DirtyFlags,
 ) -> RenderResult {
     let mut source = DirectViewSource;
-    render_cached_core(&mut source, state, registry, grid, dirty, &[])
+    render_cached_core(&mut source, state, registry, grid, dirty, &[], None)
 }

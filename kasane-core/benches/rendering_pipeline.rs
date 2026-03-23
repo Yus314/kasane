@@ -1125,6 +1125,7 @@ mod salsa_benches {
                             &paint_hooks,
                             None,
                             None,
+                            None,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1165,6 +1166,7 @@ mod salsa_benches {
                     &paint_hooks,
                     None,
                     None,
+                    None,
                 );
                 grid.swap_with_dirty();
 
@@ -1177,6 +1179,7 @@ mod salsa_benches {
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
                         &paint_hooks,
+                        None,
                         None,
                         None,
                     );
@@ -1225,6 +1228,7 @@ mod salsa_benches {
                             &paint_hooks,
                             None,
                             None,
+                            None,
                         );
                         grid.swap_with_dirty();
                         sync_inputs_from_state(&mut db, &edited, &handles);
@@ -1239,6 +1243,7 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::BUFFER,
                             &paint_hooks,
+                            None,
                             None,
                             None,
                         );
@@ -1376,6 +1381,7 @@ mod salsa_benches {
                             &mut grid,
                             DirtyFlags::ALL,
                             &paint_hooks,
+                            None,
                             None,
                             None,
                         );

@@ -425,7 +425,7 @@ For proportional distribution, use `create_column_flex` / `create_row_flex` with
 
 #### Image element (WIT v0.20.0)
 
-`create_image` constructs a raster image element. Images are rendered natively on the GPU backend; the TUI backend displays a text placeholder (`[IMAGE: filename]` or `[IMAGE: W×H]`).
+`create_image` constructs a raster image element. Images are rendered natively on the GPU backend; the TUI backend renders a low-resolution approximation using Unicode halfblock characters (`▀`), with each cell representing two pixel rows (fg = top, bg = bottom). If image decoding fails, the TUI falls back to a text placeholder (`[IMAGE: filename]` or `[IMAGE: W×H]`).
 
 **`ImageSource`:**
 

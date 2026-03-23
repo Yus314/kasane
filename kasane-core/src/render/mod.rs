@@ -5,6 +5,7 @@ pub mod cell_decoration;
 pub mod color_context;
 pub mod cursor;
 mod grid;
+pub mod halfblock;
 pub mod inline_decoration;
 pub mod markup;
 pub mod paint;

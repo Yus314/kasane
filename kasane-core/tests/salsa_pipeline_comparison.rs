@@ -53,6 +53,7 @@ fn render_salsa(
         &[],
         None,
         None,
+        None,
     );
     grid
 }

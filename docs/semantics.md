@@ -283,7 +283,7 @@ TUI and GUI differ in output representation.
 
 However, both are required to display the same UI structure and the same semantic content for the same state. The backend's freedom is limited to "how to draw it."
 
-One intentional exception is `Element::Image`: the GPU backend renders raster images natively, while the TUI backend displays a text placeholder (e.g., `[IMAGE: filename]`). The semantic content (presence and position of the image element) is identical; only the visual fidelity differs.
+One intentional exception is `Element::Image`: the GPU backend renders raster images natively, while the TUI backend renders a low-resolution approximation using Unicode halfblock characters (`▀`, U+2580), where each cell represents two pixel rows (fg = top, bg = bottom). If the `tui-image` feature is disabled or image decoding fails, the TUI falls back to a text placeholder (e.g., `[IMAGE: filename]`). The semantic content (presence and position of the image element) is identical; only the visual fidelity differs.
 
 ### 5.5 What Constitutes an Observable Result
 

@@ -678,6 +678,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
         &[],
         None,
         None,
+        None,
     );
 
     // Compare cursor positions
@@ -750,6 +751,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
         &mut salsa_grid,
         DirtyFlags::ALL,
         &[],
+        None,
         None,
         None,
     );

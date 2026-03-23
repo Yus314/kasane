@@ -593,6 +593,70 @@ impl WorkspaceNode {
         }
     }
 
+    /// Check whether `target` is on the trailing edge of this subtree
+    /// for the given split direction.
+    ///
+    /// For a vertical split, "trailing" = rightmost column.
+    /// For a horizontal split, "trailing" = bottommost row.
+    ///
+    /// When a split has the same direction, only the `second` child is on the
+    /// trailing edge. When a split has the cross direction, both children
+    /// are on the trailing edge (they stack along the other axis).
+    pub(crate) fn has_on_trailing_edge(&self, target: SurfaceId, dir: SplitDirection) -> bool {
+        match self {
+            WorkspaceNode::Leaf { surface_id } => *surface_id == target,
+            WorkspaceNode::Split {
+                direction,
+                first,
+                second,
+                ..
+            } => {
+                if *direction == dir {
+                    // Same direction: only `second` is on the trailing edge
+                    second.has_on_trailing_edge(target, dir)
+                } else {
+                    // Cross direction: both children share the trailing edge
+                    first.has_on_trailing_edge(target, dir)
+                        || second.has_on_trailing_edge(target, dir)
+                }
+            }
+            WorkspaceNode::Tabs { tabs, active, .. } => tabs
+                .get(*active)
+                .is_some_and(|tab| tab.has_on_trailing_edge(target, dir)),
+            WorkspaceNode::Float { base, .. } => base.has_on_trailing_edge(target, dir),
+        }
+    }
+
+    /// Check whether `target` is on the leading edge of this subtree
+    /// for the given split direction.
+    ///
+    /// Mirror of [`has_on_trailing_edge`]: for a vertical split, "leading" =
+    /// leftmost column; for horizontal, "leading" = topmost row.
+    pub(crate) fn has_on_leading_edge(&self, target: SurfaceId, dir: SplitDirection) -> bool {
+        match self {
+            WorkspaceNode::Leaf { surface_id } => *surface_id == target,
+            WorkspaceNode::Split {
+                direction,
+                first,
+                second,
+                ..
+            } => {
+                if *direction == dir {
+                    // Same direction: only `first` is on the leading edge
+                    first.has_on_leading_edge(target, dir)
+                } else {
+                    // Cross direction: both children share the leading edge
+                    first.has_on_leading_edge(target, dir)
+                        || second.has_on_leading_edge(target, dir)
+                }
+            }
+            WorkspaceNode::Tabs { tabs, active, .. } => tabs
+                .get(*active)
+                .is_some_and(|tab| tab.has_on_leading_edge(target, dir)),
+            WorkspaceNode::Float { base, .. } => base.has_on_leading_edge(target, dir),
+        }
+    }
+
     pub(crate) fn capture_restore_placement(&self, target: SurfaceId) -> Option<RestorePlacement> {
         match self {
             WorkspaceNode::Leaf { .. } => None,

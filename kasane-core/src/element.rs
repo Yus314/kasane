@@ -188,6 +188,7 @@ impl StyleToken {
     pub const INFO_BORDER: Self = Self(CompactString::const_new("info.border"));
     pub const BORDER: Self = Self(CompactString::const_new("border"));
     pub const SPLIT_DIVIDER: Self = Self(CompactString::const_new("split.divider"));
+    pub const SPLIT_DIVIDER_FOCUSED: Self = Self(CompactString::const_new("split.divider.focused"));
     pub const SHADOW: Self = Self(CompactString::const_new("shadow"));
 
     /// Create a custom style token with an arbitrary name.

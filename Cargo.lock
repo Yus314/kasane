@@ -2184,6 +2184,7 @@ dependencies = [
  "dyn-clone",
  "hdrhistogram",
  "iai-callgrind",
+ "image",
  "insta",
  "kasane-macros",
  "proptest",

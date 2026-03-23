@@ -69,6 +69,14 @@ impl Theme {
         map.insert(
             StyleToken::SPLIT_DIVIDER,
             Face {
+                fg: Color::Named(NamedColor::BrightBlack),
+                bg: Color::Named(NamedColor::BrightBlack),
+                ..Face::default()
+            },
+        );
+        map.insert(
+            StyleToken::SPLIT_DIVIDER_FOCUSED,
+            Face {
                 fg: Color::Default,
                 bg: Color::Named(NamedColor::BrightBlack),
                 ..Face::default()
@@ -150,6 +158,14 @@ impl Theme {
             );
             self.set_if_still_default(
                 StyleToken::SPLIT_DIVIDER,
+                Face {
+                    fg: palette.chrome_bg,
+                    bg: palette.chrome_bg,
+                    ..Face::default()
+                },
+            );
+            self.set_if_still_default(
+                StyleToken::SPLIT_DIVIDER_FOCUSED,
                 Face {
                     fg: Color::Default,
                     bg: palette.chrome_bg,

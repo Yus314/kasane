@@ -229,6 +229,7 @@ where
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
+    let mut halfblock_cache = kasane_core::render::halfblock::HalfblockCache::new(16);
 
     let scroll_amount = config.scroll.lines_per_scroll;
 
@@ -410,6 +411,7 @@ where
                 paint_hooks.hooks(),
                 Some(&surface_registry),
                 pane_states_opt,
+                Some(&mut halfblock_cache),
             );
             if diagnostic_overlay.is_active() {
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);

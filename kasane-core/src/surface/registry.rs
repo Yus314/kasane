@@ -789,10 +789,16 @@ impl SurfaceRegistry {
                 first,
                 second,
             } => {
-                let divider = Element::container(
-                    Element::Empty,
-                    crate::element::Style::Token(crate::element::StyleToken::SPLIT_DIVIDER),
-                );
+                let focused = self.workspace.focused();
+                let is_focused_adjacent = first.has_on_trailing_edge(focused, *direction)
+                    || second.has_on_leading_edge(focused, *direction);
+                let divider_token = if is_focused_adjacent {
+                    crate::element::StyleToken::SPLIT_DIVIDER_FOCUSED
+                } else {
+                    crate::element::StyleToken::SPLIT_DIVIDER
+                };
+                let divider =
+                    Element::container(Element::Empty, crate::element::Style::Token(divider_token));
                 let elem_direction = match direction {
                     crate::layout::SplitDirection::Vertical => crate::element::Direction::Row,
                     crate::layout::SplitDirection::Horizontal => crate::element::Direction::Column,

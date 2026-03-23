@@ -19,7 +19,9 @@ use super::scene::{
 };
 use super::theme::Theme;
 use crate::display::DisplayMap;
-use crate::element::{BorderConfig, BufferRefState, Element, ImageFit, ImageSource};
+use crate::element::{
+    BorderConfig, BufferRefState, Element, ImageFit, ImageSource, Style, StyleToken,
+};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::{Atom, Face};
@@ -43,6 +45,8 @@ pub(crate) struct ContainerPaintInfo<'a> {
     pub border_face: Option<Face>,
     /// Optional border title atoms.
     pub title: Option<&'a [Atom]>,
+    /// Whether this container is a split divider (fill with box-drawing chars).
+    pub is_split_divider: bool,
 }
 
 /// Visitor trait for painting an Element tree. Implementations diverge only at
@@ -192,6 +196,10 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                     .unwrap_or(face)
             });
             let child_area = layout.children.first().map(|cl| cl.area);
+            let is_split_divider = matches!(
+                el_style,
+                Style::Token(t) if *t == StyleToken::SPLIT_DIVIDER || *t == StyleToken::SPLIT_DIVIDER_FOCUSED
+            );
             let info = ContainerPaintInfo {
                 area,
                 child_area,
@@ -200,6 +208,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 face,
                 border_face,
                 title: title.as_deref(),
+                is_split_divider,
             };
             visitor.visit_container_pre(&info);
             if let Some(child_layout) = layout.children.first() {
@@ -233,11 +242,21 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
 pub(crate) struct GridPaintVisitor<'a> {
     grid: &'a mut CellGrid,
     theme: &'a Theme,
+    #[cfg_attr(not(feature = "tui-image"), allow(dead_code))]
+    halfblock_cache: Option<&'a mut super::halfblock::HalfblockCache>,
 }
 
 impl<'a> GridPaintVisitor<'a> {
-    pub fn new(grid: &'a mut CellGrid, theme: &'a Theme) -> Self {
-        Self { grid, theme }
+    pub fn new(
+        grid: &'a mut CellGrid,
+        theme: &'a Theme,
+        halfblock_cache: Option<&'a mut super::halfblock::HalfblockCache>,
+    ) -> Self {
+        Self {
+            grid,
+            theme,
+            halfblock_cache,
+        }
     }
 }
 
@@ -247,23 +266,14 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     }
 
     fn visit_image(&mut self, source: &ImageSource, _fit: ImageFit, _opacity: f32, area: Rect) {
-        let label = match source {
-            ImageSource::FilePath(path) => {
-                let filename = std::path::Path::new(path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(path);
-                format!("[IMAGE: {filename}]")
-            }
-            ImageSource::Rgba { width, height, .. } => {
-                format!("[IMAGE: {width}\u{00d7}{height}]")
-            }
-        };
-        let face = Face {
-            attributes: crate::protocol::Attributes::DIM,
-            ..Face::default()
-        };
-        paint_text(self.grid, &area, &label, &face);
+        #[cfg(feature = "tui-image")]
+        if let Some(cache) = self.halfblock_cache.as_mut()
+            && super::halfblock::render_to_grid(self.grid, source, _fit, &area, cache)
+        {
+            return;
+        }
+        // Fallback: text placeholder
+        super::halfblock::paint_image_fallback(self.grid, source, &area);
     }
 
     fn visit_styled_line(&mut self, atoms: &[Atom], area: Rect) {
@@ -310,6 +320,19 @@ impl PaintVisitor for GridPaintVisitor<'_> {
 
         // Fill entire container area with face
         self.grid.clear_region(&info.area, &info.face);
+
+        // Split divider glyphs
+        if info.is_split_divider {
+            if info.area.w == 1 {
+                for y in info.area.y..info.area.y + info.area.h {
+                    self.grid.put_char(info.area.x, y, "│", &info.face);
+                }
+            } else {
+                for x in info.area.x..info.area.x + info.area.w {
+                    self.grid.put_char(x, info.area.y, "─", &info.face);
+                }
+            }
+        }
 
         // Border
         if let Some(border_config) = info.border {
@@ -570,6 +593,34 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
             elevated: info.shadow,
         });
 
+        // Split divider glyphs
+        if info.is_split_divider {
+            let cs = self.cell_size;
+            if info.area.w == 1 {
+                for row in 0..info.area.h {
+                    self.out.push(DrawCommand::DrawText {
+                        pos: PixelPos {
+                            x: info.area.x as f32 * cs.width,
+                            y: (info.area.y + row) as f32 * cs.height,
+                        },
+                        text: "│".to_string(),
+                        face: info.face,
+                        max_width: cs.width,
+                    });
+                }
+            } else {
+                self.out.push(DrawCommand::DrawText {
+                    pos: PixelPos {
+                        x: info.area.x as f32 * cs.width,
+                        y: info.area.y as f32 * cs.height,
+                    },
+                    text: "─".repeat(info.area.w as usize),
+                    face: info.face,
+                    max_width: info.area.w as f32 * cs.width,
+                });
+            }
+        }
+
         // Border
         if let Some(border_config) = info.border {
             let border_face = info.border_face.unwrap_or(info.face);
@@ -619,8 +670,9 @@ pub(crate) fn walk_paint_grid(
     grid: &mut CellGrid,
     state: &AppState,
     theme: &Theme,
+    halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
 ) {
-    let mut visitor = GridPaintVisitor::new(grid, theme);
+    let mut visitor = GridPaintVisitor::new(grid, theme, halfblock_cache);
     walk_paint(&mut visitor, element, layout, state, theme);
 }
 
@@ -723,7 +775,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -749,7 +801,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(10, 4);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -769,7 +821,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -798,7 +850,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 10);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -827,7 +879,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 10);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -855,7 +907,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 10);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -885,7 +937,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -911,7 +963,7 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(10, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -935,7 +987,7 @@ mod tests {
         paint::paint(&element, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(state.cols, state.rows);
-        walk_paint_grid(&element, &layout, &mut new_grid, &state, &theme);
+        walk_paint_grid(&element, &layout, &mut new_grid, &state, &theme, None);
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -1091,7 +1143,7 @@ mod tests {
         let layout = place(&el, area, &state);
 
         let mut grid = CellGrid::new(20, 3);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
 
         // First row should contain the fallback label
         let mut text = String::new();
@@ -1130,7 +1182,7 @@ mod tests {
         let layout = place(&el, area, &state);
 
         let mut grid = CellGrid::new(20, 3);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
 
         let mut text = String::new();
         for x in 0..20 {
@@ -1141,6 +1193,102 @@ mod tests {
         assert!(
             text.contains("[IMAGE: 8\u{00d7}6]"),
             "expected rgba fallback label, got: {text:?}"
+        );
+    }
+
+    /// With cache=Some and tui-image, an RGBA image should render halfblock chars.
+    #[cfg(feature = "tui-image")]
+    #[test]
+    fn grid_visitor_image_rgba_halfblock() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        // 2×2 solid green RGBA image
+        let data: std::sync::Arc<[u8]> = vec![
+            0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255,
+        ]
+        .into();
+        let el = Element::Image {
+            source: crate::element::ImageSource::Rgba {
+                data,
+                width: 2,
+                height: 2,
+            },
+            size: (4, 2),
+            fit: crate::element::ImageFit::Fill,
+            opacity: 1.0,
+        };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 4,
+            h: 2,
+        };
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(4, 2);
+        let mut cache = super::super::halfblock::HalfblockCache::new(16);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, Some(&mut cache));
+
+        // All cells should be halfblock with green colors
+        for y in 0..2u16 {
+            for x in 0..4u16 {
+                let c = grid.get(x, y).unwrap();
+                assert_eq!(
+                    c.grapheme.as_str(),
+                    "\u{2580}",
+                    "expected halfblock at ({x},{y}), got {:?}",
+                    c.grapheme
+                );
+                assert_eq!(
+                    c.face.fg,
+                    crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
+                    "fg green at ({x},{y})"
+                );
+                assert_eq!(
+                    c.face.bg,
+                    crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
+                    "bg green at ({x},{y})"
+                );
+            }
+        }
+    }
+
+    /// With cache=None, image still falls back to text placeholder.
+    #[test]
+    fn grid_visitor_image_no_cache_fallback() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let data: std::sync::Arc<[u8]> = vec![0u8; 4 * 2 * 2].into();
+        let el = Element::Image {
+            source: crate::element::ImageSource::Rgba {
+                data,
+                width: 2,
+                height: 2,
+            },
+            size: (20, 3),
+            fit: crate::element::ImageFit::Fill,
+            opacity: 1.0,
+        };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(20, 3);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+
+        let mut text = String::new();
+        for x in 0..20 {
+            if let Some(cell) = grid.get(x, 0) {
+                text.push_str(&cell.grapheme);
+            }
+        }
+        assert!(
+            text.contains("[IMAGE: 2\u{00d7}2]"),
+            "expected fallback label with no cache, got: {text:?}"
         );
     }
 
@@ -1184,6 +1332,123 @@ mod tests {
                 assert_eq!(*opacity, 1.0);
             }
             other => panic!("expected DrawImage, got: {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Split divider glyph tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn grid_divider_vertical_fills_box_drawing() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let el = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let area = Rect {
+            x: 5,
+            y: 0,
+            w: 1,
+            h: 5,
+        };
+        let layout = place(&el, area, &state);
+        let mut grid = CellGrid::new(10, 5);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+
+        for y in 0..5u16 {
+            let cell = grid.get(5, y).expect("cell should exist");
+            assert_eq!(cell.grapheme, "│", "vertical divider at y={y}");
+        }
+    }
+
+    #[test]
+    fn grid_divider_horizontal_fills_box_drawing() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let el = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let area = Rect {
+            x: 0,
+            y: 3,
+            w: 10,
+            h: 1,
+        };
+        let layout = place(&el, area, &state);
+        let mut grid = CellGrid::new(10, 5);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+
+        for x in 0..10u16 {
+            let cell = grid.get(x, 3).expect("cell should exist");
+            assert_eq!(cell.grapheme, "─", "horizontal divider at x={x}");
+        }
+    }
+
+    #[test]
+    fn grid_divider_focused_has_default_fg() {
+        use crate::protocol::{Color, NamedColor};
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 1,
+            h: 3,
+        };
+
+        // Normal divider: fg matches bg (BrightBlack), chars blend in
+        let el_normal = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let layout = place(&el_normal, area, &state);
+        let mut grid = CellGrid::new(5, 3);
+        walk_paint_grid(&el_normal, &layout, &mut grid, &state, &theme, None);
+        let normal_fg = grid.get(0, 0).expect("cell").face.fg;
+        assert_eq!(
+            normal_fg,
+            Color::Named(NamedColor::BrightBlack),
+            "normal divider fg should be BrightBlack"
+        );
+
+        // Focused divider: fg is Default (bright), chars stand out
+        let el_focused = Element::container(
+            Element::Empty,
+            Style::Token(StyleToken::SPLIT_DIVIDER_FOCUSED),
+        );
+        let layout = place(&el_focused, area, &state);
+        let mut grid = CellGrid::new(5, 3);
+        walk_paint_grid(&el_focused, &layout, &mut grid, &state, &theme, None);
+        let focused_fg = grid.get(0, 0).expect("cell").face.fg;
+        assert_eq!(
+            focused_fg,
+            Color::Default,
+            "focused divider fg should be Default (bright)"
+        );
+
+        // Verify they differ
+        assert_ne!(normal_fg, focused_fg, "normal and focused fg must differ");
+    }
+
+    #[test]
+    fn scene_divider_vertical_emits_draw_text() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let cs = default_cell_size();
+        let el = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
+        let area = Rect {
+            x: 5,
+            y: 0,
+            w: 1,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+        let commands = walk_paint_scene(&el, &layout, &state, &theme, cs, CursorStyle::Block);
+
+        // FillRect + 3 DrawText (one per row)
+        let text_cmds: Vec<_> = commands
+            .iter()
+            .filter(|c| matches!(c, DrawCommand::DrawText { .. }))
+            .collect();
+        assert_eq!(text_cmds.len(), 3, "should emit one DrawText per row");
+        for cmd in &text_cmds {
+            if let DrawCommand::DrawText { text, .. } = cmd {
+                assert_eq!(text, "│");
+            }
         }
     }
 }

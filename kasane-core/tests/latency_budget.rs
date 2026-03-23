@@ -271,6 +271,7 @@ fn salsa_full_frame_under_2ms() {
             &[],
             None,
             None,
+            None,
         );
         let _ = grid.diff();
         grid.swap();
@@ -290,6 +291,7 @@ fn salsa_full_frame_under_2ms() {
                 &mut grid,
                 dirty,
                 &[],
+                None,
                 None,
                 None,
             );

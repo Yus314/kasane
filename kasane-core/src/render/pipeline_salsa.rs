@@ -385,9 +385,18 @@ pub fn render_pipeline_cached(
     paint_hooks: &[Box<dyn PaintHook>],
     surface_registry: Option<&SurfaceRegistry>,
     pane_states: Option<&PaneStates<'_>>,
+    halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
 ) -> RenderResult {
     let mut source = SalsaViewSource::new(db, handles, surface_registry, pane_states);
-    render_cached_core(&mut source, state, registry, grid, dirty, paint_hooks)
+    render_cached_core(
+        &mut source,
+        state,
+        registry,
+        grid,
+        dirty,
+        paint_hooks,
+        halfblock_cache,
+    )
 }
 
 /// Salsa-backed scene rendering pipeline (GPU).

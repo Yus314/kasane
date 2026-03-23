@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-kasane-core = { workspace = true }
+kasane-core = { workspace = true, features = ["tui-image"] }
 crossterm = { workspace = true }
 crossbeam-channel = { workspace = true }
 anyhow = { workspace = true }

@@ -529,7 +529,7 @@ fn test_registry_compose_split_includes_explicit_divider_node() {
             assert_eq!(children[1].max_size, Some(1));
             match &children[1].element {
                 Element::Container { style, .. } => {
-                    assert_eq!(style, &Style::Token(StyleToken::SPLIT_DIVIDER))
+                    assert_eq!(style, &Style::Token(StyleToken::SPLIT_DIVIDER_FOCUSED))
                 }
                 other => panic!("expected divider container, got {other:?}"),
             }
@@ -1121,4 +1121,128 @@ fn test_slot_owner_after_surface_removal() {
 
     reg.remove(SurfaceId::BUFFER);
     assert!(reg.slot_owner("kasane.buffer.left").is_none());
+}
+
+/// Physical adjacency test for Split(A, Split(B, C)) layout: |A│B│C|
+///
+/// The divider between `first` and `second` is physically adjacent to
+/// the trailing-edge leaf of `first` and the leading-edge leaf of `second`.
+///
+/// Expectations per focus state:
+///   A focused → outer=FOCUSED (A on trailing edge of first), inner=NORMAL
+///   B focused → outer=FOCUSED (B on leading edge of second), inner=FOCUSED (B on trailing edge)
+///   C focused → outer=NORMAL  (C not on any edge of outer), inner=FOCUSED (C on leading edge)
+#[test]
+fn test_registry_compose_split_divider_physical_adjacency() {
+    let mut reg = SurfaceRegistry::new();
+    reg.register(Box::new(KakouneBufferSurface::new()));
+
+    let b = SurfaceId(700);
+    reg.register(TestSurfaceBuilder::new(b).key("plugin.b").build());
+    let mut dirty = DirtyFlags::empty();
+    kasane_core::workspace::dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::AddSurface {
+            surface_id: b,
+            placement: Placement::SplitFocused {
+                direction: SplitDirection::Vertical,
+                ratio: 0.5,
+            },
+        },
+        &mut dirty,
+    );
+
+    // Focus back to A (BUFFER)
+    kasane_core::workspace::dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::FocusDirection(kasane_core::workspace::FocusDirection::Prev),
+        &mut dirty,
+    );
+    assert_eq!(reg.workspace().focused(), SurfaceId::BUFFER);
+
+    let c = SurfaceId(701);
+    reg.register(TestSurfaceBuilder::new(c).key("plugin.c").build());
+    kasane_core::workspace::dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::AddSurface {
+            surface_id: c,
+            placement: Placement::SplitFrom {
+                target: b,
+                direction: SplitDirection::Vertical,
+                ratio: 0.5,
+            },
+        },
+        &mut dirty,
+    );
+
+    // Layout: Split(A*, Split(B, C))  →  |A*│B│C|
+    let state = AppState::default();
+    let plugin_reg = PluginRuntime::new();
+    let total = Rect {
+        x: 0,
+        y: 0,
+        w: 80,
+        h: 24,
+    };
+
+    // Helper to extract divider tokens from compose output
+    fn divider_tokens(element: &Element) -> (StyleToken, StyleToken) {
+        match element {
+            Element::Flex { children, .. } => {
+                assert_eq!(children.len(), 3);
+                let outer = match &children[1].element {
+                    Element::Container {
+                        style: Style::Token(t),
+                        ..
+                    } => t.clone(),
+                    other => panic!("expected outer divider, got {other:?}"),
+                };
+                let inner = match &children[2].element {
+                    Element::Flex {
+                        children: inner, ..
+                    } => {
+                        assert_eq!(inner.len(), 3);
+                        match &inner[1].element {
+                            Element::Container {
+                                style: Style::Token(t),
+                                ..
+                            } => t.clone(),
+                            other => panic!("expected inner divider, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected inner flex, got {other:?}"),
+                };
+                (outer, inner)
+            }
+            other => panic!("expected flex, got {other:?}"),
+        }
+    }
+
+    // A focused: outer=FOCUSED, inner=NORMAL
+    let element = reg.compose_view(&state, &plugin_reg.view(), total);
+    let (outer, inner) = divider_tokens(&element);
+    assert_eq!(outer, StyleToken::SPLIT_DIVIDER_FOCUSED, "A focused: outer");
+    assert_eq!(inner, StyleToken::SPLIT_DIVIDER, "A focused: inner");
+
+    // B focused: outer=FOCUSED (B on leading edge), inner=FOCUSED (B on trailing edge)
+    kasane_core::workspace::dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::Focus(b),
+        &mut dirty,
+    );
+    let element = reg.compose_view(&state, &plugin_reg.view(), total);
+    let (outer, inner) = divider_tokens(&element);
+    assert_eq!(outer, StyleToken::SPLIT_DIVIDER_FOCUSED, "B focused: outer");
+    assert_eq!(inner, StyleToken::SPLIT_DIVIDER_FOCUSED, "B focused: inner");
+
+    // C focused: outer=NORMAL (C not adjacent), inner=FOCUSED
+    kasane_core::workspace::dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::Focus(c),
+        &mut dirty,
+    );
+    let element = reg.compose_view(&state, &plugin_reg.view(), total);
+    let (outer, inner) = divider_tokens(&element);
+    assert_eq!(outer, StyleToken::SPLIT_DIVIDER, "C focused: outer");
+    assert_eq!(inner, StyleToken::SPLIT_DIVIDER_FOCUSED, "C focused: inner");
 }
