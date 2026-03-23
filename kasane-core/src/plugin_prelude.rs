@@ -21,7 +21,9 @@ pub use crate::plugin::{
 };
 
 // Element tree
-pub use crate::element::{Element, FlexChild, InteractiveId, Overlay, OverlayAnchor, StyleToken};
+pub use crate::element::{
+    Element, FlexChild, ImageFit, ImageSource, InteractiveId, Overlay, OverlayAnchor, StyleToken,
+};
 
 // Inline decoration
 pub use crate::render::{InlineDecoration, InlineOp};

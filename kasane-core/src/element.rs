@@ -1,12 +1,38 @@
 //! The core `Element` type for declarative UI.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use compact_str::CompactString;
 
 use crate::display::DisplayMapRef;
 use crate::layout::Rect;
 use crate::protocol::{Atom, Coord, Face, Line};
+
+/// Source of image data for `Element::Image`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImageSource {
+    /// Path to an image file on disk.
+    FilePath(String),
+    /// Pre-decoded RGBA pixel data.
+    Rgba {
+        data: Arc<[u8]>,
+        width: u32,
+        height: u32,
+    },
+}
+
+/// How an image should be fitted within its allocated area.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ImageFit {
+    /// Scale to fit within the area, preserving aspect ratio (letterboxing).
+    #[default]
+    Contain,
+    /// Scale to cover the entire area, preserving aspect ratio (cropping).
+    Cover,
+    /// Stretch to fill the area exactly (may distort).
+    Fill,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -390,6 +416,14 @@ pub enum Element {
         cross_align: Align,
     },
     Empty,
+    /// Raster image element for GPU rendering (TUI falls back to text placeholder).
+    Image {
+        source: ImageSource,
+        /// Size in cells (width, height).
+        size: (u16, u16),
+        fit: ImageFit,
+        opacity: f32,
+    },
     /// Zero-copy buffer reference: renders lines[line_range] from AppState.
     BufferRef {
         line_range: Range<usize>,
@@ -470,6 +504,15 @@ impl Element {
             row_gap: 0,
             align: Align::Start,
             cross_align: Align::Start,
+        }
+    }
+
+    pub fn image(source: ImageSource, width: u16, height: u16) -> Self {
+        Element::Image {
+            source,
+            size: (width, height),
+            fit: ImageFit::default(),
+            opacity: 1.0,
         }
     }
 

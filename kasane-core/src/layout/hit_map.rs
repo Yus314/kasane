@@ -99,6 +99,7 @@ fn collect_interactive(
         | Element::StyledLine(..)
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
+        | Element::Image { .. }
         | Element::Empty => {}
     }
 }

@@ -19,7 +19,7 @@ use super::scene::{
 };
 use super::theme::Theme;
 use crate::display::DisplayMap;
-use crate::element::{BorderConfig, BufferRefState, Element};
+use crate::element::{BorderConfig, BufferRefState, Element, ImageFit, ImageSource};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::{Atom, Face};
@@ -76,6 +76,9 @@ pub(crate) trait PaintVisitor {
     /// Pre-visit for Stack overlay: emit layer boundary marker (GPU only).
     fn visit_stack_overlay_pre(&mut self);
 
+    /// Render an Image element. TUI: text placeholder. GPU: DrawImage command.
+    fn visit_image(&mut self, source: &ImageSource, fit: ImageFit, opacity: f32, area: Rect);
+
     /// Pre-visit for Scrollable: set up clip region (GPU only).
     fn visit_scrollable_pre(&mut self, area: Rect);
 
@@ -130,6 +133,14 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             );
         }
         Element::Empty => {}
+        Element::Image {
+            source,
+            fit,
+            opacity,
+            ..
+        } => {
+            visitor.visit_image(source, *fit, *opacity, area);
+        }
         Element::SlotPlaceholder { .. } => {
             debug_assert!(false, "unresolved SlotPlaceholder reached walk_paint");
         }
@@ -235,6 +246,26 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         paint_text(self.grid, &area, text, face);
     }
 
+    fn visit_image(&mut self, source: &ImageSource, _fit: ImageFit, _opacity: f32, area: Rect) {
+        let label = match source {
+            ImageSource::FilePath(path) => {
+                let filename = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                format!("[img: {filename}]")
+            }
+            ImageSource::Rgba { width, height, .. } => {
+                format!("[img: {width}x{height}]")
+            }
+        };
+        let face = Face {
+            attributes: crate::protocol::Attributes::DIM,
+            ..Face::default()
+        };
+        paint_text(self.grid, &area, &label, &face);
+    }
+
     fn visit_styled_line(&mut self, atoms: &[Atom], area: Rect) {
         self.grid
             .put_line_with_base(area.y, area.x, atoms, area.w, None);
@@ -336,6 +367,16 @@ impl<'a> ScenePaintVisitor<'a> {
 }
 
 impl PaintVisitor for ScenePaintVisitor<'_> {
+    fn visit_image(&mut self, source: &ImageSource, fit: ImageFit, opacity: f32, area: Rect) {
+        let pr = to_pixel_rect(&area, self.cell_size);
+        self.out.push(DrawCommand::DrawImage {
+            rect: pr,
+            source: source.clone(),
+            fit,
+            opacity,
+        });
+    }
+
     fn visit_text(&mut self, text: &str, face: &Face, area: Rect) {
         let pr = to_pixel_rect(&area, self.cell_size);
         self.out.push(DrawCommand::DrawText {

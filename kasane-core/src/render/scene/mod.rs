@@ -5,7 +5,7 @@ pub use cache::SceneCache;
 use unicode_width::UnicodeWidthStr;
 
 use super::theme::Theme;
-use crate::element::{BorderLineStyle, Element};
+use crate::element::{BorderLineStyle, Element, ImageFit, ImageSource};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
 use crate::protocol::resolve_face;
@@ -112,6 +112,14 @@ pub enum DrawCommand {
     PushClip(PixelRect),
     /// Pop the most recent clipping rectangle.
     PopClip,
+
+    /// Draw a raster image in a pixel-coordinate rectangle.
+    DrawImage {
+        rect: PixelRect,
+        source: ImageSource,
+        fit: ImageFit,
+        opacity: f32,
+    },
 
     /// Layer boundary: all subsequent commands belong to a new overlay layer.
     ///

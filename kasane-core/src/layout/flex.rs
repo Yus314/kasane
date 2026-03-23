@@ -77,6 +77,10 @@ pub fn measure(element: &Element, constraints: Constraints, state: &AppState) ->
             width: constraints.min_width,
             height: constraints.min_height,
         },
+        Element::Image { size, .. } => Size {
+            width: size.0.clamp(constraints.min_width, constraints.max_width),
+            height: size.1.clamp(constraints.min_height, constraints.max_height),
+        },
         Element::SlotPlaceholder { .. } => {
             debug_assert!(false, "unresolved SlotPlaceholder reached layout::measure");
             Size {
@@ -220,6 +224,7 @@ pub fn place(element: &Element, area: Rect, state: &AppState) -> LayoutResult {
         | Element::StyledLine(..)
         | Element::BufferRef { .. }
         | Element::SlotPlaceholder { .. }
+        | Element::Image { .. }
         | Element::Empty => LayoutResult {
             area,
             children: vec![],

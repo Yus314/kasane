@@ -619,7 +619,8 @@ impl SceneRenderer {
             DrawCommand::PopClip => {
                 self.clip_stack.pop();
             }
-            DrawCommand::BeginOverlay => {} // handled by layer splitting
+            DrawCommand::DrawImage { .. } => {} // TODO: Phase 2 — ImagePipeline
+            DrawCommand::BeginOverlay => {}     // handled by layer splitting
         }
     }
 
