@@ -403,6 +403,168 @@ fn resolve_insert_outside_fold_kept() {
     assert_eq!(insert_count, 1);
 }
 
+// --- InsertBefore resolve tests ---
+
+#[test]
+fn resolve_inserts_before_accumulate() {
+    let mut set = DirectiveSet::default();
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 2,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "from-a".into(),
+            }],
+        },
+        0,
+        pid("a"),
+    );
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 2,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "from-b".into(),
+            }],
+        },
+        0,
+        pid("b"),
+    );
+    let result = resolve(&set, 5);
+    let insert_before_count = result
+        .iter()
+        .filter(|d| matches!(d, DisplayDirective::InsertBefore { .. }))
+        .count();
+    assert_eq!(insert_before_count, 2);
+}
+
+#[test]
+fn resolve_inserts_before_same_line_ordered_by_priority() {
+    let mut set = DirectiveSet::default();
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 1,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "low".into(),
+            }],
+        },
+        10,
+        pid("b"),
+    );
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 1,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "high".into(),
+            }],
+        },
+        0,
+        pid("a"),
+    );
+    let result = resolve(&set, 5);
+    let insert_contents: Vec<&str> = result
+        .iter()
+        .filter_map(|d| match d {
+            DisplayDirective::InsertBefore { content, .. } => {
+                content.first().map(|a| a.contents.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(insert_contents, vec!["high", "low"]);
+}
+
+#[test]
+fn resolve_insert_before_suppressed_by_hide() {
+    let mut set = DirectiveSet::default();
+    set.push(DisplayDirective::Hide { range: 2..4 }, 0, pid("a"));
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 3,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "suppressed".into(),
+            }],
+        },
+        0,
+        pid("b"),
+    );
+    let result = resolve(&set, 10);
+    let insert_count = result
+        .iter()
+        .filter(|d| matches!(d, DisplayDirective::InsertBefore { .. }))
+        .count();
+    assert_eq!(insert_count, 0);
+}
+
+#[test]
+fn resolve_insert_before_suppressed_by_fold() {
+    let mut set = DirectiveSet::default();
+    set.push(
+        DisplayDirective::Fold {
+            range: 2..5,
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
+        },
+        0,
+        pid("a"),
+    );
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 3,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "suppressed".into(),
+            }],
+        },
+        0,
+        pid("b"),
+    );
+    let result = resolve(&set, 10);
+    let insert_count = result
+        .iter()
+        .filter(|d| matches!(d, DisplayDirective::InsertBefore { .. }))
+        .count();
+    assert_eq!(insert_count, 0);
+}
+
+#[test]
+fn resolve_insert_before_outside_fold_kept() {
+    let mut set = DirectiveSet::default();
+    set.push(
+        DisplayDirective::Fold {
+            range: 2..5,
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
+        },
+        0,
+        pid("a"),
+    );
+    set.push(
+        DisplayDirective::InsertBefore {
+            before: 0,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "kept".into(),
+            }],
+        },
+        0,
+        pid("b"),
+    );
+    let result = resolve(&set, 10);
+    let insert_count = result
+        .iter()
+        .filter(|d| matches!(d, DisplayDirective::InsertBefore { .. }))
+        .count();
+    assert_eq!(insert_count, 1);
+}
+
 // --- Phase 5: proptest for resolve → build pipeline ---
 
 fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirective> {
@@ -428,6 +590,15 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
                 content: vec![Atom {
                     face: Face::default(),
                     contents: "virtual".into(),
+                }],
+            }
+        }),
+        (0usize..m).prop_map(|before| {
+            DisplayDirective::InsertBefore {
+                before,
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: "virtual-before".into(),
                 }],
             }
         }),

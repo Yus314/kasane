@@ -79,6 +79,7 @@ The **Display Transform API** (`display_directives()`) provides the first concre
 | Variant | Description |
 |---|---|
 | `InsertAfter { after, content, face }` | Insert a virtual text line after the given buffer line |
+| `InsertBefore { before, content }` | Insert a virtual text line before the given buffer line |
 | `Fold { range, summary, face }` | Collapse a range of buffer lines into a single summary line |
 | `Hide { range }` | Hide a range of buffer lines entirely |
 
@@ -91,15 +92,15 @@ The **Display Transform API** (`display_directives()`) provides the first concre
 
 **Multi-plugin composition (P-031):**
 - Multiple plugins may contribute display directives simultaneously
-- Composition is deterministic via `resolve()`: Hide ranges are unioned, InsertAfter lines accumulate, overlapping Folds are resolved by `(priority, plugin_id)` (higher wins)
+- Composition is deterministic via `resolve()`: Hide ranges are unioned, InsertAfter and InsertBefore lines accumulate, overlapping Folds are resolved by `(priority, plugin_id)` (higher wins)
 - Plugins declare priority via `display_directive_priority()` (default 0)
 - Folds that partially overlap hidden ranges are conservatively removed (protects summary integrity)
-- Inserts targeting hidden or folded lines are suppressed
+- InsertAfter/InsertBefore targeting hidden or folded lines are suppressed
 
 **Constraints:**
 - Display-oriented navigation (Display Units, P-040..P-043) is not yet implemented
 - Kakoune controls the viewport and cursor movement, so true code folding (where folded lines are skipped during navigation) is not possible; `Fold` is best suited for read-only summaries
-- `InsertAfter` (virtual text) is the primary practical use case
+- `InsertAfter`/`InsertBefore` (virtual text) are the primary practical use cases; `InsertBefore` enables Gap 0 (before the first buffer line)
 
 See `examples/virtual-text-demo/` for a working proof artifact.
 

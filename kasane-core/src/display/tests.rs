@@ -267,7 +267,121 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
                 }],
             }
         }),
+        (0usize..m).prop_map(|before| {
+            DisplayDirective::InsertBefore {
+                before,
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: "virtual-before".into(),
+                }],
+            }
+        }),
     ]
+}
+
+#[test]
+fn insert_before_adds_lines() {
+    let directives = vec![DisplayDirective::InsertBefore {
+        before: 1,
+        content: vec![Atom {
+            face: Face::default(),
+            contents: "virtual line".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(3, &directives);
+
+    // 3 + 1 = 4 display lines
+    assert_eq!(dm.display_line_count(), 4);
+
+    assert_eq!(dm.display_to_buffer(0), Some(0));
+    // Virtual line before buffer line 1
+    assert_eq!(dm.display_to_buffer(1), None);
+    let entry = dm.entry(1).unwrap();
+    assert_eq!(entry.source, SourceMapping::None);
+    assert!(entry.synthetic.is_some());
+
+    assert_eq!(dm.display_to_buffer(2), Some(1));
+    assert_eq!(dm.display_to_buffer(3), Some(2));
+}
+
+#[test]
+fn insert_before_at_first_line() {
+    let directives = vec![DisplayDirective::InsertBefore {
+        before: 0,
+        content: vec![Atom {
+            face: Face::default(),
+            contents: "virtual at top".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(3, &directives);
+
+    // 3 + 1 = 4 display lines
+    assert_eq!(dm.display_line_count(), 4);
+
+    // Virtual line at display[0], buffer line 0 at display[1]
+    assert_eq!(dm.display_to_buffer(0), None);
+    let entry = dm.entry(0).unwrap();
+    assert_eq!(entry.source, SourceMapping::None);
+    assert!(entry.synthetic.is_some());
+
+    assert_eq!(dm.display_to_buffer(1), Some(0));
+    assert_eq!(dm.display_to_buffer(2), Some(1));
+    assert_eq!(dm.display_to_buffer(3), Some(2));
+}
+
+#[test]
+fn insert_before_and_after_at_same_gap() {
+    // InsertAfter { after: 0 } + InsertBefore { before: 1 }
+    // Expected order: buffer(0), after-virtual, before-virtual, buffer(1)
+    let directives = vec![
+        DisplayDirective::InsertAfter {
+            after: 0,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "after-0".into(),
+            }],
+        },
+        DisplayDirective::InsertBefore {
+            before: 1,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "before-1".into(),
+            }],
+        },
+    ];
+    let dm = DisplayMap::build(2, &directives);
+
+    // 2 + 2 = 4 display lines
+    assert_eq!(dm.display_line_count(), 4);
+
+    assert_eq!(dm.display_to_buffer(0), Some(0)); // buffer(0)
+    assert_eq!(dm.display_to_buffer(1), None); // after-virtual
+    assert_eq!(
+        dm.entry(1).unwrap().synthetic.as_ref().unwrap().text(),
+        "after-0"
+    );
+    assert_eq!(dm.display_to_buffer(2), None); // before-virtual
+    assert_eq!(
+        dm.entry(2).unwrap().synthetic.as_ref().unwrap().text(),
+        "before-1"
+    );
+    assert_eq!(dm.display_to_buffer(3), Some(1)); // buffer(1)
+}
+
+#[test]
+fn dirty_virtual_line_before_never_dirty() {
+    let directives = vec![DisplayDirective::InsertBefore {
+        before: 1,
+        content: vec![Atom {
+            face: Face::default(),
+            contents: "virtual".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(2, &directives);
+
+    let dirty = vec![true, true];
+    // Virtual line at display index 1 should not be dirty
+    assert!(!dm.is_display_line_dirty(1, &dirty));
 }
 
 // --- compute_display_scroll_offset tests ---

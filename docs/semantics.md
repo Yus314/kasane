@@ -613,10 +613,12 @@ For example, a fold summary may summarize multiple lines into one, but that summ
 **Multi-plugin composition (P-031):** Multiple plugins may contribute display directives simultaneously. The `resolve()` function composes them deterministically:
 
 - **InsertAfter**: All kept; same-line ordering by `(priority, plugin_id)`.
+- **InsertBefore**: All kept; same-line ordering by `(priority, plugin_id)`.
 - **Hide**: Set union of all ranges (idempotent).
 - **Fold overlap**: Higher `(priority, plugin_id)` wins entirely; lower-priority overlapping fold dropped whole (protects summary integrity).
 - **Fold-Hide partial overlap**: Fold removed (conservative — partial hide invalidates fold summary).
 - **InsertAfter suppression**: Inserts targeting hidden or folded lines removed.
+- **InsertBefore suppression**: Inserts targeting hidden or folded lines removed.
 
 Plugins declare priority via `display_directive_priority()` (default 0). The resolved `Vec<DisplayDirective>` is passed to `DisplayMap::build()` unchanged.
 

@@ -25,6 +25,8 @@ pub enum DisplayDirective {
     },
     /// Insert a virtual text line after the given buffer line.
     InsertAfter { after: usize, content: Vec<Atom> },
+    /// Insert a virtual text line before the given buffer line.
+    InsertBefore { before: usize, content: Vec<Atom> },
     /// Hide a range of buffer lines entirely.
     Hide { range: Range<usize> },
 }
@@ -168,6 +170,7 @@ impl DisplayMap {
         let mut folded: Vec<Option<(Range<usize>, Vec<Atom>)>> = vec![None; line_count];
         let mut hidden: Vec<bool> = vec![false; line_count];
         let mut insert_after: Vec<Vec<Vec<Atom>>> = vec![vec![]; line_count];
+        let mut insert_before: Vec<Vec<Vec<Atom>>> = vec![vec![]; line_count];
 
         for directive in directives {
             match directive {
@@ -191,6 +194,11 @@ impl DisplayMap {
                 DisplayDirective::InsertAfter { after, content } => {
                     if *after < line_count {
                         insert_after[*after].push(content.clone());
+                    }
+                }
+                DisplayDirective::InsertBefore { before, content } => {
+                    if *before < line_count {
+                        insert_before[*before].push(content.clone());
                     }
                 }
             }
@@ -226,6 +234,17 @@ impl DisplayMap {
                 }
                 // Other lines in the fold range are consumed (no display entry)
                 continue;
+            }
+
+            // InsertBefore: add virtual lines before this buffer line
+            for atoms in &insert_before[line] {
+                entries.push(DisplayEntry {
+                    source: SourceMapping::None,
+                    interaction: InteractionPolicy::ReadOnly,
+                    synthetic: Some(SyntheticContent {
+                        atoms: atoms.clone(),
+                    }),
+                });
             }
 
             // Normal buffer line

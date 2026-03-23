@@ -1,4 +1,4 @@
-package kasane:plugin@0.16.0;
+package kasane:plugin@0.17.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -241,6 +241,7 @@ interface types {
     variant display-directive {
         fold(fold-directive),
         insert-after(insert-after-directive),
+        insert-before(insert-before-directive),
         hide(hide-directive),
     }
 
@@ -252,6 +253,11 @@ interface types {
 
     record insert-after-directive {
         after: u32,
+        content: list<atom>,
+    }
+
+    record insert-before-directive {
+        before: u32,
         content: list<atom>,
     }
 

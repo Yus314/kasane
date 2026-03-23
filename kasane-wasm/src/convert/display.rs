@@ -14,6 +14,10 @@ pub(crate) fn wit_display_directive_to_directive(
             after: insert.after as usize,
             content: super::wit_atoms_to_atoms(&insert.content),
         },
+        wit::DisplayDirective::InsertBefore(insert) => DisplayDirective::InsertBefore {
+            before: insert.before as usize,
+            content: super::wit_atoms_to_atoms(&insert.content),
+        },
         wit::DisplayDirective::Hide(hide) => DisplayDirective::Hide {
             range: hide.range_start as usize..hide.range_end as usize,
         },
@@ -42,6 +46,12 @@ pub(crate) fn display_directive_to_wit(directive: &DisplayDirective) -> wit::Dis
         DisplayDirective::InsertAfter { after, content } => {
             wit::DisplayDirective::InsertAfter(wit::InsertAfterDirective {
                 after: *after as u32,
+                content: super::atoms_to_wit(content),
+            })
+        }
+        DisplayDirective::InsertBefore { before, content } => {
+            wit::DisplayDirective::InsertBefore(wit::InsertBeforeDirective {
+                before: *before as u32,
                 content: super::atoms_to_wit(content),
             })
         }

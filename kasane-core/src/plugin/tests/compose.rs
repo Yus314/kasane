@@ -68,6 +68,13 @@ fn arb_display_directive() -> impl Strategy<Value = DisplayDirective> {
                 contents: String::new().into()
             }],
         }),
+        (0usize..200).prop_map(|before| DisplayDirective::InsertBefore {
+            before,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: String::new().into()
+            }],
+        }),
     ]
 }
 
