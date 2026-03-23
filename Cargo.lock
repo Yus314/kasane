@@ -2143,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "kasane"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "kasane-core",
@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "kasane-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "kasane-gui"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "kasane-macros"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "kasane-core",
  "proc-macro2",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "kasane-tui"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "kasane-wasm"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "compact_str",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "kasane-wasm-bench"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "criterion",
