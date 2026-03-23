@@ -279,7 +279,7 @@ impl Default for ColorsConfig {
             blue: "#2472c8".to_string(),
             magenta: "#bc3fbc".to_string(),
             cyan: "#11a8cd".to_string(),
-            white: "#e5e5e5".to_string(),
+            white: "#cccccc".to_string(),
             bright_black: "#666666".to_string(),
             bright_red: "#f14c4c".to_string(),
             bright_green: "#23d18b".to_string(),

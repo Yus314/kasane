@@ -201,6 +201,7 @@ impl SceneRenderer {
         color_resolver: &ColorResolver,
         cursor_style: CursorStyle,
         cursor_state: &CursorRenderState,
+        cursor_color: kasane_core::protocol::Color,
     ) -> anyhow::Result<()> {
         self.render_inner(
             gpu,
@@ -211,6 +212,7 @@ impl SceneRenderer {
                 cursor_state.y,
                 cursor_state.opacity,
                 cursor_style,
+                cursor_color,
             )),
         )
     }
@@ -226,7 +228,13 @@ impl SceneRenderer {
         let animated = cursor.map(|(cx, cy, style)| {
             let cell_w = self.metrics.cell_width;
             let cell_h = self.metrics.cell_height;
-            (cx as f32 * cell_w, cy as f32 * cell_h, 1.0f32, style)
+            (
+                cx as f32 * cell_w,
+                cy as f32 * cell_h,
+                1.0f32,
+                style,
+                kasane_core::protocol::Color::Default,
+            )
         });
         self.render_inner(gpu, commands, color_resolver, animated)
     }
@@ -241,7 +249,7 @@ impl SceneRenderer {
         gpu: &super::GpuState,
         commands: &[DrawCommand],
         color_resolver: &ColorResolver,
-        cursor: Option<(f32, f32, f32, CursorStyle)>,
+        cursor: Option<(f32, f32, f32, CursorStyle, kasane_core::protocol::Color)>,
     ) -> anyhow::Result<()> {
         let _frame_span = tracing::info_span!("gpu_frame", commands = commands.len()).entered();
         let output = match gpu.surface.get_current_texture() {
@@ -476,9 +484,10 @@ impl SceneRenderer {
                 };
                 let mut bg = color_resolver.resolve(face.bg, false);
                 if *elevated {
-                    bg[0] = (bg[0] + 0.25).min(1.0);
-                    bg[1] = (bg[1] + 0.25).min(1.0);
-                    bg[2] = (bg[2] + 0.25).min(1.0);
+                    // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
+                    bg[0] = (bg[0] + 0.04).min(1.0);
+                    bg[1] = (bg[1] + 0.04).min(1.0);
+                    bg[2] = (bg[2] + 0.04).min(1.0);
                     tracing::debug!(
                         "elevated FillRect: bg=[{:.3},{:.3},{:.3}] rect=({:.0},{:.0},{:.0},{:.0})",
                         bg[0],
@@ -595,9 +604,10 @@ impl SceneRenderer {
 
                 let mut title_bg = color_resolver.resolve(border_face.bg, false);
                 if *elevated {
-                    title_bg[0] = (title_bg[0] + 0.25).min(1.0);
-                    title_bg[1] = (title_bg[1] + 0.25).min(1.0);
-                    title_bg[2] = (title_bg[2] + 0.25).min(1.0);
+                    // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
+                    title_bg[0] = (title_bg[0] + 0.04).min(1.0);
+                    title_bg[1] = (title_bg[1] + 0.04).min(1.0);
+                    title_bg[2] = (title_bg[2] + 0.04).min(1.0);
                 }
 
                 self.border.push_rounded_rect(
@@ -721,15 +731,15 @@ impl SceneRenderer {
     /// Render the cursor into the bg pipeline.
     fn render_cursor(
         &mut self,
-        cursor: Option<(f32, f32, f32, CursorStyle)>,
+        cursor: Option<(f32, f32, f32, CursorStyle, kasane_core::protocol::Color)>,
         color_resolver: &ColorResolver,
         cell_w: f32,
         cell_h: f32,
     ) {
-        let Some((x, y, opacity, style)) = cursor else {
+        let Some((x, y, opacity, style, cursor_color)) = cursor else {
             return;
         };
-        let mut cc = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
+        let mut cc = color_resolver.resolve(cursor_color, true);
         cc[3] = opacity;
         match style {
             CursorStyle::Block => {

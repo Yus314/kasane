@@ -332,7 +332,7 @@ pub(super) fn plugin_diagnostic_overlay_header_face_with_tone(
             },
             (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => Color::Rgb {
                 r: 104,
-                g: 24,
+                g: 72,
                 b: 24,
             },
             (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => Color::Rgb {
@@ -388,23 +388,23 @@ pub(super) fn plugin_diagnostic_overlay_body_face_with_tone(
         fg: Color::Named(NamedColor::BrightWhite),
         bg: match (tone, severity) {
             (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 28,
+                r: 36,
                 g: 18,
                 b: 18,
             },
             (OverlayBackdropTone::Activation, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 26,
-                g: 20,
-                b: 20,
+                r: 32,
+                g: 26,
+                b: 18,
             },
             (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Error) => Color::Rgb {
-                r: 28,
-                g: 23,
+                r: 34,
+                g: 24,
                 b: 17,
             },
             (OverlayBackdropTone::Discovery, PluginDiagnosticSeverity::Warning) => Color::Rgb {
-                r: 26,
-                g: 24,
+                r: 30,
+                g: 28,
                 b: 20,
             },
             _ => Color::Rgb {
@@ -440,9 +440,11 @@ pub fn plugin_diagnostic_overlay_text_face(
                 g: 212,
                 b: 255,
             },
-            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => {
-                Color::Named(NamedColor::BrightYellow)
-            }
+            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => Color::Rgb {
+                r: 200,
+                g: 160,
+                b: 60,
+            },
             (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Color::Rgb {
                 r: 255,
                 g: 194,
@@ -488,9 +490,11 @@ pub fn plugin_diagnostic_overlay_tag_face(
                 g: 106,
                 b: 158,
             },
-            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => {
-                Color::Named(NamedColor::BrightYellow)
-            }
+            (PluginDiagnosticOverlayTagKind::ArtifactLoad, _) => Color::Rgb {
+                r: 180,
+                g: 140,
+                b: 40,
+            },
             (PluginDiagnosticOverlayTagKind::ArtifactInstantiate, _) => Color::Rgb {
                 r: 214,
                 g: 126,

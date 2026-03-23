@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style};
+use crate::element::{Element, FlexChild, GridColumn, Overlay, OverlayAnchor, Style, StyleToken};
 use crate::layout::{MenuPlacement, layout_menu_inline, line_display_width};
 use crate::plugin::{AppView, PluginView};
 use crate::protocol::resolve_face;
@@ -11,6 +11,20 @@ use crate::render::builders::{
 use crate::state::{AppState, MenuColumns, MenuState};
 
 use super::build_styled_line_with_base;
+
+/// Resolve menu item face: theme override takes precedence, protocol face as fallback.
+fn resolve_menu_face(menu: &MenuState, selected: bool, state: &AppState) -> Face {
+    if selected {
+        state.theme.resolve_with_protocol_fallback(
+            &StyleToken::MENU_ITEM_SELECTED,
+            menu.selected_item_face,
+        )
+    } else {
+        state
+            .theme
+            .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face)
+    }
+}
 
 #[crate::kasane_component]
 pub(crate) fn build_menu_overlay(
@@ -49,11 +63,7 @@ fn build_menu_item_element(
     state: &AppState,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
-    let face = if selected {
-        menu.selected_item_face
-    } else {
-        menu.menu_face
-    };
+    let face = resolve_menu_face(menu, selected, state);
     let item = if item_idx < menu.items.len() {
         let atoms = &menu.items[item_idx];
         let transformed =
@@ -81,11 +91,7 @@ fn build_split_item_element(
     state: &AppState,
 ) -> Element {
     let selected = item_idx < menu.items.len() && Some(item_idx) == menu.selected;
-    let face = if selected {
-        menu.selected_item_face
-    } else {
-        menu.menu_face
-    };
+    let face = resolve_menu_face(menu, selected, state);
 
     if item_idx >= menu.items.len() {
         return Element::container(Element::text("", face), Style::from(face));
@@ -255,7 +261,7 @@ fn build_menu_prompt(
     ]);
 
     Some(Overlay {
-        element: Element::container(row, Style::from(menu.menu_face)),
+        element: Element::container(row, Style::from(resolve_menu_face(menu, false, state))),
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y: start_y,
@@ -275,13 +281,14 @@ fn build_menu_search(
     let screen_w = state.cols as usize;
     let first = menu.first_item;
     let has_prefix = first > 0;
+    let normal_face = resolve_menu_face(menu, false, state);
 
     let mut atoms: Vec<Atom> = Vec::new();
 
     // "< " prefix
     if has_prefix {
         atoms.push(Atom {
-            face: menu.menu_face,
+            face: normal_face,
             contents: "< ".into(),
         });
     }
@@ -299,23 +306,19 @@ fn build_menu_search(
                 let pad_len = screen_w.saturating_sub(x + 1);
                 if pad_len > 0 {
                     atoms.push(Atom {
-                        face: menu.menu_face,
+                        face: normal_face,
                         contents: " ".repeat(pad_len).into(),
                     });
                 }
                 atoms.push(Atom {
-                    face: menu.menu_face,
+                    face: normal_face,
                     contents: ">".into(),
                 });
             }
             break;
         }
 
-        let face = if Some(idx) == menu.selected {
-            menu.selected_item_face
-        } else {
-            menu.menu_face
-        };
+        let face = resolve_menu_face(menu, Some(idx) == menu.selected, state);
 
         // Add item atoms with resolved face
         for atom in &menu.items[idx] {
@@ -329,14 +332,14 @@ fn build_menu_search(
         // Gap
         if x < screen_w {
             atoms.push(Atom {
-                face: menu.menu_face,
+                face: normal_face,
                 contents: " ".into(),
             });
             x += 1;
         }
     }
 
-    let element = Element::container(Element::StyledLine(atoms), Style::from(menu.menu_face));
+    let element = Element::container(Element::StyledLine(atoms), Style::from(normal_face));
 
     Some(Overlay {
         element,

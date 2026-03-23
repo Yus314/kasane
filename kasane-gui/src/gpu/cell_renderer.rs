@@ -37,7 +37,22 @@ pub fn build_bg_instances(
     if let Some((cx, cy, style)) = cursor {
         let x = cx as f32 * cell_w;
         let y = cy as f32 * cell_h;
-        let cc = color_resolver.resolve(kasane_core::protocol::Color::Default, true);
+        // Extract cursor color from the grid cell face at the cursor position.
+        // Under REVERSE (typical), face.fg is the visual cursor block color.
+        let cc = grid
+            .get(cx, cy)
+            .map(|cell| {
+                if cell
+                    .face
+                    .attributes
+                    .contains(kasane_core::protocol::Attributes::REVERSE)
+                {
+                    color_resolver.resolve(cell.face.fg, true)
+                } else {
+                    color_resolver.resolve(cell.face.bg, false)
+                }
+            })
+            .unwrap_or_else(|| color_resolver.resolve(kasane_core::protocol::Color::Default, true));
         let push = |out: &mut Vec<f32>, x: f32, y: f32, w: f32, h: f32, c: [f32; 4]| {
             out.extend_from_slice(&[x, y, w, h, c[0], c[1], c[2], c[3]]);
         };

@@ -133,10 +133,42 @@ fn compute_render_result(
         cursor_x: cx,
         cursor_y: cy,
         cursor_style: hint.shape,
+        cursor_color: extract_cursor_color(state),
         cursor_blink: hint.blink,
         cursor_movement: hint.movement,
         display_scroll_offset: display_scroll_offset as usize,
     }
+}
+
+/// Extract the cursor visual color from the Kakoune face at the cursor position.
+///
+/// Walks the atoms in the cursor line to find the face at the cursor column.
+/// Under REVERSE (typical Kakoune cursor), the visual cursor block color is `face.fg`.
+/// Without REVERSE, it is `face.bg`.
+fn extract_cursor_color(state: &AppState) -> crate::protocol::Color {
+    use crate::protocol::{Attributes, Color, CursorMode};
+
+    if state.cursor_mode != CursorMode::Buffer {
+        return Color::Default;
+    }
+    let line_idx = state.cursor_pos.line as usize;
+    let col = state.cursor_pos.column as usize;
+    let Some(atoms) = state.lines.get(line_idx) else {
+        return Color::Default;
+    };
+    let mut pos = 0;
+    for atom in atoms {
+        let atom_width = atom.contents.chars().count();
+        if col < pos + atom_width {
+            return if atom.face.attributes.contains(Attributes::REVERSE) {
+                atom.face.fg
+            } else {
+                atom.face.bg
+            };
+        }
+        pos += atom_width;
+    }
+    Color::Default
 }
 
 /// Extract a display_map Option reference from a DisplayMapRef,
@@ -325,6 +357,7 @@ pub(crate) fn render_cached_core(
         cursor_x: cx,
         cursor_y: cy,
         cursor_style: hint.shape,
+        cursor_color: extract_cursor_color(cursor_state),
         cursor_blink: hint.blink,
         cursor_movement: hint.movement,
         display_scroll_offset: frame.display_scroll_offset,

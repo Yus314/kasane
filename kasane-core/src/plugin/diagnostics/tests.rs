@@ -207,7 +207,7 @@ fn overlay_palette_is_stable() {
         )
         .bg,
         Color::Rgb {
-            r: 28,
+            r: 36,
             g: 18,
             b: 18,
         }

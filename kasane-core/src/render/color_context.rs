@@ -31,8 +31,6 @@ pub struct ChromePalette {
     pub chrome_bg: Color,
     /// Shadow/muted text color: fg shifted toward bg.
     pub dim_fg: Color,
-    /// Subtle highlight color: bg with slight brightness shift.
-    pub subtle_highlight: Color,
 }
 
 impl Default for ColorContext {
@@ -72,13 +70,8 @@ impl ColorContext {
         let is_dark = perceived_luminance(bg.0, bg.1, bg.2) < 128;
 
         let chrome = Some(ChromePalette {
-            chrome_bg: blend_color(bg, fg, 0.15),
-            dim_fg: blend_color(fg, bg, 0.4),
-            subtle_highlight: if is_dark {
-                lighten(bg, 15)
-            } else {
-                darken(bg, 15)
-            },
+            chrome_bg: linear_blend(bg, fg, 0.15),
+            dim_fg: linear_blend(fg, bg, 0.4),
         });
 
         Self {
@@ -94,29 +87,41 @@ fn perceived_luminance(r: u8, g: u8, b: u8) -> u16 {
     ((r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000) as u16
 }
 
-/// Blend two colors: result = from * (1-ratio) + to * ratio.
-fn blend_color(from: (u8, u8, u8), to: (u8, u8, u8), ratio: f32) -> Color {
-    let r = (from.0 as f32 * (1.0 - ratio) + to.0 as f32 * ratio) as u8;
-    let g = (from.1 as f32 * (1.0 - ratio) + to.1 as f32 * ratio) as u8;
-    let b = (from.2 as f32 * (1.0 - ratio) + to.2 as f32 * ratio) as u8;
-    Color::Rgb { r, g, b }
-}
+// ---------------------------------------------------------------------------
+// Linear-space color blending
+// ---------------------------------------------------------------------------
 
-/// Lighten a color by adding `amount` to each channel.
-fn lighten(color: (u8, u8, u8), amount: u8) -> Color {
-    Color::Rgb {
-        r: color.0.saturating_add(amount),
-        g: color.1.saturating_add(amount),
-        b: color.2.saturating_add(amount),
+/// Convert a single sRGB component (0–255) to linear light (0.0–1.0).
+fn srgb_to_linear(c: u8) -> f32 {
+    let s = c as f32 / 255.0;
+    if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
     }
 }
 
-/// Darken a color by subtracting `amount` from each channel.
-fn darken(color: (u8, u8, u8), amount: u8) -> Color {
+/// Convert a linear light value (0.0–1.0) back to sRGB (0–255).
+fn linear_to_srgb(c: f32) -> u8 {
+    let s = if c <= 0.0031308 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0 + 0.5).clamp(0.0, 255.0) as u8
+}
+
+/// Blend two colors in linear light space: result = from * (1-ratio) + to * ratio.
+///
+/// Produces perceptually uniform blending by converting sRGB → linear → blend → sRGB.
+pub(crate) fn linear_blend(from: (u8, u8, u8), to: (u8, u8, u8), ratio: f32) -> Color {
+    let r = srgb_to_linear(from.0) * (1.0 - ratio) + srgb_to_linear(to.0) * ratio;
+    let g = srgb_to_linear(from.1) * (1.0 - ratio) + srgb_to_linear(to.1) * ratio;
+    let b = srgb_to_linear(from.2) * (1.0 - ratio) + srgb_to_linear(to.2) * ratio;
     Color::Rgb {
-        r: color.0.saturating_sub(amount),
-        g: color.1.saturating_sub(amount),
-        b: color.2.saturating_sub(amount),
+        r: linear_to_srgb(r),
+        g: linear_to_srgb(g),
+        b: linear_to_srgb(b),
     }
 }
 

@@ -91,6 +91,10 @@ pub struct RenderResult {
     pub cursor_x: u16,
     pub cursor_y: u16,
     pub cursor_style: CursorStyle,
+    /// Cursor color extracted from the Kakoune face at the cursor position.
+    /// Under REVERSE (typical), this is `face.fg`; otherwise `face.bg`.
+    /// Falls back to `Color::Default` when face cannot be determined.
+    pub cursor_color: crate::protocol::Color,
     /// Blink animation hint from plugin override.
     pub cursor_blink: Option<BlinkHint>,
     /// Movement animation hint from plugin override.

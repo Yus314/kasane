@@ -5,7 +5,7 @@ pub(crate) mod menu;
 mod tests;
 
 use crate::display::DisplayMapRef;
-use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style};
+use crate::element::{Direction, Element, FlexChild, Overlay, OverlayAnchor, Style, StyleToken};
 use crate::layout::line_display_width;
 use crate::plugin::{AnnotateContext, AppView, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::{Atom, Face, InfoStyle, Line, MenuStyle};
@@ -236,10 +236,11 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
 }
 
 fn build_status_core(state: &AppState) -> Element {
-    let status_line =
-        build_styled_line_with_base(&state.status_line, &state.status_default_face, 0);
-    let mode_line =
-        build_styled_line_with_base(&state.status_mode_line, &state.status_default_face, 0);
+    let status_face = state
+        .theme
+        .resolve_with_protocol_fallback(&StyleToken::STATUS_LINE, state.status_default_face);
+    let status_line = build_styled_line_with_base(&state.status_line, &status_face, 0);
+    let mode_line = build_styled_line_with_base(&state.status_mode_line, &status_face, 0);
     let mode_width = line_display_width(&state.status_mode_line) as u16;
 
     let mut children = Vec::new();
@@ -262,6 +263,9 @@ pub(crate) fn build_status_surface_abstract(
         )
         .into_element();
 
+    let status_face = state
+        .theme
+        .resolve_with_protocol_fallback(&StyleToken::STATUS_LINE, state.status_default_face);
     let row = Element::container(
         Element::row(vec![
             FlexChild::fixed(Element::slot_placeholder(
@@ -274,7 +278,7 @@ pub(crate) fn build_status_surface_abstract(
                 Direction::Row,
             )),
         ]),
-        Style::from(state.status_default_face),
+        Style::from(status_face),
     );
 
     Element::column(vec![

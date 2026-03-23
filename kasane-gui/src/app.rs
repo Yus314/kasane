@@ -997,7 +997,14 @@ fn submit_render(
     cursor_animation.update_target(result.cursor_x, result.cursor_y);
     let cursor_state = cursor_animation.tick(cell_width, cell_height);
     tracing::debug!("[app] {label}: {} commands", commands.len());
-    match sr.render_with_cursor(gpu, commands, resolver, result.cursor_style, &cursor_state) {
+    match sr.render_with_cursor(
+        gpu,
+        commands,
+        resolver,
+        result.cursor_style,
+        &cursor_state,
+        result.cursor_color,
+    ) {
         Ok(()) => tracing::debug!("[app] render_frame complete ({label})"),
         Err(e) => tracing::error!("[app] scene render failed: {e}"),
     }

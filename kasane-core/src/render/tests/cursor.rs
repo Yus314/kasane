@@ -313,12 +313,12 @@ fn test_secondary_face_has_blended_bg() {
     let secondary = make_secondary_cursor_face(&cursor, &default, 0.4);
 
     // Cursor color (fg) = white (255,255,255), bg = black (0,0,0)
-    // Blend: 0.4 * 255 + 0.6 * 0 = 102
+    // linear_blend((255,255,255), (0,0,0), 0.4) = srgb(1.0*0.6 + 0.0*0.4) = srgb(0.6) ≈ 203
     match secondary.bg {
         Color::Rgb { r, g, b } => {
-            assert_eq!(r, 102);
-            assert_eq!(g, 102);
-            assert_eq!(b, 102);
+            assert_eq!(r, 203);
+            assert_eq!(g, 203);
+            assert_eq!(b, 203);
         }
         _ => panic!("expected RGB bg, got {:?}", secondary.bg),
     }

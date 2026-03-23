@@ -324,13 +324,6 @@ fn color_to_rgb(color: Color, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
     color.to_rgb().unwrap_or(fallback)
 }
 
-/// Linearly blend two RGB colors: result = a * ratio + b * (1 - ratio).
-fn blend_rgb(a: (u8, u8, u8), b: (u8, u8, u8), ratio: f32) -> (u8, u8, u8) {
-    let blend =
-        |a: u8, b: u8| -> u8 { (a as f32 * ratio + b as f32 * (1.0 - ratio)).round() as u8 };
-    (blend(a.0, b.0), blend(a.1, b.1), blend(a.2, b.2))
-}
-
 /// Generate a face for secondary cursors.
 ///
 /// # Inference Rule: I-6
@@ -362,6 +355,22 @@ pub fn make_secondary_cursor_face(
     //   fg should be face.fg (the original text, which was shown as bg under REVERSE)
     //   bg should be a dimmed version of the cursor highlight
 
+    // Guard: handle non-REVERSE cursor faces (rare, but possible with custom themes)
+    if !cursor_face.attributes.contains(Attributes::REVERSE) {
+        let default_bg_rgb = color_to_rgb(default_face.bg, (0, 0, 0));
+        let cursor_bg_rgb = color_to_rgb(cursor_face.bg, default_bg_rgb);
+        return Face {
+            fg: cursor_face.fg,
+            bg: super::color_context::linear_blend(
+                cursor_bg_rgb,
+                default_bg_rgb,
+                1.0 - blend_ratio,
+            ),
+            underline: cursor_face.underline,
+            attributes: cursor_face.attributes,
+        };
+    }
+
     let default_fg_rgb = color_to_rgb(default_face.fg, (255, 255, 255));
     let default_bg_rgb = color_to_rgb(default_face.bg, (0, 0, 0));
 
@@ -370,15 +379,9 @@ pub fn make_secondary_cursor_face(
     let cursor_color_rgb = color_to_rgb(cursor_face.fg, default_fg_rgb);
     let bg_rgb = color_to_rgb(cursor_face.bg, default_bg_rgb);
 
-    let blended = blend_rgb(cursor_color_rgb, bg_rgb, blend_ratio);
-
     Face {
         fg: cursor_face.bg, // text color (was displayed as fg under REVERSE)
-        bg: Color::Rgb {
-            r: blended.0,
-            g: blended.1,
-            b: blended.2,
-        },
+        bg: super::color_context::linear_blend(cursor_color_rgb, bg_rgb, blend_ratio),
         underline: cursor_face.underline,
         attributes: cursor_face.attributes & !(Attributes::REVERSE),
     }

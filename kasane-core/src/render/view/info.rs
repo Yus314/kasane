@@ -1,10 +1,18 @@
 use crate::element::{
     BorderConfig, BorderLineStyle, Edges, Element, FlexChild, Overlay, OverlayAnchor, Style,
+    StyleToken,
 };
 use crate::layout::{self, ASSISTANT_CLIPPY, ASSISTANT_WIDTH, layout_info, line_display_width};
-use crate::protocol::InfoStyle;
+use crate::protocol::{Face, InfoStyle};
 use crate::render::builders::{build_content_column, wrap_content_lines};
 use crate::state::{AppState, InfoState};
+
+/// Resolve info face: theme override takes precedence, protocol face as fallback.
+fn resolve_info_face(info: &InfoState, state: &AppState) -> Face {
+    state
+        .theme
+        .resolve_with_protocol_fallback(&StyleToken::INFO_TEXT, info.face)
+}
 
 /// Compute the floating window for an info popup, returning `None` if zero-size.
 fn compute_info_window(
@@ -41,9 +49,9 @@ pub(crate) fn build_info_overlay_indexed(
 
     let element = match info.style {
         InfoStyle::Prompt => build_info_prompt(info, &win, state),
-        InfoStyle::Modal => build_info_framed(info, &win, state.shadow_enabled),
+        InfoStyle::Modal => build_info_framed(info, &win, state.shadow_enabled, state),
         InfoStyle::Inline | InfoStyle::InlineAbove | InfoStyle::MenuDoc => {
-            build_info_nonframed(info, &win)
+            build_info_nonframed(info, &win, state)
         }
     };
 
@@ -70,6 +78,8 @@ fn build_info_prompt(
     if win.width < ASSISTANT_WIDTH + 5 || win.height < 3 {
         return None;
     }
+
+    let face = resolve_info_face(info, state);
 
     let total_h = win.height as usize;
     let cw = win.width.saturating_sub(ASSISTANT_WIDTH + 4);
@@ -103,14 +113,14 @@ fn build_info_prompt(
             Some(custom) => &custom[idx],
             None => ASSISTANT_CLIPPY[idx],
         };
-        asst_rows.push(FlexChild::fixed(Element::text(line_str, info.face)));
+        asst_rows.push(FlexChild::fixed(Element::text(line_str, face)));
     }
     let assistant_col = Element::column(asst_rows);
 
     // Build content lines with word wrapping
     // Frame height is determined by content, not the full popup height
     let frame_content_h = total_h.saturating_sub(2) as u16;
-    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &info.face);
+    let wrapped_lines = wrap_content_lines(trimmed, cw, frame_content_h, &face);
     let frame_h = (wrapped_lines.len() as u16 + 2).min(total_h as u16);
 
     // Build framed content area
@@ -131,7 +141,7 @@ fn build_info_prompt(
             bottom: 0,
             left: 1,
         },
-        style: Style::from(info.face),
+        style: Style::from(face),
         title: if info.title.is_empty() {
             None
         } else {
@@ -143,10 +153,10 @@ fn build_info_prompt(
     let frame_w = win.width.saturating_sub(ASSISTANT_WIDTH);
     let base = Element::row(vec![
         FlexChild::fixed(assistant_col),
-        FlexChild::flexible(Element::text("", info.face), 1.0),
+        FlexChild::flexible(Element::text("", face), 1.0),
     ]);
     let container = Element::stack(
-        Element::container(base, Style::from(info.face)),
+        Element::container(base, Style::from(face)),
         vec![Overlay {
             element: framed_content,
             anchor: OverlayAnchor::Absolute {
@@ -165,11 +175,13 @@ fn build_info_framed(
     info: &InfoState,
     win: &layout::FloatingWindow,
     shadow: bool,
+    state: &AppState,
 ) -> Option<Element> {
+    let face = resolve_info_face(info, state);
     let inner_w = win.width.saturating_sub(4).max(1);
     let inner_h = win.height.saturating_sub(2);
 
-    let content_col = build_content_column(&info.content, inner_w, inner_h, &info.face);
+    let content_col = build_content_column(&info.content, inner_w, inner_h, &face);
 
     let framed = Element::Container {
         child: Box::new(content_col),
@@ -181,7 +193,7 @@ fn build_info_framed(
             bottom: 0,
             left: 1,
         },
-        style: Style::from(info.face),
+        style: Style::from(face),
         title: if info.title.is_empty() {
             None
         } else {
@@ -192,8 +204,13 @@ fn build_info_framed(
     Some(framed)
 }
 
-fn build_info_nonframed(info: &InfoState, win: &layout::FloatingWindow) -> Option<Element> {
-    let content_col = build_content_column(&info.content, win.width, win.height, &info.face);
+fn build_info_nonframed(
+    info: &InfoState,
+    win: &layout::FloatingWindow,
+    state: &AppState,
+) -> Option<Element> {
+    let face = resolve_info_face(info, state);
+    let content_col = build_content_column(&info.content, win.width, win.height, &face);
 
-    Some(Element::container(content_col, Style::from(info.face)))
+    Some(Element::container(content_col, Style::from(face)))
 }

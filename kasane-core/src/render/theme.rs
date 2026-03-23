@@ -22,39 +22,12 @@ impl Theme {
     pub fn default_theme() -> Self {
         let mut map = HashMap::new();
 
-        // Menu
-        map.insert(
-            StyleToken::MENU_ITEM_NORMAL,
-            Face {
-                fg: Color::Named(NamedColor::White),
-                bg: Color::Named(NamedColor::Blue),
-                ..Face::default()
-            },
-        );
-        map.insert(
-            StyleToken::MENU_ITEM_SELECTED,
-            Face {
-                fg: Color::Named(NamedColor::Blue),
-                bg: Color::Named(NamedColor::White),
-                ..Face::default()
-            },
-        );
-        map.insert(
-            StyleToken::MENU_SCROLLBAR,
-            Face {
-                fg: Color::Named(NamedColor::White),
-                bg: Color::Named(NamedColor::Blue),
-                ..Face::default()
-            },
-        );
-        map.insert(
-            StyleToken::MENU_SCROLLBAR_THUMB,
-            Face {
-                fg: Color::Named(NamedColor::White),
-                bg: Color::Named(NamedColor::Blue),
-                ..Face::default()
-            },
-        );
+        // Menu: Default means "use protocol face from Kakoune".
+        // User can override via config.toml [theme] section.
+        map.insert(StyleToken::MENU_ITEM_NORMAL, Face::default());
+        map.insert(StyleToken::MENU_ITEM_SELECTED, Face::default());
+        map.insert(StyleToken::MENU_SCROLLBAR, Face::default());
+        map.insert(StyleToken::MENU_SCROLLBAR_THUMB, Face::default());
 
         // Info
         map.insert(
@@ -183,6 +156,26 @@ impl Theme {
                     ..Face::default()
                 },
             );
+        }
+    }
+
+    /// Check if a token has been configured by the user (non-default colors).
+    ///
+    /// Returns `true` when the token exists in the theme map AND has at least
+    /// one non-Default color, indicating the user explicitly set it via config.
+    pub fn is_user_configured(&self, token: &StyleToken) -> bool {
+        self.map
+            .get(token)
+            .is_some_and(|f| f.fg != Color::Default || f.bg != Color::Default)
+    }
+
+    /// Resolve a face with protocol fallback: if the user configured the token
+    /// in the theme, use that; otherwise use the protocol-provided face.
+    pub fn resolve_with_protocol_fallback(&self, token: &StyleToken, protocol_face: Face) -> Face {
+        if self.is_user_configured(token) {
+            *self.map.get(token).unwrap()
+        } else {
+            protocol_face
         }
     }
 
@@ -427,11 +420,6 @@ mod tests {
                     g: 150,
                     b: 150,
                 },
-                subtle_highlight: Color::Rgb {
-                    r: 45,
-                    g: 45,
-                    b: 45,
-                },
             }),
         };
         theme.apply_color_context(&ctx);
@@ -466,11 +454,6 @@ mod tests {
                     r: 150,
                     g: 150,
                     b: 150,
-                },
-                subtle_highlight: Color::Rgb {
-                    r: 45,
-                    g: 45,
-                    b: 45,
                 },
             }),
         };
