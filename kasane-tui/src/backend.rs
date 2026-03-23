@@ -19,8 +19,9 @@ use crossterm::{
     },
 };
 use kasane_core::protocol::Face;
-use kasane_core::render::{Cell, CellGrid, CursorStyle, RenderResult};
+use kasane_core::render::{Cell, CellGrid, CursorStyle, ImageRequest, RenderResult};
 
+use crate::kitty::KittyState;
 use crate::sgr::emit_sgr_diff;
 
 pub struct TuiBackend {
@@ -32,6 +33,8 @@ pub struct TuiBackend {
     buf: Vec<u8>,
     /// Previous frame's cell buffer for incremental diff.
     previous: Vec<Cell>,
+    /// Kitty Graphics Protocol state (None when protocol is Off).
+    pub(crate) kitty: Option<KittyState>,
 }
 
 impl TuiBackend {
@@ -50,6 +53,7 @@ impl TuiBackend {
             stdout,
             buf: Vec::with_capacity(1 << 16),
             previous: Vec::new(),
+            kitty: None,
         })
     }
 
@@ -59,10 +63,28 @@ impl TuiBackend {
 
     /// Render the grid to the terminal, diffing against the previous frame.
     ///
-    /// This replaces the old `begin_frame` + `draw_grid` + `show_cursor` +
-    /// `end_frame` + `flush` + `grid.swap_with_dirty()` sequence.
+    /// When Kitty Graphics Protocol is active, image upload bytes are written
+    /// before the synchronized update, and placement/deletion bytes are written
+    /// inside it (alongside CellGrid diff).
     #[allow(clippy::needless_range_loop)]
-    pub fn present(&mut self, grid: &mut CellGrid, result: RenderResult) -> anyhow::Result<()> {
+    pub fn present(
+        &mut self,
+        grid: &mut CellGrid,
+        result: RenderResult,
+        image_requests: &[ImageRequest],
+    ) -> anyhow::Result<()> {
+        // --- Kitty: reconcile and write uploads outside SyncUpdate ---
+        let kitty_place_bytes = if let Some(ref mut kitty) = self.kitty {
+            let reconciled = crate::kitty::reconcile(kitty, image_requests);
+            if !reconciled.upload_bytes.is_empty() {
+                self.stdout.write_all(&reconciled.upload_bytes)?;
+                self.stdout.flush()?;
+            }
+            reconciled.place_bytes
+        } else {
+            Vec::new()
+        };
+
         queue!(self.buf, BeginSynchronizedUpdate, cursor::Hide)?;
 
         let cells = grid.cells();
@@ -120,6 +142,11 @@ impl TuiBackend {
         // Reset SGR
         queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
 
+        // --- Kitty: deletions + placements inside SyncUpdate ---
+        if !kitty_place_bytes.is_empty() {
+            self.buf.extend_from_slice(&kitty_place_bytes);
+        }
+
         // Show cursor — use blinking variants when blink hint is enabled
         let blink_enabled = result.cursor_blink.as_ref().is_some_and(|b| b.enabled);
         let ct_style = match (result.cursor_style, blink_enabled) {
@@ -156,9 +183,22 @@ impl TuiBackend {
     /// `present()` call. Call this after terminal resize.
     pub fn invalidate(&mut self) {
         self.previous.clear();
+        if let Some(ref mut kitty) = self.kitty {
+            crate::kitty::clear_all(kitty, &mut self.buf);
+            let _ = self.stdout.write_all(&self.buf);
+            let _ = self.stdout.flush();
+            self.buf.clear();
+        }
     }
 
     pub fn cleanup(&mut self) {
+        // Clean up Kitty images before leaving alternate screen
+        if self.kitty.is_some() {
+            crate::kitty::emit_delete_all(&mut self.buf);
+            let _ = self.stdout.write_all(&self.buf);
+            let _ = self.stdout.flush();
+            self.buf.clear();
+        }
         let _ = execute!(
             self.stdout,
             cursor::Show,

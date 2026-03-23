@@ -32,6 +32,35 @@ pub use pipeline_salsa::{render_pipeline_cached, scene_render_pipeline_cached};
 pub use scene::{CellSize, DrawCommand, PixelPos, PixelRect, ResolvedAtom, SceneCache};
 
 // ---------------------------------------------------------------------------
+// Image protocol types
+// ---------------------------------------------------------------------------
+
+/// Which image protocol the TUI backend should use for `Element::Image` rendering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageProtocol {
+    /// Halfblock fallback (works on all terminals).
+    #[default]
+    Off,
+    /// Kitty Graphics Protocol — Direct Placement (wide compat: Kitty, WezTerm, ghostty, foot).
+    KittyDirect,
+    /// Kitty Graphics Protocol — Unicode Placement (Kitty 0.28+).
+    KittyUnicode,
+}
+
+/// A request from the paint visitor to the TUI backend to display an image
+/// using the Kitty Graphics Protocol (or similar).
+///
+/// Collected during `walk_paint_grid` when `image_protocol != Off`, then
+/// consumed by `TuiBackend::present()`.
+#[derive(Debug, Clone)]
+pub struct ImageRequest {
+    pub source: crate::element::ImageSource,
+    pub fit: crate::element::ImageFit,
+    pub opacity: f32,
+    pub area: crate::layout::Rect,
+}
+
+// ---------------------------------------------------------------------------
 // CursorStyle + RenderResult
 // ---------------------------------------------------------------------------
 

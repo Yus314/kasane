@@ -15,7 +15,16 @@ use crate::state::AppState;
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
     crate::perf::perf_span!("paint");
     let theme = &state.theme;
-    super::walk::walk_paint_grid(element, layout, grid, state, theme, None);
+    super::walk::walk_paint_grid(
+        element,
+        layout,
+        grid,
+        state,
+        theme,
+        None,
+        Default::default(),
+        None,
+    );
 }
 
 /// Paint with an explicit theme for style resolution.
@@ -26,7 +35,16 @@ pub fn paint_themed(
     state: &AppState,
     theme: &Theme,
 ) {
-    super::walk::walk_paint_grid(element, layout, grid, state, theme, None);
+    super::walk::walk_paint_grid(
+        element,
+        layout,
+        grid,
+        state,
+        theme,
+        None,
+        Default::default(),
+        None,
+    );
 }
 
 pub(crate) fn paint_text(grid: &mut CellGrid, area: &Rect, text: &str, face: &Face) {

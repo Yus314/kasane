@@ -263,6 +263,7 @@ pub(crate) fn prepare_frame(
 // ---------------------------------------------------------------------------
 
 /// Core cached rendering pipeline, generic over the view section source.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_cached_core(
     source: &mut impl ViewSource,
     state: &AppState,
@@ -271,6 +272,8 @@ pub(crate) fn render_cached_core(
     dirty: DirtyFlags,
     paint_hooks: &[Box<dyn PaintHook>],
     halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
+    image_protocol: super::ImageProtocol,
+    image_requests: Option<&mut Vec<super::ImageRequest>>,
 ) -> RenderResult {
     crate::perf::perf_span!("render_pipeline");
 
@@ -296,6 +299,8 @@ pub(crate) fn render_cached_core(
         state,
         theme,
         halfblock_cache,
+        image_protocol,
+        image_requests,
     );
 
     // Apply plugin paint hooks after standard paint
@@ -509,6 +514,8 @@ pub fn render_pipeline(
         DirtyFlags::ALL,
         &[],
         None,
+        super::ImageProtocol::Off,
+        None,
     )
 }
 
@@ -521,5 +528,15 @@ pub fn render_pipeline_direct(
     dirty: DirtyFlags,
 ) -> RenderResult {
     let mut source = DirectViewSource;
-    render_cached_core(&mut source, state, registry, grid, dirty, &[], None)
+    render_cached_core(
+        &mut source,
+        state,
+        registry,
+        grid,
+        dirty,
+        &[],
+        None,
+        super::ImageProtocol::Off,
+        None,
+    )
 }

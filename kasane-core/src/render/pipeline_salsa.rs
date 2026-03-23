@@ -386,6 +386,8 @@ pub fn render_pipeline_cached(
     surface_registry: Option<&SurfaceRegistry>,
     pane_states: Option<&PaneStates<'_>>,
     halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
+    image_protocol: super::ImageProtocol,
+    image_requests: Option<&mut Vec<super::ImageRequest>>,
 ) -> RenderResult {
     let mut source = SalsaViewSource::new(db, handles, surface_registry, pane_states);
     render_cached_core(
@@ -396,6 +398,8 @@ pub fn render_pipeline_cached(
         dirty,
         paint_hooks,
         halfblock_cache,
+        image_protocol,
+        image_requests,
     )
 }
 

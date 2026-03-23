@@ -244,6 +244,8 @@ pub(crate) struct GridPaintVisitor<'a> {
     theme: &'a Theme,
     #[cfg_attr(not(feature = "tui-image"), allow(dead_code))]
     halfblock_cache: Option<&'a mut super::halfblock::HalfblockCache>,
+    image_protocol: super::ImageProtocol,
+    image_requests: Option<&'a mut Vec<super::ImageRequest>>,
 }
 
 impl<'a> GridPaintVisitor<'a> {
@@ -251,11 +253,15 @@ impl<'a> GridPaintVisitor<'a> {
         grid: &'a mut CellGrid,
         theme: &'a Theme,
         halfblock_cache: Option<&'a mut super::halfblock::HalfblockCache>,
+        image_protocol: super::ImageProtocol,
+        image_requests: Option<&'a mut Vec<super::ImageRequest>>,
     ) -> Self {
         Self {
             grid,
             theme,
             halfblock_cache,
+            image_protocol,
+            image_requests,
         }
     }
 }
@@ -266,6 +272,22 @@ impl PaintVisitor for GridPaintVisitor<'_> {
     }
 
     fn visit_image(&mut self, source: &ImageSource, _fit: ImageFit, _opacity: f32, area: Rect) {
+        // Kitty Graphics Protocol: collect image requests for the backend,
+        // clear the grid region so CellGrid diff doesn't interfere.
+        if self.image_protocol != super::ImageProtocol::Off {
+            if let Some(ref mut reqs) = self.image_requests {
+                reqs.push(super::ImageRequest {
+                    source: source.clone(),
+                    fit: _fit,
+                    opacity: _opacity,
+                    area,
+                });
+            }
+            self.grid
+                .clear_region(&area, &crate::protocol::Face::default());
+            return;
+        }
+
         #[cfg(feature = "tui-image")]
         if let Some(cache) = self.halfblock_cache.as_mut()
             && super::halfblock::render_to_grid(self.grid, source, _fit, &area, cache)
@@ -664,6 +686,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
 // ---------------------------------------------------------------------------
 
 /// Paint an element tree into a CellGrid using the walk_paint visitor pattern.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn walk_paint_grid(
     element: &Element,
     layout: &LayoutResult,
@@ -671,8 +694,11 @@ pub(crate) fn walk_paint_grid(
     state: &AppState,
     theme: &Theme,
     halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
+    image_protocol: super::ImageProtocol,
+    image_requests: Option<&mut Vec<super::ImageRequest>>,
 ) {
-    let mut visitor = GridPaintVisitor::new(grid, theme, halfblock_cache);
+    let mut visitor =
+        GridPaintVisitor::new(grid, theme, halfblock_cache, image_protocol, image_requests);
     walk_paint(&mut visitor, element, layout, state, theme);
 }
 
@@ -775,7 +801,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -801,7 +836,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(10, 4);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -821,7 +865,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -850,7 +903,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 10);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -879,7 +941,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 10);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -907,7 +978,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 10);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -937,7 +1017,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(20, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -963,7 +1052,16 @@ mod tests {
         paint::paint(&el, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(10, 5);
-        walk_paint_grid(&el, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -987,7 +1085,16 @@ mod tests {
         paint::paint(&element, &layout, &mut old_grid, &state);
 
         let mut new_grid = CellGrid::new(state.cols, state.rows);
-        walk_paint_grid(&element, &layout, &mut new_grid, &state, &theme, None);
+        walk_paint_grid(
+            &element,
+            &layout,
+            &mut new_grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         assert_grids_equal(&old_grid, &new_grid);
     }
@@ -1143,7 +1250,16 @@ mod tests {
         let layout = place(&el, area, &state);
 
         let mut grid = CellGrid::new(20, 3);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         // First row should contain the fallback label
         let mut text = String::new();
@@ -1182,7 +1298,16 @@ mod tests {
         let layout = place(&el, area, &state);
 
         let mut grid = CellGrid::new(20, 3);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         let mut text = String::new();
         for x in 0..20 {
@@ -1227,7 +1352,16 @@ mod tests {
 
         let mut grid = CellGrid::new(4, 2);
         let mut cache = super::super::halfblock::HalfblockCache::new(16);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, Some(&mut cache));
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            Some(&mut cache),
+            Default::default(),
+            None,
+        );
 
         // All cells should be halfblock with green colors
         for y in 0..2u16 {
@@ -1278,7 +1412,16 @@ mod tests {
         let layout = place(&el, area, &state);
 
         let mut grid = CellGrid::new(20, 3);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         let mut text = String::new();
         for x in 0..20 {
@@ -1352,7 +1495,16 @@ mod tests {
         };
         let layout = place(&el, area, &state);
         let mut grid = CellGrid::new(10, 5);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         for y in 0..5u16 {
             let cell = grid.get(5, y).expect("cell should exist");
@@ -1373,7 +1525,16 @@ mod tests {
         };
         let layout = place(&el, area, &state);
         let mut grid = CellGrid::new(10, 5);
-        walk_paint_grid(&el, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
 
         for x in 0..10u16 {
             let cell = grid.get(x, 3).expect("cell should exist");
@@ -1397,7 +1558,16 @@ mod tests {
         let el_normal = Element::container(Element::Empty, Style::Token(StyleToken::SPLIT_DIVIDER));
         let layout = place(&el_normal, area, &state);
         let mut grid = CellGrid::new(5, 3);
-        walk_paint_grid(&el_normal, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el_normal,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
         let normal_fg = grid.get(0, 0).expect("cell").face.fg;
         assert_eq!(
             normal_fg,
@@ -1412,7 +1582,16 @@ mod tests {
         );
         let layout = place(&el_focused, area, &state);
         let mut grid = CellGrid::new(5, 3);
-        walk_paint_grid(&el_focused, &layout, &mut grid, &state, &theme, None);
+        walk_paint_grid(
+            &el_focused,
+            &layout,
+            &mut grid,
+            &state,
+            &theme,
+            None,
+            Default::default(),
+            None,
+        );
         let focused_fg = grid.get(0, 0).expect("cell").face.fg;
         assert_eq!(
             focused_fg,

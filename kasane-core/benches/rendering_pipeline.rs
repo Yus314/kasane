@@ -1126,6 +1126,8 @@ mod salsa_benches {
                             None,
                             None,
                             None,
+                            Default::default(),
+                            None,
                         );
                     },
                     BatchSize::SmallInput,
@@ -1167,6 +1169,8 @@ mod salsa_benches {
                     None,
                     None,
                     None,
+                    Default::default(),
+                    None,
                 );
                 grid.swap_with_dirty();
 
@@ -1181,6 +1185,8 @@ mod salsa_benches {
                         &paint_hooks,
                         None,
                         None,
+                        None,
+                        Default::default(),
                         None,
                     );
                 });
@@ -1229,6 +1235,8 @@ mod salsa_benches {
                             None,
                             None,
                             None,
+                            Default::default(),
+                            None,
                         );
                         grid.swap_with_dirty();
                         sync_inputs_from_state(&mut db, &edited, &handles);
@@ -1245,6 +1253,8 @@ mod salsa_benches {
                             &paint_hooks,
                             None,
                             None,
+                            None,
+                            Default::default(),
                             None,
                         );
                     },
@@ -1383,6 +1393,8 @@ mod salsa_benches {
                             &paint_hooks,
                             None,
                             None,
+                            None,
+                            Default::default(),
                             None,
                         );
                     },

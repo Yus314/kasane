@@ -54,6 +54,8 @@ fn render_salsa(
         None,
         None,
         None,
+        Default::default(),
+        None,
     );
     grid
 }

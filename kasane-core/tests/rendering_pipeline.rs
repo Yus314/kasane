@@ -679,6 +679,8 @@ fn test_salsa_pipeline_equivalence_empty_state() {
         None,
         None,
         None,
+        Default::default(),
+        None,
     );
 
     // Compare cursor positions
@@ -753,6 +755,8 @@ fn test_salsa_pipeline_equivalence_with_menu() {
         &[],
         None,
         None,
+        None,
+        Default::default(),
         None,
     );
 

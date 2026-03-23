@@ -88,6 +88,8 @@ pub struct UiConfig {
     pub backend: String,
     /// Enable the scene-based GPU renderer (bypasses CellGrid). `None` = auto (true for GUI).
     pub scene_renderer: Option<bool>,
+    /// Image rendering protocol: "auto" (detect terminal), "halfblock", "kitty".
+    pub image_protocol: String,
 }
 
 impl Default for UiConfig {
@@ -99,6 +101,7 @@ impl Default for UiConfig {
             status_position: "bottom".to_string(),
             backend: "tui".to_string(),
             scene_renderer: None,
+            image_protocol: "auto".to_string(),
         }
     }
 }

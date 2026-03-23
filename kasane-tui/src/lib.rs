@@ -2,6 +2,7 @@ mod backend;
 mod diagnostics_overlay;
 mod event_handler;
 mod input;
+pub mod kitty;
 mod paint_hooks;
 pub mod sgr;
 
@@ -25,8 +26,8 @@ use kasane_core::plugin::{
     AppView, CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
     ProcessDispatcher, ProcessEventSink, execute_commands, report_plugin_diagnostics,
 };
-use kasane_core::render::CellGrid;
 use kasane_core::render::render_pipeline_cached;
+use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::{
     SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
@@ -231,6 +232,14 @@ where
     let mut grid = CellGrid::new(cols, rows);
     let mut halfblock_cache = kasane_core::render::halfblock::HalfblockCache::new(16);
 
+    // Image protocol detection
+    let image_protocol = kitty::detect_image_protocol(&config.ui.image_protocol);
+    let mut image_requests: Vec<ImageRequest> = Vec::new();
+    if image_protocol != ImageProtocol::Off {
+        backend.kitty = Some(kitty::KittyState::new());
+        tracing::info!(?image_protocol, "kitty graphics protocol enabled");
+    }
+
     let scroll_amount = config.scroll.lines_per_scroll;
 
     // Main event loop
@@ -401,6 +410,7 @@ where
                 None
             };
 
+            image_requests.clear();
             let result = render_pipeline_cached(
                 &salsa_db,
                 &salsa_handles,
@@ -412,11 +422,13 @@ where
                 Some(&surface_registry),
                 pane_states_opt,
                 Some(&mut halfblock_cache),
+                image_protocol,
+                Some(&mut image_requests),
             );
             if diagnostic_overlay.is_active() {
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
             }
-            backend.present(&mut grid, result)?;
+            backend.present(&mut grid, result, &image_requests)?;
             state.display_scroll_offset = result.display_scroll_offset;
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
 
