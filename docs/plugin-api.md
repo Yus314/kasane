@@ -61,6 +61,7 @@ The core UI is structured around surfaces. The extension points available to plu
 |---|---|
 | Add UI at a predefined location | `contribute_to()` |
 | Decorate individual buffer lines | `annotate_line_with_ctx()` |
+| Apply face to individual cells, ranges, or columns | `decorate_cells()` |
 | Display floating UI | `contribute_overlay_with_ctx()` |
 | Modify or replace existing UI appearance | `transform()` |
 | Transform individual menu items | `transform_menu_item()` |
@@ -399,6 +400,7 @@ Future extensions: display unit model (P-040..P-043), WASM WIT `display-directiv
 | `Stack` | Z-axis stacking | `create_stack(base, overlays)` | `Element::stack(base, overlays)` |
 | `Scrollable` | Scrollable region | `create_scrollable(child, offset, vertical)` | `Element::Scrollable { ... }` |
 | `Interactive` | Mouse hit test | `create_interactive(child, id)` | `Element::Interactive { child, id }` |
+| `Image` | Raster image | `create_image(source, w, h, fit, opacity)` | `Element::image(source, w, h)` |
 | `Empty` | Empty element | `create_empty()` | `Element::Empty` |
 | `BufferRef` | Buffer line reference | Host-internal only | `Element::buffer_ref(range)` |
 
@@ -420,6 +422,27 @@ let container = element_builder::create_container(
 ```
 
 For proportional distribution, use `create_column_flex` / `create_row_flex` with `FlexEntry { child, flex }`.
+
+#### Image element (WIT v0.20.0)
+
+`create_image` constructs a raster image element. Images are rendered natively on the GPU backend; the TUI backend displays a text placeholder (`[IMAGE: filename]` or `[IMAGE: W×H]`).
+
+**`ImageSource`:**
+
+| Variant | Description |
+|---|---|
+| `file-path(String)` | Path to an image file on disk |
+| `rgba-data { data: Vec<u8>, width: u32, height: u32 }` | Pre-decoded RGBA pixel data (4 bytes per pixel) |
+
+**`ImageFit`:**
+
+| Value | Description |
+|---|---|
+| `contain` (default) | Scale to fit within the area, preserving aspect ratio (letterboxing) |
+| `cover` | Scale to cover the entire area, preserving aspect ratio (cropping) |
+| `fill` | Stretch to fill the area exactly (may distort) |
+
+Size is specified in cells (width, height). `opacity` ranges from 0.0 (transparent) to 1.0 (opaque).
 
 ### 2.3 Native element construction
 
@@ -484,7 +507,11 @@ For semantic classification, see [semantics.md](./semantics.md).
 | Function | Return type |
 |---|---|
 | `get_line_text(line)` | `Option<String>` |
+| `get_lines_text(start, end)` | `Vec<String>` |
+| `get_lines_atoms(start, end)` | `Vec<Vec<Atom>>` |
 | `is_line_dirty(line)` | `bool` |
+
+`get_lines_text` and `get_lines_atoms` (WIT v0.18.0) retrieve all lines in the `[start, end)` range in a single host call, avoiding per-line round-trip overhead.
 
 **Status bar (Tier 1):**
 
@@ -752,7 +779,51 @@ Default: `DirtyFlags::ALL` (always re-collect — safe fallback for backward com
 
 The correctness invariant is: declared deps must be a superset of actual deps. If `view_deps()` omits a flag that a view method actually depends on, stale contributions may persist until the next matching dirty event.
 
-### 4.3 PaintHook
+### 4.3 Cell Decorations (WIT v0.19.0)
+
+`decorate_cells()` applies face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line level, cell decorations target arbitrary screen coordinates and are composable across plugins.
+
+**`CellDecoration` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `target` | `DecorationTarget` | Where to apply the decoration |
+| `face` | `Face` | The face to apply |
+| `merge` | `FaceMerge` | How to merge with the existing cell face |
+| `priority` | `i16` | Lower priority decorations are applied first |
+
+**`DecorationTarget` variants:**
+
+| Variant | Description |
+|---|---|
+| `Cell(coord)` | A single cell at the given buffer coordinate |
+| `Range { start, end }` | A contiguous range of cells (inclusive) |
+| `Column { column }` | An entire column across all visible rows |
+
+**`FaceMerge` modes:**
+
+| Mode | WASM value | Description |
+|---|---|---|
+| `Replace` | `0` | Completely replace the existing face |
+| `Overlay` | `1` | Overlay non-default fields onto the existing face |
+| `Background` | `2` | Only apply the background color |
+
+**Native (Plugin trait):**
+
+```rust
+fn decorate_cells(&self, state: &Self::State, app: &AppView<'_>) -> Vec<CellDecoration> {
+    vec![CellDecoration {
+        target: DecorationTarget::Cell(Coord { line: app.cursor_line() as u32, column: 0 }),
+        face: Face { bg: Some(Color::Rgb(40, 40, 40)), ..Default::default() },
+        merge: FaceMerge::Background,
+        priority: 0,
+    }]
+}
+```
+
+**WASM:** Implement `decorate-cells()` in the guest, returning `list<cell-decoration>`.
+
+### 4.4 PaintHook
 
 `PaintHook` is a native-only hook that directly manipulates the `CellGrid` after paint, bypassing the `Element` tree. This is a **provisional escape hatch** and not intended as a long-term public API. It should be treated with the assumption that it will be redesigned into a higher-level render hook accessible from WASM, rather than direct `CellGrid` manipulation.
 
@@ -771,7 +842,7 @@ impl PaintHook for MyHighlightHook {
 }
 ```
 
-## 4.4 SDK Helpers
+## 4.5 SDK Helpers
 
 The `kasane_plugin_sdk::generate!()` macro emits the following helper functions alongside WIT bindings, reducing boilerplate for common operations.
 

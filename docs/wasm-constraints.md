@@ -114,11 +114,11 @@ The following `AppState` fields have no corresponding `host-state` getter:
 
 These gaps block certain plugin categories. For example, a "selection highlight" plugin cannot be written in WASM because selection state is not exposed.
 
-### Bulk Buffer Access \[Not Yet Implemented\]
+### Bulk Buffer Access \[Resolved — WIT v0.18.0\]
 
-Buffer content is accessed one line at a time via `get_line_text(line_index)`. There is no bulk access API for reading multiple lines or the entire buffer in a single call.
+~~Buffer content is accessed one line at a time via `get_line_text(line_index)`.~~
 
-> Workaround: Iterate line-by-line using `get_line_count()` and `get_line_text()`. For large buffers, use `is_line_dirty()` to skip unchanged lines.
+Since WIT v0.18.0, bulk retrieval is available via `get-lines-text(start, end)` and `get-lines-atoms(start, end)`. These return all lines in the given range in a single host call, eliminating per-line round-trip overhead.
 
 ## Command API
 

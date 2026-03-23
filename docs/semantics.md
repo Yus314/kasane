@@ -283,6 +283,8 @@ TUI and GUI differ in output representation.
 
 However, both are required to display the same UI structure and the same semantic content for the same state. The backend's freedom is limited to "how to draw it."
 
+One intentional exception is `Element::Image`: the GPU backend renders raster images natively, while the TUI backend displays a text placeholder (e.g., `[IMAGE: filename]`). The semantic content (presence and position of the image element) is identical; only the visual fidelity differs.
+
 ### 5.5 What Constitutes an Observable Result
 
 Kasane's observational equivalence is defined not by the state of internal caches but by the finally observable rendering result.
@@ -420,6 +422,7 @@ Kasane's UI extensions are primarily composed of the following mechanisms.
 
 - Contribution (`contribute_to`)
 - Line Annotation (`annotate_line_with_ctx`)
+- Cell Decoration (`decorate_cells`)
 - Overlay (`contribute_overlay_with_ctx`)
 - Transform (`transform`)
 - Menu Item Transform (`transform_menu_item`)
@@ -441,6 +444,14 @@ These extension points are available to both native plugins (`Plugin` / `PluginB
 `annotate_line_with_ctx()` is a mechanism for extending the gutter and background of each buffer line. It does not modify the buffer content itself but provides per-line visual contributions (`LineAnnotation`). Contributions from multiple plugins are composed through `BackgroundLayer` and `z_order`.
 
 **Inline decoration uniqueness**: At most one plugin may provide an inline decoration per buffer line. This constraint is enforced in both debug and release builds with first-wins semantics: the first plugin (by registration order) that provides an inline decoration for a given line wins, and subsequent providers are dropped with a `tracing::warn!` diagnostic.
+
+### 8.3.1 Cell Decoration
+
+`decorate_cells()` applies face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line-level gutter/background, cell decorations target arbitrary screen coordinates (e.g., bracket match highlights, column guides).
+
+Decorations from multiple plugins are collected, sorted by `priority` (ascending), and applied in order. The `FaceMerge` mode determines how each decoration interacts with the existing cell face: `Replace` overwrites entirely, `Overlay` merges non-default fields, `Background` applies only the background color.
+
+Cell decorations are available to both native plugins (`Plugin::decorate_cells`, `PluginBackend::decorate_cells`) and WASM plugins (`decorate-cells()` in WIT v0.19.0).
 
 ### 8.4 Overlay
 
