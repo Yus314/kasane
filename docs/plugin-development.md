@@ -449,7 +449,9 @@ See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
 | color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
 | fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
 | session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
+| pane-manager | `examples/wasm/pane-manager/` | Workspace authority, pane split/focus commands |
 | smooth-scroll | `examples/wasm/smooth-scroll/` | `handle_default_scroll()`, `ScrollPolicyResult::Plan` |
+| image-preview | `examples/wasm/image-preview/` | `create_image()`, `annotate_line()`, Image element (GPU) |
 | line-numbers (native) | `examples/line-numbers/` | `Plugin` trait with `PluginBridge`, `contribute_to()`, `kasane::run()` |
 | virtual-text-demo (native) | `examples/virtual-text-demo/` | `Plugin` trait, `display_directives()`, `contribute_to()`, `handle_key()`, virtual text insertion |
 

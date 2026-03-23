@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **wasm**: Expose buffer file path via `get-buffer-file-path` (WIT v0.15.0)
+- **inline**: Add `InlineOp::Insert` for inline virtual text insertion (WIT v0.16.0)
+- **display**: Add `DisplayDirective::InsertBefore` for virtual text before buffer lines (WIT v0.17.0)
+- **wasm**: Add bulk buffer line retrieval APIs `get-lines-text`, `get-lines-atoms` (WIT v0.18.0)
+- **plugin**: Add cursor decoration plugin extension APIs with `decorate_cells()` (WIT v0.19.0)
+- **core**: Add `Element::Image` type for GPU rendering with TUI text placeholder fallback
+- **gui**: Implement Image element GPU rendering pipeline with texture caching
+- **wasm**: Add image element API `create-image` for WASM plugins (WIT v0.20.0)
+- **wasm**: Add `image-preview` WASM plugin example
+- **plugin**: Implement EOL virtual text (Phase VT-1)
+- **display**: Implement display scroll offset for virtual line overflow
+
+### Fixed
+
+- **gui**: Add gamma-correct sRGB→linear conversion in GPU shaders
+- **gui**: Fix unlimited frame rate and improve GPU backend
+- **core**: Comprehensive color/face system remediation
+
 ## [0.2.0] - 2026-03-23
 
 ### Highlights

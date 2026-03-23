@@ -109,5 +109,6 @@ kasane --ui gui file.txt
 - **System font rendering** — use any monospace font installed on your system, with fallback chains for CJK and emoji
 - **Smooth animations** — cursor blinking, scroll animations at native refresh rate
 - **Native window management** — resizable window, fullscreen toggle (F11), maximize
+- **Inline image display** — plugins can render raster images directly in the editor via `Element::Image` (TUI falls back to a text placeholder)
 
 See [config.md](config.md#gui-backend) for setup and configuration.

@@ -78,10 +78,14 @@ Completed (first slice):
 
 - P-030: Display transformation hook — `display_directives()` API on `Plugin` / `PluginBackend`
 - P-031: Composition rules — `DirectiveSet` monoid + `resolve()` with priority-based composition
-- P-033: Plugin-defined transformation API — `DisplayDirective` enum (`Fold`, `InsertAfter`, `Hide`)
+- P-033: Plugin-defined transformation API — `DisplayDirective` enum (`Fold`, `InsertAfter`, `InsertBefore`, `Hide`)
 - P-034: Read-only / restricted interaction policy — `InteractionPolicy` enum, `SourceMapping`
 - Core `DisplayMap` with O(1) bidirectional mapping, integrated into paint, cursor, input, and patch layers
 - WASM WIT extension: `display-directives` function for WASM plugins (host conversion, adapter, roundtrip tests)
+- `InsertBefore` directive for virtual text before buffer lines (WIT v0.17.0)
+- `InlineOp::Insert` for inline virtual text insertion within buffer lines (WIT v0.16.0)
+- EOL virtual text (Phase VT-1) — append virtual atoms after buffer line content
+- Display scroll offset for virtual line overflow
 - Proof artifact: `examples/virtual-text-demo/`
 
 Remaining work:
@@ -128,7 +132,7 @@ Next deliverable: Select either D-001 or P-023 as the first slice and land it on
 | Phase 1 | MVP (TUI core features + declarative UI foundation) | ✓ Complete | Element + TEA + basic slots |
 | Phase 2 | Enhanced floating windows + plugin foundation | ✓ Complete | Some items moved to subsequent workstreams |
 | Phase 3 | Input, clipboard, and scroll enhancements | ✓ Complete | Basic input features on the TUI side are complete |
-| Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete |
+| Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete. Image element GPU pipeline + texture cache landed |
 | Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Remaining operational issues consolidated into `WASM runtime operations` |
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
 | Phase 5 | Surface / Workspace / multi-pane foundation | Foundation complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish ongoing |

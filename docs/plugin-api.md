@@ -823,6 +823,31 @@ fn decorate_cells(&self, state: &Self::State, app: &AppView<'_>) -> Vec<CellDeco
 
 **WASM:** Implement `decorate-cells()` in the guest, returning `list<cell-decoration>`.
 
+### 4.3.1 Cursor Style Override (WIT v0.19.0)
+
+`cursor_style_override()` allows a plugin to change the cursor shape. If multiple plugins return a value, the first non-`None` result wins (by registration order).
+
+**Return values (WASM `option<u8>`):**
+
+| Value | Shape |
+|---|---|
+| `0` | Block (default) |
+| `1` | Bar |
+| `2` | Underline |
+| `3` | Outline (hollow block) |
+
+**Native (Plugin trait):**
+
+```rust
+fn cursor_style_override(
+    &self, state: &Self::State, app: &AppView<'_>,
+) -> Option<CursorStyleHint> {
+    Some(CursorStyleHint::Bar)
+}
+```
+
+**WASM:** Implement `cursor-style-override()` returning `option<u8>`.
+
 ### 4.4 PaintHook
 
 `PaintHook` is a native-only hook that directly manipulates the `CellGrid` after paint, bypassing the `Element` tree. This is a **provisional escape hatch** and not intended as a long-term public API. It should be treated with the assumption that it will be redesigned into a higher-level render hook accessible from WASM, rather than direct `CellGrid` manipulation.

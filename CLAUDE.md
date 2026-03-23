@@ -14,7 +14,7 @@ cargo build                              # TUI only
 cargo build --features gui               # Include GPU backend
 
 # Test
-cargo test                               # All tests (~1000)
+cargo test                               # All tests (~1100)
 cargo test -p kasane-core                # Single crate
 cargo test -p kasane-core -- test_name   # Single test by name
 
@@ -45,7 +45,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros |
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
-| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll |
+| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll, image-preview |
 | `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
 | `tools/wasm-test/` | WASM integration test binary |
 
