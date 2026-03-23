@@ -252,6 +252,12 @@ pub struct AppState {
     #[epistemic(runtime)]
     #[dirty(free)]
     pub cursor_cache: derived::CursorCache,
+    /// Display scroll offset from the last rendered frame.
+    /// Used by mouse input to translate screen coordinates to display line coordinates.
+    /// Set by the rendering pipeline after each frame; not part of protocol state.
+    #[epistemic(runtime)]
+    #[dirty(free)]
+    pub display_scroll_offset: usize,
 }
 
 impl AppState {
@@ -348,6 +354,7 @@ impl AppState {
             theme: _,
             session_descriptors: _,
             active_session_key: _,
+            display_scroll_offset: _,
         } = d;
 
         self.lines = lines;
@@ -473,6 +480,7 @@ impl Default for AppState {
             rows: 24,
             hit_map: HitMap::new(),
             cursor_cache: derived::CursorCache::default(),
+            display_scroll_offset: 0,
         }
     }
 }

@@ -139,6 +139,7 @@ fn default_result() -> RenderResult {
         cursor_x: 0,
         cursor_y: 0,
         cursor_style: CursorStyle::Block,
+        display_scroll_offset: 0,
     }
 }
 

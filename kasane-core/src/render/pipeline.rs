@@ -102,6 +102,7 @@ fn compute_render_result(
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
+    display_scroll_offset: u16,
 ) -> RenderResult {
     let style = cursor_style(state, registry);
     let (cx, cy) = match state.cursor_mode {
@@ -112,6 +113,7 @@ fn compute_render_result(
                 .and_then(|dm| dm.buffer_to_display(state.cursor_pos.line as usize))
                 .map(|y| y as u16)
                 .unwrap_or(state.cursor_pos.line as u16)
+                .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;
             (cx, cy)
         }
@@ -130,6 +132,7 @@ fn compute_render_result(
         cursor_x: cx,
         cursor_y: cy,
         cursor_style: style,
+        display_scroll_offset: display_scroll_offset as usize,
     }
 }
 
@@ -168,6 +171,7 @@ pub(crate) struct PreparedFrame {
     pub root_area: Rect,
     pub buffer_x_offset: u16,
     pub buffer_y_offset: u16,
+    pub display_scroll_offset: usize,
     pub focused_pane_rect: Option<Rect>,
     pub focused_pane_state: Option<Box<AppState>>,
 }
@@ -185,6 +189,7 @@ pub(crate) fn prepare_frame(
     source.prepare(dirty, registry);
     let mut sections = source.view_sections(state, registry);
     let display_map = std::sync::Arc::clone(&sections.display_map);
+    let display_scroll_offset = sections.display_scroll_offset;
     let root_area = Rect {
         x: 0,
         y: 0,
@@ -212,6 +217,7 @@ pub(crate) fn prepare_frame(
         root_area,
         buffer_x_offset,
         buffer_y_offset,
+        display_scroll_offset,
         focused_pane_rect,
         focused_pane_state,
     }
@@ -234,6 +240,7 @@ pub(crate) fn render_cached_core(
 
     let frame = prepare_frame(source, state, registry, dirty);
     let dm = dm_ref(&frame.display_map);
+    let dso = frame.display_scroll_offset as u16;
     let root_area = frame.root_area;
 
     let (element, layout_result) =
@@ -258,7 +265,15 @@ pub(crate) fn render_cached_core(
 
     // In multi-pane mode, remove cursor highlighting from unfocused panes
     if let Some(ref focus_rect) = frame.focused_pane_rect {
-        neutralize_unfocused_cursors(cursor_state, &element, &layout_result, grid, focus_rect, dm);
+        neutralize_unfocused_cursors(
+            cursor_state,
+            &element,
+            &layout_result,
+            grid,
+            focus_rect,
+            dm,
+            dso,
+        );
     }
 
     // Differentiate secondary cursor faces before clearing primary cursor
@@ -268,6 +283,7 @@ pub(crate) fn render_cached_core(
         frame.buffer_x_offset,
         dm,
         frame.buffer_y_offset,
+        dso,
     );
 
     let style = cursor_style(cursor_state, registry);
@@ -278,6 +294,7 @@ pub(crate) fn render_cached_core(
         frame.buffer_x_offset,
         dm,
         frame.buffer_y_offset,
+        dso,
     );
     let (cx, cy) = cursor_position(
         cursor_state,
@@ -285,12 +302,14 @@ pub(crate) fn render_cached_core(
         frame.buffer_x_offset,
         dm,
         frame.buffer_y_offset,
+        dso,
     );
 
     RenderResult {
         cursor_x: cx,
         cursor_y: cy,
         cursor_style: style,
+        display_scroll_offset: frame.display_scroll_offset,
     }
 }
 
@@ -312,6 +331,7 @@ pub(crate) fn scene_render_core<'a>(
 
     let frame = prepare_frame(source, state, registry, dirty);
     let dm = dm_ref(&frame.display_map);
+    let dso = frame.display_scroll_offset as u16;
     let root_area = frame.root_area;
 
     // Use focused pane state for cursor computation in multi-pane mode
@@ -322,6 +342,7 @@ pub(crate) fn scene_render_core<'a>(
         frame.buffer_x_offset,
         dm,
         frame.buffer_y_offset,
+        dso,
     );
 
     // Fast path: all sections cached

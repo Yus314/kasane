@@ -904,6 +904,7 @@ where
                 pane_states_opt,
             );
             self.last_render_result = Some(result);
+            self.state.display_scroll_offset = result.display_scroll_offset;
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
                 cell_size,

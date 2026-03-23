@@ -150,12 +150,13 @@ pub fn mouse_to_kakoune(
     event: &MouseEvent,
     scroll_amount: i32,
     display_map: Option<&crate::display::DisplayMap>,
+    display_scroll_offset: usize,
 ) -> Option<crate::protocol::KasaneRequest> {
     use crate::display::InteractionPolicy;
     use crate::protocol::KasaneRequest;
 
     let (line, column) = if let Some(dm) = display_map.filter(|dm| !dm.is_identity()) {
-        let display_y = event.line as usize;
+        let display_y = event.line as usize + display_scroll_offset;
         // Check interaction policy — skip ReadOnly/Skip lines
         if let Some(entry) = dm.entry(display_y) {
             match entry.interaction {
@@ -166,7 +167,7 @@ pub fn mouse_to_kakoune(
         let buffer_line = dm.display_to_buffer(display_y).unwrap_or(display_y) as u32;
         (buffer_line, event.column)
     } else {
-        (event.line, event.column)
+        (event.line + display_scroll_offset as u32, event.column)
     };
 
     match event.kind {
@@ -379,7 +380,7 @@ mod tests {
             column: 10,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
         assert_eq!(
             req,
             KasaneRequest::MousePress {
@@ -400,7 +401,7 @@ mod tests {
             column: 7,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 3, column: 7 });
     }
 
@@ -414,7 +415,7 @@ mod tests {
             column: 2,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
         assert_eq!(req, KasaneRequest::MouseMove { line: 1, column: 2 });
     }
 
@@ -455,7 +456,7 @@ mod tests {
             column: 0,
             modifiers: Modifiers::empty(),
         };
-        let req = mouse_to_kakoune(&evt, 3, None).unwrap();
+        let req = mouse_to_kakoune(&evt, 3, None, 0).unwrap();
         assert_eq!(
             req,
             KasaneRequest::Scroll {

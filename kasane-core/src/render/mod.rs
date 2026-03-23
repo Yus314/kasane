@@ -47,4 +47,7 @@ pub struct RenderResult {
     pub cursor_x: u16,
     pub cursor_y: u16,
     pub cursor_style: CursorStyle,
+    /// Display scroll offset applied this frame.
+    /// Used to update `AppState::display_scroll_offset` for mouse coordinate translation.
+    pub display_scroll_offset: usize,
 }

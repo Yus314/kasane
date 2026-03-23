@@ -741,6 +741,7 @@ impl SurfaceRegistry {
             plugin_overlays,
             surface_reports: base_result.surface_reports,
             display_map,
+            display_scroll_offset: 0,
             focused_pane_rect,
             focused_pane_state,
         }

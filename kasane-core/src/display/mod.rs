@@ -459,6 +459,36 @@ impl DisplayMap {
     }
 }
 
+/// Compute the display scroll offset so the cursor remains visible.
+///
+/// When plugins insert virtual lines (e.g. `InsertAfter`), the display line
+/// count may exceed the viewport height.  This function returns the first
+/// display line that should be rendered so the cursor stays on-screen.
+///
+/// Returns 0 for identity maps or when the content fits in the viewport.
+pub fn compute_display_scroll_offset(
+    display_map: &DisplayMap,
+    cursor_buffer_line: usize,
+    visible_height: usize,
+) -> usize {
+    if display_map.is_identity() {
+        return 0;
+    }
+    let display_total = display_map.display_line_count();
+    if display_total <= visible_height {
+        return 0;
+    }
+    let cursor_display_y = display_map
+        .buffer_to_display(cursor_buffer_line)
+        .unwrap_or(cursor_buffer_line);
+    if cursor_display_y < visible_height {
+        return 0;
+    }
+    let offset = cursor_display_y - visible_height + 1;
+    let max_offset = display_total.saturating_sub(visible_height);
+    offset.min(max_offset)
+}
+
 #[cfg(test)]
 pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) {
     assert_eq!(

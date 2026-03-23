@@ -455,11 +455,18 @@ fn test_field_dirty_map_matches_macro_analysis() {
 
 #[test]
 fn test_free_read_fields_match() {
-    let expected_free: HashSet<&str> =
-        ["cols", "rows", "focused", "drag", "hit_map", "cursor_cache"]
-            .iter()
-            .copied()
-            .collect();
+    let expected_free: HashSet<&str> = [
+        "cols",
+        "rows",
+        "focused",
+        "drag",
+        "hit_map",
+        "cursor_cache",
+        "display_scroll_offset",
+    ]
+    .iter()
+    .copied()
+    .collect();
     let actual_free: HashSet<&str> = AppState::FREE_READ_FIELDS.iter().copied().collect();
     assert_eq!(actual_free, expected_free);
 }
@@ -508,13 +515,14 @@ fn test_field_epistemic_map_complete() {
         // Session (2)
         ("session_descriptors", "session"),
         ("active_session_key", "session"),
-        // Runtime (6)
+        // Runtime (7)
         ("focused", "runtime"),
         ("drag", "runtime"),
         ("cols", "runtime"),
         ("rows", "runtime"),
         ("hit_map", "runtime"),
         ("cursor_cache", "runtime"),
+        ("display_scroll_offset", "runtime"),
     ]);
 
     let actual: HashMap<&str, &str> = AppState::FIELD_EPISTEMIC_MAP.iter().copied().collect();

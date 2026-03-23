@@ -270,6 +270,154 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
     ]
 }
 
+// --- compute_display_scroll_offset tests ---
+
+#[test]
+fn scroll_offset_identity_map_returns_zero() {
+    let dm = DisplayMap::identity(20);
+    assert_eq!(super::compute_display_scroll_offset(&dm, 15, 10), 0);
+}
+
+#[test]
+fn scroll_offset_content_fits_returns_zero() {
+    // 5 buffer lines + 2 InsertAfter = 7 display lines, viewport = 10
+    let directives = vec![
+        DisplayDirective::InsertAfter {
+            after: 1,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v1".into(),
+            }],
+        },
+        DisplayDirective::InsertAfter {
+            after: 3,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v2".into(),
+            }],
+        },
+    ];
+    let dm = DisplayMap::build(5, &directives);
+    assert_eq!(dm.display_line_count(), 7);
+    assert_eq!(super::compute_display_scroll_offset(&dm, 4, 10), 0);
+}
+
+#[test]
+fn scroll_offset_cursor_in_visible_area_returns_zero() {
+    // 10 buffer lines + 5 InsertAfter = 15 display lines, viewport = 10
+    let directives: Vec<_> = (0..5)
+        .map(|i| DisplayDirective::InsertAfter {
+            after: i,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v".into(),
+            }],
+        })
+        .collect();
+    let dm = DisplayMap::build(10, &directives);
+    assert_eq!(dm.display_line_count(), 15);
+    // Cursor at buffer line 3 → display line depends on InsertAfter placement
+    // Buffer 0 → display 0, virtual → display 1
+    // Buffer 1 → display 2, virtual → display 3
+    // Buffer 2 → display 4, virtual → display 5
+    // Buffer 3 → display 6, virtual → display 7
+    // display_y = 6, visible_height = 10, 6 < 10 → offset = 0
+    assert_eq!(super::compute_display_scroll_offset(&dm, 3, 10), 0);
+}
+
+#[test]
+fn scroll_offset_cursor_below_visible_area() {
+    // 10 buffer lines + 5 InsertAfter = 15 display lines, viewport = 5
+    let directives: Vec<_> = (0..5)
+        .map(|i| DisplayDirective::InsertAfter {
+            after: i,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v".into(),
+            }],
+        })
+        .collect();
+    let dm = DisplayMap::build(10, &directives);
+    assert_eq!(dm.display_line_count(), 15);
+    // Cursor at buffer line 8 → display line 13 (8 + 5 virtual lines before it)
+    // offset = 13 - 5 + 1 = 9
+    let offset = super::compute_display_scroll_offset(&dm, 8, 5);
+    assert_eq!(offset, 9);
+}
+
+#[test]
+fn scroll_offset_cursor_at_last_visible_line_returns_zero() {
+    // 10 buffer lines + 5 InsertAfter = 15 display lines, viewport = 10
+    let directives: Vec<_> = (0..5)
+        .map(|i| DisplayDirective::InsertAfter {
+            after: i,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v".into(),
+            }],
+        })
+        .collect();
+    let dm = DisplayMap::build(10, &directives);
+    // Cursor at buffer line 4 → display line 9 (4 buffer + 5 virtual = display 9)
+    // 9 < 10 → offset = 0
+    assert_eq!(super::compute_display_scroll_offset(&dm, 4, 10), 0);
+}
+
+#[test]
+fn scroll_offset_clamped_to_max() {
+    // 6 buffer lines + 3 InsertAfter = 9 display lines, viewport = 5
+    let directives: Vec<_> = (0..3)
+        .map(|i| DisplayDirective::InsertAfter {
+            after: i,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v".into(),
+            }],
+        })
+        .collect();
+    let dm = DisplayMap::build(6, &directives);
+    assert_eq!(dm.display_line_count(), 9);
+    // max_offset = 9 - 5 = 4
+    // Cursor at buffer line 5 → display line 8
+    // raw offset = 8 - 5 + 1 = 4, max = 4, clamped = 4
+    let offset = super::compute_display_scroll_offset(&dm, 5, 5);
+    assert_eq!(offset, 4);
+}
+
+#[test]
+fn scroll_offset_multiple_insert_after_at_end() {
+    // 3 buffer lines + 3 InsertAfter after line 0 = 6 display lines
+    let directives = vec![
+        DisplayDirective::InsertAfter {
+            after: 0,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v1".into(),
+            }],
+        },
+        DisplayDirective::InsertAfter {
+            after: 0,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v2".into(),
+            }],
+        },
+        DisplayDirective::InsertAfter {
+            after: 0,
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "v3".into(),
+            }],
+        },
+    ];
+    let dm = DisplayMap::build(3, &directives);
+    assert_eq!(dm.display_line_count(), 6);
+    // viewport = 3, cursor at buffer line 2 → display line 5
+    // offset = 5 - 3 + 1 = 3, max = 6 - 3 = 3
+    let offset = super::compute_display_scroll_offset(&dm, 2, 3);
+    assert_eq!(offset, 3);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 

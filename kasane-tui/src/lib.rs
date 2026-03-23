@@ -415,6 +415,7 @@ where
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
             }
             backend.present(&mut grid, result)?;
+            state.display_scroll_offset = result.display_scroll_offset;
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
 
             let frame_ms = render_start.elapsed().as_secs_f64() * 1000.0;

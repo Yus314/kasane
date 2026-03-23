@@ -77,7 +77,13 @@ impl ViewSource for SalsaViewSource<'_> {
         let is_multi_pane = self.surface_registry.is_some_and(|sr| sr.is_multi_pane());
 
         // --- Base section (buffer + status + slots + annotations) ---
-        let (base_el, surface_reports, focused_pane_rect, focused_pane_state) = if is_multi_pane {
+        let (
+            base_el,
+            surface_reports,
+            focused_pane_rect,
+            focused_pane_state,
+            display_scroll_offset,
+        ) = if is_multi_pane {
             let sr = self
                 .surface_registry
                 .expect("surface_registry present when is_multi_pane");
@@ -94,17 +100,19 @@ impl ViewSource for SalsaViewSource<'_> {
                 .pane_states
                 .and_then(|ps| ps.state_for_surface(focused))
                 .map(|s| Box::new(s.clone()));
+            // Multi-pane: each pane computes its own offset; use 0 for the top-level
             (
                 result.base.unwrap_or(Element::Empty),
                 result.surface_reports,
                 focused_rect,
                 focused_state,
+                0usize,
             )
         } else {
             let status_el = salsa_views::pure_status_element(db, h.status);
             let buffer_el = salsa_views::pure_buffer_element(db, h.config);
             let display_map_ref = salsa_views::display_map_query(db, h.display_directives);
-            let base = compose_base_from_salsa(
+            let (base, salsa_display_scroll_offset) = compose_base_from_salsa(
                 buffer_el,
                 status_el,
                 state,
@@ -113,7 +121,7 @@ impl ViewSource for SalsaViewSource<'_> {
                 db,
                 h,
             );
-            (base, vec![], None, None)
+            (base, vec![], None, None, salsa_display_scroll_offset)
         };
 
         // --- Menu overlay ---
@@ -202,6 +210,7 @@ impl ViewSource for SalsaViewSource<'_> {
             plugin_overlays,
             surface_reports,
             display_map,
+            display_scroll_offset,
             focused_pane_rect,
             focused_pane_state,
         }
@@ -219,7 +228,7 @@ fn compose_base_from_salsa(
     display_map: &crate::display::DisplayMapRef,
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
-) -> Element {
+) -> (Element, usize) {
     use std::sync::Arc;
 
     let buffer_rows = state.available_height() as usize;
@@ -235,19 +244,26 @@ fn compose_base_from_salsa(
     let right_gutter = handles.annotations.right_gutter(db).clone();
     let inline_decorations = handles.annotations.inline_decorations(db).clone();
 
-    // When a non-identity DisplayMap is active, line_range must reflect
-    // the display line count (which is fewer than buffer lines after fold).
-    let effective_rows = if !display_map.is_identity() {
-        display_map.display_line_count().min(buffer_rows)
+    // When a non-identity DisplayMap is active, compute scroll offset so
+    // the cursor stays visible, then use offset-based line_range.
+    let (effective_start, effective_end, display_scroll_offset) = if !display_map.is_identity() {
+        let visible_height = display_map.display_line_count().min(buffer_rows);
+        let offset = crate::display::compute_display_scroll_offset(
+            display_map,
+            state.cursor_pos.line as usize,
+            visible_height,
+        );
+        let end = (offset + visible_height).min(display_map.display_line_count());
+        (offset, end, offset)
     } else {
-        buffer_rows
+        (0, buffer_rows, 0)
     };
 
     // Incorporate line backgrounds, display_map, and inline decorations into buffer element
     let buffer_with_bg =
         if line_backgrounds.is_some() || dm_for_element.is_some() || inline_decorations.is_some() {
             Element::BufferRef {
-                line_range: 0..effective_rows,
+                line_range: effective_start..effective_end,
                 line_backgrounds,
                 display_map: dm_for_element,
                 state: None,
@@ -334,7 +350,7 @@ fn compose_base_from_salsa(
     };
 
     // Compose buffer + status based on status_at_top config
-    if state.status_at_top {
+    let element = if state.status_at_top {
         Element::column(vec![
             FlexChild::fixed(status_section),
             FlexChild::flexible(buffer_section, 1.0),
@@ -344,7 +360,8 @@ fn compose_base_from_salsa(
             FlexChild::flexible(buffer_section, 1.0),
             FlexChild::fixed(status_section),
         ])
-    }
+    };
+    (element, display_scroll_offset)
 }
 
 // ---------------------------------------------------------------------------

@@ -142,6 +142,7 @@ pub fn neutralize_unfocused_cursors(
     grid: &mut CellGrid,
     focus_rect: &crate::layout::Rect,
     display_map: Option<&DisplayMap>,
+    display_scroll_offset: u16,
 ) {
     let mut origins = Vec::new();
     collect_buffer_origins(element, layout, &mut origins);
@@ -168,6 +169,7 @@ pub fn neutralize_unfocused_cursors(
                 }
             })
             .unwrap_or(state.cursor_pos.line as u16)
+            .saturating_sub(display_scroll_offset)
             + oy;
         if let Some(cell) = grid.get_mut(cx, cy) {
             cell.face = state.default_face;
@@ -185,6 +187,7 @@ pub fn neutralize_unfocused_cursors(
                     }
                 })
                 .unwrap_or(coord.line as u16)
+                .saturating_sub(display_scroll_offset)
                 + oy;
             if let Some(cell) = grid.get_mut(sx, sy) {
                 cell.face = state.default_face;
@@ -203,6 +206,7 @@ pub fn cursor_position(
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
+    display_scroll_offset: u16,
 ) -> (u16, u16) {
     match state.cursor_mode {
         CursorMode::Buffer => {
@@ -217,6 +221,7 @@ pub fn cursor_position(
                     }
                 })
                 .unwrap_or(state.cursor_pos.line as u16)
+                .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;
             (cx, cy)
         }
@@ -262,6 +267,7 @@ pub fn clear_block_cursor_face(
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
+    display_scroll_offset: u16,
 ) {
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
@@ -279,6 +285,7 @@ pub fn clear_block_cursor_face(
                     }
                 })
                 .unwrap_or(state.cursor_pos.line as u16)
+                .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;
             (cx, cy)
         }
@@ -375,6 +382,7 @@ pub fn apply_secondary_cursor_faces(
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
+    display_scroll_offset: u16,
 ) {
     for coord in &state.secondary_cursors {
         let x = coord.column as u16 + buffer_x_offset;
@@ -387,6 +395,7 @@ pub fn apply_secondary_cursor_faces(
                 }
             })
             .unwrap_or(coord.line as u16)
+            .saturating_sub(display_scroll_offset)
             + buffer_y_offset;
         if let Some(cell) = grid.get_mut(x, y) {
             cell.face = make_secondary_cursor_face(

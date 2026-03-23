@@ -42,6 +42,13 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         })
         .collect();
 
+    let buffer_rows = state.available_height() as usize;
+    let display_scroll_offset = crate::display::compute_display_scroll_offset(
+        &display_map,
+        state.cursor_pos.line as usize,
+        buffer_rows,
+    );
+
     ViewSections {
         base: base.base.unwrap_or(Element::Empty),
         menu_overlay,
@@ -49,6 +56,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         plugin_overlays,
         surface_reports: base.surface_reports,
         display_map,
+        display_scroll_offset,
         focused_pane_rect: None,
         focused_pane_state: None,
     }
@@ -63,6 +71,9 @@ pub struct ViewSections {
     pub surface_reports: Vec<SurfaceRenderReport>,
     /// The active DisplayMap for the current frame (identity if no transforms).
     pub display_map: DisplayMapRef,
+    /// Display scroll offset: first display line to render.
+    /// Non-zero when virtual lines push the cursor below the viewport.
+    pub display_scroll_offset: usize,
     /// Multi-pane: focused pane rectangle. None = single pane.
     pub focused_pane_rect: Option<crate::layout::Rect>,
     /// Multi-pane: focused pane's AppState. When Some, cursor functions use this
@@ -307,17 +318,24 @@ pub(crate) fn build_buffer_core_parts(
     let annotations = registry.collect_annotations(&app_view, &annotate_ctx);
     let line_backgrounds = annotations.line_backgrounds;
     let inline_decorations = annotations.inline_decorations;
-    // When a non-identity DisplayMap is active, line_range must reflect
-    // the display line count (which is fewer than buffer lines after fold).
-    let effective_rows = if !display_map.is_identity() {
-        display_map.display_line_count().min(buffer_rows)
+    // When a non-identity DisplayMap is active, compute scroll offset so
+    // the cursor stays visible, then use offset-based line_range.
+    let (effective_start, effective_end, _display_scroll_offset) = if !display_map.is_identity() {
+        let visible_height = display_map.display_line_count().min(buffer_rows);
+        let offset = crate::display::compute_display_scroll_offset(
+            &display_map,
+            state.cursor_pos.line as usize,
+            visible_height,
+        );
+        let end = (offset + visible_height).min(display_map.display_line_count());
+        (offset, end, offset)
     } else {
-        buffer_rows
+        (0, buffer_rows, 0)
     };
     let buffer_element =
         if line_backgrounds.is_some() || dm_for_element.is_some() || inline_decorations.is_some() {
             Element::BufferRef {
-                line_range: 0..effective_rows,
+                line_range: effective_start..effective_end,
                 line_backgrounds,
                 display_map: dm_for_element,
                 state: None,
