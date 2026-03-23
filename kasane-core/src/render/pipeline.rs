@@ -1,5 +1,6 @@
+use super::cell_decoration;
 use super::cursor::{
-    apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style,
+    apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style_hint,
     find_buffer_origin_in_rect, find_buffer_x_offset, neutralize_unfocused_cursors,
 };
 use super::grid::CellGrid;
@@ -10,8 +11,8 @@ use crate::display::{DisplayMap, DisplayMapRef};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
-use crate::plugin::PaintHook;
 use crate::plugin::PluginView;
+use crate::plugin::{AppView, PaintHook};
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
 
@@ -104,7 +105,7 @@ fn compute_render_result(
     buffer_y_offset: u16,
     display_scroll_offset: u16,
 ) -> RenderResult {
-    let style = cursor_style(state, registry);
+    let hint = cursor_style_hint(state, registry);
     let (cx, cy) = match state.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
@@ -131,7 +132,9 @@ fn compute_render_result(
     RenderResult {
         cursor_x: cx,
         cursor_y: cy,
-        cursor_style: style,
+        cursor_style: hint.shape,
+        cursor_blink: hint.blink,
+        cursor_movement: hint.movement,
         display_scroll_offset: display_scroll_offset as usize,
     }
 }
@@ -260,6 +263,19 @@ pub(crate) fn render_cached_core(
         apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
     }
 
+    // Apply plugin cell decorations (bracket match, column highlight, etc.)
+    let cell_decorations = registry.collect_cell_decorations(&AppView::new(state));
+    if !cell_decorations.is_empty() {
+        cell_decoration::apply_cell_decorations(
+            &cell_decorations,
+            grid,
+            frame.buffer_x_offset,
+            dm,
+            frame.buffer_y_offset,
+            dso,
+        );
+    }
+
     // Use focused pane state for cursor operations in multi-pane mode
     let cursor_state = frame.focused_pane_state.as_deref().unwrap_or(state);
 
@@ -286,11 +302,11 @@ pub(crate) fn render_cached_core(
         dso,
     );
 
-    let style = cursor_style(cursor_state, registry);
+    let hint = cursor_style_hint(cursor_state, registry);
     clear_block_cursor_face(
         cursor_state,
         grid,
-        style,
+        hint.shape,
         frame.buffer_x_offset,
         dm,
         frame.buffer_y_offset,
@@ -308,7 +324,9 @@ pub(crate) fn render_cached_core(
     RenderResult {
         cursor_x: cx,
         cursor_y: cy,
-        cursor_style: style,
+        cursor_style: hint.shape,
+        cursor_blink: hint.blink,
+        cursor_movement: hint.movement,
         display_scroll_offset: frame.display_scroll_offset,
     }
 }

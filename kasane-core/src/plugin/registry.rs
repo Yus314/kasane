@@ -341,7 +341,10 @@ impl PluginRuntime {
 
     /// Query plugins for a cursor style override. Returns the first non-None.
     #[deprecated(note = "use registry.view().cursor_style_override() directly")]
-    pub fn cursor_style_override(&self, app: &AppView<'_>) -> Option<crate::render::CursorStyle> {
+    pub fn cursor_style_override(
+        &self,
+        app: &AppView<'_>,
+    ) -> Option<crate::render::CursorStyleHint> {
         self.view().cursor_style_override(app)
     }
 
@@ -1054,16 +1057,35 @@ impl<'a> PluginView<'a> {
     }
 
     /// Query plugins for a cursor style override. Returns the first non-None.
-    pub fn cursor_style_override(&self, state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
+    pub fn cursor_style_override(
+        &self,
+        state: &AppView<'_>,
+    ) -> Option<crate::render::CursorStyleHint> {
         for slot in self.slots.iter() {
             if !slot.capabilities.contains(PluginCapabilities::CURSOR_STYLE) {
                 continue;
             }
-            if let Some(style) = slot.backend.cursor_style_override(state) {
-                return Some(style);
+            if let Some(hint) = slot.backend.cursor_style_override(state) {
+                return Some(hint);
             }
         }
         None
+    }
+
+    /// Collect cell decorations from all participating plugins, sorted by priority.
+    pub fn collect_cell_decorations(&self, state: &AppView<'_>) -> Vec<super::CellDecoration> {
+        let mut all = Vec::new();
+        for slot in self.slots.iter() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::CELL_DECORATION)
+            {
+                continue;
+            }
+            all.extend(slot.backend.decorate_cells(state));
+        }
+        all.sort_by_key(|d| d.priority);
+        all
     }
 
     /// Collect paint hooks from all plugins.

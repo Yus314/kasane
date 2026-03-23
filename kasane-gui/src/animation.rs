@@ -2,12 +2,16 @@
 
 use std::time::Instant;
 
-/// Duration of cursor move animation (ease-out).
-const MOVE_DURATION: f32 = 0.1; // 100ms
-/// Delay after movement before blinking starts.
-const BLINK_DELAY: f32 = 0.5; // 500ms
-/// Period of one full blink cycle.
-const BLINK_PERIOD: f32 = 1.0; // 1s
+use kasane_core::render::{BlinkHint, EasingCurve, MovementHint};
+
+/// Default duration of cursor move animation (ease-out).
+const DEFAULT_MOVE_DURATION: f32 = 0.1; // 100ms
+/// Default delay after movement before blinking starts.
+const DEFAULT_BLINK_DELAY: f32 = 0.5; // 500ms
+/// Default period of one full blink cycle.
+const DEFAULT_BLINK_PERIOD: f32 = 1.0; // 1s
+/// Default minimum opacity during blink.
+const DEFAULT_MIN_OPACITY: f32 = 0.3;
 
 /// Computed cursor state for the current frame.
 pub struct CursorRenderState {
@@ -40,6 +44,14 @@ pub struct CursorAnimation {
     pub is_animating: bool,
     /// Whether the cursor has been initialized with a target.
     initialized: bool,
+    // --- Plugin-configurable parameters ---
+    blink_enabled: bool,
+    blink_delay: f32,
+    blink_period: f32,
+    min_opacity: f32,
+    move_enabled: bool,
+    move_duration: f32,
+    easing: EasingCurve,
 }
 
 impl Default for CursorAnimation {
@@ -62,6 +74,28 @@ impl CursorAnimation {
             last_frame: Instant::now(),
             is_animating: true, // Start with blink animation
             initialized: false,
+            blink_enabled: true,
+            blink_delay: DEFAULT_BLINK_DELAY,
+            blink_period: DEFAULT_BLINK_PERIOD,
+            min_opacity: DEFAULT_MIN_OPACITY,
+            move_enabled: true,
+            move_duration: DEFAULT_MOVE_DURATION,
+            easing: EasingCurve::EaseOut,
+        }
+    }
+
+    /// Apply plugin hints to override animation parameters.
+    pub fn apply_hints(&mut self, blink: Option<BlinkHint>, movement: Option<MovementHint>) {
+        if let Some(b) = blink {
+            self.blink_enabled = b.enabled;
+            self.blink_delay = b.delay_ms as f32 / 1000.0;
+            self.blink_period = b.period_ms as f32 / 1000.0;
+            self.min_opacity = b.min_opacity;
+        }
+        if let Some(m) = movement {
+            self.move_enabled = m.enabled;
+            self.move_duration = m.duration_ms as f32 / 1000.0;
+            self.easing = m.easing;
         }
     }
 
@@ -101,12 +135,17 @@ impl CursorAnimation {
         self.last_frame = now;
 
         // Advance move animation
-        if self.move_t < 1.0 {
-            self.move_t += dt / MOVE_DURATION;
+        if self.move_enabled && self.move_t < 1.0 {
+            let duration = self.move_duration.max(0.001);
+            self.move_t += dt / duration;
             if self.move_t >= 1.0 {
                 self.move_t = 1.0;
             }
-            let t = ease_out_cubic(self.move_t);
+            let t = match self.easing {
+                EasingCurve::Linear => self.move_t,
+                EasingCurve::EaseOut => ease_out_cubic(self.move_t),
+                EasingCurve::EaseInOut => ease_in_out_cubic(self.move_t),
+            };
             self.current_x = self.prev_x + (self.target_x - self.prev_x) * t;
             self.current_y = self.prev_y + (self.target_y - self.prev_y) * t;
         } else {
@@ -118,17 +157,22 @@ impl CursorAnimation {
         self.time_since_move += dt;
 
         // Compute opacity
-        let opacity = if self.time_since_move < BLINK_DELAY {
-            1.0 // Always visible right after movement
+        let opacity = if !self.blink_enabled || self.time_since_move < self.blink_delay {
+            1.0 // Fully visible when blink disabled or right after movement
         } else {
-            let blink_t = self.time_since_move - BLINK_DELAY;
-            let phase = (blink_t / BLINK_PERIOD * std::f32::consts::TAU).sin();
-            // Map sin(-1..1) to opacity(0.3..1.0) for a gentle blink
-            0.65 + 0.35 * phase
+            let blink_t = self.time_since_move - self.blink_delay;
+            let period = self.blink_period.max(0.001);
+            let phase = (blink_t / period * std::f32::consts::TAU).sin();
+            // Map sin(-1..1) to opacity(min_opacity..1.0)
+            let half_range = (1.0 - self.min_opacity) / 2.0;
+            (self.min_opacity + half_range) + half_range * phase
         };
 
         // Determine if we need to keep animating
-        self.is_animating = self.move_t < 1.0 || self.time_since_move < BLINK_DELAY + BLINK_PERIOD;
+        let move_active = self.move_enabled && self.move_t < 1.0;
+        let blink_active =
+            self.blink_enabled && self.time_since_move < self.blink_delay + self.blink_period;
+        self.is_animating = move_active || blink_active;
 
         CursorRenderState {
             x: self.current_x * cell_width,
@@ -143,16 +187,18 @@ impl CursorAnimation {
         if !self.is_animating {
             return None;
         }
-        if self.move_t < 1.0 {
+        if self.move_enabled && self.move_t < 1.0 {
             // Smooth 60fps move animation
             Some(self.last_frame + std::time::Duration::from_nanos(16_666_667))
-        } else if self.time_since_move < BLINK_DELAY {
+        } else if self.blink_enabled && self.time_since_move < self.blink_delay {
             // Waiting for blink to start — wake at blink start
-            let remaining = BLINK_DELAY - self.time_since_move;
+            let remaining = self.blink_delay - self.time_since_move;
             Some(self.last_frame + std::time::Duration::from_secs_f32(remaining))
-        } else {
+        } else if self.blink_enabled {
             // Blinking — 30fps is sufficient for sin wave
             Some(self.last_frame + std::time::Duration::from_nanos(33_333_333))
+        } else {
+            None
         }
     }
 
@@ -165,7 +211,10 @@ impl CursorAnimation {
     pub fn resume(&mut self) {
         self.last_frame = Instant::now();
         // Re-evaluate whether we should be animating
-        self.is_animating = self.move_t < 1.0 || self.time_since_move < BLINK_DELAY + BLINK_PERIOD;
+        let move_active = self.move_enabled && self.move_t < 1.0;
+        let blink_active =
+            self.blink_enabled && self.time_since_move < self.blink_delay + self.blink_period;
+        self.is_animating = move_active || blink_active;
     }
 }
 
@@ -173,6 +222,16 @@ impl CursorAnimation {
 fn ease_out_cubic(t: f32) -> f32 {
     let t = t - 1.0;
     t * t * t + 1.0
+}
+
+/// Ease-in-out cubic: accelerate then decelerate.
+fn ease_in_out_cubic(t: f32) -> f32 {
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        let t = 2.0 * t - 2.0;
+        0.5 * t * t * t + 1.0
+    }
 }
 
 #[cfg(test)]
@@ -221,7 +280,7 @@ mod tests {
 
         // After tick with initial snap, move_t = 1.0 and time_since_move ≈ 0.
         // Simulate enough time for blink cycle to complete.
-        anim.time_since_move = BLINK_DELAY + BLINK_PERIOD + 0.1;
+        anim.time_since_move = DEFAULT_BLINK_DELAY + DEFAULT_BLINK_PERIOD + 0.1;
         anim.move_t = 1.0;
         anim.tick(10.0, 20.0);
 

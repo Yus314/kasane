@@ -17,6 +17,7 @@
 //! | I-3 | `derive_cursor_mode`         | `content_cursor_pos >= 0` means prompt mode             | Degraded    | No              | Yes      |
 //! | I-4 | `split_single_item` (menu)   | Docstring atoms have non-Default fg after padding       | Cosmetic    | No              | No       |
 //! | I-6 | `make_secondary_cursor_face` | Cursor face uses `REVERSE` for visual highlight         | Cosmetic    | No              | No       |
+//! | I-7 | `detect_selections`          | Selection atoms have non-default bg adjacent to cursor  | Degraded    | No              | No       |
 //! | R-1 | `check_cursor_width_consistency` | `atom_display_width` matches Kakoune's width calc    | Catastrophic| Yes (Phase B)   | Yes      |
 //! | R-3 | `compute_lines_dirty`        | Line equality implies visual equality                   | Degraded    | No              | Yes      |
 
@@ -25,6 +26,44 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::protocol::{Atom, Attributes, Color, Coord, CursorMode, Face, Line};
 use crate::render::CursorStyle;
+
+/// Parsed editor mode derived from cursor mode and status mode line.
+///
+/// Provides a higher-level abstraction than `CursorMode` (which only distinguishes
+/// Buffer vs Prompt). `EditorMode` further classifies Buffer mode into Normal,
+/// Insert, and Replace based on the mode line heuristic (I-2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum EditorMode {
+    #[default]
+    Normal,
+    Insert,
+    Replace,
+    Prompt,
+    Unknown,
+}
+
+/// Derive the editor mode from cursor mode and status mode line.
+///
+/// Uses the same heuristic as `derive_cursor_style()` (I-2) but returns
+/// a semantic mode enum instead of a cursor shape.
+///
+/// - `CursorMode::Prompt` → `EditorMode::Prompt`
+/// - mode_line contains "insert" → `EditorMode::Insert`
+/// - mode_line contains "replace" → `EditorMode::Replace`
+/// - otherwise → `EditorMode::Normal`
+pub fn derive_editor_mode(cursor_mode: CursorMode, status_mode_line: &Line) -> EditorMode {
+    if cursor_mode == CursorMode::Prompt {
+        return EditorMode::Prompt;
+    }
+    status_mode_line
+        .iter()
+        .find_map(|atom| match atom.contents.as_str() {
+            "insert" => Some(EditorMode::Insert),
+            "replace" => Some(EditorMode::Replace),
+            _ => None,
+        })
+        .unwrap_or(EditorMode::Normal)
+}
 
 /// Detect all cursor positions (primary + secondary) from draw atoms.
 ///
@@ -468,6 +507,172 @@ pub fn check_primary_cursor_in_set(
         || cursor_count == secondary_cursors.len()
 }
 
+// ---------------------------------------------------------------------------
+// I-7: Selection range detection
+// ---------------------------------------------------------------------------
+
+/// A detected selection range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selection {
+    /// Start of the selection (earlier position in document order).
+    pub anchor: Coord,
+    /// End of the selection (cursor position).
+    pub cursor: Coord,
+    /// Whether this is the primary selection.
+    pub is_primary: bool,
+}
+
+/// Detect selection ranges from buffer atoms by scanning for contiguous runs of
+/// highlighted (non-default) atoms adjacent to each cursor position.
+///
+/// # Inference Rule: I-7
+/// **Assumption**: Selection atoms have a non-default face (bg != Default) that
+/// differs from the cursor face. The selection extends as a contiguous run
+/// on the same line from/to the cursor.
+/// **Failure mode**: If the theme uses default bg for selections, detection fails
+/// and an empty Vec is returned. Multi-line selections are currently
+/// detected per-line only (cross-line continuity not verified).
+/// **Severity**: Degraded (selection-dependent plugin features unavailable)
+pub fn detect_selections(
+    lines: &[Line],
+    primary_cursor_pos: Coord,
+    secondary_cursors: &[Coord],
+    default_face: &Face,
+) -> Vec<Selection> {
+    let mut all_cursors = vec![primary_cursor_pos];
+    all_cursors.extend_from_slice(secondary_cursors);
+
+    // Safety valve: too many cursors makes heuristic unreliable
+    if all_cursors.len() > 64 {
+        return Vec::new();
+    }
+
+    let mut selections = Vec::new();
+    for (i, &cursor_pos) in all_cursors.iter().enumerate() {
+        let is_primary = i == 0;
+        if let Some(sel) = detect_single_selection(lines, cursor_pos, default_face, is_primary) {
+            selections.push(sel);
+        }
+    }
+    selections
+}
+
+/// Detect the selection range around a single cursor position.
+///
+/// Scans the line containing the cursor for contiguous atoms with non-default
+/// bg that are adjacent to the cursor atom. Returns `None` if no selection
+/// face is detected (cursor-only, 1-char selection).
+fn detect_single_selection(
+    lines: &[Line],
+    cursor_pos: Coord,
+    default_face: &Face,
+    is_primary: bool,
+) -> Option<Selection> {
+    let line_idx = cursor_pos.line as usize;
+    let line = lines.get(line_idx)?;
+    let cursor_col = cursor_pos.column as u32;
+
+    // Build a column map: (start_col, end_col, face) for each atom
+    let mut segments: Vec<(u32, u32, Face)> = Vec::new();
+    let mut col: u32 = 0;
+    for atom in line.iter() {
+        let width = atom_display_width(atom);
+        if width > 0 {
+            segments.push((col, col + width, atom.face));
+        }
+        col += width;
+    }
+
+    // Find the cursor's segment index
+    let cursor_seg_idx = segments
+        .iter()
+        .position(|(start, end, _)| cursor_col >= *start && cursor_col < *end)?;
+
+    let cursor_face = segments[cursor_seg_idx].2;
+
+    // A selection face is any non-default bg face that differs from the cursor face.
+    // We look for atoms that share the same bg as the cursor OR have a non-default bg
+    // that looks like a selection highlight.
+    //
+    // Strategy: scan left and right from cursor, looking for atoms with non-default bg
+    // that aren't the cursor face itself. If the cursor has REVERSE attribute, the
+    // selection face typically shares bg or has a related highlight face.
+
+    // Determine the "selection bg" by looking at atoms adjacent to the cursor
+    let selection_bg = find_selection_bg(&segments, cursor_seg_idx, &cursor_face, default_face)?;
+
+    // Scan left from cursor
+    let mut sel_start_col = segments[cursor_seg_idx].0;
+    for i in (0..cursor_seg_idx).rev() {
+        let (start, _, face) = &segments[i];
+        if face.bg == selection_bg || (face.bg != default_face.bg && face.bg != Color::Default) {
+            sel_start_col = *start;
+        } else {
+            break;
+        }
+    }
+
+    // Scan right from cursor
+    let mut sel_end_col = segments[cursor_seg_idx].1.saturating_sub(1);
+    for (_, end, face) in &segments[(cursor_seg_idx + 1)..] {
+        if face.bg == selection_bg || (face.bg != default_face.bg && face.bg != Color::Default) {
+            sel_end_col = end.saturating_sub(1);
+        } else {
+            break;
+        }
+    }
+
+    // If the selection is just the cursor itself (1 char), return anchor == cursor
+    let anchor = Coord {
+        line: cursor_pos.line,
+        column: sel_start_col as i32,
+    };
+    let cursor_end = Coord {
+        line: cursor_pos.line,
+        column: sel_end_col as i32,
+    };
+
+    Some(Selection {
+        anchor,
+        cursor: cursor_end,
+        is_primary,
+    })
+}
+
+/// Find the background color used for selection highlighting by examining
+/// atoms adjacent to the cursor.
+fn find_selection_bg(
+    segments: &[(u32, u32, Face)],
+    cursor_idx: usize,
+    cursor_face: &Face,
+    default_face: &Face,
+) -> Option<Color> {
+    // Check immediate neighbors for a non-default, non-cursor bg
+    let neighbors = [
+        cursor_idx.checked_sub(1),
+        if cursor_idx + 1 < segments.len() {
+            Some(cursor_idx + 1)
+        } else {
+            None
+        },
+    ];
+
+    for idx in neighbors.into_iter().flatten() {
+        let face = &segments[idx].2;
+        if face.bg != Color::Default && face.bg != default_face.bg && face.bg != cursor_face.bg {
+            return Some(face.bg);
+        }
+    }
+
+    // If cursor itself has a non-default bg (e.g., REVERSE makes bg visible),
+    // use it as the selection indicator
+    if cursor_face.bg != Color::Default && cursor_face.bg != default_face.bg {
+        return Some(cursor_face.bg);
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,6 +886,53 @@ mod tests {
         let content = vec![make_atom("normal")];
         let result = build_status_line(&[], &content);
         assert_eq!(result.len(), 1);
+    }
+
+    // --- derive_editor_mode tests ---
+
+    #[test]
+    fn editor_mode_normal() {
+        let mode_line = vec![make_atom("normal")];
+        assert_eq!(
+            derive_editor_mode(CursorMode::Buffer, &mode_line),
+            EditorMode::Normal
+        );
+    }
+
+    #[test]
+    fn editor_mode_insert() {
+        let mode_line = vec![make_atom("insert")];
+        assert_eq!(
+            derive_editor_mode(CursorMode::Buffer, &mode_line),
+            EditorMode::Insert
+        );
+    }
+
+    #[test]
+    fn editor_mode_replace() {
+        let mode_line = vec![make_atom("replace")];
+        assert_eq!(
+            derive_editor_mode(CursorMode::Buffer, &mode_line),
+            EditorMode::Replace
+        );
+    }
+
+    #[test]
+    fn editor_mode_prompt() {
+        let mode_line = vec![make_atom("insert")];
+        // Prompt takes priority over mode_line content
+        assert_eq!(
+            derive_editor_mode(CursorMode::Prompt, &mode_line),
+            EditorMode::Prompt
+        );
+    }
+
+    #[test]
+    fn editor_mode_empty_mode_line() {
+        assert_eq!(
+            derive_editor_mode(CursorMode::Buffer, &vec![]),
+            EditorMode::Normal
+        );
     }
 
     // --- derive_cursor_style tests ---
@@ -955,5 +1207,69 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0], Coord { line: 5, column: 3 });
         assert_eq!(out[1], Coord { line: 5, column: 5 }); // 3+1+1 = 5
+    }
+
+    // --- detect_selections tests ---
+
+    fn make_selection_atom(text: &str) -> Atom {
+        Atom {
+            face: Face {
+                bg: Color::Named(NamedColor::Blue),
+                ..Face::default()
+            },
+            contents: text.into(),
+        }
+    }
+
+    #[test]
+    fn detect_selections_single_char_cursor() {
+        // No selection highlight around cursor → returns selection with anchor == cursor
+        let lines = vec![vec![
+            make_atom("hel"),
+            make_cursor_atom("l"),
+            make_atom("o"),
+        ]];
+        let cursor = Coord { line: 0, column: 3 };
+        let sels = detect_selections(&lines, cursor, &[], &Face::default());
+        // Cursor has REVERSE+FINAL_FG bg which is Default (no bg set) → detection
+        // depends on whether cursor face bg is non-default. Since default cursor
+        // atom has bg=Default, no selection bg is found.
+        assert!(sels.is_empty() || sels[0].anchor == sels[0].cursor);
+    }
+
+    #[test]
+    fn detect_selections_with_selection_face() {
+        // "he" + selection "ll" + cursor "o" + selection " w" + "orld"
+        // Selection face: blue bg. Cursor face: REVERSE+FINAL_FG.
+        let lines = vec![vec![
+            make_atom("he"),
+            make_selection_atom("ll"),
+            make_cursor_atom("o"),
+            make_selection_atom(" w"),
+            make_atom("orld"),
+        ]];
+        let cursor = Coord { line: 0, column: 4 }; // "he"=2, "ll"=2, cursor at 4
+        let sels = detect_selections(&lines, cursor, &[], &Face::default());
+        assert_eq!(sels.len(), 1);
+        assert!(sels[0].is_primary);
+        // Selection should span from "ll" start (col 2) to " w" end (col 6)
+        assert_eq!(sels[0].anchor.column, 2);
+        assert_eq!(sels[0].cursor.column, 6); // "o"=1 + " w"=2 → col 4+1+2-1=6
+    }
+
+    #[test]
+    fn detect_selections_empty_lines() {
+        let sels = detect_selections(&[], Coord::default(), &[], &Face::default());
+        assert!(sels.is_empty());
+    }
+
+    #[test]
+    fn detect_selections_too_many_cursors() {
+        let lines = vec![vec![make_atom("text")]];
+        let cursor = Coord { line: 0, column: 0 };
+        // 65 secondary cursors → exceeds safety valve
+        let secondaries: Vec<Coord> = (0..65).map(|i| Coord { line: 0, column: i }).collect();
+        let sels = detect_selections(&lines, cursor, &secondaries, &Face::default());
+        assert!(sels.is_empty());
     }
 }

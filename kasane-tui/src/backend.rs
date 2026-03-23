@@ -120,12 +120,16 @@ impl TuiBackend {
         // Reset SGR
         queue!(self.buf, SetAttribute(CtAttribute::Reset))?;
 
-        // Show cursor
-        let ct_style = match result.cursor_style {
-            CursorStyle::Block => cursor::SetCursorStyle::SteadyBlock,
-            CursorStyle::Bar => cursor::SetCursorStyle::SteadyBar,
-            CursorStyle::Underline => cursor::SetCursorStyle::SteadyUnderScore,
-            CursorStyle::Outline => cursor::SetCursorStyle::DefaultUserShape,
+        // Show cursor — use blinking variants when blink hint is enabled
+        let blink_enabled = result.cursor_blink.as_ref().is_some_and(|b| b.enabled);
+        let ct_style = match (result.cursor_style, blink_enabled) {
+            (CursorStyle::Block, true) => cursor::SetCursorStyle::BlinkingBlock,
+            (CursorStyle::Block, false) => cursor::SetCursorStyle::SteadyBlock,
+            (CursorStyle::Bar, true) => cursor::SetCursorStyle::BlinkingBar,
+            (CursorStyle::Bar, false) => cursor::SetCursorStyle::SteadyBar,
+            (CursorStyle::Underline, true) => cursor::SetCursorStyle::BlinkingUnderScore,
+            (CursorStyle::Underline, false) => cursor::SetCursorStyle::SteadyUnderScore,
+            (CursorStyle::Outline, _) => cursor::SetCursorStyle::DefaultUserShape,
         };
         queue!(
             self.buf,

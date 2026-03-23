@@ -69,6 +69,12 @@ pub(crate) struct HostState {
     pub session_descriptors: Vec<SessionDescriptorCache>,
     pub active_session_key: Option<String>,
 
+    // --- v0.10.0 Tier 10a: Editor mode ---
+    pub editor_mode: u8,
+
+    // --- v0.10.0 Tier 10b: Selections ---
+    pub selections: Vec<kasane_core::state::derived::Selection>,
+
     // --- v0.8.0 Tier 9: Theme / Color context ---
     pub theme: kasane_core::render::theme::Theme,
     pub is_dark: bool,
@@ -126,6 +132,8 @@ impl Default for HostState {
             menu_selected_face: None,
             session_descriptors: Vec::new(),
             active_session_key: None,
+            editor_mode: 0,
+            selections: Vec::new(),
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
             elements: Vec::new(),
@@ -368,6 +376,26 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
 
     fn is_dark_background(&mut self) -> bool {
         self.is_dark
+    }
+
+    // --- v0.10.0 Tier 10a: Editor mode ---
+    fn get_editor_mode(&mut self) -> u8 {
+        self.editor_mode
+    }
+
+    // --- v0.10.0 Tier 10b: Selections ---
+    fn get_selection_count(&mut self) -> u32 {
+        self.selections.len() as u32
+    }
+
+    fn get_selection(&mut self, index: u32) -> Option<bindings::kasane::plugin::types::Selection> {
+        self.selections
+            .get(index as usize)
+            .map(|s| bindings::kasane::plugin::types::Selection {
+                anchor: s.anchor.into(),
+                cursor: s.cursor.into(),
+                is_primary: s.is_primary,
+            })
     }
 
     // --- v0.9.0 Tier 10: Buffer file metadata ---
@@ -707,6 +735,18 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     // Tier 4: Multi-cursor
     host.cursor_count = state.cursor_count as u32;
     host.secondary_cursors.clone_from(&state.secondary_cursors);
+
+    // Tier 10a: Editor mode
+    host.editor_mode = match state.editor_mode {
+        kasane_core::state::derived::EditorMode::Normal => 0,
+        kasane_core::state::derived::EditorMode::Insert => 1,
+        kasane_core::state::derived::EditorMode::Replace => 2,
+        kasane_core::state::derived::EditorMode::Prompt => 3,
+        kasane_core::state::derived::EditorMode::Unknown => 255,
+    };
+
+    // Tier 10b: Selections
+    host.selections.clone_from(&state.selections);
 
     // Tier 5: Config
     host.config_values.clear();

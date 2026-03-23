@@ -415,6 +415,8 @@ fn test_field_dirty_map_matches_macro_analysis() {
         ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
         ("theme", &["OPTIONS"]),
         ("color_context", &["BUFFER_CONTENT"]),
+        ("editor_mode", &["STATUS"]),
+        ("selections", &["BUFFER_CONTENT"]),
         ("session_descriptors", &["SESSION"]),
         ("active_session_key", &["SESSION"]),
     ];
@@ -491,14 +493,16 @@ fn test_field_epistemic_map_complete() {
         ("menu", "observed"),
         ("infos", "observed"),
         ("ui_options", "observed"),
-        // Derived (4)
+        // Derived (5)
         ("lines_dirty", "derived"),
         ("cursor_mode", "derived"),
         ("status_line", "derived"),
         ("color_context", "derived"),
-        // Heuristic (2)
+        ("editor_mode", "derived"),
+        // Heuristic (3)
         ("cursor_count", "heuristic"),
         ("secondary_cursors", "heuristic"),
+        ("selections", "heuristic"),
         // Config (12)
         ("shadow_enabled", "config"),
         ("padding_char", "config"),
@@ -558,6 +562,7 @@ fn test_heuristic_fields_have_rule_and_severity() {
     let expected: HashSet<(&str, &str, &str)> = HashSet::from([
         ("cursor_count", "I-1", "degraded"),
         ("secondary_cursors", "I-1", "degraded"),
+        ("selections", "I-7", "degraded"),
     ]);
 
     let actual: HashSet<(&str, &str, &str)> = AppState::HEURISTIC_FIELDS.iter().copied().collect();
@@ -572,6 +577,7 @@ fn test_derived_fields_match() {
         ("cursor_mode", "content_cursor_pos sign (I-3)"),
         ("status_line", "prompt + content concatenation"),
         ("color_context", "default_face luminance analysis"),
+        ("editor_mode", "cursor_mode + mode_line (I-2)"),
     ]);
 
     let actual: HashSet<(&str, &str)> = AppState::DERIVED_FIELDS.iter().copied().collect();

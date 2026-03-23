@@ -4,7 +4,7 @@ use crate::display::DisplayMapRef;
 use crate::element::{Element, Overlay, OverlayAnchor};
 use crate::layout::Rect;
 use crate::layout::flex::Constraints;
-use crate::protocol::{Atom, Face};
+use crate::protocol::{Atom, Color, Coord, Face};
 use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
@@ -356,6 +356,62 @@ pub struct AnnotationResult {
     /// Outer `Option` = None when no plugin provides VT (zero overhead).
     /// Inner `Option<Vec<Atom>>` = merged atoms per line (separator-joined).
     pub virtual_text: Option<Vec<Option<Vec<Atom>>>>,
+}
+
+/// A cell-level decoration applied by a plugin (bracket match, column highlight, etc.).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellDecoration {
+    pub target: DecorationTarget,
+    pub face: Face,
+    pub merge: FaceMerge,
+    pub priority: i16,
+}
+
+/// Spatial target for a cell decoration.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DecorationTarget {
+    /// A single cell at the given buffer coordinate.
+    Cell(Coord),
+    /// A contiguous range of cells from `start` to `end` (inclusive).
+    Range { start: Coord, end: Coord },
+    /// An entire column (all visible rows at the given column index).
+    Column { column: u16 },
+}
+
+/// How a decoration face is merged with the existing cell face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaceMerge {
+    /// Completely replace the existing face.
+    Replace,
+    /// Overlay non-default fields onto the existing face.
+    Overlay,
+    /// Only apply the background color from the decoration face.
+    Background,
+}
+
+impl FaceMerge {
+    /// Apply decoration `overlay` onto `base` according to this merge mode.
+    pub fn apply(&self, base: &mut Face, overlay: &Face) {
+        match self {
+            Self::Replace => *base = *overlay,
+            Self::Overlay => {
+                if overlay.fg != Color::Default {
+                    base.fg = overlay.fg;
+                }
+                if overlay.bg != Color::Default {
+                    base.bg = overlay.bg;
+                }
+                if !overlay.attributes.is_empty() {
+                    base.attributes |= overlay.attributes;
+                }
+            }
+            Self::Background => {
+                if overlay.bg != Color::Default {
+                    base.bg = overlay.bg;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

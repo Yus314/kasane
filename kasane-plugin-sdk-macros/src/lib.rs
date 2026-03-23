@@ -442,6 +442,11 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         quote! { fn cursor_style_override() -> Option<u8> { None } }
     );
 
+    add_default!(
+        "decorate_cells",
+        quote! { fn decorate_cells() -> Vec<CellDecoration> { Vec::new() } }
+    );
+
     // --- Inter-plugin messaging ---
 
     add_default!(

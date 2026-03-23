@@ -95,6 +95,12 @@ impl AppState {
                 }
 
                 self.cursor_count = cursor_count;
+                self.selections = derived::detect_selections(
+                    &lines,
+                    cursor_pos,
+                    &secondary_cursors,
+                    &default_face,
+                );
                 self.secondary_cursors = secondary_cursors;
 
                 self.widget_columns = widget_columns;
@@ -134,6 +140,10 @@ impl AppState {
                 self.status_mode_line = mode_line;
                 self.status_default_face = default_face;
                 self.status_style = style;
+
+                // Derive editor mode from cursor_mode + mode_line
+                self.editor_mode =
+                    derived::derive_editor_mode(self.cursor_mode, &self.status_mode_line);
 
                 if mode_changed {
                     DirtyFlags::STATUS | DirtyFlags::BUFFER_CURSOR

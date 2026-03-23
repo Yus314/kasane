@@ -12,7 +12,7 @@ use kasane_core::plugin::{
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
-use kasane_core::render::{CursorStyle, cursor_style, cursor_style_default};
+use kasane_core::render::{CursorStyle, CursorStyleHint, cursor_style, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
@@ -393,8 +393,8 @@ impl PluginBackend for UnderlineCursorPlugin {
         kasane_core::plugin::PluginCapabilities::CURSOR_STYLE
     }
 
-    fn cursor_style_override(&self, _state: &AppView<'_>) -> Option<CursorStyle> {
-        Some(CursorStyle::Underline)
+    fn cursor_style_override(&self, _state: &AppView<'_>) -> Option<CursorStyleHint> {
+        Some(CursorStyle::Underline.into())
     }
 }
 
@@ -411,7 +411,7 @@ fn cursor_style_override_wins_over_default_logic() {
 
     assert_eq!(
         registry.cursor_style_override(&AppView::new(&state)),
-        Some(CursorStyle::Underline)
+        Some(CursorStyle::Underline.into())
     );
     assert_eq!(
         cursor_style(&state, &registry.view()),

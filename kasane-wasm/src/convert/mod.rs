@@ -202,5 +202,45 @@ impl From<wit::Rect> for Rect {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Cell decoration conversions (WIT → native)
+// ---------------------------------------------------------------------------
+
+use kasane_core::plugin::{CellDecoration, DecorationTarget, FaceMerge};
+
+pub(crate) fn wit_cell_decorations_to_decorations(
+    wits: &[wit::CellDecoration],
+) -> Vec<CellDecoration> {
+    wits.iter().map(wit_cell_decoration_to_decoration).collect()
+}
+
+fn wit_cell_decoration_to_decoration(w: &wit::CellDecoration) -> CellDecoration {
+    CellDecoration {
+        target: wit_decoration_target_to_target(&w.target),
+        face: wit_face_to_face(&w.face),
+        merge: wit_face_merge_to_merge(w.merge),
+        priority: w.priority,
+    }
+}
+
+fn wit_decoration_target_to_target(w: &wit::DecorationTarget) -> DecorationTarget {
+    match w {
+        wit::DecorationTarget::Cell(coord) => DecorationTarget::Cell((*coord).into()),
+        wit::DecorationTarget::CellRange(range) => DecorationTarget::Range {
+            start: range.start.into(),
+            end: range.end.into(),
+        },
+        wit::DecorationTarget::Column(col) => DecorationTarget::Column { column: *col },
+    }
+}
+
+fn wit_face_merge_to_merge(code: u8) -> FaceMerge {
+    match code {
+        0 => FaceMerge::Replace,
+        1 => FaceMerge::Overlay,
+        _ => FaceMerge::Background,
+    }
+}
+
 #[cfg(test)]
 mod tests;

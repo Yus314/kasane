@@ -217,6 +217,25 @@ pub mod attributes {
     pub const STRIKETHROUGH: u16 = 1 << 8;
 }
 
+/// Editor mode constants returned by `host_state::get_editor_mode()`.
+pub mod editor_mode {
+    pub const NORMAL: u8 = 0;
+    pub const INSERT: u8 = 1;
+    pub const REPLACE: u8 = 2;
+    pub const PROMPT: u8 = 3;
+    pub const UNKNOWN: u8 = 255;
+}
+
+/// `FaceMerge` mode constants for `CellDecoration`.
+pub mod face_merge {
+    /// Completely replace the existing cell face.
+    pub const REPLACE: u8 = 0;
+    /// Overlay non-default fields onto the existing face.
+    pub const OVERLAY: u8 = 1;
+    /// Only apply the background color from the decoration face.
+    pub const BACKGROUND: u8 = 2;
+}
+
 /// Bundled WIT interface definition (for reference/testing; not usable with proc macros).
 pub const WIT: &str = include_str!("../wit/plugin.wit");
 
@@ -478,6 +497,16 @@ macro_rules! default_decorator_priority {
     () => {
         fn decorator_priority() -> u32 {
             0
+        }
+    };
+}
+
+/// Default cell decoration stub (returns empty list).
+#[macro_export]
+macro_rules! default_decorate_cells {
+    () => {
+        fn decorate_cells() -> Vec<CellDecoration> {
+            Vec::new()
         }
     };
 }

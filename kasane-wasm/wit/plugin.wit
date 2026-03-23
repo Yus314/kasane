@@ -1,4 +1,4 @@
-package kasane:plugin@0.18.0;
+package kasane:plugin@0.19.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -658,10 +658,46 @@ interface types {
         buffer-name: option<string>,
         mode-line: option<string>,
     }
+
+    // --- v0.19.0: Cell decoration types ---
+
+    /// How a decoration face merges with the existing cell face.
+    /// 0=Replace, 1=Overlay, 2=Background.
+    type face-merge = u8;
+
+    /// Spatial target for a cell decoration.
+    variant decoration-target {
+        /// A single cell at the given buffer coordinate.
+        cell(coord),
+        /// A contiguous range of cells (start, end inclusive).
+        cell-range(range-coords),
+        /// An entire column (all visible rows).
+        column(u16),
+    }
+
+    record range-coords {
+        start: coord,
+        end: coord,
+    }
+
+    record cell-decoration {
+        target: decoration-target,
+        face: face,
+        merge: face-merge,
+        priority: s16,
+    }
+
+    // --- v0.19.0: Selection types ---
+
+    record selection {
+        anchor: coord,
+        cursor: coord,
+        is-primary: bool,
+    }
 }
 
 interface host-state {
-    use types.{face, atom, coord, session-descriptor};
+    use types.{face, atom, coord, session-descriptor, selection};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -739,6 +775,21 @@ interface host-state {
     /// Based on Kakoune's default_face. Defaults to true when unknown.
     is-dark-background: func() -> bool;
 
+    // --- v0.10.0 Tier 10a: Editor mode ---
+
+    /// Get the parsed editor mode.
+    /// 0=Normal, 1=Insert, 2=Replace, 3=Prompt, 255=Unknown.
+    get-editor-mode: func() -> u8;
+
+    // --- v0.10.0 Tier 10b: Selections ---
+
+    /// Get the number of detected selections.
+    get-selection-count: func() -> u32;
+
+    /// Get a selection by index.
+    /// Returns anchor, cursor, is_primary packed as a selection record.
+    get-selection: func(index: u32) -> option<selection>;
+
     // --- v0.9.0 Tier 10: Buffer file metadata ---
 
     /// Get the buffer's absolute file path from `%val{buffile}` via ui_options.
@@ -814,7 +865,8 @@ interface plugin-api {
                capability, plugin-authority, io-event, surface-view-context,
                surface-event-context, surface-event, surface-descriptor,
                default-scroll-candidate, scroll-policy-result,
-               bootstrap-effects, session-ready-effects, runtime-effects};
+               bootstrap-effects, session-ready-effects, runtime-effects,
+               cell-decoration};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -932,6 +984,9 @@ interface plugin-api {
 
     /// Annotate a buffer line (replaces contribute-line).
     annotate-line: func(line: u32, ctx: annotate-context) -> option<line-annotation>;
+
+    /// Return cell-level decorations for the current frame.
+    decorate-cells: func() -> list<cell-decoration>;
 
     /// Return display transformation directives (fold, hide, virtual text).
     display-directives: func() -> list<display-directive>;

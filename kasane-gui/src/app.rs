@@ -993,6 +993,7 @@ fn submit_render(
     cell_height: f32,
     label: &str,
 ) {
+    cursor_animation.apply_hints(result.cursor_blink, result.cursor_movement);
     cursor_animation.update_target(result.cursor_x, result.cursor_y);
     let cursor_state = cursor_animation.tick(cell_width, cell_height);
     tracing::debug!("[app] {label}: {} commands", commands.len());

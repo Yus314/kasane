@@ -48,10 +48,10 @@ pub use io::{
 
 // Re-export context module
 pub use context::{
-    AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, ContribSizeHint,
-    ContributeContext, Contribution, LineAnnotation, OverlayContext, OverlayContribution,
-    PaneContext, SourcedContribution, TransformContext, TransformDescriptor, TransformScope,
-    TransformSubject, TransformTarget, VirtualTextItem,
+    AnnotateContext, AnnotationResult, BackgroundLayer, BlendMode, CellDecoration, ContribSizeHint,
+    ContributeContext, Contribution, DecorationTarget, FaceMerge, LineAnnotation, OverlayContext,
+    OverlayContribution, PaneContext, SourcedContribution, TransformContext, TransformDescriptor,
+    TransformScope, TransformSubject, TransformTarget, VirtualTextItem,
 };
 
 // Re-export registry module
@@ -96,6 +96,7 @@ bitflags! {
         const IO_HANDLER         = 1 << 17;
         const DISPLAY_TRANSFORM  = 1 << 18;
         const SCROLL_POLICY      = 1 << 19;
+        const CELL_DECORATION    = 1 << 20;
     }
 }
 

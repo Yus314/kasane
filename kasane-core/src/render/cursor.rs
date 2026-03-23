@@ -1,5 +1,5 @@
-use super::CursorStyle;
 use super::grid::CellGrid;
+use super::{CursorStyle, CursorStyleHint};
 use crate::display::DisplayMap;
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
@@ -238,14 +238,24 @@ pub fn cursor_position(
     }
 }
 
-/// Determine the cursor style from the application state.
+/// Determine the cursor style hint (shape + blink + movement) from the application state.
 ///
 /// Priority: plugin override > ui_option `kasane_cursor_style` > prompt mode > mode_line heuristic > Block.
-pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginView<'_>) -> CursorStyle {
-    if let Some(style) = registry.cursor_style_override(&AppView::new(state)) {
-        return style;
+pub fn cursor_style_hint(
+    state: &AppState,
+    registry: &crate::plugin::PluginView<'_>,
+) -> CursorStyleHint {
+    if let Some(hint) = registry.cursor_style_override(&AppView::new(state)) {
+        return hint;
     }
-    cursor_style_default(state)
+    cursor_style_default(state).into()
+}
+
+/// Determine the cursor style (shape only) from the application state.
+///
+/// Convenience wrapper that extracts just the shape from `cursor_style_hint`.
+pub fn cursor_style(state: &AppState, registry: &crate::plugin::PluginView<'_>) -> CursorStyle {
+    cursor_style_hint(state, registry).shape
 }
 
 /// Default cursor style logic without plugin overrides.

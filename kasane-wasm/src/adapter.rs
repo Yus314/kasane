@@ -532,20 +532,32 @@ impl PluginBackend for WasmPlugin {
     fn cursor_style_override(
         &self,
         state: &AppView<'_>,
-    ) -> Option<kasane_core::render::CursorStyle> {
+    ) -> Option<kasane_core::render::CursorStyleHint> {
         self.shared
             .call_synced(state, "cursor_style_override", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 Ok(api
                     .call_cursor_style_override(&mut rt.store)?
-                    .and_then(|code| match code {
-                        0 => Some(kasane_core::render::CursorStyle::Block),
-                        1 => Some(kasane_core::render::CursorStyle::Bar),
-                        2 => Some(kasane_core::render::CursorStyle::Underline),
-                        3 => Some(kasane_core::render::CursorStyle::Outline),
-                        _ => None,
+                    .and_then(|code| {
+                        let shape = match code {
+                            0 => kasane_core::render::CursorStyle::Block,
+                            1 => kasane_core::render::CursorStyle::Bar,
+                            2 => kasane_core::render::CursorStyle::Underline,
+                            3 => kasane_core::render::CursorStyle::Outline,
+                            _ => return None,
+                        };
+                        Some(kasane_core::render::CursorStyleHint::from(shape))
                     }))
             })
+    }
+
+    fn decorate_cells(&self, state: &AppView<'_>) -> Vec<kasane_core::plugin::CellDecoration> {
+        self.shared.call_synced(state, "decorate_cells", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
+            Ok(convert::wit_cell_decorations_to_decorations(
+                &api.call_decorate_cells(&mut rt.store)?,
+            ))
+        })
     }
 
     fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {

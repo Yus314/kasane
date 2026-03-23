@@ -125,6 +125,12 @@ impl<'a> AppView<'a> {
         self.state.widget_columns
     }
 
+    /// Parsed editor mode (Normal/Insert/Replace/Prompt).
+    #[inline]
+    pub fn editor_mode(&self) -> crate::state::derived::EditorMode {
+        self.state.editor_mode
+    }
+
     /// Total cursor count (primary + secondary).
     #[inline]
     pub fn cursor_count(&self) -> usize {
@@ -135,6 +141,18 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn secondary_cursors(&self) -> &[Coord] {
         &self.state.secondary_cursors
+    }
+
+    /// Detected selection ranges (heuristic I-7).
+    #[inline]
+    pub fn selections(&self) -> &[crate::state::derived::Selection] {
+        &self.state.selections
+    }
+
+    /// Primary selection, if any.
+    #[inline]
+    pub fn primary_selection(&self) -> Option<&crate::state::derived::Selection> {
+        self.state.selections.iter().find(|s| s.is_primary)
     }
 
     // =========================================================================

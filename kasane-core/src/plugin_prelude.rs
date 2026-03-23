@@ -9,15 +9,15 @@ pub use crate::kasane_plugin;
 // Plugin trait and types
 pub use crate::plugin::{
     AnnotateContext, AnnotationResult, AppView, BackgroundLayer, BlendMode, BootstrapEffects,
-    BufferEdit, BufferPosition, Command, ContribSizeHint, ContributeContext, Contribution,
-    DisplayDirective, DisplayMapRef, IsBridgedPlugin, KeyDispatchResult, KeyHandleResult,
-    LineAnnotation, NullEffects, OverlayContext, OverlayContribution, PaintHook, PaneContext,
-    Plugin, PluginAuthorities, PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor,
-    PluginEffects, PluginFactory, PluginId, PluginManager, PluginProvider, PluginRank,
-    PluginRevision, PluginRuntime, PluginSource, PluginState, RuntimeEffects, SessionReadyCommand,
-    SessionReadyEffects, SlotId, TransformContext, TransformDescriptor, TransformScope,
-    TransformSubject, TransformTarget, VirtualTextItem, builtin_plugin, host_plugin,
-    host_plugin_with_provider,
+    BufferEdit, BufferPosition, CellDecoration, Command, ContribSizeHint, ContributeContext,
+    Contribution, DecorationTarget, DisplayDirective, DisplayMapRef, FaceMerge, IsBridgedPlugin,
+    KeyDispatchResult, KeyHandleResult, LineAnnotation, NullEffects, OverlayContext,
+    OverlayContribution, PaintHook, PaneContext, Plugin, PluginAuthorities, PluginBackend,
+    PluginBridge, PluginCapabilities, PluginDescriptor, PluginEffects, PluginFactory, PluginId,
+    PluginManager, PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
+    PluginState, RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId,
+    TransformContext, TransformDescriptor, TransformScope, TransformSubject, TransformTarget,
+    VirtualTextItem, builtin_plugin, host_plugin, host_plugin_with_provider,
 };
 
 // Element tree
@@ -25,8 +25,10 @@ pub use crate::element::{
     Element, FlexChild, ImageFit, ImageSource, InteractiveId, Overlay, OverlayAnchor, StyleToken,
 };
 
-// Inline decoration
-pub use crate::render::{InlineDecoration, InlineOp};
+// Rendering types
+pub use crate::render::{
+    BlinkHint, CursorStyleHint, EasingCurve, InlineDecoration, InlineOp, MovementHint,
+};
 
 // Protocol types
 pub use crate::protocol::{Atom, Color, Coord, Face, Line, NamedColor, StatusStyle};
@@ -38,6 +40,7 @@ pub use crate::scroll::{
 };
 
 // State
+pub use crate::state::derived::{EditorMode, Selection};
 pub use crate::state::{AppState, DirtyFlags};
 
 // Input

@@ -250,6 +250,7 @@ impl Guest for SurfaceProbePlugin {
     kasane_plugin_sdk::default_overlay_v2!();
     kasane_plugin_sdk::default_contribute!();
     kasane_plugin_sdk::default_contribute_to!();
+    kasane_plugin_sdk::default_decorate_cells!();
     kasane_plugin_sdk::default_capabilities!();
 }
 

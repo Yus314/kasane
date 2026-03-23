@@ -258,9 +258,15 @@ pub trait Plugin: Send + 'static {
         &self,
         state: &Self::State,
         app: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyle> {
+    ) -> Option<crate::render::CursorStyleHint> {
         let _ = (state, app);
         None
+    }
+
+    /// Return cell-level decorations for the current frame.
+    fn decorate_cells(&self, state: &Self::State, app: &AppView<'_>) -> Vec<super::CellDecoration> {
+        let _ = (state, app);
+        vec![]
     }
 
     fn transform_menu_item(

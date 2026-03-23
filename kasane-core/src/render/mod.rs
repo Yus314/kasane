@@ -1,6 +1,7 @@
 //! Rendering pipeline: view construction, paint, cache, pipeline orchestration, scene.
 
 pub(crate) mod builders;
+pub mod cell_decoration;
 pub mod color_context;
 pub mod cursor;
 mod grid;
@@ -41,12 +42,59 @@ pub enum CursorStyle {
     Outline,
 }
 
+/// Blink animation hint from plugins.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlinkHint {
+    pub enabled: bool,
+    pub delay_ms: u16,
+    pub period_ms: u16,
+    pub min_opacity: f32,
+}
+
+/// Easing curve for cursor movement animation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EasingCurve {
+    Linear,
+    EaseOut,
+    EaseInOut,
+}
+
+/// Movement animation hint from plugins.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MovementHint {
+    pub enabled: bool,
+    pub duration_ms: u16,
+    pub easing: EasingCurve,
+}
+
+/// Extended cursor style with optional blink and movement animation hints.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CursorStyleHint {
+    pub shape: CursorStyle,
+    pub blink: Option<BlinkHint>,
+    pub movement: Option<MovementHint>,
+}
+
+impl From<CursorStyle> for CursorStyleHint {
+    fn from(shape: CursorStyle) -> Self {
+        Self {
+            shape,
+            blink: None,
+            movement: None,
+        }
+    }
+}
+
 /// Rendering pipeline result. Contains cursor position/style for the backend.
 #[derive(Debug, Clone, Copy)]
 pub struct RenderResult {
     pub cursor_x: u16,
     pub cursor_y: u16,
     pub cursor_style: CursorStyle,
+    /// Blink animation hint from plugin override.
+    pub cursor_blink: Option<BlinkHint>,
+    /// Movement animation hint from plugin override.
+    pub cursor_movement: Option<MovementHint>,
     /// Display scroll offset applied this frame.
     /// Used to update `AppState::display_scroll_offset` for mouse coordinate translation.
     pub display_scroll_offset: usize,

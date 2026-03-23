@@ -135,7 +135,12 @@ pub(crate) trait ErasedPlugin: Send {
         &self,
         state: &dyn PluginState,
         app: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyle>;
+    ) -> Option<crate::render::CursorStyleHint>;
+    fn decorate_cells_erased(
+        &self,
+        state: &dyn PluginState,
+        app: &AppView<'_>,
+    ) -> Vec<super::CellDecoration>;
     fn transform_menu_item_erased(
         &self,
         state: &dyn PluginState,
@@ -266,7 +271,8 @@ impl<P: Plugin> ErasedPlugin for P {
     erased_ref!(transform_erased => transform(target: &TransformTarget, subject: TransformSubject, app: &AppView<'_>, ctx: &TransformContext) -> TransformSubject);
     erased_ref!(annotate_line_erased => annotate_line_with_ctx(line: usize, app: &AppView<'_>, ctx: &AnnotateContext) -> Option<LineAnnotation>);
     erased_ref!(contribute_overlay_erased => contribute_overlay_with_ctx(app: &AppView<'_>, ctx: &OverlayContext) -> Option<OverlayContribution>);
-    erased_ref!(cursor_style_override_erased => cursor_style_override(app: &AppView<'_>) -> Option<crate::render::CursorStyle>);
+    erased_ref!(cursor_style_override_erased => cursor_style_override(app: &AppView<'_>) -> Option<crate::render::CursorStyleHint>);
+    erased_ref!(decorate_cells_erased => decorate_cells(app: &AppView<'_>) -> Vec<super::CellDecoration>);
     erased_ref!(transform_menu_item_erased => transform_menu_item(item: &[crate::protocol::Atom], index: usize, selected: bool, app: &AppView<'_>) -> Option<Vec<crate::protocol::Atom>>);
     erased_ref!(display_directives_erased => display_directives(app: &AppView<'_>) -> Vec<DisplayDirective>);
 }
@@ -414,7 +420,8 @@ impl PluginBackend for PluginBridge {
     bridge_ref!(annotate_line_with_ctx => annotate_line_erased(line: usize, state: &AppView<'_>, ctx: &AnnotateContext) -> Option<LineAnnotation>);
     bridge_ref!(display_directives => display_directives_erased(state: &AppView<'_>) -> Vec<DisplayDirective>);
     bridge_ref!(contribute_overlay_with_ctx => contribute_overlay_erased(state: &AppView<'_>, ctx: &OverlayContext) -> Option<OverlayContribution>);
-    bridge_ref!(cursor_style_override => cursor_style_override_erased(state: &AppView<'_>) -> Option<crate::render::CursorStyle>);
+    bridge_ref!(cursor_style_override => cursor_style_override_erased(state: &AppView<'_>) -> Option<crate::render::CursorStyleHint>);
+    bridge_ref!(decorate_cells => decorate_cells_erased(state: &AppView<'_>) -> Vec<super::CellDecoration>);
     bridge_ref!(transform_menu_item => transform_menu_item_erased(item: &[crate::protocol::Atom], index: usize, selected: bool, state: &AppView<'_>) -> Option<Vec<crate::protocol::Atom>>);
 }
 

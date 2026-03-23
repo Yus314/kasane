@@ -105,8 +105,18 @@ pub trait PluginBackend: Any {
 
     /// Override the cursor style. Return None to defer to the default logic.
     /// First non-None result from any plugin is used.
-    fn cursor_style_override(&self, _state: &AppView<'_>) -> Option<crate::render::CursorStyle> {
+    fn cursor_style_override(
+        &self,
+        _state: &AppView<'_>,
+    ) -> Option<crate::render::CursorStyleHint> {
         None
+    }
+
+    // --- Cell decoration ---
+
+    /// Return cell-level decorations for the current frame.
+    fn decorate_cells(&self, _state: &AppView<'_>) -> Vec<super::CellDecoration> {
+        vec![]
     }
 
     // --- Menu item transformation ---

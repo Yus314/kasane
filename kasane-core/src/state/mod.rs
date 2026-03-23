@@ -180,6 +180,15 @@ pub struct AppState {
     #[epistemic(heuristic, rule = "I-1", severity = "degraded")]
     #[dirty(BUFFER_CURSOR)]
     pub secondary_cursors: Vec<Coord>,
+    /// Derived: parsed editor mode from cursor_mode + status_mode_line heuristic (I-2).
+    #[epistemic(derived, source = "cursor_mode + mode_line (I-2)")]
+    #[dirty(STATUS)]
+    pub editor_mode: derived::EditorMode,
+
+    /// Heuristic: detected selection ranges from buffer atoms (I-7).
+    #[epistemic(heuristic, rule = "I-7", severity = "degraded")]
+    #[dirty(BUFFER_CONTENT)]
+    pub selections: Vec<derived::Selection>,
 
     // -- Frontend Config (from user config / SetConfig commands) --
     #[epistemic(config)]
@@ -332,6 +341,8 @@ impl AppState {
             ui_options,
             cursor_count,
             secondary_cursors,
+            editor_mode,
+            selections,
             color_context,
             drag,
             // === PRESERVE: discard defaults, keep current values ===
@@ -376,6 +387,8 @@ impl AppState {
         self.ui_options = ui_options;
         self.cursor_count = cursor_count;
         self.secondary_cursors = secondary_cursors;
+        self.editor_mode = editor_mode;
+        self.selections = selections;
         self.color_context = color_context;
         self.drag = drag;
         self.cursor_cache = cursor_cache;
@@ -470,6 +483,8 @@ impl Default for AppState {
             plugin_config: HashMap::new(),
             cursor_count: 0,
             secondary_cursors: Vec::new(),
+            editor_mode: derived::EditorMode::default(),
+            selections: Vec::new(),
             session_descriptors: Vec::new(),
             active_session_key: None,
             drag: DragState::None,
