@@ -253,10 +253,10 @@ impl PaintVisitor for GridPaintVisitor<'_> {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(path);
-                format!("[img: {filename}]")
+                format!("[IMAGE: {filename}]")
             }
             ImageSource::Rgba { width, height, .. } => {
-                format!("[img: {width}x{height}]")
+                format!("[IMAGE: {width}\u{00d7}{height}]")
             }
         };
         let face = Face {
@@ -1101,7 +1101,7 @@ mod tests {
             }
         }
         assert!(
-            text.contains("[img: photo.png]"),
+            text.contains("[IMAGE: photo.png]"),
             "expected fallback label, got: {text:?}"
         );
     }
@@ -1139,7 +1139,7 @@ mod tests {
             }
         }
         assert!(
-            text.contains("[img: 8x6]"),
+            text.contains("[IMAGE: 8\u{00d7}6]"),
             "expected rgba fallback label, got: {text:?}"
         );
     }
