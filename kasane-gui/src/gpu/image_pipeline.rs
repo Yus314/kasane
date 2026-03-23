@@ -149,11 +149,12 @@ impl ImagePipeline {
         fit: ImageFit,
         opacity: f32,
     ) {
-        let (u0, v0, u1, v1) = compute_uv(tex_w, tex_h, rect_w, rect_h, fit);
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(tex_w, tex_h, rect_x, rect_y, rect_w, rect_h, fit);
 
         let instance_start = self.instances.len() / FLOATS_PER_INSTANCE;
         self.instances
-            .extend_from_slice(&[rect_x, rect_y, rect_w, rect_h, u0, v0, u1, v1, opacity]);
+            .extend_from_slice(&[dx, dy, dw, dh, u0, v0, u1, v1, opacity]);
 
         self.draw_calls.push(ImageDrawCall {
             bind_group,
@@ -199,30 +200,71 @@ impl ImagePipeline {
     }
 }
 
-/// Compute UV coordinates based on ImageFit mode.
-/// Returns (u0, v0, u1, v1).
-fn compute_uv(
+/// Compute draw rectangle and UV coordinates based on ImageFit mode.
+/// Returns (draw_x, draw_y, draw_w, draw_h, u0, v0, u1, v1).
+fn compute_fit(
     tex_w: f32,
     tex_h: f32,
+    rect_x: f32,
+    rect_y: f32,
     rect_w: f32,
     rect_h: f32,
     fit: ImageFit,
-) -> (f32, f32, f32, f32) {
+) -> (f32, f32, f32, f32, f32, f32, f32, f32) {
+    // Guard against degenerate dimensions
+    if tex_w <= 0.0 || tex_h <= 0.0 || rect_w <= 0.0 || rect_h <= 0.0 {
+        return (rect_x, rect_y, rect_w, rect_h, 0.0, 0.0, 1.0, 1.0);
+    }
+
     match fit {
-        ImageFit::Fill | ImageFit::Contain => (0.0, 0.0, 1.0, 1.0),
+        ImageFit::Fill => (rect_x, rect_y, rect_w, rect_h, 0.0, 0.0, 1.0, 1.0),
+        ImageFit::Contain => {
+            // Show full texture, letterboxing to preserve aspect ratio.
+            let tex_aspect = tex_w / tex_h;
+            let rect_aspect = rect_w / rect_h;
+            let (w, h) = if tex_aspect > rect_aspect {
+                // Texture is wider: fit to width, letterbox vertically
+                (rect_w, rect_w / tex_aspect)
+            } else {
+                // Texture is taller: fit to height, letterbox horizontally
+                (rect_h * tex_aspect, rect_h)
+            };
+            let x = rect_x + (rect_w - w) / 2.0;
+            let y = rect_y + (rect_h - h) / 2.0;
+            (x, y, w, h, 0.0, 0.0, 1.0, 1.0)
+        }
         ImageFit::Cover => {
+            // Fill the rect, cropping to preserve aspect ratio.
             let tex_aspect = tex_w / tex_h;
             let rect_aspect = rect_w / rect_h;
             if tex_aspect > rect_aspect {
                 // Texture is wider: crop sides
                 let visible_frac = rect_aspect / tex_aspect;
                 let offset = (1.0 - visible_frac) / 2.0;
-                (offset, 0.0, offset + visible_frac, 1.0)
+                (
+                    rect_x,
+                    rect_y,
+                    rect_w,
+                    rect_h,
+                    offset,
+                    0.0,
+                    offset + visible_frac,
+                    1.0,
+                )
             } else {
                 // Texture is taller: crop top/bottom
                 let visible_frac = tex_aspect / rect_aspect;
                 let offset = (1.0 - visible_frac) / 2.0;
-                (0.0, offset, 1.0, offset + visible_frac)
+                (
+                    rect_x,
+                    rect_y,
+                    rect_w,
+                    rect_h,
+                    0.0,
+                    offset,
+                    1.0,
+                    offset + visible_frac,
+                )
             }
         }
     }
@@ -233,20 +275,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compute_uv_fill() {
-        let (u0, v0, u1, v1) = compute_uv(100.0, 50.0, 200.0, 100.0, ImageFit::Fill);
+    fn test_compute_fit_fill() {
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(100.0, 50.0, 10.0, 20.0, 200.0, 100.0, ImageFit::Fill);
+        assert_eq!((dx, dy, dw, dh), (10.0, 20.0, 200.0, 100.0));
         assert_eq!((u0, v0, u1, v1), (0.0, 0.0, 1.0, 1.0));
     }
 
     #[test]
-    fn test_compute_uv_contain() {
-        let (u0, v0, u1, v1) = compute_uv(100.0, 50.0, 200.0, 100.0, ImageFit::Contain);
+    fn test_compute_fit_contain_wider_texture() {
+        // 200×100 texture in 100×100 rect → fit to width: 100×50, centered vertically
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(200.0, 100.0, 10.0, 20.0, 100.0, 100.0, ImageFit::Contain);
         assert_eq!((u0, v0, u1, v1), (0.0, 0.0, 1.0, 1.0));
+        assert_eq!(dw, 100.0); // full width
+        assert_eq!(dh, 50.0); // letterboxed height
+        assert_eq!(dx, 10.0); // same x
+        assert!((dy - 45.0).abs() < 0.001); // centered: 20 + (100 - 50) / 2 = 45
     }
 
     #[test]
-    fn test_compute_uv_cover_wider_texture() {
-        let (u0, v0, u1, v1) = compute_uv(200.0, 100.0, 100.0, 100.0, ImageFit::Cover);
+    fn test_compute_fit_contain_taller_texture() {
+        // 100×200 texture in 100×100 rect → fit to height: 50×100, centered horizontally
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(100.0, 200.0, 10.0, 20.0, 100.0, 100.0, ImageFit::Contain);
+        assert_eq!((u0, v0, u1, v1), (0.0, 0.0, 1.0, 1.0));
+        assert_eq!(dw, 50.0); // letterboxed width
+        assert_eq!(dh, 100.0); // full height
+        assert!((dx - 35.0).abs() < 0.001); // centered: 10 + (100 - 50) / 2 = 35
+        assert_eq!(dy, 20.0); // same y
+    }
+
+    #[test]
+    fn test_compute_fit_contain_exact_aspect() {
+        // Same aspect ratio: no letterboxing
+        let (dx, dy, dw, dh, _, _, _, _) =
+            compute_fit(200.0, 100.0, 0.0, 0.0, 100.0, 50.0, ImageFit::Contain);
+        assert_eq!((dx, dy, dw, dh), (0.0, 0.0, 100.0, 50.0));
+    }
+
+    #[test]
+    fn test_compute_fit_cover_wider_texture() {
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(200.0, 100.0, 10.0, 20.0, 100.0, 100.0, ImageFit::Cover);
+        assert_eq!((dx, dy, dw, dh), (10.0, 20.0, 100.0, 100.0));
         assert!((u0 - 0.25).abs() < 0.001);
         assert_eq!(v0, 0.0);
         assert!((u1 - 0.75).abs() < 0.001);
@@ -254,11 +326,26 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_uv_cover_taller_texture() {
-        let (u0, v0, u1, v1) = compute_uv(100.0, 200.0, 100.0, 100.0, ImageFit::Cover);
+    fn test_compute_fit_cover_taller_texture() {
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(100.0, 200.0, 10.0, 20.0, 100.0, 100.0, ImageFit::Cover);
+        assert_eq!((dx, dy, dw, dh), (10.0, 20.0, 100.0, 100.0));
         assert_eq!(u0, 0.0);
         assert!((v0 - 0.25).abs() < 0.001);
         assert_eq!(u1, 1.0);
         assert!((v1 - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_compute_fit_zero_dimensions() {
+        // Zero texture dimensions: graceful fallback
+        let (dx, dy, dw, dh, u0, v0, u1, v1) =
+            compute_fit(0.0, 100.0, 10.0, 20.0, 100.0, 100.0, ImageFit::Contain);
+        assert_eq!((dx, dy, dw, dh), (10.0, 20.0, 100.0, 100.0));
+        assert_eq!((u0, v0, u1, v1), (0.0, 0.0, 1.0, 1.0));
+
+        let (dx, dy, dw, dh, _, _, _, _) =
+            compute_fit(100.0, 100.0, 10.0, 20.0, 0.0, 100.0, ImageFit::Cover);
+        assert_eq!((dx, dy, dw, dh), (10.0, 20.0, 0.0, 100.0));
     }
 }

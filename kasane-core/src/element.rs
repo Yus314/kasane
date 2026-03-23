@@ -10,7 +10,7 @@ use crate::layout::Rect;
 use crate::protocol::{Atom, Coord, Face, Line};
 
 /// Source of image data for `Element::Image`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum ImageSource {
     /// Path to an image file on disk.
     FilePath(String),
@@ -20,6 +20,27 @@ pub enum ImageSource {
         width: u32,
         height: u32,
     },
+}
+
+impl PartialEq for ImageSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ImageSource::FilePath(a), ImageSource::FilePath(b)) => a == b,
+            (
+                ImageSource::Rgba {
+                    data: a,
+                    width: aw,
+                    height: ah,
+                },
+                ImageSource::Rgba {
+                    data: b,
+                    width: bw,
+                    height: bh,
+                },
+            ) => aw == bw && ah == bh && Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
 }
 
 /// How an image should be fitted within its allocated area.

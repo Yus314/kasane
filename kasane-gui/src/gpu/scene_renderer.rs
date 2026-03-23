@@ -680,9 +680,7 @@ impl SceneRenderer {
                         width,
                         height,
                     } => {
-                        let ptr = std::sync::Arc::as_ptr(data) as *const u8 as u64;
-                        let k =
-                            TextureKey::Inline(ptr ^ ((*width as u64) << 32) ^ (*height as u64));
+                        let k = TextureKey::inline_from_data(data, *width, *height);
                         // Ensure inline data is in the cache (synchronous for inline)
                         if !self.texture_cache.insert_rgba(
                             k.clone(),

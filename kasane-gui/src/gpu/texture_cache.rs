@@ -5,8 +5,36 @@ use std::collections::{HashMap, HashSet};
 pub enum TextureKey {
     /// File path on disk.
     FilePath(String),
-    /// Inline RGBA data, keyed by Arc pointer identity + dimensions.
+    /// Inline RGBA data, keyed by content sample hash + dimensions.
     Inline(u64),
+}
+
+impl TextureKey {
+    /// Compute a content-addressed key for inline RGBA data.
+    ///
+    /// Samples bytes from three positions (start, middle, end) for fast
+    /// hashing that is stable across different `Arc` allocations of the
+    /// same image data.
+    pub fn inline_from_data(data: &[u8], width: u32, height: u32) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        width.hash(&mut hasher);
+        height.hash(&mut hasher);
+        data.len().hash(&mut hasher);
+        const SAMPLE: usize = 64;
+        // Head
+        data[..data.len().min(SAMPLE)].hash(&mut hasher);
+        // Middle
+        if data.len() > SAMPLE * 2 {
+            let mid = data.len() / 2;
+            data[mid..mid + SAMPLE.min(data.len() - mid)].hash(&mut hasher);
+        }
+        // Tail
+        if data.len() > SAMPLE {
+            data[data.len() - SAMPLE..].hash(&mut hasher);
+        }
+        TextureKey::Inline(hasher.finish())
+    }
 }
 
 /// Decoded image data ready for GPU upload.
