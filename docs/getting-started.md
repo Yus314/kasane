@@ -28,7 +28,7 @@ Download a prebuilt binary from [GitHub Releases](https://github.com/Yus314/kasa
 
 ```bash
 # x86_64 Linux (glibc)
-VERSION=0.1.1
+VERSION=0.2.0
 curl -LO "https://github.com/Yus314/kasane/releases/download/v${VERSION}/kasane-v${VERSION}-x86_64-linux-gnu.tar.gz"
 tar xzf "kasane-v${VERSION}-x86_64-linux-gnu.tar.gz"
 install -Dm755 kasane ~/.local/bin/kasane
