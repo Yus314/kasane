@@ -656,6 +656,77 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         };
         self.store_element(element)
     }
+
+    // --- v0.20.0: Image element ---
+
+    fn create_image(
+        &mut self,
+        source: bindings::kasane::plugin::types::ImageSource,
+        width: u16,
+        height: u16,
+        fit: bindings::kasane::plugin::types::ImageFit,
+        opacity: f32,
+    ) -> u32 {
+        let native_source = match source {
+            bindings::kasane::plugin::types::ImageSource::FilePath(path) => {
+                // Security: resolve relative paths against buffer directory,
+                // reject path traversal.
+                let resolved = if std::path::Path::new(&path).is_absolute() {
+                    path
+                } else if let Some(buf_path) = self
+                    .ui_options
+                    .get("kasane_buffile")
+                    .filter(|v| !v.is_empty())
+                {
+                    let buf_dir = std::path::Path::new(&buf_path)
+                        .parent()
+                        .unwrap_or(std::path::Path::new("/"));
+                    let candidate = buf_dir.join(&path);
+                    match candidate.canonicalize() {
+                        Ok(canon) if canon.starts_with(buf_dir) => {
+                            canon.to_string_lossy().into_owned()
+                        }
+                        _ => {
+                            tracing::warn!("image path rejected (traversal or missing): {path}");
+                            return self.store_element(Element::Empty);
+                        }
+                    }
+                } else {
+                    path
+                };
+                kasane_core::element::ImageSource::FilePath(resolved)
+            }
+            bindings::kasane::plugin::types::ImageSource::RgbaData(rgba) => {
+                // Validate data size
+                let expected = rgba.width as usize * rgba.height as usize * 4;
+                if rgba.data.len() != expected {
+                    tracing::warn!(
+                        "RGBA data size mismatch: expected {expected}, got {}",
+                        rgba.data.len()
+                    );
+                    return self.store_element(Element::Empty);
+                }
+                // Reject oversized data (16 MB)
+                if rgba.data.len() > 16 * 1024 * 1024 {
+                    tracing::warn!("RGBA data too large: {} bytes (max 16 MB)", rgba.data.len());
+                    return self.store_element(Element::Empty);
+                }
+                kasane_core::element::ImageSource::Rgba {
+                    data: rgba.data.into(),
+                    width: rgba.width,
+                    height: rgba.height,
+                }
+            }
+        };
+        let native_fit = convert::wit_image_fit_to_image_fit(&fit);
+        let element = Element::Image {
+            source: native_source,
+            size: (width, height),
+            fit: native_fit,
+            opacity: opacity.clamp(0.0, 1.0),
+        };
+        self.store_element(element)
+    }
 }
 
 impl HostState {

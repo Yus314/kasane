@@ -9,44 +9,23 @@ fn main() {
     let wasi_config = WasiCapabilityConfig::default();
 
     let cursor_line_path = fixtures.join("cursor-line.wasm");
-    let line_numbers_path = fixtures.join("line-numbers.wasm");
 
-    kasane::run_with_factories([
-        plugin_factory(
-            PluginDescriptor {
-                id: kasane::kasane_core::plugin::PluginId("cursor_line".to_string()),
-                source: PluginSource::FilesystemWasm {
-                    path: cursor_line_path.clone(),
-                },
-                revision: PluginRevision("static".to_string()),
-                rank: PluginRank::FILESYSTEM_WASM,
+    kasane::run_with_factories([plugin_factory(
+        PluginDescriptor {
+            id: kasane::kasane_core::plugin::PluginId("cursor_line".to_string()),
+            source: PluginSource::FilesystemWasm {
+                path: cursor_line_path.clone(),
             },
-            {
-                let wasi_config = wasi_config.clone();
-                move || {
-                    let loader = WasmPluginLoader::new()?;
-                    let plugin = loader.load_file(&cursor_line_path, &wasi_config)?;
-                    Ok(Box::new(plugin))
-                }
-            },
-        ),
-        plugin_factory(
-            PluginDescriptor {
-                id: kasane::kasane_core::plugin::PluginId("line_numbers".to_string()),
-                source: PluginSource::FilesystemWasm {
-                    path: line_numbers_path.clone(),
-                },
-                revision: PluginRevision("static".to_string()),
-                rank: PluginRank::FILESYSTEM_WASM,
-            },
-            {
-                let wasi_config = wasi_config.clone();
-                move || {
-                    let loader = WasmPluginLoader::new()?;
-                    let plugin = loader.load_file(&line_numbers_path, &wasi_config)?;
-                    Ok(Box::new(plugin))
-                }
-            },
-        ),
-    ]);
+            revision: PluginRevision("static".to_string()),
+            rank: PluginRank::FILESYSTEM_WASM,
+        },
+        {
+            let wasi_config = wasi_config.clone();
+            move || {
+                let loader = WasmPluginLoader::new()?;
+                let plugin = loader.load_file(&cursor_line_path, &wasi_config)?;
+                Ok(Box::new(plugin))
+            }
+        },
+    )]);
 }

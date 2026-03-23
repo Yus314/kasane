@@ -1,6 +1,8 @@
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::config::MenuPosition;
-use kasane_core::element::{BorderConfig, BorderLineStyle, Edges, GridColumn, OverlayAnchor};
+use kasane_core::element::{
+    BorderConfig, BorderLineStyle, Edges, GridColumn, ImageFit, OverlayAnchor,
+};
 use kasane_core::protocol::{InfoStyle, MenuStyle, StatusStyle};
 
 pub(crate) fn wit_overlay_anchor_to_overlay_anchor(wa: &wit::OverlayAnchor) -> OverlayAnchor {
@@ -114,5 +116,13 @@ pub(crate) fn menu_position_to_string(pos: &MenuPosition) -> String {
         MenuPosition::Auto => "auto".into(),
         MenuPosition::Above => "above".into(),
         MenuPosition::Below => "below".into(),
+    }
+}
+
+pub(crate) fn wit_image_fit_to_image_fit(wf: &wit::ImageFit) -> ImageFit {
+    match wf {
+        wit::ImageFit::Contain => ImageFit::Contain,
+        wit::ImageFit::Cover => ImageFit::Cover,
+        wit::ImageFit::Fill => ImageFit::Fill,
     }
 }

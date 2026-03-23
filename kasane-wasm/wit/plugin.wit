@@ -1,4 +1,4 @@
-package kasane:plugin@0.19.0;
+package kasane:plugin@0.20.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -694,6 +694,29 @@ interface types {
         cursor: coord,
         is-primary: bool,
     }
+
+    // --- v0.20.0: Image types ---
+
+    /// Image source for Element::Image.
+    variant image-source {
+        /// File path on disk (relative to buffer file, or absolute).
+        file-path(string),
+        /// Inline RGBA8 pixel data.
+        rgba-data(rgba-image),
+    }
+
+    record rgba-image {
+        data: list<u8>,
+        width: u32,
+        height: u32,
+    }
+
+    /// How an image fits within its display rectangle.
+    enum image-fit {
+        contain,
+        cover,
+        fill,
+    }
 }
 
 interface host-state {
@@ -800,7 +823,7 @@ interface host-state {
 /// Host-provided functions for building Element trees.
 /// Handles are valid only within the current plugin call scope.
 interface element-builder {
-    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction};
+    use types.{face, atom, element-handle, interactive-id, border-line-style, edges, grid-width, flex-entry, overlay, slot-id, layout-direction, image-source, image-fit};
 
     /// Create a text element with a direct face.
     create-text: func(content: string, face: face) -> element-handle;
@@ -854,6 +877,12 @@ interface element-builder {
     /// [TL, T, TR, R, BR, B, BL, L, title-left, title-right, shadow].
     create-container-custom-border: func(child: element-handle, border-chars: list<string>,
         shadow: bool, padding: edges, style: face, title: option<list<atom>>) -> element-handle;
+
+    // --- v0.20.0: Image element ---
+
+    /// Create an image element. Size is in cells (width, height).
+    create-image: func(source: image-source, width: u16, height: u16,
+                       fit: image-fit, opacity: f32) -> element-handle;
 }
 
 interface plugin-api {

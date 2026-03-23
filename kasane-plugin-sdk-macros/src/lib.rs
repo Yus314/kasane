@@ -648,6 +648,42 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 super::kasane::plugin::element_builder::create_interactive(child, id)
             }
 
+            /// Create an image element from a file path. Size is in cells.
+            pub fn image_file(path: &str, width: u16, height: u16) -> ElementHandle {
+                let source = super::kasane::plugin::types::ImageSource::FilePath(path.to_string());
+                super::kasane::plugin::element_builder::create_image(
+                    &source,
+                    width,
+                    height,
+                    super::kasane::plugin::types::ImageFit::Contain,
+                    1.0,
+                )
+            }
+
+            /// Create an image element from inline RGBA data. Size is in cells.
+            pub fn image_rgba(
+                data: &[u8],
+                img_width: u32,
+                img_height: u32,
+                cell_width: u16,
+                cell_height: u16,
+            ) -> ElementHandle {
+                let source = super::kasane::plugin::types::ImageSource::RgbaData(
+                    super::kasane::plugin::types::RgbaImage {
+                        data: data.to_vec(),
+                        width: img_width,
+                        height: img_height,
+                    },
+                );
+                super::kasane::plugin::element_builder::create_image(
+                    &source,
+                    cell_width,
+                    cell_height,
+                    super::kasane::plugin::types::ImageFit::Contain,
+                    1.0,
+                )
+            }
+
             // ----- LineAnnotation shortcuts -----
 
             /// Create a background-only line annotation.
