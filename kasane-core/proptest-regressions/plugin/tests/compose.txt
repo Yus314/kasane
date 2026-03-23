@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 03bc25753d00df28ff9119087162148742e6cf0af9c9edc9fb98c683bc1c9f3c # shrinks to x = ContributionSet { items: [SourcedContribution { contributor: PluginId("a"), contribution: Contribution { element: Empty, priority: 63, size_hint: Auto } }, SourcedContribution { contributor: PluginId("a"), contribution: Contribution { element: Empty, priority: 0, size_hint: Auto } }] }
+cc 8183b12cae22a7372a07b5485552fed7569f9e483ab5d7232de63337150397dd # shrinks to x = ContributionSet { items: [SourcedContribution { contributor: PluginId("a"), contribution: Contribution { element: Empty, priority: 0, size_hint: Auto } }, SourcedContribution { contributor: PluginId("a"), contribution: Contribution { element: Empty, priority: -1, size_hint: Auto } }] }
+cc a960fc6c35ae5db8a4ccd6556a7a1414ce4aec33133ca30e3bfaea8124338b8e # shrinks to a = DirectiveSet { directives: [TaggedDirective { directive: Hide { range: 0..1 }, priority: 0, plugin_id: PluginId("a") }] }, b = DirectiveSet { directives: [TaggedDirective { directive: Hide { range: 0..2 }, priority: 0, plugin_id: PluginId("a") }] }
+cc e7d842f68bfbf11b4e77b71238f05dbfa304a2beac9dfbc9dd78b20098b2dde6 # shrinks to a = DirectiveSet { directives: [TaggedDirective { directive: Hide { range: 0..1 }, priority: -23, plugin_id: PluginId("v") }] }, b = DirectiveSet { directives: [TaggedDirective { directive: Hide { range: 1..2 }, priority: -23, plugin_id: PluginId("v") }] }

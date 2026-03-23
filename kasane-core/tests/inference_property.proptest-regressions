@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 343ccae1e80ec4b32fc23ef47a78f41ecaebf32c3b60213546b6310b5454f5ef # shrinks to mut lines = [[Atom { face: Face { fg: Default, bg: Default, underline: Default, attributes: Attributes(0x0) }, contents: "a" }]], target_line = 0
