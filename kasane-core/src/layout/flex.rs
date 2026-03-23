@@ -872,4 +872,44 @@ mod tests {
         let result = place(&el, root_area(20, 10), &state);
         assert_eq!(result.children[0].area.x, 0); // still starts at 0
     }
+
+    #[test]
+    fn test_measure_image() {
+        let state = default_state();
+        let el = Element::image(
+            crate::element::ImageSource::FilePath("test.png".into()),
+            10,
+            5,
+        );
+        let size = measure(&el, Constraints::loose(80, 24), &state);
+        assert_eq!(size.width, 10);
+        assert_eq!(size.height, 5);
+    }
+
+    #[test]
+    fn test_measure_image_clamped() {
+        let state = default_state();
+        let el = Element::image(
+            crate::element::ImageSource::FilePath("test.png".into()),
+            100,
+            50,
+        );
+        let size = measure(&el, Constraints::loose(80, 24), &state);
+        assert_eq!(size.width, 80);
+        assert_eq!(size.height, 24);
+    }
+
+    #[test]
+    fn test_place_image_leaf() {
+        let state = default_state();
+        let el = Element::image(
+            crate::element::ImageSource::FilePath("test.png".into()),
+            10,
+            5,
+        );
+        let area = root_area(80, 24);
+        let result = place(&el, area, &state);
+        assert_eq!(result.area, area);
+        assert!(result.children.is_empty());
+    }
 }

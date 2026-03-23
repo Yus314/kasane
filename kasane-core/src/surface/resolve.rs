@@ -225,6 +225,7 @@ fn collect_resolved_slot_areas(
         Element::Text(..)
         | Element::StyledLine(..)
         | Element::SlotPlaceholder { .. }
+        | Element::Image { .. }
         | Element::Empty
         | Element::BufferRef { .. } => {}
     }
@@ -248,6 +249,7 @@ fn contains_slot_placeholder(element: &Element) -> bool {
         Element::Grid { children, .. } => children.iter().any(contains_slot_placeholder),
         Element::Text(..)
         | Element::StyledLine(..)
+        | Element::Image { .. }
         | Element::Empty
         | Element::BufferRef { .. } => false,
     }
@@ -376,6 +378,7 @@ impl Resolver<'_> {
             },
             Element::Text(..)
             | Element::StyledLine(..)
+            | Element::Image { .. }
             | Element::Empty
             | Element::BufferRef { .. } => element,
         }
@@ -608,6 +611,7 @@ impl Resolver<'_> {
             }
             Element::Text(..)
             | Element::StyledLine(..)
+            | Element::Image { .. }
             | Element::Empty
             | Element::BufferRef { .. } => Ok(()),
         }

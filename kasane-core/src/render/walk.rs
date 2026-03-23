@@ -1068,4 +1068,122 @@ mod tests {
 
         assert_eq!(old_commands, new_commands);
     }
+
+    // -----------------------------------------------------------------------
+    // Image element tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn grid_visitor_image_filepath_fallback() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let el = Element::image(
+            crate::element::ImageSource::FilePath("/path/to/photo.png".into()),
+            20,
+            3,
+        );
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(20, 3);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme);
+
+        // First row should contain the fallback label
+        let mut text = String::new();
+        for x in 0..20 {
+            if let Some(cell) = grid.get(x, 0) {
+                text.push_str(&cell.grapheme);
+            }
+        }
+        assert!(
+            text.contains("[img: photo.png]"),
+            "expected fallback label, got: {text:?}"
+        );
+    }
+
+    #[test]
+    fn grid_visitor_image_rgba_fallback() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let data: std::sync::Arc<[u8]> = vec![0u8; 4 * 8 * 6].into();
+        let el = Element::Image {
+            source: crate::element::ImageSource::Rgba {
+                data,
+                width: 8,
+                height: 6,
+            },
+            size: (20, 3),
+            fit: crate::element::ImageFit::Contain,
+            opacity: 1.0,
+        };
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 3,
+        };
+        let layout = place(&el, area, &state);
+
+        let mut grid = CellGrid::new(20, 3);
+        walk_paint_grid(&el, &layout, &mut grid, &state, &theme);
+
+        let mut text = String::new();
+        for x in 0..20 {
+            if let Some(cell) = grid.get(x, 0) {
+                text.push_str(&cell.grapheme);
+            }
+        }
+        assert!(
+            text.contains("[img: 8x6]"),
+            "expected rgba fallback label, got: {text:?}"
+        );
+    }
+
+    #[test]
+    fn scene_visitor_image_emits_draw_image() {
+        let state = default_state();
+        let theme = Theme::default_theme();
+        let cs = default_cell_size();
+        let el = Element::image(
+            crate::element::ImageSource::FilePath("test.png".into()),
+            10,
+            5,
+        );
+        let area = Rect {
+            x: 2,
+            y: 1,
+            w: 10,
+            h: 5,
+        };
+        let layout = place(&el, area, &state);
+
+        let commands = walk_paint_scene(&el, &layout, &state, &theme, cs, CursorStyle::Block);
+
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            DrawCommand::DrawImage {
+                rect,
+                source,
+                fit,
+                opacity,
+            } => {
+                assert_eq!(rect.x, 20.0); // 2 * 10.0
+                assert_eq!(rect.y, 20.0); // 1 * 20.0
+                assert_eq!(rect.w, 100.0); // 10 * 10.0
+                assert_eq!(rect.h, 100.0); // 5 * 20.0
+                assert_eq!(
+                    *source,
+                    crate::element::ImageSource::FilePath("test.png".into())
+                );
+                assert_eq!(*fit, crate::element::ImageFit::Contain);
+                assert_eq!(*opacity, 1.0);
+            }
+            other => panic!("expected DrawImage, got: {other:?}"),
+        }
+    }
 }

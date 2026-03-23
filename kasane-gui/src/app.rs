@@ -371,7 +371,13 @@ where
         // Initialize GPU
         match GpuState::new(window.clone(), self.config.window.present_mode.as_deref()) {
             Ok(gpu) => {
-                let sr = SceneRenderer::new(&gpu, &self.config.font, scale_factor, phys_size);
+                let sr = SceneRenderer::new(
+                    &gpu,
+                    &self.config.font,
+                    scale_factor,
+                    phys_size,
+                    self.timer_scheduler.0.clone(),
+                );
                 let metrics = sr.metrics().clone();
 
                 // Setup color resolver
@@ -611,6 +617,13 @@ where
                 }
                 GuiEvent::DiagnosticOverlayExpire(generation) => {
                     if self.diagnostic_overlay.dismiss(generation) {
+                        self.dirty |= DirtyFlags::ALL;
+                    }
+                }
+                GuiEvent::ImageLoaded(key, result) => {
+                    if let (Some(gpu), Some(sr)) = (self.gpu.as_ref(), self.scene_renderer.as_mut())
+                        && sr.finalize_image_load(key, result, gpu)
+                    {
                         self.dirty |= DirtyFlags::ALL;
                     }
                 }

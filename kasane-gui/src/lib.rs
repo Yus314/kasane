@@ -47,6 +47,11 @@ pub(crate) enum GuiEvent {
     PluginTimer(PluginId, TimerPayload),
     ProcessOutput(PluginId, IoEvent),
     DiagnosticOverlayExpire(u64),
+    /// Background image decode completed.
+    ImageLoaded(
+        gpu::texture_cache::TextureKey,
+        Result<gpu::texture_cache::DecodedImage, String>,
+    ),
 }
 
 fn spawn_session_reader<R>(

@@ -16,6 +16,8 @@ use kasane_core::protocol::Attributes;
 use super::bg_pipeline::BgPipeline;
 use super::border_pipeline::BorderPipeline;
 use super::decoration_pipeline::{self, DecorationPipeline};
+use super::image_pipeline::ImagePipeline;
+use super::texture_cache::{LoadState, TextureCache, TextureKey};
 use super::{CURSOR_BAR_WIDTH, CURSOR_OUTLINE_THICKNESS, CURSOR_UNDERLINE_HEIGHT, CellMetrics};
 use crate::colors::ColorResolver;
 
@@ -31,6 +33,8 @@ pub struct SceneRenderer {
     bg: BgPipeline,
     border: BorderPipeline,
     decoration: DecorationPipeline,
+    image: ImagePipeline,
+    texture_cache: TextureCache,
     metrics: CellMetrics,
 
     // Reusable text buffers (growable pool)
@@ -55,14 +59,18 @@ pub struct SceneRenderer {
     /// Current frame screen dimensions (set at start of render_inner).
     frame_screen_w: f32,
     frame_screen_h: f32,
+
+    /// Event loop proxy for dispatching async image load completions.
+    event_proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
 }
 
 impl SceneRenderer {
-    pub fn new(
+    pub(crate) fn new(
         gpu: &super::GpuState,
         font_config: &FontConfig,
         scale_factor: f64,
         window_size: PhysicalSize<u32>,
+        event_proxy: winit::event_loop::EventLoopProxy<crate::GuiEvent>,
     ) -> Self {
         let mut font_system = FontSystem::new();
         if !font_config.fallback_list.is_empty() {
@@ -102,6 +110,8 @@ impl SceneRenderer {
         let bg = BgPipeline::new(gpu, surface_format);
         let border = BorderPipeline::new(gpu, surface_format);
         let decoration = DecorationPipeline::new(gpu, surface_format);
+        let texture_cache = TextureCache::new(&gpu.device, 128 * 1024 * 1024); // 128 MB budget
+        let image = ImagePipeline::new(gpu, surface_format, texture_cache.bind_group_layout());
 
         SceneRenderer {
             font_system,
@@ -113,6 +123,8 @@ impl SceneRenderer {
             bg,
             border,
             decoration,
+            image,
+            texture_cache,
             metrics,
             text_buffers: Vec::with_capacity(128),
             text_positions: Vec::with_capacity(128),
@@ -126,6 +138,7 @@ impl SceneRenderer {
             clip_stack: Vec::new(),
             frame_screen_w: 0.0,
             frame_screen_h: 0.0,
+            event_proxy,
         }
     }
 
@@ -138,6 +151,17 @@ impl SceneRenderer {
             width: self.metrics.cell_width,
             height: self.metrics.cell_height,
         }
+    }
+
+    /// Finalize an async image load. Returns `true` if the texture was inserted.
+    pub fn finalize_image_load(
+        &mut self,
+        key: super::texture_cache::TextureKey,
+        result: Result<super::texture_cache::DecodedImage, String>,
+        gpu: &super::GpuState,
+    ) -> bool {
+        self.texture_cache
+            .finalize_load(key, result, &gpu.device, &gpu.queue)
     }
 
     /// Recalculate metrics after resize or scale factor change.
@@ -243,11 +267,13 @@ impl SceneRenderer {
             self.bg.uniform_buffer(),
             self.border.uniform_buffer(),
             self.decoration.uniform_buffer(),
+            self.image.uniform_buffer(),
         ] {
             gpu.queue.write_buffer(buffer, 0, screen_size_data);
         }
 
         // Reset per-frame state
+        self.texture_cache.frame_tick();
         self.text_buffer_count = 0;
         self.text_positions.clear();
         self.text_clip_bounds.clear();
@@ -288,11 +314,12 @@ impl SceneRenderer {
             self.bg.instances.clear();
             self.border.instances.clear();
             self.decoration.instances.clear();
+            self.image.clear_frame();
             let layer_text_start = self.text_buffer_count;
 
             // Process this layer's DrawCommands
             for cmd in &commands[range_start..range_end] {
-                self.process_draw_command(cmd, color_resolver, cell_w, cell_h, screen_w);
+                self.process_draw_command(cmd, gpu, color_resolver, cell_w, cell_h, screen_w);
             }
 
             // Cursor belongs to the base layer (layer 0)
@@ -312,6 +339,9 @@ impl SceneRenderer {
 
             let deco_count = self.decoration.instances.len() / 10;
             self.decoration.ensure_buffer(gpu, deco_count);
+
+            let image_count = self.image.instances.len() / 9;
+            self.image.ensure_buffer(gpu, image_count);
 
             // Build TextAreas for this layer's text buffers only
             let layer_text_end = self.text_buffer_count;
@@ -388,6 +418,7 @@ impl SceneRenderer {
                 self.text_renderer
                     .render(&self.text_atlas, &self.viewport, &mut render_pass)
                     .map_err(|e| anyhow::anyhow!("glyphon render failed: {e}"))?;
+                self.image.upload_and_draw(gpu, &mut render_pass);
                 self.decoration.upload_and_draw(gpu, &mut render_pass);
             }
 
@@ -397,6 +428,7 @@ impl SceneRenderer {
 
         output.present();
 
+        self.texture_cache.evict_to_budget();
         self.text_atlas.trim();
 
         Ok(())
@@ -427,6 +459,7 @@ impl SceneRenderer {
     fn process_draw_command(
         &mut self,
         cmd: &DrawCommand,
+        gpu: &super::GpuState,
         color_resolver: &ColorResolver,
         cell_w: f32,
         cell_h: f32,
@@ -619,8 +652,69 @@ impl SceneRenderer {
             DrawCommand::PopClip => {
                 self.clip_stack.pop();
             }
-            DrawCommand::DrawImage { .. } => {} // TODO: Phase 2 — ImagePipeline
-            DrawCommand::BeginOverlay => {}     // handled by layer splitting
+            DrawCommand::DrawImage {
+                rect,
+                source,
+                fit,
+                opacity,
+            } => {
+                let Some((cx, cy, cw, ch)) = self.clip_rect(rect.x, rect.y, rect.w, rect.h) else {
+                    return;
+                };
+                let key = match source {
+                    kasane_core::element::ImageSource::FilePath(path) => {
+                        TextureKey::FilePath(path.clone())
+                    }
+                    kasane_core::element::ImageSource::Rgba {
+                        data,
+                        width,
+                        height,
+                    } => {
+                        let ptr = std::sync::Arc::as_ptr(data) as *const u8 as u64;
+                        let k =
+                            TextureKey::Inline(ptr ^ ((*width as u64) << 32) ^ (*height as u64));
+                        // Ensure inline data is in the cache (synchronous for inline)
+                        if !self.texture_cache.insert_rgba(
+                            k.clone(),
+                            data,
+                            *width,
+                            *height,
+                            &gpu.device,
+                            &gpu.queue,
+                        ) {
+                            return;
+                        }
+                        k
+                    }
+                };
+                // Look up or dispatch async load
+                match self.texture_cache.get_or_load(&key, &self.event_proxy) {
+                    LoadState::Ready(tex_w, tex_h) => {
+                        let view = self.texture_cache.get_view(&key).unwrap();
+                        let bind_group = self.texture_cache.create_bind_group(&gpu.device, view);
+                        self.image.push_textured_quad(
+                            bind_group,
+                            tex_w as f32,
+                            tex_h as f32,
+                            cx,
+                            cy,
+                            cw,
+                            ch,
+                            *fit,
+                            *opacity,
+                        );
+                    }
+                    LoadState::Pending => {
+                        // Loading in progress — draw semi-transparent placeholder
+                        self.bg.push_rect(cx, cy, cw, ch, [0.15, 0.15, 0.15, 0.6]);
+                    }
+                    LoadState::Failed => {
+                        // Failed — draw grey placeholder
+                        self.bg.push_rect(cx, cy, cw, ch, [0.2, 0.2, 0.2, 1.0]);
+                    }
+                }
+            }
+            DrawCommand::BeginOverlay => {} // handled by layer splitting
         }
     }
 

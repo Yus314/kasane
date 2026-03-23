@@ -1,0 +1,12 @@
+[package]
+name = "kasane-example-image-test"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+gui = ["kasane/gui"]
+
+[dependencies]
+kasane = { path = "../../kasane" }
+kasane-core = { path = "../../kasane-core" }

@@ -705,4 +705,53 @@ mod tests {
             _ => panic!("expected Grid"),
         }
     }
+
+    #[test]
+    fn test_element_image_file_path() {
+        let el = Element::image(ImageSource::FilePath("test.png".into()), 10, 5);
+        match el {
+            Element::Image {
+                source,
+                size,
+                fit,
+                opacity,
+            } => {
+                assert_eq!(source, ImageSource::FilePath("test.png".into()));
+                assert_eq!(size, (10, 5));
+                assert_eq!(fit, ImageFit::Contain);
+                assert_eq!(opacity, 1.0);
+            }
+            _ => panic!("expected Image"),
+        }
+    }
+
+    #[test]
+    fn test_element_image_rgba() {
+        let data: Arc<[u8]> = vec![255u8; 4 * 2 * 2].into();
+        let el = Element::Image {
+            source: ImageSource::Rgba {
+                data: data.clone(),
+                width: 2,
+                height: 2,
+            },
+            size: (4, 3),
+            fit: ImageFit::Cover,
+            opacity: 0.5,
+        };
+        match el {
+            Element::Image {
+                source: ImageSource::Rgba { width, height, .. },
+                size,
+                fit,
+                opacity,
+            } => {
+                assert_eq!(width, 2);
+                assert_eq!(height, 2);
+                assert_eq!(size, (4, 3));
+                assert_eq!(fit, ImageFit::Cover);
+                assert_eq!(opacity, 0.5);
+            }
+            _ => panic!("expected Image with Rgba source"),
+        }
+    }
 }
