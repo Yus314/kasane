@@ -238,6 +238,10 @@ pub(crate) fn wit_inline_decoration_to_inline_decoration(
             wit::InlineOp::HideRange(h) => kasane_core::render::InlineOp::Hide {
                 range: h.start as usize..h.end as usize,
             },
+            wit::InlineOp::Insert(ins) => kasane_core::render::InlineOp::Insert {
+                at: ins.at as usize,
+                content: super::wit_atoms_to_atoms(&ins.content),
+            },
         })
         .collect();
     kasane_core::render::InlineDecoration::new(ops)

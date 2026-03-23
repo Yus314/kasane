@@ -1,28 +1,42 @@
-//! Inline decoration: byte-range Style/Hide operations applied to buffer line atoms.
-
-use std::ops::Range;
+//! Inline decoration: byte-range Style/Hide/Insert operations applied to buffer line atoms.
 
 use crate::protocol::{Atom, Face};
 
-/// An inline operation applied to a byte range within a buffer line.
+/// An inline operation applied within a buffer line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InlineOp {
+    /// Insert virtual text atoms at the given byte gap position.
+    Insert { at: usize, content: Vec<Atom> },
     /// Override the face for the given byte range.
-    Style { range: Range<usize>, face: Face },
+    Style {
+        range: std::ops::Range<usize>,
+        face: Face,
+    },
     /// Hide the given byte range (omit from output).
-    Hide { range: Range<usize> },
+    Hide { range: std::ops::Range<usize> },
 }
 
 impl InlineOp {
-    /// The byte range this operation covers.
-    pub fn range(&self) -> &Range<usize> {
+    /// Unified sort key: (position, variant_order).
+    /// Insert (0) sorts before Style/Hide (1) at the same position.
+    fn sort_key(&self) -> (usize, u8) {
         match self {
-            InlineOp::Style { range, .. } | InlineOp::Hide { range } => range,
+            InlineOp::Insert { at, .. } => (*at, 0),
+            InlineOp::Style { range, .. } | InlineOp::Hide { range } => (range.start, 1),
         }
+    }
+
+    /// Start position in buffer byte coordinates.
+    fn start(&self) -> usize {
+        self.sort_key().0
     }
 }
 
-/// A set of non-overlapping, sorted inline operations for a single line.
+/// A set of sorted inline operations for a single line.
+///
+/// Invariants (checked in debug builds):
+/// - INV-INLINE-1: ops are sorted by `sort_key()` (position, then Insert before Style/Hide)
+/// - INV-INLINE-2: range-based ops (Style/Hide) are non-overlapping
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct InlineDecoration {
     ops: Vec<InlineOp>,
@@ -31,13 +45,31 @@ pub struct InlineDecoration {
 impl InlineDecoration {
     /// Create a new `InlineDecoration` from a list of ops.
     ///
-    /// In debug builds, asserts that ops are sorted by `range.start` and non-overlapping.
+    /// In debug builds, asserts that ops are sorted by `sort_key()` and
+    /// range-based ops are non-overlapping.
     pub fn new(ops: Vec<InlineOp>) -> Self {
-        debug_assert!(
-            ops.windows(2)
-                .all(|w| w[0].range().end <= w[1].range().start),
-            "InlineDecoration ops must be sorted by range.start and non-overlapping"
-        );
+        #[cfg(debug_assertions)]
+        {
+            // INV-INLINE-1: sorted by sort_key
+            debug_assert!(
+                ops.windows(2).all(|w| w[0].sort_key() <= w[1].sort_key()),
+                "InlineDecoration ops must be sorted by sort_key()"
+            );
+            // INV-INLINE-2: range-based ops are non-overlapping
+            let mut prev_end: Option<usize> = None;
+            for op in &ops {
+                if let InlineOp::Style { range, .. } | InlineOp::Hide { range } = op {
+                    if let Some(end) = prev_end {
+                        debug_assert!(
+                            end <= range.start,
+                            "InlineDecoration range ops must be non-overlapping: prev_end={end}, start={}",
+                            range.start
+                        );
+                    }
+                    prev_end = Some(range.end);
+                }
+            }
+        }
         Self { ops }
     }
 
@@ -55,9 +87,12 @@ impl InlineDecoration {
 /// Apply inline operations to a slice of atoms, producing a new atom vector.
 ///
 /// Algorithm: single-pass sweep maintaining a byte cursor across atoms and ops.
+/// - Insert ops inject virtual text atoms at byte gap positions.
 /// - Hide ops omit the covered sub-range from output.
 /// - Style ops resolve the op face against the atom's face and emit.
 /// - Regions not covered by any op pass through unchanged.
+///
+/// Insert ops inside a Hide range are still emitted (S1 semantics).
 ///
 /// If `decoration` is empty, returns a clone of `atoms`.
 pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<Atom> {
@@ -75,88 +110,152 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
         let atom_end = atom_start + atom.contents.len();
         byte_cursor = atom_end;
 
-        // Fast path: no more ops or current op is beyond this atom
-        if op_idx >= ops.len() || ops[op_idx].range().start >= atom_end {
+        // Drain Inserts at atom_start gap
+        drain_inserts(ops, &mut op_idx, atom_start, &mut result);
+
+        // Fast path: no more ops or next op beyond this atom
+        if op_idx >= ops.len() || ops[op_idx].start() >= atom_end {
             result.push(atom.clone());
             continue;
         }
 
-        // This atom overlaps with one or more ops — split it
+        // Slow path: this atom overlaps with one or more ops — split it
         let contents = atom.contents.as_str();
-        let mut pos = atom_start; // absolute byte position
+        let mut pos = atom_start;
 
         while pos < atom_end {
-            if op_idx >= ops.len() || ops[op_idx].range().start >= atom_end {
+            // Drain Inserts at current gap position
+            drain_inserts(ops, &mut op_idx, pos, &mut result);
+
+            if op_idx >= ops.len() || ops[op_idx].start() >= atom_end {
                 // Remainder of atom: no more ops overlap
-                let local_start = pos - atom_start;
-                let local_end = atom_end - atom_start;
-                if local_start < local_end {
-                    let sub = &contents[local_start..local_end];
-                    if !sub.is_empty() {
-                        result.push(Atom {
-                            face: atom.face,
-                            contents: sub.into(),
-                        });
-                    }
-                }
+                emit_sub_atom(
+                    contents,
+                    pos - atom_start,
+                    atom_end - atom_start,
+                    atom.face,
+                    &mut result,
+                );
                 break;
             }
 
             let op = &ops[op_idx];
-            let op_range = op.range();
-
-            if op_range.end <= pos {
-                // Op is entirely before current position — advance
-                op_idx += 1;
-                continue;
-            }
-
-            if op_range.start > pos {
-                // Gap before the op: emit unchanged sub-atom
-                let gap_end = op_range.start.min(atom_end);
-                let local_start = pos - atom_start;
-                let local_end = gap_end - atom_start;
-                // Clamp to char boundary
-                let local_start = clamp_to_char_boundary(contents, local_start);
-                let local_end = clamp_to_char_boundary(contents, local_end);
-                if local_start < local_end {
-                    result.push(Atom {
-                        face: atom.face,
-                        contents: contents[local_start..local_end].into(),
-                    });
-                }
-                pos = gap_end;
-                continue;
-            }
-
-            // Op overlaps with current position
-            let effective_start = pos.max(op_range.start);
-            let effective_end = atom_end.min(op_range.end);
-            let local_start = clamp_to_char_boundary(contents, effective_start - atom_start);
-            let local_end = clamp_to_char_boundary(contents, effective_end - atom_start);
-
             match op {
-                InlineOp::Hide { .. } => {
-                    // Skip this range
+                InlineOp::Insert { .. } => {
+                    // Insert with at > pos but at < atom_end: emit gap up to it
+                    let gap_end = op.start().min(atom_end);
+                    emit_sub_atom(
+                        contents,
+                        pos - atom_start,
+                        gap_end - atom_start,
+                        atom.face,
+                        &mut result,
+                    );
+                    pos = gap_end;
                 }
-                InlineOp::Style { face: op_face, .. } => {
+                InlineOp::Hide { range } => {
+                    if range.end <= pos {
+                        op_idx += 1;
+                        continue;
+                    }
+                    if range.start > pos {
+                        let gap_end = range.start.min(atom_end);
+                        emit_sub_atom(
+                            contents,
+                            pos - atom_start,
+                            gap_end - atom_start,
+                            atom.face,
+                            &mut result,
+                        );
+                        pos = gap_end;
+                        continue;
+                    }
+                    // Hide overlaps current position — skip
+                    let effective_end = atom_end.min(range.end);
+                    pos = effective_end;
+                    if pos >= range.end {
+                        op_idx += 1;
+                    }
+                }
+                InlineOp::Style {
+                    range,
+                    face: op_face,
+                } => {
+                    if range.end <= pos {
+                        op_idx += 1;
+                        continue;
+                    }
+                    if range.start > pos {
+                        let gap_end = range.start.min(atom_end);
+                        emit_sub_atom(
+                            contents,
+                            pos - atom_start,
+                            gap_end - atom_start,
+                            atom.face,
+                            &mut result,
+                        );
+                        pos = gap_end;
+                        continue;
+                    }
+                    // Style overlaps — emit with resolved face
+                    let effective_start = pos.max(range.start);
+                    let effective_end = atom_end.min(range.end);
+                    let local_start =
+                        clamp_to_char_boundary(contents, effective_start - atom_start);
+                    let local_end = clamp_to_char_boundary(contents, effective_end - atom_start);
                     if local_start < local_end {
                         result.push(Atom {
                             face: crate::protocol::resolve_face(op_face, &atom.face),
                             contents: contents[local_start..local_end].into(),
                         });
                     }
+                    pos = effective_end;
+                    if pos >= range.end {
+                        op_idx += 1;
+                    }
                 }
-            }
-
-            pos = effective_end;
-            if pos >= op_range.end {
-                op_idx += 1;
             }
         }
     }
 
+    // Trailing Inserts (at or past end of all atoms)
+    drain_inserts(ops, &mut op_idx, usize::MAX, &mut result);
     result
+}
+
+/// Emit all consecutive Insert ops whose `at <= pos`.
+fn drain_inserts(ops: &[InlineOp], op_idx: &mut usize, pos: usize, result: &mut Vec<Atom>) {
+    while *op_idx < ops.len() {
+        if let InlineOp::Insert { at, content } = &ops[*op_idx]
+            && *at <= pos
+        {
+            result.extend(content.iter().cloned());
+            *op_idx += 1;
+            continue;
+        }
+        break;
+    }
+}
+
+/// Emit a sub-range of atom contents if non-empty, with char boundary clamping.
+fn emit_sub_atom(
+    contents: &str,
+    local_start: usize,
+    local_end: usize,
+    face: Face,
+    result: &mut Vec<Atom>,
+) {
+    let start = clamp_to_char_boundary(contents, local_start);
+    let end = clamp_to_char_boundary(contents, local_end);
+    if start < end {
+        let sub = &contents[start..end];
+        if !sub.is_empty() {
+            result.push(Atom {
+                face,
+                contents: sub.into(),
+            });
+        }
+    }
 }
 
 /// Clamp a byte offset to the nearest char boundary (floor).
@@ -183,7 +282,7 @@ fn clamp_to_char_boundary(s: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Attributes, Color, Face, NamedColor};
+    use crate::protocol::{Color, Face, NamedColor};
 
     fn default_face() -> Face {
         Face::default()
@@ -196,12 +295,21 @@ mod tests {
         }
     }
 
+    fn blue_face() -> Face {
+        Face {
+            fg: Color::Named(NamedColor::Blue),
+            ..Face::default()
+        }
+    }
+
     fn make_atom(text: &str, face: Face) -> Atom {
         Atom {
             face,
             contents: text.into(),
         }
     }
+
+    // ---- Existing tests (Style/Hide) ----
 
     #[test]
     fn empty_decoration_returns_clone() {
@@ -374,5 +482,268 @@ mod tests {
             },
         ]);
         assert_eq!(deco.ops().len(), 2);
+    }
+
+    // ---- Insert tests ----
+
+    #[test]
+    fn insert_at_start() {
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 0,
+            content: vec![make_atom(">>", red_face())],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].contents.as_str(), ">>");
+        assert_eq!(result[0].face, red_face());
+        assert_eq!(result[1].contents.as_str(), "hello");
+    }
+
+    #[test]
+    fn insert_at_end() {
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 5,
+            content: vec![make_atom("<<", red_face())],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].contents.as_str(), "hello");
+        assert_eq!(result[1].contents.as_str(), "<<");
+    }
+
+    #[test]
+    fn insert_in_middle() {
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 3,
+            content: vec![make_atom("|", red_face())],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].contents.as_str(), "hel");
+        assert_eq!(result[1].contents.as_str(), "|");
+        assert_eq!(result[1].face, red_face());
+        assert_eq!(result[2].contents.as_str(), "lo");
+    }
+
+    #[test]
+    fn insert_at_atom_boundary() {
+        // Two atoms: "hel" + "lo" — insert at byte 3 (boundary)
+        let atoms = vec![
+            make_atom("hel", default_face()),
+            make_atom("lo", default_face()),
+        ];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 3,
+            content: vec![make_atom("|", red_face())],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].contents.as_str(), "hel");
+        assert_eq!(result[1].contents.as_str(), "|");
+        assert_eq!(result[2].contents.as_str(), "lo");
+    }
+
+    #[test]
+    fn insert_inside_hide() {
+        // S1 semantics: Hide{2..8} + Insert{at:5} on "abcdefghij"
+        // → "ab" + [Insert content] + "ij"
+        let atoms = vec![make_atom("abcdefghij", default_face())];
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Hide { range: 2..8 },
+            InlineOp::Insert {
+                at: 5,
+                content: vec![make_atom("NEW", red_face())],
+            },
+        ]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].contents.as_str(), "ab");
+        assert_eq!(result[1].contents.as_str(), "NEW");
+        assert_eq!(result[1].face, red_face());
+        assert_eq!(result[2].contents.as_str(), "ij");
+    }
+
+    #[test]
+    fn insert_at_hide_start() {
+        // Insert{at:2} + Hide{2..5} on "abcde"
+        // → "ab" + [Insert] (rest hidden)
+        let atoms = vec![make_atom("abcde", default_face())];
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 2,
+                content: vec![make_atom("X", red_face())],
+            },
+            InlineOp::Hide { range: 2..5 },
+        ]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].contents.as_str(), "ab");
+        assert_eq!(result[1].contents.as_str(), "X");
+    }
+
+    #[test]
+    fn insert_with_style() {
+        // Insert{at:3} + Style{3..6, red} on "abcdef"
+        // → "abc" + [Insert] + "def"(red)
+        let atoms = vec![make_atom("abcdef", default_face())];
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 3,
+                content: vec![make_atom("!", blue_face())],
+            },
+            InlineOp::Style {
+                range: 3..6,
+                face: red_face(),
+            },
+        ]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].contents.as_str(), "abc");
+        assert_eq!(result[1].contents.as_str(), "!");
+        assert_eq!(result[1].face, blue_face());
+        assert_eq!(result[2].contents.as_str(), "def");
+        assert_eq!(result[2].face.fg, Color::Named(NamedColor::Red));
+    }
+
+    #[test]
+    fn multiple_inserts_same_position() {
+        // Two Insert ops at position 3 — both should appear in order
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 3,
+                content: vec![make_atom("X", red_face())],
+            },
+            InlineOp::Insert {
+                at: 3,
+                content: vec![make_atom("Y", blue_face())],
+            },
+        ]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].contents.as_str(), "hel");
+        assert_eq!(result[1].contents.as_str(), "X");
+        assert_eq!(result[2].contents.as_str(), "Y");
+        assert_eq!(result[3].contents.as_str(), "lo");
+    }
+
+    #[test]
+    fn insert_multibyte() {
+        // "あいう" — insert after "あ" (byte 3)
+        let atoms = vec![make_atom("あいう", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 3,
+            content: vec![make_atom("|", red_face())],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].contents.as_str(), "あ");
+        assert_eq!(result[1].contents.as_str(), "|");
+        assert_eq!(result[2].contents.as_str(), "いう");
+    }
+
+    #[test]
+    fn insert_content_multiple_atoms() {
+        // Insert with multiple atoms in content
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 3,
+            content: vec![
+                make_atom("[", red_face()),
+                make_atom("new", blue_face()),
+                make_atom("]", red_face()),
+            ],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 5);
+        assert_eq!(result[0].contents.as_str(), "hel");
+        assert_eq!(result[1].contents.as_str(), "[");
+        assert_eq!(result[2].contents.as_str(), "new");
+        assert_eq!(result[3].contents.as_str(), "]");
+        assert_eq!(result[4].contents.as_str(), "lo");
+    }
+
+    #[test]
+    fn insert_empty_content() {
+        // Insert with empty content — no change to output
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 3,
+            content: vec![],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        // With the current algorithm, "hel" + "lo" (split at insert point)
+        // This is acceptable — the split doesn't change semantic content
+        let text: String = result.iter().map(|a| a.contents.as_str()).collect();
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn insert_past_end() {
+        // Insert at position beyond text — trailing drain catches it
+        let atoms = vec![make_atom("hello", default_face())];
+        let deco = InlineDecoration::new(vec![InlineOp::Insert {
+            at: 100,
+            content: vec![make_atom("!", red_face())],
+        }]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].contents.as_str(), "hello");
+        assert_eq!(result[1].contents.as_str(), "!");
+    }
+
+    #[test]
+    fn invariant_insert_before_style_same_pos() {
+        // Insert at 3, Style at 3..5 — Insert sorts first, should be accepted
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 3,
+                content: vec![make_atom("X", red_face())],
+            },
+            InlineOp::Style {
+                range: 3..5,
+                face: red_face(),
+            },
+        ]);
+        assert_eq!(deco.ops().len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "sorted by sort_key")]
+    fn invariant_unsorted_panics() {
+        // Style at 3..5 before Insert at 2 — unsorted, should panic
+        InlineDecoration::new(vec![
+            InlineOp::Style {
+                range: 3..5,
+                face: red_face(),
+            },
+            InlineOp::Insert {
+                at: 2,
+                content: vec![make_atom("X", red_face())],
+            },
+        ]);
+    }
+
+    #[test]
+    fn hide_plus_insert_replace_pattern() {
+        // Replace pattern: Hide{3..6} + Insert{at:3, "new"} on "abcdefghi"
+        // → "abc" + "new" + "ghi"
+        let atoms = vec![make_atom("abcdefghi", default_face())];
+        let deco = InlineDecoration::new(vec![
+            InlineOp::Insert {
+                at: 3,
+                content: vec![make_atom("new", red_face())],
+            },
+            InlineOp::Hide { range: 3..6 },
+        ]);
+        let result = apply_inline_ops(&atoms, &deco);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].contents.as_str(), "abc");
+        assert_eq!(result[1].contents.as_str(), "new");
+        assert_eq!(result[1].face, red_face());
+        assert_eq!(result[2].contents.as_str(), "ghi");
     }
 }

@@ -1,4 +1,4 @@
-package kasane:plugin@0.15.0;
+package kasane:plugin@0.16.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -545,9 +545,11 @@ interface types {
     variant inline-op {
         style-range(style-range-op),
         hide-range(hide-range-op),
+        insert(insert-op),
     }
     record style-range-op { start: u32, end: u32, face: face }
     record hide-range-op { start: u32, end: u32 }
+    record insert-op { at: u32, content: list<atom> }
     record inline-decoration { ops: list<inline-op> }
 
     record virtual-text-item {
@@ -561,7 +563,7 @@ interface types {
         background: option<background-layer>,
         /// Sort priority for gutter ordering (lower = first). Default: 0.
         priority: s16,
-        /// Inline decoration (byte-range Style/Hide) for this line.
+        /// Inline decoration (byte-range Style/Hide/Insert) for this line.
         inline: option<inline-decoration>,
         /// EOL virtual text items for this line.
         virtual-text: list<virtual-text-item>,

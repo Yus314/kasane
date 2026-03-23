@@ -233,10 +233,26 @@ fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &Annotate
 
 The `inline` field provides byte-range operations applied directly to buffer line atoms. This enables styling or hiding sub-ranges of a line without replacing the entire element tree.
 
-`InlineDecoration` contains a sorted, non-overlapping list of `InlineOp`:
+`InlineDecoration` contains a sorted list of `InlineOp`:
 
+- `InlineOp::Insert { at, content }` — Insert virtual text atoms at the given byte gap position
 - `InlineOp::Style { range, face }` — Override the face for the given byte range
 - `InlineOp::Hide { range }` — Hide the given byte range (omit from output)
+
+Ops are sorted by `sort_key()` — `(position, variant_order)` where Insert (0) sorts before Style/Hide (1) at the same position. Range-based ops (Style/Hide) must be non-overlapping. Multiple Insert ops at the same position are allowed and emitted in order.
+
+Insert ops inside a Hide range are still emitted (**S1 semantics**): the Hide omits the original buffer text, but any Insert whose `at` falls within the hidden range produces its virtual content.
+
+**Replace pattern** — Hide + Insert at the same position to substitute text:
+
+```rust
+// Replace "def" (bytes 3..6) with "new" in "abcdefghi"
+InlineDecoration::new(vec![
+    InlineOp::Insert { at: 3, content: vec![Atom { face: red_face, contents: "new".into() }] },
+    InlineOp::Hide { range: 3..6 },
+])
+// Result: "abc" + "new"(red) + "ghi"
+```
 
 **Example** — style bytes 6..11 ("world") in red, hide bytes 0..2 ("he"):
 
@@ -258,7 +274,7 @@ fn annotate_line_with_ctx(&self, line: usize, app: &AppView<'_>, _ctx: &Annotate
 }
 ```
 
-Ops must be sorted by `range.start` and non-overlapping (enforced by `debug_assert` in `InlineDecoration::new`). Byte ranges operate on UTF-8 byte offsets within the line's atom contents. Phase 1 constraint: only one plugin may provide inline decoration per line.
+Byte ranges operate on UTF-8 byte offsets within the line's atom contents. Phase 1 constraint: only one plugin may provide inline decoration per line.
 
 ### 1.6 Overlay (`contribute_overlay_with_ctx`)
 
