@@ -3,7 +3,7 @@ use proptest::prelude::*;
 use super::*;
 use crate::display::resolve;
 use crate::plugin::PluginId;
-use crate::protocol::Face;
+use crate::protocol::{Atom, Face};
 
 #[test]
 fn identity_map_roundtrip() {
@@ -41,8 +41,10 @@ fn fold_reduces_line_count() {
     // 10 buffer lines, fold lines 3..6 (3 lines → 1 summary)
     let directives = vec![DisplayDirective::Fold {
         range: 3..6,
-        summary: "... 3 lines ...".into(),
-        face: Face::default(),
+        summary: vec![Atom {
+            face: Face::default(),
+            contents: "... 3 lines ...".into(),
+        }],
     }];
     let dm = DisplayMap::build(10, &directives);
 
@@ -55,8 +57,10 @@ fn fold_reduces_line_count() {
 fn fold_mapping_correctness() {
     let directives = vec![DisplayDirective::Fold {
         range: 2..5,
-        summary: "folded".into(),
-        face: Face::default(),
+        summary: vec![Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
     }];
     let dm = DisplayMap::build(8, &directives);
     // Display: [0, 1, fold(2..5), 5, 6, 7] = 6 lines
@@ -107,8 +111,10 @@ fn hide_removes_lines() {
 fn insert_after_adds_lines() {
     let directives = vec![DisplayDirective::InsertAfter {
         after: 1,
-        content: "virtual line".into(),
-        face: Face::default(),
+        content: vec![Atom {
+            face: Face::default(),
+            contents: "virtual line".into(),
+        }],
     }];
     let dm = DisplayMap::build(3, &directives);
 
@@ -141,8 +147,10 @@ fn dirty_identity() {
 fn dirty_fold_any_dirty() {
     let directives = vec![DisplayDirective::Fold {
         range: 1..4,
-        summary: "folded".into(),
-        face: Face::default(),
+        summary: vec![Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
     }];
     let dm = DisplayMap::build(5, &directives);
     // Display: [0, fold(1..4), 4] = 3 lines
@@ -158,8 +166,10 @@ fn dirty_fold_any_dirty() {
 fn dirty_virtual_line_never_dirty() {
     let directives = vec![DisplayDirective::InsertAfter {
         after: 0,
-        content: "virtual".into(),
-        face: Face::default(),
+        content: vec![Atom {
+            face: Face::default(),
+            contents: "virtual".into(),
+        }],
     }];
     let dm = DisplayMap::build(2, &directives);
 
@@ -196,8 +206,10 @@ fn build_rejects_fold_hide_overlap() {
     let directives = vec![
         DisplayDirective::Fold {
             range: 2..5,
-            summary: "fold".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
         },
         DisplayDirective::Hide { range: 3..6 },
     ];
@@ -210,8 +222,10 @@ fn build_rejects_fold_hide_overlap() {
 fn build_rejects_empty_fold_range() {
     let directives = vec![DisplayDirective::Fold {
         range: 3..3,
-        summary: "empty".into(),
-        face: Face::default(),
+        summary: vec![Atom {
+            face: Face::default(),
+            contents: "empty".into(),
+        }],
     }];
     let _ = DisplayMap::build(10, &directives);
 }
@@ -233,8 +247,10 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Fold {
                 range: s..(s + len).min(m),
-                summary: "...".into(),
-                face: Face::default(),
+                summary: vec![Atom {
+                    face: Face::default(),
+                    contents: "...".into(),
+                }],
             }
         }),
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
@@ -245,8 +261,10 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m).prop_map(|after| {
             DisplayDirective::InsertAfter {
                 after,
-                content: "virtual".into(),
-                face: Face::default(),
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: "virtual".into(),
+                }],
             }
         }),
     ]

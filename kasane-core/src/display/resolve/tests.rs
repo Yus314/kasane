@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::display::assert_display_map_invariants;
-use crate::protocol::Face;
+use crate::protocol::{Atom, Face};
 
 fn pid(name: &str) -> PluginId {
     PluginId(name.to_string())
@@ -28,8 +28,10 @@ fn resolve_inserts_accumulate() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 0,
-            content: "from-a".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "from-a".into(),
+            }],
         },
         0,
         pid("a"),
@@ -37,8 +39,10 @@ fn resolve_inserts_accumulate() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 0,
-            content: "from-b".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "from-b".into(),
+            }],
         },
         0,
         pid("b"),
@@ -47,10 +51,10 @@ fn resolve_inserts_accumulate() {
     assert_eq!(result.len(), 2);
     // Both inserts are kept
     assert!(result.iter().any(|d| matches!(d,
-        DisplayDirective::InsertAfter { content, .. } if content == "from-a"
+        DisplayDirective::InsertAfter { content, .. } if content.first().map(|a| a.contents.as_str()) == Some("from-a")
     )));
     assert!(result.iter().any(|d| matches!(d,
-        DisplayDirective::InsertAfter { content, .. } if content == "from-b"
+        DisplayDirective::InsertAfter { content, .. } if content.first().map(|a| a.contents.as_str()) == Some("from-b")
     )));
 }
 
@@ -60,8 +64,10 @@ fn resolve_inserts_same_line_ordered_by_priority() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 0,
-            content: "low".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "low".into(),
+            }],
         },
         10,
         pid("b"),
@@ -69,8 +75,10 @@ fn resolve_inserts_same_line_ordered_by_priority() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 0,
-            content: "high".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "high".into(),
+            }],
         },
         0,
         pid("a"),
@@ -80,7 +88,9 @@ fn resolve_inserts_same_line_ordered_by_priority() {
     let insert_contents: Vec<&str> = result
         .iter()
         .filter_map(|d| match d {
-            DisplayDirective::InsertAfter { content, .. } => Some(content.as_str()),
+            DisplayDirective::InsertAfter { content, .. } => {
+                content.first().map(|a| a.contents.as_str())
+            }
             _ => None,
         })
         .collect();
@@ -120,8 +130,10 @@ fn resolve_folds_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 1..3,
-            summary: "fold-a".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold-a".into(),
+            }],
         },
         0,
         pid("a"),
@@ -129,8 +141,10 @@ fn resolve_folds_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 5..7,
-            summary: "fold-b".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold-b".into(),
+            }],
         },
         0,
         pid("b"),
@@ -149,8 +163,10 @@ fn resolve_folds_overlap_higher_priority_wins() {
     set.push(
         DisplayDirective::Fold {
             range: 2..6,
-            summary: "low".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "low".into(),
+            }],
         },
         0,
         pid("low"),
@@ -158,8 +174,10 @@ fn resolve_folds_overlap_higher_priority_wins() {
     set.push(
         DisplayDirective::Fold {
             range: 3..8,
-            summary: "high".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "high".into(),
+            }],
         },
         10,
         pid("high"),
@@ -168,7 +186,7 @@ fn resolve_folds_overlap_higher_priority_wins() {
     let folds: Vec<&str> = result
         .iter()
         .filter_map(|d| match d {
-            DisplayDirective::Fold { summary, .. } => Some(summary.as_str()),
+            DisplayDirective::Fold { summary, .. } => summary.first().map(|a| a.contents.as_str()),
             _ => None,
         })
         .collect();
@@ -182,8 +200,10 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     set.push(
         DisplayDirective::Fold {
             range: 1..5,
-            summary: "alpha".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "alpha".into(),
+            }],
         },
         0,
         pid("alpha"),
@@ -191,8 +211,10 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     set.push(
         DisplayDirective::Fold {
             range: 3..7,
-            summary: "beta".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "beta".into(),
+            }],
         },
         0,
         pid("beta"),
@@ -201,7 +223,7 @@ fn resolve_folds_overlap_same_priority_plugin_id_tiebreak() {
     let folds: Vec<&str> = result
         .iter()
         .filter_map(|d| match d {
-            DisplayDirective::Fold { summary, .. } => Some(summary.as_str()),
+            DisplayDirective::Fold { summary, .. } => summary.first().map(|a| a.contents.as_str()),
             _ => None,
         })
         .collect();
@@ -215,8 +237,10 @@ fn resolve_fold_hide_partial_overlap_fold_removed() {
     set.push(
         DisplayDirective::Fold {
             range: 2..6,
-            summary: "fold".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
         },
         0,
         pid("a"),
@@ -244,8 +268,10 @@ fn resolve_fold_hide_full_cover_fold_removed() {
     set.push(
         DisplayDirective::Fold {
             range: 2..5,
-            summary: "fold".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
         },
         0,
         pid("a"),
@@ -266,8 +292,10 @@ fn resolve_fold_hide_disjoint_both_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 1..3,
-            summary: "fold".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
         },
         0,
         pid("a"),
@@ -293,8 +321,10 @@ fn resolve_insert_suppressed_by_hide() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 3,
-            content: "suppressed".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "suppressed".into(),
+            }],
         },
         0,
         pid("b"),
@@ -313,8 +343,10 @@ fn resolve_insert_suppressed_by_fold() {
     set.push(
         DisplayDirective::Fold {
             range: 2..5,
-            summary: "fold".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
         },
         0,
         pid("a"),
@@ -322,8 +354,10 @@ fn resolve_insert_suppressed_by_fold() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 3,
-            content: "suppressed".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "suppressed".into(),
+            }],
         },
         0,
         pid("b"),
@@ -342,8 +376,10 @@ fn resolve_insert_outside_fold_kept() {
     set.push(
         DisplayDirective::Fold {
             range: 2..5,
-            summary: "fold".into(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "fold".into(),
+            }],
         },
         0,
         pid("a"),
@@ -351,8 +387,10 @@ fn resolve_insert_outside_fold_kept() {
     set.push(
         DisplayDirective::InsertAfter {
             after: 0,
-            content: "kept".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "kept".into(),
+            }],
         },
         0,
         pid("b"),
@@ -373,8 +411,10 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
             DisplayDirective::Fold {
                 range: s..(s + len).min(m),
-                summary: "...".into(),
-                face: Face::default(),
+                summary: vec![Atom {
+                    face: Face::default(),
+                    contents: "...".into(),
+                }],
             }
         }),
         (0usize..m, 1usize..m.min(8).max(1) + 1).prop_map(move |(s, len)| {
@@ -385,8 +425,10 @@ fn arb_display_directive(max_line: usize) -> impl Strategy<Value = DisplayDirect
         (0usize..m).prop_map(|after| {
             DisplayDirective::InsertAfter {
                 after,
-                content: "virtual".into(),
-                face: Face::default(),
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: "virtual".into(),
+                }],
             }
         }),
     ]

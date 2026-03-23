@@ -247,14 +247,12 @@ interface types {
     record fold-directive {
         range-start: u32,
         range-end: u32,
-        summary: string,
-        face: face,
+        summary: list<atom>,
     }
 
     record insert-after-directive {
         after: u32,
-        content: string,
-        face: face,
+        content: list<atom>,
     }
 
     record hide-directive {
@@ -708,6 +706,7 @@ interface host-state {
     get-session-count: func() -> u32;
     get-session: func(index: u32) -> option<session-descriptor>;
     get-active-session-key: func() -> option<string>;
+    get-active-session-name: func() -> option<string>;
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
     /// Resolve a theme token to a face. Returns none if token is not in the theme.

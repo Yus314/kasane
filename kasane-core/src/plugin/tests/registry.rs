@@ -6,6 +6,7 @@ use crate::plugin::{
     BootstrapEffects, KeyDispatchResult, KeyHandleResult, RuntimeEffects, SessionReadyCommand,
     SessionReadyEffects,
 };
+use crate::protocol::Atom;
 use crate::protocol::KasaneRequest;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 use std::sync::Arc;
@@ -386,8 +387,10 @@ fn test_collect_display_directives_composes_multi_plugin() {
         id: "second",
         directives: vec![DisplayDirective::InsertAfter {
             after: 3,
-            content: "virtual".to_string(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "virtual".into(),
+            }],
         }],
         priority: 0,
     }));
@@ -421,8 +424,10 @@ fn test_collect_display_map_composes_multi_plugin() {
         id: "second",
         directives: vec![DisplayDirective::InsertAfter {
             after: 3,
-            content: "virtual".to_string(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "virtual".into(),
+            }],
         }],
         priority: 0,
     }));
@@ -448,8 +453,10 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
         id: "low",
         directives: vec![DisplayDirective::Fold {
             range: 1..4,
-            summary: "low-fold".to_string(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "low-fold".into(),
+            }],
         }],
         priority: 0,
     }));
@@ -457,8 +464,10 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
         id: "high",
         directives: vec![DisplayDirective::Fold {
             range: 2..5,
-            summary: "high-fold".to_string(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: "high-fold".into(),
+            }],
         }],
         priority: 10,
     }));
@@ -470,7 +479,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
     let fold_summaries: Vec<&str> = directives
         .iter()
         .filter_map(|d| match d {
-            DisplayDirective::Fold { summary, .. } => Some(summary.as_str()),
+            DisplayDirective::Fold { summary, .. } => summary.first().map(|a| a.contents.as_str()),
             _ => None,
         })
         .collect();
@@ -486,8 +495,10 @@ fn test_collect_display_directives_single_plugin_unchanged() {
             DisplayDirective::Hide { range: 1..3 },
             DisplayDirective::InsertAfter {
                 after: 0,
-                content: "virtual".to_string(),
-                face: Face::default(),
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: "virtual".into(),
+                }],
             },
         ],
         priority: 0,
@@ -503,7 +514,7 @@ fn test_collect_display_directives_single_plugin_unchanged() {
             .any(|d| matches!(d, DisplayDirective::Hide { range } if *range == (1..3)))
     );
     assert!(directives.iter().any(
-        |d| matches!(d, DisplayDirective::InsertAfter { content, .. } if content == "virtual")
+        |d| matches!(d, DisplayDirective::InsertAfter { content, .. } if content.first().map(|a| a.contents.as_str()) == Some("virtual"))
     ));
 }
 

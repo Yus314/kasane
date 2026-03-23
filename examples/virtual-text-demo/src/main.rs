@@ -108,11 +108,13 @@ impl Plugin for VirtualTextDemoPlugin {
             if let Some(kw) = detect_keyword(&text) {
                 directives.push(DisplayDirective::InsertAfter {
                     after: i,
-                    content: format!("  {} {} \u{2014} {}", kw.icon, kw.pattern, kw.label),
-                    face: Face {
-                        fg: Color::Named(kw.color),
-                        ..Face::default()
-                    },
+                    content: vec![Atom {
+                        face: Face {
+                            fg: Color::Named(kw.color),
+                            ..Face::default()
+                        },
+                        contents: format!("  {} {} \u{2014} {}", kw.icon, kw.pattern, kw.label).into(),
+                    }],
                 });
             }
         }

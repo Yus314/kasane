@@ -11,7 +11,7 @@ use crate::plugin::compose::{
 use crate::plugin::context::{
     ContribSizeHint, Contribution, OverlayContribution, SourcedContribution, TransformTarget,
 };
-use crate::protocol::Face;
+use crate::protocol::{Atom, Face};
 
 // ---------------------------------------------------------------------------
 // Strategies
@@ -56,13 +56,17 @@ fn arb_display_directive() -> impl Strategy<Value = DisplayDirective> {
         (0usize..100, 1usize..50).prop_map(|(s, len)| DisplayDirective::Hide { range: s..s + len }),
         (0usize..100, 1usize..50).prop_map(|(s, len)| DisplayDirective::Fold {
             range: s..s + len,
-            summary: String::new(),
-            face: Face::default(),
+            summary: vec![Atom {
+                face: Face::default(),
+                contents: String::new().into()
+            }],
         }),
         (0usize..200).prop_map(|after| DisplayDirective::InsertAfter {
             after,
-            content: String::new(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: String::new().into()
+            }],
         }),
     ]
 }
@@ -241,8 +245,10 @@ fn directive_set_commutativity_same_plugin_same_priority() {
         directives: vec![TaggedDirective {
             directive: DisplayDirective::InsertAfter {
                 after: 3,
-                content: String::new(),
-                face: Face::default(),
+                content: vec![Atom {
+                    face: Face::default(),
+                    contents: String::new().into(),
+                }],
             },
             priority: 0,
             plugin_id: pid.clone(),

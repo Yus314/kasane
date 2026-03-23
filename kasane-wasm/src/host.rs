@@ -322,6 +322,13 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     fn get_active_session_key(&mut self) -> Option<String> {
         self.active_session_key.clone()
     }
+    fn get_active_session_name(&mut self) -> Option<String> {
+        let key = self.active_session_key.as_deref()?;
+        self.session_descriptors
+            .iter()
+            .find(|d| d.key == key)
+            .and_then(|d| d.session_name.clone())
+    }
 
     // --- v0.8.0 Tier 9: Theme / Color context ---
     fn get_theme_face(&mut self, token: String) -> Option<bindings::kasane::plugin::types::Face> {

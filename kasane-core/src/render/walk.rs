@@ -379,7 +379,8 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 false, // GPU never skips clean lines
             ) {
                 BufferLineAction::Skip => continue,
-                BufferLineAction::Synthetic { text, face } => {
+                BufferLineAction::Synthetic { atoms } => {
+                    let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
                             x: px,
@@ -387,13 +388,13 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                             w: row_w,
                             h: cs.height,
                         },
-                        face,
+                        face: fill_face,
                         elevated: false,
                     });
-                    self.out.push(DrawCommand::DrawText {
+                    let resolved = resolve_atoms(atoms, None);
+                    self.out.push(DrawCommand::DrawAtoms {
                         pos: PixelPos { x: px, y: py },
-                        text: text.to_string(),
-                        face,
+                        atoms: resolved,
                         max_width: row_w,
                     });
                 }

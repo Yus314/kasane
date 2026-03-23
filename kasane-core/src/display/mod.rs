@@ -11,7 +11,7 @@ mod tests;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::protocol::Face;
+use crate::protocol::Atom;
 
 pub use resolve::{DirectiveSet, TaggedDirective, resolve};
 
@@ -21,15 +21,10 @@ pub enum DisplayDirective {
     /// Collapse a range of buffer lines into a single summary line.
     Fold {
         range: Range<usize>,
-        summary: String,
-        face: Face,
+        summary: Vec<Atom>,
     },
     /// Insert a virtual text line after the given buffer line.
-    InsertAfter {
-        after: usize,
-        content: String,
-        face: Face,
-    },
+    InsertAfter { after: usize, content: Vec<Atom> },
     /// Hide a range of buffer lines entirely.
     Hide { range: Range<usize> },
 }
@@ -59,8 +54,14 @@ pub enum InteractionPolicy {
 /// Content for synthetic (non-buffer) display lines.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyntheticContent {
-    pub text: String,
-    pub face: Face,
+    pub atoms: Vec<Atom>,
+}
+
+impl SyntheticContent {
+    /// Concatenate all atom contents into a single string (useful for tests).
+    pub fn text(&self) -> String {
+        self.atoms.iter().map(|a| a.contents.as_str()).collect()
+    }
 }
 
 /// A single entry in the DisplayMap, representing one display line.
@@ -164,23 +165,19 @@ impl DisplayMap {
         }
 
         // Track which buffer lines are affected by directives
-        let mut folded: Vec<Option<(Range<usize>, String, Face)>> = vec![None; line_count];
+        let mut folded: Vec<Option<(Range<usize>, Vec<Atom>)>> = vec![None; line_count];
         let mut hidden: Vec<bool> = vec![false; line_count];
-        let mut insert_after: Vec<Vec<(String, Face)>> = vec![vec![]; line_count];
+        let mut insert_after: Vec<Vec<Vec<Atom>>> = vec![vec![]; line_count];
 
         for directive in directives {
             match directive {
-                DisplayDirective::Fold {
-                    range,
-                    summary,
-                    face,
-                } => {
+                DisplayDirective::Fold { range, summary } => {
                     if range.start < line_count
                         && range.end <= line_count
                         && range.start < range.end
                     {
                         for item in folded.iter_mut().take(range.end).skip(range.start) {
-                            *item = Some((range.clone(), summary.clone(), *face));
+                            *item = Some((range.clone(), summary.clone()));
                         }
                     }
                 }
@@ -191,13 +188,9 @@ impl DisplayMap {
                         }
                     }
                 }
-                DisplayDirective::InsertAfter {
-                    after,
-                    content,
-                    face,
-                } => {
+                DisplayDirective::InsertAfter { after, content } => {
                     if *after < line_count {
-                        insert_after[*after].push((content.clone(), *face));
+                        insert_after[*after].push(content.clone());
                     }
                 }
             }
@@ -213,7 +206,7 @@ impl DisplayMap {
                 continue;
             }
 
-            if let Some((ref range, ref summary, face)) = folded[line] {
+            if let Some((ref range, ref summary)) = folded[line] {
                 if !fold_emitted[range.start] {
                     // Emit the fold summary line (once per fold range)
                     let display_idx = entries.len();
@@ -221,8 +214,7 @@ impl DisplayMap {
                         source: SourceMapping::LineRange(range.clone()),
                         interaction: InteractionPolicy::ReadOnly,
                         synthetic: Some(SyntheticContent {
-                            text: summary.clone(),
-                            face,
+                            atoms: summary.clone(),
                         }),
                     });
                     // Map all lines in the fold range to the summary display line
@@ -246,13 +238,12 @@ impl DisplayMap {
             buffer_to_display[line] = Some(display_idx);
 
             // InsertAfter: add virtual lines after this buffer line
-            for (content, face) in &insert_after[line] {
+            for atoms in &insert_after[line] {
                 entries.push(DisplayEntry {
                     source: SourceMapping::None,
                     interaction: InteractionPolicy::ReadOnly,
                     synthetic: Some(SyntheticContent {
-                        text: content.clone(),
-                        face: *face,
+                        atoms: atoms.clone(),
                     }),
                 });
             }

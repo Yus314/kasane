@@ -464,7 +464,11 @@ fn converts_fold_display_directive_from_guest() {
     let entry = map.entry(1).expect("fold summary line");
     assert_eq!(entry.source, SourceMapping::LineRange(1..3));
     assert_eq!(
-        entry.synthetic.as_ref().expect("fold summary content").text,
+        entry
+            .synthetic
+            .as_ref()
+            .expect("fold summary content")
+            .text(),
         "surface-probe-fold"
     );
 }
@@ -503,7 +507,7 @@ fn converts_insert_after_display_directive_from_guest() {
         map.entry(2)
             .and_then(|entry| entry.synthetic.as_ref())
             .expect("virtual line")
-            .text,
+            .text(),
         "surface-probe-virtual"
     );
 }

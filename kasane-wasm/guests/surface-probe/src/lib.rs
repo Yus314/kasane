@@ -169,8 +169,10 @@ impl Guest for SurfaceProbePlugin {
             Some("fold") => vec![DisplayDirective::Fold(FoldDirective {
                 range_start: 1,
                 range_end: 3,
-                summary: "surface-probe-fold".to_string(),
-                face: host_state::get_default_face(),
+                summary: vec![Atom {
+                    face: host_state::get_default_face(),
+                    contents: "surface-probe-fold".to_string(),
+                }],
             })],
             Some("hide") => vec![DisplayDirective::Hide(HideDirective {
                 range_start: 1,
@@ -178,8 +180,10 @@ impl Guest for SurfaceProbePlugin {
             })],
             Some("insert") => vec![DisplayDirective::InsertAfter(InsertAfterDirective {
                 after: 1,
-                content: "surface-probe-virtual".to_string(),
-                face: host_state::get_default_face(),
+                content: vec![Atom {
+                    face: host_state::get_default_face(),
+                    contents: "surface-probe-virtual".to_string(),
+                }],
             })],
             _ => vec![],
         }

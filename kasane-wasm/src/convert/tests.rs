@@ -3,7 +3,7 @@ use kasane_core::element::{BorderLineStyle, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::{Rect, SplitDirection, flex::Constraints};
 use kasane_core::plugin::{AppView, Command, ContributeContext, IoEvent, ProcessEvent, StdinMode};
-use kasane_core::protocol::{Face, KasaneRequest};
+use kasane_core::protocol::{Atom, Face, KasaneRequest};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
     ScrollPlan, ScrollPolicyResult,
@@ -229,8 +229,10 @@ fn convert_runtime_effects_from_wit() {
 fn convert_display_directive_fold_roundtrip() {
     let directive = kasane_core::display::DisplayDirective::Fold {
         range: 2..5,
-        summary: "folded".into(),
-        face: Face::default(),
+        summary: vec![Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
     };
 
     let wit = display_directive_to_wit(&directive);
@@ -243,8 +245,10 @@ fn convert_display_directive_fold_roundtrip() {
 fn convert_display_directive_insert_after_roundtrip() {
     let directive = kasane_core::display::DisplayDirective::InsertAfter {
         after: 3,
-        content: "virtual".into(),
-        face: Face::default(),
+        content: vec![Atom {
+            face: Face::default(),
+            contents: "virtual".into(),
+        }],
     };
 
     let wit = display_directive_to_wit(&directive);
@@ -269,8 +273,10 @@ fn convert_display_directive_list_roundtrip() {
         kasane_core::display::DisplayDirective::Hide { range: 1..3 },
         kasane_core::display::DisplayDirective::InsertAfter {
             after: 3,
-            content: "virtual".into(),
-            face: Face::default(),
+            content: vec![Atom {
+                face: Face::default(),
+                contents: "virtual".into(),
+            }],
         },
     ];
 

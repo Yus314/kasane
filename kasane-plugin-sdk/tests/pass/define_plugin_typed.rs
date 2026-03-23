@@ -57,8 +57,7 @@ kasane_plugin_sdk::define_plugin! {
     display_directives() {
         vec![DisplayDirective::InsertAfter(InsertAfterDirective {
             after: 0,
-            content: "typed".to_string(),
-            face: default_face(),
+            content: vec![Atom { face: default_face(), contents: "typed".to_string() }],
         })]
     },
 }

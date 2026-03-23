@@ -92,7 +92,7 @@ pub(crate) enum BufferLineAction<'a> {
     /// Skip this line (TUI line-dirty optimization or no content to render).
     Skip,
     /// Render synthetic content (fold summary, virtual text).
-    Synthetic { text: &'a str, face: Face },
+    Synthetic { atoms: &'a [Atom] },
     /// Render a buffer line with optional per-line background and inline decorations.
     BufferLine {
         /// Buffer line index (for cursor coordinate matching).
@@ -162,10 +162,7 @@ pub(crate) fn analyze_buffer_line<'a>(
 
     // Step 3: Synthetic content (fold summary, virtual text)
     if let Some(syn) = synthetic {
-        return BufferLineAction::Synthetic {
-            text: &syn.text,
-            face: syn.face,
-        };
+        return BufferLineAction::Synthetic { atoms: &syn.atoms };
     }
 
     // Step 4: No buffer source line
@@ -229,13 +226,10 @@ pub(crate) fn paint_buffer_ref(
             skip_clean,
         ) {
             BufferLineAction::Skip => continue,
-            BufferLineAction::Synthetic { text, face } => {
-                grid.fill_region(y, area.x, area.w, &face);
-                let atom = Atom {
-                    face,
-                    contents: text.into(),
-                };
-                grid.put_line_with_base(y, area.x, &[atom], area.w, Some(&face));
+            BufferLineAction::Synthetic { atoms } => {
+                let fill_face = atoms.first().map(|a| a.face).unwrap_or(params.default_face);
+                grid.fill_region(y, area.x, area.w, &fill_face);
+                grid.put_line_with_base(y, area.x, atoms, area.w, None);
             }
             BufferLineAction::BufferLine {
                 line,
@@ -679,15 +673,18 @@ mod tests {
             3,
             &[DisplayDirective::Fold {
                 range: 0..2,
-                summary: "folded".to_string(),
-                face: syn_face,
+                summary: vec![Atom {
+                    face: syn_face,
+                    contents: "folded".into(),
+                }],
             }],
         );
         // Display line 0 should be the fold summary (synthetic)
         match analyze_buffer_line(&params, 0, Some(&dm), None, None, false) {
-            BufferLineAction::Synthetic { text, face } => {
+            BufferLineAction::Synthetic { atoms } => {
+                let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
                 assert_eq!(text, "folded");
-                assert_eq!(face, syn_face);
+                assert_eq!(atoms[0].face, syn_face);
             }
             other => panic!("expected Synthetic, got {other:?}"),
         }

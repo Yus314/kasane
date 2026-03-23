@@ -773,6 +773,23 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 Command::SendKeys(kasane_plugin_sdk::keys::command(cmd))
             }
 
+            /// Build a single-atom InsertAfter display directive.
+            pub fn plain_insert_after(after: u32, text: &str, face: Face) -> DisplayDirective {
+                DisplayDirective::InsertAfter(InsertAfterDirective {
+                    after,
+                    content: vec![Atom { face, contents: text.to_string() }],
+                })
+            }
+
+            /// Build a single-atom Fold display directive.
+            pub fn plain_fold(range_start: u32, range_end: u32, text: &str, face: Face) -> DisplayDirective {
+                DisplayDirective::Fold(FoldDirective {
+                    range_start,
+                    range_end,
+                    summary: vec![Atom { face, contents: text.to_string() }],
+                })
+            }
+
             /// Build a dynamic hosted surface registration command.
             pub fn register_surface(
                 surface_key: &str,
