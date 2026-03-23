@@ -170,7 +170,7 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@0.14.0`. Rebuild and reinstall any plugin that was built
+`kasane:plugin@0.16.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
 To see installed plugins or diagnose environment issues:
@@ -310,6 +310,31 @@ fn my_plugin_contributes_gutter() {
 ```
 
 For WASM integration tests, see `tools/wasm-test/` and `kasane-wasm/src/tests/`.
+
+## Debugging
+
+### Viewing plugin load results
+
+```bash
+KASANE_LOG=info kasane file.txt
+```
+
+Plugin loading results (success, failure, skip) are logged at `info` level.
+For detailed WASM instantiation errors, use `debug`.
+
+### Common issues
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `plugin X failed to load: ABI mismatch` | Plugin built against an older WIT version | Rebuild with the current `kasane-plugin-sdk` |
+| `plugin X skipped: disabled` | Plugin ID is in `[plugins].disabled` | Remove from the disabled list in config.toml |
+| Plugin loads but contributes nothing | `state_hash()` returns a constant, or dirty flags don't cover the relevant state | Verify `#[bind]` flags or manual `state_hash()` implementation |
+| `wasm trap: unreachable` in logs | Guest code panicked | Run `KASANE_LOG=debug` and check the backtrace |
+
+### Inspecting plugin state at runtime
+
+`kasane plugin list` shows loaded plugins and their IDs.
+`kasane plugin doctor` checks toolchain, SDK version, and plugin health.
 
 ## Registration and Distribution
 

@@ -71,6 +71,20 @@ info_border = "bright-blue,default"
 
 See [config.md](config.md) for the full configuration reference.
 
+## Opt-in: Multi-Pane
+
+Split the editor into multiple panes, each connected to an independent Kakoune session. Works in both TUI and GUI backends.
+
+| Key | Action |
+|-----|--------|
+| `<C-w>v` | Vertical split |
+| `<C-w>s` | Horizontal split |
+| `<C-w>h/j/k/l` | Move focus directionally |
+| `<C-w>w` / `<C-w>W` | Cycle focus forward / backward |
+| `<C-w>q` | Close focused pane |
+
+Pane dividers can also be dragged with the mouse to resize.
+
 ## Opt-in: Plugin System
 
 Kasane has a WASM plugin system for UI extensions. Plugins can add visual elements, decorations, overlays, and input handling that Kakoune's shell-based plugins cannot — for example, line highlights, gutter annotations, floating pickers, and status bar widgets.

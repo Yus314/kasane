@@ -93,6 +93,7 @@ Guides for users and plugin authors.
 
 State, progress, and blockers.
 
+- [CHANGELOG.md](../CHANGELOG.md) — release history and notable changes
 - [roadmap.md](roadmap.md) — implementation phases and incomplete items
 - [upstream-dependencies.md](upstream-dependencies.md) — upstream dependencies and reintegration conditions
 

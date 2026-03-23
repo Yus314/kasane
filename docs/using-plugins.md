@@ -79,7 +79,7 @@ auto_discover = false
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@0.14.0`. If you are upgrading from an older build,
+`kasane:plugin@0.16.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
 will not load.
 
@@ -107,13 +107,5 @@ untrusted_plugin = ["filesystem", "environment"]
 
 ## Writing Your Own
 
-The quickest way to start is with `kasane plugin new`:
-
-```bash
-kasane plugin new my-plugin --template hello   # 4-line hello world
-cd my-plugin
-kasane plugin build        # Build for wasm32-wasip2
-kasane plugin install      # Build, validate, and install
-```
-
-Other templates: `contribution` (default), `annotation`, `transform`, `overlay`, `process`. See [Plugin Development](plugin-development.md) for a full guide, and [Plugin API](plugin-api.md) for the API reference.
+See [Plugin Development](plugin-development.md) for a step-by-step guide
+and [Plugin API](plugin-api.md) for the API reference.
