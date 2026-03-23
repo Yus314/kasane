@@ -520,6 +520,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
                     background: None,
                     priority: 0,
                     inline: None,
+                    virtual_text: vec![],
                 })
             } else {
                 None

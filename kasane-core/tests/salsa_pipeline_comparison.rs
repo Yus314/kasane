@@ -409,6 +409,7 @@ impl PluginBackend for LineHighlightPlugin {
                 }),
                 priority: 0,
                 inline: None,
+                virtual_text: vec![],
             })
         } else {
             None
@@ -441,6 +442,7 @@ impl PluginBackend for GutterPlugin {
             background: None,
             priority: 0,
             inline: None,
+            virtual_text: vec![],
         })
     }
 }

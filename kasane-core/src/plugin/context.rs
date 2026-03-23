@@ -4,7 +4,7 @@ use crate::display::DisplayMapRef;
 use crate::element::{Element, Overlay, OverlayAnchor};
 use crate::layout::Rect;
 use crate::layout::flex::Constraints;
-use crate::protocol::Face;
+use crate::protocol::{Atom, Face};
 use crate::render::InlineDecoration;
 use crate::surface::SurfaceId;
 
@@ -294,6 +294,16 @@ pub enum BlendMode {
     Opaque,
 }
 
+/// A virtual text item appended at end-of-line.
+///
+/// Multiple items on the same line are sorted by `(priority, plugin_id)`
+/// and concatenated with a separator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VirtualTextItem {
+    pub atoms: Vec<Atom>,
+    pub priority: i16,
+}
+
 /// New line annotation with `BackgroundLayer` support.
 ///
 /// Annotations are collected from all annotating plugins per visible line.
@@ -310,6 +320,8 @@ pub struct LineAnnotation {
     pub priority: i16,
     /// Inline decoration (byte-range Style/Hide) for this line.
     pub inline: Option<InlineDecoration>,
+    /// EOL virtual text items for this line.
+    pub virtual_text: Vec<VirtualTextItem>,
 }
 
 /// Context for overlay contributions with collision avoidance.
@@ -340,6 +352,10 @@ pub struct AnnotationResult {
     pub line_backgrounds: Option<Vec<Option<Face>>>,
     /// Per-line inline decorations (indexed by visible line).
     pub inline_decorations: Option<Vec<Option<InlineDecoration>>>,
+    /// Per-line merged virtual text atoms (indexed by buffer line).
+    /// Outer `Option` = None when no plugin provides VT (zero overhead).
+    /// Inner `Option<Vec<Atom>>` = merged atoms per line (separator-joined).
+    pub virtual_text: Option<Vec<Option<Vec<Atom>>>>,
 }
 
 #[cfg(test)]

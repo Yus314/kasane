@@ -101,6 +101,8 @@ pub(crate) enum BufferLineAction<'a> {
         base_face: Face,
         /// Pre-computed decorated atoms if inline decorations apply.
         decorated: Option<Vec<Atom>>,
+        /// EOL virtual text atoms to append after buffer content.
+        virtual_text: Option<&'a [Atom]>,
     },
     /// Render a padding row (beyond buffer content).
     Padding {
@@ -123,6 +125,7 @@ pub(crate) fn analyze_buffer_line<'a>(
     display_map: Option<&'a DisplayMap>,
     line_backgrounds: Option<&[Option<Face>]>,
     inline_decorations: Option<&[Option<InlineDecoration>]>,
+    virtual_text: Option<&'a [Option<Vec<Atom>>]>,
     skip_clean: bool,
 ) -> BufferLineAction<'a> {
     // Step 1: Resolve display line → buffer line via DisplayMap
@@ -181,11 +184,15 @@ pub(crate) fn analyze_buffer_line<'a>(
             .and_then(|d| d.as_ref())
             .filter(|deco| !deco.is_empty())
             .map(|deco| crate::render::inline_decoration::apply_inline_ops(line, deco));
+        let vt = virtual_text
+            .and_then(|vts| vts.get(line_idx))
+            .and_then(|v| v.as_deref());
         BufferLineAction::BufferLine {
             line_idx,
             line,
             base_face,
             decorated,
+            virtual_text: vt,
         }
     } else {
         let mut char_face = params.padding_face;
@@ -209,6 +216,7 @@ pub(crate) fn paint_buffer_ref(
     line_backgrounds: Option<&[Option<Face>]>,
     display_map: Option<&DisplayMap>,
     inline_decorations: Option<&[Option<InlineDecoration>]>,
+    virtual_text: Option<&[Option<Vec<Atom>>]>,
 ) {
     let params = BufferRefParams::resolve(state, buffer_state);
     let skip_clean = !params.lines_dirty.is_empty();
@@ -223,6 +231,7 @@ pub(crate) fn paint_buffer_ref(
             display_map,
             line_backgrounds,
             inline_decorations,
+            virtual_text,
             skip_clean,
         ) {
             BufferLineAction::Skip => continue,
@@ -235,11 +244,24 @@ pub(crate) fn paint_buffer_ref(
                 line,
                 base_face,
                 decorated,
+                virtual_text: vt,
                 ..
             } => {
                 grid.fill_region(y, area.x, area.w, &base_face);
                 let atoms = decorated.as_deref().unwrap_or(line);
-                grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_face));
+                let used = grid.put_line_with_base(y, area.x, atoms, area.w, Some(&base_face));
+                // EOL virtual text: append after buffer content
+                if let Some(vt_atoms) = vt
+                    && used < area.w
+                {
+                    grid.put_line_with_base(
+                        y,
+                        area.x + used,
+                        vt_atoms,
+                        area.w - used,
+                        Some(&base_face),
+                    );
+                }
             }
             BufferLineAction::Padding { face, char_face } => {
                 grid.fill_region(y, area.x, area.w, &face);
@@ -645,7 +667,7 @@ mod tests {
     fn analyze_identity_no_display_map() {
         let lines = vec![make_line("hello"), make_line("world")];
         let params = make_params(&lines, &[]);
-        match analyze_buffer_line(&params, 0, None, None, None, false) {
+        match analyze_buffer_line(&params, 0, None, None, None, None, false) {
             BufferLineAction::BufferLine {
                 line_idx,
                 base_face,
@@ -680,7 +702,7 @@ mod tests {
             }],
         );
         // Display line 0 should be the fold summary (synthetic)
-        match analyze_buffer_line(&params, 0, Some(&dm), None, None, false) {
+        match analyze_buffer_line(&params, 0, Some(&dm), None, None, None, false) {
             BufferLineAction::Synthetic { atoms } => {
                 let text: String = atoms.iter().map(|a| a.contents.as_str()).collect();
                 assert_eq!(text, "folded");
@@ -697,7 +719,7 @@ mod tests {
         let params = make_params(&lines, &[]);
         let dm = DisplayMap::build(1, &[]);
         // Display line 5 is beyond the map
-        match analyze_buffer_line(&params, 5, Some(&dm), None, None, false) {
+        match analyze_buffer_line(&params, 5, Some(&dm), None, None, None, false) {
             BufferLineAction::Skip => {}
             other => panic!("expected Skip for beyond-range, got {other:?}"),
         }
@@ -709,17 +731,17 @@ mod tests {
         let lines_dirty = vec![false, true]; // line 0 clean, line 1 dirty
         let params = make_params(&lines, &lines_dirty);
         // skip_clean=true → clean line should Skip
-        match analyze_buffer_line(&params, 0, None, None, None, true) {
+        match analyze_buffer_line(&params, 0, None, None, None, None, true) {
             BufferLineAction::Skip => {}
             other => panic!("expected Skip for clean line, got {other:?}"),
         }
         // skip_clean=true → dirty line should render
-        match analyze_buffer_line(&params, 1, None, None, None, true) {
+        match analyze_buffer_line(&params, 1, None, None, None, None, true) {
             BufferLineAction::BufferLine { line_idx, .. } => assert_eq!(line_idx, 1),
             other => panic!("expected BufferLine for dirty line, got {other:?}"),
         }
         // skip_clean=false → clean line should still render (GPU mode)
-        match analyze_buffer_line(&params, 0, None, None, None, false) {
+        match analyze_buffer_line(&params, 0, None, None, None, None, false) {
             BufferLineAction::BufferLine { line_idx, .. } => assert_eq!(line_idx, 0),
             other => panic!("expected BufferLine with skip_clean=false, got {other:?}"),
         }
@@ -740,7 +762,7 @@ mod tests {
             face: deco_face,
         }]);
         let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
-        match analyze_buffer_line(&params, 0, None, None, Some(&decos), false) {
+        match analyze_buffer_line(&params, 0, None, None, Some(&decos), None, false) {
             BufferLineAction::BufferLine { decorated, .. } => {
                 assert!(decorated.is_some(), "expected decorated atoms");
             }
@@ -753,7 +775,7 @@ mod tests {
         let lines = vec![make_line("only")];
         let params = make_params(&lines, &[]);
         // Line index 1 is beyond the buffer → padding
-        match analyze_buffer_line(&params, 1, None, None, None, false) {
+        match analyze_buffer_line(&params, 1, None, None, None, None, false) {
             BufferLineAction::Padding { face, char_face } => {
                 assert_eq!(face, Face::default());
                 // When fg == bg, char_face.fg gets default_face.fg
@@ -772,11 +794,300 @@ mod tests {
             ..Face::default()
         };
         let bgs: Vec<Option<Face>> = vec![Some(bg_face)];
-        match analyze_buffer_line(&params, 0, None, Some(&bgs), None, false) {
+        match analyze_buffer_line(&params, 0, None, Some(&bgs), None, None, false) {
             BufferLineAction::BufferLine { base_face, .. } => {
                 assert_eq!(base_face, bg_face);
             }
             other => panic!("expected BufferLine with bg override, got {other:?}"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Virtual text (EOL) tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn analyze_virtual_text_attached() {
+        let lines = vec![make_line("hello")];
+        let params = make_params(&lines, &[]);
+        let vt_face = Face {
+            fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
+            ..Face::default()
+        };
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
+            face: vt_face,
+            contents: "  err".into(),
+        }])];
+        match analyze_buffer_line(&params, 0, None, None, None, Some(&vt), false) {
+            BufferLineAction::BufferLine { virtual_text, .. } => {
+                let vt_atoms = virtual_text.expect("expected virtual text");
+                assert_eq!(vt_atoms.len(), 1);
+                assert_eq!(vt_atoms[0].contents.as_str(), "  err");
+                assert_eq!(vt_atoms[0].face, vt_face);
+            }
+            other => panic!("expected BufferLine with virtual text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_virtual_text_none_when_absent() {
+        let lines = vec![make_line("hello")];
+        let params = make_params(&lines, &[]);
+        // No virtual text at all
+        match analyze_buffer_line(&params, 0, None, None, None, None, false) {
+            BufferLineAction::BufferLine { virtual_text, .. } => {
+                assert!(virtual_text.is_none());
+            }
+            other => panic!("expected BufferLine without virtual text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_virtual_text_none_for_line_without_vt() {
+        let lines = vec![make_line("hello"), make_line("world")];
+        let params = make_params(&lines, &[]);
+        // Only line 0 has VT, line 1 has None
+        let vt: Vec<Option<Vec<Atom>>> = vec![
+            Some(vec![Atom {
+                face: Face::default(),
+                contents: " hint".into(),
+            }]),
+            None,
+        ];
+        match analyze_buffer_line(&params, 1, None, None, None, Some(&vt), false) {
+            BufferLineAction::BufferLine { virtual_text, .. } => {
+                assert!(virtual_text.is_none(), "line 1 should have no virtual text");
+            }
+            other => panic!("expected BufferLine, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_virtual_text_skipped_for_fold() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        let lines = vec![make_line("line0"), make_line("line1"), make_line("line2")];
+        let params = make_params(&lines, &[]);
+        let dm = DisplayMap::build(
+            3,
+            &[DisplayDirective::Fold {
+                range: 0..2,
+                summary: vec![Atom {
+                    face: Face::default(),
+                    contents: "folded".into(),
+                }],
+            }],
+        );
+        // VT for buffer lines
+        let vt: Vec<Option<Vec<Atom>>> = vec![
+            Some(vec![Atom {
+                face: Face::default(),
+                contents: " vt0".into(),
+            }]),
+            Some(vec![Atom {
+                face: Face::default(),
+                contents: " vt1".into(),
+            }]),
+            None,
+        ];
+        // Display line 0 = fold summary → Synthetic, no virtual text
+        match analyze_buffer_line(&params, 0, Some(&dm), None, None, Some(&vt), false) {
+            BufferLineAction::Synthetic { .. } => {} // fold summary, VT not applied
+            other => panic!("expected Synthetic for folded line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn paint_buffer_ref_with_virtual_text() {
+        let mut state = default_state();
+        state.lines = vec![make_line("hello")];
+        state.cols = 20;
+        state.rows = 3;
+
+        let vt_face = Face {
+            fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
+            ..Face::default()
+        };
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
+            face: vt_face,
+            contents: "  err".into(),
+        }])];
+
+        let mut grid = CellGrid::new(20, 3);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 3,
+        };
+        paint_buffer_ref(
+            &mut grid,
+            &area,
+            0..3,
+            &state,
+            None,
+            None,
+            None,
+            None,
+            Some(&vt),
+        );
+
+        // Buffer content "hello" at columns 0-4
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
+        assert_eq!(grid.get(4, 0).unwrap().grapheme, "o");
+        // Virtual text "  err" at columns 5-9
+        assert_eq!(grid.get(5, 0).unwrap().grapheme, " ");
+        assert_eq!(grid.get(6, 0).unwrap().grapheme, " ");
+        assert_eq!(grid.get(7, 0).unwrap().grapheme, "e");
+        assert_eq!(grid.get(8, 0).unwrap().grapheme, "r");
+        assert_eq!(grid.get(9, 0).unwrap().grapheme, "r");
+    }
+
+    #[test]
+    fn paint_buffer_ref_virtual_text_clipped_when_full_width() {
+        let mut state = default_state();
+        // "hello" is 5 chars, width is 5 → no room for VT
+        state.lines = vec![make_line("hello")];
+        state.cols = 5;
+        state.rows = 1;
+
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
+            face: Face::default(),
+            contents: "  err".into(),
+        }])];
+
+        let mut grid = CellGrid::new(5, 1);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 5,
+            h: 1,
+        };
+        paint_buffer_ref(
+            &mut grid,
+            &area,
+            0..1,
+            &state,
+            None,
+            None,
+            None,
+            None,
+            Some(&vt),
+        );
+
+        // Buffer content fills the entire width
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
+        assert_eq!(grid.get(4, 0).unwrap().grapheme, "o");
+        // No VT visible (clipped)
+    }
+
+    #[test]
+    fn paint_buffer_ref_inline_deco_plus_virtual_text() {
+        use crate::render::InlineDecoration;
+        use crate::render::inline_decoration::InlineOp;
+
+        let mut state = default_state();
+        state.lines = vec![make_line("hello")];
+        state.cols = 20;
+        state.rows = 1;
+
+        let deco_face = Face {
+            fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
+            ..Face::default()
+        };
+        let deco = InlineDecoration::new(vec![InlineOp::Style {
+            range: 0..5,
+            face: deco_face,
+        }]);
+        let decos: Vec<Option<InlineDecoration>> = vec![Some(deco)];
+
+        let vt_face = Face {
+            fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
+            ..Face::default()
+        };
+        let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
+            face: vt_face,
+            contents: " vt".into(),
+        }])];
+
+        let mut grid = CellGrid::new(20, 1);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 20,
+            h: 1,
+        };
+        paint_buffer_ref(
+            &mut grid,
+            &area,
+            0..1,
+            &state,
+            None,
+            None,
+            None,
+            Some(&decos),
+            Some(&vt),
+        );
+
+        // Decorated content present
+        assert_eq!(grid.get(0, 0).unwrap().grapheme, "h");
+        assert_eq!(grid.get(0, 0).unwrap().face.fg, deco_face.fg);
+        // Virtual text after content
+        assert_eq!(grid.get(5, 0).unwrap().grapheme, " ");
+        assert_eq!(grid.get(6, 0).unwrap().grapheme, "v");
+        assert_eq!(grid.get(7, 0).unwrap().grapheme, "t");
+    }
+
+    #[test]
+    fn paint_buffer_ref_no_virtual_text_matches_baseline() {
+        let mut state = default_state();
+        state.lines = vec![make_line("hello"), make_line("world")];
+        state.cols = 10;
+        state.rows = 3;
+
+        // Without VT
+        let mut grid_no_vt = CellGrid::new(10, 3);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 3,
+        };
+        paint_buffer_ref(
+            &mut grid_no_vt,
+            &area,
+            0..3,
+            &state,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // With empty VT (no entries)
+        let vt: Vec<Option<Vec<Atom>>> = vec![None, None];
+        let mut grid_empty_vt = CellGrid::new(10, 3);
+        paint_buffer_ref(
+            &mut grid_empty_vt,
+            &area,
+            0..3,
+            &state,
+            None,
+            None,
+            None,
+            None,
+            Some(&vt),
+        );
+
+        // Both grids should be identical
+        for y in 0..3u16 {
+            for x in 0..10u16 {
+                assert_eq!(
+                    grid_no_vt.get(x, y).unwrap().grapheme,
+                    grid_empty_vt.get(x, y).unwrap().grapheme,
+                    "mismatch at ({x}, {y})"
+                );
+            }
         }
     }
 }

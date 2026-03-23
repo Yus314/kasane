@@ -657,6 +657,7 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     }),
                     priority: 0,
                     inline: None,
+                    virtual_text: vec![],
                 }
             }
 
@@ -668,6 +669,19 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     background: None,
                     priority,
                     inline: None,
+                    virtual_text: vec![],
+                }
+            }
+
+            /// Create an EOL virtual text annotation.
+            pub fn eol_annotation(atoms: Vec<Atom>, priority: i16) -> LineAnnotation {
+                LineAnnotation {
+                    left_gutter: None,
+                    right_gutter: None,
+                    background: None,
+                    priority: 0,
+                    inline: None,
+                    virtual_text: vec![VirtualTextItem { atoms, priority }],
                 }
             }
 

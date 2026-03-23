@@ -318,6 +318,7 @@ pub(crate) fn build_buffer_core_parts(
     let annotations = registry.collect_annotations(&app_view, &annotate_ctx);
     let line_backgrounds = annotations.line_backgrounds;
     let inline_decorations = annotations.inline_decorations;
+    let virtual_text = annotations.virtual_text;
     // When a non-identity DisplayMap is active, compute scroll offset so
     // the cursor stays visible, then use offset-based line_range.
     let (effective_start, effective_end, _display_scroll_offset) = if !display_map.is_identity() {
@@ -332,18 +333,22 @@ pub(crate) fn build_buffer_core_parts(
     } else {
         (0, buffer_rows, 0)
     };
-    let buffer_element =
-        if line_backgrounds.is_some() || dm_for_element.is_some() || inline_decorations.is_some() {
-            Element::BufferRef {
-                line_range: effective_start..effective_end,
-                line_backgrounds,
-                display_map: dm_for_element,
-                state: None,
-                inline_decorations,
-            }
-        } else {
-            Element::buffer_ref(0..buffer_rows)
-        };
+    let buffer_element = if line_backgrounds.is_some()
+        || dm_for_element.is_some()
+        || inline_decorations.is_some()
+        || virtual_text.is_some()
+    {
+        Element::BufferRef {
+            line_range: effective_start..effective_end,
+            line_backgrounds,
+            display_map: dm_for_element,
+            state: None,
+            inline_decorations,
+            virtual_text,
+        }
+    } else {
+        Element::buffer_ref(0..buffer_rows)
+    };
     let transformed_buffer = registry
         .apply_transform_chain(
             TransformTarget::Buffer,

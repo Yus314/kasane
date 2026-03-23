@@ -12,7 +12,7 @@ use kasane_core::plugin::{
     ContributeContext, Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
     PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformSubject,
-    TransformTarget,
+    TransformTarget, VirtualTextItem,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -705,6 +705,14 @@ impl PluginBackend for WasmPlugin {
                         z_order: bg.z_order,
                         blend: BlendMode::Opaque,
                     });
+                    let vt_items = wit_ann
+                        .virtual_text
+                        .into_iter()
+                        .map(|item| VirtualTextItem {
+                            atoms: item.atoms.iter().map(convert::wit_atom_to_atom).collect(),
+                            priority: item.priority,
+                        })
+                        .collect();
                     LineAnnotation {
                         left_gutter,
                         right_gutter,
@@ -713,6 +721,7 @@ impl PluginBackend for WasmPlugin {
                         inline: wit_ann.inline.map(|wit_inline| {
                             convert::wit_inline_decoration_to_inline_decoration(&wit_inline)
                         }),
+                        virtual_text: vt_items,
                     }
                 }))
         })

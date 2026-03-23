@@ -382,6 +382,7 @@ pub(in crate::plugin) mod tests {
                     }),
                     priority: 0,
                     inline: None,
+                    virtual_text: vec![],
                 })
             } else {
                 None
@@ -456,6 +457,7 @@ pub(in crate::plugin) mod tests {
                     }),
                     priority: 0,
                     inline: None,
+                    virtual_text: vec![],
                 })
             } else {
                 None

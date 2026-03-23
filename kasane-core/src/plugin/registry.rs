@@ -795,6 +795,7 @@ impl<'a> PluginView<'a> {
                 right_gutter: None,
                 line_backgrounds: None,
                 inline_decorations: None,
+                virtual_text: None,
             };
         }
 
@@ -803,17 +804,20 @@ impl<'a> PluginView<'a> {
         let mut has_right = false;
         let mut has_bg = false;
         let mut has_inline = false;
+        let mut has_virtual_text = false;
 
         let mut left_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         let mut right_rows: Vec<FlexChild> = Vec::with_capacity(line_count);
         let mut backgrounds: Vec<Option<crate::protocol::Face>> = vec![None; line_count];
         let mut inline_decorations: Vec<Option<crate::render::InlineDecoration>> =
             vec![None; line_count];
+        let mut virtual_texts: Vec<Option<Vec<crate::protocol::Atom>>> = vec![None; line_count];
 
         for line in 0..line_count {
             let mut left_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut right_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut bg_layers: Vec<(BackgroundLayer, PluginId)> = Vec::new();
+            let mut vt_parts: Vec<(i16, PluginId, Vec<crate::protocol::Atom>)> = Vec::new();
 
             for slot in self.slots.iter() {
                 if !slot.capabilities.contains(PluginCapabilities::ANNOTATOR) {
@@ -831,7 +835,7 @@ impl<'a> PluginView<'a> {
                         has_right = true;
                     }
                     if let Some(bg) = ann.background {
-                        bg_layers.push((bg, pid));
+                        bg_layers.push((bg, pid.clone()));
                     }
                     if let Some(inline) = ann.inline {
                         if inline_decorations[line].is_some() {
@@ -842,6 +846,11 @@ impl<'a> PluginView<'a> {
                         } else {
                             inline_decorations[line] = Some(inline);
                             has_inline = true;
+                        }
+                    }
+                    for vt in ann.virtual_text {
+                        if !vt.atoms.is_empty() {
+                            vt_parts.push((vt.priority, pid.clone(), vt.atoms));
                         }
                     }
                 }
@@ -879,6 +888,26 @@ impl<'a> PluginView<'a> {
                 backgrounds[line] = Some(bg_layers.last().unwrap().0.face);
                 has_bg = true;
             }
+
+            if !vt_parts.is_empty() {
+                has_virtual_text = true;
+                vt_parts.sort_by_key(|(prio, id, _)| (*prio, id.clone()));
+                let separator = crate::protocol::Atom {
+                    face: crate::protocol::Face {
+                        attributes: crate::protocol::Attributes::DIM,
+                        ..crate::protocol::Face::default()
+                    },
+                    contents: "  ".into(),
+                };
+                let mut merged = Vec::new();
+                for (i, (_, _, atoms)) in vt_parts.into_iter().enumerate() {
+                    if i > 0 {
+                        merged.push(separator.clone());
+                    }
+                    merged.extend(atoms);
+                }
+                virtual_texts[line] = Some(merged);
+            }
         }
 
         AnnotationResult {
@@ -895,6 +924,11 @@ impl<'a> PluginView<'a> {
             line_backgrounds: if has_bg { Some(backgrounds) } else { None },
             inline_decorations: if has_inline {
                 Some(inline_decorations)
+            } else {
+                None
+            },
+            virtual_text: if has_virtual_text {
+                Some(virtual_texts)
             } else {
                 None
             },

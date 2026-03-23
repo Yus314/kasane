@@ -402,6 +402,8 @@ pub enum Element {
         state: Option<Box<BufferRefState>>,
         /// Per-line inline decorations (byte-range Style/Hide) from plugins.
         inline_decorations: Option<Vec<Option<crate::render::InlineDecoration>>>,
+        /// Per-line EOL virtual text atoms from plugins.
+        virtual_text: Option<Vec<Option<Vec<Atom>>>>,
     },
 }
 
@@ -449,6 +451,7 @@ impl Element {
             display_map: None,
             state: None,
             inline_decorations: None,
+            virtual_text: None,
         }
     }
 

@@ -16,7 +16,8 @@ pub use crate::plugin::{
     PluginEffects, PluginFactory, PluginId, PluginManager, PluginProvider, PluginRank,
     PluginRevision, PluginRuntime, PluginSource, PluginState, RuntimeEffects, SessionReadyCommand,
     SessionReadyEffects, SlotId, TransformContext, TransformDescriptor, TransformScope,
-    TransformSubject, TransformTarget, builtin_plugin, host_plugin, host_plugin_with_provider,
+    TransformSubject, TransformTarget, VirtualTextItem, builtin_plugin, host_plugin,
+    host_plugin_with_provider,
 };
 
 // Element tree

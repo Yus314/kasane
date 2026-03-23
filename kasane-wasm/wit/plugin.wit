@@ -550,6 +550,11 @@ interface types {
     record hide-range-op { start: u32, end: u32 }
     record inline-decoration { ops: list<inline-op> }
 
+    record virtual-text-item {
+        atoms: list<atom>,
+        priority: s16,
+    }
+
     record line-annotation {
         left-gutter: option<element-handle>,
         right-gutter: option<element-handle>,
@@ -558,6 +563,8 @@ interface types {
         priority: s16,
         /// Inline decoration (byte-range Style/Hide) for this line.
         inline: option<inline-decoration>,
+        /// EOL virtual text items for this line.
+        virtual-text: list<virtual-text-item>,
     }
 
     record overlay-context {

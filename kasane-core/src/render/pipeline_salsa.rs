@@ -243,6 +243,7 @@ fn compose_base_from_salsa(
     let left_gutter = handles.annotations.left_gutter(db).clone();
     let right_gutter = handles.annotations.right_gutter(db).clone();
     let inline_decorations = handles.annotations.inline_decorations(db).clone();
+    let virtual_text = handles.annotations.virtual_text(db).clone();
 
     // When a non-identity DisplayMap is active, compute scroll offset so
     // the cursor stays visible, then use offset-based line_range.
@@ -259,19 +260,23 @@ fn compose_base_from_salsa(
         (0, buffer_rows, 0)
     };
 
-    // Incorporate line backgrounds, display_map, and inline decorations into buffer element
-    let buffer_with_bg =
-        if line_backgrounds.is_some() || dm_for_element.is_some() || inline_decorations.is_some() {
-            Element::BufferRef {
-                line_range: effective_start..effective_end,
-                line_backgrounds,
-                display_map: dm_for_element,
-                state: None,
-                inline_decorations,
-            }
-        } else {
-            buffer_el
-        };
+    // Incorporate line backgrounds, display_map, inline decorations, and virtual text into buffer element
+    let buffer_with_bg = if line_backgrounds.is_some()
+        || dm_for_element.is_some()
+        || inline_decorations.is_some()
+        || virtual_text.is_some()
+    {
+        Element::BufferRef {
+            line_range: effective_start..effective_end,
+            line_backgrounds,
+            display_map: dm_for_element,
+            state: None,
+            inline_decorations,
+            virtual_text,
+        }
+    } else {
+        buffer_el
+    };
 
     // Apply buffer transform chain (imperative)
     let transformed_buffer = registry

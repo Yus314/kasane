@@ -66,6 +66,7 @@ pub(crate) trait PaintVisitor {
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
+        virtual_text: Option<&[Option<Vec<Atom>>]>,
     );
 
     /// Pre-visit for Container: render shadow, background fill, border, title.
@@ -111,6 +112,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             display_map,
             state: buffer_state,
             inline_decorations,
+            virtual_text,
         } => {
             let dm = display_map
                 .as_ref()
@@ -124,6 +126,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
                 line_backgrounds.as_deref(),
                 dm,
                 inline_decorations.as_deref(),
+                virtual_text.as_deref(),
             );
         }
         Element::Empty => {}
@@ -246,6 +249,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
+        virtual_text: Option<&[Option<Vec<Atom>>]>,
     ) {
         paint_buffer_ref(
             self.grid,
@@ -256,6 +260,7 @@ impl PaintVisitor for GridPaintVisitor<'_> {
             line_backgrounds,
             display_map,
             inline_decorations,
+            virtual_text,
         );
     }
 
@@ -360,6 +365,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
         line_backgrounds: Option<&[Option<Face>]>,
         display_map: Option<&DisplayMap>,
         inline_decorations: Option<&[Option<crate::render::InlineDecoration>]>,
+        virtual_text: Option<&[Option<Vec<Atom>>]>,
     ) {
         let cs = self.cell_size;
         let params = BufferRefParams::resolve(state, buffer_state);
@@ -376,6 +382,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                 display_map,
                 line_backgrounds,
                 inline_decorations,
+                virtual_text,
                 false, // GPU never skips clean lines
             ) {
                 BufferLineAction::Skip => continue,
@@ -403,6 +410,7 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     line,
                     base_face,
                     decorated,
+                    virtual_text: vt,
                 } => {
                     self.out.push(DrawCommand::FillRect {
                         rect: PixelRect {
@@ -440,6 +448,11 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                                 state.secondary_blend_ratio,
                             );
                         }
+                    }
+                    // EOL virtual text: append after buffer content
+                    if let Some(vt_atoms) = vt {
+                        let vt_resolved = resolve_atoms(vt_atoms, Some(&base_face));
+                        resolved.extend(vt_resolved);
                     }
                     self.out.push(DrawCommand::DrawAtoms {
                         pos: PixelPos { x: px, y: py },
