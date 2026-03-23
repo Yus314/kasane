@@ -14,7 +14,7 @@ cargo build                              # TUI only
 cargo build --features gui               # Include GPU backend
 
 # Test
-cargo test                               # All tests (~1150)
+cargo test                               # All tests (~1000)
 cargo test -p kasane-core                # Single crate
 cargo test -p kasane-core -- test_name   # Single test by name
 
@@ -45,7 +45,7 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros |
 | `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
-| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, line-numbers, prompt-highlight, session-ui, smooth-scroll |
+| `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll |
 | `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
 | `tools/wasm-test/` | WASM integration test binary |
 
@@ -70,7 +70,7 @@ Kakoune (kak -ui json)
 - **Rendering**: `kasane-core/src/render/` — `pipeline_salsa.rs` (Salsa-backed entry), `view/mod.rs`, `paint.rs`
 - **Layout**: `kasane-core/src/layout/flex.rs` (flexbox), `grid.rs`, `position.rs` (overlay)
 - **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, recommended), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `bridge.rs` (PluginBridge adapter), `compose.rs` (monoidal composition traits + types)
-- **Event loop**: `kasane-core/src/event_loop.rs` (~80KB, main dispatch)
+- **Event loop**: `kasane-core/src/event_loop/` — `mod.rs` (re-exports), `dispatch.rs` (command dispatch), `context.rs` (deferred context), `session.rs` (session lifecycle), `surface.rs` (surface lifecycle)
 - **Salsa integration**: `kasane-core/src/salsa_sync.rs`, `salsa_inputs.rs`, `salsa_views/`
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
 - **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective)
