@@ -162,12 +162,12 @@ pub enum Command {
     InjectInput(InputEvent),
     /// Spawn a new pane backed by an independent Kakoune client connection.
     SpawnPaneClient {
-        surface_id: SurfaceId,
+        pane_key: String,
         placement: Placement,
     },
     /// Close a pane and terminate its Kakoune client connection.
     ClosePaneClient {
-        surface_id: SurfaceId,
+        pane_key: String,
     },
     /// Bind a surface to a Kakoune session (low-level).
     ///

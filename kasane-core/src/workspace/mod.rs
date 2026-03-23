@@ -665,6 +665,20 @@ impl Workspace {
         WorkspaceQuery {
             workspace: self,
             rects: self.compute_rects(total),
+            surface_keys: HashMap::new(),
+        }
+    }
+
+    /// Build a read-only query handle with surface key mappings.
+    pub fn query_with_keys(
+        &self,
+        total: Rect,
+        surface_keys: HashMap<SurfaceId, compact_str::CompactString>,
+    ) -> WorkspaceQuery<'_> {
+        WorkspaceQuery {
+            workspace: self,
+            rects: self.compute_rects(total),
+            surface_keys,
         }
     }
 
@@ -776,6 +790,7 @@ impl Default for Workspace {
 pub struct WorkspaceQuery<'a> {
     workspace: &'a Workspace,
     rects: HashMap<SurfaceId, Rect>,
+    surface_keys: HashMap<SurfaceId, compact_str::CompactString>,
 }
 
 impl WorkspaceQuery<'_> {
@@ -797,6 +812,19 @@ impl WorkspaceQuery<'_> {
     /// Get the total number of surfaces.
     pub fn surface_count(&self) -> usize {
         self.workspace.surface_count()
+    }
+
+    /// Get the surface key for a specific surface ID.
+    pub fn surface_key_of(&self, id: SurfaceId) -> Option<&str> {
+        self.surface_keys.get(&id).map(|s| s.as_str())
+    }
+
+    /// Find a surface ID by its surface key string.
+    pub fn surface_key_of_str(&self, key: &str) -> Option<SurfaceId> {
+        self.surface_keys
+            .iter()
+            .find(|(_, v)| v.as_str() == key)
+            .map(|(id, _)| *id)
     }
 }
 

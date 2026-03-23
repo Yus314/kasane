@@ -228,16 +228,11 @@ fn build_plugin_manager(
         let _ = plugins_config;
     }
     providers.push(Box::new(provider));
-    providers.push(Box::new(StaticPluginProvider::new([
-        builtin_plugin(
-            "builtin-pane-manager",
-            "kasane.builtin.pane-manager",
-            kasane_core::input::PaneManagerPlugin::new,
-        ),
-        builtin_plugin("builtin-input", "kasane.builtin.input", || {
-            kasane_core::input::BuiltinInputPlugin
-        }),
-    ])));
+    providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
+        "builtin-input",
+        "kasane.builtin.input",
+        || kasane_core::input::BuiltinInputPlugin,
+    )])));
     PluginManager::new(providers)
 }
 
@@ -564,7 +559,8 @@ mod tests {
             .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert!(result.deltas.is_empty());
-        assert_eq!(registry.plugin_count(), 1);
+        // cursor-line (FS) + pane_manager (bundled default-enabled)
+        assert_eq!(registry.plugin_count(), 2);
     }
 
     #[test]
@@ -586,7 +582,8 @@ mod tests {
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_removed());
         assert_eq!(result.ready_targets().count(), 0);
-        assert_eq!(registry.plugin_count(), 0);
+        // pane_manager (bundled default-enabled) remains
+        assert_eq!(registry.plugin_count(), 1);
         assert!(!registry.contains_plugin(&PluginId("cursor_line".to_string())));
     }
 
@@ -609,7 +606,8 @@ mod tests {
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_added());
         assert_eq!(result.deltas[0].id, PluginId("smooth_scroll".to_string()));
-        assert_eq!(registry.plugin_count(), 2);
+        // cursor-line (FS) + smooth-scroll (FS) + pane_manager (bundled default-enabled)
+        assert_eq!(registry.plugin_count(), 3);
         assert!(registry.contains_plugin(&PluginId("smooth_scroll".to_string())));
     }
 

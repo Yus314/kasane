@@ -65,7 +65,8 @@ fn resolve_wasm_plugins_loads_fixtures_directory() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    assert_eq!(resolved.len(), 8);
+    // 8 fixtures + pane_manager (bundled default-enabled)
+    assert_eq!(resolved.len(), 9);
     let cursor_line = PluginId("cursor_line".to_string());
     assert!(snapshot.contains(&cursor_line));
     assert!(matches!(
@@ -94,7 +95,8 @@ fn resolve_wasm_plugins_skips_disabled_plugins() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    assert_eq!(resolved.len(), 7);
+    // 7 remaining fixtures + pane_manager (bundled default-enabled)
+    assert_eq!(resolved.len(), 8);
     assert!(!snapshot.contains(&PluginId("cursor_line".to_string())));
 }
 
@@ -116,7 +118,8 @@ fn resolve_wasm_plugins_includes_enabled_bundled_plugins() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    assert_eq!(resolved.len(), 4);
+    // 4 explicitly enabled + pane_manager (bundled default-enabled)
+    assert_eq!(resolved.len(), 5);
     assert!(matches!(
         snapshot.revision(&PluginId("cursor_line".to_string())),
         Some(WasmPluginRevision {
@@ -149,7 +152,8 @@ fn resolve_wasm_plugins_prefers_filesystem_over_bundled_for_same_id() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    assert_eq!(resolved.len(), 8);
+    // 8 fixtures + pane_manager (bundled default-enabled)
+    assert_eq!(resolved.len(), 9);
     assert!(matches!(
         snapshot.revision(&PluginId("cursor_line".to_string())),
         Some(WasmPluginRevision {
@@ -347,7 +351,8 @@ fn register_bundled_plugins_loads_four() {
     let mut registry = PluginRuntime::new();
     crate::register_bundled_plugins(&config, &mut registry);
 
-    assert_eq!(registry.plugin_count(), 4);
+    // 4 explicitly enabled + pane_manager (bundled default-enabled)
+    assert_eq!(registry.plugin_count(), 5);
 }
 
 #[test]
@@ -367,7 +372,8 @@ fn register_bundled_plugins_respects_disabled() {
     let mut registry = PluginRuntime::new();
     crate::register_bundled_plugins(&config, &mut registry);
 
-    assert_eq!(registry.plugin_count(), 3);
+    // 3 explicitly enabled + pane_manager (bundled default-enabled)
+    assert_eq!(registry.plugin_count(), 4);
 }
 
 #[test]
@@ -386,7 +392,8 @@ fn filesystem_plugin_overrides_bundled() {
     };
     let mut registry = PluginRuntime::new();
     crate::register_bundled_plugins(&config, &mut registry);
-    assert_eq!(registry.plugin_count(), 4);
+    // 4 explicitly enabled + pane_manager (bundled default-enabled)
+    assert_eq!(registry.plugin_count(), 5);
 
     // Register another plugin with the same ID
     let loader = WasmPluginLoader::new().unwrap();
@@ -397,8 +404,8 @@ fn filesystem_plugin_overrides_bundled() {
     assert_eq!(plugin.id().0, "cursor_line");
     registry.register_backend(Box::new(plugin));
 
-    // Should still be 4, not 5 (replaced, not added)
-    assert_eq!(registry.plugin_count(), 4);
+    // Should still be 5, not 6 (replaced, not added)
+    assert_eq!(registry.plugin_count(), 5);
 }
 
 #[test]

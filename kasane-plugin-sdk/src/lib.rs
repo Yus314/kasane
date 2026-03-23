@@ -157,6 +157,7 @@ pub mod capability {
 pub mod authority {
     pub const DYNAMIC_SURFACE: u8 = 0;
     pub const PTY_PROCESS: u8 = 1;
+    pub const WORKSPACE_MANAGEMENT: u8 = 2;
 }
 
 /// Modifier key bitflags matching `kasane_core::input::Modifiers`.

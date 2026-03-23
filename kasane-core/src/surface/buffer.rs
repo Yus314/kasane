@@ -90,6 +90,7 @@ impl Surface for KakouneBufferSurface {
 /// instance displays its own buffer, cursor, mode, and status independently.
 pub struct ClientBufferSurface {
     surface_id: SurfaceId,
+    surface_key: CompactString,
 }
 
 /// Backward-compatible alias for `ClientBufferSurface`.
@@ -98,7 +99,19 @@ pub type MirrorBufferSurface = ClientBufferSurface;
 
 impl ClientBufferSurface {
     pub fn new(surface_id: SurfaceId) -> Self {
-        ClientBufferSurface { surface_id }
+        let key = CompactString::new(format!("kasane.buffer.client.{}", surface_id.0));
+        ClientBufferSurface {
+            surface_id,
+            surface_key: key,
+        }
+    }
+
+    /// Create a `ClientBufferSurface` with a custom surface key.
+    pub fn with_key(surface_id: SurfaceId, key: impl Into<CompactString>) -> Self {
+        ClientBufferSurface {
+            surface_id,
+            surface_key: key.into(),
+        }
     }
 }
 
@@ -135,7 +148,7 @@ impl Surface for ClientBufferSurface {
     }
 
     fn surface_key(&self) -> CompactString {
-        CompactString::new(format!("kasane.buffer.client.{}", self.surface_id.0))
+        self.surface_key.clone()
     }
 
     fn size_hint(&self) -> SizeHint {

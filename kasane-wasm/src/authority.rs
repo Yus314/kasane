@@ -13,6 +13,7 @@ fn authority_name(authority: PluginAuthority) -> &'static str {
     match authority {
         PluginAuthority::DynamicSurface => "dynamic-surface",
         PluginAuthority::PtyProcess => "pty-process",
+        PluginAuthority::WorkspaceManagement => "workspace-management",
     }
 }
 
@@ -46,6 +47,9 @@ pub fn resolve_authorities(
             }
             PluginAuthority::PtyProcess => {
                 resolved |= PluginAuthorities::PTY_PROCESS;
+            }
+            PluginAuthority::WorkspaceManagement => {
+                resolved |= PluginAuthorities::WORKSPACE;
             }
         }
 

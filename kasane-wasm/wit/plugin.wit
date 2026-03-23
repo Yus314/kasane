@@ -1,4 +1,4 @@
-package kasane:plugin@0.13.0;
+package kasane:plugin@0.14.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -84,6 +84,27 @@ interface types {
         inject-key(key-event),
         switch-session(string),
         register-theme-tokens(list<theme-token-default>),
+        spawn-pane-client(spawn-pane-client-config),
+        close-pane-client(string),
+        workspace-command(workspace-cmd),
+    }
+
+    record spawn-pane-client-config {
+        pane-key: string,
+        placement: surface-placement,
+    }
+
+    variant workspace-cmd {
+        focus-direction(focus-dir),
+    }
+
+    enum focus-dir {
+        next-dir,
+        prev-dir,
+        left-dir,
+        right-dir,
+        up-dir,
+        down-dir,
     }
 
     record theme-token-default {
@@ -250,6 +271,7 @@ interface types {
 
     record surface-rect {
         surface-id: u32,
+        key: option<string>,
         x: u16,
         y: u16,
         w: u16,
@@ -567,6 +589,7 @@ interface types {
     enum plugin-authority {
         dynamic-surface,
         pty-process,
+        workspace-management,
     }
 
     // --- v0.6.0: Process I/O types ---

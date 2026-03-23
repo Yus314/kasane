@@ -107,6 +107,32 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
                 .map(|t| (t.token.clone(), super::wit_face_to_face(&t.face)))
                 .collect(),
         ),
+        wit::Command::SpawnPaneClient(config) => Command::SpawnPaneClient {
+            pane_key: config.pane_key.clone(),
+            placement: super::wit_surface_placement_to_placement(&config.placement),
+        },
+        wit::Command::ClosePaneClient(key) => Command::ClosePaneClient {
+            pane_key: key.clone(),
+        },
+        wit::Command::WorkspaceCommand(ws_cmd) => match ws_cmd {
+            wit::WorkspaceCmd::FocusDirection(dir) => {
+                Command::Workspace(kasane_core::workspace::WorkspaceCommand::FocusDirection(
+                    wit_focus_dir_to_focus_direction(*dir),
+                ))
+            }
+        },
+    }
+}
+
+fn wit_focus_dir_to_focus_direction(dir: wit::FocusDir) -> kasane_core::workspace::FocusDirection {
+    use kasane_core::workspace::FocusDirection;
+    match dir {
+        wit::FocusDir::NextDir => FocusDirection::Next,
+        wit::FocusDir::PrevDir => FocusDirection::Prev,
+        wit::FocusDir::LeftDir => FocusDirection::Left,
+        wit::FocusDir::RightDir => FocusDirection::Right,
+        wit::FocusDir::UpDir => FocusDirection::Up,
+        wit::FocusDir::DownDir => FocusDirection::Down,
     }
 }
 

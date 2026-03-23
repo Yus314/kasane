@@ -101,12 +101,28 @@ pub fn notify_workspace_observers(
     surface_registry: &SurfaceRegistry,
     state: &AppState,
 ) {
-    let query = surface_registry.workspace().query(Rect {
+    use std::collections::HashMap;
+
+    let total = Rect {
         x: 0,
         y: 0,
         w: state.cols,
         h: state.rows,
-    });
+    };
+    let surface_keys: HashMap<_, _> = surface_registry
+        .workspace()
+        .root()
+        .collect_ids()
+        .into_iter()
+        .filter_map(|id| {
+            surface_registry
+                .descriptor(id)
+                .map(|d| (id, d.surface_key.clone()))
+        })
+        .collect();
+    let query = surface_registry
+        .workspace()
+        .query_with_keys(total, surface_keys);
     registry.notify_workspace_changed(&query);
 }
 

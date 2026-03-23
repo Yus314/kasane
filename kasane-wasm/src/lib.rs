@@ -139,6 +139,7 @@ const BUNDLED_CURSOR_LINE: &[u8] = include_bytes!("../bundled/cursor-line.wasm")
 const BUNDLED_COLOR_PREVIEW: &[u8] = include_bytes!("../bundled/color-preview.wasm");
 const BUNDLED_SEL_BADGE: &[u8] = include_bytes!("../bundled/sel-badge.wasm");
 const BUNDLED_FUZZY_FINDER: &[u8] = include_bytes!("../bundled/fuzzy-finder.wasm");
+const BUNDLED_PANE_MANAGER: &[u8] = include_bytes!("../bundled/pane-manager.wasm");
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmPluginOrigin {
@@ -335,12 +336,17 @@ fn wasm_factory(
     })
 }
 
-fn bundled_plugin_specs() -> &'static [(&'static str, &'static [u8])] {
+/// Returns (name, bytes, default_enabled).
+///
+/// Plugins with `default_enabled = true` are loaded unless explicitly disabled.
+/// Plugins with `default_enabled = false` require opt-in via `plugins.enabled`.
+fn bundled_plugin_specs() -> &'static [(&'static str, &'static [u8], bool)] {
     &[
-        ("cursor_line", BUNDLED_CURSOR_LINE),
-        ("color_preview", BUNDLED_COLOR_PREVIEW),
-        ("sel_badge", BUNDLED_SEL_BADGE),
-        ("fuzzy_finder", BUNDLED_FUZZY_FINDER),
+        ("cursor_line", BUNDLED_CURSOR_LINE, false),
+        ("color_preview", BUNDLED_COLOR_PREVIEW, false),
+        ("sel_badge", BUNDLED_SEL_BADGE, false),
+        ("fuzzy_finder", BUNDLED_FUZZY_FINDER, false),
+        ("pane_manager", BUNDLED_PANE_MANAGER, true),
     ]
 }
 
@@ -371,8 +377,13 @@ fn resolve_bundled_plugins(
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut Vec<ResolvedWasmPlugin>,
 ) {
-    for (name, bytes) in bundled_plugin_specs() {
-        if !plugins_config.is_bundled_enabled(name) || is_plugin_disabled(plugins_config, name) {
+    for (name, bytes, default) in bundled_plugin_specs() {
+        let should_load = if *default {
+            !is_plugin_disabled(plugins_config, name)
+        } else {
+            plugins_config.is_bundled_enabled(name) && !is_plugin_disabled(plugins_config, name)
+        };
+        if !should_load {
             continue;
         }
         match loader.load(bytes, wasi_config) {
@@ -404,8 +415,13 @@ fn resolve_bundled_plugins_with_factories(
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
 ) {
-    for (name, bytes) in bundled_plugin_specs() {
-        if !plugins_config.is_bundled_enabled(name) || is_plugin_disabled(plugins_config, name) {
+    for (name, bytes, default) in bundled_plugin_specs() {
+        let should_load = if *default {
+            !is_plugin_disabled(plugins_config, name)
+        } else {
+            plugins_config.is_bundled_enabled(name) && !is_plugin_disabled(plugins_config, name)
+        };
+        if !should_load {
             continue;
         }
         match loader.load_staged(bytes, wasi_config) {

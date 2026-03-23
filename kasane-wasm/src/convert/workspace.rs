@@ -9,6 +9,7 @@ pub(crate) fn workspace_query_to_snapshot(query: &WorkspaceQuery<'_>) -> wit::Wo
         .filter_map(|surface_id| {
             query.rect_of(*surface_id).map(|rect| wit::SurfaceRect {
                 surface_id: surface_id.0,
+                key: query.surface_key_of(*surface_id).map(|k| k.to_string()),
                 x: rect.x,
                 y: rect.y,
                 w: rect.w,

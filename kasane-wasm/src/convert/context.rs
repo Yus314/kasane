@@ -89,6 +89,48 @@ pub(crate) fn wit_surface_placement_to_request(
     }
 }
 
+/// Convert a WIT surface placement to a core `Placement`.
+///
+/// Unlike `wit_surface_placement_to_request` (which produces a key-based
+/// `SurfacePlacementRequest` for dynamic surfaces), this produces the direct
+/// `Placement` type used by workspace commands like `SpawnPaneClient`.
+///
+/// `SplitFrom` and `TabIn` are not supported and fall back to `SplitFocused`.
+pub(crate) fn wit_surface_placement_to_placement(
+    placement: &wit::SurfacePlacement,
+) -> kasane_core::workspace::Placement {
+    use kasane_core::workspace::Placement;
+
+    match placement {
+        wit::SurfacePlacement::SplitFocused(split) => Placement::SplitFocused {
+            direction: wit_split_direction_to_split_direction(split.direction),
+            ratio: split.ratio,
+        },
+        wit::SurfacePlacement::SplitFrom(split) => {
+            // SplitFrom with target_surface_key cannot be resolved here
+            // (would need SurfaceRegistry lookup), fall back to SplitFocused.
+            Placement::SplitFocused {
+                direction: wit_split_direction_to_split_direction(split.direction),
+                ratio: split.ratio,
+            }
+        }
+        wit::SurfacePlacement::Tab => Placement::SplitFocused {
+            direction: kasane_core::layout::SplitDirection::Vertical,
+            ratio: 0.5,
+        },
+        wit::SurfacePlacement::TabIn(_) => Placement::SplitFocused {
+            direction: kasane_core::layout::SplitDirection::Vertical,
+            ratio: 0.5,
+        },
+        wit::SurfacePlacement::Dock(position) => {
+            Placement::Dock(wit_dock_position_to_dock_position(*position))
+        }
+        wit::SurfacePlacement::Float(rect) => Placement::Float {
+            rect: wit_rect_to_rect(rect),
+        },
+    }
+}
+
 pub(crate) fn surface_view_context_to_wit(ctx: &ViewContext<'_>) -> wit::SurfaceViewContext {
     wit::SurfaceViewContext {
         rect: rect_to_wit(&ctx.rect),
