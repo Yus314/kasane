@@ -143,6 +143,68 @@ fn handle_inter_plugin_command(
     Some(false)
 }
 
+/// Register a plugin-owned surface and dispatch layout addition on success.
+fn register_surface_core(
+    ctx: &mut DeferredContext<'_>,
+    plugin_id: &PluginId,
+    surface: Box<dyn crate::surface::Surface>,
+    placement: crate::workspace::Placement,
+    label: &str,
+) {
+    let surface_id = surface.id();
+    match ctx
+        .surface_registry
+        .try_register_for_owner(surface, Some(plugin_id.clone()))
+    {
+        Ok(()) => {
+            dispatch_add_surface(ctx, surface_id, placement);
+        }
+        Err(err) => {
+            tracing::warn!(
+                plugin = plugin_id.0,
+                surface_id = surface_id.0,
+                "{label} ignored: {err:?}"
+            );
+        }
+    }
+}
+
+/// Unregister a plugin-owned surface and log the outcome.
+fn unregister_and_log(
+    ctx: &mut DeferredContext<'_>,
+    plugin_id: &PluginId,
+    surface_id: crate::surface::SurfaceId,
+    surface_key: Option<&str>,
+    label: &str,
+) {
+    match try_unregister_owned_surface(
+        ctx.surface_registry,
+        plugin_id,
+        surface_id,
+        ctx.dirty,
+        ctx.workspace_changed,
+    ) {
+        UnregisterResult::Removed => {}
+        UnregisterResult::OwnedByOther(owner) => {
+            tracing::warn!(
+                plugin = plugin_id.0,
+                owner = owner.0,
+                surface_id = surface_id.0,
+                surface_key = surface_key.unwrap_or(""),
+                "{label} ignored: surface owned by another plugin"
+            );
+        }
+        UnregisterResult::NotFound => {
+            tracing::warn!(
+                plugin = plugin_id.0,
+                surface_id = surface_id.0,
+                surface_key = surface_key.unwrap_or(""),
+                "{label} ignored: surface is not plugin-owned or missing"
+            );
+        }
+    }
+}
+
 /// Handle dynamic surface registration and unregistration commands.
 fn handle_surface_mgmt_command(
     cmd: Command,
@@ -158,22 +220,7 @@ fn handle_surface_mgmt_command(
                 return Some(false);
             };
 
-            let surface_id = surface.id();
-            match ctx
-                .surface_registry
-                .try_register_for_owner(surface, Some(plugin_id.clone()))
-            {
-                Ok(()) => {
-                    dispatch_add_surface(ctx, surface_id, placement);
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        surface_id = surface_id.0,
-                        "RegisterSurface ignored: {err:?}"
-                    );
-                }
-            }
+            register_surface_core(ctx, plugin_id, surface, placement, "RegisterSurface");
         }
         Command::RegisterSurfaceRequested { surface, placement } => {
             let Some(plugin_id) = require_surface_authority(
@@ -220,30 +267,7 @@ fn handle_surface_mgmt_command(
                 return Some(false);
             };
 
-            match try_unregister_owned_surface(
-                ctx.surface_registry,
-                plugin_id,
-                surface_id,
-                ctx.dirty,
-                ctx.workspace_changed,
-            ) {
-                UnregisterResult::Removed => {}
-                UnregisterResult::OwnedByOther(owner) => {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        owner = owner.0,
-                        surface_id = surface_id.0,
-                        "UnregisterSurface ignored: surface owned by another plugin"
-                    );
-                }
-                UnregisterResult::NotFound => {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        surface_id = surface_id.0,
-                        "UnregisterSurface ignored: surface is not plugin-owned or missing"
-                    );
-                }
-            }
+            unregister_and_log(ctx, plugin_id, surface_id, None, "UnregisterSurface");
         }
         Command::UnregisterSurfaceKey { surface_key } => {
             let Some(plugin_id) = require_surface_authority(
@@ -263,32 +287,13 @@ fn handle_surface_mgmt_command(
                 return Some(false);
             };
 
-            match try_unregister_owned_surface(
-                ctx.surface_registry,
+            unregister_and_log(
+                ctx,
                 plugin_id,
                 surface_id,
-                ctx.dirty,
-                ctx.workspace_changed,
-            ) {
-                UnregisterResult::Removed => {}
-                UnregisterResult::OwnedByOther(owner) => {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        owner = owner.0,
-                        surface_id = surface_id.0,
-                        surface_key,
-                        "UnregisterSurfaceKey ignored: surface owned by another plugin"
-                    );
-                }
-                UnregisterResult::NotFound => {
-                    tracing::warn!(
-                        plugin = plugin_id.0,
-                        surface_id = surface_id.0,
-                        surface_key,
-                        "UnregisterSurfaceKey ignored: surface is not plugin-owned or missing"
-                    );
-                }
-            }
+                Some(&surface_key),
+                "UnregisterSurfaceKey",
+            );
         }
         _ => unreachable!(),
     }
@@ -437,22 +442,34 @@ fn handle_process_command(
 fn handle_session_pane_command(
     cmd: Command,
     ctx: &mut DeferredContext<'_>,
-    _command_source_plugin: Option<&PluginId>,
+    command_source_plugin: Option<&PluginId>,
     depth: usize,
 ) -> Option<bool> {
     match cmd {
         Command::SpawnPaneClient {
-            surface_id,
+            pane_key,
             placement,
         } => {
+            if let Some(plugin_id) = command_source_plugin
+                && !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::WORKSPACE)
+            {
+                tracing::warn!(
+                    plugin = plugin_id.0.as_str(),
+                    "SpawnPaneClient denied: WORKSPACE authority not granted"
+                );
+                return Some(false);
+            }
+
             if let Some(server_name) = ctx
                 .surface_registry
                 .server_session_name()
                 .map(str::to_owned)
             {
-                let key = format!("pane-{}", surface_id.0);
+                let surface_id = ctx.surface_registry.workspace_mut().next_surface_id();
                 let spec = SessionSpec::new(
-                    key.clone(),
+                    pane_key.clone(),
                     Some(server_name.clone()),
                     vec!["-c".to_string(), server_name],
                 );
@@ -465,13 +482,13 @@ fn handle_session_pane_command(
                     ctx.initial_resize_sent,
                 );
 
-                // Register ClientBufferSurface (must exist before bind_session)
+                // Register ClientBufferSurface with pane_key (must exist before bind_session)
                 let _ = ctx.surface_registry.try_register(Box::new(
-                    crate::surface::buffer::ClientBufferSurface::new(surface_id),
+                    crate::surface::buffer::ClientBufferSurface::with_key(surface_id, &pane_key),
                 ));
 
                 // Bind surface -> session and defer initial resize
-                if let Some(session_id) = ctx.session_host.session_id_by_key(&key) {
+                if let Some(session_id) = ctx.session_host.session_id_by_key(&pane_key) {
                     ctx.surface_registry.bind_session(surface_id, session_id);
                     ctx.surface_registry.mark_pending_resize(session_id);
                 }
@@ -482,21 +499,37 @@ fn handle_session_pane_command(
                 tracing::warn!("SpawnPaneClient ignored: no server session name available");
             }
         }
-        Command::ClosePaneClient { surface_id } => {
-            if let Some(_session_id) = ctx.surface_registry.unbind_session_by_surface(surface_id) {
-                // Close the Kakoune client session by key
-                let key = format!("pane-{}", surface_id.0);
-                ctx.session_host.close_session(
-                    Some(&key),
-                    ctx.state,
-                    ctx.dirty,
-                    ctx.initial_resize_sent,
+        Command::ClosePaneClient { pane_key } => {
+            if let Some(plugin_id) = command_source_plugin
+                && !ctx
+                    .registry
+                    .plugin_has_authority(plugin_id, PluginAuthorities::WORKSPACE)
+            {
+                tracing::warn!(
+                    plugin = plugin_id.0.as_str(),
+                    "ClosePaneClient denied: WORKSPACE authority not granted"
                 );
+                return Some(false);
             }
-            ctx.surface_registry.remove(surface_id);
-            let _ = ctx.surface_registry.workspace_mut().close(surface_id);
-            *ctx.dirty |= DirtyFlags::ALL;
-            *ctx.workspace_changed = true;
+
+            if let Some(surface_id) = ctx.surface_registry.surface_id_by_key(&pane_key) {
+                if let Some(_session_id) =
+                    ctx.surface_registry.unbind_session_by_surface(surface_id)
+                {
+                    ctx.session_host.close_session(
+                        Some(&pane_key),
+                        ctx.state,
+                        ctx.dirty,
+                        ctx.initial_resize_sent,
+                    );
+                }
+                ctx.surface_registry.remove(surface_id);
+                let _ = ctx.surface_registry.workspace_mut().close(surface_id);
+                *ctx.dirty |= DirtyFlags::ALL;
+                *ctx.workspace_changed = true;
+            } else {
+                tracing::warn!(pane_key, "ClosePaneClient ignored: unknown pane key");
+            }
         }
         Command::BindSurfaceSession {
             surface_id,

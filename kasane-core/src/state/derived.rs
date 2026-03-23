@@ -82,23 +82,35 @@ fn detect_cursors_by_attributes(lines: &[Line]) -> Vec<Coord> {
     cursors
 }
 
-/// Scan a single line for cursor atoms (FINAL_FG + REVERSE pattern).
+/// Scan a single line's atoms, pushing cursor column indices into `out`.
 ///
-/// Appends cursor positions to `out`. This is the per-line primitive used by
-/// both `detect_cursors_by_attributes` (full scan) and `detect_cursors_incremental`
-/// (dirty-line scan).
-fn scan_line_cursors_by_attributes(line: &[Atom], line_idx: usize, out: &mut Vec<Coord>) {
+/// This is the shared attribute-check primitive used by both
+/// `scan_line_cursors_by_attributes` (full scan, producing `Coord`) and
+/// `detect_cursors_incremental` (dirty-line scan, producing column-only `u32`).
+fn scan_line_cursor_columns(line: &[Atom], out: &mut Vec<u32>) {
     let mut col: u32 = 0;
     for atom in line.iter() {
         let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
             && atom.face.attributes.contains(Attributes::REVERSE);
         if is_cursor {
-            out.push(Coord {
-                line: line_idx as i32,
-                column: col as i32,
-            });
+            out.push(col);
         }
         col += atom_display_width(atom);
+    }
+}
+
+/// Scan a single line for cursor atoms (FINAL_FG + REVERSE pattern).
+///
+/// Appends cursor positions to `out`. This is the per-line primitive used by
+/// `detect_cursors_by_attributes` (full scan).
+fn scan_line_cursors_by_attributes(line: &[Atom], line_idx: usize, out: &mut Vec<Coord>) {
+    let mut cols = Vec::new();
+    scan_line_cursor_columns(line, &mut cols);
+    for col in cols {
+        out.push(Coord {
+            line: line_idx as i32,
+            column: col as i32,
+        });
     }
 }
 
@@ -183,33 +195,15 @@ pub fn detect_cursors_incremental(
         cache.used_fallback = false;
 
         for (i, line) in lines.iter().enumerate() {
-            let cols = &mut cache.per_line[i];
-            cols.clear();
-            let mut col: u32 = 0;
-            for atom in line.iter() {
-                let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
-                    && atom.face.attributes.contains(Attributes::REVERSE);
-                if is_cursor {
-                    cols.push(col);
-                }
-                col += atom_display_width(atom);
-            }
+            cache.per_line[i].clear();
+            scan_line_cursor_columns(line, &mut cache.per_line[i]);
         }
     } else {
         // Incremental: only re-scan dirty lines
         for (i, &dirty) in lines_dirty.iter().enumerate() {
             if dirty {
-                let cols = &mut cache.per_line[i];
-                cols.clear();
-                let mut col: u32 = 0;
-                for atom in lines[i].iter() {
-                    let is_cursor = atom.face.attributes.contains(Attributes::FINAL_FG)
-                        && atom.face.attributes.contains(Attributes::REVERSE);
-                    if is_cursor {
-                        cols.push(col);
-                    }
-                    col += atom_display_width(atom);
-                }
+                cache.per_line[i].clear();
+                scan_line_cursor_columns(&lines[i], &mut cache.per_line[i]);
             }
         }
     }

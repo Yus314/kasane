@@ -76,7 +76,9 @@ fn test_transform_menu_item() {
         face: Face::default(),
         contents: "foo".into(),
     }];
-    let result = registry.transform_menu_item(&item, 0, false, &AppView::new(&state));
+    let result = registry
+        .view()
+        .transform_menu_item(&item, 0, false, &AppView::new(&state));
     assert!(result.is_some());
     let result = result.unwrap();
     assert_eq!(result[0].contents.as_str(), "★ ");
@@ -93,6 +95,7 @@ fn test_transform_menu_item_no_plugin() {
     }];
     assert!(
         registry
+            .view()
             .transform_menu_item(&item, 0, false, &AppView::new(&state))
             .is_none()
     );
@@ -195,7 +198,7 @@ fn test_collect_paint_hooks() {
             }),
         ],
     }));
-    let hooks = registry.collect_paint_hooks();
+    let hooks = registry.view().collect_paint_hooks();
     assert_eq!(hooks.len(), 2);
     assert_eq!(hooks[0].id(), "hook-a");
     assert_eq!(hooks[1].id(), "hook-b");
@@ -219,7 +222,9 @@ fn test_collect_paint_hooks_for_owner() {
         ],
     }));
 
-    let hooks = registry.collect_paint_hooks_for_owner(&PluginId("paint-hook-test".to_string()));
+    let hooks = registry
+        .view()
+        .collect_paint_hooks_for_owner(&PluginId("paint-hook-test".to_string()));
     assert_eq!(hooks.len(), 2);
     assert_eq!(hooks[0].id(), "hook-a");
     assert_eq!(hooks[1].id(), "hook-b");
@@ -289,6 +294,6 @@ fn test_paint_hook_no_capability_not_collected() {
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(NoPaintHookPlugin));
-    let hooks = registry.collect_paint_hooks();
+    let hooks = registry.view().collect_paint_hooks();
     assert!(hooks.is_empty());
 }

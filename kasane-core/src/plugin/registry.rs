@@ -306,16 +306,19 @@ impl PluginRuntime {
     }
 
     /// Collect paint hooks from all plugins. Call after `init_all_batch()`.
+    #[deprecated(note = "use registry.view().collect_paint_hooks() directly")]
     pub fn collect_paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
         self.view().collect_paint_hooks()
     }
 
     /// Collect paint hooks for a single owner in plugin registration order.
+    #[deprecated(note = "use registry.view().collect_paint_hooks_for_owner() directly")]
     pub fn collect_paint_hooks_for_owner(&self, target: &PluginId) -> Vec<Box<dyn PaintHook>> {
         self.view().collect_paint_hooks_for_owner(target)
     }
 
     /// Plugin IDs that currently contribute paint hooks, in registry order.
+    #[deprecated(note = "use registry.view().paint_hook_owners_in_order() directly")]
     pub fn paint_hook_owners_in_order(&self) -> Vec<PluginId> {
         self.view().paint_hook_owners_in_order()
     }
@@ -323,6 +326,7 @@ impl PluginRuntime {
     // --- Menu item transformation ---
 
     /// Transform a menu item through all plugins. Returns None if no plugin transforms it.
+    #[deprecated(note = "use registry.view().transform_menu_item() directly")]
     pub fn transform_menu_item(
         &self,
         item: &[crate::protocol::Atom],
@@ -336,6 +340,7 @@ impl PluginRuntime {
     // --- Cursor style override ---
 
     /// Query plugins for a cursor style override. Returns the first non-None.
+    #[deprecated(note = "use registry.view().cursor_style_override() directly")]
     pub fn cursor_style_override(&self, app: &AppView<'_>) -> Option<crate::render::CursorStyle> {
         self.view().cursor_style_override(app)
     }
@@ -387,6 +392,7 @@ impl PluginRuntime {
     // ===========================================================================
 
     /// Collect contributions from all plugins for a given region, sorted by priority.
+    #[deprecated(note = "use registry.view().collect_contributions() directly")]
     pub fn collect_contributions(
         &self,
         region: &SlotId,
@@ -396,6 +402,7 @@ impl PluginRuntime {
         self.view().collect_contributions(region, app, ctx)
     }
 
+    #[deprecated(note = "use registry.view().collect_contributions_with_sources() directly")]
     pub fn collect_contributions_with_sources(
         &self,
         region: &SlotId,
@@ -407,15 +414,18 @@ impl PluginRuntime {
     }
 
     /// Apply the transform chain for a given target.
+    #[deprecated(note = "use registry.view().apply_transform_chain() directly")]
     pub fn apply_transform_chain(
         &self,
         target: TransformTarget,
         subject: TransformSubject,
         app: &AppView<'_>,
     ) -> TransformSubject {
+        #[allow(deprecated)]
         self.apply_transform_chain_in_pane(target, subject, app, PaneContext::default())
     }
 
+    #[deprecated(note = "use registry.view().apply_transform_chain_in_pane() directly")]
     pub fn apply_transform_chain_in_pane(
         &self,
         target: TransformTarget,
@@ -432,6 +442,7 @@ impl PluginRuntime {
     /// For style-specific targets (e.g. `MenuPrompt`), this applies the generic
     /// parent target (`Menu`) first, then the specific target (`MenuPrompt`).
     /// For non-refinement targets, this is equivalent to `apply_transform_chain`.
+    #[deprecated(note = "use registry.view().apply_transform_chain_hierarchical() directly")]
     pub fn apply_transform_chain_hierarchical(
         &self,
         target: TransformTarget,
@@ -442,6 +453,9 @@ impl PluginRuntime {
             .apply_transform_chain_hierarchical(target, subject, app)
     }
 
+    #[deprecated(
+        note = "use registry.view().apply_transform_chain_hierarchical_in_pane() directly"
+    )]
     pub fn apply_transform_chain_hierarchical_in_pane(
         &self,
         target: TransformTarget,
@@ -454,6 +468,7 @@ impl PluginRuntime {
     }
 
     /// Collect annotations from all annotating plugins for visible lines.
+    #[deprecated(note = "use registry.view().collect_annotations() directly")]
     pub fn collect_annotations(
         &self,
         app: &AppView<'_>,
@@ -464,11 +479,13 @@ impl PluginRuntime {
 
     /// Collect display transformation directives from all plugins and build
     /// a `DisplayMapRef`.
+    #[deprecated(note = "use registry.view().collect_display_map() directly")]
     pub fn collect_display_map(&self, app: &AppView<'_>) -> DisplayMapRef {
         self.view().collect_display_map(app)
     }
 
     /// Collect raw display directives from all plugins (without building a DisplayMap).
+    #[deprecated(note = "use registry.view().collect_display_directives() directly")]
     pub fn collect_display_directives(
         &self,
         app: &AppView<'_>,
@@ -477,6 +494,7 @@ impl PluginRuntime {
     }
 
     /// Collect overlay contributions with collision-avoidance context.
+    #[deprecated(note = "use registry.view().collect_overlays_with_ctx() directly")]
     pub fn collect_overlays_with_ctx(
         &self,
         app: &AppView<'_>,
@@ -486,6 +504,7 @@ impl PluginRuntime {
     }
 
     /// Check if any plugin has TRANSFORMER capability for a given target.
+    #[deprecated(note = "use registry.view().has_transform_for() directly")]
     pub fn has_transform_for(&self, _target: TransformTarget) -> bool {
         self.view().has_transform_for(_target)
     }

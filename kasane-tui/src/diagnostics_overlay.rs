@@ -1,5 +1,6 @@
-use kasane_core::plugin::{
-    PluginDiagnosticOverlayPainter, PluginDiagnosticOverlayState, PluginDiagnosticOverlayTextRun,
+use kasane_core::plugin::PluginDiagnosticOverlayState;
+use kasane_core::plugin::diagnostics::{
+    PluginDiagnosticOverlayPainter, PluginDiagnosticOverlayTextRun,
 };
 use kasane_core::protocol::Face;
 use kasane_core::render::CellGrid;

@@ -665,7 +665,9 @@ mod tests {
             pane_surface_id: None,
             pane_focused: true,
         };
-        let result = registry.collect_annotations(&AppView::new(&app), &ctx);
+        let result = registry
+            .view()
+            .collect_annotations(&AppView::new(&app), &ctx);
         assert!(result.line_backgrounds.is_some());
         let bgs = result.line_backgrounds.unwrap();
         assert!(bgs[0].is_none()); // line 0: no highlight

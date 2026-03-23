@@ -13,16 +13,14 @@ pub(crate) struct PaintHookState {
 impl PaintHookState {
     pub(crate) fn from_registry(registry: &PluginRuntime) -> Self {
         let mut state = Self::default();
+        let view = registry.view();
         state.rebuild_from_grouped(
             registry,
-            registry
-                .paint_hook_owners_in_order()
+            view.paint_hook_owners_in_order()
                 .into_iter()
                 .map(|owner| {
-                    (
-                        owner.clone(),
-                        registry.collect_paint_hooks_for_owner(&owner),
-                    )
+                    let hooks = view.collect_paint_hooks_for_owner(&owner);
+                    (owner, hooks)
                 })
                 .collect(),
         );
@@ -63,7 +61,7 @@ impl PaintHookState {
             {
                 continue;
             }
-            let hooks = registry.collect_paint_hooks_for_owner(plugin_id);
+            let hooks = registry.view().collect_paint_hooks_for_owner(plugin_id);
             if !hooks.is_empty() {
                 grouped.insert(plugin_id.clone(), hooks);
             }
@@ -93,7 +91,7 @@ impl PaintHookState {
     ) {
         let mut hooks = Vec::new();
         let mut owner_ranges = BTreeMap::new();
-        for owner in registry.paint_hook_owners_in_order() {
+        for owner in registry.view().paint_hook_owners_in_order() {
             let Some(owner_hooks) = grouped.remove(&owner) else {
                 continue;
             };

@@ -1,7 +1,7 @@
 use kasane_core::element::BorderLineStyle;
-use kasane_core::plugin::{
-    PluginDiagnosticOverlayPainter, PluginDiagnosticOverlayState, PluginDiagnosticOverlayTextRun,
-    paint_plugin_diagnostic_overlay,
+use kasane_core::plugin::PluginDiagnosticOverlayState;
+use kasane_core::plugin::diagnostics::{
+    PluginDiagnosticOverlayPainter, PluginDiagnosticOverlayTextRun, paint_plugin_diagnostic_overlay,
 };
 use kasane_core::protocol::Face;
 use kasane_core::render::scene::{PixelPos, PixelRect};

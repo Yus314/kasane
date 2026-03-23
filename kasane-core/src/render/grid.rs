@@ -327,47 +327,9 @@ impl CellGrid {
 
     #[doc(hidden)]
     pub fn diff(&self) -> Vec<CellDiff> {
-        crate::perf::perf_span!("grid_diff");
-        if self.previous.is_empty() {
-            // Full redraw
-            return self
-                .current
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| c.width > 0) // skip continuation cells
-                .map(|(i, cell)| {
-                    let x = (i % self.width as usize) as u16;
-                    let y = (i / self.width as usize) as u16;
-                    CellDiff {
-                        x,
-                        y,
-                        cell: cell.clone(),
-                    }
-                })
-                .collect();
-        }
-
-        let mut diffs = Vec::new();
-        let w = self.width as usize;
-        for row in 0..self.height as usize {
-            if !self.dirty_rows[row] {
-                continue;
-            }
-            let row_start = row * w;
-            let row_end = row_start + w;
-            for i in row_start..row_end {
-                let curr = &self.current[i];
-                let prev = &self.previous[i];
-                if curr != prev && curr.width > 0 {
-                    diffs.push(CellDiff {
-                        x: (i % w) as u16,
-                        y: row as u16,
-                        cell: curr.clone(),
-                    });
-                }
-            }
-        }
-        diffs
+        let mut ops = Vec::new();
+        self.diff_into(&mut ops);
+        ops
     }
 
     /// Swap only dirty rows from current into previous, preserving clean rows
