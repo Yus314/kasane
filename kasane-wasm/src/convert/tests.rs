@@ -1093,3 +1093,14 @@ fn convert_command_inject_key() {
         _ => panic!("expected InjectInput(Key(...))"),
     }
 }
+
+#[test]
+fn convert_workspace_resize_command() {
+    let wc = wit::Command::WorkspaceCommand(wit::WorkspaceCmd::Resize(0.05));
+    match wit_command_to_command(&wc) {
+        Command::Workspace(kasane_core::workspace::WorkspaceCommand::Resize { delta }) => {
+            assert!((delta - 0.05).abs() < f32::EPSILON);
+        }
+        _ => panic!("expected Workspace(Resize)"),
+    }
+}

@@ -1,4 +1,4 @@
-package kasane:plugin@0.20.0;
+package kasane:plugin@0.21.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -96,6 +96,7 @@ interface types {
 
     variant workspace-cmd {
         focus-direction(focus-dir),
+        resize(f32),
     }
 
     enum focus-dir {

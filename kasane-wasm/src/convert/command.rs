@@ -120,6 +120,11 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
                     wit_focus_dir_to_focus_direction(*dir),
                 ))
             }
+            wit::WorkspaceCmd::Resize(delta) => {
+                Command::Workspace(kasane_core::workspace::WorkspaceCommand::Resize {
+                    delta: *delta,
+                })
+            }
         },
     }
 }
