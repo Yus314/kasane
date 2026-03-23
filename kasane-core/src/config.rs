@@ -199,6 +199,8 @@ pub struct WindowConfig {
     pub initial_rows: u16,
     pub fullscreen: bool,
     pub maximized: bool,
+    /// Override GPU present mode (e.g. "Fifo", "Mailbox", "AutoVsync", "AutoNoVsync").
+    pub present_mode: Option<String>,
 }
 
 impl Default for WindowConfig {
@@ -208,6 +210,7 @@ impl Default for WindowConfig {
             initial_rows: 24,
             fullscreen: false,
             maximized: false,
+            present_mode: None,
         }
     }
 }

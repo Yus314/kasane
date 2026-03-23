@@ -5,7 +5,7 @@ use glyphon::{
 };
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;
-use kasane_core::render::{CellSize, CursorStyle, DrawCommand};
+use kasane_core::render::{CellSize, CursorStyle, DrawCommand, PixelRect};
 use wgpu::MultisampleState;
 use winit::dpi::PhysicalSize;
 
@@ -37,6 +37,8 @@ pub struct SceneRenderer {
     text_buffers: Vec<GlyphonBuffer>,
     /// Position (left, top) for each text buffer allocated this frame.
     text_positions: Vec<(f32, f32)>,
+    /// Clip bounds (left, top, right, bottom) for each text buffer.
+    text_clip_bounds: Vec<(i32, i32, i32, i32)>,
     text_buffer_count: usize,
 
     // Scratch buffers
@@ -47,6 +49,12 @@ pub struct SceneRenderer {
     font_family: String,
     font_size: f32,
     line_height: f32,
+
+    // Clipping state
+    clip_stack: Vec<PixelRect>,
+    /// Current frame screen dimensions (set at start of render_inner).
+    frame_screen_w: f32,
+    frame_screen_h: f32,
 }
 
 impl SceneRenderer {
@@ -57,6 +65,12 @@ impl SceneRenderer {
         window_size: PhysicalSize<u32>,
     ) -> Self {
         let mut font_system = FontSystem::new();
+        if !font_config.fallback_list.is_empty() {
+            tracing::info!(
+                "font fallback list: {:?} (cosmic-text handles fallback via system fontconfig)",
+                font_config.fallback_list
+            );
+        }
         let swash_cache = SwashCache::new();
 
         let font_size = font_config.size * scale_factor as f32;
@@ -102,12 +116,16 @@ impl SceneRenderer {
             metrics,
             text_buffers: Vec::with_capacity(128),
             text_positions: Vec::with_capacity(128),
+            text_clip_bounds: Vec::with_capacity(128),
             text_buffer_count: 0,
             row_text: String::with_capacity(512),
             span_ranges: Vec::with_capacity(256),
             font_family: font_config.family.clone(),
             font_size,
             line_height,
+            clip_stack: Vec::new(),
+            frame_screen_w: 0.0,
+            frame_screen_h: 0.0,
         }
     }
 
@@ -201,6 +219,7 @@ impl SceneRenderer {
         color_resolver: &ColorResolver,
         cursor: Option<(f32, f32, f32, CursorStyle)>,
     ) -> anyhow::Result<()> {
+        let _frame_span = tracing::info_span!("gpu_frame", commands = commands.len()).entered();
         let output = match gpu.surface.get_current_texture() {
             Ok(output) => output,
             Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
@@ -213,6 +232,8 @@ impl SceneRenderer {
 
         let screen_w = gpu.config.width as f32;
         let screen_h = gpu.config.height as f32;
+        self.frame_screen_w = screen_w;
+        self.frame_screen_h = screen_h;
 
         // Update screen size uniforms
         let screen_size = [screen_w, screen_h];
@@ -229,9 +250,12 @@ impl SceneRenderer {
         // Reset per-frame state
         self.text_buffer_count = 0;
         self.text_positions.clear();
+        self.text_clip_bounds.clear();
+        self.clip_stack.clear();
 
         // Split commands into layers at BeginOverlay boundaries.
         // layer_ranges[i] = (start, end) index into `commands`.
+        let _split_span = tracing::info_span!("layer_split").entered();
         let mut layer_ranges: Vec<(usize, usize)> = Vec::new();
         let mut layer_start = 0;
         for (i, cmd) in commands.iter().enumerate() {
@@ -241,6 +265,8 @@ impl SceneRenderer {
             }
         }
         layer_ranges.push((layer_start, commands.len()));
+
+        drop(_split_span);
 
         let cell_w = self.metrics.cell_width;
         let cell_h = self.metrics.cell_height;
@@ -289,14 +315,20 @@ impl SceneRenderer {
 
             // Build TextAreas for this layer's text buffers only
             let layer_text_end = self.text_buffer_count;
+            let layer_clips = &self.text_clip_bounds[layer_text_start..layer_text_end];
+            let has_clips = layer_clips.iter().any(|&(l, t, r, b)| {
+                l != 0 || t != 0 || r != screen_w as i32 || b != screen_h as i32
+            });
             let text_areas = super::text_helpers::prepare_text_areas(
                 &self.text_positions[layer_text_start..layer_text_end],
                 &self.text_buffers[layer_text_start..layer_text_end],
                 screen_w,
                 screen_h,
+                if has_clips { Some(layer_clips) } else { None },
             );
 
             // Prepare this layer's text
+            let _text_span = tracing::info_span!("text_prepare", layer = layer_idx).entered();
             self.text_renderer
                 .prepare(
                     &gpu.device,
@@ -308,6 +340,7 @@ impl SceneRenderer {
                     &mut self.swash_cache,
                 )
                 .map_err(|e| anyhow::anyhow!("glyphon prepare failed: {e}"))?;
+            drop(_text_span);
 
             // Draw this layer: bg → border → text.
             // Each layer needs its own encoder + submit so that
@@ -358,6 +391,7 @@ impl SceneRenderer {
                 self.decoration.upload_and_draw(gpu, &mut render_pass);
             }
 
+            let _submit_span = tracing::info_span!("encoder_submit", layer = layer_idx).entered();
             gpu.queue.submit(std::iter::once(encoder.finish()));
         }
 
@@ -366,6 +400,27 @@ impl SceneRenderer {
         self.text_atlas.trim();
 
         Ok(())
+    }
+
+    /// Get the current clip rect, or `None` if no clip is active.
+    fn current_clip(&self) -> Option<&PixelRect> {
+        self.clip_stack.last()
+    }
+
+    /// Intersect a rectangle with the current clip. Returns `None` if fully clipped.
+    fn clip_rect(&self, x: f32, y: f32, w: f32, h: f32) -> Option<(f32, f32, f32, f32)> {
+        let Some(clip) = self.current_clip() else {
+            return Some((x, y, w, h));
+        };
+        let x1 = x.max(clip.x);
+        let y1 = y.max(clip.y);
+        let x2 = (x + w).min(clip.x + clip.w);
+        let y2 = (y + h).min(clip.y + clip.h);
+        if x2 <= x1 || y2 <= y1 {
+            None
+        } else {
+            Some((x1, y1, x2 - x1, y2 - y1))
+        }
     }
 
     /// Process a single DrawCommand, dispatching to the appropriate pipeline.
@@ -383,6 +438,9 @@ impl SceneRenderer {
                 face,
                 elevated,
             } => {
+                let Some((cx, cy, cw, ch)) = self.clip_rect(rect.x, rect.y, rect.w, rect.h) else {
+                    return;
+                };
                 let mut bg = color_resolver.resolve(face.bg, false);
                 if *elevated {
                     bg[0] = (bg[0] + 0.25).min(1.0);
@@ -393,13 +451,13 @@ impl SceneRenderer {
                         bg[0],
                         bg[1],
                         bg[2],
-                        rect.x,
-                        rect.y,
-                        rect.w,
-                        rect.h,
+                        cx,
+                        cy,
+                        cw,
+                        ch,
                     );
                 }
-                self.bg.push_rect(rect.x, rect.y, rect.w, rect.h, bg);
+                self.bg.push_rect(cx, cy, cw, ch, bg);
             }
             DrawCommand::DrawAtoms {
                 pos,
@@ -425,6 +483,7 @@ impl SceneRenderer {
                 let fg = color_resolver.resolve(face.fg, true);
                 let buf_idx = self.alloc_text_buffer(screen_w);
                 self.text_positions.push((pos.x, pos.y));
+                self.push_text_clip_bounds();
                 let attrs = super::text_helpers::default_attrs(&self.font_family);
                 let color = super::text_helpers::to_glyphon_color(fg);
                 let buffer = &mut self.text_buffers[buf_idx];
@@ -539,8 +598,26 @@ impl SceneRenderer {
                     [0.0, 0.0, 0.0, 0.0],
                 );
             }
-            DrawCommand::PushClip(_) | DrawCommand::PopClip => {
-                // Will be implemented with scissor rects
+            DrawCommand::PushClip(rect) => {
+                // Intersect with current clip (if any) to handle nested clips
+                let new_clip = if let Some(cur) = self.current_clip() {
+                    let x1 = rect.x.max(cur.x);
+                    let y1 = rect.y.max(cur.y);
+                    let x2 = (rect.x + rect.w).min(cur.x + cur.w);
+                    let y2 = (rect.y + rect.h).min(cur.y + cur.h);
+                    PixelRect {
+                        x: x1,
+                        y: y1,
+                        w: (x2 - x1).max(0.0),
+                        h: (y2 - y1).max(0.0),
+                    }
+                } else {
+                    rect.clone()
+                };
+                self.clip_stack.push(new_clip);
+            }
+            DrawCommand::PopClip => {
+                self.clip_stack.pop();
             }
             DrawCommand::BeginOverlay => {} // handled by layer splitting
         }
@@ -726,6 +803,7 @@ impl SceneRenderer {
 
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_positions.push((px, py));
+        self.push_text_clip_bounds();
         let default_attrs = super::text_helpers::default_attrs(&self.font_family);
 
         let rich_text_iter = self.span_ranges.iter().map(|(start, end, fg)| {
@@ -776,6 +854,7 @@ impl SceneRenderer {
         }
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_positions.push((px, py));
+        self.push_text_clip_bounds();
         let default_attrs = super::text_helpers::default_attrs(&self.font_family);
         let color = super::text_helpers::to_glyphon_color(fg);
 
@@ -788,6 +867,21 @@ impl SceneRenderer {
             None,
         );
         buffer.shape_until_scroll(&mut self.font_system, false);
+    }
+
+    /// Push the current clip bounds for the most recently allocated text buffer.
+    fn push_text_clip_bounds(&mut self) {
+        let bounds = if let Some(clip) = self.current_clip() {
+            (
+                clip.x as i32,
+                clip.y as i32,
+                (clip.x + clip.w) as i32,
+                (clip.y + clip.h) as i32,
+            )
+        } else {
+            (0, 0, self.frame_screen_w as i32, self.frame_screen_h as i32)
+        };
+        self.text_clip_bounds.push(bounds);
     }
 
     /// Allocate (or reuse) a text buffer. Returns the index.

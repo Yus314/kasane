@@ -369,7 +369,7 @@ where
         let phys_size = window.inner_size();
 
         // Initialize GPU
-        match GpuState::new(window.clone()) {
+        match GpuState::new(window.clone(), self.config.window.present_mode.as_deref()) {
             Ok(gpu) => {
                 let sr = SceneRenderer::new(&gpu, &self.config.font, scale_factor, phys_size);
                 let metrics = sr.metrics().clone();
@@ -824,10 +824,19 @@ where
     }
 
     fn render_frame(&mut self) {
-        let Some(ref gpu) = self.gpu else {
+        let Some(ref mut gpu) = self.gpu else {
             tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
             return;
         };
+        // Attempt recovery if device reported an error
+        if gpu
+            .device_error
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!("[app] device error detected, reconfiguring surface");
+            gpu.surface.configure(&gpu.device, &gpu.config);
+        }
+        let gpu = self.gpu.as_ref().unwrap();
         let Some(ref resolver) = self.color_resolver else {
             tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
             return;
@@ -934,6 +943,7 @@ where
             );
         } else if let Some(result) = self.last_render_result {
             // Cursor-only frame: reuse cached scene commands
+            let _cursor_span = tracing::info_span!("cursor_only_frame").entered();
             let commands = self.scene_cache.composed_ref();
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
@@ -1074,6 +1084,14 @@ where
                 }
                 return;
             }
+            WindowEvent::Focused(focused) => {
+                if *focused {
+                    self.cursor_animation.resume();
+                } else {
+                    self.cursor_animation.pause();
+                }
+                // Fall through to input conversion so plugins can observe focus
+            }
             _ => {}
         }
 
@@ -1159,10 +1177,18 @@ where
             window.request_redraw();
         }
 
-        if let Some(delay) = self.scroll_runtime.active_frame_interval() {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + delay));
-        } else {
-            event_loop.set_control_flow(ControlFlow::Wait);
+        let scroll_deadline = self
+            .scroll_runtime
+            .active_frame_interval()
+            .map(|d| std::time::Instant::now() + d);
+        let cursor_deadline = self.cursor_animation.next_frame_deadline();
+        let deadline = match (scroll_deadline, cursor_deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        match deadline {
+            Some(t) => event_loop.set_control_flow(ControlFlow::WaitUntil(t)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 }

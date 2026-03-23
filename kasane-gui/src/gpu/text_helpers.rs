@@ -5,28 +5,46 @@ use glyphon::{
 use kasane_core::element::BorderLineStyle;
 
 /// Build TextAreas from position/buffer slices for a single layer.
+///
+/// `clip_bounds` provides optional per-buffer clip rects (left, top, right, bottom)
+/// to restrict text rendering to a clipped region. `None` entries use full screen bounds.
 pub(super) fn prepare_text_areas<'a>(
     positions: &'a [(f32, f32)],
     buffers: &'a [GlyphonBuffer],
     screen_w: f32,
     screen_h: f32,
+    clip_bounds: Option<&[(i32, i32, i32, i32)]>,
 ) -> Vec<TextArea<'a>> {
     positions
         .iter()
         .zip(buffers.iter())
-        .map(|(&(left, top), buffer)| TextArea {
-            buffer,
-            left,
-            top,
-            scale: 1.0,
-            bounds: TextBounds {
-                left: 0,
-                top: 0,
-                right: screen_w as i32,
-                bottom: screen_h as i32,
-            },
-            default_color: GlyphonColor::rgb(255, 255, 255),
-            custom_glyphs: &[],
+        .enumerate()
+        .map(|(i, (&(left, top), buffer))| {
+            let bounds = if let Some(clips) = clip_bounds {
+                let (cl, ct, cr, cb) = clips[i];
+                TextBounds {
+                    left: cl,
+                    top: ct,
+                    right: cr,
+                    bottom: cb,
+                }
+            } else {
+                TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: screen_w as i32,
+                    bottom: screen_h as i32,
+                }
+            };
+            TextArea {
+                buffer,
+                left,
+                top,
+                scale: 1.0,
+                bounds,
+                default_color: GlyphonColor::rgb(255, 255, 255),
+                custom_glyphs: &[],
+            }
         })
         .collect()
 }

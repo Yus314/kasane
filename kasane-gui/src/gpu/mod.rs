@@ -22,6 +22,7 @@ pub(crate) const CURSOR_UNDERLINE_HEIGHT: f32 = 2.0;
 pub(crate) const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use glyphon::Family;
 use winit::window::Window;
@@ -45,15 +46,17 @@ pub struct GpuState {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
+    /// Set to `true` when the device reports an error (e.g. device loss).
+    pub device_error: Arc<AtomicBool>,
 }
 
 impl GpuState {
     /// Synchronously initialize the GPU. Called from `ApplicationHandler::resumed()`.
-    pub fn new(window: Arc<Window>) -> anyhow::Result<Self> {
-        pollster::block_on(Self::new_async(window))
+    pub fn new(window: Arc<Window>, present_mode: Option<&str>) -> anyhow::Result<Self> {
+        pollster::block_on(Self::new_async(window, present_mode))
     }
 
-    async fn new_async(window: Arc<Window>) -> anyhow::Result<Self> {
+    async fn new_async(window: Arc<Window>, present_mode: Option<&str>) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let surface = instance.create_surface(window.clone())?;
 
@@ -75,10 +78,36 @@ impl GpuState {
             .request_device(&wgpu::DeviceDescriptor::default())
             .await?;
 
+        let device_error = Arc::new(AtomicBool::new(false));
+        let error_flag = device_error.clone();
+        device.on_uncaptured_error(Arc::new(move |e| {
+            tracing::warn!("wgpu device error: {e}");
+            error_flag.store(true, Ordering::Relaxed);
+        }));
+
         let size = window.inner_size();
-        let config = surface
+        let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or_else(|| anyhow::anyhow!("no compatible surface format"))?;
+        if let Some(mode) = present_mode {
+            config.present_mode = match mode {
+                "Fifo" => wgpu::PresentMode::Fifo,
+                "FifoRelaxed" => wgpu::PresentMode::FifoRelaxed,
+                "Mailbox" => wgpu::PresentMode::Mailbox,
+                "Immediate" => wgpu::PresentMode::Immediate,
+                "AutoVsync" => wgpu::PresentMode::AutoVsync,
+                "AutoNoVsync" => wgpu::PresentMode::AutoNoVsync,
+                other => {
+                    tracing::warn!("unknown present_mode {:?}, using default", other);
+                    config.present_mode
+                }
+            };
+        }
+        tracing::info!(
+            "surface format: {:?}, present mode: {:?}",
+            config.format,
+            config.present_mode
+        );
         surface.configure(&device, &config);
 
         Ok(GpuState {
@@ -86,6 +115,7 @@ impl GpuState {
             device,
             queue,
             config,
+            device_error,
         })
     }
 

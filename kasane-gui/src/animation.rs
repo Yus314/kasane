@@ -129,14 +129,43 @@ impl CursorAnimation {
 
         // Determine if we need to keep animating
         self.is_animating = self.move_t < 1.0 || self.time_since_move < BLINK_DELAY + BLINK_PERIOD;
-        // Actually, we always want blink to continue, so keep animating
-        self.is_animating = true;
 
         CursorRenderState {
             x: self.current_x * cell_width,
             y: self.current_y * cell_height,
             opacity,
         }
+    }
+
+    /// Compute the next instant at which the cursor animation needs a frame,
+    /// or `None` if the cursor is fully idle (no movement, blink cycle complete).
+    pub fn next_frame_deadline(&self) -> Option<Instant> {
+        if !self.is_animating {
+            return None;
+        }
+        if self.move_t < 1.0 {
+            // Smooth 60fps move animation
+            Some(self.last_frame + std::time::Duration::from_nanos(16_666_667))
+        } else if self.time_since_move < BLINK_DELAY {
+            // Waiting for blink to start — wake at blink start
+            let remaining = BLINK_DELAY - self.time_since_move;
+            Some(self.last_frame + std::time::Duration::from_secs_f32(remaining))
+        } else {
+            // Blinking — 30fps is sufficient for sin wave
+            Some(self.last_frame + std::time::Duration::from_nanos(33_333_333))
+        }
+    }
+
+    /// Pause the animation (e.g. on window focus loss).
+    pub fn pause(&mut self) {
+        self.is_animating = false;
+    }
+
+    /// Resume the animation after a pause, adjusting last_frame to avoid a time jump.
+    pub fn resume(&mut self) {
+        self.last_frame = Instant::now();
+        // Re-evaluate whether we should be animating
+        self.is_animating = self.move_t < 1.0 || self.time_since_move < BLINK_DELAY + BLINK_PERIOD;
     }
 }
 
@@ -182,5 +211,50 @@ mod tests {
         let state = anim.tick(10.0, 20.0);
         // Should be fully visible (just moved)
         assert!((state.opacity - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_animation_goes_idle() {
+        let mut anim = CursorAnimation::new();
+        anim.update_target(0, 0);
+        anim.tick(10.0, 20.0);
+
+        // After tick with initial snap, move_t = 1.0 and time_since_move ≈ 0.
+        // Simulate enough time for blink cycle to complete.
+        anim.time_since_move = BLINK_DELAY + BLINK_PERIOD + 0.1;
+        anim.move_t = 1.0;
+        anim.tick(10.0, 20.0);
+
+        // Should no longer be animating
+        assert!(!anim.is_animating);
+        assert!(anim.next_frame_deadline().is_none());
+    }
+
+    #[test]
+    fn test_next_frame_deadline_during_move() {
+        let mut anim = CursorAnimation::new();
+        anim.update_target(0, 0);
+        anim.tick(10.0, 20.0);
+        anim.update_target(5, 5);
+        // move_t is now 0, so we're animating movement
+        assert!(anim.is_animating);
+        let deadline = anim.next_frame_deadline();
+        assert!(deadline.is_some());
+    }
+
+    #[test]
+    fn test_pause_resume() {
+        let mut anim = CursorAnimation::new();
+        anim.update_target(0, 0);
+        anim.tick(10.0, 20.0);
+        assert!(anim.is_animating);
+
+        anim.pause();
+        assert!(!anim.is_animating);
+        assert!(anim.next_frame_deadline().is_none());
+
+        anim.resume();
+        // Should resume animating (time_since_move ≈ 0 < BLINK_DELAY + BLINK_PERIOD)
+        assert!(anim.is_animating);
     }
 }
