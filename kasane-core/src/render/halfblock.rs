@@ -259,6 +259,10 @@ fn make_cache_key(source: &ImageSource, area_w: u16, area_h: u16) -> CacheKey {
             let hash = inline_hash(data, *width, *height);
             CacheKey::Inline(hash, area_w, area_h)
         }
+        ImageSource::SvgData { data } => {
+            let hash = inline_hash(data, 0, 0);
+            CacheKey::Inline(hash, area_w, area_h)
+        }
     }
 }
 
@@ -299,11 +303,34 @@ mod decode {
     ) -> Result<(Vec<HalfblockCell>, FitResult), String> {
         let (img_w, img_h, rgba) = match source {
             ImageSource::FilePath(path) => {
-                let img = image::open(path)
-                    .map_err(|e| format!("failed to open {path}: {e}"))?
-                    .to_rgba8();
-                let (w, h) = img.dimensions();
-                (w, h, img)
+                #[cfg(feature = "svg")]
+                if super::super::svg::is_svg_path(path) {
+                    let target_px_w = area_w as u32;
+                    let target_px_h = area_h as u32 * 2;
+                    if target_px_w == 0 || target_px_h == 0 {
+                        return Ok((vec![], compute_fit_cells(1, 1, area_w, area_h, fit)));
+                    }
+                    let r =
+                        super::super::svg::render_svg_file_to_rgba(path, target_px_w, target_px_h)
+                            .map_err(|e| format!("SVG render failed for {path}: {e}"))?;
+                    let img = image::RgbaImage::from_raw(r.width, r.height, r.data)
+                        .ok_or_else(|| "SVG RGBA conversion failed".to_string())?;
+                    (r.width, r.height, img)
+                } else {
+                    let img = image::open(path)
+                        .map_err(|e| format!("failed to open {path}: {e}"))?
+                        .to_rgba8();
+                    let (w, h) = img.dimensions();
+                    (w, h, img)
+                }
+                #[cfg(not(feature = "svg"))]
+                {
+                    let img = image::open(path)
+                        .map_err(|e| format!("failed to open {path}: {e}"))?
+                        .to_rgba8();
+                    let (w, h) = img.dimensions();
+                    (w, h, img)
+                }
             }
             ImageSource::Rgba {
                 data,
@@ -313,6 +340,23 @@ mod decode {
                 let img = image::RgbaImage::from_raw(*width, *height, data.to_vec())
                     .ok_or_else(|| "invalid RGBA dimensions".to_string())?;
                 (*width, *height, img)
+            }
+            ImageSource::SvgData { data } => {
+                #[cfg(feature = "svg")]
+                {
+                    let target_px_w = area_w as u32;
+                    let target_px_h = area_h as u32 * 2;
+                    if target_px_w == 0 || target_px_h == 0 {
+                        return Ok((vec![], compute_fit_cells(1, 1, area_w, area_h, fit)));
+                    }
+                    let r = super::super::svg::render_svg_to_rgba(data, target_px_w, target_px_h)
+                        .map_err(|e| format!("SVG render failed: {e}"))?;
+                    let img = image::RgbaImage::from_raw(r.width, r.height, r.data)
+                        .ok_or_else(|| "SVG RGBA conversion failed".to_string())?;
+                    (r.width, r.height, img)
+                }
+                #[cfg(not(feature = "svg"))]
+                return Err("SVG support not enabled".into());
             }
         };
 
@@ -422,6 +466,7 @@ pub(crate) fn paint_image_fallback(grid: &mut CellGrid, source: &ImageSource, ar
         ImageSource::Rgba { width, height, .. } => {
             format!("[IMAGE: {width}\u{00d7}{height}]")
         }
+        ImageSource::SvgData { .. } => "[SVG]".to_string(),
     };
     let face = Face {
         attributes: crate::protocol::Attributes::DIM,
@@ -966,6 +1011,121 @@ mod tests {
             }
             // Capacity is 2, so oldest entry should have been evicted
             assert_eq!(cache.len(), 2);
+        }
+
+        #[cfg(feature = "svg")]
+        mod svg_integration {
+            use super::*;
+
+            const RED_SVG: &[u8] =
+                br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+                <rect width="100" height="100" fill="red"/>
+            </svg>"#;
+
+            const RED_BLUE_SVG: &[u8] =
+                br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+                <rect y="0" width="100" height="50" fill="red"/>
+                <rect y="50" width="100" height="50" fill="blue"/>
+            </svg>"#;
+
+            /// SvgData decode_and_render produces valid halfblock cells.
+            #[test]
+            fn svg_data_decode_renders_red() {
+                let source = ImageSource::SvgData {
+                    data: Arc::from(RED_SVG),
+                };
+                let (cells, fit) =
+                    decode::decode_and_render(&source, 4, 2, ImageFit::Fill).unwrap();
+                assert_eq!(fit.dst_w, 4);
+                assert_eq!(fit.dst_h, 2);
+                assert_eq!(cells.len(), 8); // 4 * 2
+                // All cells should be red
+                for (i, c) in cells.iter().enumerate() {
+                    assert!(c.top.0 > 200, "cell {i} top.R={} expected red", c.top.0);
+                    assert!(c.top.1 < 50, "cell {i} top.G={} expected low", c.top.1);
+                    assert!(c.bot.0 > 200, "cell {i} bot.R={} expected red", c.bot.0);
+                }
+            }
+
+            /// SvgData end-to-end through render_to_grid writes halfblock chars.
+            #[test]
+            fn svg_data_e2e_grid() {
+                let source = ImageSource::SvgData {
+                    data: Arc::from(RED_SVG),
+                };
+                let mut grid = CellGrid::new(4, 2);
+                let area = Rect {
+                    x: 0,
+                    y: 0,
+                    w: 4,
+                    h: 2,
+                };
+                let mut cache = HalfblockCache::new(16);
+                let ok = render_to_grid(&mut grid, &source, ImageFit::Fill, &area, &mut cache);
+                assert!(ok, "render_to_grid should succeed for SvgData");
+                // Verify halfblock chars written
+                let c = grid.get(0, 0).unwrap();
+                assert_eq!(c.grapheme.as_str(), "\u{2580}");
+                assert!(c.face.fg.is_red_ish(), "fg should be red: {:?}", c.face.fg);
+            }
+
+            /// Two-color SVG: top red, bottom blue → row 0 red, row 1 blue.
+            #[test]
+            fn svg_data_two_color_vertical() {
+                let source = ImageSource::SvgData {
+                    data: Arc::from(RED_BLUE_SVG),
+                };
+                let (cells, fit) =
+                    decode::decode_and_render(&source, 2, 2, ImageFit::Fill).unwrap();
+                assert_eq!(fit.dst_w, 2);
+                assert_eq!(fit.dst_h, 2);
+                // Row 0 (top half of SVG) → red
+                assert!(cells[0].top.0 > 200, "row0 top should be red");
+                assert!(cells[0].bot.0 > 200, "row0 bot should be red");
+                // Row 1 (bottom half of SVG) → blue
+                assert!(cells[2].top.2 > 200, "row1 top should be blue");
+                assert!(cells[2].bot.2 > 200, "row1 bot should be blue");
+            }
+
+            /// SvgData cache hit.
+            #[test]
+            fn svg_data_cache_hit() {
+                let source = ImageSource::SvgData {
+                    data: Arc::from(RED_SVG),
+                };
+                let mut grid = CellGrid::new(4, 2);
+                let area = Rect {
+                    x: 0,
+                    y: 0,
+                    w: 4,
+                    h: 2,
+                };
+                let mut cache = HalfblockCache::new(16);
+                render_to_grid(&mut grid, &source, ImageFit::Fill, &area, &mut cache);
+                assert_eq!(cache.len(), 1);
+                render_to_grid(&mut grid, &source, ImageFit::Fill, &area, &mut cache);
+                assert_eq!(cache.len(), 1, "second call should hit cache");
+            }
+
+            /// SvgData fallback writes [SVG] label to grid.
+            #[test]
+            fn svg_fallback_label() {
+                let source = ImageSource::SvgData {
+                    data: Arc::from(RED_SVG),
+                };
+                let mut grid = CellGrid::new(10, 1);
+                let area = Rect {
+                    x: 0,
+                    y: 0,
+                    w: 10,
+                    h: 1,
+                };
+                paint_image_fallback(&mut grid, &source, &area);
+                let c = grid.get(0, 0).unwrap();
+                assert_eq!(c.grapheme.as_str(), "[");
+                let c1 = grid.get(1, 0).unwrap();
+                assert_eq!(c1.grapheme.as_str(), "S");
+            }
         }
     }
 }
