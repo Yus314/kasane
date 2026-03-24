@@ -35,6 +35,13 @@ impl TextureKey {
         }
         TextureKey::Inline(hasher.finish())
     }
+
+    /// Compute a content-addressed key for inline SVG data.
+    ///
+    /// Uses width=0, height=0 as sentinel values to distinguish from RGBA keys.
+    pub fn inline_from_svg_data(data: &[u8]) -> Self {
+        Self::inline_from_data(data, 0, 0)
+    }
 }
 
 /// Decoded image data ready for GPU upload.
@@ -392,6 +399,11 @@ impl TextureCache {
 
 /// Decode an image file to RGBA8. Returns (data, width, height).
 fn load_image_file(path: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    if kasane_core::render::svg::is_svg_path(path) {
+        let r = kasane_core::render::svg::render_svg_file_to_rgba_intrinsic(path, MAX_TEXTURE_DIM)
+            .map_err(|e| e.to_string())?;
+        return Ok((r.data, r.width, r.height));
+    }
     let img = image::open(path).map_err(|e| format!("{e}"))?;
     let rgba = img.to_rgba8();
     let (w, h) = rgba.dimensions();

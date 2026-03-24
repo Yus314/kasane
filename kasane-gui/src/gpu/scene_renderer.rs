@@ -694,6 +694,33 @@ impl SceneRenderer {
                         }
                         k
                     }
+                    kasane_core::element::ImageSource::SvgData { data } => {
+                        let k = TextureKey::inline_from_svg_data(data);
+                        // Rasterize inline SVG synchronously (like RGBA inline data)
+                        if self.texture_cache.get_view(&k).is_none() {
+                            match kasane_core::render::svg::render_svg_to_rgba_intrinsic(data, 8192)
+                            {
+                                Ok(r) => {
+                                    if !self.texture_cache.insert_rgba(
+                                        k.clone(),
+                                        &r.data,
+                                        r.width,
+                                        r.height,
+                                        &gpu.device,
+                                        &gpu.queue,
+                                    ) {
+                                        return;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("SVG render failed: {e}");
+                                    self.bg.push_rect(cx, cy, cw, ch, [0.2, 0.2, 0.2, 1.0]);
+                                    return;
+                                }
+                            }
+                        }
+                        k
+                    }
                 };
                 // Look up or dispatch async load
                 match self.texture_cache.get_or_load(&key, &self.event_proxy) {
