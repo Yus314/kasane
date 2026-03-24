@@ -717,6 +717,19 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
                     height: rgba.height,
                 }
             }
+            bindings::kasane::plugin::types::ImageSource::SvgData(svg_bytes) => {
+                if svg_bytes.len() > 4 * 1024 * 1024 {
+                    tracing::warn!("SVG data too large: {} bytes (max 4 MB)", svg_bytes.len());
+                    return self.store_element(Element::Empty);
+                }
+                if svg_bytes.is_empty() {
+                    tracing::warn!("SVG data is empty");
+                    return self.store_element(Element::Empty);
+                }
+                kasane_core::element::ImageSource::SvgData {
+                    data: svg_bytes.into(),
+                }
+            }
         };
         let native_fit = convert::wit_image_fit_to_image_fit(&fit);
         let element = Element::Image {

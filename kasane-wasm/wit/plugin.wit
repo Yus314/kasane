@@ -1,4 +1,4 @@
-package kasane:plugin@0.21.0;
+package kasane:plugin@0.22.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -704,6 +704,8 @@ interface types {
         file-path(string),
         /// Inline RGBA8 pixel data.
         rgba-data(rgba-image),
+        /// Inline SVG source data (XML bytes). Added in v0.22.0.
+        svg-data(list<u8>),
     }
 
     record rgba-image {

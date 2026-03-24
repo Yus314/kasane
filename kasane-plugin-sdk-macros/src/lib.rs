@@ -684,6 +684,20 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 )
             }
 
+            /// Create an image element from inline SVG data. Size is in cells.
+            pub fn image_svg(svg_data: &[u8], width: u16, height: u16) -> ElementHandle {
+                let source = super::kasane::plugin::types::ImageSource::SvgData(
+                    svg_data.to_vec(),
+                );
+                super::kasane::plugin::element_builder::create_image(
+                    &source,
+                    width,
+                    height,
+                    super::kasane::plugin::types::ImageFit::Contain,
+                    1.0,
+                )
+            }
+
             // ----- LineAnnotation shortcuts -----
 
             /// Create a background-only line annotation.
