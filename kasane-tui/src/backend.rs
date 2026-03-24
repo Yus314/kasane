@@ -77,6 +77,11 @@ impl TuiBackend {
         let kitty_place_bytes = if let Some(ref mut kitty) = self.kitty {
             let reconciled = crate::kitty::reconcile(kitty, image_requests);
             if !reconciled.upload_bytes.is_empty() {
+                tracing::debug!(
+                    upload_len = reconciled.upload_bytes.len(),
+                    place_len = reconciled.place_bytes.len(),
+                    "kitty: writing upload bytes outside SyncUpdate"
+                );
                 self.stdout.write_all(&reconciled.upload_bytes)?;
                 self.stdout.flush()?;
             }
@@ -144,6 +149,11 @@ impl TuiBackend {
 
         // --- Kitty: deletions + placements inside SyncUpdate ---
         if !kitty_place_bytes.is_empty() {
+            tracing::debug!(
+                place_len = kitty_place_bytes.len(),
+                total_buf_before = self.buf.len(),
+                "kitty: appending placement bytes inside SyncUpdate"
+            );
             self.buf.extend_from_slice(&kitty_place_bytes);
         }
 

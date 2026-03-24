@@ -39,11 +39,6 @@ pub fn detect_image_protocol(config_override: &str) -> ImageProtocol {
     ImageProtocol::Off
 }
 
-/// Detect whether we are running over SSH (file path transfer unavailable).
-pub fn is_ssh() -> bool {
-    std::env::var("SSH_TTY").is_ok() || std::env::var("SSH_CONNECTION").is_ok()
-}
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -89,7 +84,6 @@ pub struct KittyState {
     /// LRU order for uploaded images (most recently used at the end).
     upload_order: Vec<ImageSourceKey>,
     prev_placements: HashMap<PlacementKey, PlacementInfo>,
-    is_ssh: bool,
     dim_cache: HashMap<String, (u32, u32)>,
 }
 
@@ -101,7 +95,6 @@ impl Default for KittyState {
             uploaded: HashMap::new(),
             upload_order: Vec::new(),
             prev_placements: HashMap::new(),
-            is_ssh: is_ssh(),
             dim_cache: HashMap::new(),
         }
     }
@@ -189,15 +182,15 @@ const APC_START: &[u8] = b"\x1b_G";
 /// String terminator: `\x1b\\`
 const ST: &[u8] = b"\x1b\\";
 
-/// Emit a file-path upload command (`t=f`, `a=T`, `q=2`).
+/// Emit a file-path upload command (`t=f`, `a=t`, `q=2`).
 pub fn emit_upload_file(buf: &mut Vec<u8>, id: u32, path: &str) {
     let encoded_path = BASE64.encode(path.as_bytes());
     buf.extend_from_slice(APC_START);
-    let _ = write!(buf, "a=T,t=f,i={id},q=2;{encoded_path}");
+    let _ = write!(buf, "a=t,t=f,i={id},q=2;{encoded_path}");
     buf.extend_from_slice(ST);
 }
 
-/// Emit an RGBA direct-transfer upload (`t=d`, `f=32`, `a=T`, `q=2`).
+/// Emit an RGBA direct-transfer upload (`t=d`, `f=32`, `a=t`, `q=2`).
 /// Chunks data into 4096-byte segments (base64-encoded).
 pub fn emit_upload_rgba(buf: &mut Vec<u8>, id: u32, data: &[u8], width: u32, height: u32) {
     const CHUNK_SIZE: usize = 4096;
@@ -213,7 +206,7 @@ pub fn emit_upload_rgba(buf: &mut Vec<u8>, id: u32, data: &[u8], width: u32, hei
         if i == 0 {
             let _ = write!(
                 buf,
-                "a=T,t=d,f=32,s={width},v={height},i={id},m={m},q=2;{encoded}"
+                "a=t,t=d,f=32,s={width},v={height},i={id},m={m},q=2;{encoded}"
             );
         } else {
             let _ = write!(buf, "m={m};{encoded}");
@@ -222,7 +215,7 @@ pub fn emit_upload_rgba(buf: &mut Vec<u8>, id: u32, data: &[u8], width: u32, hei
     }
 }
 
-/// Emit a PNG file data upload (`t=d`, `f=100`, `a=T`, `q=2`).
+/// Emit a PNG file data upload (`t=d`, `f=100`, `a=t`, `q=2`).
 /// Used for SSH environments where `t=f` is not available.
 /// Chunks data into 4096-byte segments (base64-encoded).
 pub fn emit_upload_png(buf: &mut Vec<u8>, id: u32, data: &[u8]) {
@@ -237,7 +230,7 @@ pub fn emit_upload_png(buf: &mut Vec<u8>, id: u32, data: &[u8]) {
 
         buf.extend_from_slice(APC_START);
         if i == 0 {
-            let _ = write!(buf, "a=T,t=d,f=100,i={id},m={m},q=2;{encoded}");
+            let _ = write!(buf, "a=t,t=d,f=100,i={id},m={m},q=2;{encoded}");
         } else {
             let _ = write!(buf, "m={m};{encoded}");
         }
@@ -262,8 +255,10 @@ pub fn emit_place(
 
     buf.extend_from_slice(APC_START);
     let _ = write!(buf, "a=p,i={id},p={pid},c={cols},r={rows},C=1,q=2");
-    if let Some((x, y, w, h)) = crop {
-        let _ = write!(buf, ",x={x},y={y},w={w},h={h}");
+    if let Some((src_x, src_y, src_w, src_h)) = crop {
+        // Kitty uses uppercase X,Y for source image offset and w,h for source rect size.
+        // Lowercase x,y are sub-cell pixel offsets (different meaning).
+        let _ = write!(buf, ",X={src_x},Y={src_y},w={src_w},h={src_h}");
     }
     let _ = write!(buf, ";");
     buf.extend_from_slice(ST);
@@ -334,21 +329,22 @@ pub fn reconcile(state: &mut KittyState, requests: &[ImageRequest]) -> Reconcile
                         Some(d) => d,
                         None => continue,
                     };
-                    if state.is_ssh {
-                        // SSH: can't use t=f, read file and send inline as PNG
-                        match std::fs::read(path) {
-                            Ok(data) => {
-                                emit_upload_png(&mut upload_buf, image_id, &data);
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "kitty: failed to read {path} for SSH transfer: {e}"
-                                );
-                                continue;
-                            }
+                    // Read the file and decode to RGBA for inline transfer.
+                    // This is more reliable than t=f (file path) because:
+                    // - t=f depends on the terminal being able to access the file
+                    // - t=f auto-detection can fail on some terminal versions
+                    // - kitten icat also preprocesses to RGBA before sending
+                    match image::open(path) {
+                        Ok(img) => {
+                            let rgba = img.to_rgba8();
+                            let (w, h) = rgba.dimensions();
+                            tracing::debug!(path, image_id, w, h, "kitty: uploading file as RGBA");
+                            emit_upload_rgba(&mut upload_buf, image_id, rgba.as_raw(), w, h);
                         }
-                    } else {
-                        emit_upload_file(&mut upload_buf, image_id, path);
+                        Err(e) => {
+                            tracing::warn!("kitty: failed to decode {path}: {e}");
+                            continue;
+                        }
                     }
                     dims
                 }
@@ -522,17 +518,17 @@ pub fn encode_placeholder_grapheme(row: u16, col: u16) -> String {
     s
 }
 
-/// Emit a virtual upload command for Unicode Placement (`a=T,U=1`).
+/// Emit a virtual upload command for Unicode Placement (`a=t,U=1`).
 /// This tells the terminal to create a virtual placement that will be
 /// referenced by placeholder characters in the cell grid.
 pub fn emit_upload_virtual(buf: &mut Vec<u8>, id: u32, path: &str) {
     let encoded_path = BASE64.encode(path.as_bytes());
     buf.extend_from_slice(APC_START);
-    let _ = write!(buf, "a=T,U=1,t=f,i={id},q=2;{encoded_path}");
+    let _ = write!(buf, "a=t,U=1,t=f,i={id},q=2;{encoded_path}");
     buf.extend_from_slice(ST);
 }
 
-/// Emit a virtual upload for RGBA data (`a=T,U=1,t=d,f=32`).
+/// Emit a virtual upload for RGBA data (`a=t,U=1,t=d,f=32`).
 pub fn emit_upload_virtual_rgba(buf: &mut Vec<u8>, id: u32, data: &[u8], width: u32, height: u32) {
     const CHUNK_SIZE: usize = 4096;
     let chunks: Vec<&[u8]> = data.chunks(CHUNK_SIZE).collect();
@@ -547,7 +543,7 @@ pub fn emit_upload_virtual_rgba(buf: &mut Vec<u8>, id: u32, data: &[u8], width: 
         if i == 0 {
             let _ = write!(
                 buf,
-                "a=T,U=1,t=d,f=32,s={width},v={height},i={id},m={m},q=2;{encoded}"
+                "a=t,U=1,t=d,f=32,s={width},v={height},i={id},m={m},q=2;{encoded}"
             );
         } else {
             let _ = write!(buf, "m={m};{encoded}");
@@ -579,7 +575,7 @@ mod tests {
         assert!(s.ends_with("\x1b\\"), "missing ST: {s}");
 
         // Should contain required params
-        assert!(s.contains("a=T"), "missing a=T: {s}");
+        assert!(s.contains("a=t"), "missing a=t: {s}");
         assert!(s.contains("t=f"), "missing t=f: {s}");
         assert!(s.contains("i=42"), "missing i=42: {s}");
         assert!(s.contains("q=2"), "missing q=2: {s}");
@@ -613,8 +609,8 @@ mod tests {
         emit_place(&mut buf, 3, 4, 0, 0, 10, 10, Some((50, 25, 200, 150)));
         let s = String::from_utf8(buf).unwrap();
 
-        assert!(s.contains("x=50"), "missing x=50: {s}");
-        assert!(s.contains("y=25"), "missing y=25: {s}");
+        assert!(s.contains("X=50"), "missing X=50: {s}");
+        assert!(s.contains("Y=25"), "missing Y=25: {s}");
         assert!(s.contains("w=200"), "missing w=200: {s}");
         assert!(s.contains("h=150"), "missing h=150: {s}");
     }
@@ -655,7 +651,7 @@ mod tests {
         emit_upload_rgba(&mut buf, 7, &data, 2, 2);
         let s = String::from_utf8(buf).unwrap();
 
-        assert!(s.contains("a=T"), "missing a=T: {s}");
+        assert!(s.contains("a=t"), "missing a=t: {s}");
         assert!(s.contains("t=d"), "missing t=d: {s}");
         assert!(s.contains("f=32"), "missing f=32: {s}");
         assert!(s.contains("s=2"), "missing s=2: {s}");
@@ -692,7 +688,7 @@ mod tests {
     #[test]
     fn reconcile_new_placement() {
         let mut state = KittyState::new();
-        state.is_ssh = false;
+
         // Pre-seed dimensions cache so we don't need actual files
         state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
 
@@ -724,7 +720,7 @@ mod tests {
     #[test]
     fn reconcile_unchanged_skips() {
         let mut state = KittyState::new();
-        state.is_ssh = false;
+
         state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
 
         let requests = vec![ImageRequest {
@@ -759,7 +755,7 @@ mod tests {
     #[test]
     fn reconcile_removed_emits_delete() {
         let mut state = KittyState::new();
-        state.is_ssh = false;
+
         state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
 
         let requests = vec![ImageRequest {
@@ -841,7 +837,7 @@ mod tests {
         emit_upload_png(&mut buf, 5, &data);
         let s = String::from_utf8(buf).unwrap();
 
-        assert!(s.contains("a=T"), "missing a=T: {s}");
+        assert!(s.contains("a=t"), "missing a=t: {s}");
         assert!(s.contains("t=d"), "missing t=d: {s}");
         assert!(s.contains("f=100"), "missing f=100 for PNG: {s}");
         assert!(s.contains("i=5"), "missing i=5: {s}");
@@ -889,9 +885,8 @@ mod tests {
     }
 
     #[test]
-    fn ssh_flag_prevents_file_transfer() {
+    fn filepath_uses_inline_rgba_not_file_transfer() {
         let mut state = KittyState::new();
-        state.is_ssh = true;
         state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
 
         let requests = vec![ImageRequest {
@@ -908,14 +903,73 @@ mod tests {
 
         let result = reconcile(&mut state, &requests);
 
-        // SSH + FilePath should use t=d (not t=f) or fail gracefully
-        // Since /tmp/test.png doesn't exist, the fs::read will fail
-        // and the image will be skipped
+        // FilePath always uses inline RGBA transfer (t=d), never t=f.
+        // Since /tmp/test.png doesn't exist, image::open will fail
+        // and the image will be skipped (empty upload).
         let upload_s = String::from_utf8(result.upload_bytes).unwrap();
         assert!(
             !upload_s.contains("t=f"),
-            "SSH should never use t=f: {upload_s}"
+            "should never use t=f: {upload_s}"
         );
+    }
+
+    /// Dump the full reconcile output for a real image file.
+    /// Verifies end-to-end byte generation with absolute path resolution.
+    #[test]
+    fn reconcile_dump_real_file() {
+        let img_path = "/tmp/test-image.png";
+        if !std::path::Path::new(img_path).exists() {
+            eprintln!("SKIP: {img_path} not found");
+            return;
+        }
+
+        let mut state = KittyState::new();
+
+        // Don't pre-seed dim_cache — let it read the real file
+        let requests = vec![ImageRequest {
+            source: ImageSource::FilePath(img_path.into()),
+            fit: ImageFit::Contain,
+            opacity: 1.0,
+            area: Rect {
+                x: 2,
+                y: 9,
+                w: 30,
+                h: 15,
+            },
+        }];
+
+        let result = reconcile(&mut state, &requests);
+
+        // Upload bytes — FilePath now uses inline RGBA transfer (t=d,f=32)
+        let upload_s = String::from_utf8_lossy(&result.upload_bytes);
+        eprintln!("=== UPLOAD ({} bytes) ===", result.upload_bytes.len());
+
+        assert!(!result.upload_bytes.is_empty(), "must have upload bytes");
+        assert!(upload_s.contains("a=t"), "must use a=t");
+        assert!(upload_s.contains("t=d"), "must use t=d (inline RGBA)");
+        assert!(upload_s.contains("f=32"), "must have f=32 (RGBA format)");
+        assert!(upload_s.contains("s="), "must have s= (pixel width)");
+        assert!(upload_s.contains("v="), "must have v= (pixel height)");
+
+        // Placement bytes
+        let place_s = String::from_utf8(result.place_bytes.clone()).unwrap();
+        eprintln!("=== PLACEMENT ({} bytes) ===", result.place_bytes.len());
+        eprintln!("{place_s:?}");
+
+        assert!(!result.place_bytes.is_empty(), "must have placement bytes");
+        assert!(place_s.contains("a=p"), "must have a=p: {place_s}");
+        assert!(place_s.contains("C=1"), "must have C=1: {place_s}");
+
+        // Verify placement position (CUP sequence)
+        assert!(
+            place_s.contains("\x1b["),
+            "must have CUP sequence: {place_s}"
+        );
+
+        // Verify state
+        assert_eq!(state.prev_placements.len(), 1, "must track one placement");
+        assert_eq!(state.uploaded.len(), 1, "must track one upload");
+        eprintln!("All assertions passed ✓");
     }
 
     // --- Phase 3 tests (Unicode Placement helpers) ---
@@ -966,7 +1020,7 @@ mod tests {
         emit_upload_virtual(&mut buf, 99, "/tmp/test.png");
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("U=1"), "virtual upload needs U=1: {s}");
-        assert!(s.contains("a=T"), "missing a=T: {s}");
+        assert!(s.contains("a=t"), "missing a=t: {s}");
         assert!(s.contains("t=f"), "missing t=f: {s}");
     }
 
