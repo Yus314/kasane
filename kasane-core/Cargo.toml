@@ -20,11 +20,13 @@ dyn-clone = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 image = { workspace = true, optional = true }
+resvg = { workspace = true, optional = true }
 
 [features]
 perf-tracing = []
 bench-alloc = []
 tui-image = ["image"]
+svg = ["resvg"]
 
 [dependencies.salsa]
 workspace = true

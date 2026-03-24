@@ -12,6 +12,8 @@ pub mod paint;
 pub mod pipeline;
 mod pipeline_salsa;
 pub mod scene;
+#[cfg(feature = "svg")]
+pub mod svg;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 pub mod theme;

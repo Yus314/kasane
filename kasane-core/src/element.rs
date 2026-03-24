@@ -20,6 +20,8 @@ pub enum ImageSource {
         width: u32,
         height: u32,
     },
+    /// Inline SVG source data (XML bytes).
+    SvgData { data: Arc<[u8]> },
 }
 
 impl PartialEq for ImageSource {
@@ -38,6 +40,9 @@ impl PartialEq for ImageSource {
                     height: bh,
                 },
             ) => aw == bw && ah == bh && Arc::ptr_eq(a, b),
+            (ImageSource::SvgData { data: a }, ImageSource::SvgData { data: b }) => {
+                Arc::ptr_eq(a, b)
+            }
             _ => false,
         }
     }
