@@ -48,6 +48,7 @@ pub fn detect_image_protocol(config_override: &str) -> ImageProtocol {
 enum ImageSourceKey {
     FilePath(String),
     Rgba { hash: u64, width: u32, height: u32 },
+    SvgData { hash: u64 },
 }
 
 /// Metadata for an uploaded image.
@@ -150,6 +151,9 @@ fn source_key(source: &ImageSource) -> ImageSourceKey {
             hash: content_hash(data, *width, *height),
             width: *width,
             height: *height,
+        },
+        ImageSource::SvgData { data } => ImageSourceKey::SvgData {
+            hash: content_hash(data, 0, 0),
         },
     }
 }
@@ -325,28 +329,58 @@ pub fn reconcile(state: &mut KittyState, requests: &[ImageRequest]) -> Reconcile
             let image_id = state.alloc_image_id();
             let (width, height) = match &req.source {
                 ImageSource::FilePath(path) => {
-                    let dims = match state.image_dimensions(path) {
-                        Some(d) => d,
-                        None => continue,
-                    };
-                    // Read the file and decode to RGBA for inline transfer.
-                    // This is more reliable than t=f (file path) because:
-                    // - t=f depends on the terminal being able to access the file
-                    // - t=f auto-detection can fail on some terminal versions
-                    // - kitten icat also preprocesses to RGBA before sending
-                    match image::open(path) {
-                        Ok(img) => {
-                            let rgba = img.to_rgba8();
-                            let (w, h) = rgba.dimensions();
-                            tracing::debug!(path, image_id, w, h, "kitty: uploading file as RGBA");
-                            emit_upload_rgba(&mut upload_buf, image_id, rgba.as_raw(), w, h);
+                    if kasane_core::render::svg::is_svg_path(path) {
+                        // SVG files: rasterize then upload as RGBA (terminals can't render SVG)
+                        match kasane_core::render::svg::render_svg_file_to_rgba_intrinsic(
+                            path, 4096,
+                        ) {
+                            Ok(r) => {
+                                tracing::debug!(
+                                    path,
+                                    image_id,
+                                    r.width,
+                                    r.height,
+                                    "kitty: uploading SVG as RGBA"
+                                );
+                                emit_upload_rgba(
+                                    &mut upload_buf,
+                                    image_id,
+                                    &r.data,
+                                    r.width,
+                                    r.height,
+                                );
+                                (r.width, r.height)
+                            }
+                            Err(e) => {
+                                tracing::warn!("kitty: failed to render SVG {path}: {e}");
+                                continue;
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!("kitty: failed to decode {path}: {e}");
-                            continue;
+                    } else {
+                        let dims = match state.image_dimensions(path) {
+                            Some(d) => d,
+                            None => continue,
+                        };
+                        match image::open(path) {
+                            Ok(img) => {
+                                let rgba = img.to_rgba8();
+                                let (w, h) = rgba.dimensions();
+                                tracing::debug!(
+                                    path,
+                                    image_id,
+                                    w,
+                                    h,
+                                    "kitty: uploading file as RGBA"
+                                );
+                                emit_upload_rgba(&mut upload_buf, image_id, rgba.as_raw(), w, h);
+                            }
+                            Err(e) => {
+                                tracing::warn!("kitty: failed to decode {path}: {e}");
+                                continue;
+                            }
                         }
+                        dims
                     }
-                    dims
                 }
                 ImageSource::Rgba {
                     data,
@@ -355,6 +389,24 @@ pub fn reconcile(state: &mut KittyState, requests: &[ImageRequest]) -> Reconcile
                 } => {
                     emit_upload_rgba(&mut upload_buf, image_id, data, *width, *height);
                     (*width, *height)
+                }
+                ImageSource::SvgData { data } => {
+                    match kasane_core::render::svg::render_svg_to_rgba_intrinsic(data, 4096) {
+                        Ok(r) => {
+                            tracing::debug!(
+                                image_id,
+                                r.width,
+                                r.height,
+                                "kitty: uploading inline SVG as RGBA"
+                            );
+                            emit_upload_rgba(&mut upload_buf, image_id, &r.data, r.width, r.height);
+                            (r.width, r.height)
+                        }
+                        Err(e) => {
+                            tracing::warn!("kitty: SVG render failed: {e}");
+                            continue;
+                        }
+                    }
                 }
             };
             let uploaded = UploadedImage {
