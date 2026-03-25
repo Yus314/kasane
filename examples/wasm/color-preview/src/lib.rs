@@ -256,7 +256,7 @@ kasane_plugin_sdk::define_plugin! {
             let lc = line_count as usize;
             state.color_lines.retain(|&k, _| k < lc);
         }
-        RuntimeEffects::default()
+        effects(vec![])
     },
 
     handle_mouse(event, id) {

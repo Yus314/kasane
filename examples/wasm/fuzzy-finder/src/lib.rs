@@ -2,6 +2,8 @@
 // Job ID scheme
 // ---------------------------------------------------------------------------
 
+use kasane_plugin_sdk::process::{ProcessHandle, ProcessResult, ProcessStep};
+
 const JOB_FD: u64 = 1;
 const JOB_FIND_FALLBACK: u64 = 2;
 const JOB_FZF_BASE: u64 = 100;
@@ -62,22 +64,6 @@ fn spawn_fd_command() -> Vec<Command> {
         job_id: JOB_FD,
         program: "fd".to_string(),
         args: vec!["--type".to_string(), "f".to_string()],
-        stdin_mode: StdinMode::NullStdin,
-    })]
-}
-
-fn spawn_find_fallback_command() -> Vec<Command> {
-    vec![Command::SpawnProcess(SpawnProcessConfig {
-        job_id: JOB_FIND_FALLBACK,
-        program: "find".to_string(),
-        args: vec![
-            ".".to_string(),
-            "-type".to_string(),
-            "f".to_string(),
-            "-not".to_string(),
-            "-path".to_string(),
-            "*/.git/*".to_string(),
-        ],
         stdin_mode: StdinMode::NullStdin,
     })]
 }
@@ -253,7 +239,20 @@ kasane_plugin_sdk::define_plugin! {
         file_list: Vec<String> = Vec::new(),
         results: Vec<String> = Vec::new(),
         selected: usize = 0,
-        fd_buf: Vec<u8> = Vec::new(),
+        fd_handle: ProcessHandle = ProcessHandle::new(JOB_FD).with_fallback(
+            JOB_FIND_FALLBACK,
+            ProcessStep {
+                program: "find".to_string(),
+                args: vec![
+                    ".".to_string(),
+                    "-type".to_string(),
+                    "f".to_string(),
+                    "-not".to_string(),
+                    "-path".to_string(),
+                    "*/.git/*".to_string(),
+                ],
+            },
+        ),
         fzf_buf: Vec<u8> = Vec::new(),
         fzf_job_gen: u64 = 0,
     },
@@ -270,7 +269,7 @@ kasane_plugin_sdk::define_plugin! {
                     state.file_list.clear();
                     state.results.clear();
                     state.selected = 0;
-                    state.fd_buf.clear();
+                    state.fd_handle.reset();
                     state.fzf_buf.clear();
                     let mut cmds = spawn_fd_command();
                     cmds.push(Command::RequestRedraw(dirty::ALL));
@@ -287,7 +286,7 @@ kasane_plugin_sdk::define_plugin! {
                         state.file_list.clear();
                         state.results.clear();
                         state.selected = 0;
-                        state.fd_buf.clear();
+                        state.fd_handle.reset();
                         state.fzf_buf.clear();
                         let mut cmds = kill_cmds;
                         cmds.push(Command::RequestRedraw(dirty::ALL));
@@ -306,7 +305,7 @@ kasane_plugin_sdk::define_plugin! {
                         state.file_list.clear();
                         state.results.clear();
                         state.selected = 0;
-                        state.fd_buf.clear();
+                        state.fd_handle.reset();
                         state.fzf_buf.clear();
                         let mut cmds = kill_cmds;
                         if let Some(path) = selected {
@@ -317,22 +316,14 @@ kasane_plugin_sdk::define_plugin! {
                         cmds.push(Command::RequestRedraw(dirty::ALL));
                         Some(cmds)
                     }
-                    KeyCode::Up => {
-                        if state.selected > 0 {
-                            state.selected -= 1;
-                        }
-                        Some(vec![Command::RequestRedraw(dirty::ALL)])
-                    }
+                    KeyCode::Up => nav_up(&mut state.selected),
                     KeyCode::Down => {
                         let len = visible_results(&state.query, &state.file_list, &state.results).len();
-                        if len > 0 && state.selected < len - 1 {
-                            state.selected += 1;
-                        }
-                        Some(vec![Command::RequestRedraw(dirty::ALL)])
+                        nav_down(&mut state.selected, len)
                     }
                     KeyCode::Backspace => {
                         if state.fzf_state == FzfState::Scanning {
-                            return Some(vec![]);
+                            return consumed();
                         }
                         state.query.pop();
                         state.selected = 0;
@@ -358,11 +349,11 @@ kasane_plugin_sdk::define_plugin! {
                     }
                     KeyCode::Character(c) => {
                         if matches!(state.fzf_state, FzfState::Scanning | FzfState::Error(_)) {
-                            return Some(vec![]);
+                            return consumed();
                         }
                         // Ignore if modifier keys are pressed (except shift)
                         if event.modifiers & (modifiers::CTRL | modifiers::ALT) != 0 {
-                            return Some(vec![]);
+                            return consumed();
                         }
                         state.query.push_str(c);
                         state.selected = 0;
@@ -375,111 +366,76 @@ kasane_plugin_sdk::define_plugin! {
                         cmds.extend(spawn_fzf_filter(&state.query, &state.file_list, state.fzf_job_gen));
                         Some(cmds)
                     }
-                    KeyCode::Tab => Some(vec![]), // consume but ignore
-                    _ => Some(vec![]),            // consume all keys when active
+                    KeyCode::Tab => consumed(), // consume but ignore
+                    _ => consumed(),            // consume all keys when active
                 }
             }
         }
     },
 
     on_io_event_effects(event) {
-        let commands = match event {
-            IoEvent::Process(pe) => {
-                let job_id = pe.job_id;
-                match pe.kind {
-                    ProcessEventKind::Stdout(data) => {
-                        if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
-                            state.fd_buf.extend_from_slice(&data);
-                        } else if job_id == current_fzf_job_id(state.fzf_job_gen) {
-                            state.fzf_buf.extend_from_slice(&data);
-                        }
-                        vec![]
-                    }
-                    ProcessEventKind::Stderr(_) => vec![],
-                    ProcessEventKind::Exited(exit_code) => {
-                        if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
-                            if exit_code == 0 || !state.fd_buf.is_empty() {
-                                state.file_list = split_lines(&state.fd_buf);
-                                state.fd_buf.clear();
-                                state.fzf_state = FzfState::Ready;
+        let IoEvent::Process(pe) = event;
+        let job_id = pe.job_id;
+        let io_kind = to_io_event_kind(&pe.kind);
 
-                                if !state.query.is_empty() {
-                                    state.fzf_job_gen += 1;
-                                    state.fzf_buf.clear();
-                                    state.fzf_state = FzfState::Filtering;
-                                    let mut cmds = spawn_fzf_filter(&state.query, &state.file_list, state.fzf_job_gen);
-                                    cmds.push(Command::RequestRedraw(dirty::ALL));
-                                    return RuntimeEffects {
-                                        redraw: 0,
-                                        commands: cmds,
-                                        scroll_plans: vec![],
-                                    };
-                                }
+        // --- fd / find (file listing via ProcessHandle) ---
+        match state.fd_handle.feed(job_id, io_kind) {
+            ProcessResult::Pending => return effects(vec![]),
+            ProcessResult::Completed(data) => {
+                state.file_list = split_lines(&data);
+                state.fzf_state = FzfState::Ready;
 
-                                return RuntimeEffects {
-                                    redraw: 0,
-                                    commands: vec![Command::RequestRedraw(dirty::ALL)],
-                                    scroll_plans: vec![],
-                                };
-                            }
-                            state.fzf_state = FzfState::Error("file listing failed".to_string());
-                            return RuntimeEffects {
-                                redraw: 0,
-                                commands: vec![Command::RequestRedraw(dirty::ALL)],
-                                scroll_plans: vec![],
-                            };
-                        }
-
-                        if job_id == current_fzf_job_id(state.fzf_job_gen) {
-                            state.results = split_lines(&state.fzf_buf);
-                            state.fzf_buf.clear();
-                            let vis_len = visible_results(&state.query, &state.file_list, &state.results).len();
-                            clamp_selected(&mut state.selected, vis_len);
-                            state.fzf_state = FzfState::Ready;
-                            return RuntimeEffects {
-                                redraw: 0,
-                                commands: vec![Command::RequestRedraw(dirty::ALL)],
-                                scroll_plans: vec![],
-                            };
-                        }
-
-                        vec![]
-                    }
-                    ProcessEventKind::SpawnFailed(error) => {
-                        if job_id == JOB_FD {
-                            return RuntimeEffects {
-                                redraw: 0,
-                                commands: spawn_find_fallback_command(),
-                                scroll_plans: vec![],
-                            };
-                        }
-                        if job_id == JOB_FIND_FALLBACK {
-                            state.fzf_state = FzfState::Error(
-                                "file listing command not found (tried fd, find)".to_string(),
-                            );
-                            return RuntimeEffects {
-                                redraw: 0,
-                                commands: vec![Command::RequestRedraw(dirty::ALL)],
-                                scroll_plans: vec![],
-                            };
-                        }
-                        if job_id == current_fzf_job_id(state.fzf_job_gen) {
-                            state.fzf_state = FzfState::Error(format!("fzf not installed: {error}"));
-                            return RuntimeEffects {
-                                redraw: 0,
-                                commands: vec![Command::RequestRedraw(dirty::ALL)],
-                                scroll_plans: vec![],
-                            };
-                        }
-                        vec![]
-                    }
+                if !state.query.is_empty() {
+                    state.fzf_job_gen += 1;
+                    state.fzf_buf.clear();
+                    state.fzf_state = FzfState::Filtering;
+                    let mut cmds = spawn_fzf_filter(&state.query, &state.file_list, state.fzf_job_gen);
+                    cmds.push(Command::RequestRedraw(dirty::ALL));
+                    return effects(cmds);
                 }
+                return just_redraw();
             }
-        };
-        RuntimeEffects {
-            redraw: 0,
-            commands,
-            scroll_plans: vec![],
+            ProcessResult::TryFallback => {
+                let (step, fb_id) = state.fd_handle.fallback_info().unwrap();
+                return effects(vec![Command::SpawnProcess(SpawnProcessConfig {
+                    job_id: fb_id,
+                    program: step.program.clone(),
+                    args: step.args.clone(),
+                    stdin_mode: StdinMode::NullStdin,
+                })]);
+            }
+            ProcessResult::Failed(msg) => {
+                state.fzf_state = FzfState::Error(
+                    format!("file listing command not found: {msg}"),
+                );
+                return just_redraw();
+            }
+            ProcessResult::Ignored => { /* fall through to fzf handling */ }
+        }
+
+        // --- fzf (filtering) ---
+        let fzf_job = current_fzf_job_id(state.fzf_job_gen);
+        if job_id != fzf_job {
+            return effects(vec![]);
+        }
+        match pe.kind {
+            ProcessEventKind::Stdout(data) => {
+                state.fzf_buf.extend_from_slice(&data);
+                effects(vec![])
+            }
+            ProcessEventKind::Stderr(_) => effects(vec![]),
+            ProcessEventKind::Exited(_) => {
+                state.results = split_lines(&state.fzf_buf);
+                state.fzf_buf.clear();
+                let vis_len = visible_results(&state.query, &state.file_list, &state.results).len();
+                clamp_selected(&mut state.selected, vis_len);
+                state.fzf_state = FzfState::Ready;
+                just_redraw()
+            }
+            ProcessEventKind::SpawnFailed(error) => {
+                state.fzf_state = FzfState::Error(format!("fzf not installed: {error}"));
+                just_redraw()
+            }
         }
     },
 

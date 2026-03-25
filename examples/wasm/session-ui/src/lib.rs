@@ -34,14 +34,7 @@ fn build_switcher_overlay(
         return None;
     }
 
-    // Size: ~50% width, height based on session count + border + title
-    let content_rows = count as u16;
-    let w = (ctx.screen_cols as u32 * 50 / 100)
-        .max(30)
-        .min(ctx.screen_cols as u32) as u16;
-    let h = (content_rows + 4).min(ctx.screen_rows); // border(2) + title-sep(1) + padding(1)
-    let x = (ctx.screen_cols.saturating_sub(w)) / 2;
-    let y = (ctx.screen_rows.saturating_sub(h)) / 2;
+    let anchor = content_fit_overlay(ctx.screen_cols, ctx.screen_rows, 50, 30, count as u16, 4);
 
     let active_key = host_state::get_active_session_key();
     let mut children: Vec<ElementHandle> = Vec::new();
@@ -84,7 +77,7 @@ fn build_switcher_overlay(
 
     Some(OverlayContribution {
         element: el,
-        anchor: OverlayAnchor::Absolute(AbsoluteAnchor { x, y, w, h }),
+        anchor: OverlayAnchor::Absolute(anchor),
         z_index: 100,
     })
 }
@@ -137,7 +130,7 @@ kasane_plugin_sdk::define_plugin! {
             if is_ctrl(&event, "t") {
                 state.switcher_open = true;
                 state.selected = 0;
-                return Some(vec![Command::RequestRedraw(dirty::ALL)]);
+                return consumed_redraw();
             }
             return None;
         }
@@ -146,25 +139,17 @@ kasane_plugin_sdk::define_plugin! {
         match &event.key {
             KeyCode::Escape => {
                 state.switcher_open = false;
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                consumed_redraw()
             }
             KeyCode::Character(c) if c == "t" && event.modifiers & modifiers::CTRL != 0 => {
                 // Ctrl+T toggles off
                 state.switcher_open = false;
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                consumed_redraw()
             }
-            KeyCode::Up => {
-                if state.selected > 0 {
-                    state.selected -= 1;
-                }
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
-            }
+            KeyCode::Up => nav_up(&mut state.selected),
             KeyCode::Down => {
                 let count = state.session_count as usize;
-                if count > 0 && state.selected < count - 1 {
-                    state.selected += 1;
-                }
-                Some(vec![Command::RequestRedraw(dirty::ALL)])
+                nav_down(&mut state.selected, count)
             }
             KeyCode::Enter => {
                 // Switch to selected session
@@ -192,7 +177,7 @@ kasane_plugin_sdk::define_plugin! {
             KeyCode::Character(c) if c == "d" => {
                 // Close selected session (guard: don't close last)
                 if state.session_count <= 1 {
-                    return Some(vec![]);
+                    return consumed();
                 }
                 let selected = state.selected;
                 if let Some(desc) = host_state::get_session(selected as u32) {
@@ -200,9 +185,9 @@ kasane_plugin_sdk::define_plugin! {
                     cmds.push(Command::CloseSession(Some(desc.key)));
                     return Some(cmds);
                 }
-                Some(vec![])
+                consumed()
             }
-            _ => Some(vec![]), // consume all keys when open
+            _ => consumed(), // consume all keys when open
         }
     },
 

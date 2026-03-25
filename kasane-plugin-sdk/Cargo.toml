@@ -1,6 +1,6 @@
 [package]
 name = "kasane-plugin-sdk"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "SDK for writing Kasane WASM plugins"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,7 @@ readme = "README.md"
 
 [dependencies]
 wit-bindgen = "0.41"
-kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.2.0" }
+kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.3.0" }
 
 [dev-dependencies]
 trybuild = "1"

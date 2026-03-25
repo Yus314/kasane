@@ -1091,6 +1091,262 @@ pub mod job {
     }
 }
 
+/// Process pipeline helpers for plugins that spawn external commands.
+///
+/// Provides [`ProcessHandle`] for managing primary + fallback process patterns
+/// (e.g. try `fd`, fall back to `find`), and [`ProcessStep`] / [`ProcessResult`]
+/// for describing and inspecting process outcomes.
+///
+/// These types are pure Rust and do not depend on WIT bindings, so they can
+/// be unit-tested without a WASM runtime.
+pub mod process {
+    /// Description of an external command to spawn.
+    #[derive(Debug, Clone)]
+    pub struct ProcessStep {
+        pub program: String,
+        pub args: Vec<String>,
+    }
+
+    /// Result returned by [`ProcessHandle::feed`].
+    #[derive(Debug)]
+    pub enum ProcessResult {
+        /// More data expected — keep feeding events.
+        Pending,
+        /// Process completed successfully with accumulated stdout.
+        Completed(Vec<u8>),
+        /// Primary process failed — caller should spawn the fallback.
+        TryFallback,
+        /// Process failed with an error message.
+        Failed(String),
+        /// Event was for an unrecognized job id.
+        Ignored,
+    }
+
+    /// Discriminated I/O event kind, borrowing data from the caller.
+    pub enum IoEventKind<'a> {
+        Stdout(&'a [u8]),
+        Stderr(&'a [u8]),
+        Exited(i32),
+        SpawnFailed(&'a str),
+    }
+
+    /// Manages a primary process with an optional fallback.
+    ///
+    /// Accumulates stdout, detects success/failure, and signals when the
+    /// caller should try the fallback command.
+    #[derive(Debug)]
+    pub struct ProcessHandle {
+        primary_job_id: u64,
+        fallback_job_id: Option<u64>,
+        fallback_step: Option<ProcessStep>,
+        buffer: Vec<u8>,
+        using_fallback: bool,
+    }
+
+    impl ProcessHandle {
+        /// Create a handle for a single primary process.
+        pub fn new(job_id: u64) -> Self {
+            ProcessHandle {
+                primary_job_id: job_id,
+                fallback_job_id: None,
+                fallback_step: None,
+                buffer: Vec::new(),
+                using_fallback: false,
+            }
+        }
+
+        /// Attach a fallback command to try if the primary fails.
+        pub fn with_fallback(mut self, fallback_job_id: u64, step: ProcessStep) -> Self {
+            self.fallback_job_id = Some(fallback_job_id);
+            self.fallback_step = Some(step);
+            self
+        }
+
+        /// The job id of the primary process.
+        pub fn primary_job_id(&self) -> u64 {
+            self.primary_job_id
+        }
+
+        /// The fallback step and its job id, if configured.
+        pub fn fallback_info(&self) -> Option<(&ProcessStep, u64)> {
+            match (&self.fallback_step, self.fallback_job_id) {
+                (Some(step), Some(id)) => Some((step, id)),
+                _ => None,
+            }
+        }
+
+        /// Feed an I/O event and get back a result.
+        ///
+        /// - Returns `Ignored` if `job_id` doesn't match primary or fallback.
+        /// - `Stdout` data is accumulated internally.
+        /// - `Stderr` is silently ignored (returns `Pending`).
+        /// - `Exited(0)` or non-empty buffer → `Completed`.
+        /// - `Exited(non-zero)` with empty buffer → `TryFallback` (primary) or `Failed` (fallback).
+        /// - `SpawnFailed` → `TryFallback` (primary) or `Failed` (fallback).
+        pub fn feed(&mut self, job_id: u64, event: IoEventKind<'_>) -> ProcessResult {
+            let is_primary = job_id == self.primary_job_id && !self.using_fallback;
+            let is_fallback = self.fallback_job_id == Some(job_id) && self.using_fallback;
+
+            if !is_primary && !is_fallback {
+                return ProcessResult::Ignored;
+            }
+
+            match event {
+                IoEventKind::Stdout(data) => {
+                    self.buffer.extend_from_slice(data);
+                    ProcessResult::Pending
+                }
+                IoEventKind::Stderr(_) => ProcessResult::Pending,
+                IoEventKind::Exited(code) => {
+                    if code == 0 || !self.buffer.is_empty() {
+                        ProcessResult::Completed(std::mem::take(&mut self.buffer))
+                    } else if is_primary {
+                        self.using_fallback = true;
+                        ProcessResult::TryFallback
+                    } else {
+                        ProcessResult::Failed(format!("process exited with code {code}"))
+                    }
+                }
+                IoEventKind::SpawnFailed(msg) => {
+                    if is_primary {
+                        self.using_fallback = true;
+                        ProcessResult::TryFallback
+                    } else {
+                        ProcessResult::Failed(msg.to_string())
+                    }
+                }
+            }
+        }
+
+        /// Take the accumulated output buffer, leaving it empty.
+        pub fn take_output(&mut self) -> Vec<u8> {
+            std::mem::take(&mut self.buffer)
+        }
+
+        /// Reset the handle to its initial state (clears buffer and fallback flag).
+        pub fn reset(&mut self) {
+            self.buffer.clear();
+            self.using_fallback = false;
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn primary_stdout_then_exit_zero() {
+            let mut h = ProcessHandle::new(1);
+            assert!(matches!(h.feed(1, IoEventKind::Stdout(b"hello")), ProcessResult::Pending));
+            match h.feed(1, IoEventKind::Exited(0)) {
+                ProcessResult::Completed(data) => assert_eq!(data, b"hello"),
+                other => panic!("expected Completed, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn primary_exit_nonzero_empty_tries_fallback() {
+            let mut h = ProcessHandle::new(1)
+                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            match h.feed(1, IoEventKind::Exited(1)) {
+                ProcessResult::TryFallback => {}
+                other => panic!("expected TryFallback, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn primary_spawn_failed_tries_fallback() {
+            let mut h = ProcessHandle::new(1)
+                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            match h.feed(1, IoEventKind::SpawnFailed("not found")) {
+                ProcessResult::TryFallback => {}
+                other => panic!("expected TryFallback, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn fallback_completes() {
+            let mut h = ProcessHandle::new(1)
+                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            // Primary fails
+            assert!(matches!(h.feed(1, IoEventKind::SpawnFailed("nope")), ProcessResult::TryFallback));
+            // Fallback produces output
+            assert!(matches!(h.feed(2, IoEventKind::Stdout(b"file.txt\n")), ProcessResult::Pending));
+            match h.feed(2, IoEventKind::Exited(0)) {
+                ProcessResult::Completed(data) => assert_eq!(data, b"file.txt\n"),
+                other => panic!("expected Completed, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn fallback_fails() {
+            let mut h = ProcessHandle::new(1)
+                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            assert!(matches!(h.feed(1, IoEventKind::SpawnFailed("nope")), ProcessResult::TryFallback));
+            match h.feed(2, IoEventKind::SpawnFailed("also not found")) {
+                ProcessResult::Failed(msg) => assert!(msg.contains("also not found")),
+                other => panic!("expected Failed, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn unknown_job_id_ignored() {
+            let mut h = ProcessHandle::new(1);
+            assert!(matches!(h.feed(99, IoEventKind::Stdout(b"x")), ProcessResult::Ignored));
+        }
+
+        #[test]
+        fn stderr_is_pending() {
+            let mut h = ProcessHandle::new(1);
+            assert!(matches!(h.feed(1, IoEventKind::Stderr(b"warn")), ProcessResult::Pending));
+        }
+
+        #[test]
+        fn primary_exit_nonzero_with_data_completes() {
+            let mut h = ProcessHandle::new(1);
+            assert!(matches!(h.feed(1, IoEventKind::Stdout(b"partial")), ProcessResult::Pending));
+            match h.feed(1, IoEventKind::Exited(1)) {
+                ProcessResult::Completed(data) => assert_eq!(data, b"partial"),
+                other => panic!("expected Completed, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn take_output_clears_buffer() {
+            let mut h = ProcessHandle::new(1);
+            h.feed(1, IoEventKind::Stdout(b"data"));
+            let out = h.take_output();
+            assert_eq!(out, b"data");
+            assert!(h.take_output().is_empty());
+        }
+
+        #[test]
+        fn reset_clears_state() {
+            let mut h = ProcessHandle::new(1)
+                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            h.feed(1, IoEventKind::SpawnFailed("nope"));
+            h.reset();
+            // After reset, primary events should work again
+            assert!(matches!(h.feed(1, IoEventKind::Stdout(b"ok")), ProcessResult::Pending));
+        }
+
+        #[test]
+        fn fallback_info_present() {
+            let step = ProcessStep { program: "find".into(), args: vec![".".into()] };
+            let h = ProcessHandle::new(1).with_fallback(2, step);
+            let (s, id) = h.fallback_info().unwrap();
+            assert_eq!(s.program, "find");
+            assert_eq!(id, 2);
+        }
+
+        #[test]
+        fn fallback_info_absent() {
+            let h = ProcessHandle::new(1);
+            assert!(h.fallback_info().is_none());
+        }
+    }
+}
+
 /// Unified slot contribution declaration.
 ///
 /// Generates a `contribute_to` method from a single declaration block.

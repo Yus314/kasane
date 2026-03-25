@@ -1127,6 +1127,24 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 AbsoluteAnchor { x, y, w, h }
             }
 
+            /// Centered overlay sized to fit content rows (auto height).
+            pub fn content_fit_overlay(
+                screen_cols: u16,
+                screen_rows: u16,
+                w_pct: u32,
+                min_w: u16,
+                content_rows: u16,
+                chrome_rows: u16,
+            ) -> AbsoluteAnchor {
+                let w = (screen_cols as u32 * w_pct / 100)
+                    .max(min_w as u32)
+                    .min(screen_cols as u32) as u16;
+                let h = (content_rows + chrome_rows).min(screen_rows);
+                let x = (screen_cols.saturating_sub(w)) / 2;
+                let y = (screen_rows.saturating_sub(h)) / 2;
+                AbsoluteAnchor { x, y, w, h }
+            }
+
             // --- Logging helpers ---
 
             pub fn log_debug(msg: &str) {
@@ -1143,6 +1161,64 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 
             pub fn log_error(msg: &str) {
                 host_log::log_message(host_log::LogLevel::Error, msg);
+            }
+
+            // --- RuntimeEffects shortcuts ---
+
+            /// RuntimeEffects with commands only (no redraw flag, no scroll).
+            pub fn effects(commands: Vec<Command>) -> RuntimeEffects {
+                RuntimeEffects { redraw: 0, commands, scroll_plans: vec![] }
+            }
+
+            /// RuntimeEffects with commands + trailing RequestRedraw(ALL).
+            pub fn effects_redraw(mut commands: Vec<Command>) -> RuntimeEffects {
+                commands.push(Command::RequestRedraw(0x17F));
+                RuntimeEffects { redraw: 0, commands, scroll_plans: vec![] }
+            }
+
+            /// RuntimeEffects with only RequestRedraw(ALL).
+            pub fn just_redraw() -> RuntimeEffects {
+                RuntimeEffects {
+                    redraw: 0,
+                    commands: vec![Command::RequestRedraw(0x17F)],
+                    scroll_plans: vec![],
+                }
+            }
+
+            // --- Key handler shortcuts ---
+
+            /// Consume key with RequestRedraw(ALL).
+            pub fn consumed_redraw() -> Option<Vec<Command>> {
+                Some(vec![Command::RequestRedraw(0x17F)])
+            }
+
+            /// Consume key with no side effects.
+            pub fn consumed() -> Option<Vec<Command>> {
+                Some(vec![])
+            }
+
+            /// Navigate up in a list and redraw.
+            pub fn nav_up(selected: &mut usize) -> Option<Vec<Command>> {
+                if *selected > 0 { *selected -= 1; }
+                consumed_redraw()
+            }
+
+            /// Navigate down in a list and redraw.
+            pub fn nav_down(selected: &mut usize, len: usize) -> Option<Vec<Command>> {
+                if len > 0 && *selected < len - 1 { *selected += 1; }
+                consumed_redraw()
+            }
+
+            // --- WIT → SDK event conversion ---
+
+            /// Convert WIT ProcessEventKind to SDK IoEventKind.
+            pub fn to_io_event_kind(kind: &ProcessEventKind) -> ::kasane_plugin_sdk::process::IoEventKind<'_> {
+                match kind {
+                    ProcessEventKind::Stdout(d) => ::kasane_plugin_sdk::process::IoEventKind::Stdout(d),
+                    ProcessEventKind::Stderr(d) => ::kasane_plugin_sdk::process::IoEventKind::Stderr(d),
+                    ProcessEventKind::Exited(c) => ::kasane_plugin_sdk::process::IoEventKind::Exited(*c),
+                    ProcessEventKind::SpawnFailed(e) => ::kasane_plugin_sdk::process::IoEventKind::SpawnFailed(e),
+                }
             }
         }
 

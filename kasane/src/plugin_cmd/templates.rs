@@ -1,6 +1,6 @@
 use crate::cli::PluginTemplate;
 
-const SDK_VERSION: &str = "0.1.0";
+const SDK_VERSION: &str = "0.3.0";
 const WIT_BINDGEN_VERSION: &str = "0.41";
 
 /// Convert a kebab-case plugin name to a snake_case plugin ID.
@@ -172,7 +172,7 @@ fn overlay_template(id: &str) -> String {
             if is_ctrl(&event, "o") {{
                 state.open = true;
                 state.selected = 0;
-                return Some(redraw());
+                return consumed_redraw();
             }}
             return None;
         }}
@@ -180,25 +180,15 @@ fn overlay_template(id: &str) -> String {
         match &event.key {{
             KeyCode::Escape => {{
                 state.open = false;
-                Some(redraw())
+                consumed_redraw()
             }}
-            KeyCode::Up => {{
-                if state.selected > 0 {{
-                    state.selected -= 1;
-                }}
-                Some(redraw())
-            }}
-            KeyCode::Down => {{
-                if state.selected < 2 {{
-                    state.selected += 1;
-                }}
-                Some(redraw())
-            }}
+            KeyCode::Up => nav_up(&mut state.selected),
+            KeyCode::Down => nav_down(&mut state.selected, 3),
             KeyCode::Enter => {{
                 state.open = false;
-                Some(redraw())
+                consumed_redraw()
             }}
-            _ => Some(vec![]),
+            _ => consumed(),
         }}
     }},
 
@@ -276,35 +266,24 @@ fn process_template(id: &str) -> String {
                     Command::RequestRedraw(dirty::ALL),
                 ])
             }}
-            _ => Some(vec![]),
+            _ => consumed(),
         }}
     }},
 
     on_io_event_effects(event) {{
-        match event {{
-            IoEvent::Process(pe) => match pe.kind {{
-                ProcessEventKind::Stdout(data) => {{
-                    let text_data = String::from_utf8_lossy(&data);
-                    for line in text_data.lines() {{
-                        if !line.is_empty() {{
-                            state.output.push(line.to_string());
-                        }}
-                    }}
-                    RuntimeEffects {{
-                        redraw: dirty::ALL,
-                        commands: vec![],
-                        scroll_plans: vec![],
+        let IoEvent::Process(pe) = event;
+        match pe.kind {{
+            ProcessEventKind::Stdout(data) => {{
+                let text_data = String::from_utf8_lossy(&data);
+                for line in text_data.lines() {{
+                    if !line.is_empty() {{
+                        state.output.push(line.to_string());
                     }}
                 }}
-                ProcessEventKind::Exited(_) => {{
-                    RuntimeEffects {{
-                        redraw: dirty::ALL,
-                        commands: vec![],
-                        scroll_plans: vec![],
-                    }}
-                }}
-                _ => RuntimeEffects::default(),
-            }},
+                just_redraw()
+            }}
+            ProcessEventKind::Exited(_) => just_redraw(),
+            _ => effects(vec![]),
         }}
     }},
 
@@ -460,7 +439,7 @@ mod tests {
                 &[
                     "capabilities",
                     "on_io_event_effects",
-                    "RuntimeEffects",
+                    "just_redraw",
                     "SpawnProcess",
                     "is_ctrl_shift",
                 ],

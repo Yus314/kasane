@@ -170,7 +170,7 @@ kasane_plugin_sdk::define_plugin! {
             });
             state.image_path = new_path;
         }
-        RuntimeEffects::default()
+        effects(vec![])
     },
 
     overlay(ctx) {
