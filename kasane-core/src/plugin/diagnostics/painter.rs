@@ -450,6 +450,7 @@ pub fn plugin_diagnostic_overlay_text_face(
                 g: 194,
                 b: 114,
             },
+            (PluginDiagnosticOverlayTagKind::Runtime, _) => Color::Named(NamedColor::BrightRed),
         },
         bg: Color::Rgb {
             r: 24,
@@ -500,6 +501,7 @@ pub fn plugin_diagnostic_overlay_tag_face(
                 g: 126,
                 b: 34,
             },
+            (PluginDiagnosticOverlayTagKind::Runtime, _) => Color::Named(NamedColor::BrightRed),
         },
         underline: Color::Default,
         attributes: Attributes::BOLD,
@@ -513,6 +515,7 @@ pub fn plugin_diagnostic_overlay_tag_text(kind: PluginDiagnosticOverlayTagKind) 
         PluginDiagnosticOverlayTagKind::ArtifactRead => "R",
         PluginDiagnosticOverlayTagKind::ArtifactLoad => "L",
         PluginDiagnosticOverlayTagKind::ArtifactInstantiate => "I",
+        PluginDiagnosticOverlayTagKind::Runtime => "R!",
     }
 }
 

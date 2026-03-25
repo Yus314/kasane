@@ -11,8 +11,8 @@ use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, BootstrapEffects, Command,
     ContributeContext, Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext, TransformSubject,
-    TransformTarget, VirtualTextItem,
+    PluginDiagnostic, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
+    TransformSubject, TransformTarget, VirtualTextItem,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -39,18 +39,39 @@ struct WasmPluginRuntime {
     instance: bindings::KasanePlugin,
 }
 
+/// Maximum pending diagnostics kept per plugin (ring buffer).
+const MAX_PENDING_DIAGNOSTICS: usize = 10;
+
 struct WasmPluginShared {
     runtime: Mutex<WasmPluginRuntime>,
     plugin_id: PluginId,
     cached_state_hash: AtomicU64,
+    cached_view_deps: DirtyFlags,
     process_allowed: bool,
     authorities: PluginAuthorities,
+    pending_diagnostics: Mutex<Vec<PluginDiagnostic>>,
 }
 
 impl WasmPluginShared {
     fn with_runtime<R>(&self, f: impl FnOnce(&mut WasmPluginRuntime) -> R) -> R {
         let mut runtime = self.runtime.lock().expect("wasm runtime poisoned");
         f(&mut runtime)
+    }
+
+    fn record_diagnostic(&self, method: &str, error: &anyhow::Error) {
+        let diag = PluginDiagnostic::runtime_error(
+            self.plugin_id.clone(),
+            method.to_string(),
+            error.to_string(),
+        );
+        let mut pending = self
+            .pending_diagnostics
+            .lock()
+            .expect("diagnostics poisoned");
+        if pending.len() >= MAX_PENDING_DIAGNOSTICS {
+            pending.remove(0);
+        }
+        pending.push(diag);
     }
 
     /// Lock runtime, sync state, call function, log error on failure.
@@ -66,6 +87,7 @@ impl WasmPluginShared {
                 Ok(result) => result,
                 Err(e) => {
                     tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
+                    self.record_diagnostic(method, &e);
                     R::default()
                 }
             }
@@ -85,6 +107,7 @@ impl WasmPluginShared {
                 Ok(result) => result,
                 Err(e) => {
                     tracing::error!("WASM plugin {}.{method} failed: {e}", self.plugin_id.0);
+                    self.record_diagnostic(method, &e);
                     return R::default();
                 }
             };
@@ -288,19 +311,31 @@ pub struct WasmPlugin {
 
 impl WasmPlugin {
     pub(crate) fn new(
-        store: wasmtime::Store<HostState>,
+        mut store: wasmtime::Store<HostState>,
         instance: bindings::KasanePlugin,
         id: String,
         process_allowed: bool,
         authorities: PluginAuthorities,
     ) -> Self {
+        // Set plugin_id on HostState so log messages can be attributed.
+        store.data_mut().plugin_id = id.clone();
+
+        // Query view_deps once at construction time (static declaration).
+        let view_deps_bits = instance
+            .kasane_plugin_plugin_api()
+            .call_view_deps(&mut store)
+            .unwrap_or(DirtyFlags::ALL.bits());
+        let cached_view_deps = DirtyFlags::from_bits_truncate(view_deps_bits);
+
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
                 plugin_id: PluginId(id),
                 cached_state_hash: AtomicU64::new(0),
+                cached_view_deps,
                 process_allowed,
                 authorities,
+                pending_diagnostics: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -309,6 +344,19 @@ impl WasmPlugin {
 impl PluginBackend for WasmPlugin {
     fn id(&self) -> PluginId {
         self.shared.plugin_id.clone()
+    }
+
+    fn view_deps(&self) -> DirtyFlags {
+        self.shared.cached_view_deps
+    }
+
+    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        let mut pending = self
+            .shared
+            .pending_diagnostics
+            .lock()
+            .expect("diagnostics poisoned");
+        std::mem::take(&mut *pending)
     }
 
     fn on_init_effects(&mut self, state: &AppView<'_>) -> BootstrapEffects {

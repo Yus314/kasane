@@ -222,6 +222,9 @@ where
     last_render_result: Option<RenderResult>,
     diagnostic_overlay: PluginDiagnosticOverlayState,
 
+    // Event loop proxy for scheduling
+    event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
+
     // Timer scheduler for plugin timer events
     timer_scheduler: GuiTimerScheduler,
 
@@ -336,6 +339,7 @@ where
             cursor_dirty: false,
             last_render_result: None,
             diagnostic_overlay,
+            event_proxy: event_proxy.clone(),
             timer_scheduler: GuiTimerScheduler(event_proxy),
             process_dispatcher,
             salsa_db,
@@ -628,6 +632,18 @@ where
                     }
                 }
             }
+        }
+    }
+
+    fn drain_runtime_diagnostics(&mut self) {
+        let diagnostics = self.registry.drain_all_diagnostics();
+        if !diagnostics.is_empty() {
+            report_plugin_diagnostics(&diagnostics);
+            kasane_core::event_loop::schedule_diagnostic_overlay(
+                &GuiDiagnosticScheduler(self.event_proxy.clone()),
+                &mut self.diagnostic_overlay,
+                &diagnostics,
+            );
         }
     }
 
@@ -1158,6 +1174,7 @@ where
             tracing::debug!(batch_count = pending_count, "event batch drained");
         }
         self.process_pending_events(event_loop);
+        self.drain_runtime_diagnostics();
         self.sync_scroll_runtime();
 
         // Host-owned smooth scroll runtime tick

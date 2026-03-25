@@ -1,7 +1,3 @@
-kasane_plugin_sdk::generate!();
-
-use kasane_plugin_sdk::plugin;
-
 fn smooth_scroll_enabled() -> bool {
     host_state::get_config_string("smooth-scroll.enabled")
         .or_else(|| host_state::get_config_string("smooth_scroll"))
@@ -9,19 +5,10 @@ fn smooth_scroll_enabled() -> bool {
         .unwrap_or(false)
 }
 
-struct SmoothScrollPlugin;
+kasane_plugin_sdk::define_plugin! {
+    id: "smooth_scroll",
 
-#[plugin]
-impl Guest for SmoothScrollPlugin {
-    fn get_id() -> String {
-        "smooth_scroll".to_string()
-    }
-
-    fn state_hash() -> u64 {
-        0
-    }
-
-    fn handle_default_scroll(candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
+    handle_default_scroll(candidate) {
         if !smooth_scroll_enabled() {
             return None;
         }
@@ -34,7 +21,5 @@ impl Guest for SmoothScrollPlugin {
             curve: ScrollCurve::Linear,
             accumulation: ScrollAccumulationMode::Add,
         }))
-    }
+    },
 }
-
-export!(SmoothScrollPlugin);

@@ -1,7 +1,3 @@
-kasane_plugin_sdk::generate!();
-
-use kasane_plugin_sdk::{dirty, plugin};
-
 // ---------------------------------------------------------------------------
 // Image reference detection
 // ---------------------------------------------------------------------------
@@ -153,130 +149,71 @@ fn detect_image_ref(text: &str, cursor_col: usize) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-kasane_plugin_sdk::state! {
-    struct PluginState {
-        image_path: Option<String> = None,
-        cursor_line: i32 = -1,
-        cursor_col: i32 = -1,
-    }
-}
-
-fn refresh_state(dirty_flags: u16) {
-    if dirty_flags & dirty::BUFFER == 0 {
-        return;
-    }
-
-    STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        let cursor_line = host_state::get_cursor_line();
-        let cursor_col = host_state::get_cursor_col();
-
-        let new_path = host_state::get_line_text(cursor_line as u32).and_then(|text| {
-            detect_image_ref(&text, cursor_col.max(0) as usize)
-        });
-
-        let changed = state.image_path != new_path
-            || state.cursor_line != cursor_line
-            || state.cursor_col != cursor_col;
-
-        if changed {
-            state.image_path = new_path;
-            state.cursor_line = cursor_line;
-            state.cursor_col = cursor_col;
-            state.bump_generation();
-        }
-    });
-}
-
-// ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 
-struct ImagePreviewPlugin;
+kasane_plugin_sdk::define_plugin! {
+    id: "image_preview",
 
-#[plugin]
-impl Guest for ImagePreviewPlugin {
-    fn get_id() -> String {
-        "image_preview".to_string()
-    }
+    state {
+        image_path: Option<String> = None,
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
+        cursor_line: i32 = -1,
+        #[bind(host_state::get_cursor_col(), on: dirty::BUFFER)]
+        cursor_col: i32 = -1,
+    },
 
-    fn on_init_effects() -> BootstrapEffects {
-        BootstrapEffects::default()
-    }
-
-    fn on_shutdown() -> Vec<Command> {
-        vec![]
-    }
-
-    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
-        refresh_state(dirty_flags);
+    on_state_changed_effects(dirty) {
+        if dirty & dirty::BUFFER != 0 {
+            let new_path = host_state::get_line_text(state.cursor_line as u32).and_then(|text| {
+                detect_image_ref(&text, state.cursor_col.max(0) as usize)
+            });
+            state.image_path = new_path;
+        }
         RuntimeEffects::default()
-    }
+    },
 
-    fn handle_mouse(_event: MouseEvent, _id: InteractiveId) -> Option<Vec<Command>> {
-        None
-    }
+    overlay(ctx) {
+        let path = state.image_path.as_ref()?;
 
-    fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
-        None
-    }
+        // Max size: 30 columns × 15 rows
+        let max_w: u16 = 30.min(ctx.screen_cols.saturating_sub(4));
+        let max_h: u16 = 15.min(ctx.screen_rows.saturating_sub(4));
 
-    fn observe_key(_event: KeyEvent) {}
-    fn observe_mouse(_event: MouseEvent) {}
+        let image = image_file(path, max_w, max_h);
 
-    fn annotate_line(_line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
-        None
-    }
+        // Title: file name only
+        let title = std::path::Path::new(path.as_str())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path);
+        let title_el = text(
+            &format!(" {title} "),
+            face(named(NamedColor::Black), named(NamedColor::Cyan)),
+        );
 
-    fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {
-        STATE.with(|state| {
-            let state = state.borrow();
-            let path = state.image_path.as_ref()?;
+        let inner = column(&[title_el, image]);
+        let el = container(inner).border(BorderLineStyle::Rounded).build();
 
-            // Max size: 30 columns × 15 rows
-            let max_w: u16 = 30.min(ctx.screen_cols.saturating_sub(4));
-            let max_h: u16 = 15.min(ctx.screen_rows.saturating_sub(4));
+        let mut avoid = ctx.existing_overlays;
+        if let Some(menu_rect) = ctx.menu_rect {
+            avoid.push(menu_rect);
+        }
 
-            let image = image_file(path, max_w, max_h);
-
-            // Title: file name only
-            let title = std::path::Path::new(path.as_str())
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(path);
-            let title_el = text(
-                &format!(" {title} "),
-                face(named(NamedColor::Black), named(NamedColor::Cyan)),
-            );
-
-            let inner = column(&[title_el, image]);
-            let el = container(inner).border(BorderLineStyle::Rounded).build();
-
-            let mut avoid = ctx.existing_overlays;
-            if let Some(menu_rect) = ctx.menu_rect {
-                avoid.push(menu_rect);
-            }
-
-            Some(OverlayContribution {
-                element: el,
-                anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
-                    coord: Coord {
-                        line: state.cursor_line,
-                        column: state.cursor_col,
-                    },
-                    prefer_above: true,
-                    avoid,
-                }),
-                z_index: 50,
-            })
+        Some(OverlayContribution {
+            element: el,
+            anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
+                coord: Coord {
+                    line: state.cursor_line,
+                    column: state.cursor_col,
+                },
+                prefer_above: true,
+                avoid,
+            }),
+            z_index: 50,
         })
-    }
+    },
 }
-
-export!(ImagePreviewPlugin);
 
 // ---------------------------------------------------------------------------
 // Tests

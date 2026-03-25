@@ -17,8 +17,9 @@ use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     InitBatch, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution, PaintHook,
-    PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginId, ReadyBatch,
-    RuntimeBatch, SlotId, SourcedContribution, TransformContext, TransformSubject, TransformTarget,
+    PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic, PluginId,
+    ReadyBatch, RuntimeBatch, SlotId, SourcedContribution, TransformContext, TransformSubject,
+    TransformTarget,
 };
 
 pub struct PluginSurfaceSet {
@@ -72,6 +73,14 @@ impl PluginRuntime {
 
     pub fn plugin_count(&self) -> usize {
         self.slots.len()
+    }
+
+    /// Drain pending runtime diagnostics from all plugins.
+    pub fn drain_all_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        self.slots
+            .iter_mut()
+            .flat_map(|slot| slot.backend.drain_diagnostics())
+            .collect()
     }
 
     /// Borrow an immutable view for the render phase.

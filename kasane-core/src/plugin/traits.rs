@@ -8,8 +8,9 @@ use crate::state::DirtyFlags;
 use super::{
     AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
     DisplayDirective, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook,
-    PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
-    TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
+    PluginAuthorities, PluginCapabilities, PluginDiagnostic, PluginId, RuntimeEffects,
+    SessionReadyEffects, SlotId, TransformContext, TransformDescriptor, TransformSubject,
+    TransformTarget,
 };
 
 /// Result of key middleware dispatch.
@@ -249,5 +250,12 @@ pub trait PluginBackend: Any {
         _ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         None
+    }
+
+    // --- Diagnostics ---
+
+    /// Drain any pending runtime diagnostics accumulated since the last call.
+    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        Vec::new()
     }
 }

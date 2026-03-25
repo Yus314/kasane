@@ -52,6 +52,10 @@ impl WasmPluginLoader {
             host::HostState,
             HasSelf<host::HostState>,
         >(&mut linker, |state| state)?;
+        bindings::kasane::plugin::host_log::add_to_linker::<
+            host::HostState,
+            HasSelf<host::HostState>,
+        >(&mut linker, |state| state)?;
         Ok(Self { engine, linker })
     }
 

@@ -1,9 +1,3 @@
-kasane_plugin_sdk::generate!();
-
-use std::cell::RefCell;
-
-use kasane_plugin_sdk::{dirty, keys, modifiers, plugin};
-
 // ---------------------------------------------------------------------------
 // Job ID scheme
 // ---------------------------------------------------------------------------
@@ -13,7 +7,7 @@ const JOB_FIND_FALLBACK: u64 = 2;
 const JOB_FZF_BASE: u64 = 100;
 
 // ---------------------------------------------------------------------------
-// State
+// State types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, PartialEq)]
@@ -31,64 +25,29 @@ impl Default for FzfState {
     }
 }
 
-#[derive(Default, Debug)]
-struct PluginState {
-    state: FzfState,
-    query: String,
-    file_list: Vec<String>,
-    results: Vec<String>,
-    selected: usize,
-    generation: u64,
-    fd_buf: Vec<u8>,
-    fzf_buf: Vec<u8>,
-    fzf_job_gen: u64,
-}
-
-impl PluginState {
-    fn current_fzf_job_id(&self) -> u64 {
-        JOB_FZF_BASE + self.fzf_job_gen
-    }
-
-    fn bump_generation(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-    }
-
-    fn reset(&mut self) {
-        self.state = FzfState::Inactive;
-        self.query.clear();
-        self.file_list.clear();
-        self.results.clear();
-        self.selected = 0;
-        self.fd_buf.clear();
-        self.fzf_buf.clear();
-        self.bump_generation();
-    }
-
-    fn visible_results(&self) -> &[String] {
-        if self.query.is_empty() {
-            &self.file_list
-        } else {
-            &self.results
-        }
-    }
-
-    fn clamp_selected(&mut self) {
-        let len = self.visible_results().len();
-        if len == 0 {
-            self.selected = 0;
-        } else if self.selected >= len {
-            self.selected = len - 1;
-        }
-    }
-}
-
-thread_local! {
-    static STATE: RefCell<PluginState> = RefCell::new(PluginState::default());
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn current_fzf_job_id(fzf_job_gen: u64) -> u64 {
+    JOB_FZF_BASE + fzf_job_gen
+}
+
+fn visible_results<'a>(query: &str, file_list: &'a [String], results: &'a [String]) -> &'a [String] {
+    if query.is_empty() {
+        file_list
+    } else {
+        results
+    }
+}
+
+fn clamp_selected(selected: &mut usize, visible_len: usize) {
+    if visible_len == 0 {
+        *selected = 0;
+    } else if *selected >= visible_len {
+        *selected = visible_len - 1;
+    }
+}
 
 fn split_lines(buf: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(buf);
@@ -123,14 +82,14 @@ fn spawn_find_fallback_command() -> Vec<Command> {
     })]
 }
 
-fn spawn_fzf_filter(state: &PluginState) -> Vec<Command> {
-    let job_id = state.current_fzf_job_id();
-    let file_data = state.file_list.join("\n");
-    let mut cmds = vec![
+fn spawn_fzf_filter(query: &str, file_list: &[String], fzf_job_gen: u64) -> Vec<Command> {
+    let job_id = current_fzf_job_id(fzf_job_gen);
+    let file_data = file_list.join("\n");
+    vec![
         Command::SpawnProcess(SpawnProcessConfig {
             job_id,
             program: "fzf".to_string(),
-            args: vec!["--filter".to_string(), state.query.clone()],
+            args: vec!["--filter".to_string(), query.to_string()],
             stdin_mode: StdinMode::Piped,
         }),
         Command::WriteToProcess(WriteProcessConfig {
@@ -138,20 +97,19 @@ fn spawn_fzf_filter(state: &PluginState) -> Vec<Command> {
             data: file_data.into_bytes(),
         }),
         Command::CloseProcessStdin(job_id),
-    ];
-    cmds.push(Command::RequestRedraw(dirty::ALL));
-    cmds
+        Command::RequestRedraw(dirty::ALL),
+    ]
 }
 
-fn kill_active_processes(state: &PluginState) -> Vec<Command> {
+fn kill_active_processes(fzf_state: &FzfState, fzf_job_gen: u64) -> Vec<Command> {
     let mut cmds = Vec::new();
-    match state.state {
+    match fzf_state {
         FzfState::Scanning => {
             cmds.push(Command::KillProcess(JOB_FD));
             cmds.push(Command::KillProcess(JOB_FIND_FALLBACK));
         }
         FzfState::Filtering => {
-            cmds.push(Command::KillProcess(state.current_fzf_job_id()));
+            cmds.push(Command::KillProcess(current_fzf_job_id(fzf_job_gen)));
         }
         _ => {}
     }
@@ -180,8 +138,15 @@ fn error_face() -> Face {
     face_fg(named(NamedColor::Red))
 }
 
-fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayContribution> {
-    if state.state == FzfState::Inactive {
+fn build_fzf_overlay(
+    fzf_state: &FzfState,
+    query: &str,
+    file_list: &[String],
+    results: &[String],
+    selected: usize,
+    ctx: &OverlayContext,
+) -> Option<OverlayContribution> {
+    if *fzf_state == FzfState::Inactive {
         return None;
     }
 
@@ -193,7 +158,7 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
     let mut children: Vec<ElementHandle> = Vec::new();
 
     // Query input line: "> query_"
-    let query_display = format!("> {}_", state.query);
+    let query_display = format!("> {query}_");
     children.push(text(&query_display, default_face()));
 
     // Separator
@@ -201,7 +166,7 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
     children.push(text(&sep, dim_face()));
 
     // Content area
-    match &state.state {
+    match fzf_state {
         FzfState::Scanning => {
             children.push(text("Scanning files...", dim_face()));
         }
@@ -209,11 +174,11 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
             children.push(text(msg, error_face()));
         }
         FzfState::Ready | FzfState::Filtering => {
-            let items = state.visible_results();
+            let items = visible_results(query, file_list, results);
             let visible_count = items.len().min(max_results);
 
             if items.is_empty() {
-                let msg = if state.query.is_empty() {
+                let msg = if query.is_empty() {
                     "No files found"
                 } else {
                     "No matches"
@@ -221,20 +186,20 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
                 children.push(text(msg, dim_face()));
             } else {
                 // Scroll window around selected
-                let start = if state.selected >= visible_count {
-                    state.selected - visible_count + 1
+                let start = if selected >= visible_count {
+                    selected - visible_count + 1
                 } else {
                     0
                 };
                 let end = (start + visible_count).min(items.len());
 
                 for i in start..end {
-                    let f = if i == state.selected {
+                    let f = if i == selected {
                         highlight_face()
                     } else {
                         default_face()
                     };
-                    let prefix = if i == state.selected { "> " } else { "  " };
+                    let prefix = if i == selected { "> " } else { "  " };
                     let label = format!("{prefix}{}", &items[i]);
                     children.push(text(&label, f));
                 }
@@ -246,16 +211,16 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
     let inner = column(&children);
 
     // Title: show file count on the border line
-    let title_text = match &state.state {
+    let title_text = match fzf_state {
         FzfState::Scanning => " Find File ── scanning... ".to_string(),
         FzfState::Filtering => {
-            let total = state.file_list.len();
-            let shown = state.results.len();
+            let total = file_list.len();
+            let shown = results.len();
             format!(" Find File ── {shown}/{total} ")
         }
         FzfState::Ready => {
-            let items = state.visible_results();
-            let total = state.file_list.len();
+            let items = visible_results(query, file_list, results);
+            let total = file_list.len();
             format!(" Find File ── {}/{total} ", items.len())
         }
         FzfState::Error(_) => " Find File ── error ".to_string(),
@@ -276,31 +241,156 @@ fn build_overlay(state: &PluginState, ctx: &OverlayContext) -> Option<OverlayCon
 }
 
 // ---------------------------------------------------------------------------
-// Plugin implementation
+// Plugin
 // ---------------------------------------------------------------------------
 
-struct FuzzyFinderPlugin;
+kasane_plugin_sdk::define_plugin! {
+    id: "fuzzy_finder",
 
-fn handle_io_event_runtime(event: IoEvent) -> RuntimeEffects {
-    RuntimeEffects {
-        redraw: 0,
-        commands: handle_io_event_commands(event),
-        scroll_plans: vec![],
-    }
-}
+    state {
+        fzf_state: FzfState = FzfState::Inactive,
+        query: String = String::new(),
+        file_list: Vec<String> = Vec::new(),
+        results: Vec<String> = Vec::new(),
+        selected: usize = 0,
+        fd_buf: Vec<u8> = Vec::new(),
+        fzf_buf: Vec<u8> = Vec::new(),
+        fzf_job_gen: u64 = 0,
+    },
 
-fn handle_io_event_commands(event: IoEvent) -> Vec<Command> {
-    STATE.with(|s| {
-        let mut state = s.borrow_mut();
+    capabilities: [Capability::Process],
 
-        match event {
+    handle_key(event) {
+        match state.fzf_state {
+            FzfState::Inactive => {
+                // Ctrl+P activates
+                if is_ctrl(&event, "p") {
+                    state.fzf_state = FzfState::Scanning;
+                    state.query.clear();
+                    state.file_list.clear();
+                    state.results.clear();
+                    state.selected = 0;
+                    state.fd_buf.clear();
+                    state.fzf_buf.clear();
+                    let mut cmds = spawn_fd_command();
+                    cmds.push(Command::RequestRedraw(dirty::ALL));
+                    return Some(cmds);
+                }
+                None
+            }
+            FzfState::Scanning | FzfState::Ready | FzfState::Filtering | FzfState::Error(_) => {
+                match &event.key {
+                    KeyCode::Escape => {
+                        let kill_cmds = kill_active_processes(&state.fzf_state, state.fzf_job_gen);
+                        state.fzf_state = FzfState::Inactive;
+                        state.query.clear();
+                        state.file_list.clear();
+                        state.results.clear();
+                        state.selected = 0;
+                        state.fd_buf.clear();
+                        state.fzf_buf.clear();
+                        let mut cmds = kill_cmds;
+                        cmds.push(Command::RequestRedraw(dirty::ALL));
+                        Some(cmds)
+                    }
+                    KeyCode::Enter => {
+                        let items = visible_results(&state.query, &state.file_list, &state.results);
+                        let selected = if state.selected < items.len() {
+                            Some(items[state.selected].clone())
+                        } else {
+                            None
+                        };
+                        let kill_cmds = kill_active_processes(&state.fzf_state, state.fzf_job_gen);
+                        state.fzf_state = FzfState::Inactive;
+                        state.query.clear();
+                        state.file_list.clear();
+                        state.results.clear();
+                        state.selected = 0;
+                        state.fd_buf.clear();
+                        state.fzf_buf.clear();
+                        let mut cmds = kill_cmds;
+                        if let Some(path) = selected {
+                            cmds.push(Command::SendKeys(keys::command(&format!(
+                                "edit {path}"
+                            ))));
+                        }
+                        cmds.push(Command::RequestRedraw(dirty::ALL));
+                        Some(cmds)
+                    }
+                    KeyCode::Up => {
+                        if state.selected > 0 {
+                            state.selected -= 1;
+                        }
+                        Some(vec![Command::RequestRedraw(dirty::ALL)])
+                    }
+                    KeyCode::Down => {
+                        let len = visible_results(&state.query, &state.file_list, &state.results).len();
+                        if len > 0 && state.selected < len - 1 {
+                            state.selected += 1;
+                        }
+                        Some(vec![Command::RequestRedraw(dirty::ALL)])
+                    }
+                    KeyCode::Backspace => {
+                        if state.fzf_state == FzfState::Scanning {
+                            return Some(vec![]);
+                        }
+                        state.query.pop();
+                        state.selected = 0;
+
+                        if state.query.is_empty() {
+                            // Show all files, kill any running fzf
+                            state.results.clear();
+                            state.fzf_state = FzfState::Ready;
+                            let mut cmds =
+                                vec![Command::KillProcess(current_fzf_job_id(state.fzf_job_gen))];
+                            cmds.push(Command::RequestRedraw(dirty::ALL));
+                            Some(cmds)
+                        } else {
+                            // Re-filter: kill previous fzf before spawning new one
+                            state.fzf_job_gen += 1;
+                            state.fzf_buf.clear();
+                            state.fzf_state = FzfState::Filtering;
+                            let prev_job = JOB_FZF_BASE + state.fzf_job_gen - 1;
+                            let mut cmds = vec![Command::KillProcess(prev_job)];
+                            cmds.extend(spawn_fzf_filter(&state.query, &state.file_list, state.fzf_job_gen));
+                            Some(cmds)
+                        }
+                    }
+                    KeyCode::Character(c) => {
+                        if matches!(state.fzf_state, FzfState::Scanning | FzfState::Error(_)) {
+                            return Some(vec![]);
+                        }
+                        // Ignore if modifier keys are pressed (except shift)
+                        if event.modifiers & (modifiers::CTRL | modifiers::ALT) != 0 {
+                            return Some(vec![]);
+                        }
+                        state.query.push_str(c);
+                        state.selected = 0;
+                        state.fzf_job_gen += 1;
+                        state.fzf_buf.clear();
+                        state.fzf_state = FzfState::Filtering;
+                        // Kill previous fzf if running
+                        let prev_job = JOB_FZF_BASE + state.fzf_job_gen - 1;
+                        let mut cmds = vec![Command::KillProcess(prev_job)];
+                        cmds.extend(spawn_fzf_filter(&state.query, &state.file_list, state.fzf_job_gen));
+                        Some(cmds)
+                    }
+                    KeyCode::Tab => Some(vec![]), // consume but ignore
+                    _ => Some(vec![]),            // consume all keys when active
+                }
+            }
+        }
+    },
+
+    on_io_event_effects(event) {
+        let commands = match event {
             IoEvent::Process(pe) => {
                 let job_id = pe.job_id;
                 match pe.kind {
                     ProcessEventKind::Stdout(data) => {
                         if job_id == JOB_FD || job_id == JOB_FIND_FALLBACK {
                             state.fd_buf.extend_from_slice(&data);
-                        } else if job_id == state.current_fzf_job_id() {
+                        } else if job_id == current_fzf_job_id(state.fzf_job_gen) {
                             state.fzf_buf.extend_from_slice(&data);
                         }
                         vec![]
@@ -311,227 +401,96 @@ fn handle_io_event_commands(event: IoEvent) -> Vec<Command> {
                             if exit_code == 0 || !state.fd_buf.is_empty() {
                                 state.file_list = split_lines(&state.fd_buf);
                                 state.fd_buf.clear();
-                                state.state = FzfState::Ready;
-                                state.bump_generation();
+                                state.fzf_state = FzfState::Ready;
 
                                 if !state.query.is_empty() {
                                     state.fzf_job_gen += 1;
                                     state.fzf_buf.clear();
-                                    state.state = FzfState::Filtering;
-                                    let mut cmds = spawn_fzf_filter(&state);
+                                    state.fzf_state = FzfState::Filtering;
+                                    let mut cmds = spawn_fzf_filter(&state.query, &state.file_list, state.fzf_job_gen);
                                     cmds.push(Command::RequestRedraw(dirty::ALL));
-                                    return cmds;
+                                    return RuntimeEffects {
+                                        redraw: 0,
+                                        commands: cmds,
+                                        scroll_plans: vec![],
+                                    };
                                 }
 
-                                return vec![Command::RequestRedraw(dirty::ALL)];
+                                return RuntimeEffects {
+                                    redraw: 0,
+                                    commands: vec![Command::RequestRedraw(dirty::ALL)],
+                                    scroll_plans: vec![],
+                                };
                             }
-                            state.state = FzfState::Error("file listing failed".to_string());
-                            state.bump_generation();
-                            return vec![Command::RequestRedraw(dirty::ALL)];
+                            state.fzf_state = FzfState::Error("file listing failed".to_string());
+                            return RuntimeEffects {
+                                redraw: 0,
+                                commands: vec![Command::RequestRedraw(dirty::ALL)],
+                                scroll_plans: vec![],
+                            };
                         }
 
-                        if job_id == state.current_fzf_job_id() {
+                        if job_id == current_fzf_job_id(state.fzf_job_gen) {
                             state.results = split_lines(&state.fzf_buf);
                             state.fzf_buf.clear();
-                            state.clamp_selected();
-                            state.state = FzfState::Ready;
-                            state.bump_generation();
-                            return vec![Command::RequestRedraw(dirty::ALL)];
+                            let vis_len = visible_results(&state.query, &state.file_list, &state.results).len();
+                            clamp_selected(&mut state.selected, vis_len);
+                            state.fzf_state = FzfState::Ready;
+                            return RuntimeEffects {
+                                redraw: 0,
+                                commands: vec![Command::RequestRedraw(dirty::ALL)],
+                                scroll_plans: vec![],
+                            };
                         }
 
                         vec![]
                     }
                     ProcessEventKind::SpawnFailed(error) => {
                         if job_id == JOB_FD {
-                            return spawn_find_fallback_command();
+                            return RuntimeEffects {
+                                redraw: 0,
+                                commands: spawn_find_fallback_command(),
+                                scroll_plans: vec![],
+                            };
                         }
                         if job_id == JOB_FIND_FALLBACK {
-                            state.state = FzfState::Error(
+                            state.fzf_state = FzfState::Error(
                                 "file listing command not found (tried fd, find)".to_string(),
                             );
-                            state.bump_generation();
-                            return vec![Command::RequestRedraw(dirty::ALL)];
+                            return RuntimeEffects {
+                                redraw: 0,
+                                commands: vec![Command::RequestRedraw(dirty::ALL)],
+                                scroll_plans: vec![],
+                            };
                         }
-                        if job_id == state.current_fzf_job_id() {
-                            state.state = FzfState::Error(format!("fzf not installed: {error}"));
-                            state.bump_generation();
-                            return vec![Command::RequestRedraw(dirty::ALL)];
+                        if job_id == current_fzf_job_id(state.fzf_job_gen) {
+                            state.fzf_state = FzfState::Error(format!("fzf not installed: {error}"));
+                            return RuntimeEffects {
+                                redraw: 0,
+                                commands: vec![Command::RequestRedraw(dirty::ALL)],
+                                scroll_plans: vec![],
+                            };
                         }
                         vec![]
                     }
                 }
             }
+        };
+        RuntimeEffects {
+            redraw: 0,
+            commands,
+            scroll_plans: vec![],
         }
-    })
+    },
+
+    overlay(ctx) {
+        build_fzf_overlay(
+            &state.fzf_state,
+            &state.query,
+            &state.file_list,
+            &state.results,
+            state.selected,
+            &ctx,
+        )
+    },
 }
-
-#[plugin]
-impl Guest for FuzzyFinderPlugin {
-    fn get_id() -> String {
-        "fuzzy_finder".to_string()
-    }
-
-    fn requested_capabilities() -> Vec<Capability> {
-        vec![Capability::Process]
-    }
-
-    fn on_init_effects() -> BootstrapEffects {
-        BootstrapEffects::default()
-    }
-
-    fn on_shutdown() -> Vec<Command> {
-        vec![]
-    }
-
-    fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
-        RuntimeEffects::default()
-    }
-
-    fn state_hash() -> u64 {
-        STATE.with(|s| {
-            let s = s.borrow();
-            s.generation
-        })
-    }
-
-    fn handle_key(event: KeyEvent) -> Option<Vec<Command>> {
-        STATE.with(|s| {
-            let mut state = s.borrow_mut();
-
-            match state.state {
-                FzfState::Inactive => {
-                    // Ctrl+P activates
-                    if matches!(event.key, KeyCode::Character(ref c) if c == "p")
-                        && event.modifiers & modifiers::CTRL != 0
-                    {
-                        state.state = FzfState::Scanning;
-                        state.query.clear();
-                        state.file_list.clear();
-                        state.results.clear();
-                        state.selected = 0;
-                        state.fd_buf.clear();
-                        state.fzf_buf.clear();
-                        state.bump_generation();
-                        let mut cmds = spawn_fd_command();
-                        cmds.push(Command::RequestRedraw(dirty::ALL));
-                        return Some(cmds);
-                    }
-                    None
-                }
-                FzfState::Scanning | FzfState::Ready | FzfState::Filtering | FzfState::Error(_) => {
-                    match &event.key {
-                        KeyCode::Escape => {
-                            let kill_cmds = kill_active_processes(&state);
-                            state.reset();
-                            let mut cmds = kill_cmds;
-                            cmds.push(Command::RequestRedraw(dirty::ALL));
-                            Some(cmds)
-                        }
-                        KeyCode::Enter => {
-                            let items = state.visible_results();
-                            let selected = if state.selected < items.len() {
-                                Some(items[state.selected].clone())
-                            } else {
-                                None
-                            };
-                            let kill_cmds = kill_active_processes(&state);
-                            state.reset();
-                            let mut cmds = kill_cmds;
-                            if let Some(path) = selected {
-                                cmds.push(Command::SendKeys(keys::command(&format!(
-                                    "edit {path}"
-                                ))));
-                            }
-                            cmds.push(Command::RequestRedraw(dirty::ALL));
-                            Some(cmds)
-                        }
-                        KeyCode::Up => {
-                            if state.selected > 0 {
-                                state.selected -= 1;
-                                state.bump_generation();
-                            }
-                            Some(vec![Command::RequestRedraw(dirty::ALL)])
-                        }
-                        KeyCode::Down => {
-                            let len = state.visible_results().len();
-                            if len > 0 && state.selected < len - 1 {
-                                state.selected += 1;
-                                state.bump_generation();
-                            }
-                            Some(vec![Command::RequestRedraw(dirty::ALL)])
-                        }
-                        KeyCode::Backspace => {
-                            if state.state == FzfState::Scanning {
-                                return Some(vec![]);
-                            }
-                            state.query.pop();
-                            state.selected = 0;
-                            state.bump_generation();
-
-                            if state.query.is_empty() {
-                                // Show all files, kill any running fzf
-                                state.results.clear();
-                                state.state = FzfState::Ready;
-                                let mut cmds =
-                                    vec![Command::KillProcess(state.current_fzf_job_id())];
-                                cmds.push(Command::RequestRedraw(dirty::ALL));
-                                Some(cmds)
-                            } else {
-                                // Re-filter: kill previous fzf before spawning new one
-                                state.fzf_job_gen += 1;
-                                state.fzf_buf.clear();
-                                state.state = FzfState::Filtering;
-                                let prev_job = JOB_FZF_BASE + state.fzf_job_gen - 1;
-                                let mut cmds = vec![Command::KillProcess(prev_job)];
-                                cmds.extend(spawn_fzf_filter(&state));
-                                Some(cmds)
-                            }
-                        }
-                        KeyCode::Character(c) => {
-                            if matches!(state.state, FzfState::Scanning | FzfState::Error(_)) {
-                                return Some(vec![]);
-                            }
-                            // Ignore if modifier keys are pressed (except shift)
-                            if event.modifiers & (modifiers::CTRL | modifiers::ALT) != 0 {
-                                return Some(vec![]);
-                            }
-                            state.query.push_str(c);
-                            state.selected = 0;
-                            state.fzf_job_gen += 1;
-                            state.fzf_buf.clear();
-                            state.state = FzfState::Filtering;
-                            state.bump_generation();
-                            // Kill previous fzf if running
-                            let prev_job = JOB_FZF_BASE + state.fzf_job_gen - 1;
-                            let mut cmds = vec![Command::KillProcess(prev_job)];
-                            cmds.extend(spawn_fzf_filter(&state));
-                            Some(cmds)
-                        }
-                        KeyCode::Tab => Some(vec![]), // consume but ignore
-                        _ => Some(vec![]),            // consume all keys when active
-                    }
-                }
-            }
-        })
-    }
-
-    fn handle_mouse(_event: MouseEvent, _id: InteractiveId) -> Option<Vec<Command>> {
-        None
-    }
-
-    fn observe_key(_event: KeyEvent) {}
-    fn observe_mouse(_event: MouseEvent) {}
-
-    fn on_io_event_effects(event: IoEvent) -> RuntimeEffects {
-        handle_io_event_runtime(event)
-    }
-
-    fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {
-        STATE.with(|s| {
-            let state = s.borrow();
-            build_overlay(&state, &ctx)
-        })
-    }
-}
-
-export!(FuzzyFinderPlugin);

@@ -1,20 +1,3 @@
-kasane_plugin_sdk::generate!();
-
-use kasane_plugin_sdk::{dirty, modifiers, plugin};
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-kasane_plugin_sdk::state! {
-    struct PluginState {
-        session_count: u32 = 0,
-        active_key: Option<String> = None,
-        switcher_open: bool = false,
-        selected: usize = 0,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -38,10 +21,11 @@ fn active_face() -> Face {
 // ---------------------------------------------------------------------------
 
 fn build_switcher_overlay(
-    state: &PluginState,
+    switcher_open: bool,
+    selected: usize,
     ctx: &OverlayContext,
 ) -> Option<OverlayContribution> {
-    if !state.switcher_open {
+    if !switcher_open {
         return None;
     }
 
@@ -65,7 +49,7 @@ fn build_switcher_overlay(
     for i in 0..count {
         if let Some(desc) = host_state::get_session(i) {
             let is_active = active_key.as_deref() == Some(&desc.key);
-            let is_selected = i as usize == state.selected;
+            let is_selected = i as usize == selected;
             let marker = if is_active { "*" } else { " " };
             let buf = desc.buffer_name.as_deref().unwrap_or("");
             let mode = desc.mode_line.as_deref().unwrap_or("");
@@ -106,150 +90,123 @@ fn build_switcher_overlay(
 }
 
 // ---------------------------------------------------------------------------
-// Plugin implementation
+// Plugin
 // ---------------------------------------------------------------------------
 
-struct SessionUiPlugin;
+kasane_plugin_sdk::define_plugin! {
+    id: "session_ui",
 
-fn refresh_sessions(dirty_flags: u16) {
-    if dirty_flags & dirty::SESSION != 0 {
-        STATE.with(|s| {
-            let mut state = s.borrow_mut();
-            state.session_count = host_state::get_session_count();
-            state.active_key = host_state::get_active_session_key();
+    state {
+        #[bind(host_state::get_session_count(), on: dirty::SESSION)]
+        session_count: u32 = 0,
+        #[bind(host_state::get_active_session_key(), on: dirty::SESSION)]
+        active_key: Option<String> = None,
+        switcher_open: bool = false,
+        selected: usize = 0,
+    },
+
+    on_state_changed_effects(dirty) {
+        if dirty & dirty::SESSION != 0 {
             state.switcher_open = false;
             if state.session_count > 0 && state.selected >= state.session_count as usize {
                 state.selected = state.session_count as usize - 1;
             }
-            state.bump_generation();
-        });
-    }
-}
-
-#[plugin]
-impl Guest for SessionUiPlugin {
-    fn get_id() -> String {
-        "session_ui".to_string()
-    }
-
-    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
-        refresh_sessions(dirty_flags);
+        }
         RuntimeEffects::default()
-    }
+    },
 
-    kasane_plugin_sdk::slots! {
-        STATUS_RIGHT => |_ctx| {
-            STATE.with(|s| {
-                let state = s.borrow();
-                if state.session_count <= 1 {
-                    return None;
-                }
-                let key = state.active_key.as_deref().unwrap_or("?");
-                let label = format!(" [{}:{}] ", state.session_count, key);
-                let el = text(&label, highlight_face());
-                Some(Contribution {
-                    element: el,
-                    priority: 10,
-                    size_hint: ContribSizeHint::Auto,
-                })
-            })
-        },
-    }
-
-    fn handle_key(event: KeyEvent) -> Option<Vec<Command>> {
-        STATE.with(|s| {
-            let mut state = s.borrow_mut();
-
-            if !state.switcher_open {
-                // Ctrl+T opens the switcher
-                if matches!(event.key, KeyCode::Character(ref c) if c == "t")
-                    && event.modifiers & modifiers::CTRL != 0
-                {
-                    state.switcher_open = true;
-                    state.selected = 0;
-                    state.bump_generation();
-                    return Some(vec![Command::RequestRedraw(dirty::ALL)]);
-                }
+    slots {
+        STATUS_RIGHT(dirty::SESSION) => |_ctx| {
+            if state.session_count <= 1 {
                 return None;
             }
+            let key = state.active_key.as_deref().unwrap_or("?");
+            let label = format!(" [{}:{}] ", state.session_count, key);
+            let el = text(&label, highlight_face());
+            Some(Contribution {
+                element: el,
+                priority: 10,
+                size_hint: ContribSizeHint::Auto,
+            })
+        },
+    },
 
-            // Switcher is open — consume all keys
-            match &event.key {
-                KeyCode::Escape => {
-                    state.switcher_open = false;
-                    state.bump_generation();
-                    Some(vec![Command::RequestRedraw(dirty::ALL)])
-                }
-                KeyCode::Character(c) if c == "t" && event.modifiers & modifiers::CTRL != 0 => {
-                    // Ctrl+T toggles off
-                    state.switcher_open = false;
-                    state.bump_generation();
-                    Some(vec![Command::RequestRedraw(dirty::ALL)])
-                }
-                KeyCode::Up => {
-                    if state.selected > 0 {
-                        state.selected -= 1;
-                        state.bump_generation();
-                    }
-                    Some(vec![Command::RequestRedraw(dirty::ALL)])
-                }
-                KeyCode::Down => {
-                    let count = state.session_count as usize;
-                    if count > 0 && state.selected < count - 1 {
-                        state.selected += 1;
-                        state.bump_generation();
-                    }
-                    Some(vec![Command::RequestRedraw(dirty::ALL)])
-                }
-                KeyCode::Enter => {
-                    // Switch to selected session
-                    let selected = state.selected;
-                    state.switcher_open = false;
-                    state.bump_generation();
-                    let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
-                    if let Some(desc) = host_state::get_session(selected as u32) {
-                        cmds.push(Command::SwitchSession(desc.key));
-                    }
-                    Some(cmds)
-                }
-                KeyCode::Character(c) if c == "n" => {
-                    // Create a new session and activate it
-                    state.switcher_open = false;
-                    state.bump_generation();
-                    Some(vec![
-                        Command::RequestRedraw(dirty::ALL),
-                        Command::SpawnSession(SessionConfig {
-                            key: None,
-                            session: None,
-                            args: vec![],
-                            activate: true,
-                        }),
-                    ])
-                }
-                KeyCode::Character(c) if c == "d" => {
-                    // Close selected session (guard: don't close last)
-                    if state.session_count <= 1 {
-                        return Some(vec![]);
-                    }
-                    let selected = state.selected;
-                    if let Some(desc) = host_state::get_session(selected as u32) {
-                        let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
-                        cmds.push(Command::CloseSession(Some(desc.key)));
-                        return Some(cmds);
-                    }
-                    Some(vec![])
-                }
-                _ => Some(vec![]), // consume all keys when open
+    handle_key(event) {
+        if !state.switcher_open {
+            // Ctrl+T opens the switcher
+            if is_ctrl(&event, "t") {
+                state.switcher_open = true;
+                state.selected = 0;
+                return Some(vec![Command::RequestRedraw(dirty::ALL)]);
             }
-        })
-    }
+            return None;
+        }
 
-    fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {
-        STATE.with(|s| {
-            let state = s.borrow();
-            build_switcher_overlay(&state, &ctx)
-        })
-    }
+        // Switcher is open — consume all keys
+        match &event.key {
+            KeyCode::Escape => {
+                state.switcher_open = false;
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }
+            KeyCode::Character(c) if c == "t" && event.modifiers & modifiers::CTRL != 0 => {
+                // Ctrl+T toggles off
+                state.switcher_open = false;
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }
+            KeyCode::Up => {
+                if state.selected > 0 {
+                    state.selected -= 1;
+                }
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }
+            KeyCode::Down => {
+                let count = state.session_count as usize;
+                if count > 0 && state.selected < count - 1 {
+                    state.selected += 1;
+                }
+                Some(vec![Command::RequestRedraw(dirty::ALL)])
+            }
+            KeyCode::Enter => {
+                // Switch to selected session
+                let selected = state.selected;
+                state.switcher_open = false;
+                let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
+                if let Some(desc) = host_state::get_session(selected as u32) {
+                    cmds.push(Command::SwitchSession(desc.key));
+                }
+                Some(cmds)
+            }
+            KeyCode::Character(c) if c == "n" => {
+                // Create a new session and activate it
+                state.switcher_open = false;
+                Some(vec![
+                    Command::RequestRedraw(dirty::ALL),
+                    Command::SpawnSession(SessionConfig {
+                        key: None,
+                        session: None,
+                        args: vec![],
+                        activate: true,
+                    }),
+                ])
+            }
+            KeyCode::Character(c) if c == "d" => {
+                // Close selected session (guard: don't close last)
+                if state.session_count <= 1 {
+                    return Some(vec![]);
+                }
+                let selected = state.selected;
+                if let Some(desc) = host_state::get_session(selected as u32) {
+                    let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
+                    cmds.push(Command::CloseSession(Some(desc.key)));
+                    return Some(cmds);
+                }
+                Some(vec![])
+            }
+            _ => Some(vec![]), // consume all keys when open
+        }
+    },
+
+    overlay(ctx) {
+        build_switcher_overlay(state.switcher_open, state.selected, &ctx)
+    },
 }
-
-export!(SessionUiPlugin);

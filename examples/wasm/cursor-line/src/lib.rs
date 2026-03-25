@@ -1,40 +1,13 @@
-kasane_plugin_sdk::generate!();
+kasane_plugin_sdk::define_plugin! {
+    id: "cursor_line",
 
-use std::cell::Cell;
+    state {
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
+        active_line: i32 = -1,
+    },
 
-use kasane_plugin_sdk::{dirty, plugin};
-
-thread_local! {
-    static ACTIVE_LINE: Cell<i32> = const { Cell::new(-1) };
-}
-
-struct CursorLinePlugin;
-
-fn refresh_active_line(dirty_flags: u16) {
-    if dirty_flags & dirty::BUFFER != 0 {
-        let line = host_state::get_cursor_line();
-        ACTIVE_LINE.set(line);
-    }
-}
-
-#[plugin]
-impl Guest for CursorLinePlugin {
-    fn get_id() -> String {
-        "cursor_line".to_string()
-    }
-
-    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
-        refresh_active_line(dirty_flags);
-        RuntimeEffects::default()
-    }
-
-    fn state_hash() -> u64 {
-        ACTIVE_LINE.get() as u64
-    }
-
-    fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
-        let active = ACTIVE_LINE.get();
-        if line as i32 != active {
+    annotate(line, _ctx) {
+        if line as i32 != state.active_line {
             return None;
         }
         let bg = theme_face_or(
@@ -46,7 +19,5 @@ impl Guest for CursorLinePlugin {
             },
         );
         Some(bg_annotation(bg))
-    }
+    },
 }
-
-export!(CursorLinePlugin);

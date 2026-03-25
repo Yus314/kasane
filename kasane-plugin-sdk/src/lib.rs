@@ -768,6 +768,16 @@ macro_rules! default_io_event {
     };
 }
 
+/// Default view-deps stub (returns ALL = 0x17F).
+#[macro_export]
+macro_rules! default_view_deps {
+    () => {
+        fn view_deps() -> u16 {
+            0x17F
+        }
+    };
+}
+
 /// Declare thread-local plugin state with a generation counter.
 ///
 /// Generates a struct with the specified fields plus a `generation: u64` field,

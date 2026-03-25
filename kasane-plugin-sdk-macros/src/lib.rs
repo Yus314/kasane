@@ -80,6 +80,34 @@ pub fn kasane_wasm_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream 
     let all_provided: std::collections::HashSet<String> =
         existing.union(&macro_provided).cloned().collect();
 
+    // Validate that all user-written methods are known Guest methods.
+    let known = known_guest_methods();
+    let mut errors = Vec::new();
+    for item in &impl_block.items {
+        if let ImplItem::Fn(method) = item {
+            let name = method.sig.ident.to_string();
+            if !known.contains(name.as_str()) {
+                let suggestions = suggest_similar(&name, &known);
+                let msg = if suggestions.is_empty() {
+                    format!("unknown Guest method `{name}`")
+                } else {
+                    format!("unknown Guest method `{name}`. Did you mean {suggestions}?")
+                };
+                errors.push(syn::Error::new(method.sig.ident.span(), msg));
+            }
+        }
+    }
+    if !errors.is_empty() {
+        let combined = errors
+            .into_iter()
+            .reduce(|mut a, b| {
+                a.combine(b);
+                a
+            })
+            .unwrap();
+        return combined.into_compile_error().into();
+    }
+
     // Generate defaults for every Guest method not already present.
     let defaults = generate_defaults(&all_provided);
 
@@ -153,6 +181,91 @@ fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
         "slots" => vec!["contribute_to".into()],
         _ => vec![],
     }
+}
+
+/// The complete set of valid Guest trait method names.
+fn known_guest_methods() -> std::collections::HashSet<&'static str> {
+    [
+        "get_id",
+        "on_init_effects",
+        "on_active_session_ready_effects",
+        "on_shutdown",
+        "on_state_changed_effects",
+        "on_workspace_changed",
+        "surfaces",
+        "render_surface",
+        "handle_surface_event",
+        "handle_surface_state_changed",
+        "contribute",
+        "contribute_named",
+        "contribute_to",
+        "contribute_line",
+        "contribute_overlay",
+        "contribute_overlay_v2",
+        "annotate_line",
+        "display_directives",
+        "replace",
+        "decorate",
+        "decorator_priority",
+        "transform",
+        "transform_priority",
+        "transform_menu_item",
+        "handle_mouse",
+        "handle_key",
+        "handle_key_middleware",
+        "handle_default_scroll",
+        "observe_key",
+        "observe_mouse",
+        "state_hash",
+        "cursor_style_override",
+        "decorate_cells",
+        "update_effects",
+        "requested_capabilities",
+        "requested_authorities",
+        "on_io_event_effects",
+        "view_deps",
+    ]
+    .into_iter()
+    .collect()
+}
+
+/// Suggest similar method names using edit distance (Levenshtein).
+fn suggest_similar(input: &str, known: &std::collections::HashSet<&str>) -> String {
+    let mut candidates: Vec<(usize, &str)> = known
+        .iter()
+        .map(|k| (edit_distance(input, k), *k))
+        .filter(|(d, _)| *d <= 4)
+        .collect();
+    candidates.sort_by_key(|(d, _)| *d);
+    candidates
+        .iter()
+        .take(3)
+        .map(|(_, k)| format!("`{k}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Simple Levenshtein distance.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 0..=m {
+        dp[i][0] = i;
+    }
+    for j in 0..=n {
+        dp[0][j] = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
 }
 
 /// Generate default `ImplItemFn` nodes for all Guest methods not in `existing`.
@@ -473,6 +586,13 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { RuntimeEffects::default() } }
     );
 
+    // --- View dependency declaration ---
+
+    add_default!(
+        "view_deps",
+        quote! { fn view_deps() -> u16 { 0x17F } } // ALL
+    );
+
     defaults
 }
 
@@ -532,6 +652,9 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             pub use super::kasane::plugin::host_state;
             pub use super::kasane::plugin::element_builder;
             pub use super::kasane::plugin::types::*;
+
+            // Re-export host-log for direct use
+            pub use super::kasane::plugin::host_log;
 
             use super::kasane::plugin::types::*;
 
@@ -1003,6 +1126,24 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 let y = (screen_rows.saturating_sub(h)) / 2;
                 AbsoluteAnchor { x, y, w, h }
             }
+
+            // --- Logging helpers ---
+
+            pub fn log_debug(msg: &str) {
+                host_log::log_message(host_log::LogLevel::Debug, msg);
+            }
+
+            pub fn log_info(msg: &str) {
+                host_log::log_message(host_log::LogLevel::Info, msg);
+            }
+
+            pub fn log_warn(msg: &str) {
+                host_log::log_message(host_log::LogLevel::Warn, msg);
+            }
+
+            pub fn log_error(msg: &str) {
+                host_log::log_message(host_log::LogLevel::Error, msg);
+            }
         }
 
         #[allow(unused_imports)]
@@ -1137,6 +1278,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             struct __KasaneStateMutGuard<'a> {
                 inner: ::std::cell::RefMut<'a, __KasanePluginState>,
                 old_generation: u64,
+                mutated: bool,
             }
 
             impl ::std::ops::Deref for __KasaneStateMutGuard<'_> {
@@ -1145,12 +1287,15 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             }
 
             impl ::std::ops::DerefMut for __KasaneStateMutGuard<'_> {
-                fn deref_mut(&mut self) -> &mut Self::Target { &mut self.inner }
+                fn deref_mut(&mut self) -> &mut Self::Target {
+                    self.mutated = true;
+                    &mut self.inner
+                }
             }
 
             impl Drop for __KasaneStateMutGuard<'_> {
                 fn drop(&mut self) {
-                    if self.inner.generation == self.old_generation {
+                    if self.mutated && self.inner.generation == self.old_generation {
                         self.inner.generation = self.inner.generation.wrapping_add(1);
                     }
                 }
@@ -1190,6 +1335,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                     let mut state = __KasaneStateMutGuard {
                         inner: __s.borrow_mut(),
                         old_generation: __old_gen,
+                        mutated: false,
                     };
                     #body
                 })
@@ -1229,6 +1375,14 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    // Determine the dirty-flags parameter name early so auto-bindings can reference it.
+    let has_osc = def.on_state_changed_effects.is_some();
+    let osc_param_name = def
+        .on_state_changed_effects
+        .as_ref()
+        .map(|osc| osc.param.clone())
+        .unwrap_or_else(|| syn::Ident::new("__flags", proc_macro2::Span::call_site()));
+
     // Generate auto-binding code from #[bind] attributes
     let auto_bindings: Vec<proc_macro2::TokenStream> = if let Some(ref state_def) = def.state {
         state_def
@@ -1239,8 +1393,9 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                     let name = &f.name;
                     let expr = &b.expr;
                     let flag = &b.dirty_flag;
+                    let pname = &osc_param_name;
                     quote! {
-                        if __flags & #flag != 0 {
+                        if #pname & #flag != 0 {
                             state.#name = #expr;
                         }
                     }
@@ -1252,14 +1407,9 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     };
 
     let has_bindings = !auto_bindings.is_empty();
-    let has_osc = def.on_state_changed_effects.is_some();
 
     let on_state_changed_method = if has_osc || has_bindings {
-        let param_name = def
-            .on_state_changed_effects
-            .as_ref()
-            .map(|osc| osc.param.clone())
-            .unwrap_or_else(|| syn::Ident::new("__flags", proc_macro2::Span::call_site()));
+        let param_name = &osc_param_name;
 
         let sync_body = def
             .on_state_changed_effects
@@ -1274,6 +1424,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                     let mut state = __KasaneStateMutGuard {
                         inner: __s.borrow_mut(),
                         old_generation: __old_gen,
+                        mutated: false,
                     };
                     #( #auto_bindings )*
                     { #sync_body }
@@ -1522,6 +1673,28 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    // Generate view_deps method.
+    // Priority: explicit view_deps > auto-infer from #[bind] flags > default (ALL).
+    let view_deps_method = if let Some(ref vd) = def.view_deps {
+        quote! { fn view_deps() -> u16 { #vd } }
+    } else if let Some(ref state_def) = def.state {
+        // Auto-infer from #[bind(expr, on: flag)] declarations
+        let bind_flags: Vec<&proc_macro2::TokenStream> = state_def
+            .fields
+            .iter()
+            .filter_map(|f| f.bind.as_ref().map(|b| &b.dirty_flag))
+            .collect();
+        if !bind_flags.is_empty() && !has_osc {
+            // Only infer when there's no custom on_state_changed_effects
+            // (custom handler may observe flags not declared in #[bind])
+            quote! { fn view_deps() -> u16 { #( #bind_flags )|* } }
+        } else {
+            quote! {} // Fall through to default stub (ALL)
+        }
+    } else {
+        quote! {} // No state, no view_deps — use default
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -1555,6 +1728,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             #capabilities_method
             #authorities_method
             #on_io_event_method
+            #view_deps_method
         }
 
         export!(__KasanePlugin);
@@ -1584,6 +1758,7 @@ struct PluginDef {
     capabilities: Option<proc_macro2::TokenStream>,
     authorities: Option<proc_macro2::TokenStream>,
     on_io_event_effects: Option<ParamBodyDef>,
+    view_deps: Option<proc_macro2::TokenStream>,
 }
 
 struct StateDef {
@@ -1666,6 +1841,7 @@ impl syn::parse::Parse for PluginDef {
             capabilities: None,
             authorities: None,
             on_io_event_effects: None,
+            view_deps: None,
         };
 
         let mut has_id = false;
@@ -1911,6 +2087,10 @@ impl syn::parse::Parse for PluginDef {
                         param,
                         body: body.parse()?,
                     });
+                }
+                "view_deps" => {
+                    input.parse::<syn::Token![:]>()?;
+                    def.view_deps = Some(input.parse()?);
                 }
                 "on_init" => {
                     return Err(syn::Error::new(

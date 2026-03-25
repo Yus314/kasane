@@ -82,6 +82,10 @@ pub(crate) struct HostState {
     /// Element arena: WASM plugins build elements via host calls, stored here.
     /// Cleared before each `contribute()` call.
     pub elements: Vec<Element>,
+
+    // --- v0.22.0: Plugin identity for logging ---
+    pub plugin_id: String,
+
     // WASI support (required by wasmtime-wasi for wasm32-wasip2 components)
     pub wasi: wasmtime_wasi::WasiCtx,
     pub table: wasmtime::component::ResourceTable,
@@ -137,6 +141,7 @@ impl Default for HostState {
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
             elements: Vec::new(),
+            plugin_id: String::new(),
             wasi: WasiCtxBuilder::new().build(),
             table: wasmtime::component::ResourceTable::new(),
         }
@@ -739,6 +744,23 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
             opacity: opacity.clamp(0.0, 1.0),
         };
         self.store_element(element)
+    }
+}
+
+impl bindings::kasane::plugin::host_log::Host for HostState {
+    fn log_message(
+        &mut self,
+        level: bindings::kasane::plugin::host_log::LogLevel,
+        message: String,
+    ) {
+        use bindings::kasane::plugin::host_log::LogLevel;
+        let plugin = &self.plugin_id;
+        match level {
+            LogLevel::Debug => tracing::debug!(plugin = %plugin, "{message}"),
+            LogLevel::Info => tracing::info!(plugin = %plugin, "{message}"),
+            LogLevel::Warn => tracing::warn!(plugin = %plugin, "{message}"),
+            LogLevel::Error => tracing::error!(plugin = %plugin, "{message}"),
+        }
     }
 }
 

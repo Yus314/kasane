@@ -1040,10 +1040,34 @@ interface plugin-api {
 
     /// Typed runtime effects for I/O events.
     on-io-event-effects: func(event: io-event) -> runtime-effects;
+
+    // --- v0.22.0: view dependency declaration ---
+
+    /// Declare which dirty-flag categories this plugin observes.
+    /// The host uses this to skip update calls when irrelevant state changes.
+    /// Return a bitmask of dirty-flag bits (0x17F = ALL).
+    view-deps: func() -> u16;
+}
+
+// ---------------------------------------------------------------------------
+// Host logging interface (v0.22.0)
+// ---------------------------------------------------------------------------
+
+interface host-log {
+    enum log-level {
+        debug,
+        info,
+        warn,
+        error,
+    }
+
+    /// Emit a log message attributed to the calling plugin.
+    log-message: func(level: log-level, message: string);
 }
 
 world kasane-plugin {
     import host-state;
     import element-builder;
+    import host-log;
     export plugin-api;
 }

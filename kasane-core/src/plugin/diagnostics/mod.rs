@@ -57,6 +57,9 @@ pub enum PluginDiagnosticKind {
         artifact: String,
         stage: ProviderArtifactStage,
     },
+    RuntimeError {
+        method: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +126,22 @@ impl PluginDiagnostic {
         }
     }
 
+    pub fn runtime_error(
+        plugin_id: PluginId,
+        method: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            target: PluginDiagnosticTarget::Plugin(plugin_id),
+            message: message.into(),
+            kind: PluginDiagnosticKind::RuntimeError {
+                method: method.into(),
+            },
+            previous: None,
+            attempted: None,
+        }
+    }
+
     pub fn plugin_id(&self) -> Option<&PluginId> {
         match &self.target {
             PluginDiagnosticTarget::Plugin(plugin_id) => Some(plugin_id),
@@ -141,7 +160,8 @@ impl PluginDiagnostic {
         match self.kind {
             PluginDiagnosticKind::SurfaceRegistrationFailed { .. }
             | PluginDiagnosticKind::InstantiationFailed
-            | PluginDiagnosticKind::ProviderCollectFailed => PluginDiagnosticSeverity::Error,
+            | PluginDiagnosticKind::ProviderCollectFailed
+            | PluginDiagnosticKind::RuntimeError { .. } => PluginDiagnosticSeverity::Error,
             PluginDiagnosticKind::ProviderArtifactFailed { .. } => {
                 PluginDiagnosticSeverity::Warning
             }
@@ -174,6 +194,7 @@ pub enum PluginDiagnosticOverlayTagKind {
     ArtifactRead,
     ArtifactLoad,
     ArtifactInstantiate,
+    Runtime,
 }
 
 pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
@@ -199,6 +220,9 @@ pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
                 provider_artifact_stage_summary_label(*stage),
                 provider_artifact_summary_name(artifact)
             )
+        }
+        PluginDiagnosticKind::RuntimeError { method } => {
+            format!("{target}.{method}: {}", diagnostic.message)
         }
     }
 }
@@ -328,6 +352,15 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                         "plugin artifact preparation failed"
                     ),
                 };
+            }
+            PluginDiagnosticKind::RuntimeError { ref method } => {
+                tracing::error!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    kind = "runtime_error",
+                    method = %method,
+                    message = %diagnostic.message,
+                    "plugin runtime error"
+                );
             }
         }
     }

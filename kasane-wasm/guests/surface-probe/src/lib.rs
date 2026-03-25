@@ -252,6 +252,7 @@ impl Guest for SurfaceProbePlugin {
     kasane_plugin_sdk::default_contribute_to!();
     kasane_plugin_sdk::default_decorate_cells!();
     kasane_plugin_sdk::default_capabilities!();
+    kasane_plugin_sdk::default_view_deps!();
 }
 
 export!(SurfaceProbePlugin);

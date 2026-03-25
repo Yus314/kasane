@@ -1,8 +1,4 @@
-kasane_plugin_sdk::generate!();
-
 use std::collections::HashMap;
-
-use kasane_plugin_sdk::{dirty, keys, modifiers, plugin};
 
 // ---------------------------------------------------------------------------
 // Color detection
@@ -157,17 +153,6 @@ fn format_color(channels: [u8; 3], format: ColorFormat) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-kasane_plugin_sdk::state! {
-    struct PluginState {
-        color_lines: HashMap<usize, ColorLine> = HashMap::new(),
-        active_line: i32 = 0,
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Element builders
 // ---------------------------------------------------------------------------
 
@@ -230,82 +215,51 @@ fn build_color_grid(entry: &ColorEntry, color_idx: u8) -> ElementHandle {
 }
 
 // ---------------------------------------------------------------------------
-// Plugin implementation
+// Plugin
 // ---------------------------------------------------------------------------
 
-struct ColorPreviewPlugin;
+kasane_plugin_sdk::define_plugin! {
+    id: "color_preview",
 
-fn refresh_color_state(dirty_flags: u16) {
-    if dirty_flags & dirty::BUFFER == 0 {
-        return;
-    }
+    state {
+        color_lines: HashMap<usize, ColorLine> = HashMap::new(),
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
+        active_line: i32 = 0,
+    },
 
-    STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        let mut changed = false;
-
-        let cursor_line = host_state::get_cursor_line();
-        if state.active_line != cursor_line {
-            state.active_line = cursor_line;
-            changed = true;
-        }
-
-        let line_count = host_state::get_line_count();
-        for i in 0..line_count {
-            if !host_state::is_line_dirty(i) {
-                continue;
-            }
-
-            let text = match host_state::get_line_text(i) {
-                Some(t) => t,
-                None => continue,
-            };
-
-            let idx = i as usize;
-            let colors = detect_colors(&text);
-
-            if colors.is_empty() {
-                if state.color_lines.remove(&idx).is_some() {
-                    changed = true;
+    on_state_changed_effects(dirty) {
+        if dirty & dirty::BUFFER != 0 {
+            let line_count = host_state::get_line_count();
+            for i in 0..line_count {
+                if !host_state::is_line_dirty(i) {
+                    continue;
                 }
-            } else {
-                let cl = ColorLine { colors };
-                if state.color_lines.get(&idx) != Some(&cl) {
-                    state.color_lines.insert(idx, cl);
-                    changed = true;
+
+                let text = match host_state::get_line_text(i) {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                let idx = i as usize;
+                let colors = detect_colors(&text);
+
+                if colors.is_empty() {
+                    state.color_lines.remove(&idx);
+                } else {
+                    let cl = ColorLine { colors };
+                    if state.color_lines.get(&idx) != Some(&cl) {
+                        state.color_lines.insert(idx, cl);
+                    }
                 }
             }
+
+            let lc = line_count as usize;
+            state.color_lines.retain(|&k, _| k < lc);
         }
-
-        let lc = line_count as usize;
-        state.color_lines.retain(|&k, _| k < lc);
-
-        if changed {
-            state.bump_generation();
-        }
-    });
-}
-
-#[plugin]
-impl Guest for ColorPreviewPlugin {
-    fn get_id() -> String {
-        "color_preview".to_string()
-    }
-
-    fn on_init_effects() -> BootstrapEffects {
-        BootstrapEffects::default()
-    }
-
-    fn on_shutdown() -> Vec<Command> {
-        vec![]
-    }
-
-    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
-        refresh_color_state(dirty_flags);
         RuntimeEffects::default()
-    }
+    },
 
-    fn handle_mouse(event: MouseEvent, id: InteractiveId) -> Option<Vec<Command>> {
+    handle_mouse(event, id) {
         let PickerId::Picker { color_idx, channel, down: is_down } = PickerId::decode(id)?;
 
         // Consume all events on picker IDs
@@ -314,110 +268,92 @@ impl Guest for ColorPreviewPlugin {
             return Some(vec![]);
         }
 
-        STATE.with(|state| {
-            let state = state.borrow();
-            let line_idx = state.active_line as usize;
-            let entry = state.color_lines.get(&line_idx)?.colors.get(color_idx as usize)?;
+        let line_idx = state.active_line as usize;
+        let entry = state.color_lines.get(&line_idx)?.colors.get(color_idx as usize)?;
 
-            let step: i16 = if event.modifiers & (modifiers::SHIFT | modifiers::CTRL) != 0 {
-                16
-            } else {
-                1
-            };
-            let delta = if is_down { -step } else { step };
+        let step: i16 = if event.modifiers & (modifiers::SHIFT | modifiers::CTRL) != 0 {
+            16
+        } else {
+            1
+        };
+        let delta = if is_down { -step } else { step };
 
-            let mut channels = [entry.r, entry.g, entry.b];
-            channels[channel as usize] = (channels[channel as usize] as i16 + delta).clamp(0, 255) as u8;
+        let mut channels = [entry.r, entry.g, entry.b];
+        channels[channel as usize] = (channels[channel as usize] as i16 + delta).clamp(0, 255) as u8;
 
-            // Safety check: verify old text at expected offset
-            let buffer_text = host_state::get_line_text(line_idx as u32).unwrap_or_default();
-            let old_text = &entry.original;
-            if !buffer_text
-                .get(entry.byte_offset..)
-                .is_some_and(|s| s.starts_with(old_text.as_str()))
-            {
-                return Some(vec![]);
-            }
+        // Safety check: verify old text at expected offset
+        let buffer_text = host_state::get_line_text(line_idx as u32).unwrap_or_default();
+        let old_text = &entry.original;
+        if !buffer_text
+            .get(entry.byte_offset..)
+            .is_some_and(|s| s.starts_with(old_text.as_str()))
+        {
+            return Some(vec![]);
+        }
 
-            let new_text = format_color(channels, entry.format);
+        let new_text = format_color(channels, entry.format);
 
-            let kak_line = line_idx + 1; // 0-based to 1-based
-            let cmd = format!("exec -draft {kak_line}gxs{old_text}<ret>c{new_text}<esc>");
-            let mut kak_keys: Vec<String> = vec!["<esc>".into(), ":".into()];
-            keys::push_literal(&mut kak_keys, &cmd);
-            kak_keys.push("<ret>".into());
+        let kak_line = line_idx + 1; // 0-based to 1-based
+        let cmd = format!("exec -draft {kak_line}gxs{old_text}<ret>c{new_text}<esc>");
+        let mut kak_keys: Vec<String> = vec!["<esc>".into(), ":".into()];
+        keys::push_literal(&mut kak_keys, &cmd);
+        kak_keys.push("<ret>".into());
 
-            Some(vec![Command::SendKeys(kak_keys)])
-        })
-    }
+        Some(vec![Command::SendKeys(kak_keys)])
+    },
 
-    fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
-        None
-    }
+    annotate(line, _ctx) {
+        let cl = state.color_lines.get(&(line as usize))?;
+        let swatch = build_swatch(&cl.colors);
+        Some(gutter_annotation(swatch, 0))
+    },
 
-    fn observe_key(_event: KeyEvent) {}
-    fn observe_mouse(_event: MouseEvent) {}
+    overlay(ctx) {
+        let line_idx = state.active_line as usize;
+        let cl = state.color_lines.get(&line_idx)?;
 
-    fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
-        STATE.with(|state| {
-            let state = state.borrow();
-            let cl = state.color_lines.get(&(line as usize))?;
-            let swatch = build_swatch(&cl.colors);
-            Some(gutter_annotation(swatch, 0))
-        })
-    }
-
-    fn contribute_overlay_v2(ctx: OverlayContext) -> Option<OverlayContribution> {
-        STATE.with(|state| {
-            let state = state.borrow();
-            let line_idx = state.active_line as usize;
-            let cl = state.color_lines.get(&line_idx)?;
-
-            let entries: Vec<FlexEntry> = cl
-                .colors
-                .iter()
-                .enumerate()
-                .map(|(idx, entry)| {
-                    let grid = build_color_grid(entry, idx as u8);
-                    FlexEntry {
-                        child: grid,
-                        flex: 0.0,
-                    }
-                })
-                .collect();
-
-            let inner = element_builder::create_column_flex(&entries, 1);
-
-            let el = container(inner)
-                .border(BorderLineStyle::Rounded)
-                .build();
-
-            let cursor_line = host_state::get_cursor_line();
-            let cursor_col = host_state::get_cursor_col();
-
-            // Build avoid list from menu_rect + existing_overlays
-            let mut avoid = ctx.existing_overlays;
-            if let Some(menu_rect) = ctx.menu_rect {
-                avoid.push(menu_rect);
-            }
-
-            Some(OverlayContribution {
-                element: el,
-                anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
-                    coord: Coord {
-                        line: cursor_line,
-                        column: cursor_col,
-                    },
-                    prefer_above: false,
-                    avoid,
-                }),
-                z_index: 0,
+        let entries: Vec<FlexEntry> = cl
+            .colors
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let grid = build_color_grid(entry, idx as u8);
+                FlexEntry {
+                    child: grid,
+                    flex: 0.0,
+                }
             })
-        })
-    }
-}
+            .collect();
 
-export!(ColorPreviewPlugin);
+        let inner = element_builder::create_column_flex(&entries, 1);
+
+        let el = container(inner)
+            .border(BorderLineStyle::Rounded)
+            .build();
+
+        let cursor_line = host_state::get_cursor_line();
+        let cursor_col = host_state::get_cursor_col();
+
+        // Build avoid list from menu_rect + existing_overlays
+        let mut avoid = ctx.existing_overlays;
+        if let Some(menu_rect) = ctx.menu_rect {
+            avoid.push(menu_rect);
+        }
+
+        Some(OverlayContribution {
+            element: el,
+            anchor: OverlayAnchor::AnchorPoint(AnchorPointConfig {
+                coord: Coord {
+                    line: cursor_line,
+                    column: cursor_col,
+                },
+                prefer_above: false,
+                avoid,
+            }),
+            z_index: 0,
+        })
+    },
+}
 
 #[cfg(test)]
 mod tests {

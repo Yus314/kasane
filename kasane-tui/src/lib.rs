@@ -364,6 +364,19 @@ where
             tracing::debug!(batch_count, "event batch drained");
         }
 
+        // Drain runtime diagnostics accumulated during the batch.
+        {
+            let runtime_diagnostics = registry.drain_all_diagnostics();
+            if !runtime_diagnostics.is_empty() {
+                report_plugin_diagnostics(&runtime_diagnostics);
+                kasane_core::event_loop::schedule_diagnostic_overlay(
+                    &TuiDiagnosticScheduler(tx.clone()),
+                    &mut diagnostic_overlay,
+                    &runtime_diagnostics,
+                );
+            }
+        }
+
         // Send resize commands to pane clients when layout may have changed
         if !dirty.is_empty() && surface_registry.is_multi_pane() {
             let total = kasane_core::layout::Rect {
