@@ -398,7 +398,9 @@ fn test_collect_display_directives_composes_multi_plugin() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    let directives = registry.collect_display_directives(&AppView::new(&state));
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
     // Both plugins' directives are present (Hide + InsertAfter)
     assert!(
         directives
@@ -435,7 +437,7 @@ fn test_collect_display_map_composes_multi_plugin() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    let display_map = registry.collect_display_map(&AppView::new(&state));
+    let display_map = registry.view().collect_display_map(&AppView::new(&state));
     // 4 lines - 2 hidden + 1 virtual = 3 display lines
     assert_eq!(display_map.display_line_count(), 3);
     assert_eq!(display_map.buffer_to_display(0), Some(0));
@@ -475,7 +477,9 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
 
-    let directives = registry.collect_display_directives(&AppView::new(&state));
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
     let fold_summaries: Vec<&str> = directives
         .iter()
         .filter_map(|d| match d {
@@ -507,7 +511,9 @@ fn test_collect_display_directives_single_plugin_unchanged() {
     let mut state = AppState::default();
     state.lines = vec![vec![], vec![], vec![], vec![]];
 
-    let directives = registry.collect_display_directives(&AppView::new(&state));
+    let directives = registry
+        .view()
+        .collect_display_directives(&AppView::new(&state));
     assert!(
         directives
             .iter()

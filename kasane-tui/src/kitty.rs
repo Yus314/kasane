@@ -18,11 +18,13 @@ use kasane_core::render::{ImageProtocol, ImageRequest};
 // ---------------------------------------------------------------------------
 
 /// Detect the image protocol to use based on config override and environment.
-pub fn detect_image_protocol(config_override: &str) -> ImageProtocol {
+pub fn detect_image_protocol(
+    config_override: kasane_core::config::ImageProtocolConfig,
+) -> ImageProtocol {
     match config_override {
-        "halfblock" => return ImageProtocol::Off,
-        "kitty" => return ImageProtocol::KittyDirect,
-        _ => { /* "auto" — detect */ }
+        kasane_core::config::ImageProtocolConfig::Halfblock => return ImageProtocol::Off,
+        kasane_core::config::ImageProtocolConfig::Kitty => return ImageProtocol::KittyDirect,
+        kasane_core::config::ImageProtocolConfig::Auto => { /* detect */ }
     }
     // TMUX does not pass through Kitty graphics
     if std::env::var("TMUX").is_ok() {

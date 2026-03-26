@@ -702,7 +702,9 @@ mod tests {
             .unwrap();
 
         assert!(surface_registry.get(SurfaceId(200)).is_some());
-        let hooks = registry.collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
+        let hooks = registry
+            .view()
+            .collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
         assert_eq!(hooks.len(), 1);
         assert_eq!(hooks[0].id(), "hook-a");
 
@@ -742,7 +744,9 @@ mod tests {
             1
         );
 
-        let hooks = registry.collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
+        let hooks = registry
+            .view()
+            .collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
         assert_eq!(hooks.len(), 1);
         assert_eq!(hooks[0].id(), "hook-b");
 

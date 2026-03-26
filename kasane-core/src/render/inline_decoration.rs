@@ -154,64 +154,35 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                     pos = gap_end;
                 }
                 InlineOp::Hide { range } => {
-                    if range.end <= pos {
-                        op_idx += 1;
+                    if advance_hide(
+                        range,
+                        &mut op_idx,
+                        &mut pos,
+                        atom_end,
+                        contents,
+                        atom_start,
+                        atom.face,
+                        &mut result,
+                    ) {
                         continue;
-                    }
-                    if range.start > pos {
-                        let gap_end = range.start.min(atom_end);
-                        emit_sub_atom(
-                            contents,
-                            pos - atom_start,
-                            gap_end - atom_start,
-                            atom.face,
-                            &mut result,
-                        );
-                        pos = gap_end;
-                        continue;
-                    }
-                    // Hide overlaps current position — skip
-                    let effective_end = atom_end.min(range.end);
-                    pos = effective_end;
-                    if pos >= range.end {
-                        op_idx += 1;
                     }
                 }
                 InlineOp::Style {
                     range,
                     face: op_face,
                 } => {
-                    if range.end <= pos {
-                        op_idx += 1;
+                    if advance_style(
+                        range,
+                        op_face,
+                        &mut op_idx,
+                        &mut pos,
+                        atom_end,
+                        contents,
+                        atom_start,
+                        atom.face,
+                        &mut result,
+                    ) {
                         continue;
-                    }
-                    if range.start > pos {
-                        let gap_end = range.start.min(atom_end);
-                        emit_sub_atom(
-                            contents,
-                            pos - atom_start,
-                            gap_end - atom_start,
-                            atom.face,
-                            &mut result,
-                        );
-                        pos = gap_end;
-                        continue;
-                    }
-                    // Style overlaps — emit with resolved face
-                    let effective_start = pos.max(range.start);
-                    let effective_end = atom_end.min(range.end);
-                    let local_start =
-                        clamp_to_char_boundary(contents, effective_start - atom_start);
-                    let local_end = clamp_to_char_boundary(contents, effective_end - atom_start);
-                    if local_start < local_end {
-                        result.push(Atom {
-                            face: crate::protocol::resolve_face(op_face, &atom.face),
-                            contents: contents[local_start..local_end].into(),
-                        });
-                    }
-                    pos = effective_end;
-                    if pos >= range.end {
-                        op_idx += 1;
                     }
                 }
             }
@@ -221,6 +192,92 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
     // Trailing Inserts (at or past end of all atoms)
     drain_inserts(ops, &mut op_idx, usize::MAX, &mut result);
     result
+}
+
+/// Process a Hide op: emit any gap before the hidden range, then skip hidden bytes.
+/// Returns `true` when the caller's `while` loop should `continue`.
+#[allow(clippy::too_many_arguments)]
+fn advance_hide(
+    range: &std::ops::Range<usize>,
+    op_idx: &mut usize,
+    pos: &mut usize,
+    atom_end: usize,
+    contents: &str,
+    atom_start: usize,
+    atom_face: Face,
+    result: &mut Vec<Atom>,
+) -> bool {
+    if range.end <= *pos {
+        *op_idx += 1;
+        return true;
+    }
+    if range.start > *pos {
+        let gap_end = range.start.min(atom_end);
+        emit_sub_atom(
+            contents,
+            *pos - atom_start,
+            gap_end - atom_start,
+            atom_face,
+            result,
+        );
+        *pos = gap_end;
+        return true;
+    }
+    // Hide overlaps current position — skip
+    let effective_end = atom_end.min(range.end);
+    *pos = effective_end;
+    if *pos >= range.end {
+        *op_idx += 1;
+    }
+    false
+}
+
+/// Process a Style op: emit any gap before the styled range, then emit styled bytes.
+/// Returns `true` when the caller's `while` loop should `continue`.
+#[allow(clippy::too_many_arguments)]
+fn advance_style(
+    range: &std::ops::Range<usize>,
+    op_face: &Face,
+    op_idx: &mut usize,
+    pos: &mut usize,
+    atom_end: usize,
+    contents: &str,
+    atom_start: usize,
+    atom_face: Face,
+    result: &mut Vec<Atom>,
+) -> bool {
+    if range.end <= *pos {
+        *op_idx += 1;
+        return true;
+    }
+    if range.start > *pos {
+        let gap_end = range.start.min(atom_end);
+        emit_sub_atom(
+            contents,
+            *pos - atom_start,
+            gap_end - atom_start,
+            atom_face,
+            result,
+        );
+        *pos = gap_end;
+        return true;
+    }
+    // Style overlaps — emit with resolved face
+    let effective_start = (*pos).max(range.start);
+    let effective_end = atom_end.min(range.end);
+    let local_start = clamp_to_char_boundary(contents, effective_start - atom_start);
+    let local_end = clamp_to_char_boundary(contents, effective_end - atom_start);
+    if local_start < local_end {
+        result.push(Atom {
+            face: crate::protocol::resolve_face(op_face, &atom_face),
+            contents: contents[local_start..local_end].into(),
+        });
+    }
+    *pos = effective_end;
+    if *pos >= range.end {
+        *op_idx += 1;
+    }
+    false
 }
 
 /// Emit all consecutive Insert ops whose `at <= pos`.

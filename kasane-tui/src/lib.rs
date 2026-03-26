@@ -233,7 +233,7 @@ where
     let mut halfblock_cache = kasane_core::render::halfblock::HalfblockCache::new(16);
 
     // Image protocol detection
-    let image_protocol = kitty::detect_image_protocol(&config.ui.image_protocol);
+    let image_protocol = kitty::detect_image_protocol(config.ui.image_protocol);
     let mut image_requests: Vec<ImageRequest> = Vec::new();
     if image_protocol != ImageProtocol::Off {
         backend.kitty = Some(kitty::KittyState::new());

@@ -23,35 +23,27 @@ pub struct Config {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
 pub struct MenuConfig {
-    pub position: String,
+    pub position: MenuPosition,
     pub max_height: u16,
 }
 
 impl Default for MenuConfig {
     fn default() -> Self {
         MenuConfig {
-            position: "auto".to_string(),
+            position: MenuPosition::Auto,
             max_height: 10,
         }
     }
 }
 
 /// Menu position: auto (default Kakoune behavior), above, or below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum MenuPosition {
+    #[default]
     Auto,
     Above,
     Below,
-}
-
-impl MenuConfig {
-    pub fn menu_position(&self) -> MenuPosition {
-        match self.position.as_str() {
-            "above" => MenuPosition::Above,
-            "below" => MenuPosition::Below,
-            _ => MenuPosition::Auto,
-        }
-    }
 }
 
 /// Search menu configuration.
@@ -83,13 +75,13 @@ pub struct ThemeConfig {
 pub struct UiConfig {
     pub shadow: bool,
     pub padding_char: String,
-    pub border_style: String,
-    pub status_position: String,
+    pub border_style: BorderStyleConfig,
+    pub status_position: StatusPosition,
     pub backend: String,
     /// Enable the scene-based GPU renderer (bypasses CellGrid). `None` = auto (true for GUI).
     pub scene_renderer: Option<bool>,
     /// Image rendering protocol: "auto" (detect terminal), "halfblock", "kitty".
-    pub image_protocol: String,
+    pub image_protocol: ImageProtocolConfig,
 }
 
 impl Default for UiConfig {
@@ -97,41 +89,56 @@ impl Default for UiConfig {
         UiConfig {
             shadow: true,
             padding_char: "~".to_string(),
-            border_style: "rounded".to_string(),
-            status_position: "bottom".to_string(),
+            border_style: BorderStyleConfig::Rounded,
+            status_position: StatusPosition::Bottom,
             backend: "tui".to_string(),
             scene_renderer: None,
-            image_protocol: "auto".to_string(),
+            image_protocol: ImageProtocolConfig::Auto,
         }
     }
 }
 
 /// Status bar position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StatusPosition {
     Top,
+    #[default]
     Bottom,
 }
 
-impl UiConfig {
-    /// Parse the configured border line style.
-    pub fn border_line_style(&self) -> crate::element::BorderLineStyle {
-        match self.border_style.as_str() {
-            "single" => crate::element::BorderLineStyle::Single,
-            "rounded" => crate::element::BorderLineStyle::Rounded,
-            "double" => crate::element::BorderLineStyle::Double,
-            "heavy" => crate::element::BorderLineStyle::Heavy,
-            "ascii" => crate::element::BorderLineStyle::Ascii,
-            _ => crate::element::BorderLineStyle::Rounded,
-        }
-    }
+/// Border line style configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BorderStyleConfig {
+    Single,
+    #[default]
+    Rounded,
+    Double,
+    Heavy,
+    Ascii,
+}
 
-    pub fn status_position(&self) -> StatusPosition {
-        match self.status_position.as_str() {
-            "top" => StatusPosition::Top,
-            _ => StatusPosition::Bottom,
+impl From<BorderStyleConfig> for crate::element::BorderLineStyle {
+    fn from(config: BorderStyleConfig) -> Self {
+        match config {
+            BorderStyleConfig::Single => crate::element::BorderLineStyle::Single,
+            BorderStyleConfig::Rounded => crate::element::BorderLineStyle::Rounded,
+            BorderStyleConfig::Double => crate::element::BorderLineStyle::Double,
+            BorderStyleConfig::Heavy => crate::element::BorderLineStyle::Heavy,
+            BorderStyleConfig::Ascii => crate::element::BorderLineStyle::Ascii,
         }
     }
+}
+
+/// Image rendering protocol configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageProtocolConfig {
+    #[default]
+    Auto,
+    Halfblock,
+    Kitty,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -615,5 +622,65 @@ info_border = "white,default+b"
             config.theme.faces.get("menu_item_normal"),
             Some(&"cyan,blue".to_string())
         );
+    }
+
+    #[test]
+    fn test_menu_position_enum() {
+        let toml_str = r#"
+[menu]
+position = "above"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.menu.position, MenuPosition::Above);
+    }
+
+    #[test]
+    fn test_status_position_enum() {
+        let toml_str = r#"
+[ui]
+status_position = "top"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.ui.status_position, StatusPosition::Top);
+    }
+
+    #[test]
+    fn test_border_style_enum() {
+        let toml_str = r#"
+[ui]
+border_style = "double"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.ui.border_style, BorderStyleConfig::Double);
+    }
+
+    #[test]
+    fn test_image_protocol_enum() {
+        let toml_str = r#"
+[ui]
+image_protocol = "kitty"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.ui.image_protocol, ImageProtocolConfig::Kitty);
+    }
+
+    #[test]
+    fn test_invalid_enum_value_fails() {
+        let toml_str = r#"
+[menu]
+position = "invalid_position"
+"#;
+        let result: Result<Config, _> = toml::from_str(toml_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_status_position_fails() {
+        let toml_str = r#"
+[ui]
+status_position = "middle"
+"#;
+        let result: Result<Config, _> = toml::from_str(toml_str);
+        assert!(result.is_err());
     }
 }

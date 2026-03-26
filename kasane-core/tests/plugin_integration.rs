@@ -242,7 +242,9 @@ fn menu_transform_adds_prefix() {
         face: Face::default(),
         contents: "alpha".into(),
     }];
-    let transformed = registry.transform_menu_item(&item, 0, false, &AppView::new(&state));
+    let transformed = registry
+        .view()
+        .transform_menu_item(&item, 0, false, &AppView::new(&state));
     assert!(transformed.is_some(), "transform should return Some");
     let transformed = transformed.unwrap();
     assert_eq!(
@@ -297,6 +299,7 @@ fn buffer_transform_adds_banner() {
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     let transformed = registry
+        .view()
         .apply_transform_chain(
             kasane_core::plugin::TransformTarget::Buffer,
             kasane_core::plugin::TransformSubject::Element(Element::buffer_ref(0..2)),
@@ -410,7 +413,7 @@ fn cursor_style_override_wins_over_default_logic() {
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     assert_eq!(
-        registry.cursor_style_override(&AppView::new(&state)),
+        registry.view().cursor_style_override(&AppView::new(&state)),
         Some(CursorStyle::Underline.into())
     );
     assert_eq!(

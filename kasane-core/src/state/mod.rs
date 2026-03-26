@@ -305,9 +305,9 @@ impl AppState {
         self.shadow_enabled = config.ui.shadow;
         self.padding_char = config.ui.padding_char.clone();
         self.menu_max_height = config.menu.max_height;
-        self.menu_position = config.menu.menu_position();
+        self.menu_position = config.menu.position;
         self.search_dropdown = config.search.dropdown;
-        self.status_at_top = config.ui.status_position() == StatusPosition::Top;
+        self.status_at_top = config.ui.status_position == StatusPosition::Top;
         set_smooth_scroll_enabled(&mut self.plugin_config, config.scroll.smooth);
         self.theme = Theme::from_config(&config.theme);
         self.theme.apply_color_context(&self.color_context);
