@@ -77,6 +77,12 @@ Kakoune (kak -ui json)
 
 For architecture details, see `docs/index.md`. For plugin API reference, see `docs/plugin-api.md`. For plugin development guide, see `docs/plugin-development.md`.
 
+## Design Philosophy
+
+- Plugin API expressiveness is a first-class goal: building infrastructure for future plugin authors is intentional, not speculative. Do not argue against extensibility work on the basis that no current consumer exists.
+- The roadmap documents planned work. Do not suggest deferring items that appear in the roadmap or that the user has explicitly requested.
+- When a simpler alternative exists, present it alongside the requested approach as an option — not as a reason to defer or reject.
+
 ## Conventions
 
 - **Commit messages**: English, conventional commits (`feat(scope):`, `fix:`, `refactor:`, `perf:`, `docs:`)
