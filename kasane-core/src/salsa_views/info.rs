@@ -10,6 +10,9 @@ use crate::salsa_queries;
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 
 /// Pure info overlay elements (no plugin transforms).
+///
+/// Returns `(InfoStyle, Overlay)` pairs so callers can select the correct
+/// transform target refinement (e.g. `InfoPrompt` vs `InfoModal`).
 #[salsa::tracked(no_eq)]
 pub fn pure_info_overlays(
     db: &dyn KasaneDb,
@@ -17,7 +20,7 @@ pub fn pure_info_overlays(
     menu_input: MenuInput,
     buffer: BufferInput,
     config: ConfigInput,
-) -> Vec<Overlay> {
+) -> Vec<(InfoStyle, Overlay)> {
     let infos = info_input.infos(db);
     if infos.is_empty() {
         return vec![];
@@ -74,7 +77,7 @@ pub fn pure_info_overlays(
                 child: Box::new(o.element),
                 id: interactive_id,
             };
-            overlays.push(o);
+            overlays.push((info.style, o));
         }
     }
     overlays

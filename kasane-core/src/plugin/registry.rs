@@ -502,7 +502,7 @@ impl<'a> PluginView<'a> {
     }
 
     /// Check if any registered plugin has the given capability.
-    fn has_capability(&self, cap: PluginCapabilities) -> bool {
+    pub(crate) fn has_capability(&self, cap: PluginCapabilities) -> bool {
         self.slots.iter().any(|s| s.capabilities.contains(cap))
     }
 

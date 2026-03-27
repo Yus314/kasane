@@ -276,8 +276,10 @@ fn pure_info_overlays_single_modal() {
     );
     assert_eq!(overlays.len(), 1, "should produce 1 info overlay");
 
-    // Check that it has Interactive wrapper
-    match &overlays[0].element {
+    // Check that it has Interactive wrapper and correct style
+    let (style, overlay) = &overlays[0];
+    assert_eq!(*style, InfoStyle::Modal);
+    match &overlay.element {
         Element::Interactive { .. } => {}
         other => panic!(
             "expected Interactive wrapper, got {:?}",

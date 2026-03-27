@@ -20,7 +20,9 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use crate::element::{Element, FlexChild, Style};
 use crate::layout::Rect;
-use crate::plugin::{AppView, PaintHook, PluginView, TransformSubject, TransformTarget};
+use crate::plugin::{
+    AppView, PaintHook, PluginCapabilities, PluginView, TransformSubject, TransformTarget,
+};
 use crate::protocol::MenuStyle;
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
@@ -150,6 +152,11 @@ impl ViewSource for SalsaViewSource<'_> {
                 offset_overlay_anchor(&mut o.anchor, ox, oy);
             }
             overlay
+        } else if registry.has_capability(PluginCapabilities::MENU_TRANSFORM) {
+            // When menu-item-transform plugins are present, bypass the Salsa
+            // cache and build via the non-Salsa path which applies per-item
+            // transforms during element construction.
+            view::build_menu_section_standalone(state, registry)
         } else {
             let pure = salsa_views::pure_menu_overlay(db, h.menu, h.config);
             pure.map(|overlay| {
@@ -185,13 +192,19 @@ impl ViewSource for SalsaViewSource<'_> {
             overlays
         } else {
             let pure = salsa_views::pure_info_overlays(db, h.info, h.menu, h.buffer, h.config);
+            let app_view = AppView::new(state);
             pure.into_iter()
-                .map(|overlay| {
+                .map(|(style, overlay)| {
+                    let target = match style {
+                        crate::protocol::InfoStyle::Prompt => TransformTarget::InfoPrompt,
+                        crate::protocol::InfoStyle::Modal => TransformTarget::InfoModal,
+                        _ => TransformTarget::Info,
+                    };
                     registry
                         .apply_transform_chain_hierarchical(
-                            TransformTarget::Info,
+                            target,
                             TransformSubject::Overlay(overlay),
-                            &AppView::new(state),
+                            &app_view,
                         )
                         .into_overlay()
                         .expect("overlay transform preserves variant")
