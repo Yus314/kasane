@@ -127,20 +127,7 @@ kasane_plugin_sdk::define_plugin! {
 
 ### SDK Helpers Reference
 
-| Helper | Signature | Description |
-|---|---|---|
-| `plain(s)` | `&str → ElementHandle` | `text(s, default_face())` shorthand |
-| `colored(s, fg)` | `&str, Color → ElementHandle` | `text(s, face_fg(fg))` shorthand |
-| `is_ctrl(event, key)` | `&KeyEvent, &str → bool` | Checks Ctrl+key (no Alt/Shift) |
-| `is_alt(event, key)` | `&KeyEvent, &str → bool` | Checks Alt+key (no Ctrl/Shift) |
-| `is_ctrl_shift(event, key)` | `&KeyEvent, &str → bool` | Checks Ctrl+Shift+key (no Alt) |
-| `status_badge(cond, label)` | `bool, &str → Option<Contribution>` | Conditional status bar badge |
-| `hex(s)` | `&str → Color` | Parse `"#rrggbb"` / `"#rgb"` to `Color::Rgb` |
-| `redraw()` | `→ Vec<Command>` | `vec![Command::RequestRedraw(dirty::ALL)]` |
-| `redraw_flags(flags)` | `u16 → Vec<Command>` | `vec![Command::RequestRedraw(flags)]` |
-| `send_command(cmd)` | `&str → Command` | Build `SendKeys` for a Kakoune command |
-
-These are available in all plugin code (emitted by `generate!()` / `define_plugin!`). For the full list of SDK helpers including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.4](./plugin-api.md#44-sdk-helpers).
+Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, `redraw()`, and `send_command()` are available in all plugin code (emitted by `generate!()` / `define_plugin!`). For the full list including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.5](./plugin-api.md#45-sdk-helpers).
 
 ### Plugin Profiles
 
@@ -170,7 +157,7 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@0.20.0`. Rebuild and reinstall any plugin that was built
+`kasane:plugin@0.22.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
 To see installed plugins or diagnose environment issues:
@@ -207,15 +194,15 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     transform(target, subject, _ctx) {
-        if !matches!(target, TransformTarget::StatusBarT) {
+        if !matches!(target, TransformTarget::StatusBar) {
             return subject;
         }
         if state.cursor_mode != 1 {
             return subject;
         }
         match subject {
-            TransformSubject::ElementS(element) => {
-                TransformSubject::ElementS(
+            TransformSubject::Element(element) => {
+                TransformSubject::Element(
                     container(element)
                         .style(face(named(NamedColor::Black), named(NamedColor::Yellow)))
                         .build(),
@@ -231,8 +218,8 @@ kasane_plugin_sdk::define_plugin! {
 
 **Key points:**
 
-- **`transform(target, subject, ctx)`** receives a `TransformSubject` — either `ElementS(ElementHandle)` for non-overlay targets or `OverlayS(OverlaySubject)` for overlay targets. Return it unchanged for passthrough, or pattern-match and wrap.
-- **`TransformTarget`** selects which UI component to transform (e.g., `StatusBarT`, `Buffer`, `MenuT`). Ignore targets your plugin doesn't handle.
+- **`transform(target, subject, ctx)`** receives a `TransformSubject` — either `Element(Element)` for non-overlay targets or `Overlay(Overlay)` for overlay targets. Return it unchanged for passthrough, or pattern-match and wrap.
+- **`TransformTarget`** selects which UI component to transform (e.g., `StatusBar`, `Buffer`, `Menu`). Ignore targets your plugin doesn't handle.
 - **`transform_priority`** (default `0`) controls ordering in the transform chain. Higher priority = applied first (inner).
 
 ### Scroll Policy Example: smooth-scroll
@@ -389,71 +376,11 @@ Constraint: WASI capabilities are available from `on_init_effects()` onward. The
 
 ## Session-Aware Plugins
 
-Plugins can observe and control sessions using the Tier 8 host-state API and `SessionCommand`. The `session-ui` example (`examples/wasm/session-ui/`) demonstrates the full pattern.
+Plugins can observe and control sessions using the Tier 8 host-state API and `SessionCommand`. For type definitions and semantics, see [plugin-api.md §3.5.3](./plugin-api.md#353-session-observability). The `session-ui` example (`examples/wasm/session-ui/src/lib.rs`) demonstrates the full pattern including overlay UI, keybinding, and session switching.
 
-**Reading session state:**
+## Example Plugins
 
-```rust
-use kasane::plugin::host_state;
-
-on_state_changed_effects(dirty_flags) {
-    if dirty_flags & dirty::SESSION != 0 {
-        let count = host_state::get_session_count();
-        let active_key = host_state::get_active_session_key();
-        // Each descriptor includes key, session_name, buffer_name, mode_line
-        for i in 0..count {
-            if let Some(desc) = host_state::get_session(i) {
-                // desc.buffer_name: e.g. Some("main.rs")
-                // desc.mode_line: e.g. Some("normal")
-            }
-        }
-    }
-}
-```
-
-**Switching sessions:**
-
-```rust
-// In handle_key():
-if let Some(desc) = host_state::get_session(selected_index) {
-    return Some(vec![Command::SwitchSession(desc.key)]);
-}
-```
-
-**Closing sessions:**
-
-```rust
-// Guard: don't close the last session
-if host_state::get_session_count() > 1 {
-    if let Some(desc) = host_state::get_session(selected_index) {
-        return Some(vec![Command::CloseSession(Some(desc.key))]);
-    }
-}
-```
-
-**Key patterns from session-ui:**
-
-- Salsa tracks dependencies automatically, so session state changes trigger status bar indicator updates
-- Use `contribute_overlay_v2()` for a floating session list triggered by a keybinding
-- `state_hash()` is auto-managed via the generation counter — `bump_generation()` is called automatically in mutable contexts
-
-See the full implementation at `examples/wasm/session-ui/src/lib.rs`.
-
-## Example Plugin List
-
-| Plugin | Path | Main Features |
-|---|---|---|
-| cursor-line | `examples/wasm/cursor-line/` | `annotate_line()`, `state_hash()` |
-| sel-badge | `examples/wasm/sel-badge/` | `contribute_to()` (`STATUS_RIGHT`) |
-| prompt-highlight | `examples/wasm/prompt-highlight/` | `transform()` (`StatusBarT`) |
-| color-preview | `examples/wasm/color-preview/` | `annotate_line()`, `contribute_overlay_v2()`, `handle_mouse()` |
-| fuzzy-finder | `examples/wasm/fuzzy-finder/` | `contribute_overlay_v2()`, `handle_key()`, `Command::SpawnProcess` |
-| session-ui | `examples/wasm/session-ui/` | `contribute_to()` (`STATUS_RIGHT`), `contribute_overlay_v2()`, `handle_key()`, session commands |
-| pane-manager | `examples/wasm/pane-manager/` | Workspace authority, pane split/focus commands |
-| smooth-scroll | `examples/wasm/smooth-scroll/` | `handle_default_scroll()`, `ScrollPolicyResult::Plan` |
-| image-preview | `examples/wasm/image-preview/` | `create_image()`, `annotate_line()`, Image element (GPU) |
-| line-numbers (native) | `examples/line-numbers/` | `Plugin` trait with `PluginBridge`, `contribute_to()`, `kasane::run()` |
-| virtual-text-demo (native) | `examples/virtual-text-demo/` | `Plugin` trait, `display_directives()`, `contribute_to()`, `handle_key()`, virtual text insertion |
+For the full list of bundled and source example plugins, see [using-plugins.md](./using-plugins.md#bundled-wasm-plugins).
 
 ## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
 
@@ -536,15 +463,7 @@ fn main() {
 }
 ```
 
-**Key differences from WASM:**
-
-| Aspect | WASM | Native (`Plugin`) |
-|---|---|---|
-| Safety | Sandbox isolation | Same process as host |
-| Distribution | `.wasm` file placement | Custom binary |
-| State | Manual (`thread_local!` + `state_hash()`) | Automatic (`PartialEq` comparison) |
-| View deps | Not yet supported (default `ALL`) | `view_deps() -> DirtyFlags` for selective sync |
-| Registration | Auto-discovered or embedded | `host_plugin(...)` / `run_with_factories(...)` |
+For a comparison of WASM vs Native plugin models, see [Appendix C](#appendix-c-wasm-vs-native-comparison) or [wasm-constraints.md Quick Reference](./wasm-constraints.md#quick-reference).
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
@@ -607,19 +526,7 @@ Register `PluginBackend` implementors via `host_plugin("id", || PluginType)` and
 
 ## Appendix C: WASM vs Native Comparison {#appendix-c-wasm-vs-native-comparison}
 
-| Aspect | WASM | Native (`Plugin`, recommended) | Native (`PluginBackend`, internal) |
-|---|---|---|---|
-| Safety | Sandbox isolation | Same process as host | Same process as host |
-| Performance | WASM boundary crossing cost | Direct function calls | Direct function calls |
-| API access | `host-state` + `element-builder` | `&AppView<'_>` + `&State` | `&AppView<'_>` |
-| Distribution | `.wasm` file placement | Custom binary | Custom binary |
-| Developer experience | `define_plugin!` (3-line hello world) | Derive `Clone + PartialEq + Debug + Default` on state | Implement `PluginBackend` directly |
-| `Surface` / `PaintHook` | Not supported ([details](./wasm-constraints.md)) | Not supported (use `PluginBackend`) | Supported |
-| State model | Mutable (guest linear memory) | Externalized (framework-owned, pure functions) | Mutable (`&mut self`) |
-| Cache invalidation | Manual `state_hash()` | Automatic (`PartialEq` comparison) | Manual `state_hash()` |
-| Inter-plugin communication | `Vec<u8>` | `Box<dyn Any>` | `Box<dyn Any>` |
-
-> Earlier WIT versions (v0.3) used `contribute()`, `contribute_line()`, and `contribute_overlay()`. These are superseded by the current API. Legacy stubs are generated automatically by `#[plugin]`.
+For the comprehensive WASM vs Native feature comparison table, see [wasm-constraints.md Quick Reference](./wasm-constraints.md#quick-reference). For choosing a plugin model (WASM, Native `Plugin`, Native `PluginBackend`), see [plugin-api.md §1.2.2](./plugin-api.md#122-choosing-a-plugin-model).
 
 ## Appendix D: Explicit WASM Pattern {#appendix-d-explicit-wasm-pattern}
 

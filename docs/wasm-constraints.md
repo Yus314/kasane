@@ -10,24 +10,7 @@ For a development guide, see [plugin-development.md](./plugin-development.md). F
 
 ## What WASM Plugins Can Do
 
-WASM plugins cover the primary UI extension surface:
-
-| Capability | Description |
-|---|---|
-| Slot contributions | Inject elements at named slots (`BUFFER_LEFT`, `STATUS_RIGHT`, etc.) |
-| Line annotations | Per-line gutter elements and background colors |
-| Overlays | Floating elements with smart positioning and collision avoidance |
-| Element transforms | Modify or replace existing UI elements (status bar, menu, info, buffer) |
-| Menu item transforms | Per-item atom replacement in completion menus |
-| Cursor style override | Change cursor shape (block, bar, underline, hidden) |
-| Input handling | Observe and consume key/mouse events (first-wins dispatch) |
-| Process spawning | Launch external processes, receive stdout/stderr/exit events |
-| Timers | Schedule periodic or one-shot callbacks |
-| Inter-plugin messaging | Send `Vec<u8>` payloads to other plugins by ID |
-| Session management | Spawn, switch, close Kakoune sessions |
-| Configuration | Read and write config values at runtime |
-| Static surfaces | Declare plugin-owned surfaces with slots at init time |
-| WASI capabilities | Request filesystem, environment, clock, process access |
+WASM plugins cover the primary UI extension surface: slot contributions, line annotations, overlays, element transforms, input handling, process spawning, timers, session management, and more. For the full extension point catalog, see [plugin-api.md §1](./plugin-api.md#1-extension-points).
 
 ## Quick Reference
 

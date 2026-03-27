@@ -8,16 +8,7 @@ Your existing Kakoune plugins (kak-lsp, fzf.kak, plug.kak, auto-pairs.kak, etc.)
 
 Kasane has its own plugin system for UI extensions. Kasane plugins can add visual elements, decorations, overlays, and input handling that Kakoune's shell-based plugins cannot.
 
-The plugin API is extensible — plugins can:
-
-- Add UI elements at named slots (gutters, status bar sections)
-- Annotate individual lines (highlights, markers)
-- Show floating overlays (pickers, tooltips)
-- Transform existing elements (status bar customization)
-- Handle keyboard and mouse input
-- Override default wheel scroll policy
-- Apply structured buffer edits
-- Inject synthetic input events
+The plugin API provides extension points for UI contributions, line annotations, overlays, transforms, input handling, and more. For the full list, see [plugin-api.md §1.2](./plugin-api.md#12-choosing-a-mechanism).
 
 ## Bundled WASM Plugins
 
@@ -81,7 +72,7 @@ auto_discover = false
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@0.20.0`. If you are upgrading from an older build,
+`kasane:plugin@0.22.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
 will not load.
 

@@ -14,17 +14,7 @@ For composition semantics see [semantics.md](./semantics.md).
 
 ### 1.1 Two Plugin Forms
 
-| | Native Plugin (`Plugin` trait) | WASM Plugin (WIT interface) |
-|---|---|---|
-| **Runtime** | In-process, direct Rust types | wasmtime sandbox, WIT types |
-| **State ownership** | Framework holds `Box<dyn PluginState>` | Guest-side thread-local (SDK macro managed) |
-| **Function semantics** | Pure `(&self, &State) → (State, Effects)` | Equivalent via WIT boundary |
-| **OS access** | Unrestricted (`std::fs`, `std::net`, FFI) | Gated by WASI capability model |
-| **Distribution** | `.so` / compiled into binary | `.wasm` component (portable) |
-
-**Core trade-off**: Native plugins have full Rust ecosystem access. WASM plugins
-trade that for sandbox safety. WASM is the recommended distribution form; capability
-parity is actively pursued.
+Kasane supports native (`Plugin` trait) and WASM (WIT interface) plugins. WASM is the recommended distribution form; capability parity is actively pursued. For a comparison table, see [plugin-api.md §1.2.2](./plugin-api.md#122-choosing-a-plugin-model).
 
 ### 1.2 Pure Function Constraint
 
@@ -74,52 +64,7 @@ Plugins cannot mutate `AppState` directly.
 
 ### 3.1 Extension Point Catalog
 
-| Extension Point | Composition Type | Commutative | What the plugin author controls |
-|---|---|---|---|
-| **Contribute** | `ContributionSet` (monoid) | Yes | Element + priority + size hint per slot |
-| **Transform** | `TransformChain` (monoid) | No | Wrap, replace, or pass through elements/overlays |
-| **Annotate** | Priority-based merge | Yes | Gutter elements + background layers + inline decoration + virtual text |
-| **Overlay** | `OverlaySet` (monoid) | Yes | Floating panels with anchor, z-index, collision context |
-| **DisplayDirective** | `DirectiveSet` (monoid) | Yes | Fold, hide, insert virtual text lines |
-| **MenuTransform** | `MenuTransformChain` (monoid) | No | Menu item appearance modification |
-| **CursorStyle** | `FirstWins<T>` | No | Cursor appearance override (first plugin wins) |
-| **CellDecoration** | Vec concatenation | Yes | Per-cell face override with blend mode |
-| **ScrollPolicy** | First-wins dispatch | No | Scroll behavior override |
-| **PaintHook** | Vec concatenation | Yes | Direct CellGrid writes (**native only**) |
-
-### 3.2 Extension Point Details
-
-**Contribute**: 8 well-known slots (`BUFFER_LEFT`, `BUFFER_RIGHT`, `ABOVE_BUFFER`,
-`BELOW_BUFFER`, `ABOVE_STATUS`, `STATUS_LEFT`, `STATUS_RIGHT`, `OVERLAY`) plus
-custom slots via `SlotId::new("custom.name")`. Priority controls ordering within a
-slot. `ContribSizeHint` enables layout negotiation (`Auto`, `Fixed(n)`, `Flex(weight)`).
-
-**Transform**: Operates on `TransformTarget` (Buffer, StatusBar, Menu, Info, and
-their refinements like `MenuPrompt`, `MenuInline`, `BufferLine(n)`). The subject is
-`TransformSubject` — either an `Element` or an `Overlay` (element + anchor). Plugins
-can use `map_element()`, `map_anchor()`, and `map_overlay()` to modify the subject.
-`TransformScope` declares intent: `Wrapper`, `Replacement`, `Prepend`, `Append`,
-`Attribute`, `Structural`, or `Identity`. `TransformDescriptor` enables debug-time
-collision detection.
-
-**Annotate**: Per buffer line:
-- Left/right gutter elements (e.g., line numbers, git markers)
-- Background layers (`Face` + `z_order` + `BlendMode`)
-- Inline decoration (`InlineDecoration`)
-- Virtual text items (`Vec<VirtualTextItem>` with per-item priority)
-
-**Overlay**: `OverlayContribution` provides floating UI with `OverlayAnchor` positioning
-and `z_index`. `OverlayContext` supplies collision avoidance hints: `screen_cols`,
-`screen_rows`, `menu_rect`, `existing_overlays`, `focused_surface_id`.
-
-**DisplayDirective**: Buffer-line-level display transformations:
-- `Fold { range, summary }` — collapse lines into a summary
-- `Hide { range }` — hide lines entirely
-- `InsertAfter { after, content }` — insert virtual text line after a buffer line
-- `InsertBefore { before, content }` — insert virtual text line before a buffer line
-
-**PaintHook** (native only): Direct `CellGrid` writes in the final rendering stage.
-WASM plugins are limited to the Element tree.
+For the full extension point catalog with composition types and details, see [semantics.md §9.1](./semantics.md#91-overview-of-extension-points). For API signatures and usage, see [plugin-api.md §1.4–1.8](./plugin-api.md#14-contribution-contribute_to).
 
 ---
 
@@ -127,41 +72,11 @@ WASM plugins are limited to the Element tree.
 
 ### 4.1 Command Enum
 
-Plugins request side effects by returning `Vec<Command>` from lifecycle methods
-and input handlers:
-
-| Command | Description | Constraint |
-|---------|-------------|------------|
-| `SendToKakoune(request)` | Send JSON-RPC request to Kakoune | — |
-| `RequestRedraw(flags)` | Trigger redraw with dirty flags | — |
-| `ScheduleTimer { delay, target, payload }` | Set timer (received via `update_effects`) | — |
-| `PluginMessage { target, payload }` | Send message to another plugin | Async, unidirectional, no delivery guarantee |
-| `SetConfig { key, value }` | Publish config value (readable via `plugin_config()`) | — |
-| `Paste` | Execute paste | — |
-| `Quit` | Terminate application | — |
-| `EditBuffer { edits }` | Structured buffer edits | Via Kakoune key simulation |
-| `InjectInput(event)` | Inject synthetic input event | — |
-| `SpawnProcess { .. }` | Spawn external process | `allows_process_spawn()` must be `true` |
-| `WriteToProcess { job_id, data }` | Write to process stdin | Process must exist |
-| `CloseProcessStdin { job_id }` | Close process stdin | Process must exist |
-| `KillProcess { job_id }` | Terminate process | Process must exist |
-| `ResizePty { job_id, rows, cols }` | Resize PTY | Process must exist |
-| `SpawnPaneClient { pane_key, placement }` | Spawn pane client | `WORKSPACE` authority |
-| `ClosePaneClient { pane_key }` | Close pane client | `WORKSPACE` authority |
-| `Workspace(cmd)` | Workspace operations (focus, resize, split) | `WORKSPACE` authority |
-| `RegisterSurface { surface, placement }` | Register a new Surface | `DYNAMIC_SURFACE` authority |
-| `UnregisterSurface { surface_id }` | Remove a Surface | `DYNAMIC_SURFACE` authority |
-| `RegisterThemeTokens(tokens)` | Register theme token defaults | — |
-| `Session(cmd)` | Session management commands | — |
+Plugins request side effects by returning `Vec<Command>` from lifecycle methods and input handlers. For the full command table, see [plugin-api.md §3.5](./plugin-api.md#35-commands).
 
 ### 4.2 Lifecycle Phase Constraints
 
-| Phase | Available Effects |
-|-------|-------------------|
-| **Bootstrap** (`on_init_effects`) | `BootstrapEffects` — `DirtyFlags` only. No commands. |
-| **SessionReady** (`on_active_session_ready_effects`) | `SessionReadyEffects` — Limited command set (`SessionReadyCommand`). |
-| **Runtime** (all other lifecycle methods) | `RuntimeEffects` — Full `Command` set. |
-| **View phase** (contribute, transform, annotate, etc.) | **No effects** — Pure value return only. |
+Effects are phase-gated: bootstrap allows only `DirtyFlags`, view phase allows no effects, and runtime allows full `Command`. For details, see [plugin-api.md §3.3](./plugin-api.md#33-lifecycle-hooks).
 
 ---
 
@@ -224,24 +139,13 @@ Plugins with `PluginAuthorities::WORKSPACE` can:
 
 ### 7.1 WASI Capabilities
 
-| Capability | Effect |
-|------------|--------|
-| `Filesystem` | Plugin data directory (read-write) + cwd (read-only) |
-| `Environment` | Read environment variables |
-| `MonotonicClock` | Always granted (WASI default); declared for auditability |
-| `Process` | External process spawning (checked at command dispatch) |
+For the WASI capability table and usage examples, see [plugin-development.md §WASI Capabilities](./plugin-development.md#wasi-capabilities).
 
 ### 7.2 Kasane Authorities
 
-| Authority | Effect |
-|-----------|--------|
-| `DynamicSurface` | Runtime Surface registration/unregistration |
-| `PtyProcess` | PTY-attached process spawning (interactive shells) |
-| `WorkspaceManagement` | Workspace layout commands |
+For the authority table (DynamicSurface, PtyProcess, WorkspaceManagement), see [plugin-api.md §6](./plugin-api.md#6-advanced-api).
 
-**Design principle**: Capabilities are declared by the plugin and resolved against
-user configuration (`deny_capabilities`, `deny_authorities` in `config.toml`).
-Least-privilege by default.
+**Design principle**: Capabilities are declared by the plugin and resolved against user configuration (`deny_capabilities`, `deny_authorities` in `config.toml`). Least-privilege by default.
 
 ---
 
