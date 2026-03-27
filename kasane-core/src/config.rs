@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 #[serde(default)]
 pub struct Config {
     pub ui: UiConfig,
@@ -20,7 +20,7 @@ pub struct Config {
 }
 
 /// Menu configuration.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct MenuConfig {
     pub position: MenuPosition,
@@ -37,7 +37,7 @@ impl Default for MenuConfig {
 }
 
 /// Menu position: auto (default Kakoune behavior), above, or below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MenuPosition {
     #[default]
@@ -47,7 +47,7 @@ pub enum MenuPosition {
 }
 
 /// Search menu configuration.
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(default)]
 pub struct SearchConfig {
     /// When true, show search completions as a vertical dropdown instead of inline.
@@ -63,14 +63,14 @@ pub struct SearchConfig {
 /// menu_item_selected = "blue,white"
 /// info_border = "cyan,default"
 /// ```
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 #[serde(default)]
 pub struct ThemeConfig {
     #[serde(flatten)]
     pub faces: HashMap<String, String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct UiConfig {
     pub shadow: bool,
@@ -99,7 +99,7 @@ impl Default for UiConfig {
 }
 
 /// Status bar position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusPosition {
     Top,
@@ -108,7 +108,7 @@ pub enum StatusPosition {
 }
 
 /// Border line style configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BorderStyleConfig {
     Single,
@@ -132,7 +132,7 @@ impl From<BorderStyleConfig> for crate::element::BorderLineStyle {
 }
 
 /// Image rendering protocol configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageProtocolConfig {
     #[default]
@@ -141,7 +141,7 @@ pub enum ImageProtocolConfig {
     Kitty,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct ScrollConfig {
     pub lines_per_scroll: i32,
@@ -160,7 +160,7 @@ impl Default for ScrollConfig {
 }
 
 /// Clipboard configuration.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct ClipboardConfig {
     pub enabled: bool,
@@ -173,7 +173,7 @@ impl Default for ClipboardConfig {
 }
 
 /// Mouse configuration.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct MouseConfig {
     pub drag_scroll: bool,
@@ -185,7 +185,7 @@ impl Default for MouseConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct LogConfig {
     pub level: String,
@@ -202,7 +202,7 @@ impl Default for LogConfig {
 }
 
 /// Window configuration for the GUI backend.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct WindowConfig {
     pub initial_cols: u16,
@@ -226,7 +226,7 @@ impl Default for WindowConfig {
 }
 
 /// Font configuration for the GUI backend.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct FontConfig {
     pub family: String,
@@ -253,7 +253,7 @@ impl Default for FontConfig {
 /// Color palette for the GUI backend.
 /// Kakoune's terminal UI uses `Color::Default` to mean "terminal default",
 /// but the GUI has no terminal — these values define the concrete RGB fallback.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct ColorsConfig {
     pub default_fg: String,
@@ -303,7 +303,7 @@ impl Default for ColorsConfig {
 }
 
 /// Plugin configuration.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct PluginsConfig {
     /// Automatically discover .wasm plugins from the plugins directory.
@@ -682,5 +682,15 @@ status_position = "middle"
 "#;
         let result: Result<Config, _> = toml::from_str(toml_str);
         assert!(result.is_err());
+    }
+
+    /// Snapshot test for Config::default() serialized to TOML.
+    /// If a field is added/removed or a default changes, this snapshot breaks,
+    /// signaling that docs/config.md needs a corresponding update.
+    #[test]
+    fn config_defaults_snapshot() {
+        let config = Config::default();
+        let toml_str = toml::to_string_pretty(&config).expect("Config must serialize to TOML");
+        insta::assert_snapshot!("config_defaults", toml_str);
     }
 }

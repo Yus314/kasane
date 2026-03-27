@@ -280,9 +280,9 @@ The composite flag `BUFFER` is defined as `BUFFER_CONTENT | BUFFER_CURSOR` for c
 A frame is one iteration of the backend event loop. Each frame processes input and optionally renders. The phases execute in strict order:
 
 1. **Event batch**: Drain channel up to 256 events or 16ms deadline, whichever comes first. Each event is processed sequentially via `update()`, accumulating `DirtyFlags` via bitwise OR.
-2. **Plugin cache**: `prepare_plugin_cache(dirty)` — compare each plugin's generation counter against previous frame to set `any_plugin_state_changed`.
-3. **Salsa sync**: `sync_inputs_from_state()` unconditionally projects all `AppState` fields to Salsa inputs (PartialEq early-cutoff). `sync_plugin_epoch()` increments epoch if any plugin changed. `sync_plugin_contributions()` and `sync_display_directives()` refresh Salsa-tracked extension point data.
-4. **Render**: `render_pipeline_cached()` (Salsa demand-driven) → `backend.present()` → `rebuild_hit_map()`.
+2. **Plugin cache validation**: Compare each plugin's generation counter against the previous frame to determine whether any plugin state changed.
+3. **Input synchronization**: Unconditionally project all `AppState` fields into Salsa inputs (PartialEq early-cutoff). Refresh Salsa-tracked extension point data (contributions, display directives) when plugin state has changed.
+4. **Render and present**: Execute the rendering pipeline (Salsa demand-driven), present output to the backend, and refresh the hit map for the next frame's input routing.
 
 If dirty flags are empty after the batch phase, phases 2–4 are skipped entirely.
 
@@ -313,11 +313,11 @@ The rendering pipeline implements the projection function P (§2.6) in two stage
 - **Logical projection (P_L)**: `view(S, registry)` constructs the Element tree Ω_L from state and plugin contributions. This includes slot fills, annotations, overlays, transforms, and display map computation.
 - **Physical projection (ρ)**: `layout(Ω_L)` followed by `paint(Ω_L, layout)` produces the positioned content Ω_P, then converts it to backend-specific output (CellGrid for TUI, DrawCommand sequence for GPU).
 
-The reference implementation is `render_pipeline()` (DirectViewSource, `DirtyFlags::ALL`). All other pipeline variants must produce observably identical output for the same state (Theorem T1, §12.1).
+Multiple rendering implementations exist for testing and optimization purposes. All implementations must produce observably identical output for the same state (Theorem T1, §12.1). See `render/pipeline_salsa.rs` for implementation details.
 
 ```text
-P_L(S, registry) = view_sections(S, registry)     → Ω_L (Element tree)
-ρ(Ω_L, rect)     = place(Ω_L, rect) + paint(...)  → Ω_P (CellGrid / DrawCommands)
+P_L(S, registry) = view(S, registry)           → Ω_L (Element tree)
+ρ(Ω_L, rect)     = layout(Ω_L, rect) + paint   → Ω_P (CellGrid / DrawCommands)
 ```
 
 ### 5.2 Incremental Evaluation
@@ -473,30 +473,20 @@ This design means that a menu change does not always require rebuilding the buff
 
 Salsa 0.26 is the sole caching layer for Element tree construction and the rendering pipeline.
 
-**Input projection.** `sync_inputs_from_state()` runs unconditionally every frame, projecting `AppState` fields into Salsa input structs. Salsa's `set_*().to()` compares the new value via `PartialEq` and skips downstream re-evaluation when the value is unchanged.
+**Input projection.** Each frame, application state is unconditionally projected into Salsa input structs. Salsa's built-in PartialEq-based change detection automatically skips re-evaluation of unchanged inputs. See `salsa_sync.rs` for implementation.
 
-**Input granularity.** Salsa inputs are split into fine-grained structs that provide section-level isolation:
+**Input granularity.** Salsa inputs are split into fine-grained structs providing section-level isolation: buffer content, cursor state, status line, menu, info popups, configuration, and plugin outputs (contributions, annotations, overlays, display directives). See `salsa_inputs.rs` for the full list.
 
-- `BufferInput` — buffer lines, faces, cursor position, widget columns
-- `CursorInput` — cursor mode, cursor count, secondary cursors
-- `StatusInput` — status line, mode line, default face
-- `MenuInput` — menu snapshot
-- `InfoInput` — info popup snapshots
-- `ConfigInput` — runtime dimensions and configuration (high durability)
-- `PluginEpochInput` — plugin contribution epoch counter
+**Memoization level.** Input-level memoization is enabled: if all inputs to a rendering function are unchanged, the function is not re-executed. Output-level memoization is disabled because no downstream tracked functions currently depend on rendering outputs. `Element` implements `PartialEq`, so output-level cutoff is technically feasible if the pipeline is deepened.
 
-Additional tracked inputs for plugin outputs: `SlotContributionsInput`, `AnnotationResultInput`, `PluginOverlaysInput`, `DisplayDirectivesInput`.
+**DirtyFlags role.** `DirtyFlags` serves as a semantic classifier of protocol messages, not as a cache invalidation driver. It provides hints about which inputs to update and gates optimizations like line-level dirty tracking. Cache invalidation itself is handled automatically by Salsa's `PartialEq`-based change detection.
 
-**Memoization level.** Salsa tracked functions use `#[salsa::tracked(no_eq)]`, disabling output-level early-cutoff. `Element` does implement `PartialEq`, so removing `no_eq` is technically feasible; however, no downstream tracked functions currently depend on these view functions' outputs, so output-level comparison would add cost without benefit. Only input-level memoization applies (if all inputs are identical, the function is not re-executed).
+**Plugin change detection (dual structure).** Plugin state changes are tracked by two complementary tiers:
 
-**DirtyFlags role.** `DirtyFlags` serves as a semantic classifier of protocol messages, not as a cache invalidation driver. It provides hints to the Salsa sync phase about which inputs to update and gates optimizations like line-level `mark_region_dirty`. Cache invalidation itself is handled automatically by Salsa's `PartialEq`-based change detection.
+- **Tier 1 (coarse)**: Plugin state is compared via `PartialEq` after each mutable hook. On change, a monotonic generation counter is incremented. The runtime reads generation counters to determine whether any plugin state changed.
+- **Tier 2 (fine)**: When the coarse tier indicates a change, plugin outputs are re-collected. Individual contribution inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when re-collected.
 
-**Plugin change detection (dual structure).** Plugin state changes are tracked by two tiers working together:
-
-- **Tier 1 (generation counter):** `PluginBridge` compares plugin state via `PartialEq` after each mutable hook. On change, it increments a monotonic generation counter (`state_hash()`). `PluginRuntime::prepare_plugin_cache()` reads counters to set `any_plugin_state_changed`.
-- **Tier 2 (Salsa epoch):** `sync_plugin_epoch()` bumps a Salsa input epoch when any plugin changed. Downstream tracked functions re-evaluate, but individual contribution inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when the epoch bumps.
-
-Both tiers are necessary: the generation counter provides the coarse gate; Salsa provides fine-grained memoization.
+Both tiers are necessary: the generation counter provides the coarse "did anything change?" gate; Salsa provides fine-grained memoization.
 
 ## 8. Dependency Tracking Semantics
 
@@ -581,13 +571,13 @@ Cell decorations are available to both native plugins (`Plugin::decorate_cells`,
 
 `transform()` is a mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
 
-Element-level transforms are unified in the plugin composition pipeline as `apply_transform_chain`. The transform chain is modeled as a non-commutative monoid (`TransformChain` in `plugin/compose.rs`): chain membership can be composed algebraically, though the chain's *application* (executing each transform function in sequence) remains imperative.
+Element-level transforms are unified in the plugin composition pipeline. The transform chain is modeled as a non-commutative monoid: chain membership can be composed algebraically, though the chain's *application* (executing each transform function in sequence) remains imperative. See `plugin/compose.rs` for implementation.
 
-**Target hierarchy**: `TransformTarget` variants form a two-level refinement hierarchy. Style-specific targets (e.g. `MenuPrompt`, `InfoModal`) refine their generic parent (`Menu`, `Info`). `apply_transform_chain_hierarchical` applies the generic parent chain first, then the specific target chain, replacing the former manual two-step pattern at each call site.
+**Target hierarchy**: `TransformTarget` variants form a two-level refinement hierarchy. Style-specific targets (e.g. `MenuPrompt`, `InfoModal`) refine their generic parent (`Menu`, `Info`). Transforms are applied hierarchically: the generic parent chain first, then the specific target chain.
 
 **Declarative properties**: Plugins may optionally declare a `TransformDescriptor` specifying their `TransformScope` (Identity, Wrapper, Prepend, Append, Attribute, Replacement, Structural) and target list. In debug builds, the framework emits `tracing::warn!` when multiple plugins declare `Replacement` scope for the same target, or when non-identity transforms precede a replacement (since they will be absorbed).
 
-`transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of `apply_transform_chain`.
+`transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of the unified transform chain.
 
 ### 9.6 Composition Order and Priority
 
@@ -649,20 +639,18 @@ The `Plugin` trait externalizes plugin state ownership to the framework. The key
 
 - **State ownership**: The framework holds `Box<dyn PluginState>` for each Plugin. State transitions produce new values; the old state is replaced atomically.
 - **Transition semantics**: All state-mutating operations return `(NewState, Vec<Command>)`. The framework detects changes via `PartialEq` on the concrete state type and increments a generation counter for `state_hash()`.
-- **Invalidation**: `DirtyFlags::PLUGIN_STATE` (bit 7) signals plugin state changes. `sync_plugin_epoch()` bumps the Salsa epoch when any plugin state changes, triggering re-evaluation of plugin-dependent tracked functions.
+- **Invalidation**: `DirtyFlags::PLUGIN_STATE` (bit 7) signals plugin state changes. Plugin outputs are re-collected, with Salsa `PartialEq` early-cutoff on individual inputs preventing unnecessary downstream re-evaluation.
 - **DynCompare**: `dyn PluginState` supports equality comparison via downcasting. Two states of different concrete types are always unequal.
-- **Compatibility**: `PluginBridge` adapts `Plugin` to `PluginBackend`, preserving generation-counter-based change detection (`state_hash()`).
+- **Compatibility**: The framework adapts `Plugin` to `PluginBackend` internally, preserving generation-counter-based change detection. See `plugin/bridge.rs` for the adapter.
 
 #### Dual Change Detection
 
 Plugin state changes are tracked by two independent tiers:
 
-- **Tier 1 (coarse)**: `PluginBridge` compares current state against a previous snapshot via `PartialEq` after every mutable hook. If different, increments a monotonic generation counter (`state_hash()`). `PluginRuntime::prepare_plugin_cache()` reads generation counters to set `any_plugin_state_changed`.
-- **Tier 2 (fine)**: `sync_plugin_epoch()` increments a Salsa input epoch when `any_plugin_state_changed` is true. Salsa tracked functions re-evaluate, but individual inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when the epoch bumps.
+- **Tier 1 (coarse)**: Current state is compared against a previous snapshot via `PartialEq` after every mutable hook. If different, a monotonic generation counter is incremented. The runtime reads generation counters to determine whether any plugin state changed.
+- **Tier 2 (fine)**: When the coarse tier indicates a change, plugin outputs are re-collected. Individual Salsa inputs use `PartialEq` early-cutoff — unchanged contributions produce cached outputs even when re-collected.
 
-Both tiers are necessary. The generation counter provides the coarse "did anything change?" gate. Salsa provides fine-grained memoization. Removing the generation counter would force Salsa to re-evaluate all plugin queries every frame. Removing Salsa would lose incremental computation.
-
-> **Naming history**: This model was originally introduced as `PurePlugin` (ADR-021), with the mutable trait called `Plugin`. In ADR-022, the traits were renamed: `PurePlugin` became `Plugin` (primary API) and the old `Plugin` became `PluginBackend` (internal). The adapter was renamed from `PurePluginBridge` to `PluginBridge`, and the marker trait from `IsPurePlugin` to `IsBridgedPlugin`.
+Both tiers are necessary. The generation counter provides the coarse "did anything change?" gate. Salsa provides fine-grained memoization. Removing the generation counter would force Salsa to re-collect all plugin contributions every frame. Removing Salsa would lose incremental computation.
 
 ### 9.11 Plugin Model Positioning
 
@@ -683,7 +671,7 @@ WASM plugins participate in the same composition model as native plugins but ope
 
 #### 9.12.1 Snapshot-Based State Access
 
-WASM plugins do not access `AppState` directly. Before each WASM call, the host creates a snapshot of relevant state fields in `HostState`. The plugin reads this snapshot via host-imported functions.
+WASM plugins do not access `AppState` directly. Before each WASM call, the host creates a snapshot of relevant state fields. The plugin reads this snapshot via host-imported functions.
 
 ```text
 Invariant (WASM State Isolation):
@@ -696,7 +684,7 @@ State fields are organized into tiers (Tier 0–8), reflecting the evolutionary 
 
 #### 9.12.2 Element Arena Lifecycle
 
-WASM plugins construct `Element` trees via `element_builder` host calls. Elements are stored in a per-call arena that is cleared at the start of each WASM invocation.
+WASM plugins construct `Element` trees via host-imported builder functions. Elements are stored in a per-call arena that is cleared at the start of each WASM invocation.
 
 Element handles returned by builder calls are valid only within the current invocation. They must not be cached or reused across calls.
 
@@ -751,7 +739,7 @@ For example, a fold summary may summarize multiple lines into one, but that summ
 - **InsertAfter suppression**: Inserts targeting hidden or folded lines removed.
 - **InsertBefore suppression**: Inserts targeting hidden or folded lines removed.
 
-Plugins declare priority via `display_directive_priority()` (default 0). The resolved `Vec<DisplayDirective>` is passed to `DisplayMap::build()` unchanged.
+Plugins declare priority via `display_directive_priority()` (default 0). The resolved directives are used to construct the display map.
 
 ### 10.4 Meaning of Display Unit
 
@@ -808,15 +796,15 @@ A Workspace is a layout structure that manages surface placement, focus, splitti
 
 ### 11.4 Relationship Between Surfaces and the Existing View Layer
 
-Surface lifecycle has been integrated into the core view pipeline. In the Salsa path, `SalsaViewSource::view_sections()` delegates multi-pane base element composition to `SurfaceRegistry::compose_base_result()`. In the non-Salsa path, `view_sections()` delegates to `legacy_surface_compose_result()`.
+Surface lifecycle has been integrated into the core view pipeline. The rendering pipeline delegates element composition to the surface registry when surfaces are registered, falling back to default construction otherwise. See `surface/registry/compose.rs` for implementation.
 
-Therefore, Surface is partially integrated as a first-class abstraction. The rendering pipeline uses Surfaces when registered, falling back to the legacy direct-construction path otherwise. Full unification (where all core UI elements are Surfaces) is not yet complete.
+Therefore, Surface is partially integrated as a first-class abstraction. Full unification (where all core UI elements are Surfaces) is not yet complete.
 
 ### 11.4a Per-Pane Status Bar Rendering
 
-In multi-pane mode, the global `StatusBarSurface` is not rendered at the screen-level composition (`compose_base_result()` returns early). Instead, each pane renders its own status bar via the `compose_node_with_reports()` Leaf case using a singleton N-render approach: the same `StatusBarSurface` descriptor's `view()` and `resolve_surface_tree()` are called once per pane with each pane's own `AppState`.
+In multi-pane mode, the global status bar surface is not rendered at the screen-level composition. Instead, each pane renders its own status bar: the same status bar descriptor is rendered once per pane with that pane's own state.
 
-`resolve_surface_tree()` takes a `PaneContext` parameter, which is propagated to `ContributeContext::from_constraints_in_pane()` during slot resolution. This ensures that plugin contributions (e.g., sel-badge, session-ui) in status bar slots receive the correct pane-specific state and focus information.
+Pane-specific context is propagated through the rendering system to plugin contributions during slot resolution. This ensures that plugin contributions (e.g., sel-badge, session-ui) in status bar slots receive the correct pane-specific state and focus information.
 
 Each pane's element tree is composed as `Column [buffer(flex=1.0), status(fixed)]` (or `[status, buffer]` when `status_at_top` is true). Kakoune clients are resized to `rect.h - 1` to account for the status bar row consumed within each pane.
 
@@ -990,7 +978,7 @@ Salsa provides automatic dependency tracking for native rendering paths. Remaini
 
 - **WASM `state_hash()` is manual.** Incorrect implementations may cause stale plugin output without detection (§8.4, §9.12.4).
 - **`no_eq` on tracked functions.** Output-level early-cutoff is disabled because no downstream tracked functions depend on the view functions' Element outputs (§7.11). `Element` implements `PartialEq`, so enabling output-level cutoff is technically feasible if the pipeline is deepened.
-- **Salsa input comparison cost.** `sync_inputs_from_state()` performs `PartialEq` comparisons each frame, including deep comparisons of `Vec<Line>` in `BufferInput`. This is correct but carries a per-frame cost proportional to buffer size.
+- **Salsa input comparison cost.** Input synchronization performs `PartialEq` comparisons each frame, including deep comparisons of buffer content. This is correct but carries a per-frame cost proportional to buffer size.
 
 ### 13.3 Mismatch Between Global DirtyFlags and Surface Theory
 
@@ -1006,7 +994,7 @@ The GUI-side scene invalidation and plugin overlay dependencies are not fully in
 
 ### 13.6 Display Transformation and Core Invalidation
 
-The `DisplayMap` is integrated into the rendering pipeline. Display directives are synced to Salsa via `DisplayDirectivesInput`, and the `DisplayMap` is rebuilt each frame via `collect_display_map()` and propagated through `Element::BufferRef`, `ViewSections`, and cursor/input functions. Salsa's automatic dependency tracking ensures that changes to display directives trigger re-evaluation of dependent tracked functions.
+The `DisplayMap` is integrated into the rendering pipeline. Display directives flow through the incremental computation system, and the `DisplayMap` is rebuilt each frame and propagated through the rendering pipeline and cursor/input functions. Salsa's automatic dependency tracking ensures that changes to display directives trigger re-evaluation of dependent tracked functions.
 
 Remaining gap: the display unit model (P-040..P-043) has not yet been introduced as a first-class invalidation unit. Per-display-unit dirty tracking and navigation are not implemented.
 
@@ -1024,11 +1012,11 @@ WASM plugins receive a frozen state snapshot before each call (§9.12.1). Multip
 
 ### 13.10 Menu Item Transform Outside Unified Pipeline
 
-`transform_menu_item()` operates separately from the Element-level `apply_transform_chain` (§9.5). The two transform mechanisms have independent priority orderings and are not subject to the same composition rules.
+`transform_menu_item()` operates separately from the Element-level transform chain (§9.5). The two transform mechanisms have independent priority orderings and are not subject to the same composition rules.
 
 ### 13.11 HitMap Frame Delay
 
-Mouse routing uses the previous frame's HitMap. The HitMap is rebuilt after rendering (`rebuild_hit_map()`), so input events within a batch are routed using a potentially stale hit map. This introduces at most one frame of stale mouse routing (~16ms).
+Mouse routing uses the previous frame's HitMap. The HitMap is rebuilt after rendering, so input events within a batch are routed using a potentially stale hit map. This introduces at most one frame of stale mouse routing (~16ms).
 
 This is an accepted tradeoff documented in the frame loop code. It is recorded here because it represents a deviation from the "current frame reflects current state" ideal.
 
@@ -1036,13 +1024,13 @@ This is an accepted tradeoff documented in the frame loop code. It is recorded h
 
 Mouse coordinate translation uses the DisplayMap from the previous frame (§6.2). Before the first render, `AppState.display_map` is `None` and mouse events use identity mapping. After the first render, the DisplayMap is persisted and used for subsequent frames. This is the input-side analog of the HitMap frame delay (§13.11).
 
-This gap was partially resolved by persisting the DisplayMap on AppState (previously `mouse_to_kakoune()` received `None` unconditionally). The one-frame delay remains as an accepted tradeoff.
+This gap was partially resolved by persisting the DisplayMap on AppState after each render frame. The one-frame delay remains as an accepted tradeoff.
 
 ### Resolved Gaps
 
 The following gaps have been resolved and are retained for historical reference.
 
-- **Transform and Replacement unification**: At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
+- **Transform and Replacement unification**: At the Plugin trait level, `transform()` has absorbed both decorator and replacement into a unified transform chain. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
 - **Session invisibility to plugins**: Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant.
 - **P-031 Single-plugin display directive exclusivity**: Display directives now support multi-plugin composition via `DirectiveSet` monoid and `resolve()`. Priority-based fold conflict resolution, hide union, and insert suppression enable combining code folding + virtual text from different plugins.
 - **Non-strictness due to `stable()`**: `stable()` and manual dependency tracking were removed with the introduction of Salsa (ADR-020). Exact Semantics and incremental evaluation now coincide.

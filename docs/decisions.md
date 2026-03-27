@@ -1400,7 +1400,7 @@ Salsa is a mandatory dependency. The legacy Surface-based pipeline (`pipeline_su
 
 ### Architecture
 
-Stage 1 uses 6 Salsa input structs (grouped by protocol message boundary) + `PluginEpochInput` (monotonic counter bridging plugin state changes into Salsa's dependency graph). Four tracked view functions produce Element trees from these inputs. Stage 2 composes plugin contributions outside Salsa. The legacy Surface-based pipeline and manual caching infrastructure (ViewCache, LayoutCache, PaintPatch) have been removed; `SalsaViewSource` is the sole implementation. `SceneCache` remains as a GPU-path auxiliary cache.
+Stage 1 uses 6 Salsa input structs (grouped by protocol message boundary). Four tracked view functions produce Element trees from these inputs. Stage 2 composes plugin contributions outside Salsa via `sync_plugin_contributions()` and `sync_display_directives()`, with individual Salsa inputs using `PartialEq` early-cutoff for fine-grained memoization. The legacy Surface-based pipeline and manual caching infrastructure (ViewCache, LayoutCache, PaintPatch) have been removed; `SalsaViewSource` is the sole implementation. `SceneCache` remains as a GPU-path auxiliary cache.
 
 For implementation details (input structs, tracked functions, pipeline variants, file mapping), see the source code in `kasane-core/src/state/salsa_*.rs` and `kasane-core/src/render/pipeline_salsa.rs`.
 

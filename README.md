@@ -1,7 +1,7 @@
 # Kasane
 
 [![CI](https://github.com/Yus314/kasane/actions/workflows/ci.yml/badge.svg)](https://github.com/Yus314/kasane/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-MIT)
 
 Extensible Kakoune frontend. Drop in, then grow.
 
@@ -73,7 +73,7 @@ and [Plugin API](docs/plugin-api.md).
 
 Kasane is stable as a Kakoune frontend — `alias kak=kasane` and use it
 daily. The plugin API is still evolving; expect breaking changes if
-you write plugins. The current WASM plugin ABI is `kasane:plugin@0.18.0`;
+you write plugins. The current WASM plugin ABI is `kasane:plugin@0.22.0`;
 plugins built against an older ABI must be rebuilt before they will load.
 
 ## Usage

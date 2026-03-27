@@ -58,5 +58,21 @@ jobs:
           grep -q "sha256sums_aarch64 = ${AARCH64_HASH}" .SRCINFO || { echo "FAIL: sha256sums_aarch64 mismatch"; err=1; }
           exit $err
 
+      - name: Documentation consistency check
+        run: tools/check-doc-consistency.sh --full
+
+      - name: Link check (docs)
+        if: matrix.os == 'ubuntu-latest'
+        uses: lychee-action/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --exclude-path=target
+            --exclude-path=contrib
+            --include-fragments
+            'docs/**/*.md'
+            'README.md'
+          fail: true
+
       - name: Format check
         run: nix develop --command cargo fmt --check

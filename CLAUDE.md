@@ -83,10 +83,14 @@ For architecture details, see `docs/index.md`. For plugin API reference, see `do
 - The roadmap documents planned work. Do not suggest deferring items that appear in the roadmap or that the user has explicitly requested.
 - When a simpler alternative exists, present it alongside the requested approach as an option — not as a reason to defer or reject.
 
+## Documentation Sync
+
+When modifying code listed in Key Module Locations, check if corresponding docs need updates. See `.claude/rules/` for file-specific documentation coupling rules.
+
 ## Conventions
 
 - **Commit messages**: English, conventional commits (`feat(scope):`, `fix:`, `refactor:`, `perf:`, `docs:`)
 - **Documentation**: `docs/` directory (requirements, architecture, ADRs, roadmap) — in English
 - **Rust edition**: 2024
 - **Dev environment**: Nix flake + direnv (provides Rust toolchain, GUI deps, pre-commit hooks)
-- **Performance**: ~59 μs CPU per frame at 80×24 (~14 μs with line-dirty optimization). TUI backend I/O: ~49 μs at 80×24 (ADR-015 draw_grid). Benchmarks tracked in CI with 115% alert threshold. Performance policy: perceptual imperceptibility as goal and stopping condition (ADR-024). See `docs/performance.md` for current numbers
+- **Performance**: ~59 μs CPU per frame at 80×24. TUI backend I/O: ~49 μs full redraw, ~14.5 μs incremental (1-line change) at 80×24 (ADR-015 draw_grid). Benchmarks tracked in CI with 115% alert threshold. Performance policy: perceptual imperceptibility as goal and stopping condition (ADR-024). See `docs/performance.md` for current numbers

@@ -336,8 +336,8 @@ fn transform_priority(&self) -> i16 { 100 }
 ```rust
 fn transform(target: TransformTarget, subject: TransformSubject, _ctx: TransformContext) -> TransformSubject {
     match subject {
-        TransformSubject::ElementS(element) => {
-            TransformSubject::ElementS(container(element).border(BorderLineStyle::Single).build())
+        TransformSubject::Element(element) => {
+            TransformSubject::Element(container(element).border(BorderLineStyle::Single).build())
         }
         other => other,
     }

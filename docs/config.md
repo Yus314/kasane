@@ -29,6 +29,7 @@ General UI settings.
 | `border_style` | string | `"rounded"` | Border style: `"single"`, `"rounded"`, `"double"`, `"heavy"`, `"ascii"` |
 | `status_position` | string | `"bottom"` | Status bar position: `"top"` or `"bottom"` |
 | `scene_renderer` | bool or null | `null` | Enable the scene-based GPU renderer (bypasses CellGrid). `null` = auto (`true` for GUI, `false` for TUI). |
+| `image_protocol` | string | `"auto"` | Image rendering protocol: `"auto"` (detect terminal), `"halfblock"`, `"kitty"` |
 
 ```toml
 [ui]
@@ -207,6 +208,7 @@ Window settings.
 | `initial_rows` | integer | `24` | Initial window height in rows |
 | `fullscreen` | bool | `false` | Start in borderless fullscreen mode |
 | `maximized` | bool | `false` | Start with window maximized |
+| `present_mode` | string or null | `null` | Override GPU present mode: `"Fifo"`, `"Mailbox"`, `"AutoVsync"`, `"AutoNoVsync"`. `null` = wgpu default. |
 
 When `fullscreen` is `true`, `initial_cols` and `initial_rows` are ignored (the window fills the entire monitor). Fullscreen can be toggled at runtime with F11.
 
@@ -256,7 +258,7 @@ Default palette (VS Code Dark+ inspired):
 | `blue` | `#2472c8` | Blue |
 | `magenta` | `#bc3fbc` | Magenta |
 | `cyan` | `#11a8cd` | Cyan |
-| `white` | `#e5e5e5` | White |
+| `white` | `#cccccc` | White |
 | `bright_black` | `#666666` | Bright black |
 | `bright_red` | `#f14c4c` | Bright red |
 | `bright_green` | `#23d18b` | Bright green |
@@ -318,7 +320,7 @@ disabled = ["some_plugin"]
 
 Restrict WASI capabilities for specific WASM plugins. Key: plugin ID. Value: list of denied capability names.
 
-Valid capability names: `"filesystem"`, `"environment"`, `"monotonic-clock"`.
+Valid capability names: `"filesystem"`, `"environment"`, `"monotonic-clock"`, `"process"`.
 
 ```toml
 [plugins.deny_capabilities]
@@ -326,6 +328,18 @@ untrusted_plugin = ["filesystem", "environment"]
 ```
 
 See [Using Plugins](using-plugins.md) for more details.
+
+### `[plugins.deny_authorities]`
+
+Restrict workspace authorities for specific WASM plugins. Key: plugin ID. Value: list of denied authority names.
+
+Valid authority names: `"dynamic-surface"`, `"pty-process"`.
+
+```toml
+[plugins.deny_authorities]
+untrusted_plugin = ["dynamic-surface"]
+another_plugin = ["pty-process"]
+```
 
 ## See also
 

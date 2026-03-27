@@ -33,6 +33,14 @@
                 rustfmt = rustToolchain;
               };
             };
+            doc-consistency = {
+              enable = true;
+              entry = "./tools/check-doc-consistency.sh --quick";
+              language = "system";
+              pass_filenames = false;
+              files = "(plugin\\.wit|config\\.rs|docs/.*\\.md|README\\.md)$";
+              stages = [ "pre-commit" ];
+            };
           };
         };
       in
