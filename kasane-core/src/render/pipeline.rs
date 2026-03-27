@@ -274,7 +274,7 @@ pub(crate) fn render_cached_core(
     halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
     image_protocol: super::ImageProtocol,
     image_requests: Option<&mut Vec<super::ImageRequest>>,
-) -> RenderResult {
+) -> (RenderResult, DisplayMapRef) {
     crate::perf::perf_span!("render_pipeline");
 
     let frame = prepare_frame(source, state, registry, dirty);
@@ -366,7 +366,7 @@ pub(crate) fn render_cached_core(
         dso,
     );
 
-    RenderResult {
+    let result = RenderResult {
         cursor_x: cx,
         cursor_y: cy,
         cursor_style: hint.shape,
@@ -374,7 +374,8 @@ pub(crate) fn render_cached_core(
         cursor_blink: hint.blink,
         cursor_movement: hint.movement,
         display_scroll_offset: frame.display_scroll_offset,
-    }
+    };
+    (result, frame.display_map)
 }
 
 /// Core scene rendering pipeline, generic over the view section source.
@@ -388,12 +389,13 @@ pub(crate) fn scene_render_core<'a>(
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
     scene_cache: &'a mut SceneCache,
-) -> (&'a [DrawCommand], RenderResult) {
+) -> (&'a [DrawCommand], RenderResult, DisplayMapRef) {
     crate::perf::perf_span!("scene_render_pipeline");
 
     scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
 
     let frame = prepare_frame(source, state, registry, dirty);
+    let display_map_out = std::sync::Arc::clone(&frame.display_map);
     let dm = dm_ref(&frame.display_map);
     let dso = frame.display_scroll_offset as u16;
     let root_area = frame.root_area;
@@ -412,7 +414,7 @@ pub(crate) fn scene_render_core<'a>(
     // Fast path: all sections cached
     if scene_cache.is_fully_cached() {
         scene_cache.compose();
-        return (scene_cache.composed_ref(), result);
+        return (scene_cache.composed_ref(), result, display_map_out);
     }
 
     let theme = &state.theme;
@@ -473,7 +475,7 @@ pub(crate) fn scene_render_core<'a>(
     }
 
     scene_cache.compose();
-    (scene_cache.composed_ref(), result)
+    (scene_cache.composed_ref(), result, display_map_out)
 }
 
 // ---------------------------------------------------------------------------
@@ -485,10 +487,10 @@ pub fn scene_render_pipeline(
     state: &AppState,
     registry: &PluginView<'_>,
     cell_size: scene::CellSize,
-) -> (Vec<DrawCommand>, RenderResult) {
+) -> (Vec<DrawCommand>, RenderResult, DisplayMapRef) {
     let mut scene_cache = SceneCache::new();
     let mut source = DirectViewSource;
-    let (commands, result) = scene_render_core(
+    let (commands, result, display_map) = scene_render_core(
         &mut source,
         state,
         registry,
@@ -496,7 +498,7 @@ pub fn scene_render_pipeline(
         DirtyFlags::ALL,
         &mut scene_cache,
     );
-    (commands.to_vec(), result)
+    (commands.to_vec(), result, display_map)
 }
 
 /// Declarative rendering pipeline.
@@ -504,7 +506,7 @@ pub fn render_pipeline(
     state: &AppState,
     registry: &PluginView<'_>,
     grid: &mut CellGrid,
-) -> RenderResult {
+) -> (RenderResult, DisplayMapRef) {
     let mut source = DirectViewSource;
     render_cached_core(
         &mut source,
@@ -526,7 +528,7 @@ pub fn render_pipeline_direct(
     registry: &PluginView<'_>,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-) -> RenderResult {
+) -> (RenderResult, DisplayMapRef) {
     let mut source = DirectViewSource;
     render_cached_core(
         &mut source,

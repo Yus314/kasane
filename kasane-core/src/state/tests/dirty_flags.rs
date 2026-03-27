@@ -465,6 +465,7 @@ fn test_free_read_fields_match() {
         "hit_map",
         "cursor_cache",
         "display_scroll_offset",
+        "display_map",
     ]
     .iter()
     .copied()
@@ -519,7 +520,7 @@ fn test_field_epistemic_map_complete() {
         // Session (2)
         ("session_descriptors", "session"),
         ("active_session_key", "session"),
-        // Runtime (7)
+        // Runtime (8)
         ("focused", "runtime"),
         ("drag", "runtime"),
         ("cols", "runtime"),
@@ -527,6 +528,7 @@ fn test_field_epistemic_map_complete() {
         ("hit_map", "runtime"),
         ("cursor_cache", "runtime"),
         ("display_scroll_offset", "runtime"),
+        ("display_map", "runtime"),
     ]);
 
     let actual: HashMap<&str, &str> = AppState::FIELD_EPISTEMIC_MAP.iter().copied().collect();

@@ -75,13 +75,73 @@ Kasane has a two-tier semantics.
 
 Kasane's primary purpose as a product lies in Default Frontend Semantics. Extended Frontend Semantics is a capability of Kasane and an important goal, but it is not a precondition for overriding the standard semantics for ordinary users.
 
+### 2.5 World Model
+
+The projection-centered theory models Kasane's semantics through a World tuple W = (T, I, Π, S):
+
+- **Truth (T)**: Protocol facts received from Kakoune. These are the `#[epistemic(observed)]` fields in `AppState` (§3.2). Truth is the sole authoritative source for what Kakoune intends to display.
+- **Inference (I)**: Values derived or estimated from Truth. This includes `#[epistemic(derived)]` fields (§3.3) and `#[epistemic(heuristic)]` fields (§3.4). Inference carries declared strength: derived values are deterministic; heuristic values may degrade gracefully.
+- **Policy (Π)**: Display policies, configuration, and plugin-contributed presentation decisions. This includes Display Policy State (§3.6), `#[epistemic(config)]` fields, and all plugin extension point outputs (§9).
+- **Scope (S)**: The spatial and lifecycle context: which session is active, which surface is focused, which region of the buffer is visible. Scope determines which subset of W is relevant for a given frame.
+
+The World model is a theoretical framing of the existing `AppState` structure. It does not introduce new runtime state or new types. Every component of W maps directly to existing fields and subsystems documented in §3–§11.
+
+### 2.6 Projection Function
+
+The central theoretical construct is a projection function P that maps the World to a Presentation:
+
+```text
+P(T, I, Π, S) = Ω
+```
+
+The projection is decomposed into two stages:
+
+- **Logical projection (Ω_L)**: The Element tree produced by `view()` after plugin contributions and transforms. This is the abstract UI structure independent of any backend.
+- **Physical projection (Ω_P)**: The positioned content produced by `layout()` from Ω_L. This is the concrete placement of elements within a rectangular viewport.
+
+The final frame is produced by applying a backend-specific renderer R:
+
+```text
+Frame = R(Ω_P, backend)
+```
+
+For input, the inverse projection maps events back to intents:
+
+```text
+Intent = ρ(Ω_P, event)
+```
+
+where ρ uses the previous frame's Ω_P (specifically, the DisplayMap and HitMap) to translate screen coordinates to buffer coordinates and route interactions.
+
+Whether P is computed by Salsa memoization or direct evaluation is an implementation choice. Theorem T3 (§12.3) guarantees equivalence between these paths.
+
+### 2.7 Axioms
+
+The following axioms constrain the projection function and its implementation. Each axiom references the code or mechanism that enforces it.
+
+**A1 (Determinism)**: For identical World state, P produces identical Ω. Two calls to `render_pipeline(S)` with the same S yield byte-identical CellGrid output. Verified by `trace_equivalence.rs` property tests.
+
+**A2 (Truth Integrity)**: Observed state is stored exactly as received from Kakoune. No transformation, filtering, or policy is applied to `#[epistemic(observed)]` fields during `apply()`. Heuristic and derived fields are clearly separated by `#[epistemic]` compile-time annotations, and synthetic content (from display transformations) carries `SourceMapping::None` to prevent confusion with buffer content.
+
+**A3 (Behavioral Equivalence)**: Under Default Frontend Semantics (§2.4), Kasane is behaviorally equivalent to `kak -ui ncurses` for the same Kakoune session. This is the "alias kak=kasane" goal. Behavioral equivalence holds only under D-semantics; Extended Frontend Semantics may intentionally diverge.
+
+**A4 (Display Coherence)**: The DisplayMap maintains bidirectional consistency between buffer lines and display lines. Forward-backward consistency (INV-1), backward-forward consistency (INV-2), monotonicity (INV-5), and all other structural invariants (INV-1 through INV-7) are verified by `DisplayMap::check_invariants()` in debug builds and by `assert_display_map_invariants()` in tests.
+
+**A5 (Frame Isolation)**: During the render phase, all plugin view methods operate on a frozen `PluginView<'_>` (immutable borrow). No plugin can observe state changes made by other plugins within the same render phase. This is enforced statically by Rust's borrow checker through the mutable/immutable phase split (§4.6).
+
+**A6 (Input Coherence)**: Mouse coordinate translation uses the DisplayMap from the previous frame to map display-space coordinates to buffer-space. Lines with `InteractionPolicy::ReadOnly` or `Skip` suppress the event. The DisplayMap is persisted on `AppState.display_map` after each render and consumed by `mouse_to_kakoune()` during the next frame's event processing. Staleness is bounded to one frame (~16ms).
+
+**A7 (Plugin Boundary)**: Plugins affect presentation (Π) but not truth (T). Plugin effects flow through `Command::SendToKakoune`, not direct mutation of observed state (§9.9). The rendering pipeline reads plugin contributions through `PluginView<'_>` which provides read-only access.
+
+**A8 (Inference Boundedness)**: Every heuristic inference carries a declared severity via `#[epistemic(heuristic, rule="...", severity="...")]`. When a heuristic fails (e.g., cursor detection under unexpected Kakoune face patterns), the degradation is bounded to the declared severity level. The catalog of inference rules is maintained in `derived/mod.rs`.
+
 ## 3. State Semantics
 
 ### 3.1 Role of AppState
 
 `AppState` is a single state space that holds facts observable from Kakoune, values derived from them, values estimated through heuristics, and frontend runtime state.
 
-`AppState` does not treat "everything as the same kind of truth." Each field has a different epistemological strength.
+`AppState` does not treat "everything as the same kind of truth." Each field has a different epistemological strength. In the projection-centered theory (§2.5), AppState is the concrete realization of World W = (T, I, Π, S). The epistemic annotations on each field classify it into one of the four World components.
 
 ### 3.2 Observed State
 
@@ -235,6 +295,8 @@ Invariant (Intra-Frame Plugin Isolation):
   propagate only via the next frame's event processing.
 ```
 
+This invariant is the structural enforcement of Axiom A5 (§2.7). The borrow checker guarantees that the immutable and mutable phases never overlap.
+
 The plugin system enforces a two-phase lifecycle per frame:
 
 - **Mutable phase**: event processing, state transitions (`&mut PluginRuntime`)
@@ -244,23 +306,25 @@ This boundary is enforced at compile time by Rust's borrow checker. The two phas
 
 ## 5. Rendering Semantics
 
-### 5.1 Exact Semantics
+### 5.1 Projection Stages
 
-Under Exact Semantics, the rendering result for a given state `S` is defined by the complete rendering result produced by the reference path.
+The rendering pipeline implements the projection function P (§2.6) in two stages:
 
-Conceptually, this can be expressed as follows.
+- **Logical projection (P_L)**: `view(S, registry)` constructs the Element tree Ω_L from state and plugin contributions. This includes slot fills, annotations, overlays, transforms, and display map computation.
+- **Physical projection (ρ)**: `layout(Ω_L)` followed by `paint(Ω_L, layout)` produces the positioned content Ω_P, then converts it to backend-specific output (CellGrid for TUI, DrawCommand sequence for GPU).
+
+The reference implementation is `render_pipeline()` (DirectViewSource, `DirtyFlags::ALL`). All other pipeline variants must produce observably identical output for the same state (Theorem T1, §12.1).
 
 ```text
-render_exact(S) = view(S) -> layout -> paint
+P_L(S, registry) = view_sections(S, registry)     → Ω_L (Element tree)
+ρ(Ω_L, rect)     = place(Ω_L, rect) + paint(...)  → Ω_P (CellGrid / DrawCommands)
 ```
 
-Correctness here means that the observable rendering result is consistent with the meaning of `S`.
+### 5.2 Incremental Evaluation
 
-### 5.2 Policy Semantics
+Incremental evaluation describes the practical rendering produced by Salsa-based memoization. It is the meaning of the output when memoization and early-cutoff may skip recomputation of unchanged subgraphs.
 
-Policy Semantics describes the practical rendering produced by Salsa-based incremental evaluation. It is the meaning of the output when memoization and early-cutoff may skip recomputation of unchanged subgraphs.
-
-In the current implementation, Exact Semantics and Policy Semantics coincide. Salsa's automatic dependency tracking ensures that cached rendering produces the same result as complete re-rendering — there is no intentional staleness.
+In the current implementation, Exact Semantics and incremental evaluation coincide. Salsa's automatic dependency tracking ensures that cached rendering produces the same result as complete re-rendering — there is no intentional staleness.
 
 A future optimization (e.g., removing `no_eq` from Salsa tracked functions to enable output-level early-cutoff, which is feasible since `Element` already implements `PartialEq`) could reintroduce a gap between the two tiers. If that happens, the distinction will be re-specified here.
 
@@ -320,51 +384,92 @@ In TUI, the output of the rendering pipeline is not drawn in full each frame. In
 
 On terminal resize, `backend.invalidate()` clears the previous buffer, forcing a full redraw on the next `present()` call.
 
-## 6. Invalidation and Caching
+## 6. Input Semantics
 
-### 6.1 Meaning of DirtyFlags
+### 6.1 Input Routing Model
+
+Input events are routed through two paths:
+
+- **Key events**: Processed through the plugin key middleware chain (`dispatch_key_middleware`). If no plugin consumes the key, it is forwarded to Kakoune via `Command::SendToKakoune`. See §9.7 for dispatch semantics.
+- **Mouse events**: First routed through the HitMap for plugin-specific interactive elements. If no plugin handles the event, the mouse coordinates are translated to buffer-space and forwarded to Kakoune.
+
+### 6.2 Mouse Coordinate Translation
+
+When a DisplayMap is active (non-identity), mouse events require coordinate translation from display-space to buffer-space. The function `mouse_to_kakoune()` performs this translation:
+
+1. The screen line coordinate is offset by `display_scroll_offset` to obtain the display line index.
+2. The display line's `InteractionPolicy` is checked:
+   - `Normal`: proceed with translation
+   - `ReadOnly` or `Skip`: suppress the event (return `None`)
+3. `display_to_buffer()` maps the display line to the corresponding buffer line.
+4. The translated (buffer_line, column) pair is sent to Kakoune.
+
+Without a DisplayMap (identity mapping), the screen line is used directly with the scroll offset applied.
+
+### 6.3 Input Coherence Invariant
+
+Mouse coordinate translation uses the DisplayMap from the **previous** frame. This is Axiom A6 (§2.7):
+
+```text
+Invariant (Input Coherence):
+  For any mouse event E at screen position (x, y):
+    mouse_to_kakoune(E, display_map_prev, scroll_offset_prev)
+  uses the DisplayMap and scroll offset persisted on AppState
+  after the most recent render. The DisplayMap is set by the
+  rendering pipeline via AppState.display_map.
+```
+
+The DisplayMap is persisted on `AppState.display_map` after each render frame. Before the first render, `display_map` is `None`, and mouse events use identity mapping (no translation).
+
+### 6.4 Frame Delay
+
+Both the HitMap (§13.11) and the DisplayMap operate on one-frame-delayed data. Input events within a batch are processed using the previous frame's spatial information. This introduces at most ~16ms of stale routing, which is an accepted tradeoff: the cost of mid-batch spatial recomputation outweighs the marginal correctness improvement.
+
+## 7. Invalidation and Caching
+
+### 7.1 Meaning of DirtyFlags
 
 `DirtyFlags` is the input for state dependency tracking and cache invalidation. It does not represent the full diff of the entire state but rather an approximation of which observable aspects require recomputation.
 
-### 6.2 Section-Level Invalidation
+### 7.2 Section-Level Invalidation
 
 The current core view is primarily divided into `base`, `menu`, and `info` sections. Salsa input granularity (`BufferInput`, `StatusInput`, `MenuInput`, `InfoInput`, etc.) provides natural section-level isolation — changes to one input struct do not trigger re-evaluation of tracked functions that depend only on other inputs.
 
 This design means that a menu change does not always require rebuilding the buffer body.
 
-### 6.3 ViewCache
+### 7.3 ViewCache
 
 > Removed. Replaced by Salsa incremental computation (ADR-020).
 
-### 6.4 SceneCache
+### 7.4 SceneCache
 
 `SceneCache` holds `DrawCommand` sequences per section for the GUI backend. Like `ViewCache`, it has an invalidation mask, but it is used for GUI-specific fast paths.
 
-### 6.5 PaintPatch
+### 7.5 PaintPatch
 
 > Removed. Replaced by Salsa incremental computation (ADR-020).
 
-### 6.6 LayoutCache
+### 7.6 LayoutCache
 
 > Removed. Replaced by Salsa incremental computation (ADR-020).
 
-### 6.7 Meaning of `stable()`
+### 7.7 Meaning of `stable()`
 
-> Removed. `stable()` and the `#[kasane::component(deps(...))]` macro were removed when Salsa replaced manual dependency tracking (ADR-020). Exact Semantics and Policy Semantics now coincide.
+> Removed. `stable()` and the `#[kasane::component(deps(...))]` macro were removed when Salsa replaced manual dependency tracking (ADR-020). Exact Semantics and incremental evaluation now coincide.
 
-### 6.8 Meaning of `allow()`
+### 7.8 Meaning of `allow()`
 
 > Removed with `#[kasane::component(deps(...))]` (ADR-020).
 
-### 6.9 Locations Where Exactness Is Intentionally Weakened
+### 7.9 Locations Where Exactness Is Intentionally Weakened
 
 > Removed. No intentional exactness weakening exists in the current system (ADR-020).
 
-### 6.10 ComponentCache
+### 7.10 ComponentCache
 
 > Removed. Replaced by Salsa incremental computation (ADR-020).
 
-### 6.11 Salsa Incremental Computation
+### 7.11 Salsa Incremental Computation
 
 Salsa 0.26 is the sole caching layer for Element tree construction and the rendering pipeline.
 
@@ -393,30 +498,30 @@ Additional tracked inputs for plugin outputs: `SlotContributionsInput`, `Annotat
 
 Both tiers are necessary: the generation counter provides the coarse gate; Salsa provides fine-grained memoization.
 
-## 7. Dependency Tracking Semantics
+## 8. Dependency Tracking Semantics
 
-### 7.1 Contract of `#[kasane::component(deps(...))]`
+### 8.1 Contract of `#[kasane::component(deps(...))]`
 
 > Removed. `#[kasane::component(deps(...))]` was replaced by Salsa automatic dependency tracking (ADR-020).
 
-### 7.2 Guarantees of AST-Based Verification
+### 8.2 Guarantees of AST-Based Verification
 
 > Removed with the component macro's AST-based verification (ADR-020).
 
-### 7.3 Role of Hand-Written Dependency Information
+### 8.3 Role of Hand-Written Dependency Information
 
 > Removed. Hand-written dependency tables were eliminated by Salsa (ADR-020).
 
-### 7.4 Limits of Soundness
+### 8.4 Limits of Soundness
 
 Salsa provides automatic dependency tracking for native rendering paths, but two limitations remain:
 
-- **WASM `state_hash()` is manual.** WASM plugins implement `state_hash() → u64` by hand. An incorrect hash may cause stale contributions to persist without detection (see §8.12.4).
+- **WASM `state_hash()` is manual.** WASM plugins implement `state_hash() → u64` by hand. An incorrect hash may cause stale contributions to persist without detection (see §9.12.4).
 - **`no_eq` on tracked functions.** Salsa tracked functions use `#[salsa::tracked(no_eq)]`, disabling output-level early-cutoff. `Element` implements `PartialEq`, but removing `no_eq` would add comparison cost without benefit because no downstream tracked functions depend on these outputs.
 
-## 8. Plugin Composition Semantics
+## 9. Plugin Composition Semantics
 
-### 8.1 Overview of Extension Points
+### 9.1 Overview of Extension Points
 
 Kasane's UI extensions are primarily composed of the following mechanisms.
 
@@ -433,19 +538,34 @@ Kasane's UI extensions are primarily composed of the following mechanisms.
 
 These are not at the same level of abstraction; they differ in degrees of freedom and responsibilities.
 
-These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface), with one exception: PaintHook is available only to native `PluginBackend` plugins and is not exposed to WASM. The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §8.11, §8.12).
+These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface), with one exception: PaintHook is available only to native `PluginBackend` plugins and is not exposed to WASM. The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §9.11, §9.12).
 
-### 8.2 Contribution
+The following table classifies each extension point by what it affects in the projection model and how outputs compose:
+
+| Extension Point | Affects | Composition |
+|---|---|---|
+| `display_directives` | Π (Policy) | CommutativeComposable |
+| `contribute_to` | Ω_L (Logical presentation) | CommutativeComposable |
+| `annotate_line_with_ctx` | Ω_L | Accumulated |
+| `contribute_overlay_with_ctx` | Ω_L | CommutativeComposable |
+| `transform` | Ω_L | TransformChain (non-commutative) |
+| `cursor_style_override` | Ω_L | FirstWins |
+| `decorate_cells` | Ω_P (Physical presentation) | Priority-merged |
+| `handle_key_middleware` | ρ (Input routing) | FirstWins (3-variant) |
+| `handle_mouse` | ρ | FirstWins |
+| `handle_default_scroll` | ρ | FirstWins |
+
+### 9.2 Contribution
 
 `contribute_to()` is the most constrained extension, contributing `Element`s to framework-defined extension points (`SlotId`). Contributions carry `priority` and `size_hint`, making it easiest to maintain structural consistency. It is preferred whenever possible.
 
-### 8.3 Line Annotation
+### 9.3 Line Annotation
 
 `annotate_line_with_ctx()` is a mechanism for extending the gutter and background of each buffer line. It does not modify the buffer content itself but provides per-line visual contributions (`LineAnnotation`). Contributions from multiple plugins are composed through `BackgroundLayer` and `z_order`.
 
 **Inline decoration uniqueness**: At most one plugin may provide an inline decoration per buffer line. This constraint is enforced in both debug and release builds with first-wins semantics: the first plugin (by registration order) that provides an inline decoration for a given line wins, and subsequent providers are dropped with a `tracing::warn!` diagnostic.
 
-### 8.3.1 Cell Decoration
+### 9.3.1 Cell Decoration
 
 `decorate_cells()` applies face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line-level gutter/background, cell decorations target arbitrary screen coordinates (e.g., bracket match highlights, column guides).
 
@@ -453,11 +573,11 @@ Decorations from multiple plugins are collected, sorted by `priority` (ascending
 
 Cell decorations are available to both native plugins (`Plugin::decorate_cells`, `PluginBackend::decorate_cells`) and WASM plugins (`decorate-cells()` in WIT v0.19.0).
 
-### 8.4 Overlay
+### 9.4 Overlay
 
 `contribute_overlay_with_ctx()` is a floating element overlaid separately from the normal layout flow. Overlays add display layers but do not modify the underlying protocol state. Display order is controlled via `z_index`.
 
-### 8.5 Transform
+### 9.5 Transform
 
 `transform()` is a mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
 
@@ -469,7 +589,7 @@ Element-level transforms are unified in the plugin composition pipeline as `appl
 
 `transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of `apply_transform_chain`.
 
-### 8.6 Composition Order and Priority
+### 9.6 Composition Order and Priority
 
 The rendering pipeline composes plugin outputs in three phases:
 
@@ -497,7 +617,7 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 
 > **Effects merge**: When multiple plugins produce `RuntimeEffects` in the same notification cycle, effects are merged by OR-ing `DirtyFlags` and appending `commands` and `scroll_plans` in plugin registration order.
 
-### 8.7 Input Dispatch and Key Consumption
+### 9.7 Input Dispatch and Key Consumption
 
 Plugin input handling follows a defined dispatch order.
 
@@ -510,20 +630,20 @@ This is a first-wins dispatch model. Plugin registration order determines priori
 
 **Algebraic characterization**: Key middleware forms a Kleisli-style chain over a 3-variant result type (`Consumed`, `Ignored`, `Forward`). Each plugin receives the key and returns one of these variants; the chain threads through plugins sequentially, short-circuiting on `Consumed`. This is fundamentally imperative and order-dependent, so it is not modeled as `Composable` in `plugin/compose.rs`.
 
-### 8.8 Inter-Plugin Messaging
+### 9.8 Inter-Plugin Messaging
 
 Plugins may communicate via `PluginMessage`, which carries a target plugin ID and an opaque payload. The runtime delivers the message to the target plugin's `update()` (for `Plugin` trait) or a dedicated handler (for `PluginBackend` trait).
 
 Message delivery returns `(DirtyFlags, Vec<Command>)`, allowing the receiving plugin to trigger state changes and side effects in response. Message delivery is synchronous within a single update cycle.
 
-### 8.9 What Plugins May and May Not Change
+### 9.9 What Plugins May and May Not Change
 
 Plugins may change display and interaction where policy can diverge.
 Plugins may not change protocol truth, the core state machine, the semantics of the backend itself, or fabricate facts not provided by upstream.
 
 Plugin-defined UI is not a precondition for core frontend semantics. Even in the absence of plugins, Kasane's standard frontend semantics must be self-contained. Display transformations introduced by plugins should in principle be additive, and must not capture core semantics by replacing the sole truth for standard users.
 
-### 8.10 Plugin State Model (State-Externalized)
+### 9.10 Plugin State Model (State-Externalized)
 
 The `Plugin` trait externalizes plugin state ownership to the framework. The key semantic properties are:
 
@@ -544,7 +664,7 @@ Both tiers are necessary. The generation counter provides the coarse "did anythi
 
 > **Naming history**: This model was originally introduced as `PurePlugin` (ADR-021), with the mutable trait called `Plugin`. In ADR-022, the traits were renamed: `PurePlugin` became `Plugin` (primary API) and the old `Plugin` became `PluginBackend` (internal). The adapter was renamed from `PurePluginBridge` to `PluginBridge`, and the marker trait from `IsPurePlugin` to `IsBridgedPlugin`.
 
-### 8.11 Plugin Model Positioning
+### 9.11 Plugin Model Positioning
 
 Kasane provides two plugin trait models with different levels of abstraction.
 
@@ -557,11 +677,11 @@ The following extension points are available only via `PluginBackend` (not `Plug
 
 WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer. WASM plugins have access to surfaces but not to PaintHook.
 
-### 8.12 WASM Plugin Semantics
+### 9.12 WASM Plugin Semantics
 
 WASM plugins participate in the same composition model as native plugins but operate under additional constraints imposed by the Component Model boundary.
 
-#### 8.12.1 Snapshot-Based State Access
+#### 9.12.1 Snapshot-Based State Access
 
 WASM plugins do not access `AppState` directly. Before each WASM call, the host creates a snapshot of relevant state fields in `HostState`. The plugin reads this snapshot via host-imported functions.
 
@@ -574,35 +694,35 @@ Invariant (WASM State Isolation):
 
 State fields are organized into tiers (Tier 0–8), reflecting the evolutionary history of the WIT interface. All tiers are refreshed before each call.
 
-#### 8.12.2 Element Arena Lifecycle
+#### 9.12.2 Element Arena Lifecycle
 
 WASM plugins construct `Element` trees via `element_builder` host calls. Elements are stored in a per-call arena that is cleared at the start of each WASM invocation.
 
 Element handles returned by builder calls are valid only within the current invocation. They must not be cached or reused across calls.
 
-#### 8.12.3 Dependency Declaration
+#### 9.12.3 Dependency Declaration
 
-WASM dependency declaration functions (`contribute_deps()`, `transform_deps()`, `annotate_deps()`) have been removed. The host now uses `state_hash()` as the sole mechanism for detecting WASM plugin state changes (see §8.12.4).
+WASM dependency declaration functions (`contribute_deps()`, `transform_deps()`, `annotate_deps()`) have been removed. The host now uses `state_hash()` as the sole mechanism for detecting WASM plugin state changes (see §9.12.4).
 
 Each frame, the host compares the current `state_hash()` against the previous frame's value. If the hash differs, the host re-collects the plugin's contributions. If the hash is unchanged, cached contributions are reused.
 
-#### 8.12.4 State Hash and Cache Invalidation
+#### 9.12.4 State Hash and Cache Invalidation
 
 WASM plugins must implement `state_hash() → u64` to enable the host-side plugin slot cache. The host compares state hashes across frames to determine whether plugin contributions need recomputation.
 
 Unlike the `Plugin` trait, where `PartialEq`-based change detection is automatic, WASM plugins bear full responsibility for state hash correctness. An incorrect state hash may cause stale contributions to persist.
 
-#### 8.12.5 Capability Gating
+#### 9.12.5 Capability Gating
 
 Privileged operations (process spawning, filesystem access) require explicit capability grants declared via `requested_capabilities()`. The host constructs a per-plugin WASI context based on these grants. Native plugins default to full access; WASM plugins default to sandboxed.
 
-## 9. Display Transformation and Display Units
+## 10. Display Transformation and Display Units
 
-### 9.1 Meaning of Display Transformation
+### 10.1 Meaning of Display Transformation
 
 Display Transformation is a policy that takes Observed State as material and constructs a different display structure. It can include omission, proxy display, supplementary display, and reconfiguration. Display Transformation is a view policy, not a falsification of protocol truth.
 
-### 9.2 Observed-preserving and Observed-eliding
+### 10.2 Observed-preserving and Observed-eliding
 
 There are at least two types of Display Transformation.
 
@@ -615,7 +735,7 @@ Kasane may permit the latter. However, elided facts are not lost; they are simpl
 
 In Default Frontend Semantics, Observed-eliding transformation is not the standard behavior. To maintain Kasane's substitutability where `kak = kasane`, strong omission, proxy display, and reconfiguration are positioned on the Extended Frontend Semantics side.
 
-### 9.3 Boundaries of Display Transformation
+### 10.3 Boundaries of Display Transformation
 
 Display Transformation may change display structure and interaction policy. What it may not change is falsifying Observed State content as "facts given by upstream."
 
@@ -633,7 +753,7 @@ For example, a fold summary may summarize multiple lines into one, but that summ
 
 Plugins declare priority via `display_directive_priority()` (default 0). The resolved `Vec<DisplayDirective>` is passed to `DisplayMap::build()` unchanged.
 
-### 9.4 Meaning of Display Unit
+### 10.4 Meaning of Display Unit
 
 A Display Unit is an operable display unit within the reconfigured UI. A Display Unit is not merely a layout box; it collectively represents the display target, its relationship to the source, and the availability of interaction.
 
@@ -645,19 +765,19 @@ A Display Unit can carry the following information.
 - interaction policy
 - navigation relationships with other Display Units
 
-### 9.5 Meaning of Source Mapping
+### 10.5 Meaning of Source Mapping
 
 A Display Unit may have a mapping to corresponding buffer positions, buffer ranges, selections, derived objects, or plugin-defined objects.
 
 This mapping is not necessarily one-to-one. A single Display Unit may represent multiple lines, and conversely, a single line may be split into multiple Display Units.
 
-### 9.6 Restricted Interaction
+### 10.6 Restricted Interaction
 
 If a Display Unit does not have a complete inverse mapping to its source, that unit may be treated as read-only or with restricted interaction.
 
 The important point is to not leave "undefined operation results" implicit. Kasane should be able to explicitly represent units where interaction is impossible or restricted.
 
-### 9.7 Responsibilities of Plugins and Display Transformation
+### 10.7 Responsibilities of Plugins and Display Transformation
 
 Plugins can introduce Display Transformations and Display Units, but they bear the following responsibilities.
 
@@ -672,27 +792,27 @@ The core guarantees the following in return.
 - Plugin-defined UI can participate in the same composition rules as standard UI
 - Plugin-defined UI builds upon standard frontend semantics as its foundation, and must not break the meaning of the core frontend in its absence
 
-## 10. Surface, Workspace, and Session
+## 11. Surface, Workspace, and Session
 
-### 10.1 Meaning of Surface
+### 11.1 Meaning of Surface
 
 A Surface is an abstraction that owns a rectangular region on screen and handles its own view construction, event processing, and state change notifications. The core's main screen elements are represented as Surfaces.
 
-### 10.2 Meaning of SurfaceId
+### 11.2 Meaning of SurfaceId
 
 `SurfaceId` is a stable ID that identifies a surface. Buffer, status, menu, info, and plugin surfaces belong to different `SurfaceId` spaces.
 
-### 10.3 Meaning of Workspace
+### 11.3 Meaning of Workspace
 
 A Workspace is a layout structure that manages surface placement, focus, splitting, and floating. A Workspace represents "which surface is where."
 
-### 10.4 Relationship Between Surfaces and the Existing View Layer
+### 11.4 Relationship Between Surfaces and the Existing View Layer
 
 Surface lifecycle has been integrated into the core view pipeline. In the Salsa path, `SalsaViewSource::view_sections()` delegates multi-pane base element composition to `SurfaceRegistry::compose_base_result()`. In the non-Salsa path, `view_sections()` delegates to `legacy_surface_compose_result()`.
 
 Therefore, Surface is partially integrated as a first-class abstraction. The rendering pipeline uses Surfaces when registered, falling back to the legacy direct-construction path otherwise. Full unification (where all core UI elements are Surfaces) is not yet complete.
 
-### 10.5 Current Constraints
+### 11.5 Current Constraints
 
 The current implementation has at least the following constraints.
 
@@ -700,41 +820,65 @@ The current implementation has at least the following constraints.
 - There are places where the `rect` received by a `Surface` and the final rendering are not fully consistent
 - Overlay positioning and parts of the core view coexist with legacy paths
 
-### 10.6 Relationship to Future Per-Surface Invalidation
+### 11.6 Relationship to Future Per-Surface Invalidation
 
 `SurfaceId`-based invalidation is a promising future direction, but this document does not treat it as part of the current semantics. What is addressed here is solely the fact that the current system assumes global dirty.
 
-### 10.7 Meaning of Session
+### 11.7 Meaning of Session
 
 A Session represents a single managed Kakoune client process and its associated UI state. `SessionManager` assigns a stable `SessionId` to each session and tracks multiple sessions concurrently. At any given time, exactly one session is active and rendered; inactive sessions are held in the background with their Kakoune readers still alive. The Kakoune server runs as a separate headless daemon (`kak -d`); sessions correspond to client connections (`kak -ui json -c`), not to the server process itself.
 
 A session is not a Surface, a Workspace layout, or a buffer. It is the runtime container that binds a Kakoune client process, an `AppState` snapshot, and (in the future) a set of session-bound surfaces into a single switchable unit.
 
-### 10.8 Session State Preservation
+### 11.8 Session State Preservation
 
 When the active session switches, `SessionStateStore` saves a full `AppState` clone of the outgoing session and restores the stored snapshot of the incoming session. This transition is atomic from the perspective of the rendering pipeline: the pipeline always sees a complete, consistent `AppState`.
 
 Inactive sessions continue to receive Kakoune protocol messages. Their `AppState` snapshots are updated in the background, so when an inactive session is activated, it reflects the latest state from its Kakoune process rather than a stale snapshot from the moment of deactivation.
 
-### 10.9 Session and Surface Binding (Current Constraints)
+### 11.9 Session and Surface Binding (Current Constraints)
 
 In the current implementation, the relationship between sessions and surfaces is not yet formalized. Surfaces are registered globally in `SurfaceRegistry` and are not scoped to a specific session. Automatic generation of session-bound surface groups (buffer, status, supplemental) and deterministic surface detachment on session switch are planned but not yet implemented.
 
 Until session-bound surface generation is in place, multi-session operation relies solely on `AppState` snapshot swapping, and the surface composition does not change on session switch.
 
-## 11. Equivalence and Proof Obligations
+## 12. Equivalence and Proof Obligations
 
-### 11.1 Trace-Equivalence
+### 12.1 T1: Presentation Equivalence
 
-Kasane has multiple rendering optimization paths. These are required to be equivalent in observable results, even though their internal procedures differ.
+For identical World state, all implementation paths produce identical presentation Ω. This is the foundational determinism property.
 
 ```text
-Theorem (Trace-Equivalence):
+Theorem T1 (Presentation Equivalence):
   For all valid states S:
+    render_pipeline(S) produces deterministic output.
+    Two calls with identical S yield byte-identical CellGrid.
+```
 
-    render_pipeline(S)
-      ≡obs render_pipeline_cached(S)
+Verified by `trace_equivalence.rs` property tests using proptest-generated state mutations.
 
+### 12.2 T2: Backend Equivalence
+
+TUI and GUI differ in output representation but are required to display the same UI structure and semantic content for the same state.
+
+```text
+Theorem T2 (Backend Equivalence):
+  For all valid states S:
+    The semantic content of TUI output (CellGrid) and GPU output
+    (DrawCommand sequence) is identical: same text, same positions,
+    same overlays, same interactive elements.
+```
+
+The backend's freedom is limited to "how to draw it" — rendering technology, not semantic content.
+
+### 12.3 T3: Incremental Equivalence
+
+The Salsa-cached production path must produce output identical to the reference full-pipeline path.
+
+```text
+Theorem T3 (Incremental Equivalence):
+  For all valid states S:
+    render_pipeline(S) ≡obs render_pipeline_cached(S)
   where ≡obs denotes identity of the final CellGrid / DrawCommand
   sequence as observable output.
 ```
@@ -745,40 +889,75 @@ Pipeline variants:
 - `render_pipeline_direct` — DirectViewSource with explicit `DirtyFlags` parameter. Used in incremental rendering benchmarks.
 - `render_pipeline_cached` — SalsaViewSource. Production path with Salsa memoization.
 
-This is Kasane's central correctness theorem. The Salsa-cached production path must produce output identical to the reference full-pipeline path.
+Salsa is an optimization, not a theoretical primitive. T3 guarantees that the optimization preserves semantics. Verified by `salsa_pipeline_comparison.rs` and `trace_equivalence.rs`.
 
-Trace-equivalence is verified empirically via property-based tests (`trace_equivalence.rs`), which use proptest to verify determinism of `render_pipeline` and agreement between `render_pipeline` and `render_pipeline_cached` across randomly generated states.
+### 12.4 T4: Composition Determinism
 
-### 11.2 Warm/Cold Cache Equivalence
+Plugin composition order is deterministic for a fixed set of plugins.
 
-> Removed. With Salsa as the sole caching layer and no `stable()` declarations, Trace-Equivalence (§11.1) is the single correctness criterion. The distinction between warm and cold caches is subsumed by Salsa's automatic dependency tracking.
+```text
+Theorem T4 (Composition Determinism):
+  For CommutativeComposable extension points, output is independent
+  of plugin registration order. For TransformChain, the chain order
+  is determined by plugin priority (stable sort on priority value).
+```
 
-### 11.3 PaintPatch Correctness
+The monoid-based composition traits (`CommutativeComposable`, `TransformChain`) enforce algebraic properties that guarantee determinism.
 
-> Removed with PaintPatch (ADR-020).
+### 12.5 T5: Default Sufficiency
 
-### 11.4 What Tests Guarantee
+```text
+Theorem T5 (Default Sufficiency):
+  With no plugins registered, Kasane satisfies all requirements
+  of Default Frontend Semantics (§2.4). Plugin contributions are
+  purely additive to a self-contained core.
+```
+
+### 12.6 T6: Plugin Safety
+
+```text
+Theorem T6 (Plugin Safety):
+  Plugin effects ⊄ Truth. No plugin can modify #[epistemic(observed)]
+  fields. Plugin effects flow through Command::SendToKakoune (which
+  Kakoune may accept or reject) or through presentation-layer
+  extension points that affect only Π and Ω.
+```
+
+This is the structural enforcement of Axiom A7 (§2.7). `PluginView<'_>` provides read-only access during the render phase.
+
+### 12.7 T7: Degradation Boundedness
+
+```text
+Theorem T7 (Degradation Boundedness):
+  When a heuristic inference fails, the degradation is bounded to
+  the declared severity level of that inference rule. No heuristic
+  failure can corrupt Truth or prevent rendering.
+```
+
+Each heuristic carries `#[epistemic(heuristic, rule="I-N", severity="...")]`. The severity levels are: `degraded` (visual quality loss), `absent` (feature unavailable), `incorrect` (wrong information displayed). See `derived/mod.rs` for the inference rule catalog.
+
+### 12.8 What Tests Guarantee
 
 What tests primarily guarantee are the following properties.
 
-- Trace-equivalence between `render_pipeline` and `render_pipeline_cached` (property-based via proptest, §11.1)
-- Determinism of `render_pipeline` across identical inputs
+- Presentation equivalence (T1) via proptest in `trace_equivalence.rs`
+- Incremental equivalence (T3) via `salsa_pipeline_comparison.rs` and `trace_equivalence.rs`
 - Plugin cache invalidation consistency (generation counter state hash)
-- Preservation of semantics shared across backends
+- Preservation of semantics shared across backends (T2)
 
-### 11.5 Contracts Expressible Only in Prose
+### 12.9 Contracts Expressible Only in Prose
 
 The following contracts are difficult to fully express through tests alone.
 
-- That heuristic state is not on par with protocol truth (§3.4)
-- The boundaries that plugins may and may not cross (§8.9)
-- That WASM state snapshot isolation holds across the Component Model boundary (§8.12)
+- That heuristic state is not on par with protocol truth (§3.4, A2)
+- The boundaries that plugins may and may not cross (§9.9, A7)
+- That WASM state snapshot isolation holds across the Component Model boundary (§9.12)
 
 As a non-goal of Kasane, requiring existing Kakoune users to participate in a Kasane-specific ecosystem within the standard frontend semantics is not included. Kasane has a plugin platform, but Default Frontend Semantics is not subordinate to it.
 
 These are maintained through both prose and tests.
 
-### 11.6 What Must Be Consistent Across Backends
+### 12.10 What Must Be Consistent Across Backends
 
 TUI and GUI differ in output methods, but at least the following semantics must be consistent.
 
@@ -787,59 +966,65 @@ TUI and GUI differ in output methods, but at least the following semantics must 
 - Which state changes produce which view changes
 - Which overlays/menus/info popups are visible
 
-## 12. Known Gaps
+## 13. Known Gaps
 
-### 12.1 ~~Non-Strictness Due to `stable()`~~
+### 13.1 ~~Non-Strictness Due to `stable()`~~
 
-> Resolved. `stable()` was removed with the introduction of Salsa (ADR-020). Exact and Policy Semantics now coincide (§5.2).
+> Resolved. `stable()` was removed with the introduction of Salsa (ADR-020). Exact Semantics and incremental evaluation now coincide (§5.2).
 
-### 12.2 Limits of Dependency Tracking
+### 13.2 Limits of Dependency Tracking
 
 Salsa provides automatic dependency tracking for native rendering paths. Remaining limitations:
 
-- **WASM `state_hash()` is manual.** Incorrect implementations may cause stale plugin output without detection (§7.4, §8.12.4).
-- **`no_eq` on tracked functions.** Output-level early-cutoff is disabled because no downstream tracked functions depend on the view functions' Element outputs (§6.11). `Element` implements `PartialEq`, so enabling output-level cutoff is technically feasible if the pipeline is deepened.
+- **WASM `state_hash()` is manual.** Incorrect implementations may cause stale plugin output without detection (§8.4, §9.12.4).
+- **`no_eq` on tracked functions.** Output-level early-cutoff is disabled because no downstream tracked functions depend on the view functions' Element outputs (§7.11). `Element` implements `PartialEq`, so enabling output-level cutoff is technically feasible if the pipeline is deepened.
 - **Salsa input comparison cost.** `sync_inputs_from_state()` performs `PartialEq` comparisons each frame, including deep comparisons of `Vec<Line>` in `BufferInput`. This is correct but carries a per-frame cost proportional to buffer size.
 
-### 12.3 Mismatch Between Global DirtyFlags and Surface Theory
+### 13.3 Mismatch Between Global DirtyFlags and Surface Theory
 
 Surfaces have been introduced as localized rectangular abstractions, but invalidation still heavily depends on global dirty.
 
-### 12.4 Mismatch Between Workspace Ratio and Actual Rendering
+### 13.4 Mismatch Between Workspace Ratio and Actual Rendering
 
 There is room for the split ratios computed on the Workspace side and the final flex allocation on the view composition side to not fully agree.
 
-### 12.5 Gap in Plugin Overlay Invalidation
+### 13.5 Gap in Plugin Overlay Invalidation
 
 The GUI-side scene invalidation and plugin overlay dependencies are not fully integrated, leaving theoretical room for overlays to become stale.
 
-### 12.6 Display Transformation and Core Invalidation
+### 13.6 Display Transformation and Core Invalidation
 
 The `DisplayMap` is integrated into the rendering pipeline. Display directives are synced to Salsa via `DisplayDirectivesInput`, and the `DisplayMap` is rebuilt each frame via `collect_display_map()` and propagated through `Element::BufferRef`, `ViewSections`, and cursor/input functions. Salsa's automatic dependency tracking ensures that changes to display directives trigger re-evaluation of dependent tracked functions.
 
 Remaining gap: the display unit model (P-040..P-043) has not yet been introduced as a first-class invalidation unit. Per-display-unit dirty tracking and navigation are not implemented.
 
-### 12.7 Incomplete Display-Oriented Navigation
+### 13.7 Incomplete Display-Oriented Navigation
 
 Visual unit-based navigation is required as a future foundation, but the current implementation still centers on buffer-oriented navigation, and a complete unification theory with display units is unfinished.
 
-### 12.8 WASM State Hash Accuracy
+### 13.8 WASM State Hash Accuracy
 
-WASM plugins implement `state_hash() → u64` manually (§8.12.4). An incorrect hash — one that returns the same value despite internal state changes — may cause stale contributions to persist without detection. Unlike the `Plugin` trait where `PartialEq`-based change detection is automatic, WASM plugins bear full responsibility for hash correctness.
+WASM plugins implement `state_hash() → u64` manually (§9.12.4). An incorrect hash — one that returns the same value despite internal state changes — may cause stale contributions to persist without detection. Unlike the `Plugin` trait where `PartialEq`-based change detection is automatic, WASM plugins bear full responsibility for hash correctness.
 
-### 12.9 WASM Snapshot Consistency Across Plugins
+### 13.9 WASM Snapshot Consistency Across Plugins
 
-WASM plugins receive a frozen state snapshot before each call (§8.12.1). Multiple plugins' state changes within a single frame are not atomically visible to subsequent WASM calls; each call sees a fresh snapshot. This means WASM plugin ordering may affect observable output when plugins have state dependencies on each other.
+WASM plugins receive a frozen state snapshot before each call (§9.12.1). Multiple plugins' state changes within a single frame are not atomically visible to subsequent WASM calls; each call sees a fresh snapshot. This means WASM plugin ordering may affect observable output when plugins have state dependencies on each other.
 
-### 12.10 Menu Item Transform Outside Unified Pipeline
+### 13.10 Menu Item Transform Outside Unified Pipeline
 
-`transform_menu_item()` operates separately from the Element-level `apply_transform_chain` (§8.5). The two transform mechanisms have independent priority orderings and are not subject to the same composition rules.
+`transform_menu_item()` operates separately from the Element-level `apply_transform_chain` (§9.5). The two transform mechanisms have independent priority orderings and are not subject to the same composition rules.
 
-### 12.11 HitMap Frame Delay
+### 13.11 HitMap Frame Delay
 
 Mouse routing uses the previous frame's HitMap. The HitMap is rebuilt after rendering (`rebuild_hit_map()`), so input events within a batch are routed using a potentially stale hit map. This introduces at most one frame of stale mouse routing (~16ms).
 
 This is an accepted tradeoff documented in the frame loop code. It is recorded here because it represents a deviation from the "current frame reflects current state" ideal.
+
+### 13.12 DisplayMap Frame Delay
+
+Mouse coordinate translation uses the DisplayMap from the previous frame (§6.2). Before the first render, `AppState.display_map` is `None` and mouse events use identity mapping. After the first render, the DisplayMap is persisted and used for subsequent frames. This is the input-side analog of the HitMap frame delay (§13.11).
+
+This gap was partially resolved by persisting the DisplayMap on AppState (previously `mouse_to_kakoune()` received `None` unconditionally). The one-frame delay remains as an accepted tradeoff.
 
 ### Resolved Gaps
 
@@ -848,25 +1033,26 @@ The following gaps have been resolved and are retained for historical reference.
 - **Transform and Replacement unification**: At the Plugin trait level, `transform()` has absorbed both decorator and replacement, and is unified as `apply_transform_chain`. The old APIs (`decorate()`, `replace()`) have been removed from the Plugin trait.
 - **Session invisibility to plugins**: Session observability infrastructure has been implemented: `AppState.session_descriptors` and `active_session_key` expose session state, `DirtyFlags::SESSION` notifies plugins of lifecycle changes, and `SessionCommand::Switch` allows plugins to request session activation. WASM plugins access these via WIT Tier 8 host-state functions and the `switch-session` command variant.
 - **P-031 Single-plugin display directive exclusivity**: Display directives now support multi-plugin composition via `DirectiveSet` monoid and `resolve()`. Priority-based fold conflict resolution, hide union, and insert suppression enable combining code folding + virtual text from different plugins.
-- **Non-strictness due to `stable()`**: `stable()` and manual dependency tracking were removed with the introduction of Salsa (ADR-020). Exact and Policy Semantics now coincide.
+- **Non-strictness due to `stable()`**: `stable()` and manual dependency tracking were removed with the introduction of Salsa (ADR-020). Exact Semantics and incremental evaluation now coincide.
+- **DisplayMap not persisted for mouse input**: `mouse_to_kakoune()` previously received `None` for the DisplayMap parameter, causing mouse clicks on display-transformed content to use incorrect buffer coordinates. Resolved by persisting `DisplayMap` on `AppState.display_map` after each render frame.
 
-## 13. Non-Goals
+## 14. Non-Goals
 
-### 13.1 Optimizations Not Covered in This Document
+### 14.1 Optimizations Not Covered in This Document
 
 Individual micro-optimizations and benchmark tuning are not covered here. What is covered is only the semantics that such optimizations must preserve.
 
-### 13.2 User-Facing Configuration Not Covered in This Document
+### 14.2 User-Facing Configuration Not Covered in This Document
 
 Configuration methods for themes, layout, keybindings, etc. are not covered. Only which semantic boundary a given configuration belongs to is addressed.
 
-### 13.3 Future Proposals Not Covered in This Document
+### 14.3 Future Proposals Not Covered in This Document
 
 Proposals for Phase 5 and beyond, or ideal designs after upstream changes, are explicitly distinguished from the current semantics.
 
-## 14. Change Policy
+## 15. Change Policy
 
-### 14.1 When to Update This Document
+### 15.1 When to Update This Document
 
 This document is updated when any of the following change.
 
@@ -876,11 +1062,11 @@ This document is updated when any of the following change.
 - Surface/Workspace semantics
 - Definition of observational equivalence
 
-### 14.2 Relationship with ADRs
+### 15.2 Relationship with ADRs
 
 ADRs preserve the history of "why that decision was made." This document is the authoritative reference for "what is currently the specification." When the two conflict, this document takes priority as the current specification, and notes are added to the ADR as needed.
 
-### 14.3 Synchronization with Test Updates
+### 15.3 Synchronization with Test Updates
 
 When semantics change, the following should also be updated in the same change whenever possible.
 
@@ -890,7 +1076,7 @@ When semantics change, the following should also be updated in the same change w
 
 Changes that advance only semantics or only tests are avoided in principle.
 
-## 15. Related Documents
+## 16. Related Documents
 
 - [index.md](./index.md) — Documentation entry point and architecture overview
 - [plugin-api.md](./plugin-api.md) — Plugin API reference

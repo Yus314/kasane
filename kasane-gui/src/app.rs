@@ -930,7 +930,7 @@ where
                 None
             };
 
-            let (commands, result) = scene_render_pipeline_cached(
+            let (commands, result, display_map) = scene_render_pipeline_cached(
                 &self.salsa_db,
                 &self.salsa_handles,
                 &self.state,
@@ -943,6 +943,7 @@ where
             );
             self.last_render_result = Some(result);
             self.state.display_scroll_offset = result.display_scroll_offset;
+            self.state.display_map = Some(display_map);
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
                 cell_size,

@@ -261,7 +261,7 @@ fn salsa_full_frame_under_2ms() {
         sync_inputs_from_state(&mut db, &state, &handles);
         sync_display_directives(&mut db, &state, &registry.view(), &handles);
         sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
-        let _result = render_pipeline_cached(
+        let (_result, _) = render_pipeline_cached(
             &db,
             &handles,
             &state,
@@ -285,7 +285,7 @@ fn salsa_full_frame_under_2ms() {
             sync_inputs_from_state(&mut db, &state, &handles);
             sync_display_directives(&mut db, &state, &registry.view(), &handles);
             sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
-            let _result = render_pipeline_cached(
+            let (_result, _) = render_pipeline_cached(
                 &db,
                 &handles,
                 &state,

@@ -148,8 +148,8 @@ fn test_scene_render_pipeline_deterministic() {
     };
 
     // Two calls to scene_render_pipeline should produce identical output
-    let (first, _) = scene_render_pipeline(&state, &registry.view(), cs);
-    let (second, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let (first, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let (second, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
 
     assert_eq!(
         first, second,
@@ -191,8 +191,8 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     };
 
     // Verify scene_render_pipeline produces deterministic overlay output
-    let (first, _) = scene_render_pipeline(&state, &registry.view(), cs);
-    let (second, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let (first, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
+    let (second, _, _) = scene_render_pipeline(&state, &registry.view(), cs);
 
     let overlay_count = first
         .iter()

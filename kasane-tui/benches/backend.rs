@@ -751,7 +751,7 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let result = render_pipeline(&state, &registry.view(), &mut grid);
+                    let (result, _) = render_pipeline(&state, &registry.view(), &mut grid);
                     backend.present(&mut grid, result);
                     let bytes = backend.bytes_generated();
                     backend.flush();
@@ -775,7 +775,7 @@ fn bench_e2e_pipeline(c: &mut Criterion) {
                 |(mut buf, mut state)| {
                     let request = parse_request(&mut buf).unwrap();
                     state.apply(request);
-                    let result = render_pipeline(&state, &registry.view(), &mut grid);
+                    let (result, _) = render_pipeline(&state, &registry.view(), &mut grid);
                     backend.present(&mut grid, result);
                     let bytes = backend.bytes_generated();
                     backend.flush();

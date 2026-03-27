@@ -424,7 +424,7 @@ where
             };
 
             image_requests.clear();
-            let result = render_pipeline_cached(
+            let (result, display_map) = render_pipeline_cached(
                 &salsa_db,
                 &salsa_handles,
                 &state,
@@ -443,6 +443,7 @@ where
             }
             backend.present(&mut grid, result, &image_requests)?;
             state.display_scroll_offset = result.display_scroll_offset;
+            state.display_map = Some(display_map);
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
 
             let frame_ms = render_start.elapsed().as_secs_f64() * 1000.0;

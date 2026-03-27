@@ -16,6 +16,7 @@ use bitflags::bitflags;
 
 use crate::DirtyTracked;
 use crate::config::{Config, MenuPosition, StatusPosition};
+use crate::display::DisplayMapRef;
 use crate::input::MouseButton;
 use crate::layout::HitMap;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
@@ -267,6 +268,12 @@ pub struct AppState {
     #[epistemic(runtime)]
     #[dirty(free)]
     pub display_scroll_offset: usize,
+    /// Display map from the last rendered frame.
+    /// Used by mouse input to translate display-space coordinates to buffer-space.
+    /// Set by the rendering pipeline after each frame; not part of protocol state.
+    #[epistemic(runtime)]
+    #[dirty(free)]
+    pub display_map: Option<DisplayMapRef>,
 }
 
 impl AppState {
@@ -366,6 +373,7 @@ impl AppState {
             session_descriptors: _,
             active_session_key: _,
             display_scroll_offset: _,
+            display_map: _,
         } = d;
 
         self.lines = lines;
@@ -496,6 +504,7 @@ impl Default for AppState {
             hit_map: HitMap::new(),
             cursor_cache: derived::CursorCache::default(),
             display_scroll_offset: 0,
+            display_map: None,
         }
     }
 }

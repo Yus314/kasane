@@ -466,4 +466,161 @@ mod tests {
             }
         );
     }
+
+    // -----------------------------------------------------------------------
+    // DisplayMap-aware mouse coordinate translation tests
+    // -----------------------------------------------------------------------
+
+    /// Click on a display line after a fold: buffer line should be translated
+    /// via display_to_buffer.
+    #[test]
+    fn test_mouse_with_fold_display_map() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        use crate::protocol::{Atom, KasaneRequest};
+
+        // 10 buffer lines, fold lines 2..5 into a summary
+        let dm = DisplayMap::build(
+            10,
+            &[DisplayDirective::Fold {
+                range: 2..5,
+                summary: vec![Atom {
+                    face: Default::default(),
+                    contents: "--- folded ---".into(),
+                }],
+            }],
+        );
+        // Display lines: 0=buf0, 1=buf1, 2=fold(2..5), 3=buf5, 4=buf6, ...
+        // Click on display line 4 (= buffer line 6)
+        let evt = MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 4,
+            column: 3,
+            modifiers: Modifiers::empty(),
+        };
+        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 0).unwrap();
+        assert_eq!(
+            req,
+            KasaneRequest::MousePress {
+                button: "left".to_string(),
+                line: 6,
+                column: 3,
+            }
+        );
+    }
+
+    /// Click on a fold summary line (ReadOnly) should be suppressed.
+    #[test]
+    fn test_mouse_on_fold_summary_suppressed() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        use crate::protocol::Atom;
+
+        let dm = DisplayMap::build(
+            10,
+            &[DisplayDirective::Fold {
+                range: 2..5,
+                summary: vec![Atom {
+                    face: Default::default(),
+                    contents: "--- folded ---".into(),
+                }],
+            }],
+        );
+        // Display line 2 is the fold summary (ReadOnly)
+        let evt = MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 2,
+            column: 0,
+            modifiers: Modifiers::empty(),
+        };
+        assert!(mouse_to_kakoune(&evt, 3, Some(&dm), 0).is_none());
+    }
+
+    /// Click on a virtual line inserted by InsertAfter (ReadOnly) should be suppressed.
+    #[test]
+    fn test_mouse_on_virtual_line_suppressed() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        use crate::protocol::Atom;
+
+        let dm = DisplayMap::build(
+            5,
+            &[DisplayDirective::InsertAfter {
+                after: 1,
+                content: vec![Atom {
+                    face: Default::default(),
+                    contents: "virtual text".into(),
+                }],
+            }],
+        );
+        // Display lines: 0=buf0, 1=buf1, 2=virtual(ReadOnly), 3=buf2, ...
+        let evt = MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 2,
+            column: 0,
+            modifiers: Modifiers::empty(),
+        };
+        assert!(mouse_to_kakoune(&evt, 3, Some(&dm), 0).is_none());
+    }
+
+    /// Click on a display line after hidden lines: buffer line should be
+    /// correctly offset past the hidden range.
+    #[test]
+    fn test_mouse_with_hidden_lines() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        use crate::protocol::KasaneRequest;
+
+        // 10 buffer lines, hide lines 3..6
+        let dm = DisplayMap::build(10, &[DisplayDirective::Hide { range: 3..6 }]);
+        // Display lines: 0=buf0, 1=buf1, 2=buf2, 3=buf6, 4=buf7, ...
+        let evt = MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 3,
+            column: 5,
+            modifiers: Modifiers::empty(),
+        };
+        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 0).unwrap();
+        assert_eq!(
+            req,
+            KasaneRequest::MousePress {
+                button: "left".to_string(),
+                line: 6,
+                column: 5,
+            }
+        );
+    }
+
+    /// Click with both scroll offset and DisplayMap: both offsets applied correctly.
+    #[test]
+    fn test_mouse_with_scroll_offset_and_display_map() {
+        use crate::display::{DisplayDirective, DisplayMap};
+        use crate::protocol::{Atom, KasaneRequest};
+
+        // 20 buffer lines, fold lines 5..10 into summary
+        let dm = DisplayMap::build(
+            20,
+            &[DisplayDirective::Fold {
+                range: 5..10,
+                summary: vec![Atom {
+                    face: Default::default(),
+                    contents: "folded".into(),
+                }],
+            }],
+        );
+        // Display lines: 0-4=buf0-4, 5=fold(5..10), 6=buf10, 7=buf11, ...
+        // With scroll offset 3, display line 0 on screen maps to display line 3 in the map
+        // Click on screen line 4 → display line 7 → buf11
+        let evt = MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 4,
+            column: 0,
+            modifiers: Modifiers::empty(),
+        };
+        let req = mouse_to_kakoune(&evt, 3, Some(&dm), 3).unwrap();
+        assert_eq!(
+            req,
+            KasaneRequest::MousePress {
+                button: "left".to_string(),
+                line: 11,
+                column: 0,
+            }
+        );
+    }
 }

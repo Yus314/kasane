@@ -657,7 +657,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
 
     // Legacy pipeline
     let mut legacy_grid = CellGrid::new(state.cols, state.rows);
-    let legacy_result = render_pipeline(&state, &registry.view(), &mut legacy_grid);
+    let (legacy_result, _) = render_pipeline(&state, &registry.view(), &mut legacy_grid);
 
     // Salsa pipeline
     let mut db = KasaneDatabase::default();
@@ -668,7 +668,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
-    let salsa_result = render_pipeline_cached(
+    let (salsa_result, _) = render_pipeline_cached(
         &db,
         &handles,
         &state,
@@ -734,7 +734,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
 
     // Legacy pipeline
     let mut legacy_grid = CellGrid::new(state.cols, state.rows);
-    let _legacy_result = render_pipeline(&state, &registry.view(), &mut legacy_grid);
+    let (_legacy_result, _) = render_pipeline(&state, &registry.view(), &mut legacy_grid);
 
     // Salsa pipeline
     let mut db = KasaneDatabase::default();
@@ -745,7 +745,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
-    let _salsa_result = render_pipeline_cached(
+    let (_salsa_result, _) = render_pipeline_cached(
         &db,
         &handles,
         &state,

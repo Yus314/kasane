@@ -232,9 +232,12 @@ fn update_inner<E: PluginEffects>(
                 LegacyScrollDispatch::NotHandled => {}
             }
 
-            let cmds = if let Some(req) =
-                input::mouse_to_kakoune(&mouse, scroll_amount, None, state.display_scroll_offset)
-            {
+            let cmds = if let Some(req) = input::mouse_to_kakoune(
+                &mouse,
+                scroll_amount,
+                state.display_map.as_deref(),
+                state.display_scroll_offset,
+            ) {
                 vec![Command::SendToKakoune(req)]
             } else {
                 vec![]

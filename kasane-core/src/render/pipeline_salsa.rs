@@ -401,7 +401,7 @@ pub fn render_pipeline_cached(
     halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
     image_protocol: super::ImageProtocol,
     image_requests: Option<&mut Vec<super::ImageRequest>>,
-) -> RenderResult {
+) -> (RenderResult, crate::display::DisplayMapRef) {
     let mut source = SalsaViewSource::new(db, handles, surface_registry, pane_states);
     render_cached_core(
         &mut source,
@@ -428,7 +428,11 @@ pub fn scene_render_pipeline_cached<'a>(
     scene_cache: &'a mut SceneCache,
     surface_registry: Option<&SurfaceRegistry>,
     pane_states: Option<&PaneStates<'_>>,
-) -> (&'a [DrawCommand], RenderResult) {
+) -> (
+    &'a [DrawCommand],
+    RenderResult,
+    crate::display::DisplayMapRef,
+) {
     let mut source = SalsaViewSource::new(db, handles, surface_registry, pane_states);
     scene_render_core(&mut source, state, registry, cell_size, dirty, scene_cache)
 }

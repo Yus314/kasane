@@ -703,7 +703,7 @@ fn bench_scene_cache_cold(c: &mut Criterion) {
 
     c.bench_function("scene_cache_cold", |b| {
         b.iter(|| {
-            let (cmds, result) = scene_render_pipeline(&state, &registry.view(), cs);
+            let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
             criterion::black_box((cmds.len(), result));
         });
     });
@@ -720,7 +720,7 @@ fn bench_scene_cache_warm(c: &mut Criterion) {
 
     c.bench_function("scene_cache_warm", |b| {
         b.iter(|| {
-            let (cmds, result) = scene_render_pipeline(&state, &registry.view(), cs);
+            let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
             criterion::black_box((cmds.len(), result));
         });
     });
@@ -737,7 +737,7 @@ fn bench_scene_cache_menu_select(c: &mut Criterion) {
 
     c.bench_function("scene_cache_menu_select", |b| {
         b.iter(|| {
-            let (cmds, result) = scene_render_pipeline(&state, &registry.view(), cs);
+            let (cmds, result, _) = scene_render_pipeline(&state, &registry.view(), cs);
             criterion::black_box((cmds.len(), result));
         });
     });
