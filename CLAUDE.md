@@ -83,4 +83,4 @@ For architecture details, see `docs/index.md`. For plugin API reference, see `do
 - **Documentation**: `docs/` directory (requirements, architecture, ADRs, roadmap) — in English
 - **Rust edition**: 2024
 - **Dev environment**: Nix flake + direnv (provides Rust toolchain, GUI deps, pre-commit hooks)
-- **Performance**: ~59 μs CPU per frame at 80×24 (~14 μs with line-dirty optimization). TUI backend I/O: ~49 μs at 80×24 (ADR-015 draw_grid). Benchmarks tracked in CI with 115% alert threshold. See `docs/performance.md` for current numbers
+- **Performance**: ~59 μs CPU per frame at 80×24 (~14 μs with line-dirty optimization). TUI backend I/O: ~49 μs at 80×24 (ADR-015 draw_grid). Benchmarks tracked in CI with 115% alert threshold. Performance policy: perceptual imperceptibility as goal and stopping condition (ADR-024). See `docs/performance.md` for current numbers
