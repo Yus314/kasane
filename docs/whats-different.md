@@ -73,7 +73,7 @@ See [config.md](config.md) for the full configuration reference.
 
 ## Opt-in: Multi-Pane
 
-Split the editor into multiple panes, each connected to an independent Kakoune session. Works in both TUI and GUI backends.
+Split the editor into multiple panes, each connected to an independent Kakoune session. Each pane displays its own status bar showing its own mode, file name, and status. Works in both TUI and GUI backends.
 
 | Key | Action |
 |-----|--------|

@@ -80,6 +80,7 @@ Kasane guarantees display, context reflection, and standard readability for its 
 | R-061 | Status bar position | Status bar display position is configurable as top or bottom | [#235](https://github.com/mawww/kakoune/issues/235) |
 | R-063 | Markup rendering | Parses and renders `{Face}` markup syntax within status lines | [#4507](https://github.com/mawww/kakoune/issues/4507) |
 | R-064 | Cursor count badge | Displays cursor count in the status bar when multiple cursors/selections are present | [#5425](https://github.com/mawww/kakoune/issues/5425) |
+| R-065 | Per-pane status bar | In multi-pane mode, each pane displays its own status bar reflecting the pane's independent Kakoune client state (mode, prompt, status line) | — |
 
 ### 2.4 Compatibility and Ease of Adoption
 

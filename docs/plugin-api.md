@@ -39,7 +39,7 @@ The core UI is structured around surfaces. The extension points available to plu
 | SurfaceId | Surface | Description |
 |---|---|---|
 | `BUFFER` (0) | `KakouneBufferSurface` | Main buffer display |
-| `STATUS` (1) | `StatusBarSurface` | Status bar |
+| `STATUS` (1) | `StatusBarSurface` | Status bar (rendered once per pane in multi-pane mode) |
 | `MENU` (2) | `MenuSurface` | Menu |
 | `INFO_BASE`+ (10+) | `InfoSurface` | Info popups |
 | `PLUGIN_BASE`+ (100+) | Plugin-defined | Plugin-provided surfaces |

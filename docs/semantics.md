@@ -812,6 +812,18 @@ Surface lifecycle has been integrated into the core view pipeline. In the Salsa 
 
 Therefore, Surface is partially integrated as a first-class abstraction. The rendering pipeline uses Surfaces when registered, falling back to the legacy direct-construction path otherwise. Full unification (where all core UI elements are Surfaces) is not yet complete.
 
+### 11.4a Per-Pane Status Bar Rendering
+
+In multi-pane mode, the global `StatusBarSurface` is not rendered at the screen-level composition (`compose_base_result()` returns early). Instead, each pane renders its own status bar via the `compose_node_with_reports()` Leaf case using a singleton N-render approach: the same `StatusBarSurface` descriptor's `view()` and `resolve_surface_tree()` are called once per pane with each pane's own `AppState`.
+
+`resolve_surface_tree()` takes a `PaneContext` parameter, which is propagated to `ContributeContext::from_constraints_in_pane()` during slot resolution. This ensures that plugin contributions (e.g., sel-badge, session-ui) in status bar slots receive the correct pane-specific state and focus information.
+
+Each pane's element tree is composed as `Column [buffer(flex=1.0), status(fixed)]` (or `[status, buffer]` when `status_at_top` is true). Kakoune clients are resized to `rect.h - 1` to account for the status bar row consumed within each pane.
+
+In single-pane mode, the global status bar rendering path is unchanged.
+
+Prompt cursor positioning in multi-pane mode uses the focused pane's rectangle (`focused_pane_rect`) to compute absolute screen coordinates for the cursor, rather than assuming the status bar is at row 0 or `grid.height() - 1`.
+
 ### 11.5 Current Constraints
 
 The current implementation has at least the following constraints.

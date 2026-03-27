@@ -15,6 +15,7 @@
 - **wasm**: Add `image-preview` WASM plugin example
 - **plugin**: Implement EOL virtual text (Phase VT-1)
 - **display**: Implement display scroll offset for virtual line overflow
+- **pane**: Per-pane status bar rendering in multi-pane mode — each pane displays its own mode, prompt, and status line
 
 ### Fixed
 

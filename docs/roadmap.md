@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable | Completion criteria |
 |---|---|---|
-| Multi-pane UI polish | Pane border / separator glyphs | Visual distinction between panes; resize key bindings; per-pane status |
+| Multi-pane UI polish | Pane resize direction key bindings | Directional resize (`<C-w>>/<`); layout persistence |
 | Display transformation / display unit model | P-040 through P-043 (display unit model) | Display unit abstraction, visual navigation, and plugin-defined navigation policy are in place |
 
 ### 2.2 Next
@@ -59,18 +59,19 @@ Foundation delivered in Phase 5b/5c:
 - Overlay offset for multi-pane (menu/info positioned in pane-local → screen coordinates)
 - Focused pane command routing (`focused_writer!` macro) across all dispatch sites and scroll runtime
 - `<C-w>v/s/w/W/h/j/k/l/q` key bindings (split, focus, close)
-- Minimal divider rendering (1-cell styled background via `SPLIT_DIVIDER` theme token)
+- Pane border / separator glyphs — box-drawing characters (`│` / `─`) with `SPLIT_DIVIDER` / `SPLIT_DIVIDER_FOCUSED` theme tokens; edge-adjacency detection for focused pane highlight
 - Mouse divider drag-to-resize (`handle_workspace_divider_mouse()`, `WorkspaceCommand::Resize`)
+- Pane resize key bindings — `<C-w>+/-` via pane-manager plugin (`WorkspaceCommand::Resize`)
 - TUI and GUI backend support
+
+- Per-pane status bar — each pane displays its own mode, file name, and status via singleton N-render of `StatusBarSurface` (reuses `resolve_surface_tree()` with `PaneContext`; Kakoune clients resized to `rect.h - 1`; prompt cursor positioned relative to focused pane rect)
 
 Remaining work:
 
-- Pane border / separator glyphs — box-drawing characters or similar for clearer visual distinction between adjacent panes (current: styled space background only)
-- Per-pane status bar — each pane displays its own mode, file name, and status
-- Pane resize key bindings — `<C-w>+/-/>/<` to adjust pane split ratios (mouse divider drag already functional)
+- Pane resize direction key bindings — `<C-w>>/<` for directional resize (current `+/-` adjusts focused split ratio only)
 - Pane layout persistence — restore layout on session reconnect
 
-Next deliverable: Pane border / separator glyphs
+Next deliverable: Pane resize direction key bindings
 
 ### 3.2 Display transformation / display unit model
 
@@ -108,6 +109,7 @@ Next deliverable: Decide on either manifest or settings API as the first impleme
 Completed:
 
 - `Pane` / `Workspace` parity model — `Workspace` split tree, `PaneMap`, workspace observation on `PluginBackend` (landed in Phase 5)
+- Plugin transforms integrated into Salsa rendering path — info overlays return `Vec<(InfoStyle, Overlay)>` for style-specific transform targets; menu path falls back to non-Salsa builder when `MENU_TRANSFORM` plugins are present
 
 Remaining work:
 
