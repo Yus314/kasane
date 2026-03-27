@@ -378,7 +378,7 @@ where
         }
 
         // Send resize commands to pane clients when layout may have changed
-        if !dirty.is_empty() && surface_registry.is_multi_pane() {
+        if !dirty.is_empty() {
             let total = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,

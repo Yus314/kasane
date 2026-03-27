@@ -265,15 +265,13 @@ where
                     if let Some(rect) = rects.get(&surface_id)
                         && let Ok(writer) = ctx.session_manager.writer_mut(session_id)
                     {
+                        // Per-pane status bar occupies 1 row from each pane.
+                        let rows = rect.h.saturating_sub(1);
                         kasane_core::io::send_request(
                             writer,
-                            &kasane_core::protocol::KasaneRequest::Resize {
-                                rows: rect.h,
-                                cols: rect.w,
-                            },
+                            &kasane_core::protocol::KasaneRequest::Resize { rows, cols: rect.w },
                         );
-                        ctx.surface_registry
-                            .record_resize(session_id, rect.h, rect.w);
+                        ctx.surface_registry.record_resize(session_id, rows, rect.w);
                     }
                 }
                 // If the session is a visible pane, trigger a redraw

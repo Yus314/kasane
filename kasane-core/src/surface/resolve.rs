@@ -6,7 +6,7 @@ use crate::element::{Direction, Element, FlexChild, ResolvedSlotInstanceId};
 use crate::layout::Rect;
 use crate::layout::flex::{self, Constraints, LayoutResult};
 use crate::plugin::{
-    AppView, ContribSizeHint, ContributeContext, Contribution, PluginView, SlotId,
+    AppView, ContribSizeHint, ContributeContext, Contribution, PaneContext, PluginView, SlotId,
     SourcedContribution,
 };
 use crate::state::AppState;
@@ -119,12 +119,14 @@ pub fn resolve_surface_tree(
     state: &AppState,
     registry: &PluginView<'_>,
     rect: Rect,
+    pane_context: PaneContext,
 ) -> SurfaceRenderOutcome {
     let root_constraints = Constraints::tight(rect.w, rect.h);
     let mut resolver = Resolver {
         descriptor,
         state,
         registry,
+        pane_context,
         seen_slots: HashSet::new(),
         next_instance_id: 1,
         slot_records: Vec::new(),
@@ -265,6 +267,7 @@ struct Resolver<'a> {
     descriptor: &'a SurfaceDescriptor,
     state: &'a AppState,
     registry: &'a PluginView<'a>,
+    pane_context: PaneContext,
     seen_slots: HashSet<&'a str>,
     next_instance_id: u64,
     slot_records: Vec<ResolvedSlotRecord>,
@@ -505,7 +508,11 @@ impl Resolver<'_> {
         }
 
         let slot_id = SlotId::new(slot.name.clone());
-        let ctx = ContributeContext::from_constraints(&AppView::new(self.state), constraints);
+        let ctx = ContributeContext::from_constraints_in_pane(
+            &AppView::new(self.state),
+            constraints,
+            self.pane_context,
+        );
         let sourced = self.registry.collect_contributions_with_sources(
             &slot_id,
             &AppView::new(self.state),
@@ -822,6 +829,7 @@ mod tests {
                 w: 20,
                 h: 10,
             },
+            PaneContext::default(),
         )
     }
 

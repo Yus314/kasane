@@ -447,15 +447,14 @@ where
                             if let Some(rect) = rects.get(&surface_id)
                                 && let Ok(writer) = self.session_manager.writer_mut(session_id)
                             {
+                                // Per-pane status bar occupies 1 row from each pane.
+                                let rows = rect.h.saturating_sub(1);
                                 kasane_core::io::send_request(
                                     writer,
-                                    &KasaneRequest::Resize {
-                                        rows: rect.h,
-                                        cols: rect.w,
-                                    },
+                                    &KasaneRequest::Resize { rows, cols: rect.w },
                                 );
                                 self.surface_registry
-                                    .record_resize(session_id, rect.h, rect.w);
+                                    .record_resize(session_id, rows, rect.w);
                             }
                         }
                         // If the session is a visible pane, trigger a redraw
@@ -883,7 +882,7 @@ where
         let cell_size = sr.cell_size();
 
         // Send resize commands to pane clients when layout may have changed
-        if !self.dirty.is_empty() && self.surface_registry.is_multi_pane() {
+        if !self.dirty.is_empty() {
             let total = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,

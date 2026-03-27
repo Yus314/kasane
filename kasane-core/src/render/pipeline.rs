@@ -104,6 +104,7 @@ fn compute_render_result(
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
     display_scroll_offset: u16,
+    focused_pane_rect: Option<&Rect>,
 ) -> RenderResult {
     let hint = cursor_style_hint(state, registry);
     let (cx, cy) = match state.cursor_mode {
@@ -120,13 +121,25 @@ fn compute_render_result(
         }
         CursorMode::Prompt => {
             let prompt_width = line_display_width(&state.status_prompt) as u16;
-            let cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
-            let cy = if state.status_at_top {
-                0
-            } else {
-                state.rows.saturating_sub(1)
-            };
-            (cx, cy)
+            let base_cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            match focused_pane_rect {
+                Some(r) => {
+                    let cy = if state.status_at_top {
+                        r.y
+                    } else {
+                        r.y + r.h - 1
+                    };
+                    (base_cx + r.x, cy)
+                }
+                None => {
+                    let cy = if state.status_at_top {
+                        0
+                    } else {
+                        state.rows.saturating_sub(1)
+                    };
+                    (base_cx, cy)
+                }
+            }
         }
     };
     RenderResult {
@@ -356,6 +369,7 @@ pub(crate) fn render_cached_core(
         dm,
         frame.buffer_y_offset,
         dso,
+        frame.focused_pane_rect.as_ref(),
     );
     let (cx, cy) = cursor_position(
         cursor_state,
@@ -364,6 +378,7 @@ pub(crate) fn render_cached_core(
         dm,
         frame.buffer_y_offset,
         dso,
+        frame.focused_pane_rect.as_ref(),
     );
 
     let result = RenderResult {
@@ -409,6 +424,7 @@ pub(crate) fn scene_render_core<'a>(
         dm,
         frame.buffer_y_offset,
         dso,
+        frame.focused_pane_rect.as_ref(),
     );
 
     // Fast path: all sections cached

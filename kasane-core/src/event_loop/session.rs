@@ -24,21 +24,20 @@ pub fn send_pane_resizes(
 ) {
     let rects = surface_registry.workspace().compute_rects(total);
     for (surface_id, rect) in &rects {
+        // Per-pane status bar occupies 1 row from each pane.
+        let rows = rect.h.saturating_sub(1);
         if let Some(session_id) = surface_registry.session_for_surface(*surface_id)
             // Skip sessions whose kak process hasn't finished initializing.
             // The initial Resize is sent when their first Kakoune event arrives.
             && !surface_registry.has_pending_resize(session_id)
             // Only send when dimensions actually changed to avoid an infinite
             // Resize → Draw → dirty → Resize feedback loop.
-            && surface_registry.needs_resize(session_id, rect.h, rect.w)
+            && surface_registry.needs_resize(session_id, rows, rect.w)
             && let Some(writer) = session_host.writer_for_session(session_id)
         {
             crate::io::send_request(
                 writer,
-                &crate::protocol::KasaneRequest::Resize {
-                    rows: rect.h,
-                    cols: rect.w,
-                },
+                &crate::protocol::KasaneRequest::Resize { rows, cols: rect.w },
             );
         }
     }

@@ -207,6 +207,7 @@ pub fn cursor_position(
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
     display_scroll_offset: u16,
+    focused_pane_rect: Option<&crate::layout::Rect>,
 ) -> (u16, u16) {
     match state.cursor_mode {
         CursorMode::Buffer => {
@@ -227,13 +228,25 @@ pub fn cursor_position(
         }
         CursorMode::Prompt => {
             let prompt_width = line_display_width(&state.status_prompt) as u16;
-            let cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
-            let cy = if state.status_at_top {
-                0
-            } else {
-                grid.height().saturating_sub(1)
-            };
-            (cx, cy)
+            let base_cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            match focused_pane_rect {
+                Some(r) => {
+                    let cy = if state.status_at_top {
+                        r.y
+                    } else {
+                        r.y + r.h - 1
+                    };
+                    (base_cx + r.x, cy)
+                }
+                None => {
+                    let cy = if state.status_at_top {
+                        0
+                    } else {
+                        grid.height().saturating_sub(1)
+                    };
+                    (base_cx, cy)
+                }
+            }
         }
     }
 }
@@ -270,6 +283,7 @@ pub fn cursor_style_default(state: &AppState) -> CursorStyle {
 
 /// In non-block cursor modes (insert/replace), clear the PrimaryCursor face
 /// highlight from the cursor cell so the terminal cursor shape is visible.
+#[allow(clippy::too_many_arguments)]
 pub fn clear_block_cursor_face(
     state: &AppState,
     grid: &mut CellGrid,
@@ -278,6 +292,7 @@ pub fn clear_block_cursor_face(
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
     display_scroll_offset: u16,
+    focused_pane_rect: Option<&crate::layout::Rect>,
 ) {
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
@@ -301,13 +316,25 @@ pub fn clear_block_cursor_face(
         }
         CursorMode::Prompt => {
             let prompt_width = line_display_width(&state.status_prompt) as u16;
-            let cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
-            let cy = if state.status_at_top {
-                0
-            } else {
-                grid.height().saturating_sub(1)
-            };
-            (cx, cy)
+            let base_cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            match focused_pane_rect {
+                Some(r) => {
+                    let cy = if state.status_at_top {
+                        r.y
+                    } else {
+                        r.y + r.h - 1
+                    };
+                    (base_cx + r.x, cy)
+                }
+                None => {
+                    let cy = if state.status_at_top {
+                        0
+                    } else {
+                        grid.height().saturating_sub(1)
+                    };
+                    (base_cx, cy)
+                }
+            }
         }
     };
     let base_face = match state.cursor_mode {

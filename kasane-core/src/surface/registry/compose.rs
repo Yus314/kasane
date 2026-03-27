@@ -30,9 +30,10 @@ impl SurfaceRegistry {
         resolve::resolve_surface_tree(
             &entry.descriptor,
             abstract_root,
-            state,
+            pane_state,
             plugin_registry,
             rect,
+            crate::plugin::PaneContext::new(entry.descriptor.surface_id, focused),
         )
     }
 
@@ -128,8 +129,16 @@ impl SurfaceRegistry {
             &rects,
         );
 
-        // In multi-pane mode, the status bar should reflect the focused pane's
-        // content (prompt, mode line, etc.), not the primary session's.
+        // In multi-pane mode, each pane renders its own status bar via
+        // compose_node_with_reports (Leaf case). Skip the global status bar.
+        if self.is_multi_pane() {
+            return SurfaceComposeResult {
+                base: Some(workspace_content),
+                surface_reports,
+            };
+        }
+
+        // In single-pane mode, render the global status bar as before.
         let focused = self.workspace.focused();
         let status_state = pane_states
             .and_then(|ps| ps.state_for_surface_or_focused(SurfaceId::STATUS, focused))
@@ -151,9 +160,13 @@ impl SurfaceRegistry {
             let outcome = resolve::resolve_surface_tree(
                 &entry.descriptor,
                 abstract_root,
-                state,
+                status_state,
                 plugin_registry,
                 total,
+                crate::plugin::PaneContext::new(
+                    entry.descriptor.surface_id,
+                    focused == SurfaceId::STATUS,
+                ),
             );
             surface_reports.push(outcome.report);
             outcome.tree.map(|tree| tree.root).unwrap_or(Element::Empty)
@@ -253,18 +266,62 @@ impl SurfaceRegistry {
                         w: 0,
                         h: 0,
                     });
+                    let focused = self.workspace.focused() == *surface_id;
                     let outcome = self.render_surface_outcome(
                         entry,
                         state,
                         pane_states,
                         plugin_registry,
                         rect,
-                        self.workspace.focused() == *surface_id,
+                        focused,
                     );
-                    (
-                        outcome.tree.map(|tree| tree.root).unwrap_or(Element::Empty),
-                        vec![outcome.report],
-                    )
+                    let buffer_elem = outcome.tree.map(|tree| tree.root).unwrap_or(Element::Empty);
+                    let mut reports = vec![outcome.report];
+
+                    // In multi-pane mode, render per-pane status bar
+                    if self.is_multi_pane()
+                        && let Some(status_entry) = self.surfaces.get(&SurfaceId::STATUS)
+                    {
+                        let pane_state = pane_states
+                            .and_then(|ps| ps.state_for_surface(*surface_id))
+                            .unwrap_or(state);
+                        let pane_ctx = crate::plugin::PaneContext::new(*surface_id, focused);
+                        let status_ctx = ViewContext {
+                            state: pane_state,
+                            global_state: state,
+                            rect,
+                            focused,
+                            registry: plugin_registry,
+                            surface_id: SurfaceId::STATUS,
+                            pane_context: pane_ctx,
+                        };
+                        let status_root = status_entry.surface.view(&status_ctx);
+                        let status_outcome = resolve::resolve_surface_tree(
+                            &status_entry.descriptor,
+                            status_root,
+                            pane_state,
+                            plugin_registry,
+                            rect,
+                            pane_ctx,
+                        );
+                        reports.push(status_outcome.report);
+                        let status_elem = status_outcome
+                            .tree
+                            .map(|tree| tree.root)
+                            .unwrap_or(Element::Empty);
+
+                        let mut children = Vec::new();
+                        if state.status_at_top {
+                            children.push(FlexChild::fixed(status_elem));
+                            children.push(FlexChild::flexible(buffer_elem, 1.0));
+                        } else {
+                            children.push(FlexChild::flexible(buffer_elem, 1.0));
+                            children.push(FlexChild::fixed(status_elem));
+                        }
+                        return (Element::column(children), reports);
+                    }
+
+                    (buffer_elem, reports)
                 } else {
                     (Element::Empty, vec![])
                 }
