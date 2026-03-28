@@ -743,11 +743,12 @@ mod tests {
     fn reconcile_new_placement() {
         let mut state = KittyState::new();
 
-        // Pre-seed dimensions cache so we don't need actual files
-        state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
-
         let requests = vec![ImageRequest {
-            source: ImageSource::FilePath("/tmp/test.png".into()),
+            source: ImageSource::Rgba {
+                data: vec![255u8; 4 * 4 * 4].into(),
+                width: 4,
+                height: 4,
+            },
             fit: ImageFit::Contain,
             opacity: 1.0,
             area: Rect {
@@ -775,10 +776,12 @@ mod tests {
     fn reconcile_unchanged_skips() {
         let mut state = KittyState::new();
 
-        state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
-
         let requests = vec![ImageRequest {
-            source: ImageSource::FilePath("/tmp/test.png".into()),
+            source: ImageSource::Rgba {
+                data: vec![255u8; 4 * 4 * 4].into(),
+                width: 4,
+                height: 4,
+            },
             fit: ImageFit::Contain,
             opacity: 1.0,
             area: Rect {
@@ -810,10 +813,12 @@ mod tests {
     fn reconcile_removed_emits_delete() {
         let mut state = KittyState::new();
 
-        state.dim_cache.insert("/tmp/test.png".into(), (100, 200));
-
         let requests = vec![ImageRequest {
-            source: ImageSource::FilePath("/tmp/test.png".into()),
+            source: ImageSource::Rgba {
+                data: vec![255u8; 4 * 4 * 4].into(),
+                width: 4,
+                height: 4,
+            },
             fit: ImageFit::Contain,
             opacity: 1.0,
             area: Rect {
