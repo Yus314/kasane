@@ -1023,7 +1023,7 @@ impl SceneRenderer {
         let glyph_metrics = Metrics::new(self.font_size, self.line_height);
         if idx >= self.text_buffers.len() {
             let mut buffer = GlyphonBuffer::new(&mut self.font_system, glyph_metrics);
-            // Font hinting will be enabled after cosmic-text upgrade
+            buffer.set_hinting(&mut self.font_system, cosmic_text::Hinting::Enabled);
             buffer.set_size(
                 &mut self.font_system,
                 Some(max_width),

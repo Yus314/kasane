@@ -43,7 +43,7 @@ kasane-gui = { path = "kasane-gui" }
 kasane-wasm = { path = "kasane-wasm" }
 winit = "0.30"
 wgpu = "28"
-cosmic-text = "0.15"
+cosmic-text = "0.18"
 etagere = "0.2"
 lru = { version = "0.16", default-features = false }
 rustc-hash = "2"
