@@ -81,7 +81,7 @@ entirety:
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
-    id: "sel_badge",
+    manifest: "kasane-plugin.toml",
 
     state {
         #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
