@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use compact_str::CompactString;
-use kasane_core::element::{Element, InteractiveId};
+use kasane_core::element::{Element, InteractiveId, PluginTag};
 use kasane_core::input::{KeyEvent, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, BootstrapEffects, Command,
@@ -45,6 +45,7 @@ const MAX_PENDING_DIAGNOSTICS: usize = 10;
 struct WasmPluginShared {
     runtime: Mutex<WasmPluginRuntime>,
     plugin_id: PluginId,
+    plugin_tag: Mutex<PluginTag>,
     cached_state_hash: AtomicU64,
     cached_view_deps: DirtyFlags,
     cached_capabilities: PluginCapabilities,
@@ -84,6 +85,7 @@ impl WasmPluginShared {
     ) -> R {
         self.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().expect("plugin_tag lock");
             match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -104,6 +106,7 @@ impl WasmPluginShared {
     ) -> R {
         self.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().expect("plugin_tag lock");
             let result = match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -340,6 +343,7 @@ impl WasmPlugin {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
                 plugin_id: PluginId(id),
+                plugin_tag: Mutex::new(PluginTag::UNASSIGNED),
                 cached_state_hash: AtomicU64::new(0),
                 cached_view_deps,
                 cached_capabilities,
@@ -354,6 +358,10 @@ impl WasmPlugin {
 impl PluginBackend for WasmPlugin {
     fn id(&self) -> PluginId {
         self.shared.plugin_id.clone()
+    }
+
+    fn set_plugin_tag(&mut self, tag: PluginTag) {
+        *self.shared.plugin_tag.lock().expect("plugin_tag lock") = tag;
     }
 
     fn view_deps(&self) -> DirtyFlags {
@@ -534,7 +542,7 @@ impl PluginBackend for WasmPlugin {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_event = convert::mouse_event_to_wit(event);
             Ok(api
-                .call_handle_mouse(&mut rt.store, wit_event, id.0)
+                .call_handle_mouse(&mut rt.store, wit_event, id.local)
                 .map(|opt| opt.map(|cmds| shared.convert_commands(&cmds)))?)
         })
     }

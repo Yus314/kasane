@@ -893,7 +893,23 @@ macro_rules! route_slot_ids {
 /// Generates an enum with `encode()` and `decode()` methods that pack variant +
 /// field data into a single `u32` interactive ID.
 ///
-/// # Example
+/// # Namespaced form (recommended)
+///
+/// With `PluginTag`-based namespace isolation, `base` defaults to 0 and `stride`
+/// is auto-calculated from field types. This is the recommended form:
+///
+/// ```ignore
+/// kasane_plugin_sdk::interactive_id! {
+///     enum PickerId {
+///         Swatch,
+///         Channel { idx: u8, ch: u8, down: bool },
+///         Close,
+///     }
+/// }
+/// ```
+///
+/// # Legacy form (explicit base + stride)
+///
 /// ```ignore
 /// kasane_plugin_sdk::interactive_id! {
 ///     enum PickerId(base = 2000, stride = 6) {
@@ -902,21 +918,76 @@ macro_rules! route_slot_ids {
 ///         Close,
 ///     }
 /// }
-///
-/// let id = PickerId::Channel { idx: 3, ch: 1, down: true }.encode();
-/// match PickerId::decode(id) {
-///     Some(PickerId::Channel { idx, ch, down }) => { /* ... */ }
-///     _ => {}
-/// }
 /// ```
 ///
-/// - `base`: starting ID value
-/// - `stride`: multiplier per variant (must be large enough to fit field encodings)
+/// - `base`: starting ID value (default: 0)
+/// - `stride`: multiplier per variant (default: auto-calculated from field widths)
 /// - Fieldless variants encode as `base + tag * stride`
-/// - Field variants pack fields in declaration order using byte-level little-endian:
-///   `u8` → 1 byte, `bool` → 1 byte (0/1), `u16` → 2 bytes
+/// - Field variants pack fields in declaration order using bit-level little-endian:
+///   `u8` → 8 bits, `bool` → 1 bit, `u16` → 16 bits
 #[macro_export]
 macro_rules! interactive_id {
+    // Namespaced form: no base/stride — auto-calculate stride from field widths.
+    (
+        enum $name:ident {
+            $( $variant:ident $( { $( $field:ident : $fty:tt ),* $(,)? } )? ),* $(,)?
+        }
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum $name {
+            $( $variant $( { $( $field: $fty ),* } )? ),*
+        }
+
+        impl $name {
+            const __AUTO_STRIDE: u32 = {
+                let mut max = 1u32;
+                $({
+                    let w = 0u32 $($(+ $crate::__iid_width!($fty))*)?;
+                    let s = 1u32 << w;
+                    if s > max { max = s; }
+                })*
+                max
+            };
+
+            #[allow(unused_assignments, unused_variables)]
+            fn encode(&self) -> u32 {
+                let mut __tag: u32 = 0;
+                $(
+                    if let $name::$variant $( { $( $field ),* } )? = *self {
+                        let mut __packed: u32 = 0;
+                        let mut __shift: u32 = 0;
+                        $($(
+                            __packed |= ($field as u32) << __shift;
+                            __shift += $crate::__iid_width!($fty);
+                        )*)?
+                        return __tag * Self::__AUTO_STRIDE + __packed;
+                    }
+                    __tag += 1;
+                )*
+                unreachable!()
+            }
+
+            #[allow(unused_assignments, unused_variables, unused_mut)]
+            fn decode(id: u32) -> Option<Self> {
+                let __tag = id / Self::__AUTO_STRIDE;
+                let __rem = id % Self::__AUTO_STRIDE;
+
+                let mut __expected_tag: u32 = 0;
+                $(
+                    if __tag == __expected_tag {
+                        let mut __v: u32 = __rem;
+                        $($(
+                            let $field = $crate::__iid_dec!(__v, $fty);
+                        )*)?
+                        return Some($name::$variant $( { $( $field ),* } )? );
+                    }
+                    __expected_tag += 1;
+                )*
+                None
+            }
+        }
+    };
+    // Legacy form: explicit base + stride.
     (
         enum $name:ident (base = $base:expr, stride = $stride:expr) {
             $( $variant:ident $( { $( $field:ident : $fty:tt ),* $(,)? } )? ),* $(,)?
@@ -980,7 +1051,7 @@ macro_rules! __iid_width {
         8
     };
     (bool) => {
-        8
+        1
     };
     (u16) => {
         16
@@ -992,8 +1063,8 @@ macro_rules! __iid_width {
 #[macro_export]
 macro_rules! __iid_dec {
     ($v:ident, bool) => {{
-        let __r = ($v & 0xFF) != 0;
-        $v >>= 8;
+        let __r = ($v & 0x1) != 0;
+        $v >>= 1;
         __r
     }};
     ($v:ident, u8) => {{
@@ -1007,6 +1078,7 @@ macro_rules! __iid_dec {
         __r
     }};
 }
+
 
 /// Helpers for tracking async job results with generation-based stale detection.
 ///
@@ -1593,6 +1665,64 @@ mod tests {
     fn interactive_id_out_of_range_tag_returns_none() {
         // tag 5 does not exist (only 0..4)
         assert_eq!(TestId::decode(1000 + 5 * 131072), None);
+    }
+
+    // --- interactive_id! namespaced form (auto-stride) tests ---
+
+    interactive_id! {
+        enum AutoId {
+            Simple,
+            OneField { val: u8 },
+            Mixed { idx: u8, ch: u8, down: bool },
+        }
+    }
+
+    #[test]
+    fn interactive_id_auto_stride_simple_roundtrip() {
+        let id = AutoId::Simple.encode();
+        assert_eq!(id, 0);
+        assert_eq!(AutoId::decode(id), Some(AutoId::Simple));
+    }
+
+    #[test]
+    fn interactive_id_auto_stride_field_roundtrip() {
+        for v in [0u8, 1, 127, 255] {
+            let id = AutoId::OneField { val: v }.encode();
+            assert_eq!(AutoId::decode(id), Some(AutoId::OneField { val: v }));
+        }
+    }
+
+    #[test]
+    fn interactive_id_auto_stride_mixed_roundtrip() {
+        for idx in 0..3u8 {
+            for ch in 0..3u8 {
+                for down in [false, true] {
+                    let orig = AutoId::Mixed { idx, ch, down };
+                    let id = orig.encode();
+                    assert_eq!(AutoId::decode(id), Some(orig));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn interactive_id_auto_stride_bool_is_1_bit() {
+        // Mixed has u8(8) + u8(8) + bool(1) = 17 bits → stride = 2^17 = 131072
+        // AutoId::Mixed is variant tag 2, so base offset = 2 * 131072 = 262144
+        let base = AutoId::Mixed {
+            idx: 0,
+            ch: 0,
+            down: false,
+        }
+        .encode();
+        let with_bool = AutoId::Mixed {
+            idx: 0,
+            ch: 0,
+            down: true,
+        }
+        .encode();
+        // bool is at bit position 16 (after u8+u8), so sets bit 16 = 65536
+        assert_eq!(with_bool - base, 65536);
     }
 
     // --- JobTracker tests ---

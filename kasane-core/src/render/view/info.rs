@@ -57,8 +57,9 @@ pub(crate) fn build_info_overlay_indexed(
 
     element.map(|el| {
         // Wrap with Interactive for mouse hit testing
-        let interactive_id =
-            crate::element::InteractiveId(crate::element::InteractiveId::INFO_BASE + index as u32);
+        let interactive_id = crate::element::InteractiveId::framework(
+            crate::element::InteractiveId::INFO_BASE + index as u32,
+        );
         let wrapped = Element::Interactive {
             child: Box::new(el),
             id: interactive_id,

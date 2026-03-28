@@ -160,11 +160,11 @@ pub fn consume_info_scroll(state: &mut AppState, mouse: &MouseEvent, hit_map: &H
         None => return false,
     };
 
-    if id.0 < InteractiveId::INFO_BASE {
+    if id.owner != crate::element::PluginTag::FRAMEWORK || id.local < InteractiveId::INFO_BASE {
         return false;
     }
 
-    let index = (id.0 - InteractiveId::INFO_BASE) as usize;
+    let index = (id.local - InteractiveId::INFO_BASE) as usize;
     let info = match state.infos.get_mut(index) {
         Some(info) => info,
         None => return false,

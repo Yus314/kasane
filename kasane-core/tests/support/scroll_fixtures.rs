@@ -56,7 +56,7 @@ pub fn install_hit_region(state: &mut AppState, id: InteractiveId, area: Rect) {
 pub fn install_info_hit_region(state: &mut AppState, index: usize, area: Rect) {
     install_hit_region(
         state,
-        InteractiveId(InteractiveId::INFO_BASE + index as u32),
+        InteractiveId::framework(InteractiveId::INFO_BASE + index as u32),
         area,
     );
 }

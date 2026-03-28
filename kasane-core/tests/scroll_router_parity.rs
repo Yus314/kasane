@@ -133,7 +133,7 @@ fn parity_plugin_hit_then_miss_trace() {
     legacy_registry.register_backend(Box::new(MousePlugin));
     install_hit_region(
         &mut state,
-        InteractiveId(42),
+        InteractiveId::framework(42),
         Rect {
             x: 5,
             y: 3,
@@ -146,7 +146,7 @@ fn parity_plugin_hit_then_miss_trace() {
     new_registry.register_backend(Box::new(MousePlugin));
     install_hit_region(
         &mut new_state,
-        InteractiveId(42),
+        InteractiveId::framework(42),
         Rect {
             x: 5,
             y: 3,

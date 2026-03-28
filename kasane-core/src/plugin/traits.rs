@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::element::InteractiveId;
+use crate::element::{InteractiveId, PluginTag};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -28,6 +28,9 @@ pub enum KeyHandleResult {
 #[doc(hidden)]
 pub trait PluginBackend: Any {
     fn id(&self) -> PluginId;
+
+    /// Inject the framework-assigned plugin tag for interactive ID ownership.
+    fn set_plugin_tag(&mut self, _tag: PluginTag) {}
 
     // --- Lifecycle hooks ---
 

@@ -24,7 +24,8 @@ pub use crate::plugin::{
 
 // Element tree
 pub use crate::element::{
-    Element, FlexChild, ImageFit, ImageSource, InteractiveId, Overlay, OverlayAnchor, StyleToken,
+    Element, FlexChild, ImageFit, ImageSource, InteractiveId, Overlay, OverlayAnchor, PluginTag,
+    StyleToken,
 };
 
 // Rendering types

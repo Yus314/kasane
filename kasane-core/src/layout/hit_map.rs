@@ -127,7 +127,7 @@ mod tests {
         let state = default_state();
         let el = Element::Interactive {
             child: Box::new(Element::text("click", Face::default())),
-            id: InteractiveId(42),
+            id: InteractiveId::framework(42),
         };
         let area = Rect {
             x: 5,
@@ -138,8 +138,8 @@ mod tests {
         let layout = place(&el, area, &state);
         let map = build_hit_map(&el, &layout);
         // Hit inside
-        assert_eq!(map.test(5, 3), Some(InteractiveId(42)));
-        assert_eq!(map.test(12, 3), Some(InteractiveId(42)));
+        assert_eq!(map.test(5, 3), Some(InteractiveId::framework(42)));
+        assert_eq!(map.test(12, 3), Some(InteractiveId::framework(42)));
         // Miss outside
         assert!(map.test(4, 3).is_none());
         assert!(map.test(13, 3).is_none());
@@ -152,12 +152,12 @@ mod tests {
         let el = Element::stack(
             Element::Interactive {
                 child: Box::new(Element::text("base", Face::default())),
-                id: InteractiveId(1),
+                id: InteractiveId::framework(1),
             },
             vec![Overlay {
                 element: Element::Interactive {
                     child: Box::new(Element::text("pop", Face::default())),
-                    id: InteractiveId(2),
+                    id: InteractiveId::framework(2),
                 },
                 anchor: OverlayAnchor::Absolute {
                     x: 0,
@@ -171,9 +171,9 @@ mod tests {
         let layout = place(&el, area, &state);
         let map = build_hit_map(&el, &layout);
         // Overlay region → overlay's ID wins (collected later, iterated first in reverse)
-        assert_eq!(map.test(0, 0), Some(InteractiveId(2)));
+        assert_eq!(map.test(0, 0), Some(InteractiveId::framework(2)));
         // Outside overlay but inside base → base's ID
-        assert_eq!(map.test(10, 0), Some(InteractiveId(1)));
+        assert_eq!(map.test(10, 0), Some(InteractiveId::framework(1)));
     }
 
     #[test]
@@ -181,11 +181,11 @@ mod tests {
         let state = default_state();
         let inner = Element::Interactive {
             child: Box::new(Element::text("inner", Face::default())),
-            id: InteractiveId(10),
+            id: InteractiveId::framework(10),
         };
         let outer = Element::Interactive {
             child: Box::new(inner),
-            id: InteractiveId(20),
+            id: InteractiveId::framework(20),
         };
         let area = root_area(5, 1);
         let layout = place(&outer, area, &state);
@@ -197,6 +197,9 @@ mod tests {
         // So outer wins in flat HitMap. This is acceptable — for nested
         // Interactive, the outermost ID is returned.
         let result = map.test(0, 0);
-        assert!(result == Some(InteractiveId(20)) || result == Some(InteractiveId(10)));
+        assert!(
+            result == Some(InteractiveId::framework(20))
+                || result == Some(InteractiveId::framework(10))
+        );
     }
 }

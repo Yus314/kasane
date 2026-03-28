@@ -121,7 +121,11 @@ fn handle_mouse_increments() {
         column: 0,
         modifiers: Modifiers::empty(),
     };
-    let result = plugin.handle_mouse(&event, InteractiveId(2000), &AppView::new(&state));
+    let result = plugin.handle_mouse(
+        &event,
+        InteractiveId::framework(2000),
+        &AppView::new(&state),
+    );
     assert!(result.is_some());
     let cmds = result.unwrap();
     assert_eq!(cmds.len(), 1);
@@ -153,7 +157,11 @@ fn handle_mouse_consumes_release() {
         column: 0,
         modifiers: Modifiers::empty(),
     };
-    let result = plugin.handle_mouse(&event, InteractiveId(2000), &AppView::new(&state));
+    let result = plugin.handle_mouse(
+        &event,
+        InteractiveId::framework(2000),
+        &AppView::new(&state),
+    );
     assert!(result.is_some());
     assert!(result.unwrap().is_empty());
 }

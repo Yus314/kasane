@@ -6,7 +6,7 @@
 
 use std::any::Any;
 
-use crate::element::InteractiveId;
+use crate::element::{Element, InteractiveId, PluginTag};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -36,6 +36,7 @@ pub struct PluginBridge {
     state: Box<dyn PluginState>,
     generation: u64,
     prev_state: Box<dyn PluginState>,
+    plugin_tag: PluginTag,
 }
 
 impl PluginBridge {
@@ -53,6 +54,7 @@ impl PluginBridge {
             state,
             generation: 0,
             prev_state,
+            plugin_tag: PluginTag::UNASSIGNED,
         }
     }
 
@@ -65,9 +67,62 @@ impl PluginBridge {
     }
 }
 
+/// Recursively walk an Element tree, replacing `InteractiveId` with `owner == UNASSIGNED`
+/// to the given `plugin_tag`.
+fn inject_owner(element: &mut Element, tag: PluginTag) {
+    match element {
+        Element::Interactive { id, child } => {
+            if id.owner == PluginTag::UNASSIGNED {
+                id.owner = tag;
+            }
+            inject_owner(child, tag);
+        }
+        Element::Flex { children, .. } | Element::ResolvedSlot { children, .. } => {
+            for c in children {
+                inject_owner(&mut c.element, tag);
+            }
+        }
+        Element::Stack { base, overlays } => {
+            inject_owner(base, tag);
+            for o in overlays {
+                inject_owner(&mut o.element, tag);
+            }
+        }
+        Element::Container { child, .. } | Element::Scrollable { child, .. } => {
+            inject_owner(child, tag);
+        }
+        Element::Grid { children, .. } => {
+            for c in children {
+                inject_owner(c, tag);
+            }
+        }
+        _ => {} // Text, StyledLine, Empty, Image, BufferRef, SlotPlaceholder
+    }
+}
+
+fn inject_owner_in_patch(patch: &mut super::ElementPatch, tag: PluginTag) {
+    match patch {
+        super::ElementPatch::Prepend { element }
+        | super::ElementPatch::Append { element }
+        | super::ElementPatch::Replace { element } => {
+            inject_owner(element, tag);
+        }
+        super::ElementPatch::Compose(patches) => {
+            for p in patches {
+                inject_owner_in_patch(p, tag);
+            }
+        }
+        _ => {} // Identity, WrapContainer, ModifyFace, ModifyAnchor, Custom
+    }
+}
+
 impl PluginBackend for PluginBridge {
     fn id(&self) -> PluginId {
         self.id.clone()
+    }
+
+    fn set_plugin_tag(&mut self, tag: PluginTag) {
+        self.plugin_tag = tag;
     }
 
     fn capabilities(&self) -> PluginCapabilities {
@@ -264,7 +319,10 @@ impl PluginBackend for PluginBridge {
     ) -> Option<Contribution> {
         for entry in &self.table.contribute_handlers {
             if entry.slot == *region {
-                return (entry.handler)(&*self.state, app, ctx);
+                return (entry.handler)(&*self.state, app, ctx).map(|mut c| {
+                    inject_owner(&mut c.element, self.plugin_tag);
+                    c
+                });
             }
         }
         None
@@ -276,10 +334,11 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
         ctx: &TransformContext,
     ) -> Option<ElementPatch> {
-        self.table
-            .transform_handler
-            .as_ref()
-            .map(|entry| (entry.handler)(&*self.state, target, app, ctx))
+        self.table.transform_handler.as_ref().map(|entry| {
+            let mut patch = (entry.handler)(&*self.state, target, app, ctx);
+            inject_owner_in_patch(&mut patch, self.plugin_tag);
+            patch
+        })
     }
 
     fn transform(
@@ -371,8 +430,9 @@ impl PluginBackend for PluginBridge {
     ) -> Option<(i16, crate::element::Element)> {
         for entry in &self.table.gutter_handlers {
             if entry.side == side
-                && let Some(el) = (entry.handler)(&*self.state, line, app, ctx)
+                && let Some(mut el) = (entry.handler)(&*self.state, line, app, ctx)
             {
+                inject_owner(&mut el, self.plugin_tag);
                 return Some((entry.priority, el));
             }
         }
@@ -422,7 +482,10 @@ impl PluginBackend for PluginBridge {
         ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         if let Some(handler) = &self.table.overlay_handler {
-            handler(&*self.state, app, ctx)
+            handler(&*self.state, app, ctx).map(|mut c| {
+                inject_owner(&mut c.element, self.plugin_tag);
+                c
+            })
         } else {
             None
         }
@@ -1360,7 +1423,7 @@ mod tests {
         bridge.handle_key_middleware(&key, &app);
         bridge.observe_key(&key, &app);
         bridge.observe_mouse(&mouse, &app);
-        bridge.handle_mouse(&mouse, InteractiveId(0), &app);
+        bridge.handle_mouse(&mouse, InteractiveId::framework(0), &app);
         let candidate = DefaultScrollCandidate::new(
             0,
             0,
@@ -1413,5 +1476,102 @@ mod tests {
             "Dispatch coverage mismatch.\n  Missing: {missing:?}\n  Extra: {extra:?}\n\
              When adding a new handler, update EXPECTED_HANDLER_NAMES and the Plugin::register() above."
         );
+    }
+
+    // --- inject_owner tests ---
+
+    #[test]
+    fn inject_owner_replaces_unassigned() {
+        let tag = PluginTag(5);
+        let mut el = Element::Interactive {
+            child: Box::new(Element::text("test", crate::protocol::Face::default())),
+            id: InteractiveId::unassigned(42),
+        };
+        inject_owner(&mut el, tag);
+        match &el {
+            Element::Interactive { id, .. } => {
+                assert_eq!(id.owner, tag);
+                assert_eq!(id.local, 42);
+            }
+            _ => panic!("expected Interactive"),
+        }
+    }
+
+    #[test]
+    fn inject_owner_preserves_existing_owner() {
+        let existing_tag = PluginTag(3);
+        let injection_tag = PluginTag(5);
+        let mut el = Element::Interactive {
+            child: Box::new(Element::text("test", crate::protocol::Face::default())),
+            id: InteractiveId::new(42, existing_tag),
+        };
+        inject_owner(&mut el, injection_tag);
+        match &el {
+            Element::Interactive { id, .. } => {
+                assert_eq!(
+                    id.owner, existing_tag,
+                    "should not overwrite existing owner"
+                );
+            }
+            _ => panic!("expected Interactive"),
+        }
+    }
+
+    #[test]
+    fn inject_owner_walks_nested_tree() {
+        use crate::element::{FlexChild, Overlay, OverlayAnchor};
+
+        let tag = PluginTag(7);
+        let inner = Element::Interactive {
+            child: Box::new(Element::Empty),
+            id: InteractiveId::unassigned(1),
+        };
+        let overlay_el = Element::Interactive {
+            child: Box::new(Element::Empty),
+            id: InteractiveId::unassigned(2),
+        };
+        let mut tree = Element::Stack {
+            base: Box::new(Element::Flex {
+                direction: crate::element::Direction::Row,
+                children: vec![FlexChild {
+                    element: inner,
+                    flex: 1.0,
+                    min_size: None,
+                    max_size: None,
+                }],
+                gap: 0,
+                align: crate::element::Align::Start,
+                cross_align: crate::element::Align::Start,
+            }),
+            overlays: vec![Overlay {
+                element: overlay_el,
+                anchor: OverlayAnchor::Absolute {
+                    x: 0,
+                    y: 0,
+                    w: 1,
+                    h: 1,
+                },
+            }],
+        };
+        inject_owner(&mut tree, tag);
+
+        // Check inner interactive in flex child
+        if let Element::Stack { base, overlays } = &tree {
+            if let Element::Flex { children, .. } = base.as_ref() {
+                if let Element::Interactive { id, .. } = &children[0].element {
+                    assert_eq!(id.owner, tag);
+                    assert_eq!(id.local, 1);
+                } else {
+                    panic!("expected Interactive in flex child");
+                }
+            }
+            // Check overlay interactive
+            if let Element::Interactive { id, .. } = &overlays[0].element {
+                assert_eq!(id.owner, tag);
+                assert_eq!(id.local, 2);
+            } else {
+                panic!("expected Interactive in overlay");
+            }
+        }
     }
 }

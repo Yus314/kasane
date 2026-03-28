@@ -70,7 +70,7 @@ pub fn pure_info_overlays(
                 });
             }
             // Wrap with Interactive for mouse hit testing
-            let interactive_id = crate::element::InteractiveId(
+            let interactive_id = crate::element::InteractiveId::framework(
                 crate::element::InteractiveId::INFO_BASE + info_idx as u32,
             );
             o.element = Element::Interactive {

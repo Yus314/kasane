@@ -1225,3 +1225,178 @@ fn test_extension_point_unknown_returns_empty() {
     let items = results.get::<u32>(&ExtensionPointId::new("nonexistent"));
     assert!(items.is_empty());
 }
+
+// --- InteractiveId PluginTag tests (Phase 8) ---
+
+use crate::element::{InteractiveId, PluginTag};
+use crate::input::{MouseButton, MouseEventKind};
+
+#[test]
+fn test_plugin_tags_are_monotonically_assigned_starting_from_1() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TestPlugin));
+    registry.register_backend(Box::new(SurfacePlugin));
+
+    let tags: Vec<(PluginId, PluginTag)> = registry.all_plugin_tags();
+    assert_eq!(tags[0].1, PluginTag(1));
+    assert_eq!(tags[1].1, PluginTag(2));
+}
+
+#[test]
+fn test_plugin_tag_zero_is_reserved_for_framework() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TestPlugin));
+    registry.register_backend(Box::new(SurfacePlugin));
+    registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
+
+    for (_id, tag) in registry.all_plugin_tags() {
+        assert_ne!(
+            tag,
+            PluginTag::FRAMEWORK,
+            "PluginTag(0) should never be assigned to plugins"
+        );
+    }
+}
+
+#[test]
+fn test_replacing_plugin_reuses_its_tag() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TestPlugin));
+    let original_tag = registry.plugin_tag(&PluginId("test".to_string())).unwrap();
+
+    // Replace with same ID
+    registry.register_backend(Box::new(TestPlugin));
+    let replaced_tag = registry.plugin_tag(&PluginId("test".to_string())).unwrap();
+    assert_eq!(original_tag, replaced_tag);
+}
+
+#[test]
+fn test_unloading_plugin_does_not_recycle_tag() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TestPlugin));
+    registry.register_backend(Box::new(SurfacePlugin));
+
+    // Remove first plugin
+    registry.remove_plugin(&PluginId("test".to_string()));
+
+    // Register new plugin — should get tag 3, not 1
+    registry.register_backend(Box::new(StatefulPlugin { hash: 1 }));
+    let new_tag = registry
+        .plugin_tag(&PluginId("stateful".to_string()))
+        .unwrap();
+    assert_eq!(new_tag, PluginTag(3));
+}
+
+// --- Owner-based dispatch tests ---
+
+struct MousePlugin42;
+
+impl PluginBackend for MousePlugin42 {
+    fn id(&self) -> PluginId {
+        PluginId("mouse42".to_string())
+    }
+
+    fn handle_mouse(
+        &mut self,
+        _event: &crate::input::MouseEvent,
+        id: InteractiveId,
+        _state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        if id.local == 42 {
+            Some(vec![Command::RequestRedraw(DirtyFlags::BUFFER)])
+        } else {
+            None
+        }
+    }
+}
+
+struct DecoyMousePlugin;
+
+impl PluginBackend for DecoyMousePlugin {
+    fn id(&self) -> PluginId {
+        PluginId("decoy-mouse".to_string())
+    }
+
+    fn handle_mouse(
+        &mut self,
+        _event: &crate::input::MouseEvent,
+        _id: InteractiveId,
+        _state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        // Should never be called for tagged IDs belonging to other plugins
+        panic!("decoy plugin should not be called for tagged IDs");
+    }
+}
+
+#[test]
+fn test_tagged_interactive_id_routes_to_correct_plugin() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(DecoyMousePlugin));
+    registry.register_backend(Box::new(MousePlugin42));
+
+    let mouse42_tag = registry
+        .plugin_tag(&PluginId("mouse42".to_string()))
+        .unwrap();
+
+    let state = AppState::default();
+    let id = InteractiveId::new(42, mouse42_tag);
+    let mouse_event = crate::input::MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 0,
+        column: 0,
+        modifiers: crate::input::Modifiers::empty(),
+    };
+
+    match registry.dispatch_mouse_handler(&mouse_event, id, &AppView::new(&state)) {
+        MouseHandleResult::Handled {
+            source_plugin,
+            commands,
+        } => {
+            assert_eq!(source_plugin, PluginId("mouse42".to_string()));
+            assert_eq!(commands.len(), 1);
+        }
+        MouseHandleResult::NotHandled => panic!("expected Handled"),
+    }
+}
+
+#[test]
+fn test_framework_tagged_id_uses_legacy_fallback() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(MousePlugin42));
+
+    let state = AppState::default();
+    let id = InteractiveId::framework(42);
+    let mouse_event = crate::input::MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 0,
+        column: 0,
+        modifiers: crate::input::Modifiers::empty(),
+    };
+
+    match registry.dispatch_mouse_handler(&mouse_event, id, &AppView::new(&state)) {
+        MouseHandleResult::Handled { source_plugin, .. } => {
+            assert_eq!(source_plugin, PluginId("mouse42".to_string()));
+        }
+        MouseHandleResult::NotHandled => panic!("expected Handled via legacy fallback"),
+    }
+}
+
+#[test]
+fn test_nonexistent_tag_returns_not_handled() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(MousePlugin42));
+
+    let state = AppState::default();
+    let id = InteractiveId::new(42, PluginTag(999));
+    let mouse_event = crate::input::MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 0,
+        column: 0,
+        modifiers: crate::input::Modifiers::empty(),
+    };
+
+    assert!(matches!(
+        registry.dispatch_mouse_handler(&mouse_event, id, &AppView::new(&state)),
+        MouseHandleResult::NotHandled
+    ));
+}

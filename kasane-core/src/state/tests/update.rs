@@ -272,7 +272,7 @@ fn test_update_mouse_routes_to_plugin() {
     // Build a HitMap with an interactive region at (5,3)-(12,3)
     let el = crate::element::Element::Interactive {
         child: Box::new(crate::element::Element::text("click me", Face::default())),
-        id: InteractiveId(42),
+        id: InteractiveId::framework(42),
     };
     let area = Rect {
         x: 5,

@@ -138,7 +138,7 @@ fn plugin_hit_mouse_press_consumes_before_default_mouse_forwarding() {
     registry.register_backend(Box::new(MousePlugin));
     install_hit_region(
         &mut state,
-        InteractiveId(42),
+        InteractiveId::framework(42),
         Rect {
             x: 5,
             y: 3,

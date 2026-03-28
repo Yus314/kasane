@@ -2,7 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::display::{DisplayMap, DisplayMapRef};
-use crate::element::{Element, FlexChild, InteractiveId};
+use crate::element::{Element, FlexChild, InteractiveId, PluginTag};
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
@@ -35,6 +35,7 @@ const HASH_SENTINEL: u64 = u64::MAX;
 
 pub(crate) struct PluginSlot {
     pub(crate) backend: Box<dyn PluginBackend>,
+    pub(crate) plugin_tag: PluginTag,
     pub(crate) capabilities: PluginCapabilities,
     pub(crate) authorities: PluginAuthorities,
     pub(crate) last_state_hash: u64,
@@ -44,6 +45,7 @@ pub(crate) struct PluginSlot {
 pub struct PluginRuntime {
     slots: Vec<PluginSlot>,
     any_plugin_state_changed: bool,
+    next_tag: u16,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -68,6 +70,7 @@ impl PluginRuntime {
         PluginRuntime {
             slots: Vec::new(),
             any_plugin_state_changed: false,
+            next_tag: 1,
         }
     }
 
@@ -94,12 +97,14 @@ impl PluginRuntime {
         self.any_plugin_state_changed
     }
 
-    pub fn register_backend(&mut self, plugin: Box<dyn PluginBackend>) {
+    pub fn register_backend(&mut self, mut plugin: Box<dyn PluginBackend>) {
         let id = plugin.id();
         let caps = plugin.capabilities();
         let authorities = plugin.authorities();
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
+            let tag = self.slots[pos].plugin_tag;
+            plugin.set_plugin_tag(tag);
             let slot = &mut self.slots[pos];
             slot.backend = plugin;
             slot.capabilities = caps;
@@ -107,8 +112,12 @@ impl PluginRuntime {
             slot.last_state_hash = HASH_SENTINEL;
             slot.needs_recollect = true;
         } else {
+            let tag = PluginTag(self.next_tag);
+            self.next_tag = self.next_tag.checked_add(1).expect("plugin tag overflow");
+            plugin.set_plugin_tag(tag);
             self.slots.push(PluginSlot {
                 backend: plugin,
+                plugin_tag: tag,
                 capabilities: caps,
                 authorities,
                 last_state_hash: HASH_SENTINEL,
@@ -119,6 +128,22 @@ impl PluginRuntime {
 
     pub fn contains_plugin(&self, id: &PluginId) -> bool {
         self.slots.iter().any(|s| s.backend.id() == *id)
+    }
+
+    /// Return the plugin tag assigned to a plugin, or `None` if not found.
+    pub fn plugin_tag(&self, id: &PluginId) -> Option<PluginTag> {
+        self.slots
+            .iter()
+            .find(|s| s.backend.id() == *id)
+            .map(|s| s.plugin_tag)
+    }
+
+    /// Return all assigned plugin tags (in registration order).
+    pub fn all_plugin_tags(&self) -> Vec<(PluginId, PluginTag)> {
+        self.slots
+            .iter()
+            .map(|s| (s.backend.id(), s.plugin_tag))
+            .collect()
     }
 
     /// Remove a plugin from the registry without running shutdown hooks.
@@ -498,13 +523,30 @@ impl PluginRuntime {
         }
     }
 
-    /// First-wins mouse handler dispatch.
+    /// Owner-based mouse handler dispatch.
+    ///
+    /// If the `InteractiveId` has a plugin owner tag, dispatches directly to the
+    /// owning plugin (O(1) lookup). Falls back to first-wins iteration for
+    /// framework-owned or unassigned IDs.
     pub fn dispatch_mouse_handler(
         &mut self,
         event: &MouseEvent,
         id: InteractiveId,
         app: &AppView<'_>,
     ) -> MouseHandleResult {
+        if id.owner != PluginTag::FRAMEWORK && id.owner != PluginTag::UNASSIGNED {
+            // Direct dispatch to owning plugin
+            if let Some(slot) = self.slots.iter_mut().find(|s| s.plugin_tag == id.owner)
+                && let Some(commands) = slot.backend.handle_mouse(event, id, app)
+            {
+                return MouseHandleResult::Handled {
+                    source_plugin: slot.backend.id(),
+                    commands,
+                };
+            }
+            return MouseHandleResult::NotHandled;
+        }
+        // Legacy fallback for framework/unassigned IDs
         for slot in &mut self.slots {
             if let Some(commands) = slot.backend.handle_mouse(event, id, app) {
                 let source = slot.backend.id();

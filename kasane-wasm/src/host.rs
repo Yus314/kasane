@@ -1,7 +1,8 @@
 //! Host function implementations for guest-to-host calls defined in the WIT interface.
 
 use kasane_core::element::{
-    BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay, Style,
+    BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay,
+    PluginTag, Style,
 };
 use kasane_core::protocol::{Coord, CursorMode, Face, Line};
 use kasane_core::scroll::{SMOOTH_SCROLL_CONFIG_KEY, smooth_scroll_enabled};
@@ -86,6 +87,9 @@ pub(crate) struct HostState {
     // --- v0.22.0: Plugin identity for logging ---
     pub plugin_id: String,
 
+    /// Plugin ownership tag for interactive ID namespace isolation.
+    pub plugin_tag: PluginTag,
+
     // WASI support (required by wasmtime-wasi for wasm32-wasip2 components)
     pub wasi: wasmtime_wasi::WasiCtx,
     pub table: wasmtime::component::ResourceTable,
@@ -142,6 +146,7 @@ impl Default for HostState {
             is_dark: true,
             elements: Vec::new(),
             plugin_id: String::new(),
+            plugin_tag: PluginTag::UNASSIGNED,
             wasi: WasiCtxBuilder::new().build(),
             table: wasmtime::component::ResourceTable::new(),
         }
@@ -446,7 +451,7 @@ impl bindings::kasane::plugin::element_builder::Host for HostState {
         let child_element = self.take_element(child);
         let element = Element::Interactive {
             child: Box::new(child_element),
-            id: InteractiveId(id),
+            id: InteractiveId::new(id, self.plugin_tag),
         };
         self.store_element(element)
     }

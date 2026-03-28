@@ -104,7 +104,7 @@ mod tests {
         let state = default_state();
         let el = Element::Interactive {
             child: Box::new(Element::text("click me", Face::default())),
-            id: InteractiveId(42),
+            id: InteractiveId::framework(42),
         };
         let area = Rect {
             x: 5,
@@ -113,8 +113,14 @@ mod tests {
             h: 1,
         };
         let layout = place(&el, area, &state);
-        assert_eq!(hit_test(&el, &layout, 5, 3), Some(InteractiveId(42)));
-        assert_eq!(hit_test(&el, &layout, 12, 3), Some(InteractiveId(42)));
+        assert_eq!(
+            hit_test(&el, &layout, 5, 3),
+            Some(InteractiveId::framework(42))
+        );
+        assert_eq!(
+            hit_test(&el, &layout, 12, 3),
+            Some(InteractiveId::framework(42))
+        );
     }
 
     #[test]
@@ -122,7 +128,7 @@ mod tests {
         let state = default_state();
         let el = Element::Interactive {
             child: Box::new(Element::text("click me", Face::default())),
-            id: InteractiveId(42),
+            id: InteractiveId::framework(42),
         };
         let area = Rect {
             x: 5,
@@ -142,12 +148,12 @@ mod tests {
         let el = Element::stack(
             Element::Interactive {
                 child: Box::new(Element::text("base", Face::default())),
-                id: InteractiveId(1),
+                id: InteractiveId::framework(1),
             },
             vec![Overlay {
                 element: Element::Interactive {
                     child: Box::new(Element::text("pop", Face::default())),
-                    id: InteractiveId(2),
+                    id: InteractiveId::framework(2),
                 },
                 anchor: OverlayAnchor::Absolute {
                     x: 0,
@@ -165,9 +171,15 @@ mod tests {
         };
         let layout = place(&el, area, &state);
         // Overlay covers (0,0)-(2,0) → should return overlay's ID
-        assert_eq!(hit_test(&el, &layout, 0, 0), Some(InteractiveId(2)));
+        assert_eq!(
+            hit_test(&el, &layout, 0, 0),
+            Some(InteractiveId::framework(2))
+        );
         // Base covers the rest
-        assert_eq!(hit_test(&el, &layout, 10, 0), Some(InteractiveId(1)));
+        assert_eq!(
+            hit_test(&el, &layout, 10, 0),
+            Some(InteractiveId::framework(1))
+        );
     }
 
     #[test]
@@ -175,11 +187,11 @@ mod tests {
         let state = default_state();
         let inner = Element::Interactive {
             child: Box::new(Element::text("inner", Face::default())),
-            id: InteractiveId(10),
+            id: InteractiveId::framework(10),
         };
         let outer = Element::Interactive {
             child: Box::new(inner),
-            id: InteractiveId(20),
+            id: InteractiveId::framework(20),
         };
         let area = Rect {
             x: 0,
@@ -189,7 +201,10 @@ mod tests {
         };
         let layout = place(&outer, area, &state);
         // Inner ID wins (more specific)
-        assert_eq!(hit_test(&outer, &layout, 0, 0), Some(InteractiveId(10)));
+        assert_eq!(
+            hit_test(&outer, &layout, 0, 0),
+            Some(InteractiveId::framework(10))
+        );
     }
 
     #[test]
@@ -204,7 +219,7 @@ mod tests {
                 Element::text("plain", Face::default()),
                 Element::Interactive {
                     child: Box::new(Element::text("click", Face::default())),
-                    id: InteractiveId(99),
+                    id: InteractiveId::framework(99),
                 },
             ],
             col_gap: 0,
@@ -222,7 +237,10 @@ mod tests {
         // Column 0 (plain text) → no interactive
         assert_eq!(hit_test(&el, &layout, 2, 0), None);
         // Column 1 (interactive) → hit
-        assert_eq!(hit_test(&el, &layout, 6, 0), Some(InteractiveId(99)));
+        assert_eq!(
+            hit_test(&el, &layout, 6, 0),
+            Some(InteractiveId::framework(99))
+        );
     }
 
     #[test]

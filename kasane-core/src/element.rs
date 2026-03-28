@@ -230,13 +230,47 @@ impl Style {
     }
 }
 
+/// Plugin ownership tag for interactive ID namespace isolation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PluginTag(pub u16);
+
+impl PluginTag {
+    /// Framework-owned interactive elements (info popups, etc.).
+    pub const FRAMEWORK: PluginTag = PluginTag(0);
+    /// Sentinel for native plugins before tag assignment.
+    pub const UNASSIGNED: PluginTag = PluginTag(u16::MAX);
+}
+
 /// Unique identifier for interactive regions (mouse hit testing).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InteractiveId(pub u32);
+pub struct InteractiveId {
+    pub local: u32,
+    pub owner: PluginTag,
+}
 
 impl InteractiveId {
     /// Base ID for info popup interactive regions.
     pub const INFO_BASE: u32 = 1000;
+
+    pub fn new(local: u32, owner: PluginTag) -> Self {
+        Self { local, owner }
+    }
+
+    /// Framework-owned interactive element (info popups, etc.).
+    pub fn framework(local: u32) -> Self {
+        Self {
+            local,
+            owner: PluginTag::FRAMEWORK,
+        }
+    }
+
+    /// For native plugin authors — tag will be injected by PluginBridge.
+    pub fn unassigned(local: u32) -> Self {
+        Self {
+            local,
+            owner: PluginTag::UNASSIGNED,
+        }
+    }
 }
 
 /// Frame-local identifier assigned to a resolved slot instance.
