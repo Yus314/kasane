@@ -41,8 +41,8 @@ jobs:
 
       - name: Install iai-callgrind-runner
         run: |
-          IAI_VERSION=$(nix develop --command cargo metadata --format-version 1 \
-            | jq -r '.packages[] | select(.name == "iai-callgrind") | .version')
+          nix develop --command bash -c 'cargo metadata --format-version 1 > /tmp/cargo-metadata.json'
+          IAI_VERSION=$(jq -r '.packages[] | select(.name == "iai-callgrind") | .version' /tmp/cargo-metadata.json)
           echo "Installing iai-callgrind-runner ${IAI_VERSION}"
           nix develop --command cargo install iai-callgrind-runner --version "${IAI_VERSION}"
 
