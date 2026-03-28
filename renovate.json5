@@ -84,9 +84,9 @@
       "matchManagers": ["cargo"],
       "enabled": false
     },
-    // wgpu + glyphon: GPU backend, breaking API changes between majors
+    // wgpu: GPU backend, breaking API changes between majors
     {
-      "matchPackageNames": ["wgpu", "glyphon"],
+      "matchPackageNames": ["wgpu"],
       "matchManagers": ["cargo"],
       "enabled": false
     },
