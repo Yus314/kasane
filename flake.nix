@@ -23,6 +23,90 @@
         };
         isLinux = pkgs.stdenv.isLinux;
 
+        # Common GUI dependencies (Linux only)
+        guiBuildInputs = pkgs.lib.optionals isLinux [
+          pkgs.vulkan-loader
+          pkgs.wayland
+          pkgs.wayland-protocols
+          pkgs.libxkbcommon
+          pkgs.libX11
+          pkgs.libXcursor
+          pkgs.libXrandr
+          pkgs.libXi
+          pkgs.fontconfig
+          pkgs.freetype
+        ];
+
+        guiRuntimeLibs = pkgs.lib.optionals isLinux [
+          pkgs.vulkan-loader
+          pkgs.wayland
+          pkgs.libxkbcommon
+        ];
+
+        mkKasane = { withGui ? false }: pkgs.rustPlatform.buildRustPackage {
+          pname = "kasane";
+          version = "0.2.0";
+
+          src = lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              let
+                relPath = lib.removePrefix (toString ./. + "/") (toString path);
+                isExcluded =
+                  lib.hasPrefix "docs/" relPath
+                  || lib.hasPrefix "examples/" relPath
+                  || lib.hasPrefix "contrib/" relPath
+                  || lib.hasPrefix "tools/" relPath
+                  || lib.hasPrefix ".github/" relPath
+                  || lib.hasPrefix ".claude/" relPath
+                  || relPath == "CLAUDE.md";
+              in
+              !isExcluded;
+          };
+
+          cargoLock.lockFile = ./Cargo.lock;
+
+          cargoBuildFlags = [ "-p" "kasane" ]
+            ++ lib.optionals withGui [ "--features" "gui" ];
+
+          # Skip tests that require kakoune or a TTY
+          doCheck = true;
+          cargoTestFlags = [ "-p" "kasane-core" "-p" "kasane-tui" ];
+          # #[should_panic] tests are incompatible with release profile (panic = "abort")
+          checkFlags = [
+            "--skip" "plugin::pubsub::tests::publish_during_delivery_panics_in_debug"
+            "--skip" "render::inline_decoration::tests::invariant_unsorted_panics"
+            "--skip" "render::inline_decoration::tests::overlapping_ops_asserts"
+          ];
+
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.makeWrapper
+          ];
+
+          buildInputs = lib.optionals withGui guiBuildInputs;
+
+          postInstall = let
+            wrapArgs = lib.concatStringsSep " " ([
+              "--prefix PATH : ${lib.makeBinPath [ pkgs.kakoune ]}"
+            ] ++ lib.optionals (withGui && isLinux) [
+              "--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath guiRuntimeLibs}"
+            ]);
+          in ''
+            wrapProgram $out/bin/kasane ${wrapArgs}
+          '';
+
+          meta = with lib; {
+            description = "Alternative frontend for the Kakoune text editor";
+            homepage = "https://github.com/Yus314/kasane";
+            license = with licenses; [ mit asl20 ];
+            platforms = platforms.linux ++ platforms.darwin;
+            mainProgram = "kasane";
+          };
+        };
+
+        lib = pkgs.lib;
+
         pre-commit-check = git-hooks.lib.${system}.run {
           src = ./.;
           hooks = {
@@ -45,6 +129,12 @@
         };
       in
       {
+        packages = {
+          default = mkKasane { };
+          kasane = mkKasane { };
+          kasane-gui = mkKasane { withGui = true; };
+        };
+
         checks = { inherit pre-commit-check; };
 
         devShells.default = pkgs.mkShell {
