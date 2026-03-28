@@ -9,46 +9,31 @@ impl Plugin for LineNumbersPlugin {
         PluginId("line_numbers".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CONTRIBUTOR
-    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.declare_interests(DirtyFlags::BUFFER);
+        r.on_contribute(SlotId::BUFFER_LEFT, |_state, app, _ctx| {
+            let total = app.line_count();
+            let width = total.to_string().len().max(2);
 
-    fn view_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER
-    }
+            let children: Vec<_> = (0..total)
+                .map(|i| {
+                    let num = format!("{:>w$} ", i + 1, w = width);
+                    FlexChild::fixed(Element::text(
+                        num,
+                        Face {
+                            fg: Color::Named(NamedColor::Cyan),
+                            ..Face::default()
+                        },
+                    ))
+                })
+                .collect();
 
-    fn contribute_to(
-        &self,
-        _state: &(),
-        region: &SlotId,
-        app: &AppView<'_>,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region != &SlotId::BUFFER_LEFT {
-            return None;
-        }
-
-        let total = app.line_count();
-        let width = total.to_string().len().max(2);
-
-        let children: Vec<_> = (0..total)
-            .map(|i| {
-                let num = format!("{:>w$} ", i + 1, w = width);
-                FlexChild::fixed(Element::text(
-                    num,
-                    Face {
-                        fg: Color::Named(NamedColor::Cyan),
-                        ..Face::default()
-                    },
-                ))
+            Some(Contribution {
+                element: Element::column(children),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
             })
-            .collect();
-
-        Some(Contribution {
-            element: Element::column(children),
-            priority: 0,
-            size_hint: ContribSizeHint::Auto,
-        })
+        });
     }
 }
 

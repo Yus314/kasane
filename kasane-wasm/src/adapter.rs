@@ -47,6 +47,7 @@ struct WasmPluginShared {
     plugin_id: PluginId,
     cached_state_hash: AtomicU64,
     cached_view_deps: DirtyFlags,
+    cached_capabilities: PluginCapabilities,
     process_allowed: bool,
     authorities: PluginAuthorities,
     pending_diagnostics: Mutex<Vec<PluginDiagnostic>>,
@@ -321,11 +322,19 @@ impl WasmPlugin {
         store.data_mut().plugin_id = id.clone();
 
         // Query view_deps once at construction time (static declaration).
-        let view_deps_bits = instance
-            .kasane_plugin_plugin_api()
+        let plugin_api = instance.kasane_plugin_plugin_api();
+        let view_deps_bits = plugin_api
             .call_view_deps(&mut store)
             .unwrap_or(DirtyFlags::ALL.bits());
         let cached_view_deps = DirtyFlags::from_bits_truncate(view_deps_bits);
+
+        // Query capabilities once at construction time (v0.23.0+).
+        // Falls back to PluginCapabilities::all() for older plugins that
+        // don't implement register-capabilities.
+        let cached_capabilities = plugin_api
+            .call_register_capabilities(&mut store)
+            .map(PluginCapabilities::from_bits_truncate)
+            .unwrap_or(PluginCapabilities::all());
 
         Self {
             shared: Arc::new(WasmPluginShared {
@@ -333,6 +342,7 @@ impl WasmPlugin {
                 plugin_id: PluginId(id),
                 cached_state_hash: AtomicU64::new(0),
                 cached_view_deps,
+                cached_capabilities,
                 process_allowed,
                 authorities,
                 pending_diagnostics: Mutex::new(Vec::new()),
@@ -822,7 +832,7 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::all()
+        self.shared.cached_capabilities
     }
 
     fn authorities(&self) -> PluginAuthorities {

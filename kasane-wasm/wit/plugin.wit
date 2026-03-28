@@ -1047,6 +1047,14 @@ interface plugin-api {
     /// The host uses this to skip update calls when irrelevant state changes.
     /// Return a bitmask of dirty-flag bits (0x17F = ALL).
     view-deps: func() -> u16;
+
+    // --- v0.23.0: handler declaration ---
+
+    /// Declare which handlers this plugin implements, as a
+    /// `PluginCapabilities` bitmask (matches kasane-core bitflags layout).
+    /// The host uses this to skip WASM boundary crossings for unimplemented
+    /// methods. Return 0xFFFFFFFF (all bits set) if unknown (conservative).
+    register-capabilities: func() -> u32;
 }
 
 // ---------------------------------------------------------------------------

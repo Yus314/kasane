@@ -8,21 +8,6 @@ use std::any::Any;
 
 use dyn_clone::DynClone;
 
-use crate::element::InteractiveId;
-use crate::input::{KeyEvent, MouseEvent};
-use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use crate::state::DirtyFlags;
-use crate::workspace::WorkspaceQuery;
-
-use super::AppView;
-
-use super::{
-    AnnotateContext, BootstrapEffects, Command, ContributeContext, Contribution, DisplayDirective,
-    IoEvent, KeyHandleResult, LineAnnotation, OverlayContext, OverlayContribution,
-    PluginAuthorities, PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId,
-    TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
-};
-
 // =============================================================================
 // Phase 0: Foundation Types
 // =============================================================================
@@ -71,254 +56,22 @@ where
     }
 }
 
-/// Primary plugin trait — state is externalized, all methods are pure functions.
+/// Primary plugin trait — register extension points via [`HandlerRegistry`].
 ///
-/// All `&mut self` methods from `PluginBackend` become `(&self, &State) → (State, effects)`.
-/// All `&self` view methods gain `state: &Self::State` parameter.
+/// All extension points are declared in `register()` by calling registration
+/// methods on the provided [`HandlerRegistry`]. Capabilities are auto-inferred
+/// from which handlers are registered.
 ///
 /// Register via `PluginRuntime::register()` or wrap manually with `PluginBridge`.
 pub trait Plugin: Send + 'static {
     /// Concrete state type. Must be `Clone + PartialEq + Debug + Send + Default`.
     type State: PluginState + PartialEq + Clone + Default;
 
-    fn id(&self) -> PluginId;
+    /// Unique plugin identifier.
+    fn id(&self) -> super::PluginId;
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::empty()
-    }
-
-    fn authorities(&self) -> PluginAuthorities {
-        PluginAuthorities::empty()
-    }
-
-    fn allows_process_spawn(&self) -> bool {
-        true
-    }
-
-    // --- State transitions (replace &mut self methods) ---
-
-    fn on_init_effects(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-    ) -> (Self::State, BootstrapEffects) {
-        let _ = app;
-        (state.clone(), BootstrapEffects::default())
-    }
-
-    fn on_active_session_ready_effects(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-    ) -> (Self::State, SessionReadyEffects) {
-        let _ = app;
-        (state.clone(), SessionReadyEffects::default())
-    }
-
-    fn on_state_changed_effects(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-        dirty: DirtyFlags,
-    ) -> (Self::State, RuntimeEffects) {
-        let _ = (app, dirty);
-        (state.clone(), RuntimeEffects::default())
-    }
-
-    fn on_io_event_effects(
-        &self,
-        state: &Self::State,
-        event: &IoEvent,
-        app: &AppView<'_>,
-    ) -> (Self::State, RuntimeEffects) {
-        let _ = (event, app);
-        (state.clone(), RuntimeEffects::default())
-    }
-
-    fn on_workspace_changed(&self, state: &Self::State, query: &WorkspaceQuery<'_>) -> Self::State {
-        let _ = query;
-        state.clone()
-    }
-
-    fn observe_key(&self, state: &Self::State, key: &KeyEvent, app: &AppView<'_>) -> Self::State {
-        let _ = (key, app);
-        state.clone()
-    }
-
-    fn observe_mouse(
-        &self,
-        state: &Self::State,
-        event: &MouseEvent,
-        app: &AppView<'_>,
-    ) -> Self::State {
-        let _ = (event, app);
-        state.clone()
-    }
-
-    fn handle_key(
-        &self,
-        state: &Self::State,
-        key: &KeyEvent,
-        app: &AppView<'_>,
-    ) -> Option<(Self::State, Vec<Command>)> {
-        let _ = (state, key, app);
-        None
-    }
-
-    fn handle_key_middleware(
-        &self,
-        state: &Self::State,
-        key: &KeyEvent,
-        app: &AppView<'_>,
-    ) -> (Self::State, KeyHandleResult) {
-        match self.handle_key(state, key, app) {
-            Some((new_state, commands)) => (new_state, KeyHandleResult::Consumed(commands)),
-            None => (state.clone(), KeyHandleResult::Passthrough),
-        }
-    }
-
-    fn handle_mouse(
-        &self,
-        state: &Self::State,
-        event: &MouseEvent,
-        id: InteractiveId,
-        app: &AppView<'_>,
-    ) -> Option<(Self::State, Vec<Command>)> {
-        let _ = (state, event, id, app);
-        None
-    }
-
-    fn handle_default_scroll(
-        &self,
-        state: &Self::State,
-        candidate: DefaultScrollCandidate,
-        app: &AppView<'_>,
-    ) -> Option<(Self::State, ScrollPolicyResult)> {
-        let _ = (state, candidate, app);
-        None
-    }
-
-    fn update_effects(
-        &self,
-        state: &Self::State,
-        msg: &mut dyn Any,
-        app: &AppView<'_>,
-    ) -> (Self::State, RuntimeEffects) {
-        let _ = (msg, app);
-        (state.clone(), RuntimeEffects::default())
-    }
-
-    // --- Pure view methods (state passed as parameter) ---
-
-    fn contribute_to(
-        &self,
-        state: &Self::State,
-        region: &SlotId,
-        app: &AppView<'_>,
-        ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        let _ = (state, region, app, ctx);
-        None
-    }
-
-    fn transform(
-        &self,
-        state: &Self::State,
-        target: &TransformTarget,
-        subject: TransformSubject,
-        app: &AppView<'_>,
-        ctx: &TransformContext,
-    ) -> TransformSubject {
-        let _ = (state, target, app, ctx);
-        subject
-    }
-
-    fn annotate_line_with_ctx(
-        &self,
-        state: &Self::State,
-        line: usize,
-        app: &AppView<'_>,
-        ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        let _ = (state, line, app, ctx);
-        None
-    }
-
-    fn contribute_overlay_with_ctx(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-        ctx: &OverlayContext,
-    ) -> Option<OverlayContribution> {
-        let _ = (state, app, ctx);
-        None
-    }
-
-    fn cursor_style_override(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyleHint> {
-        let _ = (state, app);
-        None
-    }
-
-    /// Return cell-level decorations for the current frame.
-    fn decorate_cells(&self, state: &Self::State, app: &AppView<'_>) -> Vec<super::CellDecoration> {
-        let _ = (state, app);
-        vec![]
-    }
-
-    fn transform_menu_item(
-        &self,
-        state: &Self::State,
-        item: &[crate::protocol::Atom],
-        index: usize,
-        selected: bool,
-        app: &AppView<'_>,
-    ) -> Option<Vec<crate::protocol::Atom>> {
-        let _ = (state, item, index, selected, app);
-        None
-    }
-
-    fn transform_priority(&self) -> i16 {
-        0
-    }
-
-    /// Declare the transform scope and targets for debug-time conflict detection.
-    ///
-    /// Returns `None` by default (no descriptor declared). Plugins that implement
-    /// `transform()` may optionally return a descriptor to enable collision warnings
-    /// in debug builds.
-    fn transform_descriptor(&self) -> Option<TransformDescriptor> {
-        None
-    }
-
-    fn display_directive_priority(&self) -> i16 {
-        0
-    }
-
-    /// Declare theme token defaults for this plugin.
-    ///
-    /// Called when the plugin is registered. Returns a list of (token_name, default_face)
-    /// pairs. User config.toml settings take priority over these defaults.
-    fn theme_defaults(&self) -> Vec<(&'static str, crate::protocol::Face)> {
-        vec![]
-    }
-
-    /// Declare which `DirtyFlags` this plugin's view methods depend on.
-    ///
-    /// When the framework detects that neither the plugin's state nor any of the
-    /// declared flags have changed, it can skip re-collecting this plugin's view
-    /// contributions. Default: `DirtyFlags::ALL` (always re-collect, safe fallback).
-    fn view_deps(&self) -> DirtyFlags {
-        DirtyFlags::ALL
-    }
-
-    fn display_directives(&self, state: &Self::State, app: &AppView<'_>) -> Vec<DisplayDirective> {
-        let _ = (state, app);
-        vec![]
-    }
+    /// Register handlers on the given registry.
+    fn register(&self, registry: &mut super::HandlerRegistry<Self::State>);
 }
 
 // =============================================================================
@@ -328,8 +81,9 @@ pub trait Plugin: Send + 'static {
 #[cfg(test)]
 pub(in crate::plugin) mod tests {
     use super::*;
-    use crate::plugin::{BackgroundLayer, BlendMode, PluginCapabilities, PluginId, RuntimeEffects};
+    use crate::plugin::{BackgroundLayer, BlendMode, HandlerRegistry, PluginId, RuntimeEffects};
     use crate::protocol::{Color, Face, NamedColor};
+    use crate::state::DirtyFlags;
 
     // ---- CursorLinePure test double ----
 
@@ -347,52 +101,32 @@ pub(in crate::plugin) mod tests {
             PluginId("test.cursor-line-pure".into())
         }
 
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ANNOTATOR
-        }
-
-        fn on_state_changed_effects(
-            &self,
-            state: &Self::State,
-            app: &AppView<'_>,
-            dirty: DirtyFlags,
-        ) -> (Self::State, RuntimeEffects) {
-            if dirty.intersects(DirtyFlags::BUFFER) {
-                let new_state = CursorLineState {
-                    active_line: app.cursor_line(),
-                };
-                (new_state, RuntimeEffects::default())
-            } else {
-                (state.clone(), RuntimeEffects::default())
-            }
-        }
-
-        fn annotate_line_with_ctx(
-            &self,
-            state: &Self::State,
-            line: usize,
-            _app: &AppView<'_>,
-            _ctx: &AnnotateContext,
-        ) -> Option<LineAnnotation> {
-            if line as i32 == state.active_line {
-                Some(LineAnnotation {
-                    left_gutter: None,
-                    right_gutter: None,
-                    background: Some(BackgroundLayer {
+        fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
+            r.declare_interests(DirtyFlags::BUFFER);
+            r.on_state_changed(|state, app, dirty| {
+                if dirty.intersects(DirtyFlags::BUFFER) {
+                    let new_state = CursorLineState {
+                        active_line: app.cursor_line(),
+                    };
+                    (new_state, RuntimeEffects::default())
+                } else {
+                    (state.clone(), RuntimeEffects::default())
+                }
+            });
+            r.on_annotate_background(|state, line, _app, _ctx| {
+                if line as i32 == state.active_line {
+                    Some(BackgroundLayer {
                         face: Face {
                             bg: Color::Named(NamedColor::Blue),
                             ..Face::default()
                         },
                         z_order: 0,
                         blend: BlendMode::Opaque,
-                    }),
-                    priority: 0,
-                    inline: None,
-                    virtual_text: vec![],
-                })
-            } else {
-                None
-            }
+                    })
+                } else {
+                    None
+                }
+            });
         }
     }
 
@@ -422,52 +156,32 @@ pub(in crate::plugin) mod tests {
             PluginId("test.color-preview-pure".into())
         }
 
-        fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::ANNOTATOR | PluginCapabilities::OVERLAY
-        }
-
-        fn on_state_changed_effects(
-            &self,
-            state: &Self::State,
-            app: &AppView<'_>,
-            dirty: DirtyFlags,
-        ) -> (Self::State, RuntimeEffects) {
-            if dirty.intersects(DirtyFlags::BUFFER) {
-                let mut new_state = state.clone();
-                new_state.active_line = app.cursor_line();
-                new_state.generation += 1;
-                (new_state, RuntimeEffects::default())
-            } else {
-                (state.clone(), RuntimeEffects::default())
-            }
-        }
-
-        fn annotate_line_with_ctx(
-            &self,
-            state: &Self::State,
-            line: usize,
-            _app: &AppView<'_>,
-            _ctx: &AnnotateContext,
-        ) -> Option<LineAnnotation> {
-            if state.color_lines.contains_key(&line) {
-                Some(LineAnnotation {
-                    left_gutter: None,
-                    right_gutter: None,
-                    background: Some(BackgroundLayer {
+        fn register(&self, r: &mut HandlerRegistry<ColorPreviewState>) {
+            r.declare_interests(DirtyFlags::BUFFER);
+            r.on_state_changed(|state, app, dirty| {
+                if dirty.intersects(DirtyFlags::BUFFER) {
+                    let mut new_state = state.clone();
+                    new_state.active_line = app.cursor_line();
+                    new_state.generation += 1;
+                    (new_state, RuntimeEffects::default())
+                } else {
+                    (state.clone(), RuntimeEffects::default())
+                }
+            });
+            r.on_annotate_background(|state, line, _app, _ctx| {
+                if state.color_lines.contains_key(&line) {
+                    Some(BackgroundLayer {
                         face: Face {
                             bg: Color::Named(NamedColor::Green),
                             ..Face::default()
                         },
                         z_order: 0,
                         blend: BlendMode::Opaque,
-                    }),
-                    priority: 0,
-                    inline: None,
-                    virtual_text: vec![],
-                })
-            } else {
-                None
-            }
+                    })
+                } else {
+                    None
+                }
+            });
         }
     }
 

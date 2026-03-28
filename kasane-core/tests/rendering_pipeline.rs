@@ -644,6 +644,7 @@ fn test_line_dirty_full_repaint_on_overlay() {
 /// as the legacy view()-based pipeline.
 #[test]
 fn test_salsa_pipeline_equivalence_empty_state() {
+    use kasane_core::plugin::ContributionCache;
     use kasane_core::render::{render_pipeline, render_pipeline_cached};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
@@ -665,7 +666,13 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry.view(),
+        &handles,
+        &mut ContributionCache::default(),
+    );
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let (salsa_result, _) = render_pipeline_cached(
@@ -713,6 +720,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
 /// Verify Salsa pipeline equivalence with menu overlay.
 #[test]
 fn test_salsa_pipeline_equivalence_with_menu() {
+    use kasane_core::plugin::ContributionCache;
     use kasane_core::render::{render_pipeline, render_pipeline_cached};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
@@ -742,7 +750,13 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry.view(),
+        &handles,
+        &mut ContributionCache::default(),
+    );
 
     let mut salsa_grid = CellGrid::new(state.cols, state.rows);
     let (_salsa_result, _) = render_pipeline_cached(

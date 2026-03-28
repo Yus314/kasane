@@ -6,6 +6,8 @@ use proc_macro::TokenStream;
 
 /// Derive a `Plugin` impl from a module definition.
 ///
+/// # Legacy mode (default)
+///
 /// Place `#[kasane_plugin]` on a `mod` block containing:
 /// - `#[state] struct State { ... }` — plugin state type
 /// - `#[event] enum Msg { ... }` — message type
@@ -14,12 +16,31 @@ use proc_macro::TokenStream;
 /// - `fn annotate_line(state: &State, line: usize, core: &AppState, ctx: &AnnotateContext) -> Option<LineAnnotation>` — line annotation
 /// - `fn transform_menu_item(...)` — menu item transformer
 ///
-/// Generates a `{PascalCase}Plugin` struct with a `Plugin` trait impl.
+/// Generates a `{PascalCase}Plugin` struct with a `PluginBackend` trait impl.
+///
+/// # Handler registry mode (`v2`)
+///
+/// Place `#[kasane_plugin(v2)]` on a `mod` block to generate a `Plugin` impl
+/// using the `HandlerRegistry` pattern:
+/// - `#[state] struct State { ... }` — `type State = State`
+/// - `#[contribute("slot.name")]` functions → `r.on_contribute(...)`
+/// - `#[annotate_background]` functions → `r.on_annotate_background(...)`
+/// - `#[annotate_gutter(Left, priority)]` functions → `r.on_annotate_gutter(...)`
+/// - `#[handle_key]` functions → `r.on_key(...)`
+/// - `fn on_state_changed(...)` → `r.on_state_changed(...)`
+/// - `#[dirty(FLAGS)]` on `#[state]` struct → `r.declare_interests(FLAGS)`
 #[proc_macro_attribute]
-pub fn kasane_plugin(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    plugin::expand_kasane_plugin(input.into())
-        .unwrap_or_else(|e| e.to_compile_error())
-        .into()
+pub fn kasane_plugin(attr: TokenStream, input: TokenStream) -> TokenStream {
+    let attr_str = attr.to_string();
+    if attr_str.trim() == "v2" {
+        plugin::expand_kasane_plugin_v2(input.into())
+            .unwrap_or_else(|e| e.to_compile_error())
+            .into()
+    } else {
+        plugin::expand_kasane_plugin(input.into())
+            .unwrap_or_else(|e| e.to_compile_error())
+            .into()
+    }
 }
 
 /// Validate a pure component function.

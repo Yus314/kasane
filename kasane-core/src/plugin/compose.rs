@@ -17,6 +17,7 @@
 //! | Key dispatch          | Yes     | No           | `FirstWins<T>`                |
 //! | Cursor style override | Yes     | No           | `FirstWins<T>`                |
 //! | Transform chain       | Yes     | No           | `TransformChain`              |
+//! | Element patches       | Yes     | No           | `ElementPatch`                |
 //! | Key middleware         | N/A     | N/A          | Imperative Kleisli chain      |
 //! | `resolve()`           | **No**  | N/A          | (not modeled)                 |
 //!
@@ -26,6 +27,7 @@
 //! Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an
 //! imperative Kleisli-style chain and is not modeled as `Composable`.
 
+use super::element_patch::ElementPatch;
 use super::{OverlayContribution, PluginId, SourcedContribution};
 use crate::display::DirectiveSet;
 
@@ -296,5 +298,31 @@ impl<T: Clone> Composable for FirstWins<T> {
         Self {
             value: self.value.or(other.value),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ElementPatch
+// ---------------------------------------------------------------------------
+
+/// Non-commutative monoid over element patches.
+///
+/// - **Identity**: `ElementPatch::Identity`
+/// - **Composition**: `Compose(vec![self, other]).normalize()`
+///
+/// Application order matters: `a.compose(b)` applies `a` first, then `b`.
+impl Composable for ElementPatch {
+    fn empty() -> Self {
+        ElementPatch::Identity
+    }
+
+    fn compose(self, other: Self) -> Self {
+        // Short-circuit: composing with Identity is a no-op
+        match (&self, &other) {
+            (ElementPatch::Identity, _) => return other,
+            (_, ElementPatch::Identity) => return self,
+            _ => {}
+        }
+        ElementPatch::Compose(vec![self, other]).normalize()
     }
 }

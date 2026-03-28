@@ -9,15 +9,17 @@ pub use crate::kasane_plugin;
 // Plugin trait and types
 pub use crate::plugin::{
     AnnotateContext, AnnotationResult, AppView, BackgroundLayer, BlendMode, BootstrapEffects,
-    BufferEdit, BufferPosition, CellDecoration, Command, ContribSizeHint, ContributeContext,
-    Contribution, DecorationTarget, DisplayDirective, DisplayMapRef, FaceMerge, IsBridgedPlugin,
-    KeyDispatchResult, KeyHandleResult, LineAnnotation, NullEffects, OverlayContext,
-    OverlayContribution, PaintHook, PaneContext, Plugin, PluginAuthorities, PluginBackend,
-    PluginBridge, PluginCapabilities, PluginDescriptor, PluginEffects, PluginFactory, PluginId,
-    PluginManager, PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
-    PluginState, RuntimeEffects, SessionReadyCommand, SessionReadyEffects, SlotId,
-    TransformContext, TransformDescriptor, TransformScope, TransformSubject, TransformTarget,
-    VirtualTextItem, builtin_plugin, host_plugin, host_plugin_with_provider,
+    BufferEdit, BufferPosition, CellDecoration, Command, CompositionRule, ContribSizeHint,
+    ContributeContext, Contribution, DecorationTarget, DisplayDirective, DisplayMapRef,
+    ElementPatch, ExtensionPointId, ExtensionResults, FaceMerge, GutterSide, HandlerRegistry,
+    IsBridgedPlugin, KeyDispatchResult, KeyHandleResult, LineAnnotation, NullEffects,
+    OverlayContext, OverlayContribution, PaintHook, PaneContext, Plugin, PluginAuthorities,
+    PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor, PluginEffects,
+    PluginFactory, PluginId, PluginManager, PluginProvider, PluginRank, PluginRevision,
+    PluginRuntime, PluginSource, PluginState, RuntimeEffects, SessionReadyCommand,
+    SessionReadyEffects, SlotId, TopicBus, TopicId, TransformContext, TransformDescriptor,
+    TransformScope, TransformSubject, TransformTarget, VirtualTextItem, builtin_plugin,
+    host_plugin, host_plugin_with_provider,
 };
 
 // Element tree

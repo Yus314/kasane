@@ -234,6 +234,9 @@ where
     // Salsa database
     salsa_db: KasaneDatabase,
     salsa_handles: SalsaInputHandles,
+
+    // Per-plugin contribution cache for incremental recollection
+    contribution_cache: kasane_core::plugin::ContributionCache,
 }
 
 impl<R, W, C> App<R, W, C>
@@ -344,6 +347,7 @@ where
             process_dispatcher,
             salsa_db,
             salsa_handles,
+            contribution_cache: kasane_core::plugin::ContributionCache::default(),
         })
     }
 
@@ -914,7 +918,13 @@ where
             sync_inputs_from_state(&mut self.salsa_db, &self.state, &self.salsa_handles);
             let view = self.registry.view();
             sync_display_directives(&mut self.salsa_db, &self.state, &view, &self.salsa_handles);
-            sync_plugin_contributions(&mut self.salsa_db, &self.state, &view, &self.salsa_handles);
+            sync_plugin_contributions(
+                &mut self.salsa_db,
+                &self.state,
+                &view,
+                &self.salsa_handles,
+                &mut self.contribution_cache,
+            );
 
             let pane_states_val;
             let pane_states_opt = if self.surface_registry.is_multi_pane() {

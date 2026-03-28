@@ -7,7 +7,7 @@
 
 use salsa::{Durability, Setter};
 
-use crate::plugin::{AppView, PluginView};
+use crate::plugin::{AppView, ContributionCache, PluginView};
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_inputs::*;
 use crate::state::AppState;
@@ -192,17 +192,16 @@ pub fn sync_inputs_from_state(
 /// Synchronize plugin contributions (slots, annotations, overlays) into Salsa inputs.
 ///
 /// Call this after `prepare_plugin_cache()` and `sync_display_directives()`.
-/// Collects plugin contributions and stores them as Salsa inputs for memoization.
+/// Uses per-extension-point granularity: only re-collects extension points
+/// where at least one participating plugin needs recollection. Uses `cache`
+/// for per-plugin contribution caching across frames.
 pub fn sync_plugin_contributions(
     db: &mut KasaneDatabase,
     state: &AppState,
     registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
+    cache: &mut ContributionCache,
 ) {
-    if !registry.any_needs_recollect() {
-        return;
-    }
-
     use crate::display::DisplayMapRef;
     use crate::element::Overlay;
     use crate::plugin::{
@@ -223,112 +222,162 @@ pub fn sync_plugin_contributions(
         }
     }
 
-    fn collect_slot(
+    fn collect_slot_cached(
         slot: &SlotId,
         state: &AppState,
         registry: &PluginView<'_>,
         ctx: &ContributeContext,
+        cache: &mut ContributionCache,
     ) -> Vec<crate::element::FlexChild> {
         registry
-            .collect_contributions(slot, &AppView::new(state), ctx)
+            .collect_contributions_cached(slot, &AppView::new(state), ctx, cache)
             .into_iter()
             .map(contribution_to_flex_child)
             .collect()
     }
 
-    // Slot contributions
-    let view = AppView::new(state);
-    let ctx = ContributeContext::new(&view, None);
-    inputs
-        .slot_contributions
-        .set_buffer_left(db)
-        .to(collect_slot(&SlotId::BUFFER_LEFT, state, registry, &ctx));
-    inputs
-        .slot_contributions
-        .set_buffer_right(db)
-        .to(collect_slot(&SlotId::BUFFER_RIGHT, state, registry, &ctx));
-    inputs
-        .slot_contributions
-        .set_above_buffer(db)
-        .to(collect_slot(&SlotId::ABOVE_BUFFER, state, registry, &ctx));
-    inputs
-        .slot_contributions
-        .set_below_buffer(db)
-        .to(collect_slot(&SlotId::BELOW_BUFFER, state, registry, &ctx));
-    inputs
-        .slot_contributions
-        .set_status_left(db)
-        .to(collect_slot(&SlotId::STATUS_LEFT, state, registry, &ctx));
-    inputs
-        .slot_contributions
-        .set_status_right(db)
-        .to(collect_slot(&SlotId::STATUS_RIGHT, state, registry, &ctx));
-    inputs
-        .slot_contributions
-        .set_above_status(db)
-        .to(collect_slot(&SlotId::ABOVE_STATUS, state, registry, &ctx));
+    // Slot contributions: only re-collect if any contributor is stale
+    if registry.any_contributor_needs_recollect() {
+        let view = AppView::new(state);
+        let ctx = ContributeContext::new(&view, None);
+        inputs
+            .slot_contributions
+            .set_buffer_left(db)
+            .to(collect_slot_cached(
+                &SlotId::BUFFER_LEFT,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+        inputs
+            .slot_contributions
+            .set_buffer_right(db)
+            .to(collect_slot_cached(
+                &SlotId::BUFFER_RIGHT,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+        inputs
+            .slot_contributions
+            .set_above_buffer(db)
+            .to(collect_slot_cached(
+                &SlotId::ABOVE_BUFFER,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+        inputs
+            .slot_contributions
+            .set_below_buffer(db)
+            .to(collect_slot_cached(
+                &SlotId::BELOW_BUFFER,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+        inputs
+            .slot_contributions
+            .set_status_left(db)
+            .to(collect_slot_cached(
+                &SlotId::STATUS_LEFT,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+        inputs
+            .slot_contributions
+            .set_status_right(db)
+            .to(collect_slot_cached(
+                &SlotId::STATUS_RIGHT,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+        inputs
+            .slot_contributions
+            .set_above_status(db)
+            .to(collect_slot_cached(
+                &SlotId::ABOVE_STATUS,
+                state,
+                registry,
+                &ctx,
+                cache,
+            ));
+    }
 
-    // Annotations
-    let display_map: DisplayMapRef =
-        crate::salsa_views::display_map_query(db, inputs.display_directives);
-    let annotate_ctx = AnnotateContext {
-        line_width: state.cols,
-        gutter_width: 0,
-        display_map: Some(Arc::clone(&display_map)),
-        pane_surface_id: None,
-        pane_focused: true,
-    };
-    let result = registry.collect_annotations(&AppView::new(state), &annotate_ctx);
-    inputs
-        .annotations
-        .set_line_backgrounds(db)
-        .to(result.line_backgrounds);
-    inputs
-        .annotations
-        .set_left_gutter(db)
-        .to(result.left_gutter);
-    inputs
-        .annotations
-        .set_right_gutter(db)
-        .to(result.right_gutter);
-    inputs
-        .annotations
-        .set_inline_decorations(db)
-        .to(result.inline_decorations);
-    inputs
-        .annotations
-        .set_virtual_text(db)
-        .to(result.virtual_text);
+    // Annotations: only re-collect if any annotator is stale
+    if registry.any_annotator_needs_recollect() {
+        let display_map: DisplayMapRef =
+            crate::salsa_views::display_map_query(db, inputs.display_directives);
+        let annotate_ctx = AnnotateContext {
+            line_width: state.cols,
+            gutter_width: 0,
+            display_map: Some(Arc::clone(&display_map)),
+            pane_surface_id: None,
+            pane_focused: true,
+        };
+        let result = registry.collect_annotations(&AppView::new(state), &annotate_ctx);
+        inputs
+            .annotations
+            .set_line_backgrounds(db)
+            .to(result.line_backgrounds);
+        inputs
+            .annotations
+            .set_left_gutter(db)
+            .to(result.left_gutter);
+        inputs
+            .annotations
+            .set_right_gutter(db)
+            .to(result.right_gutter);
+        inputs
+            .annotations
+            .set_inline_decorations(db)
+            .to(result.inline_decorations);
+        inputs
+            .annotations
+            .set_virtual_text(db)
+            .to(result.virtual_text);
+    }
 
-    // Plugin overlays
-    let overlay_ctx = OverlayContext {
-        screen_cols: state.cols,
-        screen_rows: state.rows,
-        menu_rect: None,
-        existing_overlays: vec![],
-        focused_surface_id: None,
-    };
-    let overlays: Vec<Overlay> = registry
-        .collect_overlays_with_ctx(&AppView::new(state), &overlay_ctx)
-        .into_iter()
-        .map(|oc| Overlay {
-            element: oc.element,
-            anchor: oc.anchor,
-        })
-        .collect();
-    inputs.plugin_overlays.set_overlays(db).to(overlays);
+    // Plugin overlays: only re-collect if any overlay provider is stale
+    if registry.any_overlay_needs_recollect() {
+        let overlay_ctx = OverlayContext {
+            screen_cols: state.cols,
+            screen_rows: state.rows,
+            menu_rect: None,
+            existing_overlays: vec![],
+            focused_surface_id: None,
+        };
+        let overlays: Vec<Overlay> = registry
+            .collect_overlays_with_ctx(&AppView::new(state), &overlay_ctx)
+            .into_iter()
+            .map(|oc| Overlay {
+                element: oc.element,
+                anchor: oc.anchor,
+            })
+            .collect();
+        inputs.plugin_overlays.set_overlays(db).to(overlays);
+    }
 }
 
 /// Synchronize display directives from plugins into Salsa.
 ///
 /// Call this after `prepare_plugin_cache()`.
+/// Only re-collects if any DISPLAY_TRANSFORM plugin needs recollection.
 pub fn sync_display_directives(
     db: &mut KasaneDatabase,
     state: &AppState,
     registry: &PluginView<'_>,
     inputs: &SalsaInputHandles,
 ) {
-    if !registry.any_needs_recollect() {
+    if !registry.any_display_transform_needs_recollect() {
         return;
     }
 

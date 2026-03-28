@@ -224,6 +224,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "requested_authorities",
         "on_io_event_effects",
         "view_deps",
+        "register_capabilities",
     ]
     .into_iter()
     .collect()
@@ -592,6 +593,82 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         "view_deps",
         quote! { fn view_deps() -> u16 { 0x17F } } // ALL
     );
+
+    // --- Handler capability declaration (v0.23.0) ---
+    // Auto-infer PluginCapabilities bitmask from which methods are implemented.
+    // Bit layout matches kasane-core PluginCapabilities bitflags.
+    if !existing.contains("register_capabilities") {
+        let mut caps: u32 = 0;
+        // OVERLAY = 1 << 2
+        if existing.contains("contribute_overlay") || existing.contains("contribute_overlay_v2") {
+            caps |= 1 << 2;
+        }
+        // MENU_TRANSFORM = 1 << 5
+        if existing.contains("transform_menu_item") {
+            caps |= 1 << 5;
+        }
+        // CURSOR_STYLE = 1 << 6
+        if existing.contains("cursor_style_override") {
+            caps |= 1 << 6;
+        }
+        // INPUT_HANDLER = 1 << 7
+        if existing.contains("handle_key")
+            || existing.contains("handle_key_middleware")
+            || existing.contains("handle_mouse")
+        {
+            caps |= 1 << 7;
+        }
+        // SURFACE_PROVIDER = 1 << 11
+        if existing.contains("surfaces") {
+            caps |= 1 << 11;
+        }
+        // WORKSPACE_OBSERVER = 1 << 12
+        if existing.contains("on_workspace_changed") {
+            caps |= 1 << 12;
+        }
+        // CONTRIBUTOR = 1 << 14
+        if existing.contains("contribute")
+            || existing.contains("contribute_to")
+            || existing.contains("contribute_named")
+        {
+            caps |= 1 << 14;
+        }
+        // TRANSFORMER = 1 << 15
+        if existing.contains("transform")
+            || existing.contains("replace")
+            || existing.contains("decorate")
+        {
+            caps |= 1 << 15;
+        }
+        // ANNOTATOR = 1 << 16
+        if existing.contains("annotate_line") || existing.contains("contribute_line") {
+            caps |= 1 << 16;
+        }
+        // IO_HANDLER = 1 << 17
+        if existing.contains("on_io_event_effects") {
+            caps |= 1 << 17;
+        }
+        // DISPLAY_TRANSFORM = 1 << 18
+        if existing.contains("display_directives") {
+            caps |= 1 << 18;
+        }
+        // SCROLL_POLICY = 1 << 19
+        if existing.contains("handle_default_scroll") {
+            caps |= 1 << 19;
+        }
+        // CELL_DECORATION = 1 << 20
+        if existing.contains("decorate_cells") {
+            caps |= 1 << 20;
+        }
+
+        let caps_literal = caps;
+        defaults.push(
+            syn::parse2(quote! {
+                fn register_capabilities() -> u32 { #caps_literal }
+            })
+            .expect("register_capabilities default"),
+        );
+    }
 
     defaults
 }

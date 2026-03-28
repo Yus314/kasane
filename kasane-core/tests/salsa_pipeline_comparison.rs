@@ -5,6 +5,7 @@
 //! of AppState configurations, including with active plugins.
 
 use kasane_core::element::Element;
+use kasane_core::plugin::ContributionCache;
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext,
     Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
@@ -70,7 +71,13 @@ fn setup_salsa_with_plugins(
     sync_inputs_from_state(&mut db, state, &handles);
 
     sync_display_directives(&mut db, state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, state, &registry.view(), &handles);
+    sync_plugin_contributions(
+        &mut db,
+        state,
+        &registry.view(),
+        &handles,
+        &mut ContributionCache::default(),
+    );
     (db, handles)
 }
 
@@ -267,7 +274,13 @@ fn compare_memoization_consistency() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry.view(),
+        &handles,
+        &mut ContributionCache::default(),
+    );
 
     let legacy2 = render_legacy(&state, &registry);
     let salsa2 = render_salsa(&state, &registry, &db, &handles);
@@ -678,7 +691,13 @@ fn compare_menu_appears_while_info_visible() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry.view(),
+        &handles,
+        &mut ContributionCache::default(),
+    );
 
     let legacy_both = render_legacy(&state, &registry);
     let salsa_both = render_salsa(&state, &registry, &db, &handles);
@@ -705,7 +724,13 @@ fn compare_menu_disappears_while_info_visible() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(&mut db, &state, &registry.view(), &handles);
+    sync_plugin_contributions(
+        &mut db,
+        &state,
+        &registry.view(),
+        &handles,
+        &mut ContributionCache::default(),
+    );
 
     let legacy_info_only = render_legacy(&state, &registry);
     let salsa_info_only = render_salsa(&state, &registry, &db, &handles);

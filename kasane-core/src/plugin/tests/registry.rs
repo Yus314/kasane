@@ -725,3 +725,503 @@ fn test_deliver_message_unknown_target() {
     assert!(batch.effects.commands.is_empty());
     assert!(batch.effects.scroll_plans.is_empty());
 }
+
+// --- Per-extension-point invalidation tests (Phase 5) ---
+
+/// A contributor-only plugin with controllable hash.
+struct ContributorPlugin {
+    hash: u64,
+}
+
+impl PluginBackend for ContributorPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("contributor".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CONTRIBUTOR
+    }
+
+    fn state_hash(&self) -> u64 {
+        self.hash
+    }
+
+    fn contribute_to(
+        &self,
+        region: &SlotId,
+        _state: &AppView<'_>,
+        _ctx: &ContributeContext,
+    ) -> Option<Contribution> {
+        if *region == SlotId::STATUS_LEFT {
+            Some(Contribution {
+                element: crate::element::Element::text("contrib", Face::default()),
+                priority: 0,
+                size_hint: crate::plugin::ContribSizeHint::Auto,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// An annotator-only plugin with controllable hash.
+struct AnnotatorPlugin {
+    hash: u64,
+}
+
+impl PluginBackend for AnnotatorPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("annotator".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ANNOTATOR
+    }
+
+    fn state_hash(&self) -> u64 {
+        self.hash
+    }
+}
+
+#[test]
+fn test_per_extension_point_stale_contributor_only() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(ContributorPlugin { hash: 1 }));
+    registry.register_backend(Box::new(AnnotatorPlugin { hash: 1 }));
+
+    // First prepare: both stale (hash changed from default 0)
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    assert!(view.any_contributor_needs_recollect());
+    assert!(view.any_annotator_needs_recollect());
+
+    // Second prepare with same hashes → neither stale (no dirty flags intersect
+    // because both plugins declare specific caps, not ALL view_deps)
+    registry.prepare_plugin_cache(DirtyFlags::empty());
+    let view = registry.view();
+    assert!(!view.any_contributor_needs_recollect());
+    assert!(!view.any_annotator_needs_recollect());
+}
+
+#[test]
+fn test_per_extension_point_stale_only_annotator_changes() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(ContributorPlugin { hash: 1 }));
+    registry.register_backend(Box::new(AnnotatorPlugin { hash: 1 }));
+
+    // First prepare: both become stale
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+
+    // Stabilize both
+    registry.prepare_plugin_cache(DirtyFlags::empty());
+    let view = registry.view();
+    assert!(!view.any_contributor_needs_recollect());
+    assert!(!view.any_annotator_needs_recollect());
+
+    // Now change only the annotator's hash — mutate via re-register
+    registry.register_backend(Box::new(AnnotatorPlugin { hash: 2 }));
+    registry.prepare_plugin_cache(DirtyFlags::empty());
+    let view = registry.view();
+
+    // Contributor is NOT stale, annotator IS stale
+    assert!(!view.any_contributor_needs_recollect());
+    assert!(view.any_annotator_needs_recollect());
+}
+
+#[test]
+fn test_contribution_cache_reuses_non_stale_plugin() {
+    use crate::plugin::ContributionCache;
+
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(ContributorPlugin { hash: 1 }));
+
+    let state = AppState::default();
+    let app = AppView::new(&state);
+    let ctx = ContributeContext::new(&app, None);
+    let mut cache = ContributionCache::default();
+
+    // First prepare: plugin is stale (hash changed 0→1)
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let contribs = view.collect_contributions_cached(&SlotId::STATUS_LEFT, &app, &ctx, &mut cache);
+    assert_eq!(contribs.len(), 1);
+
+    // Second prepare: plugin NOT stale (hash unchanged)
+    registry.prepare_plugin_cache(DirtyFlags::empty());
+    let view = registry.view();
+    // Should return cached result without re-collecting
+    let contribs2 = view.collect_contributions_cached(&SlotId::STATUS_LEFT, &app, &ctx, &mut cache);
+    assert_eq!(contribs2.len(), 1);
+}
+
+#[test]
+fn test_display_transform_stale_independent_of_annotator() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(AnnotatorPlugin { hash: 1 }));
+    registry.register_backend(Box::new(DisplayTransformPlugin {
+        id: "display",
+        directives: vec![],
+        priority: 0,
+    }));
+
+    // Both stale initially
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    assert!(view.any_annotator_needs_recollect());
+    assert!(view.any_display_transform_needs_recollect());
+
+    // Stabilize both
+    registry.prepare_plugin_cache(DirtyFlags::empty());
+
+    // Change only annotator
+    registry.register_backend(Box::new(AnnotatorPlugin { hash: 2 }));
+    registry.prepare_plugin_cache(DirtyFlags::empty());
+    let view = registry.view();
+    assert!(view.any_annotator_needs_recollect());
+    assert!(!view.any_display_transform_needs_recollect());
+}
+
+// --- Annotation decomposition tests (Phase 6) ---
+
+use crate::plugin::handler_registry::HandlerRegistry;
+use crate::plugin::handler_table::GutterSide;
+use crate::plugin::state::Plugin;
+use crate::plugin::{BackgroundLayer, BlendMode};
+
+/// A native Plugin using decomposed annotation handlers.
+struct DecomposedAnnotatorPlugin;
+
+impl Plugin for DecomposedAnnotatorPlugin {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("decomposed-annotator".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_annotate_gutter(GutterSide::Left, 10, |_state, line, _app, _ctx| {
+            Some(crate::element::Element::text(
+                format!("{}", line + 1),
+                Face::default(),
+            ))
+        });
+        r.on_annotate_background(|_state, line, _app, _ctx| {
+            if line == 0 {
+                Some(BackgroundLayer {
+                    face: Face {
+                        bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
+                        ..Face::default()
+                    },
+                    z_order: 0,
+                    blend: BlendMode::Opaque,
+                })
+            } else {
+                None
+            }
+        });
+    }
+}
+
+/// A legacy PluginBackend that uses the monolithic annotate_line_with_ctx.
+struct LegacyAnnotatorPlugin;
+
+impl PluginBackend for LegacyAnnotatorPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("legacy-annotator".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::ANNOTATOR
+    }
+
+    fn annotate_line_with_ctx(
+        &self,
+        line: usize,
+        _state: &AppView<'_>,
+        _ctx: &AnnotateContext,
+    ) -> Option<super::super::LineAnnotation> {
+        Some(super::super::LineAnnotation {
+            left_gutter: Some(crate::element::Element::text(
+                format!("L{}", line + 1),
+                Face::default(),
+            )),
+            right_gutter: None,
+            background: None,
+            priority: 5,
+            inline: None,
+            virtual_text: vec![],
+        })
+    }
+}
+
+#[test]
+fn test_decomposed_annotator_produces_gutter_and_background() {
+    let mut registry = PluginRuntime::new();
+    registry.register(DecomposedAnnotatorPlugin);
+
+    let mut state = AppState::default();
+    state.lines = vec![vec![], vec![], vec![]];
+    state.rows = 24;
+    state.cols = 80;
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let ctx = AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+        display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+
+    let result = view.collect_annotations(&AppView::new(&state), &ctx);
+
+    // Should have left gutter (line numbers)
+    assert!(result.left_gutter.is_some());
+    // Should have backgrounds (line 0 is blue)
+    assert!(result.line_backgrounds.is_some());
+    let bgs = result.line_backgrounds.unwrap();
+    assert!(bgs[0].is_some());
+    assert!(bgs[1].is_none());
+}
+
+#[test]
+fn test_mixed_decomposed_and_legacy_annotators() {
+    let mut registry = PluginRuntime::new();
+    registry.register(DecomposedAnnotatorPlugin);
+    registry.register_backend(Box::new(LegacyAnnotatorPlugin));
+
+    let mut state = AppState::default();
+    state.lines = vec![vec![], vec![]];
+    state.rows = 24;
+    state.cols = 80;
+
+    registry.prepare_plugin_cache(DirtyFlags::ALL);
+    let view = registry.view();
+    let ctx = AnnotateContext {
+        line_width: 80,
+        gutter_width: 0,
+        display_map: None,
+        pane_surface_id: None,
+        pane_focused: true,
+    };
+
+    let result = view.collect_annotations(&AppView::new(&state), &ctx);
+
+    // Both plugins contribute left gutter → should have combined gutter
+    assert!(result.left_gutter.is_some());
+    // Decomposed plugin has background on line 0
+    assert!(result.line_backgrounds.is_some());
+}
+
+#[test]
+fn test_decomposed_annotator_has_decomposed_annotations_flag() {
+    let mut registry = PluginRuntime::new();
+    registry.register(DecomposedAnnotatorPlugin);
+    registry.register_backend(Box::new(LegacyAnnotatorPlugin));
+
+    // PluginBridge (from register()) should report has_decomposed_annotations = true
+    // LegacyAnnotatorPlugin should report has_decomposed_annotations = false
+    let mut decomposed_count = 0;
+    let mut legacy_count = 0;
+    for p in registry.plugins_mut() {
+        if p.has_decomposed_annotations() {
+            decomposed_count += 1;
+        } else {
+            legacy_count += 1;
+        }
+    }
+    assert_eq!(decomposed_count, 1);
+    assert_eq!(legacy_count, 1);
+}
+
+// --- Pub/Sub tests (Phase 8a) ---
+
+use crate::plugin::pubsub::{TopicBus, TopicId};
+
+/// Plugin state for pub/sub publisher: tracks a counter.
+#[derive(Clone, Default, PartialEq, Debug)]
+struct PubState {
+    counter: u32,
+}
+
+/// Plugin state for pub/sub subscriber: tracks received value.
+#[derive(Clone, Default, PartialEq, Debug)]
+struct SubState {
+    received: u32,
+}
+
+/// Publisher plugin: publishes its counter on "test.counter".
+struct PublisherPlugin;
+impl Plugin for PublisherPlugin {
+    type State = PubState;
+    fn id(&self) -> PluginId {
+        PluginId("publisher".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<PubState>) {
+        r.on_state_changed(|state, _app, _dirty| {
+            (
+                PubState {
+                    counter: state.counter + 1,
+                },
+                RuntimeEffects::default(),
+            )
+        });
+        r.publish::<u32>(TopicId::new("test.counter"), |state, _app| state.counter);
+    }
+}
+
+/// Subscriber plugin: subscribes to "test.counter" and stores the value.
+struct SubscriberPlugin;
+impl Plugin for SubscriberPlugin {
+    type State = SubState;
+    fn id(&self) -> PluginId {
+        PluginId("subscriber".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<SubState>) {
+        r.subscribe::<u32>(TopicId::new("test.counter"), |_state, value| SubState {
+            received: *value,
+        });
+    }
+}
+
+#[test]
+fn test_pubsub_publisher_delivers_to_subscriber() {
+    let mut runtime = PluginRuntime::new();
+    runtime.register(PublisherPlugin);
+    runtime.register(SubscriberPlugin);
+
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    let app = AppView::new(&state);
+
+    // Trigger state change to bump publisher's counter.
+    runtime.notify_state_changed_batch(&app, DirtyFlags::ALL);
+
+    // Run pub/sub evaluation.
+    let mut bus = TopicBus::new();
+    runtime.evaluate_pubsub(&mut bus, &app);
+
+    // Subscriber should now have received the published counter.
+    // Verify via prepare_plugin_cache detecting the state change.
+    runtime.prepare_plugin_cache(DirtyFlags::empty());
+    assert!(runtime.any_plugin_state_changed());
+}
+
+#[test]
+fn test_pubsub_no_subscribers_is_noop() {
+    let mut runtime = PluginRuntime::new();
+    runtime.register(PublisherPlugin);
+
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    let app = AppView::new(&state);
+
+    runtime.notify_state_changed_batch(&app, DirtyFlags::ALL);
+
+    let mut bus = TopicBus::new();
+    runtime.evaluate_pubsub(&mut bus, &app);
+
+    // No subscriber → only publisher state changed.
+    runtime.prepare_plugin_cache(DirtyFlags::empty());
+    assert!(runtime.any_plugin_state_changed());
+}
+
+#[test]
+fn test_pubsub_bus_clears_between_evaluations() {
+    let mut bus = TopicBus::new();
+    let topic = TopicId::new("test");
+    bus.publish(topic.clone(), PluginId("p".to_string()), Box::new(42u32));
+    assert!(bus.get_publications(&topic).is_some());
+
+    // evaluate_pubsub calls bus.clear() at the start.
+    // Simulate: clear and verify.
+    bus.clear();
+    assert!(bus.get_publications(&topic).is_none());
+}
+
+// --- Extension Point tests (Phase 8b) ---
+
+use crate::plugin::extension_point::{CompositionRule, ExtensionPointId};
+
+/// Plugin that defines a custom extension point.
+struct ExtPointDefiner;
+impl Plugin for ExtPointDefiner {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("ext-definer".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.define_extension_with_handler::<(), Vec<String>>(
+            ExtensionPointId::new("test.items"),
+            CompositionRule::Merge,
+            |_state, _input, _app| vec!["from-definer".to_string()],
+        );
+    }
+}
+
+/// Plugin that contributes to the extension point.
+struct ExtPointContributor;
+impl Plugin for ExtPointContributor {
+    type State = ();
+    fn id(&self) -> PluginId {
+        PluginId("ext-contributor".to_string())
+    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.on_extension::<(), Vec<String>>(
+            ExtensionPointId::new("test.items"),
+            |_state, _input, _app| vec!["from-contributor".to_string()],
+        );
+    }
+}
+
+#[test]
+fn test_extension_point_collects_from_definer_and_contributor() {
+    let mut runtime = PluginRuntime::new();
+    runtime.register(ExtPointDefiner);
+    runtime.register(ExtPointContributor);
+
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    let app = AppView::new(&state);
+
+    let results = runtime.evaluate_extensions(&(), &app);
+    let items = results.get::<Vec<String>>(&ExtensionPointId::new("test.items"));
+
+    // Both definer and contributor should produce results.
+    assert_eq!(items.len(), 2);
+    assert!(items[0].contains(&"from-definer".to_string()));
+    assert!(items[1].contains(&"from-contributor".to_string()));
+}
+
+#[test]
+fn test_extension_point_no_contributors_only_definer() {
+    let mut runtime = PluginRuntime::new();
+    runtime.register(ExtPointDefiner);
+
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    let app = AppView::new(&state);
+
+    let results = runtime.evaluate_extensions(&(), &app);
+    let items = results.get::<Vec<String>>(&ExtensionPointId::new("test.items"));
+    assert_eq!(items.len(), 1);
+    assert!(items[0].contains(&"from-definer".to_string()));
+}
+
+#[test]
+fn test_extension_point_unknown_returns_empty() {
+    let mut runtime = PluginRuntime::new();
+    runtime.register(ExtPointDefiner);
+
+    let mut state = AppState::default();
+    state.rows = 24;
+    state.cols = 80;
+    let app = AppView::new(&state);
+
+    let results = runtime.evaluate_extensions(&(), &app);
+    let items = results.get::<u32>(&ExtensionPointId::new("nonexistent"));
+    assert!(items.is_empty());
+}

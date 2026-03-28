@@ -227,6 +227,7 @@ where
         sync_inputs_from_state(&mut db, &state, &handles);
         (db, handles)
     };
+    let mut contribution_cache = kasane_core::plugin::ContributionCache::default();
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
@@ -408,7 +409,13 @@ where
             sync_inputs_from_state(&mut salsa_db, &state, &salsa_handles);
             let view = registry.view();
             sync_display_directives(&mut salsa_db, &state, &view, &salsa_handles);
-            sync_plugin_contributions(&mut salsa_db, &state, &view, &salsa_handles);
+            sync_plugin_contributions(
+                &mut salsa_db,
+                &state,
+                &view,
+                &salsa_handles,
+                &mut contribution_cache,
+            );
 
             let pane_states_val;
             let pane_states_opt = if surface_registry.is_multi_pane() {

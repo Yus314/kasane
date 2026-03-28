@@ -7,9 +7,14 @@ pub mod compose;
 mod context;
 pub mod diagnostics;
 mod effects;
+pub mod element_patch;
+pub mod extension_point;
+pub mod handler_registry;
+pub(crate) mod handler_table;
 pub mod io;
 mod manager;
 mod provider;
+pub mod pubsub;
 mod registry;
 pub mod state;
 mod traits;
@@ -55,7 +60,9 @@ pub use context::{
 };
 
 // Re-export registry module
-pub use registry::{KeyDispatchResult, PluginRuntime, PluginSurfaceSet, PluginView};
+pub use registry::{
+    ContributionCache, KeyDispatchResult, PluginRuntime, PluginSurfaceSet, PluginView,
+};
 
 /// Deprecated alias — use [`PluginRuntime`] instead.
 #[deprecated(note = "renamed to PluginRuntime")]
@@ -76,6 +83,11 @@ pub use compose::{
 // Re-export app_view, state, and bridge modules
 pub use app_view::AppView;
 pub use bridge::{IsBridgedPlugin, PluginBridge};
+pub use element_patch::ElementPatch;
+pub use extension_point::{CompositionRule, ExtensionPointId, ExtensionResults};
+pub use handler_registry::HandlerRegistry;
+pub use handler_table::GutterSide;
+pub use pubsub::{TopicBus, TopicId};
 pub use state::{Plugin, PluginState};
 
 bitflags! {

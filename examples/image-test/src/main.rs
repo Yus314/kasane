@@ -27,9 +27,14 @@ fn checkerboard_rgba(width: u32, height: u32) -> Vec<u8> {
     data
 }
 
+#[derive(Clone)]
 enum ImageMode {
     /// Inline RGBA checkerboard (synchronous, always works).
-    Inline { data: Arc<[u8]>, width: u32, height: u32 },
+    Inline {
+        data: Arc<[u8]>,
+        width: u32,
+        height: u32,
+    },
     /// File path (async loading via Phase 4).
     File(String),
 }
@@ -45,7 +50,11 @@ impl ImageTestPlugin {
         } else {
             let (w, h) = (64, 48);
             let data = checkerboard_rgba(w, h);
-            ImageMode::Inline { data: data.into(), width: w, height: h }
+            ImageMode::Inline {
+                data: data.into(),
+                width: w,
+                height: h,
+            }
         };
         Self { mode }
     }
@@ -58,70 +67,65 @@ impl Plugin for ImageTestPlugin {
         PluginId("image_test".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::OVERLAY
-    }
+    fn register(&self, r: &mut HandlerRegistry<()>) {
+        r.declare_interests(DirtyFlags::BUFFER_CURSOR);
+        let mode = self.mode.clone();
+        r.on_overlay(move |_state, app, ctx| {
+            let cursor = app.cursor_pos();
 
-    fn view_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER_CURSOR
-    }
+            // Build avoid list from existing overlays + menu
+            let mut avoid: Vec<_> = ctx.existing_overlays.clone();
+            if let Some(menu) = ctx.menu_rect {
+                avoid.push(menu);
+            }
 
-    fn contribute_overlay_with_ctx(
-        &self,
-        _state: &(),
-        app: &AppView<'_>,
-        ctx: &OverlayContext,
-    ) -> Option<OverlayContribution> {
-        let cursor = app.cursor_pos();
-
-        // Build avoid list from existing overlays + menu
-        let mut avoid: Vec<_> = ctx.existing_overlays.clone();
-        if let Some(menu) = ctx.menu_rect {
-            avoid.push(menu);
-        }
-
-        let source = match &self.mode {
-            ImageMode::Inline { data, width, height } => ImageSource::Rgba {
-                data: data.clone(),
-                width: *width,
-                height: *height,
-            },
-            ImageMode::File(path) => ImageSource::FilePath(path.clone()),
-        };
-
-        let image = Element::Image {
-            source,
-            size: (10, 6),
-            fit: ImageFit::Fill,
-            opacity: 1.0,
-        };
-
-        // Wrap in a container with a border for visibility
-        let element = Element::column(vec![
-            FlexChild::fixed(Element::text(
-                " Image Test ".to_string(),
-                Face {
-                    fg: Color::Named(NamedColor::Black),
-                    bg: Color::Named(NamedColor::Yellow),
-                    ..Face::default()
+            let source = match &mode {
+                ImageMode::Inline {
+                    data,
+                    width,
+                    height,
+                } => ImageSource::Rgba {
+                    data: data.clone(),
+                    width: *width,
+                    height: *height,
                 },
-            )),
-            FlexChild::fixed(image),
-        ]);
+                ImageMode::File(path) => ImageSource::FilePath(path.clone()),
+            };
 
-        Some(OverlayContribution {
-            element,
-            anchor: OverlayAnchor::AnchorPoint {
-                coord: Coord {
-                    line: cursor.line,
-                    column: cursor.column,
+            let image = Element::Image {
+                source,
+                size: (10, 6),
+                fit: ImageFit::Fill,
+                opacity: 1.0,
+            };
+
+            // Wrap in a container with a border for visibility
+            let element = Element::column(vec![
+                FlexChild::fixed(Element::text(
+                    " Image Test ".to_string(),
+                    Face {
+                        fg: Color::Named(NamedColor::Black),
+                        bg: Color::Named(NamedColor::Yellow),
+                        ..Face::default()
+                    },
+                )),
+                FlexChild::fixed(image),
+            ]);
+
+            Some(OverlayContribution {
+                element,
+                anchor: OverlayAnchor::AnchorPoint {
+                    coord: Coord {
+                        line: cursor.line,
+                        column: cursor.column,
+                    },
+                    prefer_above: false,
+                    avoid,
                 },
-                prefer_above: false,
-                avoid,
-            },
-            z_index: 50,
-            plugin_id: self.id(),
-        })
+                z_index: 50,
+                plugin_id: PluginId("image_test".into()),
+            })
+        });
     }
 }
 

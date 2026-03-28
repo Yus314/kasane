@@ -5,12 +5,14 @@ use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 
+use super::extension_point::{ExtensionOutput, ExtensionPointId};
+use super::pubsub::TopicBus;
 use super::{
-    AnnotateContext, AppView, BootstrapEffects, Command, ContributeContext, Contribution,
-    DisplayDirective, IoEvent, LineAnnotation, OverlayContext, OverlayContribution, PaintHook,
-    PluginAuthorities, PluginCapabilities, PluginDiagnostic, PluginId, RuntimeEffects,
-    SessionReadyEffects, SlotId, TransformContext, TransformDescriptor, TransformSubject,
-    TransformTarget,
+    AnnotateContext, AppView, BackgroundLayer, BootstrapEffects, Command, ContributeContext,
+    Contribution, DisplayDirective, ElementPatch, GutterSide, IoEvent, LineAnnotation,
+    OverlayContext, OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities,
+    PluginDiagnostic, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
+    TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
 };
 
 /// Result of key middleware dispatch.
@@ -217,9 +219,30 @@ pub trait PluginBackend: Any {
         None
     }
 
+    /// Return a declarative transform patch for the given target.
+    ///
+    /// Plugins backed by [`HandlerRegistry`] return the raw [`ElementPatch`] for
+    /// algebraic composition. Legacy plugins return `None` and are applied
+    /// imperatively via [`transform()`](Self::transform).
+    fn transform_patch(
+        &self,
+        _target: &TransformTarget,
+        _state: &AppView<'_>,
+        _ctx: &TransformContext,
+    ) -> Option<ElementPatch> {
+        None
+    }
+
     // === Annotate ===
 
     /// Annotate a buffer line with gutter elements and/or background layer.
+    ///
+    /// **Deprecated** — prefer the decomposed annotation methods
+    /// ([`annotate_gutter`], [`annotate_background`], [`annotate_inline`],
+    /// [`annotate_virtual_text`]) which allow per-concern caching and avoid
+    /// bundling unrelated annotation types. Legacy (WASM) plugins still use
+    /// this method; native plugins should register individual handlers via
+    /// [`HandlerRegistry`].
     fn annotate_line_with_ctx(
         &self,
         _line: usize,
@@ -227,6 +250,56 @@ pub trait PluginBackend: Any {
         _ctx: &AnnotateContext,
     ) -> Option<LineAnnotation> {
         None
+    }
+
+    /// Whether this plugin supports decomposed annotation methods.
+    ///
+    /// When true, `collect_annotations()` calls the per-concern methods
+    /// directly instead of `annotate_line_with_ctx()`.
+    /// `PluginBridge` returns true; legacy plugins return false.
+    fn has_decomposed_annotations(&self) -> bool {
+        false
+    }
+
+    /// Return a gutter element for the given line and side.
+    fn annotate_gutter(
+        &self,
+        _side: GutterSide,
+        _line: usize,
+        _state: &AppView<'_>,
+        _ctx: &AnnotateContext,
+    ) -> Option<(i16, crate::element::Element)> {
+        None
+    }
+
+    /// Return a background layer for the given line.
+    fn annotate_background(
+        &self,
+        _line: usize,
+        _state: &AppView<'_>,
+        _ctx: &AnnotateContext,
+    ) -> Option<BackgroundLayer> {
+        None
+    }
+
+    /// Return an inline decoration for the given line.
+    fn annotate_inline(
+        &self,
+        _line: usize,
+        _state: &AppView<'_>,
+        _ctx: &AnnotateContext,
+    ) -> Option<crate::render::InlineDecoration> {
+        None
+    }
+
+    /// Return virtual text items for the given line.
+    fn annotate_virtual_text(
+        &self,
+        _line: usize,
+        _state: &AppView<'_>,
+        _ctx: &AnnotateContext,
+    ) -> Vec<VirtualTextItem> {
+        vec![]
     }
 
     // === Display Transform ===
@@ -250,6 +323,35 @@ pub trait PluginBackend: Any {
         _ctx: &OverlayContext,
     ) -> Option<OverlayContribution> {
         None
+    }
+
+    // --- Pub/Sub ---
+
+    /// Collect publications from this plugin onto the topic bus.
+    /// Only `PluginBridge` (native plugins with HandlerTable) overrides this.
+    fn collect_publications(&self, _bus: &mut TopicBus, _state: &AppView<'_>) {}
+
+    /// Deliver subscribed topic values to this plugin, returning true if state changed.
+    /// Only `PluginBridge` (native plugins with HandlerTable) overrides this.
+    fn deliver_subscriptions(&mut self, _bus: &TopicBus) -> bool {
+        false
+    }
+
+    // --- Extension Points ---
+
+    /// Return extension point definitions from this plugin.
+    fn extension_definitions(&self) -> &[super::extension_point::ExtensionDefinition] {
+        &[]
+    }
+
+    /// Evaluate extension contributions from this plugin for a given extension point.
+    fn evaluate_extension(
+        &self,
+        _id: &ExtensionPointId,
+        _input: &dyn std::any::Any,
+        _state: &AppView<'_>,
+    ) -> Vec<ExtensionOutput> {
+        vec![]
     }
 
     // --- Diagnostics ---

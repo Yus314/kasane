@@ -71,88 +71,71 @@ impl Plugin for VirtualTextDemoPlugin {
         PluginId("virtual_text_demo".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::DISPLAY_TRANSFORM | PluginCapabilities::CONTRIBUTOR
-    }
-
-    fn handle_key(
-        &self,
-        state: &VirtualTextState,
-        key: &KeyEvent,
-        _app: &AppState,
-    ) -> Option<(VirtualTextState, Vec<Command>)> {
-        if key.key == Key::Char('z') && key.modifiers.is_empty() {
-            Some((
-                VirtualTextState {
-                    enabled: !state.enabled,
-                },
-                vec![Command::RequestRedraw(DirtyFlags::ALL)],
-            ))
-        } else {
-            None
-        }
-    }
-
-    fn display_directives(
-        &self,
-        state: &VirtualTextState,
-        app: &AppState,
-    ) -> Vec<DisplayDirective> {
-        if !state.enabled {
-            return vec![];
-        }
-
-        let mut directives = Vec::new();
-        for (i, line) in app.lines.iter().enumerate() {
-            let text = line_text(line);
-            if let Some(kw) = detect_keyword(&text) {
-                directives.push(DisplayDirective::InsertAfter {
-                    after: i,
-                    content: vec![Atom {
-                        face: Face {
-                            fg: Color::Named(kw.color),
-                            ..Face::default()
-                        },
-                        contents: format!("  {} {} \u{2014} {}", kw.icon, kw.pattern, kw.label).into(),
-                    }],
-                });
-            }
-        }
-        directives
-    }
-
-    fn contribute_to(
-        &self,
-        state: &VirtualTextState,
-        region: &SlotId,
-        _app: &AppState,
-        _ctx: &ContributeContext,
-    ) -> Option<Contribution> {
-        if region != &SlotId::STATUS_RIGHT {
-            return None;
-        }
-
-        let label = if state.enabled {
-            " [annotations ON] "
-        } else {
-            " [annotations OFF] "
-        };
-
-        Some(Contribution {
-            element: Element::text(
-                label,
-                Face {
-                    fg: if state.enabled {
-                        Color::Named(NamedColor::Green)
-                    } else {
-                        Color::Default
+    fn register(&self, r: &mut HandlerRegistry<VirtualTextState>) {
+        r.on_key(|state, key, _app| {
+            if key.key == Key::Char('z') && key.modifiers.is_empty() {
+                Some((
+                    VirtualTextState {
+                        enabled: !state.enabled,
                     },
-                    ..Face::default()
-                },
-            ),
-            priority: 0,
-            size_hint: ContribSizeHint::Auto,
-        })
+                    vec![Command::RequestRedraw(DirtyFlags::ALL)],
+                ))
+            } else {
+                None
+            }
+        });
+
+        r.on_display(|state, app| {
+            if !state.enabled {
+                return vec![];
+            }
+
+            let mut directives = Vec::new();
+            for (i, line) in app.lines().iter().enumerate() {
+                let text = line_text(line);
+                if let Some(kw) = detect_keyword(&text) {
+                    directives.push(DisplayDirective::InsertAfter {
+                        after: i,
+                        content: vec![Atom {
+                            face: Face {
+                                fg: Color::Named(kw.color),
+                                ..Face::default()
+                            },
+                            contents: format!(
+                                "  {} {} \u{2014} {}",
+                                kw.icon, kw.pattern, kw.label
+                            )
+                            .into(),
+                        }],
+                    });
+                }
+            }
+            directives
+        });
+
+        r.on_contribute(SlotId::STATUS_RIGHT, |state, _app, _ctx| {
+            let label = if state.enabled {
+                " [annotations ON] "
+            } else {
+                " [annotations OFF] "
+            };
+
+            Some(Contribution {
+                element: Element::text(
+                    label,
+                    Face {
+                        fg: if state.enabled {
+                            Color::Named(NamedColor::Green)
+                        } else {
+                            Color::Default
+                        },
+                        ..Face::default()
+                    },
+                ),
+                priority: 0,
+                size_hint: ContribSizeHint::Auto,
+            })
+        });
     }
 }
 

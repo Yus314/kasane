@@ -16,10 +16,10 @@ use super::effects::{MouseHandleResult, PluginEffects};
 use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
-    InitBatch, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution, PaintHook,
-    PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic, PluginId,
-    ReadyBatch, RuntimeBatch, SlotId, SourcedContribution, TransformContext, TransformSubject,
-    TransformTarget,
+    GutterSide, InitBatch, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
+    PaintHook, PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
+    PluginId, ReadyBatch, RuntimeBatch, SlotId, SourcedContribution, TransformContext,
+    TransformSubject, TransformTarget,
 };
 
 pub struct PluginSurfaceSet {
@@ -223,6 +223,64 @@ impl PluginRuntime {
         batch
     }
 
+    /// Run the two-phase pub/sub evaluation cycle.
+    ///
+    /// 1. **Collect**: Each plugin with publishers emits values onto the bus.
+    /// 2. **Deliver**: Each plugin with subscribers receives published values.
+    ///
+    /// Call this after `notify_state_changed_batch()` and before
+    /// `prepare_plugin_cache()` / view collection.
+    pub fn evaluate_pubsub(&mut self, bus: &mut super::pubsub::TopicBus, app: &AppView<'_>) {
+        bus.clear();
+
+        // Phase 1: Collect publications from all plugins.
+        for slot in &self.slots {
+            slot.backend.collect_publications(bus, app);
+        }
+
+        // Phase 2: Deliver to subscribers.
+        bus.begin_delivery();
+        for slot in &mut self.slots {
+            slot.backend.deliver_subscriptions(bus);
+        }
+        bus.end_delivery();
+    }
+
+    /// Evaluate all plugin-defined extension points.
+    ///
+    /// Iterates over all registered extension point definitions, collects
+    /// contributions from all plugins, and returns the collected results.
+    pub fn evaluate_extensions(
+        &self,
+        input: &dyn std::any::Any,
+        app: &AppView<'_>,
+    ) -> super::extension_point::ExtensionResults {
+        let mut results = super::extension_point::ExtensionResults::new();
+
+        // Collect all defined extension point IDs.
+        let definitions: Vec<_> = self
+            .slots
+            .iter()
+            .flat_map(|slot| {
+                slot.backend
+                    .extension_definitions()
+                    .iter()
+                    .map(|def| def.id.clone())
+            })
+            .collect();
+
+        // For each extension point, collect contributions from all plugins.
+        for ext_id in &definitions {
+            for slot in &self.slots {
+                for output in slot.backend.evaluate_extension(ext_id, input, app) {
+                    results.insert(ext_id.clone(), output);
+                }
+            }
+        }
+
+        results
+    }
+
     /// Notify interested plugins that the workspace layout changed.
     pub fn notify_workspace_changed(&mut self, query: &WorkspaceQuery<'_>) {
         for slot in &mut self.slots {
@@ -417,10 +475,10 @@ impl PluginRuntime {
         RuntimeBatch::default()
     }
 
-    /// Register a `Plugin` by wrapping it in a `PluginBridge`.
+    /// Register a [`Plugin`] by wrapping it in a [`PluginBridge`].
     ///
-    /// The bridge adapts the pure interface to `PluginBackend`, with framework-owned
-    /// state and generation-based `state_hash()` for L1 cache invalidation.
+    /// The bridge builds a [`HandlerTable`] from `P::register()`, then dispatches
+    /// all `PluginBackend` methods through the table's erased handlers.
     pub fn register<P: Plugin>(&mut self, plugin: P) {
         let bridge = PluginBridge::new(plugin);
         self.register_backend(Box::new(bridge));
@@ -495,10 +553,58 @@ impl PluginEffects for PluginRuntime {
     }
 }
 
+/// Per-plugin contribution cache for incremental recollection (Phase 5).
+///
+/// Stores the last-known contribution from each plugin for each slot.
+/// When a plugin's `needs_recollect` is false, its cached contribution is
+/// reused instead of calling `contribute_to()` again.
+#[derive(Default)]
+pub struct ContributionCache {
+    contributions: std::collections::HashMap<(PluginId, SlotId), Option<SourcedContribution>>,
+}
+
+impl ContributionCache {
+    /// Remove all cached entries for a plugin (e.g., after unloading).
+    pub fn remove_plugin(&mut self, plugin_id: &PluginId) {
+        self.contributions.retain(|(id, _), _| id != plugin_id);
+    }
+}
+
 impl<'a> PluginView<'a> {
     /// Returns true if any plugin needs its view contributions re-collected.
     pub fn any_needs_recollect(&self) -> bool {
         self.slots.iter().any(|s| s.needs_recollect)
+    }
+
+    /// Returns true if any plugin with the given capability needs recollection.
+    fn any_capability_needs_recollect(&self, cap: PluginCapabilities) -> bool {
+        self.slots
+            .iter()
+            .any(|s| s.needs_recollect && s.capabilities.contains(cap))
+    }
+
+    /// Check if any CONTRIBUTOR plugin needs recollection.
+    pub fn any_contributor_needs_recollect(&self) -> bool {
+        self.any_capability_needs_recollect(PluginCapabilities::CONTRIBUTOR)
+    }
+
+    /// Check if any ANNOTATOR plugin needs recollection.
+    pub fn any_annotator_needs_recollect(&self) -> bool {
+        self.any_capability_needs_recollect(PluginCapabilities::ANNOTATOR)
+    }
+
+    /// Check if any OVERLAY plugin needs recollection.
+    pub fn any_overlay_needs_recollect(&self) -> bool {
+        self.slots.iter().any(|s| {
+            s.needs_recollect
+                && (s.capabilities.contains(PluginCapabilities::OVERLAY)
+                    || s.capabilities.contains(PluginCapabilities::CONTRIBUTOR))
+        })
+    }
+
+    /// Check if any DISPLAY_TRANSFORM plugin needs recollection.
+    pub fn any_display_transform_needs_recollect(&self) -> bool {
+        self.any_capability_needs_recollect(PluginCapabilities::DISPLAY_TRANSFORM)
     }
 
     /// Check if any registered plugin has the given capability.
@@ -545,6 +651,63 @@ impl<'a> PluginView<'a> {
             .into_vec()
     }
 
+    /// Collect contributions with per-plugin caching.
+    ///
+    /// Only calls `contribute_to()` for plugins whose `needs_recollect` is true.
+    /// For non-stale plugins, the cached result from the previous frame is reused.
+    pub fn collect_contributions_cached(
+        &self,
+        region: &SlotId,
+        state: &AppView<'_>,
+        ctx: &ContributeContext,
+        cache: &mut ContributionCache,
+    ) -> Vec<Contribution> {
+        self.collect_contributions_with_sources_cached(region, state, ctx, cache)
+            .into_iter()
+            .map(|sc| sc.contribution)
+            .collect()
+    }
+
+    /// Collect contributions with per-plugin caching (with source tracking).
+    pub fn collect_contributions_with_sources_cached(
+        &self,
+        region: &SlotId,
+        state: &AppView<'_>,
+        ctx: &ContributeContext,
+        cache: &mut ContributionCache,
+    ) -> Vec<SourcedContribution> {
+        use super::compose::{Composable, ContributionSet};
+
+        self.slots
+            .iter()
+            .filter_map(|slot| {
+                if !slot.capabilities.contains(PluginCapabilities::CONTRIBUTOR) {
+                    return None;
+                }
+
+                let plugin_id = slot.backend.id();
+                let cache_key = (plugin_id.clone(), region.clone());
+
+                if slot.needs_recollect {
+                    let result =
+                        slot.backend
+                            .contribute_to(region, state, ctx)
+                            .map(|contribution| SourcedContribution {
+                                contributor: plugin_id,
+                                contribution,
+                            });
+                    cache.contributions.insert(cache_key, result.clone());
+                    result
+                } else {
+                    cache.contributions.get(&cache_key).cloned().flatten()
+                }
+            })
+            .fold(ContributionSet::empty(), |acc, sc| {
+                acc.compose(ContributionSet::from_vec(vec![sc]))
+            })
+            .into_vec()
+    }
+
     /// Apply the transform chain for a given target.
     ///
     /// Plugins with the `TRANSFORMER` capability are collected into a chain,
@@ -567,7 +730,7 @@ impl<'a> PluginView<'a> {
         state: &AppView<'_>,
         pane_context: PaneContext,
     ) -> TransformSubject {
-        let mut result = subject;
+        use super::element_patch::ElementPatch;
 
         let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
         for (i, slot) in self.slots.iter().enumerate() {
@@ -578,19 +741,60 @@ impl<'a> PluginView<'a> {
         }
         chain.sort_by_key(|(_, prio, id)| (std::cmp::Reverse(*prio), id.clone()));
 
-        #[cfg(debug_assertions)]
-        detect_transform_conflicts(&chain, self.slots, &target);
+        if chain.is_empty() {
+            return subject;
+        }
 
-        for (pos, (i, _, _)) in chain.iter().enumerate() {
-            let ctx = TransformContext {
-                is_default: true,
-                chain_position: pos,
-                pane_surface_id: pane_context.surface_id,
-                pane_focused: pane_context.focused,
-            };
-            result = self.slots[*i]
-                .backend
-                .transform(&target, result, state, &ctx);
+        // Collect patches from patch-aware plugins; None = legacy (imperative)
+        let entries: Vec<(usize, PluginId, Option<ElementPatch>)> = chain
+            .iter()
+            .enumerate()
+            .map(|(pos, (i, _, _))| {
+                let ctx = TransformContext {
+                    is_default: true,
+                    chain_position: pos,
+                    pane_surface_id: pane_context.surface_id,
+                    pane_focused: pane_context.focused,
+                };
+                let patch = self.slots[*i].backend.transform_patch(&target, state, &ctx);
+                (*i, self.slots[*i].backend.id(), patch)
+            })
+            .collect();
+
+        #[cfg(debug_assertions)]
+        detect_transform_conflicts_from_patches(&entries, self.slots, &target);
+
+        // Apply: accumulate patches algebraically, flush at legacy boundaries
+        let mut result = subject;
+        let mut pending: Vec<ElementPatch> = Vec::new();
+
+        for (pos, (slot_idx, _, patch)) in entries.into_iter().enumerate() {
+            match patch {
+                Some(p) => pending.push(p),
+                None => {
+                    // Flush accumulated patches before legacy transform
+                    if !pending.is_empty() {
+                        let composed =
+                            ElementPatch::Compose(std::mem::take(&mut pending)).normalize();
+                        result = composed.apply(result);
+                    }
+                    let ctx = TransformContext {
+                        is_default: true,
+                        chain_position: pos,
+                        pane_surface_id: pane_context.surface_id,
+                        pane_focused: pane_context.focused,
+                    };
+                    result = self.slots[slot_idx]
+                        .backend
+                        .transform(&target, result, state, &ctx);
+                }
+            }
+        }
+
+        // Final flush of remaining patches
+        if !pending.is_empty() {
+            let composed = ElementPatch::Compose(pending).normalize();
+            result = composed.apply(result);
         }
 
         result
@@ -660,31 +864,42 @@ impl<'a> PluginView<'a> {
             vec![None; line_count];
         let mut virtual_texts: Vec<Option<Vec<crate::protocol::Atom>>> = vec![None; line_count];
 
+        // Partition annotators by decomposition support
+        let annotator_slots: Vec<&PluginSlot> = self
+            .slots
+            .iter()
+            .filter(|s| s.capabilities.contains(PluginCapabilities::ANNOTATOR))
+            .collect();
+
         for line in 0..line_count {
             let mut left_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut right_parts: Vec<(i16, PluginId, Element)> = Vec::new();
             let mut bg_layers: Vec<(BackgroundLayer, PluginId)> = Vec::new();
             let mut vt_parts: Vec<(i16, PluginId, Vec<crate::protocol::Atom>)> = Vec::new();
 
-            for slot in self.slots.iter() {
-                if !slot.capabilities.contains(PluginCapabilities::ANNOTATOR) {
-                    continue;
-                }
-                if let Some(ann) = slot.backend.annotate_line_with_ctx(line, state, ctx) {
-                    let prio = ann.priority;
-                    let pid = slot.backend.id();
-                    if let Some(el) = ann.left_gutter {
+            for slot in &annotator_slots {
+                let pid = slot.backend.id();
+
+                if slot.backend.has_decomposed_annotations() {
+                    // Native (HandlerTable) path: call per-concern methods directly
+                    if let Some((prio, el)) =
+                        slot.backend
+                            .annotate_gutter(GutterSide::Left, line, state, ctx)
+                    {
                         left_parts.push((prio, pid.clone(), el));
                         has_left = true;
                     }
-                    if let Some(el) = ann.right_gutter {
+                    if let Some((prio, el)) =
+                        slot.backend
+                            .annotate_gutter(GutterSide::Right, line, state, ctx)
+                    {
                         right_parts.push((prio, pid.clone(), el));
                         has_right = true;
                     }
-                    if let Some(bg) = ann.background {
+                    if let Some(bg) = slot.backend.annotate_background(line, state, ctx) {
                         bg_layers.push((bg, pid.clone()));
                     }
-                    if let Some(inline) = ann.inline {
+                    if let Some(inline) = slot.backend.annotate_inline(line, state, ctx) {
                         if inline_decorations[line].is_some() {
                             tracing::warn!(
                                 line,
@@ -695,9 +910,41 @@ impl<'a> PluginView<'a> {
                             has_inline = true;
                         }
                     }
-                    for vt in ann.virtual_text {
+                    for vt in slot.backend.annotate_virtual_text(line, state, ctx) {
                         if !vt.atoms.is_empty() {
                             vt_parts.push((vt.priority, pid.clone(), vt.atoms));
+                        }
+                    }
+                } else {
+                    // Legacy (WASM) path: call monolithic method and decompose
+                    if let Some(ann) = slot.backend.annotate_line_with_ctx(line, state, ctx) {
+                        let prio = ann.priority;
+                        if let Some(el) = ann.left_gutter {
+                            left_parts.push((prio, pid.clone(), el));
+                            has_left = true;
+                        }
+                        if let Some(el) = ann.right_gutter {
+                            right_parts.push((prio, pid.clone(), el));
+                            has_right = true;
+                        }
+                        if let Some(bg) = ann.background {
+                            bg_layers.push((bg, pid.clone()));
+                        }
+                        if let Some(inline) = ann.inline {
+                            if inline_decorations[line].is_some() {
+                                tracing::warn!(
+                                    line,
+                                    "multiple plugins provide inline decoration for same line; first wins"
+                                );
+                            } else {
+                                inline_decorations[line] = Some(inline);
+                                has_inline = true;
+                            }
+                        }
+                        for vt in ann.virtual_text {
+                            if !vt.atoms.is_empty() {
+                                vt_parts.push((vt.priority, pid.clone(), vt.atoms));
+                            }
                         }
                     }
                 }
@@ -974,31 +1221,82 @@ impl<'a> PluginView<'a> {
     }
 }
 
-/// Debug-only: detect potential transform conflicts in a chain.
+/// Debug-only: detect potential transform conflicts from collected patches.
+///
+/// For native (patch-aware) plugins, scope is derived from `ElementPatch::scope()`.
+/// For legacy plugins, scope is derived from `transform_descriptor()`.
 ///
 /// Warns when:
 /// - Multiple plugins declare `Replacement` scope for the same target
 /// - Non-Identity transforms appear before a Replacement (they'll be absorbed)
 #[cfg(debug_assertions)]
-fn detect_transform_conflicts(
-    chain: &[(usize, i16, PluginId)],
+fn detect_transform_conflicts_from_patches(
+    entries: &[(usize, PluginId, Option<super::ElementPatch>)],
     slots: &[PluginSlot],
     target: &TransformTarget,
 ) {
-    let descriptors: Vec<(PluginId, Option<super::TransformDescriptor>)> = chain
-        .iter()
-        .map(|(i, _, _)| {
-            let slot = &slots[*i];
-            (slot.backend.id(), slot.backend.transform_descriptor())
-        })
-        .collect();
-    check_transform_conflicts(&descriptors, target);
+    use super::context::TransformScope;
+
+    let mut replacement_count = 0;
+    let mut replacement_plugin: Option<&PluginId> = None;
+    let mut has_non_identity_before_replacement = false;
+    let mut seen_non_identity = false;
+
+    for (slot_idx, plugin_id, patch) in entries {
+        let scope = if let Some(p) = patch {
+            // Native plugin: derive scope from patch
+            p.scope()
+        } else {
+            // Legacy plugin: use declared descriptor
+            if let Some(desc) = slots[*slot_idx].backend.transform_descriptor() {
+                if !desc.targets.contains(target) {
+                    continue;
+                }
+                desc.scope
+            } else {
+                continue;
+            }
+        };
+
+        match scope {
+            TransformScope::Replacement => {
+                replacement_count += 1;
+                if seen_non_identity {
+                    has_non_identity_before_replacement = true;
+                }
+                replacement_plugin = Some(plugin_id);
+            }
+            TransformScope::Identity => {}
+            _ => {
+                seen_non_identity = true;
+            }
+        }
+    }
+
+    if replacement_count > 1 {
+        tracing::warn!(
+            target: "kasane::plugin::transform",
+            "Multiple plugins declare Replacement scope for {:?} — \
+             only the last in the chain will take effect",
+            target,
+        );
+    }
+    if has_non_identity_before_replacement && let Some(pid) = replacement_plugin {
+        tracing::warn!(
+            target: "kasane::plugin::transform",
+            "Non-identity transforms appear before Replacement by {:?} for {:?} — \
+             those transforms will be absorbed",
+            pid,
+            target,
+        );
+    }
 }
 
 /// Check for transform conflicts given a list of (plugin_id, descriptor) pairs.
 ///
 /// Extracted as a free function for unit-testability.
 #[cfg(debug_assertions)]
+#[allow(dead_code)] // used by tests in tests/compose.rs
 pub(crate) fn check_transform_conflicts(
     descriptors: &[(PluginId, Option<super::TransformDescriptor>)],
     target: &TransformTarget,
