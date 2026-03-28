@@ -50,7 +50,10 @@ impl ImagePipeline {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("image_pipeline_layout"),
-                bind_group_layouts: &[&uniforms.bind_group_layout, texture_bind_group_layout],
+                bind_group_layouts: &[
+                    Some(&uniforms.bind_group_layout),
+                    Some(texture_bind_group_layout),
+                ],
                 immediate_size: 0,
             });
 

@@ -251,12 +251,29 @@ impl SceneRenderer {
     ) -> anyhow::Result<()> {
         let _frame_span = tracing::info_span!("gpu_frame", commands = commands.len()).entered();
         let output = match gpu.surface.get_current_texture() {
-            Ok(output) => output,
-            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
                 gpu.surface.configure(&gpu.device, &gpu.config);
-                gpu.surface.get_current_texture()?
+                frame
             }
-            Err(e) => return Err(e.into()),
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                gpu.surface.configure(&gpu.device, &gpu.config);
+                match gpu.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    other => {
+                        anyhow::bail!(
+                            "failed to acquire surface texture after reconfigure: {other:?}"
+                        )
+                    }
+                }
+            }
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                anyhow::bail!("surface texture validation error");
+            }
         };
         let view = output.texture.create_view(&Default::default());
 

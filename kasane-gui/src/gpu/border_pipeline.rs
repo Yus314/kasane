@@ -36,7 +36,7 @@ impl BorderPipeline {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("border_pipeline_layout"),
-                bind_group_layouts: &[&uniforms.bind_group_layout],
+                bind_group_layouts: &[Some(&uniforms.bind_group_layout)],
                 immediate_size: 0,
             });
 

@@ -60,7 +60,9 @@ impl GpuState {
     }
 
     async fn new_async(window: Arc<Window>, present_mode: Option<&str>) -> anyhow::Result<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
+            Box::new(window.clone()),
+        ));
         let surface = instance.create_surface(window.clone())?;
 
         let adapter = instance
