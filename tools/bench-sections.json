@@ -94,11 +94,11 @@
           "bold": true
         },
         {
-          "label": "`backend.draw_grid()`",
+          "label": "`backend.present()`",
           "complexity": "O(changed_cells)",
-          "bench_range": ["draw_grid/incremental_1line", "draw_grid/full_redraw/80x24"],
+          "bench_range": ["present/incremental_1line", "present/full_redraw/80x24"],
           "unit": "us",
-          "note": "Zero-copy diff + incremental SGR + I/O"
+          "note": "Incremental diff + SGR + I/O"
         }
       ]
     },
@@ -180,26 +180,15 @@
         { "bench": "scaling/diff_incremental/300x80",   "what": "diff() no-change 300x80",       "unit": "us", "ratio_base": "scaling/diff_incremental/80x24", "ratio_label": "area ratio: 12.5x" }
       ]
     },
-    "draw_grid": {
-      "description": "draw_grid (ADR-015 optimized path) table",
+    "present": {
+      "description": "present (TuiBackend) table",
       "type": "bench_table",
       "columns": ["Benchmark", "What It Measures", "Measured", "Notes"],
       "rows": [
-        { "bench": "draw_grid/full_redraw/80x24",           "what": "80x24 all cells",          "unit": "us", "note": "Cursor auto-advance + incremental SGR" },
-        { "bench": "draw_grid/full_redraw/200x60",          "what": "200x60 all cells",         "unit": "us", "note": "Large screen" },
-        { "bench": "draw_grid/incremental_1line",            "what": "1 line changed",           "unit": "us", "note": "Diff + SGR for changed row" },
-        { "bench": "draw_grid/full_redraw_realistic/80x24", "what": "Realistic data at 80x24",  "unit": "us", "note": "Diverse Face values" }
-      ]
-    },
-    "backend_draw": {
-      "description": "draw (legacy CellDiff path) table",
-      "type": "bench_table",
-      "columns": ["Benchmark", "What It Measures", "Measured", "Notes"],
-      "rows": [
-        { "bench": "backend_draw/full_redraw/80x24",           "what": "80x24 all cells",          "unit": "us", "note": "Escape sequence generation" },
-        { "bench": "backend_draw/full_redraw/200x60",          "what": "200x60 all cells",         "unit": "us", "note": "Large screen" },
-        { "bench": "backend_draw/incremental_1line",            "what": "1 line changed",           "unit": "us", "note": "Most common pattern" },
-        { "bench": "backend_draw/full_redraw_realistic/80x24", "what": "Realistic data at 80x24",  "unit": "us", "note": "Diverse Face values" }
+        { "bench": "present/full_redraw/80x24",           "what": "80x24 all cells",          "unit": "us", "note": "Cursor auto-advance + incremental SGR" },
+        { "bench": "present/full_redraw/200x60",          "what": "200x60 all cells",         "unit": "us", "note": "Large screen" },
+        { "bench": "present/incremental_1line",            "what": "1 line changed",           "unit": "us", "note": "Diff + SGR for changed row" },
+        { "bench": "present/full_redraw_realistic/80x24", "what": "Realistic data at 80x24",  "unit": "us", "note": "Diverse Face values" }
       ]
     },
     "e2e_pipeline": {
@@ -269,38 +258,32 @@
       ]
     },
     "salsa_patched": {
-      "description": "Salsa Patched Path table",
+      "description": "Salsa Scene Path table",
       "type": "bench_table",
       "columns": ["Benchmark", "Measured", "Notes"],
       "rows": [
-        { "bench": "salsa_patched/status_update", "unit": "us", "note": "Status-only PaintPatch via Salsa" },
-        { "bench": "salsa_scene/cold",            "unit": "us", "note": "Scene cache cold start" },
-        { "bench": "salsa_scene/warm",            "unit": "us", "note": "Scene cache warm (cached DrawCommands)" }
+        { "bench": "salsa_scene/cold",            "unit": "us", "note": "Scene cold start" },
+        { "bench": "salsa_scene/warm",            "unit": "us", "note": "Scene warm (Salsa-cached DrawCommands)" }
       ]
     },
     "cache_view_scene": {
-      "description": "View and Scene Caching table",
+      "description": "Scene Caching table",
       "type": "bench_table",
       "columns": ["Benchmark", "Measured", "Notes"],
       "rows": [
-        { "bench": "view_cache/menu_select_cold",  "unit": "us", "note": "Cold cache: full view rebuild" },
-        { "bench": "view_cache/menu_select_warm",  "unit": "us", "note": "Warm: base subtree cached, menu rebuilt" },
         { "bench": "scene_cache_cold",             "unit": "us", "note": "Cold: full scene construction" },
         { "bench": "scene_cache_warm",             "unit": "us", "note": "Warm: cached DrawCommands" },
         { "bench": "scene_cache_menu_select",      "unit": "us", "note": "Menu section rebuild only" }
       ]
     },
     "section_patch": {
-      "description": "Section and Patch Paint table",
+      "description": "Section Paint table",
       "type": "bench_table_vs",
       "columns": ["Benchmark", "Measured", "vs full_frame", "Notes"],
       "full_frame_bench": "full_frame",
       "rows": [
         { "bench": "section_paint_status_only",  "unit": "us", "note": "STATUS-only sectioned repaint" },
-        { "bench": "section_paint_menu_select",  "unit": "us", "note": "MENU_SELECTION sectioned repaint" },
-        { "bench": "patch_status_update",        "unit": "us", "note": "StatusBarPatch: ~80 cells" },
-        { "bench": "patch_menu_select",          "unit": "us", "note": "MenuSelectionPatch: ~10 cells" },
-        { "bench": "patch_cursor_move",          "unit": "us", "note": "CursorPatch: 2 cells" }
+        { "bench": "section_paint_menu_select",  "unit": "us", "note": "MENU_SELECTION sectioned repaint" }
       ]
     },
     "line_dirty": {
