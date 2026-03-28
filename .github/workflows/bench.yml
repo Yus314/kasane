@@ -24,12 +24,24 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-bench-
+
       - name: Install valgrind
         run: sudo apt-get update && sudo apt-get install -y valgrind
 
       - name: Install iai-callgrind-runner
         run: |
-          IAI_VERSION=$(cargo metadata --format-version 1 \
+          IAI_VERSION=$(nix develop --command cargo metadata --format-version 1 \
             | jq -r '.packages[] | select(.name == "iai-callgrind") | .version')
           echo "Installing iai-callgrind-runner ${IAI_VERSION}"
           nix develop --command cargo install iai-callgrind-runner --version "${IAI_VERSION}"
