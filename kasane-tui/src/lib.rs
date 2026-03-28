@@ -47,6 +47,89 @@ use event_handler::{
 use input::convert_event;
 use paint_hooks::PaintHookState;
 
+/// Restore pane layout from a saved plan.
+///
+/// Spawns Kakoune client processes for each saved pane, registers surfaces,
+/// and replaces the workspace tree.
+#[allow(clippy::too_many_arguments)]
+fn restore_panes_tui<R, W, C>(
+    plan: &kasane_core::workspace::persist::RestorePlan,
+    server_name: &str,
+    surface_registry: &mut SurfaceRegistry,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    state: &mut AppState,
+    initial_resize_sent: &mut bool,
+    spawn_session: fn(&kasane_core::session::SessionSpec) -> anyhow::Result<(R, W, C)>,
+    tx: &crossbeam_channel::Sender<event_handler::Event>,
+) where
+    R: std::io::BufRead + Send + 'static,
+    W: std::io::Write + Send + 'static,
+    C: Send + 'static,
+{
+    use kasane_core::session::SessionSpec;
+    use kasane_core::surface::SurfaceId;
+    use kasane_core::surface::buffer::ClientBufferSurface;
+    use kasane_core::workspace::persist;
+    use std::collections::HashMap;
+
+    let mut id_map: HashMap<String, SurfaceId> = HashMap::new();
+
+    for pane in &plan.panes {
+        let surface_id = surface_registry.workspace_mut().next_surface_id();
+
+        let mut args = vec!["-c".to_string(), server_name.to_string()];
+        if let Some(ref buf_name) = pane.buffer_name {
+            args.push("-e".to_string());
+            args.push(format!("buffer {}", persist::kak_quote(buf_name)));
+        }
+
+        let spec = SessionSpec::new(pane.pane_key.clone(), Some(server_name.to_string()), args);
+
+        let mut dirty = kasane_core::state::DirtyFlags::empty();
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager,
+            session_states,
+            state,
+            dirty: &mut dirty,
+            initial_resize_sent,
+        };
+
+        let Some((session_id, reader)) =
+            kasane_core::event_loop::spawn_session_core(&spec, false, &mut ctx, spawn_session)
+        else {
+            tracing::warn!(pane_key = pane.pane_key, "failed to spawn restored pane");
+            continue;
+        };
+
+        event_handler::spawn_session_reader(session_id, reader, tx.clone());
+
+        surface_registry.register(Box::new(ClientBufferSurface::with_key(
+            surface_id,
+            &*pane.pane_key,
+        )));
+        surface_registry.bind_session(surface_id, session_id);
+        surface_registry.mark_pending_resize(session_id);
+
+        id_map.insert(pane.pane_key.clone(), surface_id);
+    }
+
+    if let Some(restored) = persist::build_restored_tree(&plan.saved.root, &id_map) {
+        surface_registry
+            .workspace_mut()
+            .replace_root(restored.root, restored.next_id_min);
+
+        // Restore focus
+        if let Some(ref focused_key) = plan.saved.focused_key
+            && let Some(surface_id) = surface_registry.surface_id_by_key(focused_key)
+        {
+            surface_registry.workspace_mut().focus(surface_id);
+        }
+    }
+
+    kasane_core::event_loop::sync_session_metadata(session_manager, session_states, state);
+}
+
 /// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
@@ -150,6 +233,12 @@ where
     {
         surface_registry.set_server_session_name(name.clone());
     }
+    // Saved layout to restore after plugin init (loaded now while server_name is available)
+    let pending_restore = surface_registry
+        .server_session_name()
+        .and_then(kasane_core::workspace::persist::load_layout)
+        .and_then(kasane_core::workspace::persist::plan_restore);
+
     let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
@@ -216,6 +305,28 @@ where
     sync_ready_gate(&mut session_ready_gate, &state);
     apply_bootstrap_effects(init_batch.effects, &mut bootstrap_dirty);
     kasane_core::event_loop::notify_workspace_observers(&mut registry, &surface_registry, &state);
+
+    // --- Layout restore ---
+    if let Some(plan) = pending_restore
+        && let Some(server_name) = surface_registry.server_session_name().map(str::to_owned)
+    {
+        restore_panes_tui(
+            &plan,
+            &server_name,
+            &mut surface_registry,
+            &mut session_manager,
+            &mut session_states,
+            &mut state,
+            &mut initial_resize_sent,
+            spawn_session,
+            &tx,
+        );
+        kasane_core::event_loop::notify_workspace_observers(
+            &mut registry,
+            &surface_registry,
+            &state,
+        );
+    }
 
     // Collect paint hooks from plugins
     let mut paint_hooks = PaintHookState::from_registry(&registry);
@@ -471,6 +582,22 @@ where
         }
     }
 
+    // Save workspace layout before shutdown — but only if sessions are still alive.
+    // When all sessions died via :q, the workspace is already degraded to a single
+    // pane; saving now would delete the layout file and prevent daemon survival for
+    // reconnect.
+    if !session_manager.is_empty()
+        && let Some(server_name) = surface_registry.server_session_name()
+    {
+        kasane_core::workspace::persist::save_layout(
+            server_name,
+            surface_registry.workspace(),
+            &surface_registry,
+            &session_states,
+            &state,
+            session_manager.active_session_id(),
+        );
+    }
     registry.shutdown_all();
     backend.cleanup();
     Ok(())

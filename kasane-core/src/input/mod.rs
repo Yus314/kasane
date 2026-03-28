@@ -1,9 +1,13 @@
 //! Input conversion from frontend key/mouse events to Kakoune protocol input.
 
 pub mod builtin;
+pub mod key_map;
 pub use builtin::BuiltinInputPlugin;
+pub use key_map::{ChordBinding, ChordState, CompiledKeyMap, KeyBinding, KeyGroup};
 
 use bitflags::bitflags;
+
+use crate::plugin::Command;
 
 // ---------------------------------------------------------------------------
 // Input event types
@@ -45,11 +49,121 @@ pub enum Key {
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct Modifiers: u8 {
         const CTRL  = 0b0000_0001;
         const ALT   = 0b0000_0010;
         const SHIFT = 0b0000_0100;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// KeyResponse — action result from key map dispatch
+// ---------------------------------------------------------------------------
+
+/// Result of a key action invoked via `CompiledKeyMap` dispatch.
+///
+/// Unlike [`KeyHandleResult`](crate::plugin::KeyHandleResult), this type is
+/// designed for the new declarative key map system and does not include
+/// `Transformed` (key rewriting is not part of the key map protocol).
+pub enum KeyResponse {
+    /// Key was not handled — pass to next plugin.
+    Pass,
+    /// Key was consumed, no commands to emit.
+    Consume,
+    /// Key was consumed, request a redraw.
+    ConsumeRedraw,
+    /// Key was consumed, emit these commands.
+    ConsumeWith(Vec<Command>),
+}
+
+// ---------------------------------------------------------------------------
+// KeyPattern — declarative key matching
+// ---------------------------------------------------------------------------
+
+/// A pattern for matching [`KeyEvent`]s in key map bindings.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum KeyPattern {
+    /// Match an exact key+modifier combination.
+    Exact(KeyEvent),
+    /// Match any `Key::Char(_)`, regardless of modifiers.
+    AnyChar,
+    /// Match any `Key::Char(_)` with no Ctrl or Alt modifiers.
+    AnyCharPlain,
+    /// Catch-all: matches any key event.
+    Any,
+}
+
+impl KeyPattern {
+    /// Test whether this pattern matches the given key event.
+    pub fn matches(&self, event: &KeyEvent) -> bool {
+        match self {
+            KeyPattern::Exact(expected) => event == expected,
+            KeyPattern::AnyChar => matches!(event.key, Key::Char(_)),
+            KeyPattern::AnyCharPlain => {
+                matches!(event.key, Key::Char(_))
+                    && !event.modifiers.intersects(Modifiers::CTRL | Modifiers::ALT)
+            }
+            KeyPattern::Any => true,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// KeyEvent convenience constructors and matchers
+// ---------------------------------------------------------------------------
+
+impl KeyEvent {
+    /// A plain character key with no modifiers.
+    pub fn char_plain(c: char) -> Self {
+        Self {
+            key: Key::Char(c),
+            modifiers: Modifiers::empty(),
+        }
+    }
+
+    /// A Ctrl+char key.
+    pub fn ctrl(c: char) -> Self {
+        Self {
+            key: Key::Char(c),
+            modifiers: Modifiers::CTRL,
+        }
+    }
+
+    /// Test whether this event is Ctrl+`c`.
+    pub fn matches_ctrl(&self, c: char) -> bool {
+        self.key == Key::Char(c) && self.modifiers == Modifiers::CTRL
+    }
+
+    /// Test whether this event is a plain (no Ctrl/Alt) character `c`.
+    pub fn matches_char_plain(&self, c: char) -> bool {
+        self.key == Key::Char(c) && !self.modifiers.intersects(Modifiers::CTRL | Modifiers::ALT)
+    }
+
+    /// Extract the character if this is a plain key (no Ctrl/Alt).
+    pub fn plain_char(&self) -> Option<char> {
+        match self.key {
+            Key::Char(c) if !self.modifiers.intersects(Modifiers::CTRL | Modifiers::ALT) => Some(c),
+            _ => None,
+        }
+    }
+}
+
+impl std::hash::Hash for KeyEvent {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.key.hash(state);
+        self.modifiers.hash(state);
+    }
+}
+
+impl std::hash::Hash for Key {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Key::Char(c) => c.hash(state),
+            Key::F(n) => n.hash(state),
+            _ => {}
+        }
     }
 }
 

@@ -10,7 +10,7 @@
 use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
 use crate::protocol::Atom;
 use crate::render::{CursorStyleHint, InlineDecoration};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -112,6 +112,16 @@ pub(crate) type ErasedDefaultScrollHandler = Box<
         + Sync,
 >;
 
+// Key map handlers (Phase 2 — declarative key bindings)
+pub(crate) type ErasedKeyMapBuilder = Box<dyn Fn(&dyn PluginState) -> CompiledKeyMap + Send + Sync>;
+pub(crate) type ErasedActionHandler = Box<
+    dyn Fn(&dyn PluginState, &str, &KeyEvent, &AppView<'_>) -> (Box<dyn PluginState>, KeyResponse)
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedGroupRefreshHandler =
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>, &mut CompiledKeyMap) + Send + Sync>;
+
 // View handlers (immutable state)
 pub(crate) type ErasedContributeHandler = Box<
     dyn Fn(&dyn PluginState, &AppView<'_>, &ContributeContext) -> Option<Contribution>
@@ -212,6 +222,12 @@ pub(crate) struct HandlerTable {
     pub(crate) handle_mouse_handler: Option<ErasedHandleMouseHandler>,
     pub(crate) default_scroll_handler: Option<ErasedDefaultScrollHandler>,
 
+    // --- Key Map (Phase 2) ---
+    pub(crate) key_map: Option<CompiledKeyMap>,
+    pub(crate) key_map_builder: Option<ErasedKeyMapBuilder>,
+    pub(crate) action_handler: Option<ErasedActionHandler>,
+    pub(crate) group_refresh_handler: Option<ErasedGroupRefreshHandler>,
+
     // --- View ---
     pub(crate) contribute_handlers: Vec<ContributeEntry>,
     pub(crate) transform_handler: Option<TransformEntry>,
@@ -255,6 +271,10 @@ impl HandlerTable {
             observe_mouse_handler: None,
             handle_mouse_handler: None,
             default_scroll_handler: None,
+            key_map: None,
+            key_map_builder: None,
+            action_handler: None,
+            group_refresh_handler: None,
             contribute_handlers: Vec::new(),
             transform_handler: None,
             gutter_handlers: Vec::new(),
@@ -286,6 +306,7 @@ impl HandlerTable {
         if self.key_handler.is_some()
             || self.key_middleware_handler.is_some()
             || self.handle_mouse_handler.is_some()
+            || self.key_map.is_some()
         {
             caps |= PluginCapabilities::INPUT_HANDLER;
         }

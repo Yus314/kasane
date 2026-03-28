@@ -263,7 +263,7 @@ kasane_plugin_sdk::define_plugin! {
         match state.fzf_state {
             FzfState::Inactive => {
                 // Ctrl+P activates
-                if is_ctrl(&event, "p") {
+                if is_ctrl(&event, 'p') {
                     state.fzf_state = FzfState::Scanning;
                     state.query.clear();
                     state.file_list.clear();
@@ -347,7 +347,7 @@ kasane_plugin_sdk::define_plugin! {
                             Some(cmds)
                         }
                     }
-                    KeyCode::Character(c) => {
+                    KeyCode::Char(c) => {
                         if matches!(state.fzf_state, FzfState::Scanning | FzfState::Error(_)) {
                             return consumed();
                         }
@@ -355,7 +355,9 @@ kasane_plugin_sdk::define_plugin! {
                         if event.modifiers & (modifiers::CTRL | modifiers::ALT) != 0 {
                             return consumed();
                         }
-                        state.query.push_str(c);
+                        if let Some(ch) = char::from_u32(*c) {
+                            state.query.push(ch);
+                        }
                         state.selected = 0;
                         state.fzf_job_gen += 1;
                         state.fzf_buf.clear();

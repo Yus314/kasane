@@ -124,71 +124,85 @@ kasane_plugin_sdk::define_plugin! {
         },
     },
 
-    handle_key(event) {
-        if !state.switcher_open {
-            // Ctrl+T opens the switcher
-            if is_ctrl(&event, "t") {
+    key_map {
+        when(!state.switcher_open) {
+            ctrl('t') => "toggle",
+        },
+        when(state.switcher_open) {
+            key(Escape)  => "close",
+            ctrl('t')    => "toggle",
+            key(Up)      => "nav_up",
+            key(Down)    => "nav_down",
+            key(Enter)   => "select",
+            char('n')    => "new_session",
+            char('d')    => "delete_session",
+            any()        => "consume_all",
+        },
+    },
+
+    actions {
+        "toggle" => |_event| {
+            if state.switcher_open {
+                state.switcher_open = false;
+            } else {
                 state.switcher_open = true;
                 state.selected = 0;
-                return consumed_redraw();
             }
-            return None;
-        }
-
-        // Switcher is open — consume all keys
-        match &event.key {
-            KeyCode::Escape => {
-                state.switcher_open = false;
-                consumed_redraw()
+            KeyResponse::ConsumeRedraw
+        },
+        "close" => |_event| {
+            state.switcher_open = false;
+            KeyResponse::ConsumeRedraw
+        },
+        "nav_up" => |_event| {
+            if state.selected > 0 {
+                state.selected -= 1;
             }
-            KeyCode::Character(c) if c == "t" && event.modifiers & modifiers::CTRL != 0 => {
-                // Ctrl+T toggles off
-                state.switcher_open = false;
-                consumed_redraw()
+            KeyResponse::ConsumeRedraw
+        },
+        "nav_down" => |_event| {
+            let count = state.session_count as usize;
+            if count > 0 && state.selected < count - 1 {
+                state.selected += 1;
             }
-            KeyCode::Up => nav_up(&mut state.selected),
-            KeyCode::Down => {
-                let count = state.session_count as usize;
-                nav_down(&mut state.selected, count)
+            KeyResponse::ConsumeRedraw
+        },
+        "select" => |_event| {
+            let selected = state.selected;
+            state.switcher_open = false;
+            let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
+            if let Some(desc) = host_state::get_session(selected as u32) {
+                cmds.push(Command::SwitchSession(desc.key));
             }
-            KeyCode::Enter => {
-                // Switch to selected session
-                let selected = state.selected;
-                state.switcher_open = false;
+            KeyResponse::ConsumeWith(cmds)
+        },
+        "new_session" => |_event| {
+            state.switcher_open = false;
+            KeyResponse::ConsumeWith(vec![
+                Command::RequestRedraw(dirty::ALL),
+                Command::SpawnSession(SessionConfig {
+                    key: None,
+                    session: None,
+                    args: vec![],
+                    activate: true,
+                }),
+            ])
+        },
+        "delete_session" => |_event| {
+            if state.session_count <= 1 {
+                return KeyResponse::Consume;
+            }
+            let selected = state.selected;
+            if let Some(desc) = host_state::get_session(selected as u32) {
                 let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
-                if let Some(desc) = host_state::get_session(selected as u32) {
-                    cmds.push(Command::SwitchSession(desc.key));
-                }
-                Some(cmds)
+                cmds.push(Command::CloseSession(Some(desc.key)));
+                return KeyResponse::ConsumeWith(cmds);
             }
-            KeyCode::Character(c) if c == "n" => {
-                // Create a new session and activate it
-                state.switcher_open = false;
-                Some(vec![
-                    Command::RequestRedraw(dirty::ALL),
-                    Command::SpawnSession(SessionConfig {
-                        key: None,
-                        session: None,
-                        args: vec![],
-                        activate: true,
-                    }),
-                ])
-            }
-            KeyCode::Character(c) if c == "d" => {
-                // Close selected session (guard: don't close last)
-                if state.session_count <= 1 {
-                    return consumed();
-                }
-                let selected = state.selected;
-                if let Some(desc) = host_state::get_session(selected as u32) {
-                    let mut cmds = vec![Command::RequestRedraw(dirty::ALL)];
-                    cmds.push(Command::CloseSession(Some(desc.key)));
-                    return Some(cmds);
-                }
-                consumed()
-            }
-            _ => consumed(), // consume all keys when open
-        }
+            KeyResponse::Consume
+        },
+        "consume_all" => |_event| {
+            KeyResponse::Consume
+        },
     },
 
     overlay(ctx) {

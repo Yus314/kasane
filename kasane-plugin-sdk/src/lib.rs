@@ -778,6 +778,22 @@ macro_rules! default_view_deps {
     };
 }
 
+/// Default key map stub (declare_key_map returns empty, is_group_active returns true, invoke_action returns Pass).
+#[macro_export]
+macro_rules! default_key_map {
+    () => {
+        fn declare_key_map() -> Vec<KeyGroupDecl> {
+            Vec::new()
+        }
+        fn is_group_active(_group_name: String) -> bool {
+            true
+        }
+        fn invoke_action(_action_id: String, _event: KeyEvent) -> KeyResponse {
+            KeyResponse::Pass
+        }
+    };
+}
+
 /// Declare thread-local plugin state with a generation counter.
 ///
 /// Generates a struct with the specified fields plus a `generation: u64` field,

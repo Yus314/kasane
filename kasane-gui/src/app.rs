@@ -47,6 +47,85 @@ use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
 use crate::{GuiEvent, TimerPayload, spawn_session_reader};
 
+/// Restore pane layout from a saved plan (GUI variant).
+#[allow(clippy::too_many_arguments)]
+fn restore_panes_gui<R, W, C>(
+    plan: &kasane_core::workspace::persist::RestorePlan,
+    server_name: &str,
+    surface_registry: &mut SurfaceRegistry,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    state: &mut AppState,
+    initial_resize_sent: &mut bool,
+    spawn_session: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+    event_proxy: &winit::event_loop::EventLoopProxy<GuiEvent>,
+) where
+    R: std::io::BufRead + Send + 'static,
+    W: std::io::Write + Send + 'static,
+    C: Send + 'static,
+{
+    use kasane_core::surface::SurfaceId;
+    use kasane_core::surface::buffer::ClientBufferSurface;
+    use kasane_core::workspace::persist;
+    use std::collections::HashMap;
+
+    let mut id_map: HashMap<String, SurfaceId> = HashMap::new();
+
+    for pane in &plan.panes {
+        let surface_id = surface_registry.workspace_mut().next_surface_id();
+
+        let mut args = vec!["-c".to_string(), server_name.to_string()];
+        if let Some(ref buf_name) = pane.buffer_name {
+            args.push("-e".to_string());
+            args.push(format!("buffer {}", persist::kak_quote(buf_name)));
+        }
+
+        let spec = SessionSpec::new(pane.pane_key.clone(), Some(server_name.to_string()), args);
+
+        let mut dirty = DirtyFlags::empty();
+        let mut ctx = kasane_core::event_loop::SessionMutContext {
+            session_manager,
+            session_states,
+            state,
+            dirty: &mut dirty,
+            initial_resize_sent,
+        };
+
+        let Some((session_id, reader)) =
+            kasane_core::event_loop::spawn_session_core(&spec, false, &mut ctx, spawn_session)
+        else {
+            tracing::warn!(pane_key = pane.pane_key, "failed to spawn restored pane");
+            continue;
+        };
+
+        spawn_session_reader(session_id, reader, event_proxy.clone());
+
+        surface_registry.register(Box::new(ClientBufferSurface::with_key(
+            surface_id,
+            &*pane.pane_key,
+        )));
+        surface_registry.bind_session(surface_id, session_id);
+        surface_registry.mark_pending_resize(session_id);
+
+        id_map.insert(pane.pane_key.clone(), surface_id);
+    }
+
+    if let Some(restored) = persist::build_restored_tree(&plan.saved.root, &id_map) {
+        surface_registry
+            .workspace_mut()
+            .replace_root(restored.root, restored.next_id_min);
+
+        // Restore focus
+        if let Some(ref focused_key) = plan.saved.focused_key
+            && let Some(surface_id) = surface_registry.surface_id_by_key(focused_key)
+        {
+            surface_registry.workspace_mut().focus(surface_id);
+        }
+    }
+
+    kasane_core::event_loop::sync_session_metadata(session_manager, session_states, state);
+}
+
 /// TimerScheduler that injects timer events into the winit event loop.
 struct GuiTimerScheduler(winit::event_loop::EventLoopProxy<GuiEvent>);
 
@@ -247,7 +326,7 @@ where
 {
     pub fn new(
         config: Config,
-        session_manager: SessionManager<R, W, C>,
+        mut session_manager: SessionManager<R, W, C>,
         session_spawner: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
         event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
         plugin_manager: &mut PluginManager,
@@ -313,6 +392,30 @@ where
             surface_registry.set_server_session_name(name.clone());
         }
 
+        // --- Layout restore ---
+        let mut initial_resize_sent = false;
+        if let Some(server_name) = surface_registry.server_session_name().map(str::to_owned)
+            && let Some(saved) = kasane_core::workspace::persist::load_layout(&server_name)
+            && let Some(plan) = kasane_core::workspace::persist::plan_restore(saved)
+        {
+            restore_panes_gui(
+                &plan,
+                &server_name,
+                &mut surface_registry,
+                &mut session_manager,
+                &mut session_states,
+                &mut state,
+                &mut initial_resize_sent,
+                session_spawner,
+                &event_proxy,
+            );
+            kasane_core::event_loop::notify_workspace_observers(
+                &mut registry,
+                &surface_registry,
+                &state,
+            );
+        }
+
         Ok(App {
             window: None,
             gpu: None,
@@ -327,7 +430,7 @@ where
             session_spawner,
             pending_events: Vec::new(),
             dirty: initial_dirty,
-            initial_resize_sent: false,
+            initial_resize_sent,
             session_ready_gate,
             current_modifiers: winit::keyboard::ModifiersState::empty(),
             cursor_pos: None,
@@ -814,6 +917,17 @@ where
         };
         if workspace_changed {
             notify_workspace_observers(&mut self.registry, &self.surface_registry, &self.state);
+            // Save layout on structural changes
+            if let Some(server_name) = self.surface_registry.server_session_name() {
+                kasane_core::workspace::persist::save_layout(
+                    server_name,
+                    self.surface_registry.workspace(),
+                    &self.surface_registry,
+                    &self.session_states,
+                    &self.state,
+                    self.session_manager.active_session_id(),
+                );
+            }
         }
         result
     }
@@ -1070,6 +1184,22 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
+        // Save workspace layout before shutdown — but only if sessions are still alive.
+        // When all sessions died via :q, the workspace is already degraded to a single
+        // pane; saving now would delete the layout file and prevent daemon survival for
+        // reconnect.
+        if !self.session_manager.is_empty()
+            && let Some(server_name) = self.surface_registry.server_session_name()
+        {
+            kasane_core::workspace::persist::save_layout(
+                server_name,
+                self.surface_registry.workspace(),
+                &self.surface_registry,
+                &self.session_states,
+                &self.state,
+                self.session_manager.active_session_id(),
+            );
+        }
         self.registry.shutdown_all();
     }
 }

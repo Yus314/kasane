@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::display::{DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild, InteractiveId, PluginTag};
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{ChordState, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::Placement;
@@ -40,6 +40,10 @@ pub(crate) struct PluginSlot {
     pub(crate) authorities: PluginAuthorities,
     pub(crate) last_state_hash: u64,
     pub(crate) needs_recollect: bool,
+    /// Framework-managed chord state for plugins using `CompiledKeyMap`.
+    pub(crate) chord_state: ChordState,
+    /// State hash at last `refresh_key_groups` call for caching.
+    pub(crate) last_group_refresh_hash: u64,
 }
 
 pub struct PluginRuntime {
@@ -122,6 +126,8 @@ impl PluginRuntime {
                 authorities,
                 last_state_hash: HASH_SENTINEL,
                 needs_recollect: true,
+                chord_state: ChordState::default(),
+                last_group_refresh_hash: HASH_SENTINEL,
             });
         }
     }
@@ -424,6 +430,23 @@ impl PluginRuntime {
     ) -> KeyDispatchResult {
         let mut current_key = key.clone();
         for slot in &mut self.slots {
+            // --- Key map dispatch path (Phase 2+) ---
+            if slot.backend.compiled_key_map().is_some() {
+                // Refresh group active flags if state changed.
+                let current_hash = slot.backend.state_hash();
+                if current_hash != slot.last_group_refresh_hash {
+                    slot.backend.refresh_key_groups(app);
+                    slot.last_group_refresh_hash = current_hash;
+                }
+
+                if let Some(result) = Self::dispatch_key_map(slot, &current_key, app) {
+                    return result;
+                }
+                // No match in this plugin's key map — fall through to next plugin.
+                continue;
+            }
+
+            // --- Legacy dispatch path ---
             match slot.backend.handle_key_middleware(&current_key, app) {
                 KeyHandleResult::Consumed(commands) => {
                     return KeyDispatchResult::Consumed {
@@ -437,6 +460,97 @@ impl PluginRuntime {
         }
 
         KeyDispatchResult::Passthrough(current_key)
+    }
+
+    /// Key map dispatch for a single plugin slot.
+    ///
+    /// Returns `Some(result)` if the key was consumed or a chord was started,
+    /// `None` if this plugin doesn't handle the key.
+    fn dispatch_key_map(
+        slot: &mut PluginSlot,
+        key: &KeyEvent,
+        app: &AppView<'_>,
+    ) -> Option<KeyDispatchResult> {
+        use crate::input::key_map::DEFAULT_CHORD_TIMEOUT_MS;
+
+        let plugin_id = slot.backend.id();
+
+        // 1. If a chord is pending, try to resolve it.
+        if slot.chord_state.is_pending() {
+            let timeout = slot
+                .backend
+                .compiled_key_map()
+                .map_or(DEFAULT_CHORD_TIMEOUT_MS, |m| m.chord_timeout_ms);
+
+            if slot.chord_state.is_timed_out(timeout) {
+                // Timeout: cancel chord, re-dispatch this key from scratch.
+                slot.chord_state.cancel();
+                return Self::dispatch_key_map(slot, key, app);
+            }
+
+            let leader = slot.chord_state.pending_leader.clone().unwrap();
+            if let Some(action_id) = slot
+                .backend
+                .compiled_key_map()
+                .and_then(|m| m.match_chord_follower(&leader, key))
+            {
+                // Chord matched — invoke action.
+                slot.chord_state.cancel();
+                let response = slot.backend.invoke_action(action_id, key, app);
+                return Some(Self::key_response_to_dispatch(response, plugin_id));
+            }
+
+            // No chord match — cancel and pass through (don't consume).
+            slot.chord_state.cancel();
+            return None;
+        }
+
+        // 2. Not pending — check for chord leader.
+        if slot
+            .backend
+            .compiled_key_map()
+            .is_some_and(|m| m.match_chord_leader(key))
+        {
+            slot.chord_state.set_pending(key.clone());
+            return Some(KeyDispatchResult::Consumed {
+                source_plugin: plugin_id,
+                commands: vec![],
+            });
+        }
+
+        // 3. Try single-key binding.
+        if let Some(action_id) = slot
+            .backend
+            .compiled_key_map()
+            .and_then(|m| m.match_key(key))
+        {
+            let response = slot.backend.invoke_action(action_id, key, app);
+            return Some(Self::key_response_to_dispatch(response, plugin_id));
+        }
+
+        // 4. No match at all — passthrough.
+        None
+    }
+
+    fn key_response_to_dispatch(response: KeyResponse, plugin_id: PluginId) -> KeyDispatchResult {
+        match response {
+            KeyResponse::Pass => KeyDispatchResult::Passthrough(KeyEvent {
+                key: crate::input::Key::Escape,
+                modifiers: crate::input::Modifiers::empty(),
+            }),
+            KeyResponse::Consume => KeyDispatchResult::Consumed {
+                source_plugin: plugin_id,
+                commands: vec![],
+            },
+            KeyResponse::ConsumeRedraw => KeyDispatchResult::Consumed {
+                source_plugin: plugin_id,
+                commands: vec![Command::RequestRedraw(DirtyFlags::ALL)],
+            },
+            KeyResponse::ConsumeWith(commands) => KeyDispatchResult::Consumed {
+                source_plugin: plugin_id,
+                commands,
+            },
+        }
     }
 
     // --- Plugin message delivery ---

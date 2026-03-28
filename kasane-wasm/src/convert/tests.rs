@@ -454,21 +454,21 @@ fn convert_key_event_roundtrip() {
         modifiers: Modifiers::ALT,
     };
     let wit_ev = key_event_to_wit(&native);
-    assert!(matches!(wit_ev.key, wit::KeyCode::Character(ref s) if s == "x"));
+    assert!(matches!(wit_ev.key, wit::KeyCode::Char(cp) if cp == 'x' as u32));
     assert_eq!(wit_ev.modifiers, Modifiers::ALT.bits());
     let roundtrip = wit_key_event_to_key_event(&wit_ev).expect("valid key event");
     assert_eq!(roundtrip, native);
 }
 
 #[test]
-fn convert_key_event_rejects_invalid_multicharacter_key() {
+fn convert_key_event_rejects_invalid_codepoint() {
     let err = wit_key_event_to_key_event(&wit::KeyEvent {
-        key: wit::KeyCode::Character("xy".to_string()),
+        key: wit::KeyCode::Char(0xD800), // surrogate, not a valid char
         modifiers: 0,
     })
-    .expect_err("invalid transformed key should be rejected");
+    .expect_err("invalid codepoint should be rejected");
 
-    assert!(err.contains("exactly one scalar"));
+    assert!(err.contains("invalid Unicode codepoint"));
 }
 
 #[test]
@@ -480,7 +480,7 @@ fn convert_surface_event_key_roundtrip() {
     let wit_ev = surface_event_to_wit(&native);
     match wit_ev {
         wit::SurfaceEvent::Key(key) => {
-            assert!(matches!(key.key, wit::KeyCode::Character(ref s) if s == "r"));
+            assert!(matches!(key.key, wit::KeyCode::Char(cp) if cp == 'r' as u32));
             assert_eq!(key.modifiers, Modifiers::CTRL.bits());
         }
         other => panic!("expected key surface event, got {other:?}"),
@@ -1082,7 +1082,7 @@ fn convert_command_inject_key() {
     use kasane_core::input::{InputEvent, Key, Modifiers};
 
     let wc = wit::Command::InjectKey(wit::KeyEvent {
-        key: wit::KeyCode::Character("a".to_string()),
+        key: wit::KeyCode::Char('a' as u32),
         modifiers: Modifiers::CTRL.bits(),
     });
     match wit_command_to_command(&wc) {

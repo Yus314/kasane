@@ -1,9 +1,9 @@
 use std::any::Any;
 
 use crate::element::{InteractiveId, PluginTag};
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
-use crate::state::DirtyFlags;
+use crate::state::{self, DirtyFlags};
 
 use super::extension_point::{ExtensionOutput, ExtensionPointId};
 use super::pubsub::TopicBus;
@@ -22,6 +22,19 @@ pub enum KeyHandleResult {
     Transformed(KeyEvent),
     #[default]
     Passthrough,
+}
+
+impl From<KeyResponse> for KeyHandleResult {
+    fn from(response: KeyResponse) -> Self {
+        match response {
+            KeyResponse::Pass => KeyHandleResult::Passthrough,
+            KeyResponse::Consume => KeyHandleResult::Consumed(vec![]),
+            KeyResponse::ConsumeRedraw => {
+                KeyHandleResult::Consumed(vec![Command::RequestRedraw(state::DirtyFlags::ALL)])
+            }
+            KeyResponse::ConsumeWith(commands) => KeyHandleResult::Consumed(commands),
+        }
+    }
 }
 
 /// Internal framework trait. Plugin authors should use [`Plugin`] instead.
@@ -89,6 +102,38 @@ pub trait PluginBackend: Any {
     ) -> Option<ScrollPolicyResult> {
         None
     }
+
+    // --- Key map dispatch (Phase 2+) ---
+
+    /// Return the compiled key map for framework-side binding resolution.
+    ///
+    /// Plugins that use the `key_map {}` declarative system return `Some` here.
+    /// The framework uses this to skip WASM calls for unmatched keys and to
+    /// manage chord state centrally.
+    fn compiled_key_map(&self) -> Option<&CompiledKeyMap> {
+        None
+    }
+
+    /// Invoke a named action from the key map.
+    ///
+    /// Called by the framework when `compiled_key_map().match_key()` or chord
+    /// resolution identifies an action. The plugin executes the action body
+    /// and returns a [`KeyResponse`].
+    fn invoke_action(
+        &mut self,
+        _action_id: &str,
+        _key: &KeyEvent,
+        _state: &AppView<'_>,
+    ) -> KeyResponse {
+        KeyResponse::Pass
+    }
+
+    /// Refresh the `active` flags on key groups.
+    ///
+    /// Called by the framework when the plugin's state hash changes, before
+    /// key matching. The plugin evaluates `when()` predicates and updates
+    /// each group's `active` field in the compiled key map.
+    fn refresh_key_groups(&mut self, _state: &AppView<'_>) {}
 
     // --- View contributions ---
 

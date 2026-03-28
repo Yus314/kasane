@@ -290,7 +290,8 @@ interface types {
     }
 
     variant key-code {
-        character(string),
+        /// Unicode codepoint. Was `character(string)` before ABI v2.
+        %char(u32),
         backspace,
         delete,
         enter,
@@ -316,6 +317,44 @@ interface types {
         consumed(list<command>),
         transformed(key-event),
         passthrough,
+    }
+
+    /// Result from a key map action invocation.
+    variant key-response {
+        pass,
+        consume,
+        consume-redraw,
+        consume-with(list<command>),
+    }
+
+    // --- Key map protocol types ---
+
+    variant key-pattern-kind {
+        exact(key-event),
+        any-char,
+        any-char-plain,
+        any-key,
+    }
+
+    record key-pattern {
+        kind: key-pattern-kind,
+    }
+
+    record key-binding-decl {
+        pattern: key-pattern,
+        action-id: string,
+    }
+
+    record chord-binding-decl {
+        leader: key-event,
+        follower: key-pattern,
+        action-id: string,
+    }
+
+    record key-group-decl {
+        name: string,
+        bindings: list<key-binding-decl>,
+        chords: list<chord-binding-decl>,
     }
 
     record coord {
@@ -904,7 +943,8 @@ interface plugin-api {
                surface-event-context, surface-event, surface-descriptor,
                default-scroll-candidate, scroll-policy-result,
                bootstrap-effects, session-ready-effects, runtime-effects,
-               cell-decoration};
+               cell-decoration,
+               key-group-decl, key-response};
 
     /// Unique plugin identifier.
     get-id: func() -> string;
@@ -968,6 +1008,19 @@ interface plugin-api {
 
     /// Observe a mouse event (notification only, cannot consume).
     observe-mouse: func(event: mouse-event);
+
+    // --- Key map protocol (Phase 3) ---
+
+    /// Declare key map groups, bindings, and chords.
+    /// Called once at plugin construction time.
+    declare-key-map: func() -> list<key-group-decl>;
+
+    /// Check if a named key group is currently active.
+    /// Called when plugin state changes to refresh group active flags.
+    is-group-active: func(group-name: string) -> bool;
+
+    /// Invoke a named action identified by key map dispatch.
+    invoke-action: func(action-id: string, event: key-event) -> key-response;
 
     /// Contribute an overlay element with positioning.
     contribute-overlay: func() -> option<overlay>;

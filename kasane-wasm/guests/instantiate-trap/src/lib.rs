@@ -37,6 +37,7 @@ impl Guest for InstantiateTrapPlugin {
     kasane_plugin_sdk::default_capabilities!();
     kasane_plugin_sdk::default_authorities!();
     kasane_plugin_sdk::default_view_deps!();
+    kasane_plugin_sdk::default_key_map!();
 
     fn register_capabilities() -> u32 {
         0xFFFFFFFF

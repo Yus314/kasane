@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId, PluginTag};
-use kasane_core::input::{KeyEvent, MouseEvent};
+use kasane_core::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, BootstrapEffects, Command,
     ContributeContext, Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation,
@@ -246,7 +246,7 @@ impl Surface for WasmHostedSurface {
             match plugin_api.call_handle_surface_event(
                 &mut runtime.store,
                 &surface_key,
-                &wit_event,
+                wit_event,
                 wit_ctx,
             ) {
                 Ok(commands) => {
@@ -311,6 +311,8 @@ impl Surface for WasmHostedSurface {
 /// A WASM Component Model plugin adapted to the native Plugin trait.
 pub struct WasmPlugin {
     shared: Arc<WasmPluginShared>,
+    /// Compiled key map built from `declare-key-map` at construction time.
+    key_map: Option<CompiledKeyMap>,
 }
 
 impl WasmPlugin {
@@ -339,6 +341,21 @@ impl WasmPlugin {
             .map(PluginCapabilities::from_bits_truncate)
             .unwrap_or(PluginCapabilities::all());
 
+        // Query key map declaration at construction time (Phase 3+).
+        let key_map = match plugin_api.call_declare_key_map(&mut store) {
+            Ok(decls) if !decls.is_empty() => {
+                match convert::wit_key_group_decls_to_compiled_key_map(&decls) {
+                    Ok(map) => Some(map),
+                    Err(e) => {
+                        tracing::error!("WASM plugin {id}.declare_key_map conversion error: {e}");
+                        None
+                    }
+                }
+            }
+            Ok(_) => None,
+            Err(_) => None, // Plugin doesn't implement declare-key-map — OK
+        };
+
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
@@ -351,6 +368,7 @@ impl WasmPlugin {
                 authorities,
                 pending_diagnostics: Mutex::new(Vec::new()),
             }),
+            key_map,
         }
     }
 }
@@ -461,7 +479,7 @@ impl PluginBackend for WasmPlugin {
         self.shared.call_synced(state, "observe_key", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
-            Ok(api.call_observe_key(&mut rt.store, &wit_key).map(|_| ())?)
+            Ok(api.call_observe_key(&mut rt.store, wit_key).map(|_| ())?)
         });
     }
 
@@ -481,7 +499,7 @@ impl PluginBackend for WasmPlugin {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
-            let result = match plugin_api.call_handle_key(&mut runtime.store, &wit_key) {
+            let result = match plugin_api.call_handle_key(&mut runtime.store, wit_key) {
                 Ok(Some(cmds)) => Some(shared.convert_commands(&cmds)),
                 Ok(None) => None,
                 Err(e) => {
@@ -509,7 +527,7 @@ impl PluginBackend for WasmPlugin {
             .call_synced_with_hash(state, "handle_key_middleware", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
                 let wit_key = convert::key_event_to_wit(key);
-                let result = api.call_handle_key_middleware(&mut rt.store, &wit_key)?;
+                let result = api.call_handle_key_middleware(&mut rt.store, wit_key)?;
                 Ok(match result {
                     wit::KeyHandleResult::Consumed(commands) => {
                         KeyHandleResult::Consumed(shared.convert_commands(&commands))
@@ -529,6 +547,56 @@ impl PluginBackend for WasmPlugin {
                     wit::KeyHandleResult::Passthrough => KeyHandleResult::Passthrough,
                 })
             })
+    }
+
+    fn compiled_key_map(&self) -> Option<&CompiledKeyMap> {
+        self.key_map.as_ref()
+    }
+
+    fn invoke_action(
+        &mut self,
+        action_id: &str,
+        key: &KeyEvent,
+        state: &AppView<'_>,
+    ) -> KeyResponse {
+        let shared = Arc::clone(&self.shared);
+        self.shared.with_runtime(|runtime| {
+            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            runtime.store.data_mut().plugin_tag =
+                *shared.plugin_tag.lock().expect("plugin_tag lock");
+            let api = runtime.instance.kasane_plugin_plugin_api();
+            let wit_key = convert::key_event_to_wit(key);
+            let result = match api.call_invoke_action(&mut runtime.store, action_id, wit_key) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!(
+                        "WASM plugin {}.invoke_action failed: {e}",
+                        shared.plugin_id.0
+                    );
+                    shared.record_diagnostic("invoke_action", &e.into());
+                    return KeyResponse::Pass;
+                }
+            };
+            if let Ok(h) = api.call_state_hash(&mut runtime.store) {
+                shared.set_state_hash(h);
+            }
+            convert::wit_key_response_to_key_response(&result, &|cmds| {
+                shared.convert_commands(cmds)
+            })
+        })
+    }
+
+    fn refresh_key_groups(&mut self, state: &AppView<'_>) {
+        if let Some(map) = &mut self.key_map {
+            for group in &mut map.groups {
+                let name = group.name.to_string();
+                let active = self.shared.call_synced(state, "is_group_active", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(api.call_is_group_active(&mut rt.store, &name)?)
+                });
+                group.active = active;
+            }
+        }
     }
 
     fn handle_mouse(

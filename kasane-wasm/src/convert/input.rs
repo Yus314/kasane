@@ -1,6 +1,9 @@
 use crate::bindings::kasane::plugin::types as wit;
-use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
-use kasane_core::plugin::{IoEvent, ProcessEvent};
+use kasane_core::input::{
+    ChordBinding, CompiledKeyMap, Key, KeyBinding, KeyEvent, KeyGroup, KeyPattern, KeyResponse,
+    Modifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use kasane_core::plugin::{Command, IoEvent, ProcessEvent};
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
     ScrollPlan, ScrollPolicyResult,
@@ -100,7 +103,7 @@ pub(crate) fn wit_scroll_policy_result_to_result(
 
 fn key_to_wit(key: &Key) -> wit::KeyCode {
     match key {
-        Key::Char(c) => wit::KeyCode::Character(c.to_string()),
+        Key::Char(c) => wit::KeyCode::Char(*c as u32),
         Key::Backspace => wit::KeyCode::Backspace,
         Key::Delete => wit::KeyCode::Delete,
         Key::Enter => wit::KeyCode::Enter,
@@ -120,16 +123,9 @@ fn key_to_wit(key: &Key) -> wit::KeyCode {
 
 fn wit_key_code_to_key(key: &wit::KeyCode) -> Result<Key, String> {
     match key {
-        wit::KeyCode::Character(chars) => {
-            let mut iter = chars.chars();
-            let ch = iter
-                .next()
-                .ok_or_else(|| "character key must not be empty".to_string())?;
-            if iter.next().is_some() {
-                return Err(format!(
-                    "character key must contain exactly one scalar value: {chars:?}"
-                ));
-            }
+        wit::KeyCode::Char(codepoint) => {
+            let ch = char::from_u32(*codepoint)
+                .ok_or_else(|| format!("invalid Unicode codepoint: {codepoint}"))?;
             Ok(Key::Char(ch))
         }
         wit::KeyCode::Backspace => Ok(Key::Backspace),
@@ -146,6 +142,70 @@ fn wit_key_code_to_key(key: &wit::KeyCode) -> Result<Key, String> {
         wit::KeyCode::PageUp => Ok(Key::PageUp),
         wit::KeyCode::PageDown => Ok(Key::PageDown),
         wit::KeyCode::FKey(n) => Ok(Key::F(*n)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// KeyResponse conversions
+// ---------------------------------------------------------------------------
+
+pub(crate) fn wit_key_response_to_key_response(
+    response: &wit::KeyResponse,
+    convert_cmds: &dyn Fn(&[wit::Command]) -> Vec<Command>,
+) -> KeyResponse {
+    match response {
+        wit::KeyResponse::Pass => KeyResponse::Pass,
+        wit::KeyResponse::Consume => KeyResponse::Consume,
+        wit::KeyResponse::ConsumeRedraw => KeyResponse::ConsumeRedraw,
+        wit::KeyResponse::ConsumeWith(cmds) => KeyResponse::ConsumeWith(convert_cmds(cmds)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Key map protocol conversions
+// ---------------------------------------------------------------------------
+
+pub(crate) fn wit_key_group_decls_to_compiled_key_map(
+    decls: &[wit::KeyGroupDecl],
+) -> Result<CompiledKeyMap, String> {
+    let mut groups = Vec::with_capacity(decls.len());
+    for decl in decls {
+        let mut bindings = Vec::with_capacity(decl.bindings.len());
+        for b in &decl.bindings {
+            bindings.push(KeyBinding {
+                pattern: wit_key_pattern_to_key_pattern(&b.pattern)?,
+                action_id: Box::leak(b.action_id.clone().into_boxed_str()),
+            });
+        }
+        let mut chords = Vec::with_capacity(decl.chords.len());
+        for c in &decl.chords {
+            chords.push(ChordBinding {
+                leader: wit_key_event_to_key_event(&c.leader)?,
+                follower: wit_key_pattern_to_key_pattern(&c.follower)?,
+                action_id: Box::leak(c.action_id.clone().into_boxed_str()),
+            });
+        }
+        groups.push(KeyGroup {
+            name: Box::leak(decl.name.clone().into_boxed_str()),
+            active: true,
+            bindings,
+            chords,
+        });
+    }
+    Ok(CompiledKeyMap {
+        groups,
+        ..Default::default()
+    })
+}
+
+fn wit_key_pattern_to_key_pattern(pattern: &wit::KeyPattern) -> Result<KeyPattern, String> {
+    match &pattern.kind {
+        wit::KeyPatternKind::Exact(event) => {
+            Ok(KeyPattern::Exact(wit_key_event_to_key_event(event)?))
+        }
+        wit::KeyPatternKind::AnyChar => Ok(KeyPattern::AnyChar),
+        wit::KeyPatternKind::AnyCharPlain => Ok(KeyPattern::AnyCharPlain),
+        wit::KeyPatternKind::AnyKey => Ok(KeyPattern::Any),
     }
 }
 

@@ -25,7 +25,10 @@ use std::any::Any;
 use std::marker::PhantomData;
 
 use crate::element::{Element, InteractiveId};
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{
+    ChordBinding, CompiledKeyMap, KeyBinding, KeyEvent, KeyGroup, KeyPattern, KeyResponse,
+    MouseEvent,
+};
 use crate::protocol::Atom;
 use crate::render::{CursorStyleHint, InlineDecoration};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -288,6 +291,80 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             handler(s, candidate, app)
                 .map(|(new_state, result)| (Box::new(new_state) as Box<dyn PluginState>, result))
         }));
+    }
+
+    // =========================================================================
+    // Key map handlers (Phase 2 — declarative key bindings)
+    // =========================================================================
+
+    /// Register a declarative key map with groups, bindings, chords, and actions.
+    ///
+    /// The builder callback configures the key map structure. Groups are evaluated
+    /// in registration order; first matching binding wins.
+    ///
+    /// ```ignore
+    /// r.on_key_map(|km| {
+    ///     km.group("active", |s: &MyState| s.active, |g| {
+    ///         g.bind(KeyPattern::Exact(KeyEvent::ctrl('p')), "activate");
+    ///         g.bind(KeyPattern::AnyCharPlain, "append_char");
+    ///     });
+    ///     km.chord(KeyEvent::ctrl('w'), |c| {
+    ///         c.bind(KeyPattern::Exact(KeyEvent::char_plain('v')), "split_v");
+    ///     });
+    ///     km.action("activate", |state, _key, _app| {
+    ///         let new = MyState { active: true, ..state.clone() };
+    ///         (new, KeyResponse::ConsumeRedraw)
+    ///     });
+    /// });
+    /// ```
+    pub fn on_key_map(&mut self, builder: impl FnOnce(&mut KeyMapBuilder<S>)) {
+        let mut km = KeyMapBuilder::<S>::new();
+        builder(&mut km);
+
+        // Build the initial compiled key map.
+        let initial_map = km.build_compiled_map();
+        self.table.key_map = Some(initial_map);
+
+        // Store group refresh handler: evaluates `when()` predicates against state.
+        let group_predicates = km.group_predicates;
+        self.table.group_refresh_handler = Some(Box::new(
+            move |state: &dyn PluginState, _app: &AppView<'_>, map: &mut CompiledKeyMap| {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                for (i, predicate) in group_predicates.iter().enumerate() {
+                    if let Some(group) = map.groups.get_mut(i) {
+                        group.active = predicate(s);
+                    }
+                }
+            },
+        ));
+
+        // Store action handler.
+        let actions = km.actions;
+        self.table.action_handler = Some(Box::new(
+            move |state: &dyn PluginState,
+                  action_id: &str,
+                  key: &KeyEvent,
+                  app: &AppView<'_>|
+                  -> (Box<dyn PluginState>, KeyResponse) {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                for (id, handler) in &actions {
+                    if *id == action_id {
+                        let (new_state, response) = handler(s, key, app);
+                        return (Box::new(new_state) as Box<dyn PluginState>, response);
+                    }
+                }
+                (
+                    Box::new(s.clone()) as Box<dyn PluginState>,
+                    KeyResponse::Pass,
+                )
+            },
+        ));
     }
 
     // =========================================================================
@@ -694,6 +771,175 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     },
                 ),
             });
+    }
+}
+
+// =============================================================================
+// KeyMapBuilder — fluent API for declaring key maps
+// =============================================================================
+
+type GroupPredicate<S> = Box<dyn Fn(&S) -> bool + Send + Sync>;
+type ActionHandler<S> = Box<dyn Fn(&S, &KeyEvent, &AppView<'_>) -> (S, KeyResponse) + Send + Sync>;
+
+/// Builder for constructing a [`CompiledKeyMap`] with type-safe state access.
+pub struct KeyMapBuilder<S: PluginState> {
+    groups: Vec<KeyGroupDef<S>>,
+    chord_groups: Vec<ChordGroupDef>,
+    pub(crate) group_predicates: Vec<GroupPredicate<S>>,
+    pub(crate) actions: Vec<(&'static str, ActionHandler<S>)>,
+}
+
+struct KeyGroupDef<S> {
+    name: &'static str,
+    predicate: GroupPredicate<S>,
+    bindings: Vec<KeyBinding>,
+    chords: Vec<ChordBinding>,
+}
+
+struct ChordGroupDef {
+    bindings: Vec<ChordBinding>,
+}
+
+impl<S: PluginState + Clone + 'static> KeyMapBuilder<S> {
+    fn new() -> Self {
+        Self {
+            groups: Vec::new(),
+            chord_groups: Vec::new(),
+            group_predicates: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    /// Define a key group that is active when the predicate returns true.
+    ///
+    /// Groups are evaluated in declaration order — first matching binding wins.
+    pub fn group(
+        &mut self,
+        name: &'static str,
+        when: impl Fn(&S) -> bool + Send + Sync + 'static,
+        build: impl FnOnce(&mut KeyGroupConfig),
+    ) {
+        let mut cfg = KeyGroupConfig {
+            bindings: Vec::new(),
+            chords: Vec::new(),
+        };
+        build(&mut cfg);
+        self.groups.push(KeyGroupDef {
+            name,
+            predicate: Box::new(when),
+            bindings: cfg.bindings,
+            chords: cfg.chords,
+        });
+    }
+
+    /// Define chord bindings under a leader key.
+    ///
+    /// The chord group is always active (create it inside a `group()` for
+    /// conditional activation).
+    pub fn chord(&mut self, leader: KeyEvent, build: impl FnOnce(&mut ChordConfig)) {
+        let mut cfg = ChordConfig {
+            leader: leader.clone(),
+            bindings: Vec::new(),
+        };
+        build(&mut cfg);
+        self.chord_groups.push(ChordGroupDef {
+            bindings: cfg.bindings,
+        });
+    }
+
+    /// Register an action handler by ID.
+    ///
+    /// Action handlers receive the current state and the triggering key event,
+    /// and return the updated state plus a [`KeyResponse`].
+    pub fn action(
+        &mut self,
+        id: &'static str,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, KeyResponse) + Send + Sync + 'static,
+    ) {
+        self.actions.push((id, Box::new(handler)));
+    }
+
+    /// Build the initial [`CompiledKeyMap`] from the declared groups.
+    fn build_compiled_map(&mut self) -> CompiledKeyMap {
+        let mut groups = Vec::new();
+
+        for def in &self.groups {
+            let active = true; // will be refreshed on first frame
+            groups.push(KeyGroup {
+                name: def.name,
+                active,
+                bindings: def.bindings.clone(),
+                chords: def.chords.clone(),
+            });
+        }
+
+        // Merge standalone chord groups into their own always-active group.
+        for chord_def in &self.chord_groups {
+            groups.push(KeyGroup {
+                name: "__chord__",
+                active: true,
+                bindings: Vec::new(),
+                chords: chord_def.bindings.clone(),
+            });
+        }
+
+        // Move predicates out for the refresh handler.
+        self.group_predicates = self
+            .groups
+            .iter_mut()
+            .map(|def| {
+                // Replace with a dummy predicate; the real one is captured by the closure.
+                std::mem::replace(&mut def.predicate, Box::new(|_| true))
+            })
+            .collect();
+        // Always-active chord groups get constant `true` predicates.
+        for _ in &self.chord_groups {
+            self.group_predicates.push(Box::new(|_| true));
+        }
+
+        CompiledKeyMap {
+            groups,
+            ..Default::default()
+        }
+    }
+}
+
+/// Configuration for bindings within a key group.
+pub struct KeyGroupConfig {
+    bindings: Vec<KeyBinding>,
+    chords: Vec<ChordBinding>,
+}
+
+impl KeyGroupConfig {
+    /// Add a single-key binding.
+    pub fn bind(&mut self, pattern: KeyPattern, action_id: &'static str) {
+        self.bindings.push(KeyBinding { pattern, action_id });
+    }
+
+    /// Add a chord binding within this group.
+    pub fn chord_bind(&mut self, leader: KeyEvent, follower: KeyPattern, action_id: &'static str) {
+        self.chords.push(ChordBinding {
+            leader,
+            follower,
+            action_id,
+        });
+    }
+}
+
+/// Configuration for chord bindings under a leader key.
+pub struct ChordConfig {
+    leader: KeyEvent,
+    bindings: Vec<ChordBinding>,
+}
+
+impl ChordConfig {
+    /// Add a follower binding under this chord's leader.
+    pub fn bind(&mut self, follower: KeyPattern, action_id: &'static str) {
+        self.bindings.push(ChordBinding {
+            leader: self.leader.clone(),
+            follower,
+            action_id,
+        });
     }
 }
 

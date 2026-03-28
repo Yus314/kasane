@@ -225,6 +225,9 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "on_io_event_effects",
         "view_deps",
         "register_capabilities",
+        "declare_key_map",
+        "is_group_active",
+        "invoke_action",
     ]
     .into_iter()
     .collect()
@@ -540,6 +543,35 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     add_default!(
         "observe_mouse",
         quote! { fn observe_mouse(_event: MouseEvent) {} }
+    );
+
+    // --- Key map protocol (Phase 3+) ---
+
+    add_default!(
+        "declare_key_map",
+        quote! {
+            fn declare_key_map() -> Vec<KeyGroupDecl> {
+                Vec::new()
+            }
+        }
+    );
+
+    add_default!(
+        "is_group_active",
+        quote! {
+            fn is_group_active(_group_name: String) -> bool {
+                true
+            }
+        }
+    );
+
+    add_default!(
+        "invoke_action",
+        quote! {
+            fn invoke_action(_action_id: String, _event: KeyEvent) -> KeyResponse {
+                KeyResponse::Pass
+            }
+        }
     );
 
     // --- Caching ---
@@ -964,21 +996,41 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             }
 
             /// Check if a key event is Ctrl+key (no Alt/Shift).
-            pub fn is_ctrl(event: &KeyEvent, key: &str) -> bool {
-                matches!(event.key, KeyCode::Character(ref c) if c == key)
+            pub fn is_ctrl(event: &KeyEvent, c: char) -> bool {
+                matches!(event.key, KeyCode::Char(cp) if cp == c as u32)
                     && event.modifiers == 0x01 // CTRL only
             }
 
             /// Check if a key event is Alt+key (no Ctrl/Shift).
-            pub fn is_alt(event: &KeyEvent, key: &str) -> bool {
-                matches!(event.key, KeyCode::Character(ref c) if c == key)
+            pub fn is_alt(event: &KeyEvent, c: char) -> bool {
+                matches!(event.key, KeyCode::Char(cp) if cp == c as u32)
                     && event.modifiers == 0x02 // ALT only
             }
 
             /// Check if a key event is Ctrl+Shift+key (no Alt).
-            pub fn is_ctrl_shift(event: &KeyEvent, key: &str) -> bool {
-                matches!(event.key, KeyCode::Character(ref c) if c == key)
+            pub fn is_ctrl_shift(event: &KeyEvent, c: char) -> bool {
+                matches!(event.key, KeyCode::Char(cp) if cp == c as u32)
                     && event.modifiers == (0x01 | 0x04) // CTRL + SHIFT
+            }
+
+            /// Check if a key event is a plain character with no command modifiers (no Ctrl/Alt).
+            pub fn is_plain(event: &KeyEvent, c: char) -> bool {
+                matches!(event.key, KeyCode::Char(cp) if cp == c as u32)
+                    && event.modifiers & 0x03 == 0 // no CTRL or ALT
+            }
+
+            /// Extract the plain character from a key event (no Ctrl/Alt), if any.
+            pub fn plain_char(event: &KeyEvent) -> Option<char> {
+                if event.modifiers & 0x03 != 0 { return None; }
+                match event.key {
+                    KeyCode::Char(cp) => char::from_u32(cp),
+                    _ => None,
+                }
+            }
+
+            /// Check if a key event has no command modifiers (Ctrl/Alt).
+            pub fn has_no_command_modifier(event: &KeyEvent) -> bool {
+                event.modifiers & 0x03 == 0
             }
 
             /// Conditional status bar badge: returns a contribution if `condition` is true.
@@ -1848,6 +1900,24 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {} // No state, no view_deps — use default
     };
 
+    // Key map protocol methods (Phase 4)
+    let key_map_methods = if let Some(ref km) = def.key_map {
+        let declare_groups = generate_key_map_declare(km);
+        let is_active_arms = generate_is_group_active(km, has_state);
+        let action_arms = generate_invoke_action(&def.actions, has_state, &wrap_state);
+        quote! {
+            fn declare_key_map() -> Vec<KeyGroupDecl> {
+                #declare_groups
+            }
+            fn is_group_active(group_name: String) -> bool {
+                #is_active_arms
+            }
+            #action_arms
+        }
+    } else {
+        quote! {}
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -1882,10 +1952,268 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             #authorities_method
             #on_io_event_method
             #view_deps_method
+            #key_map_methods
         }
 
         export!(__KasanePlugin);
     })
+}
+
+// ---------------------------------------------------------------------------
+// Key map codegen helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a `KeyPatternExpr` into tokens that construct a WIT `KeyPattern`.
+fn key_pattern_expr_to_tokens(pat: &KeyPatternExpr) -> proc_macro2::TokenStream {
+    match pat {
+        KeyPatternExpr::Ctrl(ch) => {
+            let c = ch.value();
+            // Ctrl+char: emit Exact(KeyEvent { key: Char(c as u32), modifiers: CTRL })
+            let cp = c as u32;
+            quote! {
+                KeyPattern {
+                    kind: KeyPatternKind::Exact(KeyEvent {
+                        key: KeyCode::Char(#cp),
+                        modifiers: kasane_plugin_sdk::modifiers::CTRL,
+                    }),
+                }
+            }
+        }
+        KeyPatternExpr::Key(ident) => {
+            // Well-known key name: Escape, Enter, Up, Down, etc.
+            quote! {
+                KeyPattern {
+                    kind: KeyPatternKind::Exact(KeyEvent {
+                        key: KeyCode::#ident,
+                        modifiers: 0,
+                    }),
+                }
+            }
+        }
+        KeyPatternExpr::Char(ch) => {
+            let cp = ch.value() as u32;
+            quote! {
+                KeyPattern {
+                    kind: KeyPatternKind::Exact(KeyEvent {
+                        key: KeyCode::Char(#cp),
+                        modifiers: 0,
+                    }),
+                }
+            }
+        }
+        KeyPatternExpr::AnyChar => {
+            quote! { KeyPattern { kind: KeyPatternKind::AnyChar } }
+        }
+        KeyPatternExpr::AnyCharPlain => {
+            quote! { KeyPattern { kind: KeyPatternKind::AnyCharPlain } }
+        }
+        KeyPatternExpr::Any => {
+            quote! { KeyPattern { kind: KeyPatternKind::AnyKey } }
+        }
+    }
+}
+
+/// Convert a `KeyPatternExpr` into tokens for a WIT `KeyEvent` (for chord leaders).
+fn key_pattern_expr_to_key_event_tokens(pat: &KeyPatternExpr) -> proc_macro2::TokenStream {
+    match pat {
+        KeyPatternExpr::Ctrl(ch) => {
+            let cp = ch.value() as u32;
+            quote! {
+                KeyEvent {
+                    key: KeyCode::Char(#cp),
+                    modifiers: kasane_plugin_sdk::modifiers::CTRL,
+                }
+            }
+        }
+        KeyPatternExpr::Key(ident) => {
+            quote! {
+                KeyEvent {
+                    key: KeyCode::#ident,
+                    modifiers: 0,
+                }
+            }
+        }
+        KeyPatternExpr::Char(ch) => {
+            let cp = ch.value() as u32;
+            quote! {
+                KeyEvent {
+                    key: KeyCode::Char(#cp),
+                    modifiers: 0,
+                }
+            }
+        }
+        _ => {
+            quote! { compile_error!("chord leader must be a specific key, not any_char/any") }
+        }
+    }
+}
+
+/// Generate the `declare_key_map()` method body.
+fn generate_key_map_declare(km: &KeyMapDef) -> proc_macro2::TokenStream {
+    let mut group_tokens = Vec::new();
+    let mut group_index: usize = 0;
+
+    // When-groups
+    for wg in &km.groups {
+        let group_name = format!("__group_{group_index}");
+        group_index += 1;
+
+        let binding_tokens: Vec<_> = wg
+            .bindings
+            .iter()
+            .map(|b| {
+                let pat = key_pattern_expr_to_tokens(&b.pattern);
+                let action = &b.action_id;
+                quote! {
+                    KeyBindingDecl {
+                        pattern: #pat,
+                        action_id: #action.to_string(),
+                    }
+                }
+            })
+            .collect();
+
+        group_tokens.push(quote! {
+            KeyGroupDecl {
+                name: #group_name.to_string(),
+                bindings: vec![#( #binding_tokens ),*],
+                chords: vec![],
+            }
+        });
+    }
+
+    // Chord groups
+    for cg in &km.chords {
+        let group_name = format!("__chord_{group_index}");
+        group_index += 1;
+
+        let leader = key_pattern_expr_to_key_event_tokens(&cg.leader);
+        let chord_tokens: Vec<_> = cg
+            .bindings
+            .iter()
+            .map(|b| {
+                let follower = key_pattern_expr_to_tokens(&b.pattern);
+                let action = &b.action_id;
+                quote! {
+                    ChordBindingDecl {
+                        leader: #leader,
+                        follower: #follower,
+                        action_id: #action.to_string(),
+                    }
+                }
+            })
+            .collect();
+
+        group_tokens.push(quote! {
+            KeyGroupDecl {
+                name: #group_name.to_string(),
+                bindings: vec![],
+                chords: vec![#( #chord_tokens ),*],
+            }
+        });
+    }
+
+    quote! {
+        vec![#( #group_tokens ),*]
+    }
+}
+
+/// Generate the `is_group_active(group_name)` method body.
+fn generate_is_group_active(km: &KeyMapDef, has_state: bool) -> proc_macro2::TokenStream {
+    let mut arms = Vec::new();
+    let mut group_index: usize = 0;
+
+    for wg in &km.groups {
+        let group_name = format!("__group_{group_index}");
+        group_index += 1;
+        let pred = &wg.predicate;
+
+        if has_state {
+            arms.push(quote! {
+                #group_name => STATE.with(|__s| {
+                    let state = __s.borrow();
+                    #pred
+                }),
+            });
+        } else {
+            arms.push(quote! {
+                #group_name => { #pred },
+            });
+        }
+    }
+
+    // Chord groups are always active
+    for _cg in &km.chords {
+        let group_name = format!("__chord_{group_index}");
+        group_index += 1;
+        arms.push(quote! {
+            #group_name => true,
+        });
+    }
+
+    quote! {
+        match group_name.as_str() {
+            #( #arms )*
+            _ => true,
+        }
+    }
+}
+
+/// Generate the `invoke_action(action_id, event)` method.
+fn generate_invoke_action(
+    actions: &Option<Vec<ActionDef>>,
+    has_state: bool,
+    wrap_state: &dyn Fn(&proc_macro2::TokenStream) -> proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let actions = match actions {
+        Some(a) => a,
+        None => {
+            return quote! {
+                fn invoke_action(_action_id: String, _event: KeyEvent) -> KeyResponse {
+                    KeyResponse::Pass
+                }
+            };
+        }
+    };
+
+    let arms: Vec<_> = actions
+        .iter()
+        .map(|a| {
+            let id = &a.id;
+            let event_param = &a.event_param;
+            let body = &a.body;
+            if has_state {
+                quote! {
+                    #id => {
+                        let #event_param = &event;
+                        #body
+                    }
+                }
+            } else {
+                quote! {
+                    #id => {
+                        let #event_param = &event;
+                        #body
+                    }
+                }
+            }
+        })
+        .collect();
+
+    let match_body = quote! {
+        match action_id.as_str() {
+            #( #arms )*
+            _ => KeyResponse::Pass,
+        }
+    };
+
+    let wrapped = if has_state { wrap_state(&match_body) } else { match_body };
+
+    quote! {
+        fn invoke_action(action_id: String, event: KeyEvent) -> KeyResponse {
+            #wrapped
+        }
+    }
 }
 
 // --- define_plugin! DSL parser ---
@@ -1912,6 +2240,8 @@ struct PluginDef {
     authorities: Option<proc_macro2::TokenStream>,
     on_io_event_effects: Option<ParamBodyDef>,
     view_deps: Option<proc_macro2::TokenStream>,
+    key_map: Option<KeyMapDef>,
+    actions: Option<Vec<ActionDef>>,
 }
 
 struct StateDef {
@@ -1971,6 +2301,46 @@ struct HandleMouseDef {
     body: proc_macro2::TokenStream,
 }
 
+// ---------------------------------------------------------------------------
+// Key map DSL types
+// ---------------------------------------------------------------------------
+
+struct KeyMapDef {
+    groups: Vec<WhenGroupDef>,
+    chords: Vec<ChordGroupDef>,
+}
+
+struct WhenGroupDef {
+    predicate: proc_macro2::TokenStream,
+    bindings: Vec<BindingEntry>,
+}
+
+struct ChordGroupDef {
+    leader: KeyPatternExpr,
+    bindings: Vec<BindingEntry>,
+}
+
+struct BindingEntry {
+    pattern: KeyPatternExpr,
+    action_id: syn::LitStr,
+}
+
+/// Parsed key pattern constructor, e.g. `ctrl('c')`, `key(Escape)`, `any_char()`, `any()`, `char('n')`.
+enum KeyPatternExpr {
+    Ctrl(syn::LitChar),
+    Key(syn::Ident),
+    Char(syn::LitChar),
+    AnyChar,
+    AnyCharPlain,
+    Any,
+}
+
+struct ActionDef {
+    id: syn::LitStr,
+    event_param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
 impl syn::parse::Parse for PluginDef {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut def = PluginDef {
@@ -1995,6 +2365,8 @@ impl syn::parse::Parse for PluginDef {
             authorities: None,
             on_io_event_effects: None,
             view_deps: None,
+            key_map: None,
+            actions: None,
         };
 
         let mut has_id = false;
@@ -2281,6 +2653,16 @@ impl syn::parse::Parse for PluginDef {
                         "define_plugin! `on_io_event` was removed; use `on_io_event_effects(...)`",
                     ));
                 }
+                "key_map" => {
+                    let body;
+                    syn::braced!(body in input);
+                    def.key_map = Some(parse_key_map_def(&body)?);
+                }
+                "actions" => {
+                    let body;
+                    syn::braced!(body in input);
+                    def.actions = Some(parse_actions_def(&body)?);
+                }
                 other => {
                     return Err(syn::Error::new(
                         ident.span(),
@@ -2433,4 +2815,146 @@ fn slot_name_to_pattern(name: &SlotName) -> proc_macro2::TokenStream {
             quote! { SlotId::Named(ref __n) if __n == #lit }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Key map DSL parsers
+// ---------------------------------------------------------------------------
+
+/// Parse a key pattern constructor: `ctrl('c')`, `key(Escape)`, `char('n')`,
+/// `any_char()`, `any_char_plain()`, `any()`.
+fn parse_key_pattern_expr(input: syn::parse::ParseStream) -> syn::Result<KeyPatternExpr> {
+    // Check for a bare char literal (used in chord bindings: `'v' => "split_v"`)
+    if input.peek(syn::LitChar) {
+        let ch: syn::LitChar = input.parse()?;
+        return Ok(KeyPatternExpr::Char(ch));
+    }
+
+    let name: syn::Ident = input.parse()?;
+    let name_str = name.to_string();
+
+    let args;
+    syn::parenthesized!(args in input);
+
+    match name_str.as_str() {
+        "ctrl" => {
+            let ch: syn::LitChar = args.parse()?;
+            Ok(KeyPatternExpr::Ctrl(ch))
+        }
+        "key" => {
+            let ident: syn::Ident = args.parse()?;
+            Ok(KeyPatternExpr::Key(ident))
+        }
+        "char" => {
+            let ch: syn::LitChar = args.parse()?;
+            Ok(KeyPatternExpr::Char(ch))
+        }
+        "any_char" => Ok(KeyPatternExpr::AnyChar),
+        "any_char_plain" => Ok(KeyPatternExpr::AnyCharPlain),
+        "any" => Ok(KeyPatternExpr::Any),
+        other => Err(syn::Error::new(
+            name.span(),
+            format!(
+                "unknown key pattern `{other}()`; expected ctrl, key, char, any_char, any_char_plain, or any"
+            ),
+        )),
+    }
+}
+
+/// Parse a single binding: `PATTERN => "action_id"`.
+fn parse_binding_entry(input: syn::parse::ParseStream) -> syn::Result<BindingEntry> {
+    let pattern = parse_key_pattern_expr(input)?;
+    input.parse::<syn::Token![=>]>()?;
+    let action_id: syn::LitStr = input.parse()?;
+    Ok(BindingEntry { pattern, action_id })
+}
+
+/// Parse the `key_map { ... }` section body.
+fn parse_key_map_def(input: syn::parse::ParseStream) -> syn::Result<KeyMapDef> {
+    let mut groups = Vec::new();
+    let mut chords = Vec::new();
+
+    while !input.is_empty() {
+        let ident: syn::Ident = input.parse()?;
+        match ident.to_string().as_str() {
+            "when" => {
+                // when(PREDICATE) { bindings }
+                let pred_content;
+                syn::parenthesized!(pred_content in input);
+                let predicate: proc_macro2::TokenStream = pred_content.parse()?;
+
+                let bindings_content;
+                syn::braced!(bindings_content in input);
+                let mut bindings = Vec::new();
+                while !bindings_content.is_empty() {
+                    bindings.push(parse_binding_entry(&bindings_content)?);
+                    if !bindings_content.is_empty() {
+                        bindings_content.parse::<syn::Token![,]>()?;
+                    }
+                }
+                groups.push(WhenGroupDef {
+                    predicate,
+                    bindings,
+                });
+            }
+            "chord" => {
+                // chord(LEADER_PATTERN) { bindings }
+                let leader_content;
+                syn::parenthesized!(leader_content in input);
+                let leader = parse_key_pattern_expr(&leader_content)?;
+
+                let bindings_content;
+                syn::braced!(bindings_content in input);
+                let mut bindings = Vec::new();
+                while !bindings_content.is_empty() {
+                    bindings.push(parse_binding_entry(&bindings_content)?);
+                    if !bindings_content.is_empty() {
+                        bindings_content.parse::<syn::Token![,]>()?;
+                    }
+                }
+                chords.push(ChordGroupDef { leader, bindings });
+            }
+            other => {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    format!("expected `when` or `chord` in key_map, got `{other}`"),
+                ));
+            }
+        }
+
+        if !input.is_empty() {
+            let _ = input.parse::<syn::Token![,]>();
+        }
+    }
+
+    Ok(KeyMapDef { groups, chords })
+}
+
+/// Parse the `actions { ... }` section body.
+fn parse_actions_def(input: syn::parse::ParseStream) -> syn::Result<Vec<ActionDef>> {
+    let mut actions = Vec::new();
+
+    while !input.is_empty() {
+        let id: syn::LitStr = input.parse()?;
+        input.parse::<syn::Token![=>]>()?;
+        input.parse::<syn::Token![|]>()?;
+        let event_param: syn::Ident = input.parse()?;
+        input.parse::<syn::Token![|]>()?;
+
+        let body;
+        syn::braced!(body in input);
+        let body_tokens: proc_macro2::TokenStream = body.parse()?;
+
+        actions.push(ActionDef {
+            id,
+            event_param,
+            body: body_tokens,
+        });
+
+        if !input.is_empty() {
+            let _ = input.parse::<syn::Token![,]>();
+        }
+    }
+
+    Ok(actions)
 }

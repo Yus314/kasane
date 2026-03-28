@@ -96,22 +96,22 @@ impl Guest for SurfaceProbePlugin {
 
         match event {
             SurfaceEvent::Key(KeyEvent {
-                key: KeyCode::Character(c),
+                key: KeyCode::Char(c),
                 ..
-            }) if ctx.focused && c == "n" => vec![Command::SpawnSession(SessionConfig {
+            }) if ctx.focused && c == 'n' as u32 => vec![Command::SpawnSession(SessionConfig {
                 key: Some("surface-probe.spawned".to_string()),
                 session: Some("surface-probe".to_string()),
                 args: vec!["README.md".to_string()],
                 activate: true,
             })],
             SurfaceEvent::Key(KeyEvent {
-                key: KeyCode::Character(c),
+                key: KeyCode::Char(c),
                 ..
-            }) if ctx.focused && c == "x" => vec![Command::CloseSession(None)],
+            }) if ctx.focused && c == 'x' as u32 => vec![Command::CloseSession(None)],
             SurfaceEvent::Key(KeyEvent {
-                key: KeyCode::Character(c),
+                key: KeyCode::Char(c),
                 ..
-            }) if ctx.focused && c == "a" => vec![Command::RegisterSurface(DynamicSurfaceConfig {
+            }) if ctx.focused && c == 'a' as u32 => vec![Command::RegisterSurface(DynamicSurfaceConfig {
                 surface_key: "surface_probe.dynamic".to_string(),
                 size_hint: SurfaceSizeHint {
                     min_width: 8,
@@ -124,9 +124,9 @@ impl Guest for SurfaceProbePlugin {
                 placement: SurfacePlacement::Tab,
             })],
             SurfaceEvent::Key(KeyEvent {
-                key: KeyCode::Character(c),
+                key: KeyCode::Char(c),
                 ..
-            }) if ctx.focused && c == "u" => {
+            }) if ctx.focused && c == 'u' as u32 => {
                 vec![Command::UnregisterSurface(
                     "surface_probe.dynamic".to_string(),
                 )]
@@ -213,11 +213,11 @@ impl Guest for SurfaceProbePlugin {
 
     fn handle_key_middleware(event: KeyEvent) -> KeyHandleResult {
         match event.key {
-            KeyCode::Character(ref c) if c == "m" => KeyHandleResult::Transformed(KeyEvent {
-                key: KeyCode::Character("x".to_string()),
+            KeyCode::Char(c) if c == 'm' as u32 => KeyHandleResult::Transformed(KeyEvent {
+                key: KeyCode::Char('x' as u32),
                 modifiers: event.modifiers | kasane_plugin_sdk::modifiers::SHIFT,
             }),
-            KeyCode::Character(ref c) if c == "!" => KeyHandleResult::Consumed(vec![
+            KeyCode::Char(c) if c == '!' as u32 => KeyHandleResult::Consumed(vec![
                 Command::SendKeys(vec!["middleware-consumed".to_string()]),
             ]),
             _ => KeyHandleResult::Passthrough,
@@ -253,6 +253,7 @@ impl Guest for SurfaceProbePlugin {
     kasane_plugin_sdk::default_decorate_cells!();
     kasane_plugin_sdk::default_capabilities!();
     kasane_plugin_sdk::default_view_deps!();
+    kasane_plugin_sdk::default_key_map!();
 
     fn register_capabilities() -> u32 {
         0xFFFFFFFF

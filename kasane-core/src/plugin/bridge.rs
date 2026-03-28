@@ -7,7 +7,7 @@
 use std::any::Any;
 
 use crate::element::{Element, InteractiveId, PluginTag};
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
@@ -295,6 +295,29 @@ impl PluginBackend for PluginBridge {
             })
         } else {
             None
+        }
+    }
+
+    fn compiled_key_map(&self) -> Option<&CompiledKeyMap> {
+        self.table.key_map.as_ref()
+    }
+
+    fn invoke_action(&mut self, action_id: &str, key: &KeyEvent, app: &AppView<'_>) -> KeyResponse {
+        if let Some(handler) = &self.table.action_handler {
+            let (new_state, response) = handler(&*self.state, action_id, key, app);
+            self.state = new_state;
+            self.check_state_change();
+            response
+        } else {
+            KeyResponse::Pass
+        }
+    }
+
+    fn refresh_key_groups(&mut self, app: &AppView<'_>) {
+        if let Some(handler) = &self.table.group_refresh_handler
+            && let Some(map) = &mut self.table.key_map
+        {
+            handler(&*self.state, app, map);
         }
     }
 

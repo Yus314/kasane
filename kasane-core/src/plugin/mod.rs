@@ -72,6 +72,7 @@ pub type PluginRegistry = PluginRuntime;
 pub use crate::display::{DisplayDirective, DisplayMapRef};
 
 // Re-export traits module
+pub use crate::input::KeyResponse;
 pub use traits::{KeyHandleResult, PluginBackend};
 
 // Re-export compose module

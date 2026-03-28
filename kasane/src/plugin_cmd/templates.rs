@@ -169,7 +169,7 @@ fn overlay_template(id: &str) -> String {
 
     handle_key(event) {{
         if !state.open {{
-            if is_ctrl(&event, "o") {{
+            if is_ctrl(&event, 'o') {{
                 state.open = true;
                 state.selected = 0;
                 return consumed_redraw();
@@ -242,7 +242,7 @@ fn process_template(id: &str) -> String {
 
     handle_key(event) {{
         if !state.active {{
-            if is_ctrl_shift(&event, "P") {{
+            if is_ctrl_shift(&event, 'P') {{
                 state.active = true;
                 state.output.clear();
                 return Some(vec![
@@ -486,5 +486,93 @@ mod tests {
     #[test]
     fn test_generated_overlay_template_compiles() {
         compile_generated_template("compile-overlay", PluginTemplate::Overlay);
+    }
+
+    #[test]
+    fn test_key_map_actions_template_compiles() {
+        let src = r#"kasane_plugin_sdk::define_plugin! {
+    id: "key_map_test",
+
+    state {
+        open: bool = false,
+        query: String = String::new(),
+    },
+
+    key_map {
+        when(state.open) {
+            key(Escape)  => "close",
+            key(Up)      => "nav_up",
+            any_char()   => "append_char",
+        },
+        when(!state.open) {
+            ctrl('p')    => "activate",
+        },
+        chord(ctrl('w')) {
+            char('v') => "split_v",
+            char('s') => "split_h",
+        },
+    },
+
+    actions {
+        "activate" => |_event| {
+            state.open = true;
+            KeyResponse::ConsumeRedraw
+        },
+        "close" => |_event| {
+            state.open = false;
+            state.query.clear();
+            KeyResponse::ConsumeRedraw
+        },
+        "nav_up" => |_event| {
+            KeyResponse::Consume
+        },
+        "append_char" => |event| {
+            if let KeyCode::Char(cp) = event.key {
+                if let Some(c) = char::from_u32(cp) {
+                    state.query.push(c);
+                }
+            }
+            KeyResponse::ConsumeRedraw
+        },
+        "split_v" => |_event| {
+            KeyResponse::Consume
+        },
+        "split_h" => |_event| {
+            KeyResponse::Consume
+        },
+    },
+}
+"#;
+        let project_dir = temp_project_dir("compile-keymap");
+        let src_dir = project_dir.join("src");
+        fs::create_dir_all(&src_dir).expect("temp project src dir should be created");
+
+        let mut manifest = cargo_toml("key-map-test");
+        manifest = manifest.replace(
+            &format!("kasane-plugin-sdk = \"{SDK_VERSION}\""),
+            &local_sdk_dependency_line(),
+        );
+        fs::write(project_dir.join("Cargo.toml"), manifest).expect("Cargo.toml should be written");
+        fs::write(src_dir.join("lib.rs"), src).expect("lib.rs should be written");
+
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let output = Command::new(cargo)
+            .arg("check")
+            .arg("--quiet")
+            .arg("--target")
+            .arg("wasm32-wasip2")
+            .arg("--manifest-path")
+            .arg(project_dir.join("Cargo.toml"))
+            .env("CARGO_TARGET_DIR", project_dir.join("target"))
+            .output()
+            .expect("key_map template should be checked");
+
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!("key_map template failed to compile\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        }
+
+        let _ = fs::remove_dir_all(&project_dir);
     }
 }
