@@ -287,6 +287,183 @@ fn test_dispatch_workspace_command_resize_marks_dirty() {
     }
 }
 
+// ── resize_direction tests ──────────────────────────────────────────
+
+#[test]
+fn test_resize_direction_vertical_grows_first() {
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    let _right = ws.split_focused(SplitDirection::Vertical, 0.5);
+    ws.focus(SurfaceId::BUFFER);
+
+    assert!(ws.resize_direction(SplitDirection::Vertical, 0.1));
+
+    match ws.root() {
+        WorkspaceNode::Split { ratio, .. } => {
+            assert!((*ratio - 0.6).abs() < f32::EPSILON);
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_resize_direction_vertical_grows_second() {
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    let right = ws.split_focused(SplitDirection::Vertical, 0.5);
+    ws.focus(right);
+
+    assert!(ws.resize_direction(SplitDirection::Vertical, 0.1));
+
+    match ws.root() {
+        WorkspaceNode::Split { ratio, .. } => {
+            assert!((*ratio - 0.4).abs() < f32::EPSILON);
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_resize_direction_wrong_axis_noop() {
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    let _bottom = ws.split_focused(SplitDirection::Horizontal, 0.5);
+    ws.focus(SurfaceId::BUFFER);
+
+    assert!(!ws.resize_direction(SplitDirection::Vertical, 0.1));
+
+    match ws.root() {
+        WorkspaceNode::Split { ratio, .. } => {
+            assert!((*ratio - 0.5).abs() < f32::EPSILON);
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_resize_direction_nested_targets_inner() {
+    // V-split(L, V-split(A, B)), focus A → inner V ratio changes, outer stays 0.5
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    let right = ws.split_focused(SplitDirection::Vertical, 0.5);
+    ws.focus(right);
+    let far_right = ws.split_focused(SplitDirection::Vertical, 0.5);
+    ws.focus(right); // focus A (the left of inner split)
+    let _ = far_right;
+
+    assert!(ws.resize_direction(SplitDirection::Vertical, 0.1));
+
+    match ws.root() {
+        WorkspaceNode::Split {
+            ratio: outer_ratio,
+            second,
+            ..
+        } => {
+            assert!((*outer_ratio - 0.5).abs() < f32::EPSILON);
+            match second.as_ref() {
+                WorkspaceNode::Split {
+                    ratio: inner_ratio, ..
+                } => {
+                    assert!((*inner_ratio - 0.6).abs() < f32::EPSILON);
+                }
+                other => panic!("expected inner Split, got {other:?}"),
+            }
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_resize_direction_skips_cross_finds_outer() {
+    // V-split(L, H-split(T, B)), focus T → inner H skipped, outer V ratio changes
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    let right = ws.split_focused(SplitDirection::Vertical, 0.5);
+    ws.focus(right);
+    let _bottom = ws.split_focused(SplitDirection::Horizontal, 0.5);
+    ws.focus(right); // focus T (top of inner H-split)
+
+    assert!(ws.resize_direction(SplitDirection::Vertical, 0.1));
+
+    match ws.root() {
+        WorkspaceNode::Split {
+            ratio: outer_ratio,
+            second,
+            ..
+        } => {
+            // right is in second → delta is negated → ratio decreases
+            assert!((*outer_ratio - 0.4).abs() < f32::EPSILON);
+            match second.as_ref() {
+                WorkspaceNode::Split {
+                    ratio: inner_ratio, ..
+                } => {
+                    assert!((*inner_ratio - 0.5).abs() < f32::EPSILON);
+                }
+                other => panic!("expected inner Split, got {other:?}"),
+            }
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_resize_direction_single_leaf_false() {
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    assert!(!ws.resize_direction(SplitDirection::Vertical, 0.1));
+}
+
+#[test]
+fn test_resize_direction_horizontal_works() {
+    let mut ws = Workspace::new(SurfaceId::BUFFER);
+    let _bottom = ws.split_focused(SplitDirection::Horizontal, 0.5);
+    ws.focus(SurfaceId::BUFFER);
+
+    assert!(ws.resize_direction(SplitDirection::Horizontal, 0.1));
+
+    match ws.root() {
+        WorkspaceNode::Split { ratio, .. } => {
+            assert!((*ratio - 0.6).abs() < f32::EPSILON);
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_dispatch_workspace_command_resize_direction_marks_dirty() {
+    let mut reg = SurfaceRegistry::new();
+    reg.register(Box::new(crate::surface::buffer::KakouneBufferSurface::new()));
+    let right = SurfaceId(10);
+    reg.try_register(TestSurfaceBuilder::new(right).key("test.right").build())
+        .unwrap();
+
+    let mut dirty = DirtyFlags::empty();
+    dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::AddSurface {
+            surface_id: right,
+            placement: Placement::SplitFocused {
+                direction: SplitDirection::Vertical,
+                ratio: 0.5,
+            },
+        },
+        &mut dirty,
+    );
+    reg.workspace_mut().focus(right);
+
+    dirty = DirtyFlags::empty();
+    dispatch_workspace_command(
+        &mut reg,
+        WorkspaceCommand::ResizeDirection {
+            direction: SplitDirection::Vertical,
+            delta: 0.1,
+        },
+        &mut dirty,
+    );
+
+    assert!(dirty.contains(DirtyFlags::ALL));
+    match reg.workspace().root() {
+        WorkspaceNode::Split { ratio, .. } => {
+            assert!((*ratio - 0.4).abs() < f32::EPSILON);
+        }
+        other => panic!("expected Split root, got {other:?}"),
+    }
+}
+
 #[test]
 fn test_swap_surfaces_exchanges_split_leaf_positions() {
     let mut ws = Workspace::new(SurfaceId::BUFFER);

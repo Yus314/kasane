@@ -89,6 +89,28 @@ kasane_plugin_sdk::define_plugin! {
                         -0.05,
                     ))])
                 }
+                KeyCode::Character(c)
+                    if c == ">"
+                        && event.modifiers & (modifiers::CTRL | modifiers::ALT) == 0 =>
+                {
+                    Some(vec![Command::WorkspaceCommand(
+                        WorkspaceCmd::ResizeDirection(ResizeDirectionConfig {
+                            direction: SplitDirection::Vertical,
+                            delta: 0.05,
+                        }),
+                    )])
+                }
+                KeyCode::Character(c)
+                    if c == "<"
+                        && event.modifiers & (modifiers::CTRL | modifiers::ALT) == 0 =>
+                {
+                    Some(vec![Command::WorkspaceCommand(
+                        WorkspaceCmd::ResizeDirection(ResizeDirectionConfig {
+                            direction: SplitDirection::Vertical,
+                            delta: -0.05,
+                        }),
+                    )])
+                }
                 KeyCode::Character(c) if c == "q" && event.modifiers == 0 => {
                     if let Some(pane_key) = state.panes.pop() {
                         Some(vec![Command::ClosePaneClient(pane_key)])

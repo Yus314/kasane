@@ -156,7 +156,7 @@ pub(crate) fn surface_event_to_wit(event: &SurfaceEvent) -> wit::SurfaceEvent {
 }
 
 enum_convert! {
-    wit_split_direction_to_split_direction: wit::SplitDirection => SplitDirection,
+    pub(crate) wit_split_direction_to_split_direction: wit::SplitDirection => SplitDirection,
     { Horizontal, Vertical }
 }
 

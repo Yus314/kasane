@@ -566,6 +566,68 @@ impl WorkspaceNode {
         }
     }
 
+    /// Adjust the nearest ancestor split ratio for `target`, but only at
+    /// splits whose direction matches `dir`.
+    ///
+    /// Positive `delta` grows the subtree containing `target`.
+    pub(crate) fn resize_direction_target(
+        &mut self,
+        target: SurfaceId,
+        dir: SplitDirection,
+        delta: f32,
+    ) -> bool {
+        match self {
+            WorkspaceNode::Leaf { .. } => false,
+            WorkspaceNode::Split {
+                direction,
+                ratio,
+                first,
+                second,
+                ..
+            } => {
+                let in_first = first.find(target).is_some();
+                let in_second = second.find(target).is_some();
+                if !in_first && !in_second {
+                    return false;
+                }
+
+                if in_first && first.resize_direction_target(target, dir, delta) {
+                    return true;
+                }
+                if in_second && second.resize_direction_target(target, dir, delta) {
+                    return true;
+                }
+
+                if *direction != dir {
+                    return false;
+                }
+
+                let signed_delta = if in_first { delta } else { -delta };
+                let new_ratio = (*ratio + signed_delta).clamp(0.05, 0.95);
+                if (new_ratio - *ratio).abs() < f32::EPSILON {
+                    return false;
+                }
+                *ratio = new_ratio;
+                true
+            }
+            WorkspaceNode::Tabs { tabs, active, .. } => {
+                if let Some(active_tab) = tabs.get_mut(*active)
+                    && active_tab.find(target).is_some()
+                {
+                    return active_tab.resize_direction_target(target, dir, delta);
+                }
+                false
+            }
+            WorkspaceNode::Float { base, .. } => {
+                if base.find(target).is_some() {
+                    base.resize_direction_target(target, dir, delta)
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
     /// Swap the positions of two leaf surfaces.
     pub(crate) fn swap_leaf_ids(&mut self, a: SurfaceId, b: SurfaceId) {
         if let WorkspaceNode::Leaf { surface_id } = self {

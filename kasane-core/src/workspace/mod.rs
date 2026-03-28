@@ -73,6 +73,11 @@ pub enum WorkspaceCommand {
     FocusDirection(FocusDirection),
     /// Resize the focused split divider by delta (-1.0..1.0).
     Resize { delta: f32 },
+    /// Resize the focused split divider, but only along the given axis.
+    ResizeDirection {
+        direction: SplitDirection,
+        delta: f32,
+    },
     /// Swap two surfaces.
     Swap(SurfaceId, SurfaceId),
     /// Make a tiled surface floating.
@@ -240,6 +245,14 @@ pub fn dispatch_workspace_command_with_total(
         }
         WorkspaceCommand::Resize { delta } => {
             if surface_registry.workspace_mut().resize_focused(delta) {
+                *dirty |= DirtyFlags::ALL;
+            }
+        }
+        WorkspaceCommand::ResizeDirection { direction, delta } => {
+            if surface_registry
+                .workspace_mut()
+                .resize_direction(direction, delta)
+            {
                 *dirty |= DirtyFlags::ALL;
             }
         }
@@ -506,6 +519,18 @@ impl Workspace {
             return false;
         }
         self.root.resize_target(self.focused, delta)
+    }
+
+    /// Resize the nearest split of the given direction containing the focused surface.
+    ///
+    /// Positive `delta` grows the focused surface's subtree.
+    /// Returns `false` if no matching split was found.
+    pub fn resize_direction(&mut self, direction: SplitDirection, delta: f32) -> bool {
+        if delta == 0.0 {
+            return false;
+        }
+        self.root
+            .resize_direction_target(self.focused, direction, delta)
     }
 
     /// Swap two surfaces in the workspace layout.

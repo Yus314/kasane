@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable | Completion criteria |
 |---|---|---|
-| Multi-pane UI polish | Pane resize direction key bindings | Directional resize (`<C-w>>/<`); layout persistence |
+| Multi-pane UI polish | Pane layout persistence | Restore layout on session reconnect |
 | Display transformation / display unit model | P-040 through P-043 (display unit model) | Display unit abstraction, visual navigation, and plugin-defined navigation policy are in place |
 
 ### 2.2 Next
@@ -62,16 +62,16 @@ Foundation delivered in Phase 5b/5c:
 - Pane border / separator glyphs — box-drawing characters (`│` / `─`) with `SPLIT_DIVIDER` / `SPLIT_DIVIDER_FOCUSED` theme tokens; edge-adjacency detection for focused pane highlight
 - Mouse divider drag-to-resize (`handle_workspace_divider_mouse()`, `WorkspaceCommand::Resize`)
 - Pane resize key bindings — `<C-w>+/-` via pane-manager plugin (`WorkspaceCommand::Resize`)
+- Pane resize direction key bindings — `<C-w>>/<` for width-axis resize via `WorkspaceCommand::ResizeDirection` (direction-filtered tree-walk; skips cross-axis splits)
 - TUI and GUI backend support
 
 - Per-pane status bar — each pane displays its own mode, file name, and status via singleton N-render of `StatusBarSurface` (reuses `resolve_surface_tree()` with `PaneContext`; Kakoune clients resized to `rect.h - 1`; prompt cursor positioned relative to focused pane rect)
 
 Remaining work:
 
-- Pane resize direction key bindings — `<C-w>>/<` for directional resize (current `+/-` adjusts focused split ratio only)
 - Pane layout persistence — restore layout on session reconnect
 
-Next deliverable: Pane resize direction key bindings
+Next deliverable: Pane layout persistence
 
 ### 3.2 Display transformation / display unit model
 

@@ -97,6 +97,12 @@ interface types {
     variant workspace-cmd {
         focus-direction(focus-dir),
         resize(f32),
+        resize-direction(resize-direction-config),
+    }
+
+    record resize-direction-config {
+        direction: split-direction,
+        delta: f32,
     }
 
     enum focus-dir {

@@ -125,6 +125,12 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
                     delta: *delta,
                 })
             }
+            wit::WorkspaceCmd::ResizeDirection(config) => {
+                Command::Workspace(kasane_core::workspace::WorkspaceCommand::ResizeDirection {
+                    direction: super::wit_split_direction_to_split_direction(config.direction),
+                    delta: config.delta,
+                })
+            }
         },
     }
 }
