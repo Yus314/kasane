@@ -72,12 +72,6 @@
           # Skip tests that require kakoune or a TTY
           doCheck = true;
           cargoTestFlags = [ "-p" "kasane-core" "-p" "kasane-tui" ];
-          # #[should_panic] tests are incompatible with release profile (panic = "abort")
-          checkFlags = [
-            "--skip" "plugin::pubsub::tests::publish_during_delivery_panics_in_debug"
-            "--skip" "render::inline_decoration::tests::invariant_unsorted_panics"
-            "--skip" "render::inline_decoration::tests::overlapping_ops_asserts"
-          ];
 
           nativeBuildInputs = [
             pkgs.pkg-config
