@@ -74,7 +74,7 @@ check_abi_version() {
 
     # Find all kasane:plugin@X.Y.Z references
     local found
-    found=$(grep -oP 'kasane:plugin@\K[0-9.]+' "$filepath" || true)
+    found=$(grep -oE 'kasane:plugin@[0-9.]+' "$filepath" | sed 's/kasane:plugin@//' || true)
 
     if [[ -z "$found" ]]; then
       warn "$file: no kasane:plugin@ reference found"
@@ -122,7 +122,7 @@ check_color_defaults() {
     # Check config.md for this field's default value in the [colors] table
     # Table format: | `field` | `#hexval` | Description |
     local doc_value
-    doc_value=$(grep -P "^\| \`${field}\`" "$config_md" | grep -oP '#[0-9a-fA-F]{6}' | head -1 || true)
+    doc_value=$(grep -E "^\| \`${field}\`" "$config_md" | grep -oE '#[0-9a-fA-F]{6}' | head -1 || true)
 
     if [[ -z "$doc_value" ]]; then
       # Field might not be in the colors table (could be in a different section)
@@ -187,7 +187,7 @@ check_scalar_defaults() {
 
     # Find the table row in config.md matching this field
     local row
-    row=$(grep -P "$doc_pattern" "$config_md" | head -1 || true)
+    row=$(grep -E "$doc_pattern" "$config_md" | head -1 || true)
 
     if [[ -z "$row" ]]; then
       # Field not found in docs — skip (might be in a non-table section)
@@ -231,10 +231,10 @@ check_capability_names() {
   # Extract capability names from config.rs doc comment
   # Line: /// Valid capability names: "filesystem", "environment", "monotonic-clock", "process".
   local code_caps
-  code_caps=$(grep 'Valid capability names:' "$config_rs" | grep -oP '"[^"]*"' | tr -d '"' | sort)
+  code_caps=$(grep 'Valid capability names:' "$config_rs" | grep -oE '"[^"]*"' | tr -d '"' | sort)
 
   local doc_caps
-  doc_caps=$(grep 'Valid capability names:' "$config_md" | grep -oP '`"[^"]*"`' | tr -d '`"' | sort)
+  doc_caps=$(grep 'Valid capability names:' "$config_md" | grep -oE '`"[^"]*"`' | tr -d '`"' | sort)
 
   if [[ -n "$code_caps" ]] && [[ -n "$doc_caps" ]]; then
     local missing
@@ -256,10 +256,10 @@ check_capability_names() {
 
   # Extract authority names from config.rs doc comment
   local code_auths
-  code_auths=$(grep 'Valid authority names:' "$config_rs" | grep -oP '"[^"]*"' | tr -d '"' | sort)
+  code_auths=$(grep 'Valid authority names:' "$config_rs" | grep -oE '"[^"]*"' | tr -d '"' | sort)
 
   local doc_auths
-  doc_auths=$(grep 'Valid authority names:' "$config_md" | grep -oP '`"[^"]*"`' | tr -d '`"' | sort)
+  doc_auths=$(grep 'Valid authority names:' "$config_md" | grep -oE '`"[^"]*"`' | tr -d '`"' | sort)
 
   if [[ -n "$code_auths" ]] && [[ -n "$doc_auths" ]]; then
     local missing
@@ -315,7 +315,7 @@ check_doc_links() {
         error "docs/$basename: broken link to $link"
         link_errors=$((link_errors + 1))
       fi
-    done < <(grep -oP '\]\(\K[^)]+' "$md_file" || true)
+    done < <(grep -oE '\]\([^)]+' "$md_file" | sed 's/^](//' || true)
   done
 
   # Also check README.md
@@ -336,11 +336,44 @@ check_doc_links() {
         error "README.md: broken link to $link"
         link_errors=$((link_errors + 1))
       fi
-    done < <(grep -oP '\]\(\K[^)]+' "$readme" || true)
+    done < <(grep -oE '\]\([^)]+' "$readme" | sed 's/^](//' || true)
   fi
 
   if [[ $link_errors -eq 0 ]]; then
     ok "all doc links valid"
+  fi
+}
+
+# =============================================================================
+# Check 6: README code examples match source files
+# =============================================================================
+check_readme_code_examples() {
+  echo "--- README code examples ---" >&2
+  local readme="$ROOT_DIR/README.md"
+  local sel_badge_src="$ROOT_DIR/examples/wasm/sel-badge/src/lib.rs"
+
+  if [[ ! -f "$readme" ]] || [[ ! -f "$sel_badge_src" ]]; then
+    warn "README.md or sel-badge/src/lib.rs not found"
+    return
+  fi
+
+  # Extract the rust code block from README that contains define_plugin!
+  local readme_code
+  readme_code=$(sed -n '/^```rust$/,/^```$/{ /^```/d; p; }' "$readme")
+
+  # Get the sel-badge source (strip trailing newline)
+  local source_code
+  source_code=$(sed '/^$/d' "$sel_badge_src" | sed 's/[[:space:]]*$//')
+
+  # Normalize both for comparison (strip blank lines and trailing whitespace)
+  local readme_norm source_norm
+  readme_norm=$(echo "$readme_code" | sed '/^$/d' | sed 's/[[:space:]]*$//')
+  source_norm=$(echo "$source_code" | sed '/^$/d' | sed 's/[[:space:]]*$//')
+
+  if [[ "$readme_norm" != "$source_norm" ]]; then
+    error "README.md: sel-badge code example does not match examples/wasm/sel-badge/src/lib.rs"
+  else
+    ok "README sel-badge example matches source"
   fi
 }
 
@@ -357,6 +390,7 @@ if [[ "$MODE" == "full" ]]; then
   check_scalar_defaults
   check_capability_names
   check_doc_links
+  check_readme_code_examples
 fi
 
 echo "===" >&2
