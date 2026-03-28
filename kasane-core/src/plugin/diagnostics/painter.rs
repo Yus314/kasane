@@ -435,6 +435,11 @@ pub fn plugin_diagnostic_overlay_text_face(
                 g: 214,
                 b: 168,
             },
+            (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Color::Rgb {
+                r: 160,
+                g: 180,
+                b: 200,
+            },
             (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Color::Rgb {
                 r: 171,
                 g: 212,
@@ -486,6 +491,11 @@ pub fn plugin_diagnostic_overlay_tag_face(
                 g: 54,
                 b: 18,
             },
+            (PluginDiagnosticOverlayTagKind::ArtifactManifest, _) => Color::Rgb {
+                r: 90,
+                g: 110,
+                b: 130,
+            },
             (PluginDiagnosticOverlayTagKind::ArtifactRead, _) => Color::Rgb {
                 r: 78,
                 g: 106,
@@ -512,6 +522,7 @@ pub fn plugin_diagnostic_overlay_tag_text(kind: PluginDiagnosticOverlayTagKind) 
     match kind {
         PluginDiagnosticOverlayTagKind::Activation => "P",
         PluginDiagnosticOverlayTagKind::Discovery => "D",
+        PluginDiagnosticOverlayTagKind::ArtifactManifest => "M",
         PluginDiagnosticOverlayTagKind::ArtifactRead => "R",
         PluginDiagnosticOverlayTagKind::ArtifactLoad => "L",
         PluginDiagnosticOverlayTagKind::ArtifactInstantiate => "I",

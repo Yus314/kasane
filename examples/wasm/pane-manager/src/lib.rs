@@ -5,14 +5,12 @@ fn alloc_pane_key(next_pane: &mut u32) -> String {
 }
 
 kasane_plugin_sdk::define_plugin! {
-    id: "pane_manager",
+    manifest: "kasane-plugin.toml",
 
     state {
         panes: Vec<String> = Vec::new(),
         next_pane: u32 = 0,
     },
-
-    authorities: [PluginAuthority::WorkspaceManagement],
 
     on_workspace_changed(snapshot) {
         state.panes.retain(|pane_key| {

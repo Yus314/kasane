@@ -1,0 +1,12 @@
+[plugin]
+id = "surface_probe"
+abi_version = "0.22.0"
+
+[authorities]
+host = ["dynamic-surface"]
+
+[handlers]
+flags = ["overlay", "input-handler", "surface-provider", "contributor"]
+
+[view]
+deps = ["buffer-content", "buffer-cursor"]

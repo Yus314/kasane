@@ -158,6 +158,47 @@ pub fn build_wasi_ctx(
     Ok(builder.build())
 }
 
+/// Build a `WasiCtx` from manifest-declared capability names.
+///
+/// Converts string names from the manifest to `Capability` enum values,
+/// then delegates to [`build_wasi_ctx`]. Unknown names are silently
+/// skipped (they should have been caught by manifest validation).
+pub fn build_wasi_ctx_from_manifest(
+    plugin_id: &str,
+    manifest_caps: &[String],
+    config: &WasiCapabilityConfig,
+) -> anyhow::Result<WasiCtx> {
+    let capabilities: Vec<Capability> = manifest_caps
+        .iter()
+        .filter_map(|name| match name.as_str() {
+            "filesystem" => Some(Capability::Filesystem),
+            "environment" => Some(Capability::Environment),
+            "monotonic-clock" => Some(Capability::MonotonicClock),
+            "process" => Some(Capability::Process),
+            _ => None,
+        })
+        .collect();
+    build_wasi_ctx(plugin_id, &capabilities, config)
+}
+
+/// Check whether the "process" capability is in the manifest list and not denied.
+pub fn is_process_allowed_by_manifest(
+    plugin_id: &str,
+    manifest_caps: &[String],
+    config: &WasiCapabilityConfig,
+) -> bool {
+    let has_process = manifest_caps.iter().any(|name| name == "process");
+    if !has_process {
+        return false;
+    }
+    let denied = config
+        .deny_capabilities
+        .get(plugin_id)
+        .map(|v| v.as_slice())
+        .unwrap_or_default();
+    !denied.iter().any(|d| d == "process")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

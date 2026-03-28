@@ -6,7 +6,7 @@ fn smooth_scroll_enabled() -> bool {
 }
 
 kasane_plugin_sdk::define_plugin! {
-    id: "smooth_scroll",
+    manifest: "kasane-plugin.toml",
 
     handle_default_scroll(candidate) {
         if !smooth_scroll_enabled() {

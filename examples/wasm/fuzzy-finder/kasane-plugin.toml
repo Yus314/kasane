@@ -1,0 +1,9 @@
+[plugin]
+id = "fuzzy_finder"
+abi_version = "0.22.0"
+
+[capabilities]
+wasi = ["process"]
+
+[handlers]
+flags = ["overlay", "input-handler", "io-handler"]

@@ -106,6 +106,7 @@ fn overlay_severity_weight(severity: PluginDiagnosticSeverity) -> u32 {
 
 fn overlay_tag_score_bonus(kind: PluginDiagnosticOverlayTagKind) -> u32 {
     match kind {
+        PluginDiagnosticOverlayTagKind::ArtifactManifest => 0,
         PluginDiagnosticOverlayTagKind::ArtifactRead => 0,
         PluginDiagnosticOverlayTagKind::ArtifactLoad => 1,
         PluginDiagnosticOverlayTagKind::ArtifactInstantiate => 2,
@@ -385,7 +386,8 @@ fn provider_artifact_warning(bucket: &OverlayBucket) -> bool {
         && bucket.line.severity == PluginDiagnosticSeverity::Warning
         && matches!(
             bucket.line.tag_kind,
-            PluginDiagnosticOverlayTagKind::ArtifactRead
+            PluginDiagnosticOverlayTagKind::ArtifactManifest
+                | PluginDiagnosticOverlayTagKind::ArtifactRead
                 | PluginDiagnosticOverlayTagKind::ArtifactLoad
                 | PluginDiagnosticOverlayTagKind::ArtifactInstantiate
         )
@@ -396,6 +398,7 @@ fn provider_artifact_stage_quota(buckets: &[OverlayBucket], limit: usize) -> usi
         provider_artifact_instantiate_warning as fn(&OverlayBucket) -> bool,
         provider_artifact_load_warning,
         provider_artifact_read_warning,
+        provider_artifact_manifest_warning,
     ]
     .into_iter()
     .filter(|predicate| buckets.iter().any(*predicate))
@@ -421,6 +424,12 @@ fn provider_artifact_read_warning(bucket: &OverlayBucket) -> bool {
         && bucket.line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactRead
 }
 
+fn provider_artifact_manifest_warning(bucket: &OverlayBucket) -> bool {
+    matches!(bucket.target, PluginDiagnosticTarget::Provider(_))
+        && bucket.line.severity == PluginDiagnosticSeverity::Warning
+        && bucket.line.tag_kind == PluginDiagnosticOverlayTagKind::ArtifactManifest
+}
+
 fn reserve_provider_artifact_stage_indexes(
     selected: &mut Vec<usize>,
     marked: &mut [bool],
@@ -432,10 +441,11 @@ fn reserve_provider_artifact_stage_indexes(
         return;
     }
 
-    let predicates: [fn(&OverlayBucket) -> bool; 3] = [
+    let predicates: [fn(&OverlayBucket) -> bool; 4] = [
         provider_artifact_instantiate_warning,
         provider_artifact_load_warning,
         provider_artifact_read_warning,
+        provider_artifact_manifest_warning,
     ];
     for predicate in predicates {
         reserve_overlay_indexes(selected, marked, buckets, limit, 1, predicate);
@@ -591,9 +601,10 @@ fn diagnostic_overlay_priority(diagnostic: &PluginDiagnostic) -> (u8, u8, u8, u8
 
 fn provider_artifact_overlay_priority(stage: ProviderArtifactStage) -> u8 {
     match stage {
-        ProviderArtifactStage::Instantiate => 2,
-        ProviderArtifactStage::Load => 1,
-        ProviderArtifactStage::Read => 0,
+        ProviderArtifactStage::Instantiate => 3,
+        ProviderArtifactStage::Load => 2,
+        ProviderArtifactStage::Read => 1,
+        ProviderArtifactStage::Manifest => 0,
     }
 }
 
@@ -603,6 +614,7 @@ fn diagnostic_overlay_tag_kind(diagnostic: &PluginDiagnostic) -> PluginDiagnosti
         | PluginDiagnosticKind::InstantiationFailed => PluginDiagnosticOverlayTagKind::Activation,
         PluginDiagnosticKind::ProviderCollectFailed => PluginDiagnosticOverlayTagKind::Discovery,
         PluginDiagnosticKind::ProviderArtifactFailed { stage, .. } => match stage {
+            ProviderArtifactStage::Manifest => PluginDiagnosticOverlayTagKind::ArtifactManifest,
             ProviderArtifactStage::Read => PluginDiagnosticOverlayTagKind::ArtifactRead,
             ProviderArtifactStage::Load => PluginDiagnosticOverlayTagKind::ArtifactLoad,
             ProviderArtifactStage::Instantiate => {

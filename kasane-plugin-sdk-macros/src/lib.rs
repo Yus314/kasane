@@ -9,7 +9,86 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
+use serde::Deserialize;
 use syn::{ImplItem, ImplItemFn, ItemImpl, parse_macro_input};
+
+// ---------------------------------------------------------------------------
+// Compile-time manifest types (subset of kasane-wasm's PluginManifest)
+// ---------------------------------------------------------------------------
+
+/// Manifest schema for compile-time validation in `define_plugin!`.
+#[derive(Debug, Deserialize)]
+struct CompileTimeManifest {
+    plugin: ManifestPlugin,
+    #[serde(default)]
+    capabilities: ManifestCapabilities,
+    #[serde(default)]
+    authorities: ManifestAuthorities,
+    #[serde(default)]
+    view: ManifestView,
+}
+
+#[derive(Debug, Deserialize)]
+struct ManifestPlugin {
+    id: String,
+    #[allow(dead_code)]
+    abi_version: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ManifestCapabilities {
+    #[serde(default)]
+    wasi: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ManifestAuthorities {
+    #[serde(default)]
+    host: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ManifestView {
+    #[serde(default)]
+    deps: Vec<String>,
+}
+
+/// Map WASI capability name to the WIT enum variant path for codegen.
+fn wasi_capability_variant(name: &str) -> Option<&'static str> {
+    match name {
+        "filesystem" => Some("Capability::Filesystem"),
+        "environment" => Some("Capability::Environment"),
+        "monotonic-clock" => Some("Capability::MonotonicClock"),
+        "process" => Some("Capability::Process"),
+        _ => None,
+    }
+}
+
+/// Map host authority name to the WIT enum variant path for codegen.
+fn host_authority_variant(name: &str) -> Option<&'static str> {
+    match name {
+        "dynamic-surface" => Some("PluginAuthority::DynamicSurface"),
+        "pty-process" => Some("PluginAuthority::PtyProcess"),
+        "workspace-management" => Some("PluginAuthority::WorkspaceManagement"),
+        _ => None,
+    }
+}
+
+/// Map view dep name to its bit value.
+fn compile_time_view_dep_bit(name: &str) -> Option<u16> {
+    match name {
+        "buffer-content" => Some(1 << 0),
+        "status" => Some(1 << 1),
+        "menu-structure" => Some(1 << 2),
+        "menu-selection" => Some(1 << 3),
+        "info" => Some(1 << 4),
+        "options" => Some(1 << 5),
+        "buffer-cursor" => Some(1 << 6),
+        "plugin-state" => Some(1 << 7),
+        "session" => Some(1 << 8),
+        _ => None,
+    }
+}
 
 /// Attribute macro that fills in default implementations for all
 /// unimplemented `Guest` trait methods.
@@ -1875,7 +1954,14 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let capabilities_method = if let Some(ref caps) = def.capabilities {
+    let capabilities_method = if let Some(ref m) = def.manifest {
+        let variants = &m.capability_variants;
+        quote! {
+            fn requested_capabilities() -> Vec<Capability> {
+                vec![ #( #variants ),* ]
+            }
+        }
+    } else if let Some(ref caps) = def.capabilities {
         quote! {
             fn requested_capabilities() -> Vec<Capability> {
                 vec![ #caps ]
@@ -1885,7 +1971,14 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
-    let authorities_method = if let Some(ref authorities) = def.authorities {
+    let authorities_method = if let Some(ref m) = def.manifest {
+        let variants = &m.authority_variants;
+        quote! {
+            fn requested_authorities() -> Vec<PluginAuthority> {
+                vec![ #( #variants ),* ]
+            }
+        }
+    } else if let Some(ref authorities) = def.authorities {
         quote! {
             fn requested_authorities() -> Vec<PluginAuthority> {
                 vec![ #authorities ]
@@ -1922,8 +2015,15 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     };
 
     // Generate view_deps method.
-    // Priority: explicit view_deps > auto-infer from #[bind] flags > default (ALL).
-    let view_deps_method = if let Some(ref vd) = def.view_deps {
+    // Priority: manifest view.deps > explicit view_deps > auto-infer from #[bind] flags > default (ALL).
+    let view_deps_method = if let Some(ref m) = def.manifest {
+        if m.has_view_deps {
+            let mask = m.view_deps_mask;
+            quote! { fn view_deps() -> u16 { #mask } }
+        } else {
+            quote! {} // Empty deps in manifest → fall through to default (ALL)
+        }
+    } else if let Some(ref vd) = def.view_deps {
         quote! { fn view_deps() -> u16 { #vd } }
     } else if let Some(ref state_def) = def.state {
         // Auto-infer from #[bind(expr, on: flag)] declarations
@@ -2268,6 +2368,7 @@ fn generate_invoke_action(
 // --- define_plugin! DSL parser ---
 
 struct PluginDef {
+    manifest: Option<ManifestDef>,
     id: syn::LitStr,
     state: Option<StateDef>,
     on_init_effects: Option<proc_macro2::TokenStream>,
@@ -2292,6 +2393,20 @@ struct PluginDef {
     key_map: Option<KeyMapDef>,
     actions: Option<Vec<ActionDef>>,
     impl_block: Option<Vec<ImplItemFn>>,
+}
+
+/// Resolved manifest data from compile-time TOML parsing.
+struct ManifestDef {
+    /// The plugin ID from `[plugin].id`.
+    id: String,
+    /// Capability variant tokens (e.g. `Capability::Process`).
+    capability_variants: Vec<proc_macro2::TokenStream>,
+    /// Authority variant tokens (e.g. `PluginAuthority::PtyProcess`).
+    authority_variants: Vec<proc_macro2::TokenStream>,
+    /// Pre-computed view_deps bitmask.
+    view_deps_mask: u16,
+    /// Whether view.deps was non-empty (use mask) vs empty (use ALL default).
+    has_view_deps: bool,
 }
 
 struct StateDef {
@@ -2394,6 +2509,7 @@ struct ActionDef {
 impl syn::parse::Parse for PluginDef {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut def = PluginDef {
+            manifest: None,
             id: syn::LitStr::new("", proc_macro2::Span::call_site()),
             state: None,
             on_init_effects: None,
@@ -2421,6 +2537,8 @@ impl syn::parse::Parse for PluginDef {
         };
 
         let mut has_id = false;
+        let mut has_manifest = false;
+        let mut has_explicit_id = false;
 
         while !input.is_empty() {
             // `impl` is a Rust keyword, so it cannot be parsed as syn::Ident.
@@ -2446,10 +2564,20 @@ impl syn::parse::Parse for PluginDef {
             let section = ident.to_string();
 
             match section.as_str() {
+                "manifest" => {
+                    input.parse::<syn::Token![:]>()?;
+                    let path_lit: syn::LitStr = input.parse()?;
+                    let manifest_def = parse_manifest_at_compile_time(&path_lit)?;
+                    def.id = syn::LitStr::new(&manifest_def.id, path_lit.span());
+                    has_id = true;
+                    has_manifest = true;
+                    def.manifest = Some(manifest_def);
+                }
                 "id" => {
                     input.parse::<syn::Token![:]>()?;
                     def.id = input.parse()?;
                     has_id = true;
+                    has_explicit_id = true;
                 }
                 "state" => {
                     let content;
@@ -2750,8 +2878,30 @@ impl syn::parse::Parse for PluginDef {
         if !has_id {
             return Err(syn::Error::new(
                 proc_macro2::Span::call_site(),
-                "define_plugin! requires an `id: \"...\"` section",
+                "define_plugin! requires an `id: \"...\"` or `manifest: \"...\"` section",
             ));
+        }
+
+        // Conflict detection: manifest: is mutually exclusive with id:, capabilities:, authorities:
+        if has_manifest {
+            if has_explicit_id {
+                return Err(syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "define_plugin! `id:` conflicts with `manifest:` — the plugin ID is declared in the manifest TOML",
+                ));
+            }
+            if def.capabilities.is_some() {
+                return Err(syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "define_plugin! `capabilities:` conflicts with `manifest:` — capabilities are declared in the manifest TOML",
+                ));
+            }
+            if def.authorities.is_some() {
+                return Err(syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "define_plugin! `authorities:` conflicts with `manifest:` — authorities are declared in the manifest TOML",
+                ));
+            }
         }
 
         if def.impl_block.is_some() && def.state.is_none() {
@@ -2763,6 +2913,81 @@ impl syn::parse::Parse for PluginDef {
 
         Ok(def)
     }
+}
+
+/// Read and parse a manifest TOML file at compile time.
+///
+/// The path is resolved relative to `CARGO_MANIFEST_DIR` (the consuming crate's root).
+fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Result<ManifestDef> {
+    let rel_path = path_lit.value();
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
+        syn::Error::new(
+            path_lit.span(),
+            "CARGO_MANIFEST_DIR not set — cannot resolve manifest path",
+        )
+    })?;
+    let full_path = std::path::Path::new(&manifest_dir).join(&rel_path);
+
+    let toml_str = std::fs::read_to_string(&full_path).map_err(|e| {
+        syn::Error::new(
+            path_lit.span(),
+            format!("failed to read manifest at {}: {e}", full_path.display()),
+        )
+    })?;
+
+    let manifest: CompileTimeManifest = toml::from_str(&toml_str).map_err(|e| {
+        syn::Error::new(
+            path_lit.span(),
+            format!("failed to parse manifest TOML: {e}"),
+        )
+    })?;
+
+    // Convert capability names to WIT variant tokens
+    let mut capability_variants = Vec::new();
+    for name in &manifest.capabilities.wasi {
+        let variant = wasi_capability_variant(name).ok_or_else(|| {
+            syn::Error::new(
+                path_lit.span(),
+                format!("unknown WASI capability in manifest: `{name}`"),
+            )
+        })?;
+        let tokens: proc_macro2::TokenStream = variant.parse().unwrap();
+        capability_variants.push(tokens);
+    }
+
+    // Convert authority names to WIT variant tokens
+    let mut authority_variants = Vec::new();
+    for name in &manifest.authorities.host {
+        let variant = host_authority_variant(name).ok_or_else(|| {
+            syn::Error::new(
+                path_lit.span(),
+                format!("unknown host authority in manifest: `{name}`"),
+            )
+        })?;
+        let tokens: proc_macro2::TokenStream = variant.parse().unwrap();
+        authority_variants.push(tokens);
+    }
+
+    // Compute view_deps bitmask
+    let has_view_deps = !manifest.view.deps.is_empty();
+    let mut view_deps_mask: u16 = 0;
+    for name in &manifest.view.deps {
+        let bit = compile_time_view_dep_bit(name).ok_or_else(|| {
+            syn::Error::new(
+                path_lit.span(),
+                format!("unknown view dep in manifest: `{name}`"),
+            )
+        })?;
+        view_deps_mask |= bit;
+    }
+
+    Ok(ManifestDef {
+        id: manifest.plugin.id,
+        capability_variants,
+        authority_variants,
+        view_deps_mask,
+        has_view_deps,
+    })
 }
 
 /// Parse tokens until a comma or end of input, consuming the comma if present.

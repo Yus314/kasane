@@ -96,13 +96,16 @@ Completed (second slice):
 
 ### 3.3 WASM runtime operations
 
+Completed:
+
+- Plugin manifest — static TOML sidecar (`kasane-plugin.toml`) as authoritative source for plugin identity, sandbox capabilities, handler flags, and view deps. Manifest-first loading eliminates untrusted code from permission decisions and enables pre-instantiation metadata queries. `define_plugin!` supports `manifest:` syntax for compile-time validation.
+
 Remaining work:
 
-- Plugin manifest
 - Plugin settings API
 - Precompiled component cache
 
-Next deliverable: Decide on either manifest or settings API as the first implementation
+Next deliverable: Plugin settings API
 
 ### 3.4 Native escape hatch redesign
 

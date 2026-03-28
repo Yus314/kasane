@@ -1,0 +1,9 @@
+[plugin]
+id = "cursor_line"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["annotator"]
+
+[view]
+deps = ["buffer-content", "buffer-cursor"]

@@ -87,7 +87,7 @@ fn build_switcher_overlay(
 // ---------------------------------------------------------------------------
 
 kasane_plugin_sdk::define_plugin! {
-    id: "session_ui",
+    manifest: "kasane-plugin.toml",
 
     state {
         #[bind(host_state::get_session_count(), on: dirty::SESSION)]

@@ -1,0 +1,9 @@
+[plugin]
+id = "prompt_highlight"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["transformer"]
+
+[view]
+deps = ["status"]

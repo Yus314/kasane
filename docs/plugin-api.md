@@ -716,7 +716,7 @@ Plugins can observe session state and control session switching:
 
 See [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the boundary rationale and decision record.
 
-WASM plugins are sandboxed by default. The host constructs WASM instances without granting capabilities via `WasiCtxBuilder`, so access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `Capability::Process`, which can be denied via `deny_capabilities` in `config.toml`.
+WASM plugins are sandboxed by default. The host constructs the WASI context from the plugin manifest (`kasane-plugin.toml` → `[capabilities].wasi`) **before** instantiating the WASM component — plugins never participate in their own permission decisions. Without a manifest capability declaration, access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on manifest capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `process` in the manifest's `[capabilities].wasi`, which can be denied via `deny_capabilities` in `config.toml`.
 
 ## 4. Capabilities and Caching
 
@@ -742,7 +742,7 @@ WASM plugins are sandboxed by default. The host constructs WASM instances withou
 | `IO_HANDLER` | `on_io_event_effects()` |
 | `DISPLAY_TRANSFORM` | `display_directives()` |
 
-The default for native plugins is `all()`, and the WASM adapter is configured from WIT call results.
+For native plugins the default is `all()`. For WASM plugins, the authoritative source is the plugin manifest (`kasane-plugin.toml` → `[handlers].flags`); the WASM adapter receives pre-computed flags from the manifest without querying guest code.
 
 `PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, `PAINT_HOOK`, and `DISPLAY_TRANSFORM` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
 

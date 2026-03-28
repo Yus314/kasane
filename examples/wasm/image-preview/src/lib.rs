@@ -153,7 +153,7 @@ fn detect_image_ref(text: &str, cursor_col: usize) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 kasane_plugin_sdk::define_plugin! {
-    id: "image_preview",
+    manifest: "kasane-plugin.toml",
 
     state {
         image_path: Option<String> = None,

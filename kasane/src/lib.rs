@@ -306,15 +306,28 @@ mod tests {
         }
 
         fn copy_fixture(&self, fixture_name: &str) {
-            let src = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../kasane-wasm/fixtures")
-                .join(fixture_name);
+            let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../kasane-wasm/fixtures");
+            let src = fixtures.join(fixture_name);
             let dst = self.path.join(fixture_name);
-            fs::copy(src, dst).expect("failed to copy fixture");
+            fs::copy(&src, &dst).expect("failed to copy fixture");
+
+            // Also copy sibling .toml manifest if it exists
+            let toml_name = Path::new(fixture_name).with_extension("toml");
+            let toml_src = fixtures.join(&toml_name);
+            if toml_src.exists() {
+                let toml_dst = self.path.join(&toml_name);
+                fs::copy(toml_src, toml_dst).expect("failed to copy fixture manifest");
+            }
         }
 
         fn remove(&self, file_name: &str) {
             fs::remove_file(self.path.join(file_name)).expect("failed to remove fixture");
+            // Also remove sibling .toml manifest
+            let toml_name = Path::new(file_name).with_extension("toml");
+            let toml_path = self.path.join(&toml_name);
+            if toml_path.exists() {
+                let _ = fs::remove_file(toml_path);
+            }
         }
 
         fn config(&self) -> PluginsConfig {

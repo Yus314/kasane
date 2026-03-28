@@ -316,6 +316,54 @@ pub struct WasmPlugin {
 }
 
 impl WasmPlugin {
+    /// Create a WasmPlugin using pre-resolved manifest metadata.
+    ///
+    /// Unlike [`new()`], this accepts capabilities and view_deps as params
+    /// instead of querying WASM. Still queries `declare_key_map()` since
+    /// that is behavioral, not static metadata.
+    pub(crate) fn new_from_manifest(
+        mut store: wasmtime::Store<HostState>,
+        instance: bindings::KasanePlugin,
+        id: String,
+        process_allowed: bool,
+        authorities: PluginAuthorities,
+        cached_capabilities: PluginCapabilities,
+        cached_view_deps: DirtyFlags,
+    ) -> Self {
+        store.data_mut().plugin_id = id.clone();
+
+        // Query key map declaration at construction time (behavioral, not static).
+        let plugin_api = instance.kasane_plugin_plugin_api();
+        let key_map = match plugin_api.call_declare_key_map(&mut store) {
+            Ok(decls) if !decls.is_empty() => {
+                match convert::wit_key_group_decls_to_compiled_key_map(&decls) {
+                    Ok(map) => Some(map),
+                    Err(e) => {
+                        tracing::error!("WASM plugin {id}.declare_key_map conversion error: {e}");
+                        None
+                    }
+                }
+            }
+            Ok(_) => None,
+            Err(_) => None,
+        };
+
+        Self {
+            shared: Arc::new(WasmPluginShared {
+                runtime: Mutex::new(WasmPluginRuntime { store, instance }),
+                plugin_id: PluginId(id),
+                plugin_tag: Mutex::new(PluginTag::UNASSIGNED),
+                cached_state_hash: AtomicU64::new(0),
+                cached_view_deps,
+                cached_capabilities,
+                process_allowed,
+                authorities,
+                pending_diagnostics: Mutex::new(Vec::new()),
+            }),
+            key_map,
+        }
+    }
+
     pub(crate) fn new(
         mut store: wasmtime::Store<HostState>,
         instance: bindings::KasanePlugin,

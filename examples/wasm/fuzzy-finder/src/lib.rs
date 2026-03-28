@@ -231,7 +231,7 @@ fn build_fzf_overlay(
 // ---------------------------------------------------------------------------
 
 kasane_plugin_sdk::define_plugin! {
-    id: "fuzzy_finder",
+    manifest: "kasane-plugin.toml",
 
     state {
         fzf_state: FzfState = FzfState::Inactive,
@@ -256,8 +256,6 @@ kasane_plugin_sdk::define_plugin! {
         fzf_buf: Vec<u8> = Vec::new(),
         fzf_job_gen: u64 = 0,
     },
-
-    capabilities: [Capability::Process],
 
     handle_key(event) {
         match state.fzf_state {

@@ -35,6 +35,7 @@ pub enum PluginDiagnosticSeverity {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderArtifactStage {
+    Manifest,
     Read,
     Load,
     Instantiate,
@@ -191,6 +192,7 @@ impl PluginDiagnosticOverlayLine {
 pub enum PluginDiagnosticOverlayTagKind {
     Activation,
     Discovery,
+    ArtifactManifest,
     ArtifactRead,
     ArtifactLoad,
     ArtifactInstantiate,
@@ -229,6 +231,7 @@ pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
 
 pub fn provider_artifact_stage_label(stage: ProviderArtifactStage) -> &'static str {
     match stage {
+        ProviderArtifactStage::Manifest => "manifest",
         ProviderArtifactStage::Read => "read",
         ProviderArtifactStage::Load => "load",
         ProviderArtifactStage::Instantiate => "instantiate",
@@ -237,6 +240,7 @@ pub fn provider_artifact_stage_label(stage: ProviderArtifactStage) -> &'static s
 
 fn provider_artifact_stage_summary_label(stage: ProviderArtifactStage) -> &'static str {
     match stage {
+        ProviderArtifactStage::Manifest => "manifest",
         ProviderArtifactStage::Read => "read",
         ProviderArtifactStage::Load => "load",
         ProviderArtifactStage::Instantiate => "init",

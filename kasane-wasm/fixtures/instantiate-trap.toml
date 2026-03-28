@@ -1,0 +1,3 @@
+[plugin]
+id = "instantiate_trap"
+abi_version = "0.22.0"

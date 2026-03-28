@@ -25,16 +25,37 @@ impl TempPluginDir {
     }
 
     fn copy_fixture(&self, fixture_name: &str) {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        let src = fixtures.join(fixture_name);
+        let dst = self.path.join(fixture_name);
+        fs::copy(&src, &dst).expect("failed to copy fixture");
+
+        // Also copy sibling .toml manifest if it exists
+        let toml_name = PathBuf::from(fixture_name).with_extension("toml");
+        let toml_src = fixtures.join(&toml_name);
+        if toml_src.exists() {
+            let toml_dst = self.path.join(&toml_name);
+            fs::copy(toml_src, toml_dst).expect("failed to copy fixture manifest");
+        }
+    }
+
+    fn copy_fixture_manifest(&self, manifest_name: &str) {
         let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")
-            .join(fixture_name);
-        let dst = self.path.join(fixture_name);
-        fs::copy(src, dst).expect("failed to copy fixture");
+            .join(manifest_name);
+        let dst = self.path.join(manifest_name);
+        fs::copy(src, dst).expect("failed to copy fixture manifest");
     }
 
     fn write_invalid_wasm(&self, file_name: &str) {
         fs::write(self.path.join(file_name), b"not a wasm component")
             .expect("failed to write invalid wasm");
+    }
+
+    /// Write a minimal valid manifest TOML for a fixture that doesn't have one.
+    fn write_manifest(&self, toml_name: &str, plugin_id: &str) {
+        let content = format!("[plugin]\nid = \"{plugin_id}\"\nabi_version = \"0.22.0\"\n");
+        fs::write(self.path.join(toml_name), content).expect("failed to write manifest");
     }
 
     fn create_wasm_dir(&self, file_name: &str) {
@@ -65,8 +86,9 @@ fn resolve_wasm_plugins_loads_fixtures_directory() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    // 8 fixtures + pane_manager (bundled default-enabled)
-    assert_eq!(resolved.len(), 9);
+    // 9 fixtures (including instantiate-trap, which succeeds with manifest path)
+    // + pane_manager (bundled default-enabled) = 10
+    assert_eq!(resolved.len(), 10);
     let cursor_line = PluginId("cursor_line".to_string());
     assert!(snapshot.contains(&cursor_line));
     assert!(matches!(
@@ -95,8 +117,8 @@ fn resolve_wasm_plugins_skips_disabled_plugins() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    // 7 remaining fixtures + pane_manager (bundled default-enabled)
-    assert_eq!(resolved.len(), 8);
+    // 8 remaining fixtures (9 total - 1 disabled) + pane_manager (bundled default-enabled)
+    assert_eq!(resolved.len(), 9);
     assert!(!snapshot.contains(&PluginId("cursor_line".to_string())));
 }
 
@@ -152,8 +174,8 @@ fn resolve_wasm_plugins_prefers_filesystem_over_bundled_for_same_id() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    // 8 fixtures + pane_manager (bundled default-enabled)
-    assert_eq!(resolved.len(), 9);
+    // 9 fixtures + pane_manager (bundled default-enabled) = 10
+    assert_eq!(resolved.len(), 10);
     assert!(matches!(
         snapshot.revision(&PluginId("cursor_line".to_string())),
         Some(WasmPluginRevision {
@@ -168,6 +190,7 @@ fn wasm_provider_collect_reports_artifact_load_failures_without_dropping_valid_p
     let dir = TempPluginDir::new();
     dir.copy_fixture("cursor-line.wasm");
     dir.write_invalid_wasm("broken.wasm");
+    dir.write_manifest("broken.toml", "broken");
 
     let provider = crate::WasmPluginProvider::new(PluginsConfig {
         auto_discover: true,
@@ -203,6 +226,7 @@ fn wasm_provider_collect_reports_artifact_read_failures_without_dropping_valid_p
     let dir = TempPluginDir::new();
     dir.copy_fixture("cursor-line.wasm");
     dir.create_wasm_dir("unreadable.wasm");
+    dir.write_manifest("unreadable.toml", "unreadable");
 
     let provider = crate::WasmPluginProvider::new(PluginsConfig {
         auto_discover: true,
@@ -230,7 +254,9 @@ fn wasm_provider_collect_reports_artifact_read_failures_without_dropping_valid_p
 }
 
 #[test]
-fn wasm_provider_collect_reports_artifact_instantiate_failures_without_dropping_valid_plugins() {
+fn instantiate_trap_fixture_loads_successfully_with_manifest() {
+    // The instantiate-trap fixture traps in get_id(), but with manifest-first
+    // loading, get_id() is never called — the manifest supplies the plugin ID.
     let dir = TempPluginDir::new();
     dir.copy_fixture("cursor-line.wasm");
     dir.copy_fixture("instantiate-trap.wasm");
@@ -250,14 +276,13 @@ fn wasm_provider_collect_reports_artifact_instantiate_failures_without_dropping_
             .iter()
             .any(|factory| factory.descriptor().id == PluginId("cursor_line".to_string()))
     );
-    assert_eq!(collected.diagnostics.len(), 1);
-    assert!(matches!(
-        collected.diagnostics[0].kind,
-        PluginDiagnosticKind::ProviderArtifactFailed {
-            ref artifact,
-            stage: ProviderArtifactStage::Instantiate,
-        } if artifact == "instantiate-trap.wasm"
-    ));
+    assert!(
+        collected
+            .factories
+            .iter()
+            .any(|factory| factory.descriptor().id == PluginId("instantiate_trap".to_string()))
+    );
+    assert!(collected.diagnostics.is_empty());
 }
 
 #[test]
@@ -296,8 +321,9 @@ fn discover_skips_disabled_plugins() {
     let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
 
-    // cursor-line skipped; the remaining fixtures still load.
-    assert_eq!(registry.plugin_count(), 7);
+    // cursor-line skipped; the remaining 8 fixtures still load
+    // (including instantiate-trap which succeeds with manifest path).
+    assert_eq!(registry.plugin_count(), 8);
 }
 
 #[test]
@@ -406,6 +432,78 @@ fn filesystem_plugin_overrides_bundled() {
 
     // Should still be 5, not 6 (replaced, not added)
     assert_eq!(registry.plugin_count(), 5);
+}
+
+// --- manifest-first discovery tests ---
+
+#[test]
+fn wasm_without_manifest_is_not_discovered() {
+    let dir = TempPluginDir::new();
+    // Copy only the .wasm, no .toml manifest
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("cursor-line.wasm");
+    fs::copy(src, dir.path.join("cursor-line.wasm")).expect("failed to copy");
+
+    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+        auto_discover: true,
+        path: Some(dir.path.to_string_lossy().into_owned()),
+        disabled: vec!["pane_manager".to_string()],
+        ..Default::default()
+    });
+
+    let collected = provider.collect().unwrap();
+    // No .toml found → no filesystem plugins discovered; pane_manager disabled
+    assert!(collected.factories.is_empty());
+    assert!(collected.diagnostics.is_empty());
+}
+
+#[test]
+fn invalid_manifest_toml_is_skipped() {
+    let dir = TempPluginDir::new();
+    dir.copy_fixture("cursor-line.wasm");
+    // Overwrite the manifest with invalid TOML
+    fs::write(dir.path.join("cursor-line.toml"), "not valid [[ toml")
+        .expect("failed to write bad toml");
+
+    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+        auto_discover: true,
+        path: Some(dir.path.to_string_lossy().into_owned()),
+        disabled: vec!["pane_manager".to_string()],
+        ..Default::default()
+    });
+
+    let collected = provider.collect().unwrap();
+    // Invalid TOML is skipped at parse time in discover_plugin_artifacts() (logged, not diagnostic)
+    assert!(collected.factories.is_empty());
+    assert!(collected.diagnostics.is_empty());
+}
+
+#[test]
+fn manifest_abi_mismatch_reports_manifest_stage_diagnostic() {
+    let dir = TempPluginDir::new();
+    dir.copy_fixture("cursor-line.wasm");
+    // Write manifest with wrong ABI version
+    let bad_manifest = "[plugin]\nid = \"cursor_line\"\nabi_version = \"99.0.0\"\n";
+    fs::write(dir.path.join("cursor-line.toml"), bad_manifest).expect("failed to write manifest");
+
+    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+        auto_discover: true,
+        path: Some(dir.path.to_string_lossy().into_owned()),
+        disabled: vec!["pane_manager".to_string()],
+        ..Default::default()
+    });
+
+    let collected = provider.collect().unwrap();
+    assert!(collected.factories.is_empty());
+    assert_eq!(collected.diagnostics.len(), 1);
+    assert!(matches!(
+        collected.diagnostics[0].kind,
+        PluginDiagnosticKind::ProviderArtifactFailed {
+            ref artifact,
+            stage: ProviderArtifactStage::Manifest,
+        } if artifact == "cursor-line.wasm"
+    ));
 }
 
 #[test]

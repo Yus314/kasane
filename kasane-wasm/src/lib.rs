@@ -3,6 +3,7 @@ mod authority;
 pub mod capability;
 mod convert;
 mod host;
+pub mod manifest;
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -124,6 +125,74 @@ impl WasmPluginLoader {
         ))
     }
 
+    /// Load a WASM plugin using manifest-provided metadata.
+    ///
+    /// The manifest supplies plugin identity, capabilities, authorities,
+    /// handler flags, and view deps. The WASM module is instantiated with
+    /// a WasiCtx built from the manifest (not from the plugin's self-report).
+    pub fn load_with_manifest(
+        &self,
+        wasm_bytes: &[u8],
+        manifest: &manifest::PluginManifest,
+        wasi_config: &WasiCapabilityConfig,
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
+        let component = Component::new(&self.engine, wasm_bytes)
+            .map_err(|err| (ProviderArtifactStage::Load, err.into()))?;
+        self.instantiate_with_manifest(component, manifest, wasi_config)
+            .map_err(|err| (ProviderArtifactStage::Instantiate, err))
+    }
+
+    fn instantiate_with_manifest(
+        &self,
+        component: Component,
+        manifest: &manifest::PluginManifest,
+        wasi_config: &WasiCapabilityConfig,
+    ) -> anyhow::Result<WasmPlugin> {
+        let plugin_id = &manifest.plugin.id;
+
+        // Build WasiCtx from manifest capabilities BEFORE instantiation.
+        let wasi_ctx = if !manifest.wasi_capabilities().is_empty() {
+            capability::build_wasi_ctx_from_manifest(
+                plugin_id,
+                manifest.wasi_capabilities(),
+                wasi_config,
+            )?
+        } else {
+            wasmtime_wasi::WasiCtxBuilder::new().build()
+        };
+
+        let host_state = host::HostState {
+            wasi: wasi_ctx,
+            ..Default::default()
+        };
+
+        let mut store = wasmtime::Store::new(&self.engine, host_state);
+        let instance = bindings::KasanePlugin::instantiate(&mut store, &component, &self.linker)?;
+
+        let process_allowed = capability::is_process_allowed_by_manifest(
+            plugin_id,
+            manifest.wasi_capabilities(),
+            wasi_config,
+        );
+        let resolved_authorities = authority::resolve_authorities_from_manifest(
+            plugin_id,
+            manifest.host_authorities(),
+            wasi_config,
+        );
+        let cached_capabilities = manifest.plugin_capabilities();
+        let cached_view_deps = manifest.dirty_flags();
+
+        Ok(WasmPlugin::new_from_manifest(
+            store,
+            instance,
+            plugin_id.clone(),
+            process_allowed,
+            resolved_authorities,
+            cached_capabilities,
+            cached_view_deps,
+        ))
+    }
+
     /// Load a WASM plugin from a file path.
     pub fn load_file(
         &self,
@@ -144,6 +213,12 @@ const BUNDLED_COLOR_PREVIEW: &[u8] = include_bytes!("../bundled/color-preview.wa
 const BUNDLED_SEL_BADGE: &[u8] = include_bytes!("../bundled/sel-badge.wasm");
 const BUNDLED_FUZZY_FINDER: &[u8] = include_bytes!("../bundled/fuzzy-finder.wasm");
 const BUNDLED_PANE_MANAGER: &[u8] = include_bytes!("../bundled/pane-manager.wasm");
+
+const BUNDLED_CURSOR_LINE_MANIFEST: &str = include_str!("../bundled/cursor-line.toml");
+const BUNDLED_COLOR_PREVIEW_MANIFEST: &str = include_str!("../bundled/color-preview.toml");
+const BUNDLED_SEL_BADGE_MANIFEST: &str = include_str!("../bundled/sel-badge.toml");
+const BUNDLED_FUZZY_FINDER_MANIFEST: &str = include_str!("../bundled/fuzzy-finder.toml");
+const BUNDLED_PANE_MANAGER_MANIFEST: &str = include_str!("../bundled/pane-manager.toml");
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmPluginOrigin {
@@ -328,47 +403,114 @@ fn descriptor_from_wasm_revision(id: PluginId, revision: WasmPluginRevision) -> 
     }
 }
 
-fn wasm_factory(
+fn wasm_manifest_factory(
     descriptor: PluginDescriptor,
     bytes: Vec<u8>,
+    manifest: manifest::PluginManifest,
     wasi_config: WasiCapabilityConfig,
 ) -> Arc<dyn PluginFactory> {
     plugin_factory(descriptor, move || {
         let loader = WasmPluginLoader::new()?;
-        let plugin = loader.load(&bytes, &wasi_config)?;
+        let plugin = loader
+            .load_with_manifest(&bytes, &manifest, &wasi_config)
+            .map_err(|(_, err)| err)?;
         Ok(Box::new(plugin))
     })
 }
 
-/// Returns (name, bytes, default_enabled).
-///
+struct BundledPluginSpec {
+    name: &'static str,
+    wasm_bytes: &'static [u8],
+    manifest_toml: &'static str,
+    default_enabled: bool,
+}
+
 /// Plugins with `default_enabled = true` are loaded unless explicitly disabled.
 /// Plugins with `default_enabled = false` require opt-in via `plugins.enabled`.
-fn bundled_plugin_specs() -> &'static [(&'static str, &'static [u8], bool)] {
+fn bundled_plugin_specs() -> &'static [BundledPluginSpec] {
     &[
-        ("cursor_line", BUNDLED_CURSOR_LINE, false),
-        ("color_preview", BUNDLED_COLOR_PREVIEW, false),
-        ("sel_badge", BUNDLED_SEL_BADGE, false),
-        ("fuzzy_finder", BUNDLED_FUZZY_FINDER, false),
-        ("pane_manager", BUNDLED_PANE_MANAGER, true),
+        BundledPluginSpec {
+            name: "cursor_line",
+            wasm_bytes: BUNDLED_CURSOR_LINE,
+            manifest_toml: BUNDLED_CURSOR_LINE_MANIFEST,
+            default_enabled: false,
+        },
+        BundledPluginSpec {
+            name: "color_preview",
+            wasm_bytes: BUNDLED_COLOR_PREVIEW,
+            manifest_toml: BUNDLED_COLOR_PREVIEW_MANIFEST,
+            default_enabled: false,
+        },
+        BundledPluginSpec {
+            name: "sel_badge",
+            wasm_bytes: BUNDLED_SEL_BADGE,
+            manifest_toml: BUNDLED_SEL_BADGE_MANIFEST,
+            default_enabled: false,
+        },
+        BundledPluginSpec {
+            name: "fuzzy_finder",
+            wasm_bytes: BUNDLED_FUZZY_FINDER,
+            manifest_toml: BUNDLED_FUZZY_FINDER_MANIFEST,
+            default_enabled: false,
+        },
+        BundledPluginSpec {
+            name: "pane_manager",
+            wasm_bytes: BUNDLED_PANE_MANAGER,
+            manifest_toml: BUNDLED_PANE_MANAGER_MANIFEST,
+            default_enabled: true,
+        },
     ]
 }
 
-fn discover_wasm_files(plugins_dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+/// A discovered plugin artifact from the filesystem (manifest + WASM pair).
+struct DiscoveredPlugin {
+    manifest: manifest::PluginManifest,
+    wasm_path: PathBuf,
+}
+
+/// Scan a plugins directory for `.toml` manifest files and their sibling `.wasm` files.
+fn discover_plugin_artifacts(plugins_dir: &Path) -> Result<Vec<DiscoveredPlugin>, std::io::Error> {
     let entries = std::fs::read_dir(plugins_dir)?;
-    let mut wasm_files: Vec<_> = entries
+    let mut toml_files: Vec<PathBuf> = entries
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
+            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
                 Some(path)
             } else {
                 None
             }
         })
         .collect();
-    wasm_files.sort();
-    Ok(wasm_files)
+    toml_files.sort();
+
+    let mut plugins = Vec::new();
+    for toml_path in toml_files {
+        let wasm_path = toml_path.with_extension("wasm");
+        if !wasm_path.exists() {
+            tracing::warn!("manifest {} has no sibling .wasm file", toml_path.display());
+            continue;
+        }
+        let toml_str = match std::fs::read_to_string(&toml_path) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("failed to read manifest {}: {e}", toml_path.display());
+                continue;
+            }
+        };
+        match manifest::PluginManifest::parse(&toml_str) {
+            Ok(m) => {
+                plugins.push(DiscoveredPlugin {
+                    manifest: m,
+                    wasm_path,
+                });
+            }
+            Err(e) => {
+                tracing::error!("failed to parse manifest {}: {e}", toml_path.display());
+            }
+        }
+    }
+    Ok(plugins)
 }
 
 fn is_plugin_disabled(plugins_config: &kasane_core::config::PluginsConfig, name: &str) -> bool {
@@ -381,33 +523,45 @@ fn resolve_bundled_plugins(
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut Vec<ResolvedWasmPlugin>,
 ) {
-    for (name, bytes, default) in bundled_plugin_specs() {
-        let should_load = if *default {
-            !is_plugin_disabled(plugins_config, name)
+    for spec in bundled_plugin_specs() {
+        let should_load = if spec.default_enabled {
+            !is_plugin_disabled(plugins_config, spec.name)
         } else {
-            plugins_config.is_bundled_enabled(name) && !is_plugin_disabled(plugins_config, name)
+            plugins_config.is_bundled_enabled(spec.name)
+                && !is_plugin_disabled(plugins_config, spec.name)
         };
         if !should_load {
             continue;
         }
-        match loader.load(bytes, wasi_config) {
+        let manifest = match manifest::PluginManifest::parse(spec.manifest_toml) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::error!("failed to parse bundled manifest for {}: {e}", spec.name);
+                continue;
+            }
+        };
+        // Check disable by manifest plugin ID (before WASM compilation)
+        if is_plugin_disabled(plugins_config, &manifest.plugin.id) {
+            continue;
+        }
+        match loader.load_with_manifest(spec.wasm_bytes, &manifest, wasi_config) {
             Ok(plugin) => {
-                tracing::info!("loaded bundled WASM plugin {name}");
+                tracing::info!("loaded bundled WASM plugin {}", spec.name);
                 let id = plugin.id();
                 upsert_resolved_plugin(
                     resolved,
                     ResolvedWasmPlugin {
                         id,
                         revision: WasmPluginRevision {
-                            origin: WasmPluginOrigin::Bundled(name),
-                            fingerprint: WasmPluginFingerprint::Bundled(name),
+                            origin: WasmPluginOrigin::Bundled(spec.name),
+                            fingerprint: WasmPluginFingerprint::Bundled(spec.name),
                         },
                         plugin,
                     },
                 );
             }
-            Err(e) => {
-                tracing::error!("failed to load bundled WASM plugin {name}: {e}");
+            Err((_, e)) => {
+                tracing::error!("failed to load bundled WASM plugin {}: {e}", spec.name);
             }
         }
     }
@@ -419,27 +573,50 @@ fn resolve_bundled_plugins_with_factories(
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
 ) {
-    for (name, bytes, default) in bundled_plugin_specs() {
-        let should_load = if *default {
-            !is_plugin_disabled(plugins_config, name)
+    for spec in bundled_plugin_specs() {
+        let should_load = if spec.default_enabled {
+            !is_plugin_disabled(plugins_config, spec.name)
         } else {
-            plugins_config.is_bundled_enabled(name) && !is_plugin_disabled(plugins_config, name)
+            plugins_config.is_bundled_enabled(spec.name)
+                && !is_plugin_disabled(plugins_config, spec.name)
         };
         if !should_load {
             continue;
         }
-        match loader.load_staged(bytes, wasi_config) {
+        let manifest = match manifest::PluginManifest::parse(spec.manifest_toml) {
+            Ok(m) => m,
+            Err(e) => {
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_artifact_failed(
+                        WASM_PROVIDER_NAME,
+                        format!("bundled:{}", spec.name),
+                        ProviderArtifactStage::Manifest,
+                        e.to_string(),
+                    ));
+                continue;
+            }
+        };
+        if is_plugin_disabled(plugins_config, &manifest.plugin.id) {
+            continue;
+        }
+        match loader.load_with_manifest(spec.wasm_bytes, &manifest, wasi_config) {
             Ok(plugin) => {
                 let descriptor = descriptor_from_wasm_revision(
                     plugin.id(),
                     WasmPluginRevision {
-                        origin: WasmPluginOrigin::Bundled(name),
-                        fingerprint: WasmPluginFingerprint::Bundled(name),
+                        origin: WasmPluginOrigin::Bundled(spec.name),
+                        fingerprint: WasmPluginFingerprint::Bundled(spec.name),
                     },
                 );
                 upsert_resolved_factory(
                     &mut resolved.factories,
-                    wasm_factory(descriptor, bytes.to_vec(), wasi_config.clone()),
+                    wasm_manifest_factory(
+                        descriptor,
+                        spec.wasm_bytes.to_vec(),
+                        manifest,
+                        wasi_config.clone(),
+                    ),
                 );
             }
             Err((stage, err)) => {
@@ -447,7 +624,7 @@ fn resolve_bundled_plugins_with_factories(
                     .diagnostics
                     .push(PluginDiagnostic::provider_artifact_failed(
                         WASM_PROVIDER_NAME,
-                        format!("bundled:{name}"),
+                        format!("bundled:{}", spec.name),
                         stage,
                         err.to_string(),
                     ));
@@ -467,8 +644,8 @@ fn resolve_filesystem_plugins(
     }
 
     let plugins_dir = plugins_config.plugins_dir();
-    let wasm_files = match discover_wasm_files(&plugins_dir) {
-        Ok(files) => files,
+    let artifacts = match discover_plugin_artifacts(&plugins_dir) {
+        Ok(a) => a,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!(
@@ -480,9 +657,25 @@ fn resolve_filesystem_plugins(
         }
     };
 
-    for path in &wasm_files {
-        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-        let bytes = match std::fs::read(path) {
+    for artifact in &artifacts {
+        let file_name = artifact
+            .wasm_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+
+        if let Err(e) = artifact.manifest.validate() {
+            tracing::error!("manifest validation failed for {file_name}: {e}");
+            continue;
+        }
+
+        let plugin_id = &artifact.manifest.plugin.id;
+        if is_plugin_disabled(plugins_config, plugin_id) {
+            tracing::info!("WASM plugin {plugin_id} ({file_name}) disabled by config");
+            continue;
+        }
+
+        let bytes = match std::fs::read(&artifact.wasm_path) {
             Ok(bytes) => bytes,
             Err(e) => {
                 tracing::error!("failed to read WASM plugin {file_name}: {e}");
@@ -490,27 +683,26 @@ fn resolve_filesystem_plugins(
             }
         };
 
-        match loader.load(&bytes, wasi_config) {
+        match loader.load_with_manifest(&bytes, &artifact.manifest, wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
-                if is_plugin_disabled(plugins_config, &id.0) {
-                    tracing::info!("WASM plugin {id:?} ({file_name}) disabled by config");
-                    continue;
-                }
                 tracing::info!("loaded WASM plugin {id:?} from {file_name}");
                 upsert_resolved_plugin(
                     resolved,
                     ResolvedWasmPlugin {
                         id,
                         revision: WasmPluginRevision {
-                            origin: WasmPluginOrigin::Filesystem(path.clone()),
-                            fingerprint: filesystem_fingerprint(path, bytes.len() as u64),
+                            origin: WasmPluginOrigin::Filesystem(artifact.wasm_path.clone()),
+                            fingerprint: filesystem_fingerprint(
+                                &artifact.wasm_path,
+                                bytes.len() as u64,
+                            ),
                         },
                         plugin,
                     },
                 );
             }
-            Err(e) => {
+            Err((_, e)) => {
                 tracing::error!("failed to load WASM plugin {file_name}: {e}");
             }
         }
@@ -528,8 +720,8 @@ fn resolve_filesystem_plugins_with_factories(
     }
 
     let plugins_dir = plugins_config.plugins_dir();
-    let wasm_files = match discover_wasm_files(&plugins_dir) {
-        Ok(files) => files,
+    let artifacts = match discover_plugin_artifacts(&plugins_dir) {
+        Ok(a) => a,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
                 resolved
@@ -546,9 +738,32 @@ fn resolve_filesystem_plugins_with_factories(
         }
     };
 
-    for path in &wasm_files {
-        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-        let bytes = match std::fs::read(path) {
+    for artifact in &artifacts {
+        let file_name = artifact
+            .wasm_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+
+        if let Err(e) = artifact.manifest.validate() {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::provider_artifact_failed(
+                    WASM_PROVIDER_NAME,
+                    file_name.as_ref(),
+                    ProviderArtifactStage::Manifest,
+                    e.to_string(),
+                ));
+            continue;
+        }
+
+        let plugin_id = &artifact.manifest.plugin.id;
+        if is_plugin_disabled(plugins_config, plugin_id) {
+            tracing::info!("WASM plugin {plugin_id} ({file_name}) disabled by config");
+            continue;
+        }
+
+        let bytes = match std::fs::read(&artifact.wasm_path) {
             Ok(bytes) => bytes,
             Err(e) => {
                 resolved
@@ -563,24 +778,27 @@ fn resolve_filesystem_plugins_with_factories(
             }
         };
 
-        match loader.load_staged(&bytes, wasi_config) {
+        match loader.load_with_manifest(&bytes, &artifact.manifest, wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
-                if is_plugin_disabled(plugins_config, &id.0) {
-                    tracing::info!("WASM plugin {id:?} ({file_name}) disabled by config");
-                    continue;
-                }
-
                 let descriptor = descriptor_from_wasm_revision(
                     id,
                     WasmPluginRevision {
-                        origin: WasmPluginOrigin::Filesystem(path.clone()),
-                        fingerprint: filesystem_fingerprint(path, bytes.len() as u64),
+                        origin: WasmPluginOrigin::Filesystem(artifact.wasm_path.clone()),
+                        fingerprint: filesystem_fingerprint(
+                            &artifact.wasm_path,
+                            bytes.len() as u64,
+                        ),
                     },
                 );
                 upsert_resolved_factory(
                     &mut resolved.factories,
-                    wasm_factory(descriptor, bytes, wasi_config.clone()),
+                    wasm_manifest_factory(
+                        descriptor,
+                        bytes,
+                        artifact.manifest.clone(),
+                        wasi_config.clone(),
+                    ),
                 );
             }
             Err((stage, err)) => {

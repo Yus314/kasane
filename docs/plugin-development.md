@@ -129,6 +129,52 @@ kasane_plugin_sdk::define_plugin! {
 
 Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, `redraw()`, and `send_command()` are available in all plugin code (emitted by `generate!()` / `define_plugin!`). For the full list including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.5](./plugin-api.md#45-sdk-helpers).
 
+### Plugin Manifest
+
+Every plugin ships with a `kasane-plugin.toml` manifest file alongside its `.wasm` binary. The manifest declares static metadata that the host reads **before** compiling or instantiating WASM — the plugin never participates in its own permission decisions.
+
+```toml
+[plugin]
+id = "fuzzy_finder"
+abi_version = "0.22.0"
+
+[capabilities]
+wasi = ["process"]
+
+[authorities]
+host = ["pty-process"]
+
+[handlers]
+flags = ["overlay", "input-handler", "io-handler", "contributor"]
+
+[view]
+deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
+```
+
+| Section | Required | Default | Purpose |
+|---|---|---|---|
+| `plugin.id` | Yes | — | Plugin identifier |
+| `plugin.abi_version` | Yes | — | WIT package version the plugin targets |
+| `capabilities.wasi` | No | `[]` | WASI capabilities for sandbox construction |
+| `authorities.host` | No | `[]` | Host authorities for privileged effects |
+| `handlers.flags` | No | `[]` (→ all) | Handler capability bitmask (empty = all-set) |
+| `view.deps` | No | `[]` (→ ALL) | Dirty-flag subscription (empty = all flags) |
+
+In `define_plugin!`, use the `manifest:` section instead of `id:`, `capabilities:`, and `authorities:`:
+
+```rust
+kasane_plugin_sdk::define_plugin! {
+    manifest: "kasane-plugin.toml",
+
+    state { /* ... */ },
+    // ...
+}
+```
+
+The macro reads the TOML at compile time and generates `get_id()`, `requested_capabilities()`, `requested_authorities()`, and `view_deps()` from its contents. `manifest:` is mutually exclusive with `id:`, `capabilities:`, and `authorities:`.
+
+For filesystem plugins, the host discovers `.toml` manifests and loads their sibling `.wasm` files. A `.wasm` without a `.toml` manifest is ignored.
+
 ### Plugin Profiles
 
 | Profile | Sections | Template | Example |
@@ -141,7 +187,7 @@ Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex(
 | Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
 | Scroll policy | `handle_default_scroll` | — | smooth-scroll |
 
-Available `define_plugin!` sections: `id`, `state` (with optional `#[bind]`), `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `on_io_event_effects`.
+Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
 
 ### Build & Deploy
 

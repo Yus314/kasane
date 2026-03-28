@@ -219,7 +219,7 @@ fn build_color_grid(entry: &ColorEntry, color_idx: u8) -> ElementHandle {
 // ---------------------------------------------------------------------------
 
 kasane_plugin_sdk::define_plugin! {
-    id: "color_preview",
+    manifest: "kasane-plugin.toml",
 
     state {
         color_lines: HashMap<usize, ColorLine> = HashMap::new(),

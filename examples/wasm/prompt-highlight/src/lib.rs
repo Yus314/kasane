@@ -8,7 +8,7 @@
 const MODE_PROMPT: u8 = 1;
 
 kasane_plugin_sdk::define_plugin! {
-    id: "prompt_highlight",
+    manifest: "kasane-plugin.toml",
 
     state {
         #[bind(host_state::get_cursor_mode(), on: dirty::STATUS)]

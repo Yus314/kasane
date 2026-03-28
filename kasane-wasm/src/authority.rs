@@ -63,6 +63,28 @@ pub fn resolve_authorities(
     resolved
 }
 
+/// Resolve authorities from manifest-declared string names.
+///
+/// Converts string names to `PluginAuthority` enum values, then delegates
+/// to [`resolve_authorities`]. Unknown names are silently skipped (they
+/// should have been caught by manifest validation).
+pub fn resolve_authorities_from_manifest(
+    plugin_id: &str,
+    manifest_auths: &[String],
+    config: &WasiCapabilityConfig,
+) -> PluginAuthorities {
+    let authorities: Vec<PluginAuthority> = manifest_auths
+        .iter()
+        .filter_map(|name| match name.as_str() {
+            "dynamic-surface" => Some(PluginAuthority::DynamicSurface),
+            "pty-process" => Some(PluginAuthority::PtyProcess),
+            "workspace-management" => Some(PluginAuthority::WorkspaceManagement),
+            _ => None,
+        })
+        .collect();
+    resolve_authorities(plugin_id, &authorities, config)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

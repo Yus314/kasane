@@ -1,0 +1,9 @@
+[plugin]
+id = "image_preview"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["overlay"]
+
+[view]
+deps = ["buffer-content", "buffer-cursor"]
