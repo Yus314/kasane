@@ -5,6 +5,7 @@
 //! components and plugin-owned surfaces to participate in the layout tree.
 
 mod node;
+pub mod persist;
 pub use node::*;
 
 use std::collections::HashMap;
@@ -704,6 +705,21 @@ impl Workspace {
             workspace: self,
             rects: self.compute_rects(total),
             surface_keys,
+        }
+    }
+
+    /// Replace the workspace root with a restored tree.
+    ///
+    /// Clears focus history and ensures `focused` points to a valid surface.
+    pub fn replace_root(&mut self, new_root: WorkspaceNode, next_id_min: u32) {
+        self.root = new_root;
+        self.next_id = self.next_id.max(next_id_min);
+        self.focus_history.clear();
+        let ids = self.root.collect_ids();
+        if !ids.contains(&self.focused)
+            && let Some(first) = ids.first()
+        {
+            self.focused = *first;
         }
     }
 

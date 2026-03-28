@@ -185,6 +185,19 @@ impl DaemonHandle {
                 p.wait()
             });
 
+        // Wait for kakoune to process kill-session and run KakEnd hooks
+        // (e.g. kak-lsp's lsp-exit writes to FIFO before busy-waiting).
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                _ => break,
+            }
+        }
+
         // Fallback: forcibly kill and reap
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -193,6 +206,19 @@ impl DaemonHandle {
     pub fn session_name(&self) -> &str {
         &self.session_name
     }
+}
+
+/// Check whether a Kakoune session is listed in `kak -l` output.
+pub fn is_session_alive(session_name: &str) -> bool {
+    Command::new("kak")
+        .arg("-l")
+        .output()
+        .ok()
+        .is_some_and(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim() == session_name)
+        })
 }
 
 /// Spawn a headless Kakoune daemon: `kak -d -s <session_name> [daemon_args...]`.

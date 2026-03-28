@@ -147,6 +147,7 @@ fn run_inner(
     // Daemon mode: separate server (kak -d) and client (kak -c) processes.
     // In -c mode (connecting to an existing session), no daemon is spawned.
     let connect_mode = cli::is_connect_mode(&kak_args);
+    let user_named_session = session.is_some();
 
     let (session, kak_args, daemon) = if connect_mode {
         (session, kak_args, None)
@@ -165,6 +166,7 @@ fn run_inner(
         (Some(server_name), primary_args, Some(daemon))
     };
 
+    let session_name = session.clone();
     let mut session_manager = SessionManager::new();
     let primary_session = SessionSpec::primary(session, kak_args);
     let (reader, writer, child) = process::spawn_kakoune_for_spec(&primary_session)?;
@@ -197,9 +199,32 @@ fn run_inner(
         }
     };
 
-    // Clean up the daemon before propagating errors.
+    // Clean up the daemon.
+    //
+    // Named sessions (-s): daemon stays alive so the user can reconnect with
+    // `kasane -c <session>`.  DaemonHandle::drop does not kill the daemon.
+    //
+    // Anonymous sessions (kasane-{pid}): kill daemon and delete layout file.
     if let Some(mut d) = daemon {
-        d.kill();
+        if user_named_session {
+            tracing::info!(
+                session = d.session_name(),
+                "named session — daemon stays alive"
+            );
+        } else {
+            let name = d.session_name().to_owned();
+            d.kill();
+            kasane_core::workspace::persist::delete_layout(&name);
+        }
+    }
+
+    // In connect mode we don't own the daemon, but if it died (:kill) we
+    // should clean up the stale layout file.
+    if connect_mode
+        && let Some(ref name) = session_name
+        && !process::is_session_alive(name)
+    {
+        kasane_core::workspace::persist::delete_layout(name);
     }
 
     result?;

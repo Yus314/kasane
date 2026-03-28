@@ -631,6 +631,11 @@ where
     if !should_quit {
         if result.workspace_changed {
             notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
+            // Layout save is handled in with_deferred_context (command-driven
+            // changes only).  The workspace_changed flag here can also be set by
+            // InputEvent::Resize which is NOT a structural change; saving on
+            // resize would overwrite the layout with a degraded workspace when a
+            // pane has died via :q.
         }
         sync_ready_gate(ctx.session_ready_gate, ctx.state);
         if !*ctx.initial_resize_sent {
@@ -715,6 +720,17 @@ where
     };
     if workspace_changed {
         notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
+        // Save layout on structural changes
+        if let Some(server_name) = ctx.surface_registry.server_session_name() {
+            kasane_core::workspace::persist::save_layout(
+                server_name,
+                ctx.surface_registry.workspace(),
+                ctx.surface_registry,
+                ctx.session_states,
+                ctx.state,
+                ctx.session_manager.active_session_id(),
+            );
+        }
     }
     result
 }
