@@ -1,5 +1,5 @@
 use kasane_core::config::ColorsConfig;
-use kasane_core::protocol::{Color, NamedColor};
+use kasane_core::protocol::{Attributes, Color, Face, NamedColor};
 
 /// Resolves kasane-core `Color` values to GPU-ready `[f32; 4]` (sRGB, alpha=1.0).
 ///
@@ -47,6 +47,34 @@ impl ColorResolver {
             }
             Color::Named(n) => self.palette[2 + named_color_index(n)],
             Color::Rgb { r, g, b } => [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0],
+        }
+    }
+
+    /// Resolve face fg/bg to GPU colors, applying REVERSE attribute.
+    ///
+    /// Returns `(visual_fg, visual_bg, needs_bg)`.
+    /// Terminal REVERSE semantics: resolve Default first, then swap.
+    pub fn resolve_face_colors(&self, face: &Face) -> ([f32; 4], [f32; 4], bool) {
+        let raw_fg = self.resolve(face.fg, true);
+        let raw_bg = self.resolve(face.bg, false);
+        if face.attributes.contains(Attributes::REVERSE) {
+            (raw_bg, raw_fg, true)
+        } else {
+            (raw_fg, raw_bg, face.bg != Color::Default)
+        }
+    }
+
+    /// Sync default fg/bg from Kakoune's `default_face`.
+    ///
+    /// The draw event sends a `default_face` with the theme's resolved default
+    /// colors. Use those instead of the static `ColorsConfig` fallback so that
+    /// `Color::Default` resolves to the active colorscheme's defaults.
+    pub fn sync_defaults(&mut self, face: &Face) {
+        if face.fg != Color::Default {
+            self.palette[0] = self.resolve(face.fg, true);
+        }
+        if face.bg != Color::Default {
+            self.palette[1] = self.resolve(face.bg, false);
         }
     }
 
@@ -168,5 +196,169 @@ mod tests {
         assert!((c[0] - 0.502).abs() < 0.01);
         assert!((c[1] - 0.0).abs() < 0.01);
         assert!((c[2] - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_resolve_face_colors_no_reverse() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        let face = Face {
+            fg: Color::Named(NamedColor::Red),
+            bg: Color::Named(NamedColor::Blue),
+            ..Face::default()
+        };
+        let (vfg, vbg, needs_bg) = resolver.resolve_face_colors(&face);
+        let expected_fg = resolver.resolve(Color::Named(NamedColor::Red), true);
+        let expected_bg = resolver.resolve(Color::Named(NamedColor::Blue), false);
+        assert_eq!(vfg, expected_fg);
+        assert_eq!(vbg, expected_bg);
+        assert!(needs_bg);
+    }
+
+    #[test]
+    fn test_resolve_face_colors_reverse_swaps() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        let face = Face {
+            fg: Color::Named(NamedColor::Red),
+            bg: Color::Named(NamedColor::Blue),
+            attributes: Attributes::REVERSE,
+            ..Face::default()
+        };
+        let (vfg, vbg, _) = resolver.resolve_face_colors(&face);
+        // REVERSE: fg gets bg's color, bg gets fg's color
+        let expected_fg = resolver.resolve(Color::Named(NamedColor::Blue), false);
+        let expected_bg = resolver.resolve(Color::Named(NamedColor::Red), true);
+        assert_eq!(vfg, expected_fg);
+        assert_eq!(vbg, expected_bg);
+    }
+
+    #[test]
+    fn test_resolve_face_colors_reverse_default() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+        let face = Face {
+            fg: Color::Default,
+            bg: Color::Default,
+            attributes: Attributes::REVERSE,
+            ..Face::default()
+        };
+        let (vfg, vbg, _) = resolver.resolve_face_colors(&face);
+        // Default fg and bg get resolved then swapped
+        let default_fg = resolver.resolve(Color::Default, true);
+        let default_bg = resolver.resolve(Color::Default, false);
+        assert_eq!(vfg, default_bg);
+        assert_eq!(vbg, default_fg);
+    }
+
+    #[test]
+    fn test_resolve_face_colors_needs_bg() {
+        let config = ColorsConfig::default();
+        let resolver = ColorResolver::from_config(&config);
+
+        // REVERSE → always needs_bg
+        let face_rev = Face {
+            attributes: Attributes::REVERSE,
+            ..Face::default()
+        };
+        let (_, _, needs_bg) = resolver.resolve_face_colors(&face_rev);
+        assert!(needs_bg);
+
+        // No REVERSE, bg=Default → no needs_bg
+        let face_default = Face::default();
+        let (_, _, needs_bg) = resolver.resolve_face_colors(&face_default);
+        assert!(!needs_bg);
+
+        // No REVERSE, explicit bg → needs_bg
+        let face_explicit = Face {
+            bg: Color::Named(NamedColor::Green),
+            ..Face::default()
+        };
+        let (_, _, needs_bg) = resolver.resolve_face_colors(&face_explicit);
+        assert!(needs_bg);
+    }
+
+    #[test]
+    fn test_sync_defaults_rgb() {
+        let config = ColorsConfig::default();
+        let mut resolver = ColorResolver::from_config(&config);
+
+        // Before sync: defaults are from ColorsConfig (dark theme)
+        let old_fg = resolver.resolve(Color::Default, true);
+        assert!((old_fg[0] - 0.831).abs() < 0.01); // #d4d4d4
+
+        // Sync with Gruvbox Light default_face
+        let gruvbox_face = Face {
+            fg: Color::Rgb {
+                r: 0x3c,
+                g: 0x38,
+                b: 0x36,
+            },
+            bg: Color::Rgb {
+                r: 0xfb,
+                g: 0xf1,
+                b: 0xc7,
+            },
+            ..Face::default()
+        };
+        resolver.sync_defaults(&gruvbox_face);
+
+        // After sync: defaults match Gruvbox Light
+        let new_fg = resolver.resolve(Color::Default, true);
+        let new_bg = resolver.resolve(Color::Default, false);
+        assert!((new_fg[0] - 0x3c as f32 / 255.0).abs() < 0.01); // dark brown
+        assert!((new_bg[0] - 0xfb as f32 / 255.0).abs() < 0.01); // cream
+    }
+
+    #[test]
+    fn test_sync_defaults_named() {
+        let config = ColorsConfig::default();
+        let mut resolver = ColorResolver::from_config(&config);
+        let face = Face {
+            fg: Color::Named(NamedColor::Red),
+            bg: Color::Default, // should keep ColorsConfig fallback
+            ..Face::default()
+        };
+        resolver.sync_defaults(&face);
+
+        let fg = resolver.resolve(Color::Default, true);
+        let red = resolver.resolve(Color::Named(NamedColor::Red), true);
+        assert_eq!(fg, red); // default_fg now matches red
+
+        // bg unchanged (face.bg was Default)
+        let bg = resolver.resolve(Color::Default, false);
+        assert!((bg[0] - 0.118).abs() < 0.01); // still #1e1e1e
+    }
+
+    #[test]
+    fn test_sync_defaults_skip_default() {
+        let config = ColorsConfig::default();
+        let mut resolver = ColorResolver::from_config(&config);
+        let old_fg = resolver.resolve(Color::Default, true);
+
+        // Sync with face that has fg=Default → should not change
+        resolver.sync_defaults(&Face::default());
+
+        let new_fg = resolver.resolve(Color::Default, true);
+        assert_eq!(old_fg, new_fg);
+    }
+
+    #[test]
+    fn test_sync_defaults_updates_default_bg() {
+        let config = ColorsConfig::default();
+        let mut resolver = ColorResolver::from_config(&config);
+        let face = Face {
+            bg: Color::Rgb {
+                r: 0xfb,
+                g: 0xf1,
+                b: 0xc7,
+            },
+            ..Face::default()
+        };
+        resolver.sync_defaults(&face);
+
+        // default_bg() should return the synced value
+        let bg = resolver.default_bg();
+        assert!((bg[0] - 0xfb as f32 / 255.0).abs() < 0.01);
     }
 }

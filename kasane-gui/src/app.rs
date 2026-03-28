@@ -983,10 +983,11 @@ where
             gpu.surface.configure(&gpu.device, &gpu.config);
         }
         let gpu = self.gpu.as_ref().unwrap();
-        let Some(ref resolver) = self.color_resolver else {
+        let Some(ref mut resolver) = self.color_resolver else {
             tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
             return;
         };
+        resolver.sync_defaults(&self.state.default_face);
         tracing::debug!(
             "[app] render_frame start ({}x{})",
             self.state.cols,

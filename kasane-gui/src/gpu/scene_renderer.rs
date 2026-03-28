@@ -482,7 +482,7 @@ impl SceneRenderer {
                 let Some((cx, cy, cw, ch)) = self.clip_rect(rect.x, rect.y, rect.w, rect.h) else {
                     return;
                 };
-                let mut bg = color_resolver.resolve(face.bg, false);
+                let (_, mut bg, _) = color_resolver.resolve_face_colors(face);
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
                     bg[0] = (bg[0] + 0.04).min(1.0);
@@ -522,12 +522,12 @@ impl SceneRenderer {
                 ch,
                 face,
             } => {
-                let fg = color_resolver.resolve(face.fg, true);
+                let (visual_fg, _, _) = color_resolver.resolve_face_colors(face);
                 let buf_idx = self.alloc_text_buffer(screen_w);
                 self.text_positions.push((pos.x, pos.y));
                 self.push_text_clip_bounds();
                 let attrs = super::text_helpers::default_attrs(&self.font_family);
-                let color = super::text_helpers::to_glyphon_color(fg);
+                let color = super::text_helpers::to_glyphon_color(visual_fg);
                 let buffer = &mut self.text_buffers[buf_idx];
                 buffer.set_rich_text(
                     &mut self.font_system,
@@ -544,11 +544,15 @@ impl SceneRenderer {
                 face,
                 fill_face,
             } => {
-                let border_color = color_resolver.resolve(face.fg, true);
+                let (visual_fg, _, _) = color_resolver.resolve_face_colors(face);
+                let border_color = visual_fg;
                 let (corner_radius, border_width) =
                     super::text_helpers::border_style_params(line_style.clone(), cell_h);
                 let fill = match fill_face {
-                    Some(ff) => color_resolver.resolve(ff.bg, false),
+                    Some(ff) => {
+                        let (_, ff_bg, _) = color_resolver.resolve_face_colors(ff);
+                        ff_bg
+                    }
                     None => [0.0, 0.0, 0.0, 0.0],
                 };
                 if *line_style == BorderLineStyle::Double {
@@ -602,7 +606,7 @@ impl SceneRenderer {
                 let title_x = rect.x + (rect.w - title_w) / 2.0;
                 let title_y = rect.y - cell_h * 0.35;
 
-                let mut title_bg = color_resolver.resolve(border_face.bg, false);
+                let (_, mut title_bg, _) = color_resolver.resolve_face_colors(border_face);
                 if *elevated {
                     // Subtle elevation: ~10/255 in sRGB ≈ VS Code's floating window offset
                     title_bg[0] = (title_bg[0] + 0.04).min(1.0);
@@ -888,22 +892,22 @@ impl SceneRenderer {
                 break;
             }
 
-            // Background rectangle — skip for Color::Default so the parent
-            // element's background (e.g. an elevated Container) shows through.
             let actual_w = atom_display_w.min(remaining);
-            if actual_w > 0.0 && atom.face.bg != kasane_core::protocol::Color::Default {
-                let bg = color_resolver.resolve(atom.face.bg, false);
-                self.bg.push_rect(x, py, actual_w, cell_h, bg);
+            let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors(&atom.face);
+
+            // Background rectangle — skip when not needed so the parent
+            // element's background (e.g. an elevated Container) shows through.
+            if actual_w > 0.0 && needs_bg {
+                self.bg.push_rect(x, py, actual_w, cell_h, visual_bg);
             }
 
             // Text decorations (underline, strikethrough, etc.)
             if actual_w > 0.0 {
-                let fg = color_resolver.resolve(atom.face.fg, true);
-                self.emit_decorations(x, py, actual_w, &atom.face, fg, color_resolver);
+                self.emit_decorations(x, py, actual_w, &atom.face, visual_fg, color_resolver);
             }
 
             // Text span — merge with previous span if same fg color
-            let fg = color_resolver.resolve(atom.face.fg, true);
+            let fg = visual_fg;
             if let Some(last) = self.span_ranges.last_mut() {
                 if last.2 == fg {
                     // Extend previous span
@@ -967,26 +971,25 @@ impl SceneRenderer {
             return;
         }
 
-        // Background — skip for Color::Default (parent bg shows through)
         let text_w = line_display_width_str(text) as f32 * self.metrics.cell_width;
         let actual_w = text_w.min(max_width);
-        if actual_w > 0.0 && face.bg != kasane_core::protocol::Color::Default {
-            let bg = color_resolver.resolve(face.bg, false);
-            self.bg
-                .push_rect(px, py, actual_w, self.metrics.cell_height, bg);
-        }
+        let (visual_fg, visual_bg, needs_bg) = color_resolver.resolve_face_colors(face);
 
-        let fg = color_resolver.resolve(face.fg, true);
+        // Background — skip when not needed (parent bg shows through)
+        if actual_w > 0.0 && needs_bg {
+            self.bg
+                .push_rect(px, py, actual_w, self.metrics.cell_height, visual_bg);
+        }
 
         // Text decorations
         if actual_w > 0.0 {
-            self.emit_decorations(px, py, actual_w, face, fg, color_resolver);
+            self.emit_decorations(px, py, actual_w, face, visual_fg, color_resolver);
         }
         let buf_idx = self.alloc_text_buffer(max_width);
         self.text_positions.push((px, py));
         self.push_text_clip_bounds();
         let default_attrs = super::text_helpers::default_attrs(&self.font_family);
-        let color = super::text_helpers::to_glyphon_color(fg);
+        let color = super::text_helpers::to_glyphon_color(visual_fg);
 
         let buffer = &mut self.text_buffers[buf_idx];
         buffer.set_rich_text(
