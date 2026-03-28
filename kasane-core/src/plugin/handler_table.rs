@@ -234,7 +234,6 @@ pub(crate) struct HandlerTable {
     pub(crate) extension_contributions: Vec<ExtensionContribution>,
 
     // --- Config ---
-    pub(crate) capabilities: PluginCapabilities,
     pub(crate) interests: DirtyFlags,
 }
 
@@ -271,14 +270,53 @@ impl HandlerTable {
             subscribers: Vec::new(),
             extension_definitions: Vec::new(),
             extension_contributions: Vec::new(),
-            capabilities: PluginCapabilities::empty(),
             interests: DirtyFlags::ALL,
         }
     }
 
-    /// Auto-inferred capabilities from registered handlers.
+    /// Auto-inferred capabilities derived from which handlers are registered.
     pub(crate) fn capabilities(&self) -> PluginCapabilities {
-        self.capabilities
+        let mut caps = PluginCapabilities::empty();
+        if self.io_event_handler.is_some() {
+            caps |= PluginCapabilities::IO_HANDLER;
+        }
+        if self.workspace_changed_handler.is_some() {
+            caps |= PluginCapabilities::WORKSPACE_OBSERVER;
+        }
+        if self.key_handler.is_some()
+            || self.key_middleware_handler.is_some()
+            || self.handle_mouse_handler.is_some()
+        {
+            caps |= PluginCapabilities::INPUT_HANDLER;
+        }
+        if self.default_scroll_handler.is_some() {
+            caps |= PluginCapabilities::SCROLL_POLICY;
+        }
+        if !self.contribute_handlers.is_empty() {
+            caps |= PluginCapabilities::CONTRIBUTOR;
+        }
+        if self.transform_handler.is_some() {
+            caps |= PluginCapabilities::TRANSFORMER;
+        }
+        if self.has_annotation_handlers() {
+            caps |= PluginCapabilities::ANNOTATOR;
+        }
+        if self.overlay_handler.is_some() {
+            caps |= PluginCapabilities::OVERLAY;
+        }
+        if self.display_handler.is_some() {
+            caps |= PluginCapabilities::DISPLAY_TRANSFORM;
+        }
+        if self.cell_decoration_handler.is_some() {
+            caps |= PluginCapabilities::CELL_DECORATION;
+        }
+        if self.cursor_style_handler.is_some() {
+            caps |= PluginCapabilities::CURSOR_STYLE;
+        }
+        if self.menu_transform_handler.is_some() {
+            caps |= PluginCapabilities::MENU_TRANSFORM;
+        }
+        caps
     }
 
     /// Declared dirty flag interests.

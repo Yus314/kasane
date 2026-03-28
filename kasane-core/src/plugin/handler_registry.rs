@@ -44,8 +44,8 @@ use super::traits::KeyHandleResult;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, BootstrapEffects, CellDecoration, Command,
     ContributeContext, Contribution, DisplayDirective, IoEvent, OverlayContext,
-    OverlayContribution, PluginCapabilities, PluginState, RuntimeEffects, SessionReadyEffects,
-    SlotId, TransformContext, TransformTarget, VirtualTextItem,
+    OverlayContribution, PluginState, RuntimeEffects, SessionReadyEffects, SlotId,
+    TransformContext, TransformTarget, VirtualTextItem,
 };
 
 /// Type-safe handler registration builder.
@@ -147,7 +147,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             let (new_state, effects) = handler(s, event, app);
             (Box::new(new_state) as Box<dyn PluginState>, effects)
         }));
-        self.table.capabilities |= PluginCapabilities::IO_HANDLER;
     }
 
     /// Register a workspace-changed handler.
@@ -162,7 +161,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 .expect("state type mismatch");
             Box::new(handler(s, query)) as Box<dyn PluginState>
         }));
-        self.table.capabilities |= PluginCapabilities::WORKSPACE_OBSERVER;
     }
 
     /// Register a shutdown handler.
@@ -211,7 +209,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             handler(s, key, app)
                 .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
         }));
-        self.table.capabilities |= PluginCapabilities::INPUT_HANDLER;
     }
 
     /// Register a key middleware handler.
@@ -227,7 +224,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             let (new_state, result) = handler(s, key, app);
             (Box::new(new_state) as Box<dyn PluginState>, result)
         }));
-        self.table.capabilities |= PluginCapabilities::INPUT_HANDLER;
     }
 
     /// Register a key observer (notification only, cannot consume).
@@ -274,7 +270,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             handler(s, event, id, app)
                 .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
         }));
-        self.table.capabilities |= PluginCapabilities::INPUT_HANDLER;
     }
 
     /// Register a default scroll policy handler.
@@ -293,7 +288,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             handler(s, candidate, app)
                 .map(|(new_state, result)| (Box::new(new_state) as Box<dyn PluginState>, result))
         }));
-        self.table.capabilities |= PluginCapabilities::SCROLL_POLICY;
     }
 
     // =========================================================================
@@ -325,7 +319,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             slot,
             handler: erased,
         });
-        self.table.capabilities |= PluginCapabilities::CONTRIBUTOR;
     }
 
     /// Register a transform handler with priority.
@@ -357,7 +350,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             priority,
             handler: erased,
         });
-        self.table.capabilities |= PluginCapabilities::TRANSFORMER;
     }
 
     /// Register a gutter annotation handler.
@@ -391,7 +383,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             priority,
             handler: erased,
         });
-        self.table.capabilities |= PluginCapabilities::ANNOTATOR;
     }
 
     /// Register a background annotation handler.
@@ -415,7 +406,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, line, app, ctx)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::ANNOTATOR;
     }
 
     /// Register an inline decoration handler.
@@ -439,7 +429,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, line, app, ctx)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::ANNOTATOR;
     }
 
     /// Register a virtual text handler.
@@ -463,7 +452,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, line, app, ctx)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::ANNOTATOR;
     }
 
     /// Register an overlay contribution handler.
@@ -486,7 +474,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, app, ctx)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::OVERLAY;
     }
 
     /// Register a display directive handler.
@@ -503,7 +490,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, app)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::DISPLAY_TRANSFORM;
     }
 
     /// Register a cell decoration handler.
@@ -520,7 +506,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, app)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::CELL_DECORATION;
     }
 
     /// Register a cursor style override handler.
@@ -537,7 +522,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, app)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::CURSOR_STYLE;
     }
 
     /// Register a menu item transform handler.
@@ -562,7 +546,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 handler(s, item, index, selected, app)
             },
         ));
-        self.table.capabilities |= PluginCapabilities::MENU_TRANSFORM;
     }
 
     // =========================================================================

@@ -1058,4 +1058,360 @@ mod tests {
             Element::text("replaced", Face::default())
         );
     }
+
+    // ---- Exhaustive handler dispatch coverage ----
+
+    /// Verifies that every handler field in `HandlerTable` is dispatched through
+    /// `PluginBridge`. If a new handler is added to `HandlerTable` but not wired
+    /// in `PluginBridge`, this test will fail with a descriptive message.
+    #[test]
+    fn exhaustive_handler_dispatch_coverage() {
+        use std::collections::HashSet;
+        use std::sync::{Arc, Mutex};
+
+        use crate::element::InteractiveId;
+        use crate::input::{Key, Modifiers, MouseButton, MouseEvent, MouseEventKind};
+        use crate::plugin::element_patch::ElementPatch;
+        use crate::plugin::handler_table::GutterSide;
+        use crate::plugin::pubsub::TopicId;
+        use crate::plugin::{
+            AnnotateContext, ContributeContext, OverlayContext, TransformContext, TransformTarget,
+        };
+        use crate::protocol::Face;
+        use crate::scroll::{ResolvedScroll, ScrollGranularity};
+
+        const EXPECTED_HANDLER_NAMES: &[&str] = &[
+            "init",
+            "session_ready",
+            "state_changed",
+            "io_event",
+            "workspace_changed",
+            "shutdown",
+            "update",
+            "key",
+            "key_middleware",
+            "observe_key",
+            "observe_mouse",
+            "handle_mouse",
+            "default_scroll",
+            "contribute",
+            "transform",
+            "gutter",
+            "background",
+            "inline",
+            "virtual_text",
+            "overlay",
+            "display",
+            "cell_decoration",
+            "cursor_style",
+            "menu_transform",
+            "publish",
+            "subscribe",
+        ];
+
+        let invoked: Arc<Mutex<HashSet<&'static str>>> = Arc::new(Mutex::new(HashSet::new()));
+
+        // Build a plugin that registers every handler type.
+        struct AllHandlersPlugin {
+            invoked: Arc<Mutex<HashSet<&'static str>>>,
+        }
+
+        impl Plugin for AllHandlersPlugin {
+            type State = u32;
+
+            fn id(&self) -> PluginId {
+                PluginId("test.all-handlers".into())
+            }
+
+            fn register(&self, r: &mut HandlerRegistry<u32>) {
+                let inv = self.invoked.clone();
+                r.on_init(move |s, _app| {
+                    inv.lock().unwrap().insert("init");
+                    (*s, BootstrapEffects::default())
+                });
+
+                let inv = self.invoked.clone();
+                r.on_session_ready(move |s, _app| {
+                    inv.lock().unwrap().insert("session_ready");
+                    (*s, SessionReadyEffects::default())
+                });
+
+                let inv = self.invoked.clone();
+                r.on_state_changed(move |s, _app, _dirty| {
+                    inv.lock().unwrap().insert("state_changed");
+                    (*s, RuntimeEffects::default())
+                });
+
+                let inv = self.invoked.clone();
+                r.on_io_event(move |s, _event, _app| {
+                    inv.lock().unwrap().insert("io_event");
+                    (*s, RuntimeEffects::default())
+                });
+
+                let inv = self.invoked.clone();
+                r.on_workspace_changed(move |s, _query| {
+                    inv.lock().unwrap().insert("workspace_changed");
+                    *s
+                });
+
+                let inv = self.invoked.clone();
+                r.on_shutdown(move |_s| {
+                    inv.lock().unwrap().insert("shutdown");
+                });
+
+                let inv = self.invoked.clone();
+                r.on_update(move |s, _msg, _app| {
+                    inv.lock().unwrap().insert("update");
+                    (*s, RuntimeEffects::default())
+                });
+
+                let inv = self.invoked.clone();
+                r.on_key(move |s, _key, _app| {
+                    inv.lock().unwrap().insert("key");
+                    Some((*s, vec![]))
+                });
+
+                let inv = self.invoked.clone();
+                r.on_key_middleware(move |s, _key, _app| {
+                    inv.lock().unwrap().insert("key_middleware");
+                    (*s, KeyHandleResult::Passthrough)
+                });
+
+                let inv = self.invoked.clone();
+                r.on_observe_key(move |s, _key, _app| {
+                    inv.lock().unwrap().insert("observe_key");
+                    *s
+                });
+
+                let inv = self.invoked.clone();
+                r.on_observe_mouse(move |s, _event, _app| {
+                    inv.lock().unwrap().insert("observe_mouse");
+                    *s
+                });
+
+                let inv = self.invoked.clone();
+                r.on_handle_mouse(move |s, _event, _id, _app| {
+                    inv.lock().unwrap().insert("handle_mouse");
+                    Some((*s, vec![]))
+                });
+
+                let inv = self.invoked.clone();
+                r.on_default_scroll(move |s, _candidate, _app| {
+                    inv.lock().unwrap().insert("default_scroll");
+                    Some((
+                        *s,
+                        ScrollPolicyResult::Immediate(ResolvedScroll::new(1, 0, 0)),
+                    ))
+                });
+
+                let inv = self.invoked.clone();
+                r.on_contribute(SlotId::STATUS_LEFT, move |_s, _app, _ctx| {
+                    inv.lock().unwrap().insert("contribute");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_transform(0, move |_s, _target, _app, _ctx| {
+                    inv.lock().unwrap().insert("transform");
+                    ElementPatch::Identity
+                });
+
+                let inv = self.invoked.clone();
+                r.on_annotate_gutter(GutterSide::Left, 0, move |_s, _line, _app, _ctx| {
+                    inv.lock().unwrap().insert("gutter");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_annotate_background(move |_s, _line, _app, _ctx| {
+                    inv.lock().unwrap().insert("background");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_annotate_inline(move |_s, _line, _app, _ctx| {
+                    inv.lock().unwrap().insert("inline");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_virtual_text(move |_s, _line, _app, _ctx| {
+                    inv.lock().unwrap().insert("virtual_text");
+                    vec![]
+                });
+
+                let inv = self.invoked.clone();
+                r.on_overlay(move |_s, _app, _ctx| {
+                    inv.lock().unwrap().insert("overlay");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_display(move |_s, _app| {
+                    inv.lock().unwrap().insert("display");
+                    vec![]
+                });
+
+                let inv = self.invoked.clone();
+                r.on_cell_decoration(move |_s, _app| {
+                    inv.lock().unwrap().insert("cell_decoration");
+                    vec![]
+                });
+
+                let inv = self.invoked.clone();
+                r.on_cursor_style(move |_s, _app| {
+                    inv.lock().unwrap().insert("cursor_style");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.on_menu_transform(move |_s, _item, _index, _selected, _app| {
+                    inv.lock().unwrap().insert("menu_transform");
+                    None
+                });
+
+                let inv = self.invoked.clone();
+                r.publish::<u32>(TopicId::new("test.topic"), move |_s, _app| {
+                    inv.lock().unwrap().insert("publish");
+                    42u32
+                });
+
+                let inv = self.invoked.clone();
+                r.subscribe::<u32>(TopicId::new("test.topic"), move |s, _value| {
+                    inv.lock().unwrap().insert("subscribe");
+                    *s
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(AllHandlersPlugin {
+            invoked: invoked.clone(),
+        });
+
+        let app_state = AppState::default();
+        let app = AppView::new(&app_state);
+        let key = KeyEvent {
+            key: Key::Char('a'),
+            modifiers: Modifiers::empty(),
+        };
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Press(MouseButton::Left),
+            line: 0,
+            column: 0,
+            modifiers: Modifiers::empty(),
+        };
+        let annotate_ctx = AnnotateContext {
+            line_width: 80,
+            gutter_width: 0,
+            display_map: None,
+            pane_surface_id: None,
+            pane_focused: true,
+        };
+        let contribute_ctx = ContributeContext {
+            min_width: 0,
+            max_width: None,
+            min_height: 0,
+            max_height: None,
+            visible_lines: 0..24,
+            screen_cols: 80,
+            screen_rows: 24,
+            pane_surface_id: None,
+            pane_focused: true,
+        };
+        let transform_ctx = TransformContext {
+            is_default: true,
+            chain_position: 0,
+            pane_surface_id: None,
+            pane_focused: true,
+        };
+        let overlay_ctx = OverlayContext {
+            screen_cols: 80,
+            screen_rows: 24,
+            menu_rect: None,
+            existing_overlays: vec![],
+            focused_surface_id: None,
+        };
+
+        // Lifecycle
+        bridge.on_init_effects(&app);
+        bridge.on_active_session_ready_effects(&app);
+        bridge.on_state_changed_effects(&app, DirtyFlags::ALL);
+        bridge.on_io_event_effects(
+            &IoEvent::Process(crate::plugin::ProcessEvent::Stdout {
+                job_id: 0,
+                data: vec![],
+            }),
+            &app,
+        );
+        let workspace = crate::workspace::Workspace::default();
+        let query = workspace.query(Rect {
+            x: 0,
+            y: 0,
+            w: 80,
+            h: 24,
+        });
+        bridge.on_workspace_changed(&query);
+        bridge.on_shutdown();
+        let mut msg: Box<dyn Any> = Box::new(());
+        bridge.update_effects(&mut *msg, &app);
+
+        // Input
+        bridge.handle_key(&key, &app);
+        bridge.handle_key_middleware(&key, &app);
+        bridge.observe_key(&key, &app);
+        bridge.observe_mouse(&mouse, &app);
+        bridge.handle_mouse(&mouse, InteractiveId(0), &app);
+        let candidate = DefaultScrollCandidate::new(
+            0,
+            0,
+            Modifiers::empty(),
+            ScrollGranularity::Line,
+            1,
+            ResolvedScroll::new(1, 0, 0),
+        );
+        bridge.handle_default_scroll(candidate, &app);
+
+        // View
+        bridge.contribute_to(&SlotId::STATUS_LEFT, &app, &contribute_ctx);
+        bridge.transform_patch(&TransformTarget::Buffer, &app, &transform_ctx);
+        bridge.annotate_gutter(GutterSide::Left, 0, &app, &annotate_ctx);
+        bridge.annotate_background(0, &app, &annotate_ctx);
+        bridge.annotate_inline(0, &app, &annotate_ctx);
+        bridge.annotate_virtual_text(0, &app, &annotate_ctx);
+        bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
+        bridge.display_directives(&app);
+        bridge.decorate_cells(&app);
+        bridge.cursor_style_override(&app);
+        bridge.transform_menu_item(
+            &[crate::protocol::Atom {
+                face: Face::default(),
+                contents: "item".into(),
+            }],
+            0,
+            false,
+            &app,
+        );
+
+        // Pub/Sub
+        let mut bus = super::super::pubsub::TopicBus::new();
+        bridge.collect_publications(&mut bus, &app);
+        // Add an external publication so subscriber can receive it
+        bus.publish(
+            TopicId::new("test.topic"),
+            PluginId("external".into()),
+            Box::new(99u32),
+        );
+        bridge.deliver_subscriptions(&bus);
+
+        // Assert
+        let invoked = invoked.lock().unwrap();
+        let expected: HashSet<&str> = EXPECTED_HANDLER_NAMES.iter().copied().collect();
+        let missing: Vec<&&str> = expected.difference(&invoked).collect();
+        let extra: Vec<&&str> = invoked.difference(&expected).collect();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "Dispatch coverage mismatch.\n  Missing: {missing:?}\n  Extra: {extra:?}\n\
+             When adding a new handler, update EXPECTED_HANDLER_NAMES and the Plugin::register() above."
+        );
+    }
 }
