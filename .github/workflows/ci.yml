@@ -75,7 +75,7 @@ jobs:
 
       - name: Link check (docs)
         if: matrix.os == 'ubuntu-latest'
-        uses: lychee-action/lychee-action@v2
+        uses: lycheeverse/lychee-action@v2
         with:
           args: >-
             --no-progress
