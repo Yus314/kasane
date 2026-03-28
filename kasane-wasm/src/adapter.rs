@@ -910,6 +910,68 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn navigation_policy(
+        &self,
+        unit: &kasane_core::display::unit::DisplayUnit,
+    ) -> Option<kasane_core::display::navigation::NavigationPolicy> {
+        if !self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::NAVIGATION_POLICY)
+        {
+            return None;
+        }
+        let wit_unit = convert::display_unit_to_wit(unit);
+        self.shared.with_runtime(|runtime| {
+            let api = runtime.instance.kasane_plugin_plugin_api();
+            match api.call_navigation_policy(&mut runtime.store, wit_unit) {
+                Ok(kind) => Some(convert::wit_navigation_policy_to_policy(kind)),
+                Err(e) => {
+                    tracing::error!(
+                        "WASM plugin {}.navigation_policy failed: {e}",
+                        self.shared.plugin_id.0
+                    );
+                    None
+                }
+            }
+        })
+    }
+
+    fn navigation_action(
+        &mut self,
+        unit: &kasane_core::display::unit::DisplayUnit,
+        action: kasane_core::display::navigation::NavigationAction,
+    ) -> Option<kasane_core::display::navigation::ActionResult> {
+        if !self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::NAVIGATION_ACTION)
+        {
+            return None;
+        }
+        let wit_unit = convert::display_unit_to_wit(unit);
+        let action_kind = convert::navigation_action_to_wit_kind(&action);
+        self.shared.with_runtime(|runtime| {
+            let api = runtime.instance.kasane_plugin_plugin_api();
+            match api.call_on_navigation_action(&mut runtime.store, wit_unit, action_kind) {
+                Ok(result) => {
+                    let action_result = convert::wit_action_result_to_action_result(result);
+                    match action_result {
+                        kasane_core::display::navigation::ActionResult::Pass => None,
+                        other => Some(other),
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "WASM plugin {}.on_navigation_action failed: {e}",
+                        self.shared.plugin_id.0
+                    );
+                    None
+                }
+            }
+        })
+    }
+
     fn contribute_overlay_with_ctx(
         &self,
         state: &AppView<'_>,

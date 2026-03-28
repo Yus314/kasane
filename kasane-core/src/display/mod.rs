@@ -4,16 +4,24 @@
 //! diverges from the buffer line count. `DisplayMap` provides O(1) bidirectional
 //! mapping between the two coordinate systems.
 
+pub mod fold_state;
+pub mod navigation;
 pub mod resolve;
 #[cfg(test)]
 mod tests;
+pub mod unit;
 
 use std::ops::Range;
 use std::sync::Arc;
 
 use crate::protocol::Atom;
 
+pub use fold_state::FoldToggleState;
+pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};
 pub use resolve::{DirectiveSet, TaggedDirective, resolve};
+pub use unit::{
+    DisplayUnit, DisplayUnitId, DisplayUnitMap, SemanticRole, SourceStrength, UnitSource,
+};
 
 /// Plugin-declared display transformation directive.
 #[derive(Debug, Clone, PartialEq)]

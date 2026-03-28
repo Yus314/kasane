@@ -562,6 +562,11 @@ where
             backend.present(&mut grid, result, &image_requests)?;
             state.display_scroll_offset = result.display_scroll_offset;
             state.display_map = Some(display_map);
+            state.display_unit_map = state
+                .display_map
+                .as_ref()
+                .filter(|dm| !dm.is_identity())
+                .map(|dm| kasane_core::display::DisplayUnitMap::build(dm));
             state.lines_dirty.clear(); // consumed; prevent stale data next batch
 
             let frame_ms = render_start.elapsed().as_secs_f64() * 1000.0;

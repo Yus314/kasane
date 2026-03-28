@@ -275,6 +275,33 @@ interface types {
         range-end: u32,
     }
 
+    // --- DU-4: Display Unit navigation types ---
+
+    enum semantic-role {
+        buffer-content,
+        fold-summary,
+        virtual-text,
+        plugin-defined,
+    }
+
+    record display-unit-info {
+        display-line: u32,
+        role: semantic-role,
+        plugin-tag: option<u32>,
+        role-id: u32,
+    }
+
+    enum navigation-policy-kind {
+        normal,
+        skip,
+        boundary,
+    }
+
+    record navigation-action-result {
+        handled: bool,
+        keys: option<string>,
+    }
+
     record workspace-snapshot {
         surfaces: list<u32>,
         focused: u32,
@@ -786,7 +813,7 @@ interface types {
 }
 
 interface host-state {
-    use types.{face, atom, coord, session-descriptor, selection};
+    use types.{face, atom, coord, session-descriptor, selection, display-unit-info};
 
     get-cursor-line: func() -> s32;
     get-cursor-col: func() -> s32;
@@ -884,6 +911,16 @@ interface host-state {
     /// Get the buffer's absolute file path from `%val{buffile}` via ui_options.
     /// Returns none for special buffers (e.g. `*scratch*`) where buffile is empty.
     get-buffer-file-path: func() -> option<string>;
+
+    // --- DU-4: Display unit queries ---
+
+    /// Get the display unit at a given display line.
+    /// Returns none if no display transforms are active or line is out of range.
+    get-display-unit-at-line: func(display-line: u32) -> option<display-unit-info>;
+
+    /// Get the total number of display units.
+    /// Returns 0 if no display transforms are active.
+    get-display-unit-count: func() -> u32;
 }
 
 /// Host-provided functions for building Element trees.
@@ -963,7 +1000,8 @@ interface plugin-api {
                default-scroll-candidate, scroll-policy-result,
                bootstrap-effects, session-ready-effects, runtime-effects,
                cell-decoration,
-               key-group-decl, key-response};
+               key-group-decl, key-response,
+               display-unit-info, navigation-policy-kind, navigation-action-result};
 
     // --- Identity ---
 
@@ -1145,6 +1183,16 @@ interface plugin-api {
     /// The host uses this to skip update calls when irrelevant state changes.
     /// Return a bitmask of dirty-flag bits (0x17F = ALL).
     view-deps: func() -> u16;
+
+    // --- DU-4: Navigation policy + action ---
+
+    /// Return the navigation policy for a display unit.
+    /// Plugins that override navigation behavior implement this.
+    navigation-policy: func(unit: display-unit-info) -> navigation-policy-kind;
+
+    /// Handle a navigation action on a display unit.
+    /// action-kind: 0=None, 1=ToggleFold, 2+=Plugin(tag, id).
+    on-navigation-action: func(unit: display-unit-info, action-kind: u32) -> navigation-action-result;
 
     // --- v0.23.0: handler declaration ---
 

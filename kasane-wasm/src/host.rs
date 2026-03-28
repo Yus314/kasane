@@ -80,6 +80,9 @@ pub(crate) struct HostState {
     pub theme: kasane_core::render::theme::Theme,
     pub is_dark: bool,
 
+    // --- DU-4: Display unit map ---
+    pub display_unit_map: Option<kasane_core::display::DisplayUnitMap>,
+
     /// Element arena: WASM plugins build elements via host calls, stored here.
     /// Cleared before each `contribute()` call.
     pub elements: Vec<Element>,
@@ -144,6 +147,7 @@ impl Default for HostState {
             selections: Vec::new(),
             theme: kasane_core::render::theme::Theme::default_theme(),
             is_dark: true,
+            display_unit_map: None,
             elements: Vec::new(),
             plugin_id: String::new(),
             plugin_tag: PluginTag::UNASSIGNED,
@@ -414,6 +418,23 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
             .get("kasane_buffile")
             .filter(|v| !v.is_empty())
             .cloned()
+    }
+
+    fn get_display_unit_at_line(
+        &mut self,
+        display_line: u32,
+    ) -> Option<bindings::kasane::plugin::types::DisplayUnitInfo> {
+        self.display_unit_map
+            .as_ref()
+            .and_then(|dum| dum.unit_at_line(display_line as usize))
+            .map(convert::display_unit_to_wit)
+    }
+
+    fn get_display_unit_count(&mut self) -> u32 {
+        self.display_unit_map
+            .as_ref()
+            .map(|dum| dum.unit_count() as u32)
+            .unwrap_or(0)
     }
 }
 
@@ -923,4 +944,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState) {
     // Tier 9: Theme / Color context
     host.theme = state.theme.clone();
     host.is_dark = state.color_context.is_dark;
+
+    // DU-4: Display unit map
+    host.display_unit_map = state.display_unit_map.clone();
 }

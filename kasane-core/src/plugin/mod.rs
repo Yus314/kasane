@@ -70,7 +70,11 @@ pub use registry::{
 pub type PluginRegistry = PluginRuntime;
 
 // Re-export display types for plugin API
-pub use crate::display::{DisplayDirective, DisplayMapRef};
+pub use crate::display::{
+    ActionResult, DisplayDirective, DisplayMapRef, DisplayUnit, DisplayUnitId, DisplayUnitMap,
+    FoldToggleState, NavigationAction, NavigationDirection, NavigationPolicy, SemanticRole,
+    SourceStrength, UnitSource,
+};
 
 // Re-export traits module
 pub use crate::input::KeyResponse;
@@ -112,6 +116,8 @@ bitflags! {
         const DISPLAY_TRANSFORM  = 1 << 18;
         const SCROLL_POLICY      = 1 << 19;
         const CELL_DECORATION    = 1 << 20;
+        const NAVIGATION_POLICY  = 1 << 21;
+        const NAVIGATION_ACTION  = 1 << 22;
     }
 }
 

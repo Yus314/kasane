@@ -274,6 +274,17 @@ pub struct AppState {
     #[epistemic(runtime)]
     #[dirty(free)]
     pub display_map: Option<DisplayMapRef>,
+    /// Display unit map from the last rendered frame.
+    /// Built from `display_map` when non-identity. Used by input dispatch for
+    /// display-unit-aware event routing. `None` when no display transforms are active.
+    #[epistemic(runtime)]
+    #[dirty(free)]
+    pub display_unit_map: Option<crate::display::DisplayUnitMap>,
+    /// Core fold toggle state: tracks which fold ranges are currently expanded.
+    /// Consulted during DisplayMap construction to filter out expanded folds.
+    #[epistemic(runtime)]
+    #[dirty(free)]
+    pub fold_toggle_state: crate::display::FoldToggleState,
 }
 
 impl AppState {
@@ -374,6 +385,8 @@ impl AppState {
             active_session_key: _,
             display_scroll_offset: _,
             display_map: _,
+            display_unit_map: _,
+            fold_toggle_state,
         } = d;
 
         self.lines = lines;
@@ -400,6 +413,7 @@ impl AppState {
         self.color_context = color_context;
         self.drag = drag;
         self.cursor_cache = cursor_cache;
+        self.fold_toggle_state = fold_toggle_state;
     }
 }
 
@@ -505,6 +519,8 @@ impl Default for AppState {
             cursor_cache: derived::CursorCache::default(),
             display_scroll_offset: 0,
             display_map: None,
+            display_unit_map: None,
+            fold_toggle_state: crate::display::FoldToggleState::default(),
         }
     }
 }

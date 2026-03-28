@@ -1,4 +1,6 @@
 use kasane_core::display::DisplayDirective;
+use kasane_core::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use kasane_core::display::unit::{DisplayUnit, SemanticRole};
 
 use crate::bindings::kasane::plugin::types as wit;
 
@@ -67,4 +69,57 @@ pub(crate) fn display_directives_to_wit(
     directives: &[DisplayDirective],
 ) -> Vec<wit::DisplayDirective> {
     directives.iter().map(display_directive_to_wit).collect()
+}
+
+// === DU-4: Display unit converters ===
+
+/// Convert a native `DisplayUnit` to a WIT `DisplayUnitInfo`.
+pub(crate) fn display_unit_to_wit(unit: &DisplayUnit) -> wit::DisplayUnitInfo {
+    let (role, plugin_tag, role_id) = match &unit.role {
+        SemanticRole::BufferContent => (wit::SemanticRole::BufferContent, None, 0),
+        SemanticRole::FoldSummary => (wit::SemanticRole::FoldSummary, None, 0),
+        SemanticRole::VirtualText => (wit::SemanticRole::VirtualText, None, 0),
+        SemanticRole::Plugin(tag, id) => {
+            (wit::SemanticRole::PluginDefined, Some(tag.0 as u32), *id)
+        }
+    };
+    wit::DisplayUnitInfo {
+        display_line: unit.display_line as u32,
+        role,
+        plugin_tag,
+        role_id,
+    }
+}
+
+/// Convert a WIT `NavigationPolicyKind` to a native `NavigationPolicy`.
+pub(crate) fn wit_navigation_policy_to_policy(p: wit::NavigationPolicyKind) -> NavigationPolicy {
+    match p {
+        wit::NavigationPolicyKind::Normal => NavigationPolicy::Normal,
+        wit::NavigationPolicyKind::Skip => NavigationPolicy::Skip,
+        wit::NavigationPolicyKind::Boundary => NavigationPolicy::Boundary {
+            action: NavigationAction::None,
+        },
+    }
+}
+
+/// Convert a WIT `NavigationActionResult` to a native `ActionResult`.
+pub(crate) fn wit_action_result_to_action_result(r: wit::NavigationActionResult) -> ActionResult {
+    if r.handled {
+        if let Some(keys) = r.keys {
+            ActionResult::SendKeys(keys)
+        } else {
+            ActionResult::Handled
+        }
+    } else {
+        ActionResult::Pass
+    }
+}
+
+/// Encode a `NavigationAction` to a u32 for the WIT `action-kind` parameter.
+pub(crate) fn navigation_action_to_wit_kind(action: &NavigationAction) -> u32 {
+    match action {
+        NavigationAction::None => 0,
+        NavigationAction::ToggleFold => 1,
+        NavigationAction::Plugin(_tag, id) => 2 + id,
+    }
 }

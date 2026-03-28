@@ -1385,3 +1385,106 @@ fn test_nonexistent_tag_returns_not_handled() {
         MouseHandleResult::NotHandled
     ));
 }
+
+// --- DU-4: Navigation dispatch tests ---
+
+use crate::display::InteractionPolicy;
+use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use crate::display::unit::{DisplayUnit, DisplayUnitId, SemanticRole, UnitSource};
+
+fn make_display_unit(role: SemanticRole) -> DisplayUnit {
+    DisplayUnit {
+        id: DisplayUnitId::from_content(&UnitSource::None, &role),
+        display_line: 0,
+        role,
+        source: UnitSource::None,
+        interaction: InteractionPolicy::Normal,
+    }
+}
+
+struct NavPolicyPlugin {
+    name: &'static str,
+    policy: NavigationPolicy,
+}
+
+impl PluginBackend for NavPolicyPlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.name.to_string())
+    }
+    fn navigation_policy(&self, _unit: &DisplayUnit) -> Option<NavigationPolicy> {
+        Some(self.policy.clone())
+    }
+}
+
+struct NavActionPlugin {
+    name: &'static str,
+    result: ActionResult,
+}
+
+impl PluginBackend for NavActionPlugin {
+    fn id(&self) -> PluginId {
+        PluginId(self.name.to_string())
+    }
+    fn navigation_action(
+        &mut self,
+        _unit: &DisplayUnit,
+        _action: NavigationAction,
+    ) -> Option<ActionResult> {
+        Some(self.result.clone())
+    }
+}
+
+#[test]
+fn resolve_navigation_policy_falls_back_to_default() {
+    let registry = PluginRuntime::new();
+    let unit = make_display_unit(SemanticRole::FoldSummary);
+    let policy = registry.resolve_navigation_policy(&unit);
+    assert_eq!(
+        policy,
+        NavigationPolicy::default_for(&SemanticRole::FoldSummary)
+    );
+}
+
+#[test]
+fn resolve_navigation_policy_first_wins() {
+    let mut registry = PluginRuntime::new();
+    // First plugin returns Normal (overriding the FoldSummary default of Boundary)
+    registry.register_backend(Box::new(NavPolicyPlugin {
+        name: "nav-policy-1",
+        policy: NavigationPolicy::Normal,
+    }));
+    // Second plugin returns Skip — should be ignored because first wins
+    registry.register_backend(Box::new(NavPolicyPlugin {
+        name: "nav-policy-2",
+        policy: NavigationPolicy::Skip,
+    }));
+
+    let unit = make_display_unit(SemanticRole::FoldSummary);
+    let policy = registry.resolve_navigation_policy(&unit);
+    assert_eq!(policy, NavigationPolicy::Normal);
+}
+
+#[test]
+fn dispatch_navigation_action_returns_pass_when_no_plugins() {
+    let mut registry = PluginRuntime::new();
+    let unit = make_display_unit(SemanticRole::FoldSummary);
+    let result = registry.dispatch_navigation_action(&unit, NavigationAction::ToggleFold);
+    assert_eq!(result, ActionResult::Pass);
+}
+
+#[test]
+fn dispatch_navigation_action_first_wins() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(NavActionPlugin {
+        name: "nav-action-1",
+        result: ActionResult::Handled,
+    }));
+    registry.register_backend(Box::new(NavActionPlugin {
+        name: "nav-action-2",
+        result: ActionResult::SendKeys("j".to_string()),
+    }));
+
+    let unit = make_display_unit(SemanticRole::FoldSummary);
+    let result = registry.dispatch_navigation_action(&unit, NavigationAction::ToggleFold);
+    assert_eq!(result, ActionResult::Handled);
+}

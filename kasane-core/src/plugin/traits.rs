@@ -7,6 +7,9 @@ use crate::state::{self, DirtyFlags};
 
 use super::extension_point::{ExtensionOutput, ExtensionPointId};
 use super::pubsub::TopicBus;
+use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use crate::display::unit::DisplayUnit;
+
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OverlayContext,
@@ -365,6 +368,24 @@ pub trait PluginBackend: Any {
     /// Return display transformation directives (fold, hide, insert virtual text).
     fn display_directives(&self, _state: &AppView<'_>) -> Vec<DisplayDirective> {
         vec![]
+    }
+
+    // === Navigation (DU-4) ===
+
+    /// Override navigation policy for a display unit.
+    /// Return `None` to defer to the next plugin or built-in default.
+    fn navigation_policy(&self, _unit: &DisplayUnit) -> Option<NavigationPolicy> {
+        None
+    }
+
+    /// Handle a navigation action on a display unit.
+    /// Return `None` to defer to the next plugin or built-in fallback.
+    fn navigation_action(
+        &mut self,
+        _unit: &DisplayUnit,
+        _action: NavigationAction,
+    ) -> Option<ActionResult> {
+        None
     }
 
     // === Overlay ===

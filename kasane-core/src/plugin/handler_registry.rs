@@ -24,6 +24,8 @@
 use std::any::Any;
 use std::marker::PhantomData;
 
+use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use crate::display::unit::DisplayUnit;
 use crate::element::{Element, InteractiveId};
 use crate::input::{
     ChordBinding, CompiledKeyMap, KeyBinding, KeyEvent, KeyGroup, KeyPattern, KeyResponse,
@@ -694,6 +696,57 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     // =========================================================================
+    // Navigation handlers (DU-4)
+    // =========================================================================
+
+    /// Register a navigation policy handler for display units.
+    ///
+    /// The handler returns a `NavigationPolicy` for a given display unit,
+    /// allowing plugins to override the default navigation behavior.
+    /// FirstWins composition: the first plugin returning a policy wins.
+    pub fn on_navigation_policy(
+        &mut self,
+        handler: impl Fn(&S, &DisplayUnit) -> NavigationPolicy + Send + Sync + 'static,
+    ) {
+        self.table.navigation_policy_handler = Some(Box::new(
+            move |state: &dyn PluginState, unit: &DisplayUnit| -> NavigationPolicy {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                handler(s, unit)
+            },
+        ));
+    }
+
+    /// Register a navigation action handler for display units.
+    ///
+    /// Called when a `Boundary` unit is activated (click or keyboard).
+    /// Returns `(new_state, ActionResult)` following the functional-update model.
+    /// FirstWins composition: the first non-Pass result wins.
+    pub fn on_navigation_action(
+        &mut self,
+        handler: impl Fn(&S, &DisplayUnit, NavigationAction) -> (S, ActionResult)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.navigation_action_handler = Some(Box::new(
+            move |state: &dyn PluginState,
+                  unit: &DisplayUnit,
+                  action: NavigationAction|
+                  -> (Box<dyn PluginState>, ActionResult) {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                let (new_state, result) = handler(s, unit, action);
+                (Box::new(new_state) as Box<dyn PluginState>, result)
+            },
+        ));
+    }
+
+    // =========================================================================
     // Pub/Sub handlers
     // =========================================================================
 
@@ -1057,6 +1110,7 @@ impl ChordConfig {
 mod tests {
     use super::*;
     use crate::plugin::PluginCapabilities;
+    use crate::plugin::traits::PluginBackend;
     use crate::state::DirtyFlags;
 
     #[derive(Clone, Debug, PartialEq, Default)]
@@ -1229,5 +1283,66 @@ mod tests {
         // We can't easily create an AppView in tests, but we can verify
         // the handler is stored and the type alias is correct.
         assert!(table.state_changed_handler.is_some());
+    }
+
+    #[test]
+    fn on_navigation_policy_sets_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_navigation_policy(|_state, _unit| NavigationPolicy::Normal);
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::NAVIGATION_POLICY)
+        );
+    }
+
+    #[test]
+    fn on_navigation_action_sets_capability_and_updates_state() {
+        use crate::display;
+        use crate::plugin::PluginBridge;
+        use crate::plugin::state::Plugin;
+
+        #[derive(Clone, Debug, PartialEq, Default)]
+        struct NavTestState {
+            counter: u32,
+        }
+        struct NavTestPlugin;
+        impl Plugin for NavTestPlugin {
+            type State = NavTestState;
+            fn id(&self) -> crate::plugin::PluginId {
+                crate::plugin::PluginId("nav-test".into())
+            }
+            fn register(&self, r: &mut HandlerRegistry<NavTestState>) {
+                r.on_navigation_action(|state, _unit, _action| {
+                    (
+                        NavTestState {
+                            counter: state.counter + 1,
+                        },
+                        ActionResult::Handled,
+                    )
+                });
+            }
+        }
+
+        let mut bridge = PluginBridge::new(NavTestPlugin);
+        assert!(
+            bridge
+                .capabilities()
+                .contains(PluginCapabilities::NAVIGATION_ACTION)
+        );
+
+        let unit = display::unit::DisplayUnit {
+            id: display::unit::DisplayUnitId::from_content(
+                &display::unit::UnitSource::Line(0),
+                &display::unit::SemanticRole::BufferContent,
+            ),
+            display_line: 0,
+            role: display::unit::SemanticRole::BufferContent,
+            source: display::unit::UnitSource::Line(0),
+            interaction: display::InteractionPolicy::Normal,
+        };
+        let result = bridge.navigation_action(&unit, NavigationAction::None);
+        assert_eq!(result, Some(ActionResult::Handled));
     }
 }

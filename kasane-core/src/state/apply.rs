@@ -108,6 +108,9 @@ impl AppState {
                 self.lines = lines;
                 self.default_face = default_face;
                 self.padding_face = padding_face;
+                // Clear fold toggle state when buffer content changes (e.g., undo,
+                // file switch) so stale fold ranges don't persist.
+                self.fold_toggle_state.clear();
                 // Re-derive color context when default_face changes
                 let new_ctx =
                     crate::render::color_context::ColorContext::derive(&self.default_face);

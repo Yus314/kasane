@@ -422,6 +422,51 @@ impl PluginRuntime {
         None
     }
 
+    /// Resolve navigation policy for a display unit via FirstWins dispatch.
+    ///
+    /// Iterates plugins with `NAVIGATION_POLICY` capability. The first plugin
+    /// returning `Some` wins. Falls back to `NavigationPolicy::default_for(role)`.
+    pub fn resolve_navigation_policy(
+        &self,
+        unit: &crate::display::unit::DisplayUnit,
+    ) -> crate::display::navigation::NavigationPolicy {
+        for slot in self.slots.iter() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::NAVIGATION_POLICY)
+            {
+                continue;
+            }
+            if let Some(policy) = slot.backend.navigation_policy(unit) {
+                return policy;
+            }
+        }
+        crate::display::navigation::NavigationPolicy::default_for(&unit.role)
+    }
+
+    /// Dispatch a navigation action via FirstWins dispatch.
+    ///
+    /// Iterates plugins with `NAVIGATION_ACTION` capability. The first non-Pass
+    /// result wins. Falls back to `ActionResult::Pass`.
+    pub fn dispatch_navigation_action(
+        &mut self,
+        unit: &crate::display::unit::DisplayUnit,
+        action: crate::display::navigation::NavigationAction,
+    ) -> crate::display::navigation::ActionResult {
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::NAVIGATION_ACTION)
+            {
+                continue;
+            }
+            if let Some(result) = slot.backend.navigation_action(unit, action.clone()) {
+                return result;
+            }
+        }
+        crate::display::navigation::ActionResult::Pass
+    }
+
     pub fn dispatch_key_middleware(
         &mut self,
         key: &KeyEvent,
@@ -719,6 +764,21 @@ impl PluginEffects for PluginRuntime {
         app: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         PluginRuntime::handle_default_scroll(self, candidate, app).map(|(_, result)| result)
+    }
+
+    fn resolve_navigation_policy(
+        &self,
+        unit: &crate::display::unit::DisplayUnit,
+    ) -> crate::display::navigation::NavigationPolicy {
+        PluginRuntime::resolve_navigation_policy(self, unit)
+    }
+
+    fn dispatch_navigation_action(
+        &mut self,
+        unit: &crate::display::unit::DisplayUnit,
+        action: crate::display::navigation::NavigationAction,
+    ) -> crate::display::navigation::ActionResult {
+        PluginRuntime::dispatch_navigation_action(self, unit, action)
     }
 }
 
@@ -1211,7 +1271,15 @@ impl<'a> PluginView<'a> {
         if set.is_empty() {
             return Arc::new(DisplayMap::identity(line_count));
         }
-        let directives = crate::display::resolve(&set, line_count);
+        let mut directives = crate::display::resolve(&set, line_count);
+        // Filter out fold ranges that have been toggled open by the user.
+        state
+            .as_app_state()
+            .fold_toggle_state
+            .filter_directives(&mut directives);
+        if directives.is_empty() {
+            return Arc::new(DisplayMap::identity(line_count));
+        }
         let dm = DisplayMap::build(line_count, &directives);
         Arc::new(dm)
     }

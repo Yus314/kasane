@@ -17,6 +17,9 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
+use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use crate::display::unit::DisplayUnit;
+
 use super::element_patch::ElementPatch;
 use super::extension_point::{ExtensionContribution, ExtensionDefinition};
 use super::process_task::ProcessTaskEntry;
@@ -162,6 +165,15 @@ pub(crate) type ErasedMenuTransformHandler = Box<
     dyn Fn(&dyn PluginState, &[Atom], usize, bool, &AppView<'_>) -> Option<Vec<Atom>> + Send + Sync,
 >;
 
+// Navigation handlers (DU-4)
+pub(crate) type ErasedNavigationPolicyHandler =
+    Box<dyn Fn(&dyn PluginState, &DisplayUnit) -> NavigationPolicy + Send + Sync>;
+pub(crate) type ErasedNavigationActionHandler = Box<
+    dyn Fn(&dyn PluginState, &DisplayUnit, NavigationAction) -> (Box<dyn PluginState>, ActionResult)
+        + Send
+        + Sync,
+>;
+
 // =============================================================================
 // Handler entry types (handler + metadata)
 // =============================================================================
@@ -235,6 +247,10 @@ pub(crate) struct HandlerTable {
     pub(crate) cursor_style_handler: Option<ErasedCursorStyleHandler>,
     pub(crate) menu_transform_handler: Option<ErasedMenuTransformHandler>,
 
+    // --- Navigation (DU-4) ---
+    pub(crate) navigation_policy_handler: Option<ErasedNavigationPolicyHandler>,
+    pub(crate) navigation_action_handler: Option<ErasedNavigationActionHandler>,
+
     // --- Pub/Sub ---
     pub(crate) publishers: Vec<PublishEntry>,
     pub(crate) subscribers: Vec<SubscribeEntry>,
@@ -283,6 +299,8 @@ impl HandlerTable {
             cell_decoration_handler: None,
             cursor_style_handler: None,
             menu_transform_handler: None,
+            navigation_policy_handler: None,
+            navigation_action_handler: None,
             publishers: Vec::new(),
             subscribers: Vec::new(),
             extension_definitions: Vec::new(),
@@ -335,6 +353,12 @@ impl HandlerTable {
         if self.menu_transform_handler.is_some() {
             caps |= PluginCapabilities::MENU_TRANSFORM;
         }
+        if self.navigation_policy_handler.is_some() {
+            caps |= PluginCapabilities::NAVIGATION_POLICY;
+        }
+        if self.navigation_action_handler.is_some() {
+            caps |= PluginCapabilities::NAVIGATION_ACTION;
+        }
         caps
     }
 
@@ -373,5 +397,29 @@ mod tests {
     fn empty_table_has_no_annotation_handlers() {
         let table = HandlerTable::empty();
         assert!(!table.has_annotation_handlers());
+    }
+
+    #[test]
+    fn navigation_policy_handler_sets_capability() {
+        let mut table = HandlerTable::empty();
+        table.navigation_policy_handler = Some(Box::new(|_state, _unit| NavigationPolicy::Normal));
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::NAVIGATION_POLICY)
+        );
+    }
+
+    #[test]
+    fn navigation_action_handler_sets_capability() {
+        let mut table = HandlerTable::empty();
+        table.navigation_action_handler = Some(Box::new(|state, _unit, _action| {
+            (dyn_clone::clone_box(state), ActionResult::Pass)
+        }));
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::NAVIGATION_ACTION)
+        );
     }
 }

@@ -144,6 +144,8 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "declare_key_map",
         "is_group_active",
         "invoke_action",
+        "navigation_policy",
+        "on_navigation_action",
     ]
     .into_iter()
     .collect()
@@ -554,6 +556,18 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         quote! { fn view_deps() -> u16 { 0x17F } } // ALL
     );
 
+    // --- Navigation (DU-4) ---
+
+    add_default!(
+        "navigation_policy",
+        quote! { fn navigation_policy(_unit: DisplayUnitInfo) -> NavigationPolicyKind { NavigationPolicyKind::Normal } }
+    );
+
+    add_default!(
+        "on_navigation_action",
+        quote! { fn on_navigation_action(_unit: DisplayUnitInfo, _action_kind: u32) -> NavigationActionResult { NavigationActionResult { handled: false, keys: None } } }
+    );
+
     // --- Handler capability declaration (v0.23.0) ---
     // Auto-infer PluginCapabilities bitmask from which methods are implemented.
     // Bit layout matches kasane-core PluginCapabilities bitflags.
@@ -620,6 +634,14 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         // CELL_DECORATION = 1 << 20
         if existing.contains("decorate_cells") {
             caps |= 1 << 20;
+        }
+        // NAVIGATION_POLICY = 1 << 21
+        if existing.contains("navigation_policy") {
+            caps |= 1 << 21;
+        }
+        // NAVIGATION_ACTION = 1 << 22
+        if existing.contains("on_navigation_action") {
+            caps |= 1 << 22;
         }
 
         let caps_literal = caps;

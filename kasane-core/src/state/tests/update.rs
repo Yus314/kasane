@@ -589,3 +589,312 @@ fn update_resize_with_null_effects_sends_resize_command() {
     assert_eq!(state.rows, 40);
     assert!(result.flags.contains(DirtyFlags::ALL));
 }
+
+// --- Display unit dispatch tests ---
+
+#[test]
+fn mouse_press_on_fold_summary_suppressed() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use std::sync::Arc;
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut registry = PluginRuntime::new();
+
+    // Build a non-identity display map with a fold at lines 2..5
+    let directives = vec![DisplayDirective::Fold {
+        range: 2..5,
+        summary: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(10, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    // Click on display line 2 = fold summary (ReadOnly)
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 2,
+        column: 5,
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    // Fold summary press triggers ToggleFold (DU-3): returns BUFFER_CONTENT, no commands
+    assert!(
+        result.commands.is_empty(),
+        "fold summary click should not forward to Kakoune"
+    );
+    assert!(
+        result.flags.contains(DirtyFlags::BUFFER_CONTENT),
+        "fold summary press should trigger redraw via fold toggle"
+    );
+    // Fold range should now be expanded in fold_toggle_state
+    assert!(
+        state.fold_toggle_state.is_expanded(&(2..5)),
+        "fold range 2..5 should be expanded after click"
+    );
+}
+
+#[test]
+fn mouse_press_on_normal_line_forwards_to_kakoune() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use std::sync::Arc;
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut registry = PluginRuntime::new();
+
+    let directives = vec![DisplayDirective::Fold {
+        range: 2..5,
+        summary: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(10, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    // Click on display line 0 = buffer line 0 (Normal)
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 0,
+        column: 5,
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    assert_eq!(
+        result.commands.len(),
+        1,
+        "normal line click should forward to Kakoune"
+    );
+    assert!(matches!(result.commands[0], Command::SendToKakoune(_)));
+}
+
+#[test]
+fn mouse_press_on_virtual_text_suppressed() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use std::sync::Arc;
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut registry = PluginRuntime::new();
+
+    let directives = vec![DisplayDirective::InsertAfter {
+        after: 0,
+        content: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "virtual".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(3, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    // Display: [buf(0), virtual, buf(1), buf(2)]
+    // Click on display line 1 = virtual text (ReadOnly)
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 1,
+        column: 5,
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+    assert!(
+        result.commands.is_empty(),
+        "virtual text click should be suppressed"
+    );
+}
+
+// --- DU-3: Fold toggle integration tests ---
+
+#[test]
+fn mouse_click_fold_summary_toggles_fold_state() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use std::sync::Arc;
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut registry = PluginRuntime::new();
+
+    let directives = vec![DisplayDirective::Fold {
+        range: 3..7,
+        summary: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "...".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(10, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    // Before click: fold range not expanded
+    assert!(!state.fold_toggle_state.is_expanded(&(3..7)));
+
+    // Click on fold summary line (display line 3)
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 3,
+        column: 0,
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+
+    assert!(result.flags.contains(DirtyFlags::BUFFER_CONTENT));
+    assert!(result.commands.is_empty());
+    assert!(state.fold_toggle_state.is_expanded(&(3..7)));
+}
+
+#[test]
+fn mouse_move_on_fold_summary_suppressed_without_toggle() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+    use std::sync::Arc;
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut registry = PluginRuntime::new();
+
+    let directives = vec![DisplayDirective::Fold {
+        range: 2..5,
+        summary: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(10, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    // Mouse move (not press) on fold summary — should suppress but NOT toggle
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Move,
+        line: 2,
+        column: 5,
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
+
+    assert!(result.commands.is_empty());
+    assert!(result.flags.is_empty());
+    assert!(
+        !state.fold_toggle_state.is_expanded(&(2..5)),
+        "mouse move should not toggle fold"
+    );
+}
+
+#[test]
+fn fold_toggle_cleared_on_draw() {
+    let mut state = AppState::default();
+
+    // Set some fold toggle state
+    state.fold_toggle_state.toggle(&(3..7));
+    assert!(state.fold_toggle_state.is_expanded(&(3..7)));
+
+    // Apply a Draw request — should clear fold toggle state
+    state.apply(KakouneRequest::Draw {
+        lines: vec![make_line("hello")],
+        cursor_pos: Coord::default(),
+        default_face: Face::default(),
+        padding_face: Face::default(),
+        widget_columns: 0,
+    });
+
+    assert!(
+        !state.fold_toggle_state.is_expanded(&(3..7)),
+        "fold toggle state should be cleared after Draw"
+    );
+}
+
+// --- DU-4: Plugin dispatch tests ---
+
+#[test]
+fn fold_summary_click_dispatches_through_null_effects() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut effects = NullEffects;
+
+    let directives = vec![DisplayDirective::Fold {
+        range: 2..5,
+        summary: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(10, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 2,
+        column: 5,
+        modifiers: Modifiers::empty(),
+    };
+    let result = update_in_place(&mut state, Msg::Mouse(mouse), &mut effects, 3);
+    // NullEffects returns Pass for dispatch_navigation_action,
+    // so fallback fold toggle should still work
+    assert!(result.flags.contains(DirtyFlags::BUFFER_CONTENT));
+    assert!(state.fold_toggle_state.is_expanded(&(2..5)));
+}
+
+#[test]
+fn fold_summary_click_recording_effects_dispatches_action() {
+    use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
+
+    let mut state = Box::new(AppState::default());
+    state.cols = 80;
+    state.rows = 24;
+    let mut effects = RecordingEffects::default();
+
+    let directives = vec![DisplayDirective::Fold {
+        range: 2..5,
+        summary: vec![crate::protocol::Atom {
+            face: Face::default(),
+            contents: "folded".into(),
+        }],
+    }];
+    let dm = DisplayMap::build(10, &directives);
+    let dum = DisplayUnitMap::build(&dm);
+    state.display_map = Some(Arc::new(dm));
+    state.display_unit_map = Some(dum);
+    state.display_scroll_offset = 0;
+
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Press(MouseButton::Left),
+        line: 2,
+        column: 5,
+        modifiers: Modifiers::empty(),
+    };
+    let _result = update_in_place(&mut state, Msg::Mouse(mouse), &mut effects, 3);
+    // RecordingEffects should have recorded the navigation action dispatch
+    assert_eq!(
+        effects.navigation_action_dispatches.len(),
+        1,
+        "should dispatch one navigation action"
+    );
+    let (ref unit, ref action) = effects.navigation_action_dispatches[0];
+    assert_eq!(unit.role, crate::display::unit::SemanticRole::FoldSummary);
+    assert_eq!(*action, crate::display::NavigationAction::ToggleFold,);
+}

@@ -1068,6 +1068,12 @@ where
             self.last_render_result = Some(result);
             self.state.display_scroll_offset = result.display_scroll_offset;
             self.state.display_map = Some(display_map);
+            self.state.display_unit_map = self
+                .state
+                .display_map
+                .as_ref()
+                .filter(|dm| !dm.is_identity())
+                .map(|dm| kasane_core::display::DisplayUnitMap::build(dm));
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
                 cell_size,

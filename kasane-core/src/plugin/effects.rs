@@ -1,3 +1,5 @@
+use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use crate::display::unit::DisplayUnit;
 use crate::element::InteractiveId;
 use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
@@ -172,6 +174,16 @@ pub trait PluginEffects {
         candidate: DefaultScrollCandidate,
         app: &AppView<'_>,
     ) -> Option<ScrollPolicyResult>;
+
+    /// Resolve navigation policy for a display unit via plugin dispatch.
+    fn resolve_navigation_policy(&self, unit: &DisplayUnit) -> NavigationPolicy;
+
+    /// Dispatch a navigation action through the plugin chain.
+    fn dispatch_navigation_action(
+        &mut self,
+        unit: &DisplayUnit,
+        action: NavigationAction,
+    ) -> ActionResult;
 }
 
 /// No-op implementation — all observations are discarded, all dispatches pass through.
@@ -201,6 +213,12 @@ impl PluginEffects for NullEffects {
     ) -> Option<ScrollPolicyResult> {
         None
     }
+    fn resolve_navigation_policy(&self, unit: &DisplayUnit) -> NavigationPolicy {
+        NavigationPolicy::default_for(&unit.role)
+    }
+    fn dispatch_navigation_action(&mut self, _: &DisplayUnit, _: NavigationAction) -> ActionResult {
+        ActionResult::Pass
+    }
 }
 
 /// Records all effect invocations for test assertions.
@@ -211,6 +229,8 @@ pub struct RecordingEffects {
     pub key_dispatches: Vec<KeyEvent>,
     pub mouse_dispatches: Vec<(MouseEvent, InteractiveId)>,
     pub state_notifications: Vec<DirtyFlags>,
+    pub navigation_policy_queries: Vec<DisplayUnit>,
+    pub navigation_action_dispatches: Vec<(DisplayUnit, NavigationAction)>,
 }
 
 impl PluginEffects for RecordingEffects {
@@ -243,5 +263,17 @@ impl PluginEffects for RecordingEffects {
         _: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         None
+    }
+    fn resolve_navigation_policy(&self, unit: &DisplayUnit) -> NavigationPolicy {
+        NavigationPolicy::default_for(&unit.role)
+    }
+    fn dispatch_navigation_action(
+        &mut self,
+        unit: &DisplayUnit,
+        action: NavigationAction,
+    ) -> ActionResult {
+        self.navigation_action_dispatches
+            .push((unit.clone(), action));
+        ActionResult::Pass
     }
 }

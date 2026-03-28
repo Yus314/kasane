@@ -664,6 +664,29 @@ impl PluginBackend for PluginBridge {
         }
     }
 
+    fn navigation_policy(
+        &self,
+        unit: &crate::display::unit::DisplayUnit,
+    ) -> Option<crate::display::navigation::NavigationPolicy> {
+        let handler = self.table.navigation_policy_handler.as_ref()?;
+        Some(handler(&*self.state, unit))
+    }
+
+    fn navigation_action(
+        &mut self,
+        unit: &crate::display::unit::DisplayUnit,
+        action: crate::display::navigation::NavigationAction,
+    ) -> Option<crate::display::navigation::ActionResult> {
+        let handler = self.table.navigation_action_handler.as_ref()?;
+        let (new_state, result) = handler(&*self.state, unit, action);
+        self.state = new_state;
+        self.check_state_change();
+        match result {
+            crate::display::navigation::ActionResult::Pass => None,
+            other => Some(other),
+        }
+    }
+
     fn collect_publications(&self, bus: &mut TopicBus, state: &AppView<'_>) {
         let plugin_id = self.id.clone();
         for entry in &self.table.publishers {

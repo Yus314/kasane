@@ -232,6 +232,69 @@ fn update_inner<E: PluginEffects>(
                 LegacyScrollDispatch::NotHandled => {}
             }
 
+            // Display unit dispatch (ρ₂'): when display transforms are active,
+            // dispatch based on NavigationPolicy for the hit display unit.
+            if let Some(unit) = state
+                .display_unit_map
+                .as_ref()
+                .and_then(|dum| dum.hit_test(mouse.line, state.display_scroll_offset))
+            {
+                use crate::display::{
+                    ActionResult, NavigationAction, NavigationPolicy, UnitSource,
+                };
+                let suppressed = UpdateResult {
+                    flags: DirtyFlags::empty(),
+                    commands: vec![],
+                    scroll_plans: vec![],
+                    source_plugin: None,
+                };
+                let policy = effects.resolve_navigation_policy(unit);
+                match policy {
+                    NavigationPolicy::Normal => {
+                        // Fall through to mouse_to_kakoune
+                    }
+                    NavigationPolicy::Skip => {
+                        return suppressed;
+                    }
+                    NavigationPolicy::Boundary { action } => {
+                        // Only activate on press (not drag/move/scroll)
+                        if matches!(mouse.kind, input::MouseEventKind::Press(_)) {
+                            let result = effects.dispatch_navigation_action(unit, action.clone());
+                            match result {
+                                ActionResult::Handled => {
+                                    return UpdateResult {
+                                        flags: DirtyFlags::BUFFER_CONTENT,
+                                        ..suppressed
+                                    };
+                                }
+                                ActionResult::SendKeys(keys) => {
+                                    return UpdateResult {
+                                        commands: vec![Command::SendToKakoune(
+                                            KasaneRequest::Keys(vec![keys]),
+                                        )],
+                                        ..suppressed
+                                    };
+                                }
+                                ActionResult::Pass => {
+                                    // Built-in fallback: fold toggle
+                                    if let NavigationAction::ToggleFold = &action
+                                        && let UnitSource::LineRange(ref range) = unit.source
+                                    {
+                                        state.fold_toggle_state.toggle(range);
+                                        return UpdateResult {
+                                            flags: DirtyFlags::BUFFER_CONTENT,
+                                            ..suppressed
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                        // Non-press events on Boundary, or unhandled actions: suppress
+                        return suppressed;
+                    }
+                }
+            }
+
             let cmds = if let Some(req) = input::mouse_to_kakoune(
                 &mouse,
                 scroll_amount,

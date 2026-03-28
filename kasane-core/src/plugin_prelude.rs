@@ -8,16 +8,18 @@ pub use crate::kasane_plugin;
 
 // Plugin trait and types
 pub use crate::plugin::{
-    AnnotateContext, AnnotationResult, AppView, BackgroundLayer, BlendMode, BufferEdit,
-    BufferPosition, CellDecoration, Command, CompositionRule, ContribSizeHint, ContributeContext,
-    Contribution, DecorationTarget, DisplayDirective, DisplayMapRef, Effects, EffectsBatch,
-    ElementPatch, ExtensionPointId, ExtensionResults, FaceMerge, GutterSide, HandlerRegistry,
+    ActionResult, AnnotateContext, AnnotationResult, AppView, BackgroundLayer, BlendMode,
+    BufferEdit, BufferPosition, CellDecoration, Command, CompositionRule, ContribSizeHint,
+    ContributeContext, Contribution, DecorationTarget, DisplayDirective, DisplayMapRef,
+    DisplayUnit, DisplayUnitId, DisplayUnitMap, Effects, EffectsBatch, ElementPatch,
+    ExtensionPointId, ExtensionResults, FaceMerge, FoldToggleState, GutterSide, HandlerRegistry,
     IsBridgedPlugin, KeyDispatchResult, KeyHandleResult, LifecyclePhase, LineAnnotation,
-    NullEffects, OverlayContext, OverlayContribution, PaintHook, PaneContext, Plugin,
-    PluginAuthorities, PluginBackend, PluginBridge, PluginCapabilities, PluginDescriptor,
-    PluginEffects, PluginFactory, PluginId, PluginManager, PluginProvider, PluginRank,
-    PluginRevision, PluginRuntime, PluginSource, PluginState, SlotId, Topic, TopicBus, TopicId,
-    TransformContext, TransformDescriptor, TransformScope, TransformSubject, TransformTarget,
+    NavigationAction, NavigationDirection, NavigationPolicy, NullEffects, OverlayContext,
+    OverlayContribution, PaintHook, PaneContext, Plugin, PluginAuthorities, PluginBackend,
+    PluginBridge, PluginCapabilities, PluginDescriptor, PluginEffects, PluginFactory, PluginId,
+    PluginManager, PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
+    PluginState, SemanticRole, SlotId, SourceStrength, Topic, TopicBus, TopicId, TransformContext,
+    TransformDescriptor, TransformScope, TransformSubject, TransformTarget, UnitSource,
     VirtualTextItem, builtin_plugin, host_plugin, host_plugin_with_provider,
 };
 
