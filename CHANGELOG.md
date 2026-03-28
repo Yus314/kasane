@@ -2,26 +2,85 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-29
+
+### Highlights
+
+- **Plugin architecture redesign**: HandlerRegistry model replaces 30+ Plugin trait methods with `register()` + `handle()` (ADR-025–029)
+- **Display Unit Model**: Unified display coordinate system (DU-1 through DU-4) with virtual-text-aware mouse translation
+- **Declarative key map DSL**: Framework-managed chord sequences with `KeyMap` builder
+- **Image rendering pipeline**: SVG support (resvg), Kitty Graphics Protocol, GPU texture rendering
+- **Plugin manifest system**: `kasane-plugin.toml` for declarative plugin metadata and activation
+
+### Breaking Changes
+
+- **plugin**: `HandlerRegistry` replaces 30+ `Plugin` trait methods with `register()` + `handle()`
+- **plugin**: Unified `Effects` type replaces `BootstrapEffects`/`SessionReadyEffects`/`RuntimeEffects`
+- **wasm**: WIT key-code breaking change: `character(string)` → `char(u32)`
+- **wasm**: `kasane-plugin.toml` manifest required for all WASM plugins
+- **sdk**: kasane-plugin-sdk 0.3.0 (requires kasane >= 0.3.0)
+
 ### Added
 
-- **wasm**: Expose buffer file path via `get-buffer-file-path` (WIT v0.15.0)
-- **inline**: Add `InlineOp::Insert` for inline virtual text insertion (WIT v0.16.0)
-- **display**: Add `DisplayDirective::InsertBefore` for virtual text before buffer lines (WIT v0.17.0)
-- **wasm**: Add bulk buffer line retrieval APIs `get-lines-text`, `get-lines-atoms` (WIT v0.18.0)
-- **plugin**: Add cursor decoration plugin extension APIs with `decorate_cells()` (WIT v0.19.0)
-- **core**: Add `Element::Image` type for GPU rendering with TUI text placeholder fallback
-- **gui**: Implement Image element GPU rendering pipeline with texture caching
-- **wasm**: Add image element API `create-image` for WASM plugins (WIT v0.20.0)
-- **wasm**: Add `image-preview` WASM plugin example
-- **plugin**: Implement EOL virtual text (Phase VT-1)
-- **display**: Implement display scroll offset for virtual line overflow
-- **pane**: Per-pane status bar rendering in multi-pane mode — each pane displays its own mode, prompt, and status line
+- **plugin**: Implement plugin architecture redesign — HandlerRegistry, capability derivation from handler presence, exhaustive dispatch (a5c57e2, ed29da8)
+- **plugin**: Add `PluginTag` ownership to `InteractiveId` for namespace isolation and O(1) dispatch (490f1e9)
+- **plugin**: Plugin authoring ergonomics overhaul (12ea5bc)
+- **plugin**: Implement plugin manifest system with `kasane-plugin.toml` (24386ae)
+- **plugin**: Implement EOL virtual text (Phase VT-1) (73cf6f1)
+- **plugin**: Add cursor decoration plugin extension APIs with `decorate_cells()` (WIT v0.19.0) (e9e5d07)
+- **display**: Implement Display Unit Model (DU-1 through DU-4) (7edb96a)
+- **display**: Add `DisplayDirective::InsertBefore` for virtual text before buffer lines (WIT v0.17.0) (9c575eb)
+- **display**: Implement display scroll offset for virtual line overflow (c33b45b)
+- **display**: Extend `InsertAfter`/`Fold` to `Vec<Atom>` and add `get-active-session-name` (7a7cc5f)
+- **input**: Declarative key map DSL with framework-managed chords (5b3513a)
+- **core**: Add `Element::Image` type for GPU rendering with TUI text placeholder fallback (48a0338)
+- **core**: Add SVG rendering support with resvg (b8dfd2a)
+- **core**: Integrate SVG into TUI halfblock rendering path (25337d7)
+- **core**: Split divider glyphs with focus-adjacency detection and TUI halfblock image rendering (70731eb)
+- **gui**: Implement Image element GPU rendering pipeline with texture caching (20bb2e0)
+- **gui**: Integrate SVG into GPU texture rendering path (3c0d8ca)
+- **gui**: Update cosmic-text to 0.18 and enable font hinting (298cb45)
+- **tui**: Add Kitty Graphics Protocol support for high-quality image rendering (48b8ef2)
+- **tui**: Integrate SVG into Kitty Graphics Protocol path (2959c02)
+- **wasm**: Expose buffer file path via `get-buffer-file-path` (WIT v0.15.0) (13dbff8)
+- **wasm**: Add image element API `create-image` for WASM plugins (WIT v0.20.0) (91f76c7)
+- **wasm**: Add workspace resize command (WIT v0.21.0) (377ef79)
+- **wasm**: Add `svg-data` image source variant (WIT v0.22.0) (ba7b02c)
+- **wasm**: Add `image-preview` WASM plugin example (a30fbaa)
+- **wasm**: Add SDK v0.3.0 DX helpers and migrate examples (841002d)
+- **wasm**: Improve plugin DX with `define_plugin!`, `view_deps`, logging, and runtime diagnostics (96b9ec9)
+- **wasm**: Add bulk buffer line retrieval APIs `get-lines-text`, `get-lines-atoms` (WIT v0.18.0) (3d98b42)
+- **inline**: Add `InlineOp::Insert` for inline virtual text insertion (WIT v0.16.0) (1357627)
+- **pane**: Per-pane status bar rendering in multi-pane mode (beeca62)
+- **pane**: Implement directional pane resize key bindings `<C-w>>/<` (d975a4a)
+- **workspace**: Add pane layout persistence across sessions (8a1aadb)
+- **nix**: Add Nix package derivation with `cleanSourceWith` filtering (d4e2a24)
+- **nix**: Add `packages` output to flake.nix (07786ba)
 
 ### Fixed
 
-- **gui**: Add gamma-correct sRGB→linear conversion in GPU shaders
-- **gui**: Fix unlimited frame rate and improve GPU backend
-- **core**: Comprehensive color/face system remediation
+- **gui**: Add gamma-correct sRGB→linear conversion in GPU shaders (5f399e4)
+- **gui**: Fix unlimited frame rate and improve GPU backend (fb89f96)
+- **gui**: Handle REVERSE attribute and sync default colors from Kakoune theme (cd07cba)
+- **gui**: Correct `ImageFit::Contain` and harden image pipeline caching (04a7002)
+- **core**: Comprehensive color/face system remediation (5f97282)
+- **core**: Integrate plugin transforms into Salsa rendering path (25035b5)
+- **core**: Persist `DisplayMap` on `AppState` for mouse coordinate translation (6fd2247)
+- **tui**: Use inline RGBA transfer for Kitty image uploads instead of file path (a4984b0)
+- **test**: Gate `debug_assert` `#[should_panic]` tests with `cfg(debug_assertions)` (4207dd0)
+
+### Changed
+
+- **sdk**: Bump kasane-plugin-sdk to 0.3.0; WIT ABI from 0.14.0 to 0.22.0
+- **gui**: Internalize glyphon as `text_pipeline` module (24a353e)
+- **deps**: Update portable-pty to 0.9 (24c7cd3)
+
+### Internal
+
+- Structural cleanup — split large modules, remove deprecated API, type-safe config (8884f99)
+- Nix/cargo CI caching and fix `cargo metadata` running outside Nix (758877c)
+- CI fixes: POSIX grep, shellHook stdout isolation, lychee-action reference (cb840ae, 6069432, ca5dd2c)
+- Comprehensive documentation refresh: plugin cookbook, design documents, README rewrite, ADR-024/025–029
 
 ## [0.2.0] - 2026-03-23
 
