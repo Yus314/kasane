@@ -520,6 +520,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "non-overlapping")]
     fn overlapping_ops_asserts() {
         InlineDecoration::new(vec![
@@ -769,6 +770,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "sorted by sort_key")]
     fn invariant_unsorted_panics() {
         // Style at 3..5 before Insert at 2 — unsorted, should panic

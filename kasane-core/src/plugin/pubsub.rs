@@ -254,6 +254,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "cannot publish during delivery phase")]
     fn publish_during_delivery_panics_in_debug() {
         let mut bus = TopicBus::new();
