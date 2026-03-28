@@ -8,11 +8,11 @@ use crate::state::{self, DirtyFlags};
 use super::extension_point::{ExtensionOutput, ExtensionPointId};
 use super::pubsub::TopicBus;
 use super::{
-    AnnotateContext, AppView, BackgroundLayer, BootstrapEffects, Command, ContributeContext,
-    Contribution, DisplayDirective, ElementPatch, GutterSide, IoEvent, LineAnnotation,
-    OverlayContext, OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities,
-    PluginDiagnostic, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
-    TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
+    AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
+    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OverlayContext,
+    OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
+    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
+    VirtualTextItem,
 };
 
 /// Result of key middleware dispatch.
@@ -47,23 +47,19 @@ pub trait PluginBackend: Any {
 
     // --- Lifecycle hooks ---
 
-    fn on_init_effects(&mut self, _state: &AppView<'_>) -> BootstrapEffects {
-        BootstrapEffects::default()
+    fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
+        Effects::default()
     }
-    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
-        SessionReadyEffects::default()
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
+        Effects::default()
     }
     fn on_shutdown(&mut self) {}
-    fn on_state_changed_effects(
-        &mut self,
-        _state: &AppView<'_>,
-        _dirty: DirtyFlags,
-    ) -> RuntimeEffects {
-        RuntimeEffects::default()
+    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, _dirty: DirtyFlags) -> Effects {
+        Effects::default()
     }
     /// Handle an I/O event (process output, etc.).
-    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> RuntimeEffects {
-        RuntimeEffects::default()
+    fn on_io_event_effects(&mut self, _event: &IoEvent, _state: &AppView<'_>) -> Effects {
+        Effects::default()
     }
 
     // --- Input hooks ---
@@ -75,8 +71,8 @@ pub trait PluginBackend: Any {
 
     // --- Update / Input handling ---
 
-    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> RuntimeEffects {
-        RuntimeEffects::default()
+    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
+        Effects::default()
     }
     fn handle_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
         None
@@ -186,6 +182,15 @@ pub trait PluginBackend: Any {
     /// Declare which capabilities this plugin supports.
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities::all()
+    }
+
+    /// Start a named process task, returning spawn commands.
+    ///
+    /// Framework-managed tasks registered via [`HandlerRegistry::on_process_task`]
+    /// are looked up by name. Returns the initial `SpawnProcess` command(s).
+    /// Default: returns empty (no tasks registered).
+    fn start_process_task(&mut self, _name: &str) -> Vec<Command> {
+        vec![]
     }
 
     /// Host-level authorities required for privileged deferred effects.

@@ -6,13 +6,15 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     on_init_effects() {
-        BootstrapEffects {
+        Effects {
             redraw: dirty::STATUS,
+            commands: vec![],
+            scroll_plans: vec![],
         }
     },
 
     on_active_session_ready_effects() {
-        SessionReadyEffects {
+        Effects {
             redraw: dirty::STATUS,
             commands: vec![],
             scroll_plans: vec![],
@@ -21,7 +23,7 @@ kasane_plugin_sdk::define_plugin! {
 
     on_state_changed_effects(dirty_flags) {
         let _ = dirty_flags;
-        RuntimeEffects {
+        Effects {
             redraw: dirty::BUFFER,
             commands: vec![],
             scroll_plans: vec![],
@@ -39,12 +41,12 @@ kasane_plugin_sdk::define_plugin! {
 
     update_effects(payload) {
         let _ = payload;
-        RuntimeEffects::default()
+        Effects::default()
     },
 
     on_io_event_effects(event) {
         let _ = event;
-        RuntimeEffects::default()
+        Effects::default()
     },
 
     capabilities: [Capability::Filesystem],

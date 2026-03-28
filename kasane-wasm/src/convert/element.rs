@@ -126,3 +126,53 @@ pub(crate) fn wit_image_fit_to_image_fit(wf: &wit::ImageFit) -> ImageFit {
         wit::ImageFit::Fill => ImageFit::Fill,
     }
 }
+
+// ---------------------------------------------------------------------------
+// ElementPatch conversion (WIT list<element-patch-op> → core ElementPatch)
+// ---------------------------------------------------------------------------
+
+use kasane_core::plugin::ElementPatch;
+
+/// Convert a WIT `list<element-patch-op>` into a core `ElementPatch`.
+///
+/// Each `element-handle` in the ops is materialized into an `Element` via
+/// the provided `take_element` closure (typically `store.data_mut().take_root_element()`).
+///
+/// - Empty list → `Identity`
+/// - Single op → that patch variant
+/// - Multiple ops → `Compose`
+pub(crate) fn wit_element_patch_ops_to_patch(
+    ops: &[wit::ElementPatchOp],
+    take_element: &mut dyn FnMut(u32) -> kasane_core::element::Element,
+) -> ElementPatch {
+    if ops.is_empty() {
+        return ElementPatch::Identity;
+    }
+
+    let patches: Vec<ElementPatch> = ops
+        .iter()
+        .map(|op| match op {
+            wit::ElementPatchOp::WrapContainer(face) => ElementPatch::WrapContainer {
+                face: super::wit_face_to_face(face),
+            },
+            wit::ElementPatchOp::Prepend(handle) => ElementPatch::Prepend {
+                element: take_element(*handle),
+            },
+            wit::ElementPatchOp::Append(handle) => ElementPatch::Append {
+                element: take_element(*handle),
+            },
+            wit::ElementPatchOp::Replace(handle) => ElementPatch::Replace {
+                element: take_element(*handle),
+            },
+            wit::ElementPatchOp::ModifyFace(face) => ElementPatch::ModifyFace {
+                overlay: super::wit_face_to_face(face),
+            },
+        })
+        .collect();
+
+    if patches.len() == 1 {
+        patches.into_iter().next().unwrap()
+    } else {
+        ElementPatch::Compose(patches)
+    }
+}

@@ -16,10 +16,9 @@ use super::effects::{MouseHandleResult, PluginEffects};
 use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
-    GutterSide, InitBatch, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
+    EffectsBatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
     PaintHook, PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
-    PluginId, ReadyBatch, RuntimeBatch, SlotId, SourcedContribution, TransformContext,
-    TransformSubject, TransformTarget,
+    PluginId, SlotId, SourcedContribution, TransformContext, TransformSubject, TransformTarget,
 };
 
 pub struct PluginSurfaceSet {
@@ -197,8 +196,8 @@ impl PluginRuntime {
     }
 
     /// Initialize all plugins and collect typed bootstrap effects.
-    pub fn init_all_batch(&mut self, app: &AppView<'_>) -> InitBatch {
-        let mut batch = InitBatch::default();
+    pub fn init_all_batch(&mut self, app: &AppView<'_>) -> EffectsBatch {
+        let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             batch.effects.merge(slot.backend.on_init_effects(app));
         }
@@ -206,13 +205,13 @@ impl PluginRuntime {
     }
 
     /// Initialize all plugins.
-    pub fn init_all(&mut self, app: &AppView<'_>) -> InitBatch {
+    pub fn init_all(&mut self, app: &AppView<'_>) -> EffectsBatch {
         self.init_all_batch(app)
     }
 
     /// Notify all plugins that the active session is ready for transport-bound startup work.
-    pub fn notify_active_session_ready_batch(&mut self, app: &AppView<'_>) -> ReadyBatch {
-        let mut batch = ReadyBatch::default();
+    pub fn notify_active_session_ready_batch(&mut self, app: &AppView<'_>) -> EffectsBatch {
+        let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             batch
                 .effects
@@ -226,17 +225,17 @@ impl PluginRuntime {
         &mut self,
         target: &PluginId,
         app: &AppView<'_>,
-    ) -> ReadyBatch {
+    ) -> EffectsBatch {
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let mut batch = ReadyBatch::default();
+                let mut batch = EffectsBatch::default();
                 batch
                     .effects
                     .merge(slot.backend.on_active_session_ready_effects(app));
                 return batch;
             }
         }
-        ReadyBatch::default()
+        EffectsBatch::default()
     }
 
     /// Notify all plugins about a state change and collect typed runtime effects.
@@ -244,8 +243,8 @@ impl PluginRuntime {
         &mut self,
         app: &AppView<'_>,
         dirty: DirtyFlags,
-    ) -> RuntimeBatch {
-        let mut batch = RuntimeBatch::default();
+    ) -> EffectsBatch {
+        let mut batch = EffectsBatch::default();
         for slot in &mut self.slots {
             batch
                 .effects
@@ -340,7 +339,7 @@ impl PluginRuntime {
         &mut self,
         plugin: Box<dyn PluginBackend>,
         app: &AppView<'_>,
-    ) -> InitBatch {
+    ) -> EffectsBatch {
         let id = plugin.id();
         // Shut down old plugin if present
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
@@ -350,13 +349,13 @@ impl PluginRuntime {
         self.register_backend(plugin);
         // Init the new plugin
         if let Some(pos) = self.slots.iter().position(|s| s.backend.id() == id) {
-            let mut batch = InitBatch::default();
+            let mut batch = EffectsBatch::default();
             batch
                 .effects
                 .merge(self.slots[pos].backend.on_init_effects(app));
             return batch;
         }
-        InitBatch::default()
+        EffectsBatch::default()
     }
 
     pub fn plugins_mut(&mut self) -> impl Iterator<Item = &mut Box<dyn PluginBackend>> {
@@ -577,21 +576,21 @@ impl PluginRuntime {
         target: &PluginId,
         event: &IoEvent,
         app: &AppView<'_>,
-    ) -> RuntimeBatch {
+    ) -> EffectsBatch {
         crate::perf::perf_span!("deliver_io_event");
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
                 if !slot.capabilities.contains(PluginCapabilities::IO_HANDLER) {
-                    return RuntimeBatch::default();
+                    return EffectsBatch::default();
                 }
-                let mut batch = RuntimeBatch::default();
+                let mut batch = EffectsBatch::default();
                 batch
                     .effects
                     .merge(slot.backend.on_io_event_effects(event, app));
                 return batch;
             }
         }
-        RuntimeBatch::default()
+        EffectsBatch::default()
     }
 
     /// Deliver a message to a specific plugin by ID.
@@ -600,18 +599,32 @@ impl PluginRuntime {
         target: &PluginId,
         payload: Box<dyn Any>,
         app: &AppView<'_>,
-    ) -> RuntimeBatch {
+    ) -> EffectsBatch {
         let mut payload = payload;
         for slot in &mut self.slots {
             if &slot.backend.id() == target {
-                let mut batch = RuntimeBatch::default();
+                let mut batch = EffectsBatch::default();
                 batch
                     .effects
                     .merge(slot.backend.update_effects(payload.as_mut(), app));
                 return batch;
             }
         }
-        RuntimeBatch::default()
+        EffectsBatch::default()
+    }
+
+    /// Start a named process task on a specific plugin.
+    ///
+    /// Returns the spawn commands (typically a single `SpawnProcess`) for the
+    /// event loop to dispatch. Returns an empty vec if the plugin or task is
+    /// not found.
+    pub fn start_process_task(&mut self, target: &PluginId, name: &str) -> Vec<Command> {
+        for slot in &mut self.slots {
+            if &slot.backend.id() == target {
+                return slot.backend.start_process_task(name);
+            }
+        }
+        vec![]
     }
 
     /// Register a [`Plugin`] by wrapping it in a [`PluginBridge`].
@@ -675,7 +688,7 @@ impl PluginRuntime {
 }
 
 impl PluginEffects for PluginRuntime {
-    fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> RuntimeBatch {
+    fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> EffectsBatch {
         self.notify_state_changed_batch(app, flags)
     }
 

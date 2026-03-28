@@ -107,7 +107,7 @@ fn handle_key_first_wins() {
 
 #[kasane_plugin]
 mod msg_receiver_plugin {
-    use kasane_core::plugin::{AppView, RuntimeEffects};
+    use kasane_core::plugin::{AppView, Effects};
     use kasane_core::state::DirtyFlags;
 
     #[state]
@@ -125,14 +125,14 @@ mod msg_receiver_plugin {
         state: &mut State,
         msg: &mut dyn std::any::Any,
         _core: &AppView<'_>,
-    ) -> RuntimeEffects {
+    ) -> Effects {
         let msg = msg
             .downcast_ref::<Msg>()
             .expect("typed plugin integration test payload must match Msg");
         match msg {
             Msg::SetValue(v) => {
                 state.value = *v;
-                RuntimeEffects {
+                Effects {
                     redraw: DirtyFlags::STATUS,
                     commands: vec![],
                     scroll_plans: vec![],

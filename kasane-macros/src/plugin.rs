@@ -201,7 +201,7 @@ fn gen_update_impl(def: &PluginDef, struct_name: &Ident) -> TokenStream {
                 &mut self,
                 _msg: &mut dyn ::std::any::Any,
                 _state: &kasane_core::plugin::AppView<'_>,
-            ) -> kasane_core::plugin::RuntimeEffects {
+            ) -> kasane_core::plugin::Effects {
                 #mod_ident::update_effects(&mut self.state, _msg, _state)
             }
         });
@@ -217,7 +217,7 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
 
     if def.has_on_init_effects {
         tokens.extend(quote! {
-            fn on_init_effects(&mut self, _state: &kasane_core::plugin::AppView<'_>) -> kasane_core::plugin::BootstrapEffects {
+            fn on_init_effects(&mut self, _state: &kasane_core::plugin::AppView<'_>) -> kasane_core::plugin::Effects {
                 #mod_ident::on_init_effects(&mut self.state, _state)
             }
         });
@@ -228,7 +228,7 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
             fn on_active_session_ready_effects(
                 &mut self,
                 _state: &kasane_core::plugin::AppView<'_>,
-            ) -> kasane_core::plugin::SessionReadyEffects {
+            ) -> kasane_core::plugin::Effects {
                 #mod_ident::on_active_session_ready_effects(&mut self.state, _state)
             }
         });
@@ -248,7 +248,7 @@ fn gen_lifecycle_impl(def: &PluginDef) -> TokenStream {
                 &mut self,
                 _state: &kasane_core::plugin::AppView<'_>,
                 _dirty: kasane_core::state::DirtyFlags,
-            ) -> kasane_core::plugin::RuntimeEffects {
+            ) -> kasane_core::plugin::Effects {
                 #mod_ident::on_state_changed_effects(&mut self.state, _state, _dirty)
             }
         });

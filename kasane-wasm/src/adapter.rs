@@ -8,11 +8,11 @@ use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId, PluginTag};
 use kasane_core::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
 use kasane_core::plugin::{
-    AnnotateContext, AppView, BackgroundLayer, BlendMode, BootstrapEffects, Command,
-    ContributeContext, Contribution, DisplayDirective, IoEvent, KeyHandleResult, LineAnnotation,
+    AnnotateContext, AppView, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
+    DisplayDirective, Effects, ElementPatch, IoEvent, KeyHandleResult, LineAnnotation,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginDiagnostic, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
-    TransformSubject, TransformTarget, VirtualTextItem,
+    PluginDiagnostic, PluginId, SlotId, TransformContext, TransformSubject, TransformTarget,
+    VirtualTextItem,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -179,7 +179,7 @@ impl WasmPluginShared {
             .collect()
     }
 
-    fn convert_runtime_effects(self: &Arc<Self>, effects: &wit::RuntimeEffects) -> RuntimeEffects {
+    fn convert_runtime_effects(self: &Arc<Self>, effects: &wit::RuntimeEffects) -> Effects {
         let shared = Arc::clone(self);
         convert::wit_runtime_effects_to_effects_with(effects, move |command| {
             shared.convert_command(command)
@@ -395,7 +395,7 @@ impl PluginBackend for WasmPlugin {
         std::mem::take(&mut *pending)
     }
 
-    fn on_init_effects(&mut self, state: &AppView<'_>) -> BootstrapEffects {
+    fn on_init_effects(&mut self, state: &AppView<'_>) -> Effects {
         self.shared
             .call_synced_with_hash(state, "on_init_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
@@ -417,7 +417,7 @@ impl PluginBackend for WasmPlugin {
         });
     }
 
-    fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, state: &AppView<'_>) -> Effects {
         self.shared
             .call_synced_with_hash(state, "on_active_session_ready_effects", |rt| {
                 let api = rt.instance.kasane_plugin_plugin_api();
@@ -427,11 +427,7 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
-    fn on_state_changed_effects(
-        &mut self,
-        state: &AppView<'_>,
-        dirty: DirtyFlags,
-    ) -> RuntimeEffects {
+    fn on_state_changed_effects(&mut self, state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
         let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "on_state_changed_effects", |rt| {
@@ -442,7 +438,7 @@ impl PluginBackend for WasmPlugin {
             })
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, event: &IoEvent, state: &AppView<'_>) -> Effects {
         let shared = Arc::clone(&self.shared);
         self.shared
             .call_synced_with_hash(state, "on_io_event_effects", |rt| {
@@ -805,6 +801,38 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
+    fn transform_patch(
+        &self,
+        target: &TransformTarget,
+        _state: &AppView<'_>,
+        ctx: &TransformContext,
+    ) -> Option<ElementPatch> {
+        self.shared.with_runtime(|runtime| {
+            host::sync_from_app_state(runtime.store.data_mut(), _state.as_app_state());
+            runtime.store.data_mut().elements.clear();
+
+            let plugin_api = runtime.instance.kasane_plugin_plugin_api();
+            let wit_target = convert::transform_target_to_wit(target);
+            let wit_ctx = convert::transform_context_to_wit(ctx);
+            match plugin_api.call_transform_patch(&mut runtime.store, wit_target, wit_ctx) {
+                Ok(ops) if ops.is_empty() => None,
+                Ok(ops) => {
+                    let patch = convert::wit_element_patch_ops_to_patch(&ops, &mut |handle| {
+                        runtime.store.data_mut().take_root_element(handle)
+                    });
+                    Some(patch)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "WASM plugin {}.transform_patch failed: {e}",
+                        self.shared.plugin_id.0
+                    );
+                    None
+                }
+            }
+        })
+    }
+
     fn transform_priority(&self) -> i16 {
         self.shared.with_runtime(|runtime| {
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
@@ -919,7 +947,7 @@ impl PluginBackend for WasmPlugin {
         self.shared.process_allowed
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> RuntimeEffects {
+    fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> Effects {
         if let Some(bytes) = msg.downcast_ref::<Vec<u8>>() {
             let shared = Arc::clone(&self.shared);
             self.shared
@@ -933,7 +961,7 @@ impl PluginBackend for WasmPlugin {
                 "WASM plugin {} received non-byte message, ignoring typed update_effects",
                 self.shared.plugin_id.0
             );
-            RuntimeEffects::default()
+            Effects::default()
         }
     }
 }

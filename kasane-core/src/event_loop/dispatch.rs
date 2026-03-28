@@ -4,8 +4,8 @@
 //! runtime effects back through the plugin system.
 
 use crate::plugin::{
-    AppView, Command, CommandResult, PluginAuthorities, PluginId, RuntimeBatch, RuntimeEffects,
-    StdinMode, execute_commands, extract_redraw_flags, partition_commands,
+    AppView, Command, CommandResult, Effects, EffectsBatch, PluginAuthorities, PluginId, StdinMode,
+    execute_commands, extract_redraw_flags, partition_commands,
 };
 use crate::session::SessionSpec;
 use crate::state::{AppState, DirtyFlags};
@@ -100,6 +100,9 @@ pub(super) fn handle_deferred_commands_inner(
             | Command::Session(_)
             | Command::InjectInput(_) => {
                 handle_session_pane_command(cmd, ctx, command_source_plugin, depth)
+            }
+            Command::StartProcessTask { .. } => {
+                handle_start_process_task(cmd, ctx, command_source_plugin, depth)
             }
             // Immediate commands should not reach the deferred handler
             _ => unreachable!("immediate commands filtered by partition_commands"),
@@ -631,6 +634,44 @@ fn handle_session_pane_command(
     Some(false)
 }
 
+/// Handle `StartProcessTask` command: look up the task spec, start the process.
+fn handle_start_process_task(
+    cmd: Command,
+    ctx: &mut DeferredContext<'_>,
+    command_source_plugin: Option<&PluginId>,
+    depth: usize,
+) -> Option<bool> {
+    let Command::StartProcessTask { task_name } = cmd else {
+        unreachable!();
+    };
+    let Some(plugin_id) = command_source_plugin else {
+        tracing::warn!(task_name, "StartProcessTask ignored: no source plugin");
+        return Some(false);
+    };
+
+    if !ctx.registry.plugin_allows_process_spawn(plugin_id) {
+        tracing::warn!(
+            plugin = plugin_id.0.as_str(),
+            task_name,
+            "StartProcessTask denied: process capability not granted"
+        );
+        return Some(false);
+    }
+
+    let spawn_commands = ctx.registry.start_process_task(plugin_id, &task_name);
+    if spawn_commands.is_empty() {
+        return Some(false);
+    }
+
+    // The spawn commands are process management commands that go through the
+    // normal deferred dispatch (SpawnProcess, etc.).
+    if handle_deferred_commands_inner(spawn_commands, ctx, command_source_plugin, depth + 1) {
+        return Some(true);
+    }
+
+    Some(false)
+}
+
 /// Execute grouped surface commands while preserving each surface owner's plugin identity.
 ///
 /// Returns `true` if a `Quit` command was encountered.
@@ -646,12 +687,13 @@ pub fn handle_sourced_surface_commands(
     false
 }
 
-pub fn apply_bootstrap_effects(effects: crate::plugin::BootstrapEffects, dirty: &mut DirtyFlags) {
+pub fn apply_bootstrap_effects(effects: Effects, dirty: &mut DirtyFlags) {
     *dirty |= effects.redraw;
+    // Bootstrap phase: only redraw is valid; commands/scroll_plans validated upstream.
 }
 
 fn apply_runtime_effects(
-    mut effects: RuntimeEffects,
+    mut effects: Effects,
     ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
     depth: usize,
@@ -670,7 +712,7 @@ fn apply_runtime_effects(
 }
 
 pub(super) fn apply_runtime_batch(
-    batch: RuntimeBatch,
+    batch: EffectsBatch,
     ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
     depth: usize,
@@ -679,7 +721,7 @@ pub(super) fn apply_runtime_batch(
 }
 
 pub(super) fn apply_runtime_batch_without_session_deferred(
-    batch: RuntimeBatch,
+    batch: EffectsBatch,
     ctx: &mut DeferredContext<'_>,
     command_source_plugin: Option<&PluginId>,
     depth: usize,

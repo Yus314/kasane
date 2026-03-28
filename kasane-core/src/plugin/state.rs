@@ -81,7 +81,7 @@ pub trait Plugin: Send + 'static {
 #[cfg(test)]
 pub(in crate::plugin) mod tests {
     use super::*;
-    use crate::plugin::{BackgroundLayer, BlendMode, HandlerRegistry, PluginId, RuntimeEffects};
+    use crate::plugin::{BackgroundLayer, BlendMode, Effects, HandlerRegistry, PluginId};
     use crate::protocol::{Color, Face, NamedColor};
     use crate::state::DirtyFlags;
 
@@ -108,9 +108,9 @@ pub(in crate::plugin) mod tests {
                     let new_state = CursorLineState {
                         active_line: app.cursor_line(),
                     };
-                    (new_state, RuntimeEffects::default())
+                    (new_state, Effects::default())
                 } else {
-                    (state.clone(), RuntimeEffects::default())
+                    (state.clone(), Effects::default())
                 }
             });
             r.on_annotate_background(|state, line, _app, _ctx| {
@@ -163,9 +163,9 @@ pub(in crate::plugin) mod tests {
                     let mut new_state = state.clone();
                     new_state.active_line = app.cursor_line();
                     new_state.generation += 1;
-                    (new_state, RuntimeEffects::default())
+                    (new_state, Effects::default())
                 } else {
-                    (state.clone(), RuntimeEffects::default())
+                    (state.clone(), Effects::default())
                 }
             });
             r.on_annotate_background(|state, line, _app, _ctx| {

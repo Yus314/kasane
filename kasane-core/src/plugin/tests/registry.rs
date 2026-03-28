@@ -2,10 +2,7 @@ use super::*;
 use crate::display::DisplayDirective;
 use crate::input::{Key, KeyEvent, Modifiers};
 use crate::layout::Rect;
-use crate::plugin::{
-    BootstrapEffects, KeyDispatchResult, KeyHandleResult, RuntimeEffects, SessionReadyCommand,
-    SessionReadyEffects,
-};
+use crate::plugin::{Command, Effects, KeyDispatchResult, KeyHandleResult};
 use crate::protocol::Atom;
 use crate::protocol::KasaneRequest;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
@@ -20,16 +17,14 @@ impl PluginBackend for TypedLifecyclePlugin {
         PluginId("typed-lifecycle".to_string())
     }
 
-    fn on_init_effects(&mut self, _state: &AppView<'_>) -> BootstrapEffects {
-        BootstrapEffects {
-            redraw: DirtyFlags::STATUS,
-        }
+    fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
+        Effects::redraw(DirtyFlags::STATUS)
     }
 
-    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
-        SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
+        Effects {
             redraw: DirtyFlags::BUFFER,
-            commands: vec![SessionReadyCommand::SendToKakoune(KasaneRequest::Scroll {
+            commands: vec![Command::SendToKakoune(KasaneRequest::Scroll {
                 amount: 3,
                 line: 1,
                 column: 1,
@@ -46,15 +41,11 @@ impl PluginBackend for TypedRuntimePlugin {
         PluginId("typed-runtime".to_string())
     }
 
-    fn on_state_changed_effects(
-        &mut self,
-        _state: &AppView<'_>,
-        dirty: DirtyFlags,
-    ) -> RuntimeEffects {
+    fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
         if !dirty.contains(DirtyFlags::BUFFER) {
-            return RuntimeEffects::default();
+            return Effects::default();
         }
-        RuntimeEffects {
+        Effects {
             redraw: DirtyFlags::INFO,
             commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
             scroll_plans: vec![ScrollPlan {
@@ -68,15 +59,11 @@ impl PluginBackend for TypedRuntimePlugin {
         }
     }
 
-    fn update_effects(
-        &mut self,
-        msg: &mut dyn std::any::Any,
-        _state: &AppView<'_>,
-    ) -> RuntimeEffects {
+    fn update_effects(&mut self, msg: &mut dyn std::any::Any, _state: &AppView<'_>) -> Effects {
         if msg.downcast_ref::<u32>() != Some(&7) {
-            return RuntimeEffects::default();
+            return Effects::default();
         }
-        RuntimeEffects {
+        Effects {
             redraw: DirtyFlags::BUFFER,
             commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
             scroll_plans: vec![ScrollPlan {
@@ -205,8 +192,8 @@ impl PluginBackend for TargetedReadyPlugin {
         PluginId(self.id.to_string())
     }
 
-    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
-        SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
+        Effects {
             redraw: self.redraw,
             commands: vec![],
             scroll_plans: vec![],
@@ -247,9 +234,7 @@ fn test_notify_active_session_ready_batch_collects_effects() {
     assert_eq!(batch.effects.commands.len(), 1);
     assert!(matches!(
         batch.effects.commands.into_iter().next(),
-        Some(SessionReadyCommand::SendToKakoune(
-            KasaneRequest::Scroll { .. }
-        ))
+        Some(Command::SendToKakoune(KasaneRequest::Scroll { .. }))
     ));
 }
 
@@ -1062,7 +1047,7 @@ impl Plugin for PublisherPlugin {
                 PubState {
                     counter: state.counter + 1,
                 },
-                RuntimeEffects::default(),
+                Effects::default(),
             )
         });
         r.publish::<u32>(TopicId::new("test.counter"), |state, _app| state.counter);

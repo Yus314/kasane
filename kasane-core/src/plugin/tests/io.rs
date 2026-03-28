@@ -1,5 +1,5 @@
 use super::*;
-use crate::plugin::RuntimeEffects;
+use crate::plugin::Effects;
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 
 // --- I/O event construction tests ---
@@ -87,13 +87,13 @@ impl PluginBackend for IoHandlerPlugin {
         PluginCapabilities::IO_HANDLER
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppView<'_>) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, event: &IoEvent, _state: &AppView<'_>) -> Effects {
         match event {
             IoEvent::Process(pe) => match pe {
                 ProcessEvent::Stdout { job_id, data } => {
                     self.received_events
                         .push(format!("stdout:{}:{}", job_id, data.len()));
-                    RuntimeEffects {
+                    Effects {
                         redraw: DirtyFlags::BUFFER,
                         commands: vec![],
                         scroll_plans: vec![ScrollPlan {
@@ -109,17 +109,17 @@ impl PluginBackend for IoHandlerPlugin {
                 ProcessEvent::Stderr { job_id, data } => {
                     self.received_events
                         .push(format!("stderr:{}:{}", job_id, data.len()));
-                    RuntimeEffects::default()
+                    Effects::default()
                 }
                 ProcessEvent::Exited { job_id, exit_code } => {
                     self.received_events
                         .push(format!("exited:{}:{}", job_id, exit_code));
-                    RuntimeEffects::default()
+                    Effects::default()
                 }
                 ProcessEvent::SpawnFailed { job_id, error } => {
                     self.received_events
                         .push(format!("failed:{}:{}", job_id, error));
-                    RuntimeEffects::default()
+                    Effects::default()
                 }
             },
         }

@@ -7,7 +7,7 @@ use kasane_core::state::DirtyFlags;
 mod runtime_effects_plugin {
     use std::any::Any;
 
-    use kasane_core::plugin::{AppView, RuntimeEffects};
+    use kasane_core::plugin::{AppView, Effects};
     use kasane_core::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
     use kasane_core::state::DirtyFlags;
 
@@ -27,9 +27,9 @@ mod runtime_effects_plugin {
         state: &mut State,
         _core: &AppView<'_>,
         dirty: DirtyFlags,
-    ) -> RuntimeEffects {
+    ) -> Effects {
         state.changed = dirty.contains(DirtyFlags::BUFFER);
-        RuntimeEffects {
+        Effects {
             redraw: DirtyFlags::STATUS,
             commands: vec![],
             scroll_plans: vec![ScrollPlan {
@@ -47,9 +47,9 @@ mod runtime_effects_plugin {
         state: &mut State,
         msg: &mut dyn Any,
         _core: &AppView<'_>,
-    ) -> RuntimeEffects {
+    ) -> Effects {
         state.updated = msg.downcast_ref::<Msg>().is_some();
-        RuntimeEffects {
+        Effects {
             redraw: DirtyFlags::BUFFER,
             commands: vec![],
             scroll_plans: vec![],

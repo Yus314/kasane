@@ -47,7 +47,7 @@ fn apply_fuzzy_io_event(
     plugin: &mut crate::WasmPlugin,
     event: IoEvent,
     state: &AppState,
-) -> kasane_core::plugin::RuntimeEffects {
+) -> kasane_core::plugin::Effects {
     let effects = plugin.on_io_event_effects(&event, &AppView::new(state));
     assert!(effects.redraw.is_empty());
     assert!(effects.scroll_plans.is_empty());

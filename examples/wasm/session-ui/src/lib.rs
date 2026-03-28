@@ -105,7 +105,7 @@ kasane_plugin_sdk::define_plugin! {
                 state.selected = state.session_count as usize - 1;
             }
         }
-        RuntimeEffects::default()
+        Effects::default()
     },
 
     slots {

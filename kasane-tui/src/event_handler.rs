@@ -15,8 +15,8 @@ use kasane_core::event_loop::{
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
-    AppView, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId, PluginManager,
-    PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink, RuntimeBatch,
+    AppView, EffectsBatch, IoEvent, PluginDiagnostic, PluginDiagnosticOverlayState, PluginId,
+    PluginManager, PluginRuntime, ProcessDispatcher, ProcessEvent, ProcessEventSink,
     extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KakouneRequest;
@@ -529,11 +529,10 @@ where
         &reload.diagnostics,
     );
 
+    let ready_targets = reload.ready_targets().cloned().collect::<Vec<_>>();
     let mut flags = DirtyFlags::all();
     apply_bootstrap_effects(reload.bootstrap, &mut flags);
     sync_ready_gate(ctx.session_ready_gate, ctx.state);
-
-    let ready_targets = reload.ready_targets().cloned().collect::<Vec<_>>();
     if !reload.deltas.is_empty() {
         notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
     }
@@ -560,7 +559,7 @@ fn reconcile_reloaded_plugin_resources(
 }
 
 fn event_result_from_runtime_batch(
-    mut batch: RuntimeBatch,
+    mut batch: EffectsBatch,
     command_source: Option<PluginId>,
 ) -> EventResult {
     let mut commands = std::mem::take(&mut batch.effects.commands);

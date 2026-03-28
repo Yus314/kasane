@@ -3,7 +3,7 @@ kasane_plugin_sdk::define_plugin! {
 
     on_state_changed(dirty) {
         let _ = dirty;
-        RuntimeEffects::default()
+        Effects::default()
     },
 }
 

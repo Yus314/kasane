@@ -1,4 +1,4 @@
-error: define_plugin! `on_state_changed_commands` was removed; return `RuntimeEffects` from `on_state_changed_effects(...)`
+error: define_plugin! `on_state_changed_commands` was removed; return `Effects` from `on_state_changed_effects(...)`
  --> tests/fail/define_plugin_on_state_changed_commands.rs:4:5
   |
 4 |     on_state_changed_commands(dirty) {

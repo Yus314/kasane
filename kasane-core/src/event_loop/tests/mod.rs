@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use crate::layout::SplitDirection;
 use crate::plugin::{
-    AppView, AppliedWinnerDelta, Command, PluginAuthorities, PluginBackend, PluginDescriptor,
-    PluginId, PluginRank, PluginRevision, PluginSource, RuntimeEffects, StdinMode,
+    AppView, AppliedWinnerDelta, Command, Effects, PluginAuthorities, PluginBackend,
+    PluginDescriptor, PluginId, PluginRank, PluginRevision, PluginSource, StdinMode,
 };
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
 use crate::session::SessionSpec;
@@ -46,11 +46,11 @@ impl PluginBackend for RuntimeMessagePlugin {
         PluginId("runtime-message".to_string())
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, _state: &AppView<'_>) -> RuntimeEffects {
+    fn update_effects(&mut self, msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
         if msg.downcast_ref::<u32>() != Some(&11) {
-            return RuntimeEffects::default();
+            return Effects::default();
         }
-        RuntimeEffects {
+        Effects {
             redraw: DirtyFlags::INFO,
             commands: vec![Command::RequestRedraw(DirtyFlags::STATUS)],
             scroll_plans: vec![ScrollPlan {

@@ -19,13 +19,13 @@ use crate::workspace::WorkspaceQuery;
 
 use super::element_patch::ElementPatch;
 use super::extension_point::{ExtensionContribution, ExtensionDefinition};
+use super::process_task::ProcessTaskEntry;
 use super::pubsub::{PublishEntry, SubscribeEntry};
 use super::traits::KeyHandleResult;
 use super::{
-    AnnotateContext, AppView, BackgroundLayer, BootstrapEffects, CellDecoration, Command,
-    ContributeContext, Contribution, DisplayDirective, IoEvent, OverlayContext,
-    OverlayContribution, PluginCapabilities, PluginState, RuntimeEffects, SessionReadyEffects,
-    SlotId, TransformContext, TransformTarget, VirtualTextItem,
+    AnnotateContext, AppView, BackgroundLayer, CellDecoration, Command, ContributeContext,
+    Contribution, DisplayDirective, Effects, IoEvent, OverlayContext, OverlayContribution,
+    PluginCapabilities, PluginState, SlotId, TransformContext, TransformTarget, VirtualTextItem,
 };
 
 // =============================================================================
@@ -44,23 +44,17 @@ pub enum GutterSide {
 // =============================================================================
 
 // Lifecycle handlers (produce new state + effects)
-pub(crate) type ErasedInitHandler = Box<
-    dyn Fn(&dyn PluginState, &AppView<'_>) -> (Box<dyn PluginState>, BootstrapEffects)
-        + Send
-        + Sync,
->;
-pub(crate) type ErasedSessionReadyHandler = Box<
-    dyn Fn(&dyn PluginState, &AppView<'_>) -> (Box<dyn PluginState>, SessionReadyEffects)
-        + Send
-        + Sync,
->;
+pub(crate) type ErasedInitHandler =
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> (Box<dyn PluginState>, Effects) + Send + Sync>;
+pub(crate) type ErasedSessionReadyHandler =
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> (Box<dyn PluginState>, Effects) + Send + Sync>;
 pub(crate) type ErasedStateChangedHandler = Box<
-    dyn Fn(&dyn PluginState, &AppView<'_>, DirtyFlags) -> (Box<dyn PluginState>, RuntimeEffects)
+    dyn Fn(&dyn PluginState, &AppView<'_>, DirtyFlags) -> (Box<dyn PluginState>, Effects)
         + Send
         + Sync,
 >;
 pub(crate) type ErasedIoEventHandler = Box<
-    dyn Fn(&dyn PluginState, &IoEvent, &AppView<'_>) -> (Box<dyn PluginState>, RuntimeEffects)
+    dyn Fn(&dyn PluginState, &IoEvent, &AppView<'_>) -> (Box<dyn PluginState>, Effects)
         + Send
         + Sync,
 >;
@@ -68,7 +62,7 @@ pub(crate) type ErasedWorkspaceChangedHandler =
     Box<dyn Fn(&dyn PluginState, &WorkspaceQuery<'_>) -> Box<dyn PluginState> + Send + Sync>;
 pub(crate) type ErasedShutdownHandler = Box<dyn Fn(&dyn PluginState) + Send + Sync>;
 pub(crate) type ErasedUpdateHandler = Box<
-    dyn Fn(&dyn PluginState, &mut dyn Any, &AppView<'_>) -> (Box<dyn PluginState>, RuntimeEffects)
+    dyn Fn(&dyn PluginState, &mut dyn Any, &AppView<'_>) -> (Box<dyn PluginState>, Effects)
         + Send
         + Sync,
 >;
@@ -249,6 +243,9 @@ pub(crate) struct HandlerTable {
     pub(crate) extension_definitions: Vec<ExtensionDefinition>,
     pub(crate) extension_contributions: Vec<ExtensionContribution>,
 
+    // --- Process Tasks ---
+    pub(crate) process_tasks: Vec<ProcessTaskEntry>,
+
     // --- Config ---
     pub(crate) interests: DirtyFlags,
 }
@@ -290,6 +287,7 @@ impl HandlerTable {
             subscribers: Vec::new(),
             extension_definitions: Vec::new(),
             extension_contributions: Vec::new(),
+            process_tasks: Vec::new(),
             interests: DirtyFlags::ALL,
         }
     }
@@ -297,7 +295,7 @@ impl HandlerTable {
     /// Auto-inferred capabilities derived from which handlers are registered.
     pub(crate) fn capabilities(&self) -> PluginCapabilities {
         let mut caps = PluginCapabilities::empty();
-        if self.io_event_handler.is_some() {
+        if self.io_event_handler.is_some() || !self.process_tasks.is_empty() {
             caps |= PluginCapabilities::IO_HANDLER;
         }
         if self.workspace_changed_handler.is_some() {

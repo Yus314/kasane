@@ -276,9 +276,7 @@ mod tests {
         reconcile_plugin_surfaces, register_builtin_surfaces, setup_plugin_surfaces,
     };
     use kasane_core::layout::SplitDirection;
-    use kasane_core::plugin::{
-        AppView, PaintHook, PluginBackend, PluginCapabilities, SessionReadyEffects,
-    };
+    use kasane_core::plugin::{AppView, Effects, PaintHook, PluginBackend, PluginCapabilities};
     use kasane_core::plugin::{
         PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
         PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
@@ -427,21 +425,12 @@ mod tests {
             PluginCapabilities::PAINT_HOOK
         }
 
-        fn on_init_effects(
-            &mut self,
-            _state: &AppView<'_>,
-        ) -> kasane_core::plugin::BootstrapEffects {
-            kasane_core::plugin::BootstrapEffects {
-                redraw: self.variant.bootstrap_redraw(),
-            }
+        fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
+            Effects::redraw(self.variant.bootstrap_redraw())
         }
 
-        fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> SessionReadyEffects {
-            SessionReadyEffects {
-                redraw: self.variant.ready_redraw(),
-                commands: vec![],
-                scroll_plans: vec![],
-            }
+        fn on_active_session_ready_effects(&mut self, _state: &AppView<'_>) -> Effects {
+            Effects::redraw(self.variant.ready_redraw())
         }
 
         fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {

@@ -772,8 +772,8 @@ impl PluginBackend for CascadingMessagePlugin {
         PluginId("cascading".to_string())
     }
 
-    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> RuntimeEffects {
-        RuntimeEffects {
+    fn update_effects(&mut self, _msg: &mut dyn Any, _state: &AppView<'_>) -> Effects {
+        Effects {
             redraw: DirtyFlags::empty(),
             commands: vec![Command::PluginMessage {
                 target: PluginId("cascading".to_string()),

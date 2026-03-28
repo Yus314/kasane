@@ -2,7 +2,7 @@ use kasane_core::plugin_prelude::*;
 
 #[kasane_plugin]
 mod test_external {
-    use kasane_core::plugin::{AppView, BootstrapEffects};
+    use kasane_core::plugin::{AppView, Effects};
     use kasane_core::plugin_prelude::*;
 
     #[state]
@@ -11,11 +11,9 @@ mod test_external {
         pub init_called: bool,
     }
 
-    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> BootstrapEffects {
+    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> Effects {
         state.init_called = true;
-        BootstrapEffects {
-            redraw: DirtyFlags::STATUS,
-        }
+        Effects::redraw(DirtyFlags::STATUS)
     }
 }
 

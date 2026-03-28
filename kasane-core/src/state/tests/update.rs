@@ -5,8 +5,8 @@ use crate::element::InteractiveId;
 use crate::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::{Rect, build_hit_map};
 use crate::plugin::{
-    AppView, Command, KeyHandleResult, NullEffects, PluginBackend, PluginId, PluginRuntime,
-    RecordingEffects, RuntimeEffects,
+    AppView, Command, Effects, KeyHandleResult, NullEffects, PluginBackend, PluginId,
+    PluginRuntime, RecordingEffects,
 };
 use crate::protocol::{Coord, Face, KakouneRequest, KasaneRequest};
 use crate::scroll::{ScrollAccumulationMode, ScrollCurve, ScrollPlan};
@@ -463,15 +463,11 @@ fn test_on_state_changed_dispatched_in_kakoune_msg() {
         fn id(&self) -> PluginId {
             PluginId("watcher".into())
         }
-        fn on_state_changed_effects(
-            &mut self,
-            _state: &AppView<'_>,
-            dirty: DirtyFlags,
-        ) -> RuntimeEffects {
+        fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
             if dirty.contains(DirtyFlags::BUFFER) {
                 self.0.store(true, Ordering::Relaxed);
             }
-            RuntimeEffects::default()
+            Effects::default()
         }
     }
 
@@ -505,15 +501,11 @@ fn test_on_state_changed_effects_return_scroll_plans() {
             PluginId("watcher-effects".into())
         }
 
-        fn on_state_changed_effects(
-            &mut self,
-            _state: &AppView<'_>,
-            dirty: DirtyFlags,
-        ) -> RuntimeEffects {
+        fn on_state_changed_effects(&mut self, _state: &AppView<'_>, dirty: DirtyFlags) -> Effects {
             if !dirty.contains(DirtyFlags::BUFFER) {
-                return RuntimeEffects::default();
+                return Effects::default();
             }
-            RuntimeEffects {
+            Effects {
                 redraw: DirtyFlags::STATUS,
                 commands: vec![],
                 scroll_plans: vec![ScrollPlan {

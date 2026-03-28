@@ -2,7 +2,7 @@ use kasane_core::kasane_plugin;
 
 #[kasane_plugin]
 mod lifecycle_plugin {
-    use kasane_core::plugin::{AppView, BootstrapEffects, RuntimeEffects};
+    use kasane_core::plugin::{AppView, Effects};
     use kasane_core::state::DirtyFlags;
 
     #[state]
@@ -11,9 +11,9 @@ mod lifecycle_plugin {
         pub initialized: bool,
     }
 
-    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> BootstrapEffects {
+    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> Effects {
         state.initialized = true;
-        BootstrapEffects::default()
+        Effects::default()
     }
 
     pub fn on_shutdown(state: &mut State) {
@@ -24,8 +24,8 @@ mod lifecycle_plugin {
         _state: &mut State,
         _core: &AppView<'_>,
         _dirty: DirtyFlags,
-    ) -> RuntimeEffects {
-        RuntimeEffects::default()
+    ) -> Effects {
+        Effects::default()
     }
 }
 

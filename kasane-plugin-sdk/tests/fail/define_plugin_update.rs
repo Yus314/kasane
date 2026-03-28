@@ -3,7 +3,7 @@ kasane_plugin_sdk::define_plugin! {
 
     update(payload) {
         let _ = payload;
-        RuntimeEffects::default()
+        Effects::default()
     },
 }
 

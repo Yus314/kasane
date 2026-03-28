@@ -3,7 +3,7 @@ use kasane_core::state::DirtyFlags;
 
 #[kasane_plugin]
 mod lifecycle_effects_plugin {
-    use kasane_core::plugin::{AppView, BootstrapEffects, SessionReadyCommand, SessionReadyEffects};
+    use kasane_core::plugin::{AppView, Command, Effects};
     use kasane_core::protocol::KasaneRequest;
     use kasane_core::state::DirtyFlags;
 
@@ -14,21 +14,19 @@ mod lifecycle_effects_plugin {
         pub ready: bool,
     }
 
-    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> BootstrapEffects {
+    pub fn on_init_effects(state: &mut State, _core: &AppView<'_>) -> Effects {
         state.initialized = true;
-        BootstrapEffects {
-            redraw: DirtyFlags::STATUS,
-        }
+        Effects::redraw(DirtyFlags::STATUS)
     }
 
     pub fn on_active_session_ready_effects(
         state: &mut State,
         _core: &AppView<'_>,
-    ) -> SessionReadyEffects {
+    ) -> Effects {
         state.ready = true;
-        SessionReadyEffects {
+        Effects {
             redraw: DirtyFlags::BUFFER,
-            commands: vec![SessionReadyCommand::SendToKakoune(KasaneRequest::Scroll {
+            commands: vec![Command::SendToKakoune(KasaneRequest::Scroll {
                 amount: 1,
                 line: 1,
                 column: 1,

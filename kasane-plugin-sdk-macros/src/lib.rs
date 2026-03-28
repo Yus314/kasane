@@ -9,7 +9,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{ImplItem, ItemImpl, parse_macro_input};
+use syn::{ImplItem, ImplItemFn, ItemImpl, parse_macro_input};
 
 /// Attribute macro that fills in default implementations for all
 /// unimplemented `Guest` trait methods.
@@ -27,7 +27,7 @@ use syn::{ImplItem, ItemImpl, parse_macro_input};
 ///
 ///     fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
 ///         let _ = dirty_flags;
-///         RuntimeEffects::default()
+///         Effects::default()
 ///     }
 ///
 ///     fn annotate_line(line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
@@ -60,26 +60,6 @@ pub fn kasane_wasm_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream 
         })
         .collect();
 
-    // Also collect names from macro invocations (e.g. kasane_plugin_sdk::default_init!()).
-    // Users migrating incrementally may still have some default_*!() calls.
-    let macro_provided: std::collections::HashSet<String> = impl_block
-        .items
-        .iter()
-        .filter_map(|item| {
-            if let ImplItem::Macro(m) = item {
-                let seg = m.mac.path.segments.last()?;
-                let name = seg.ident.to_string();
-                Some(macro_name_to_methods(&name))
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .collect();
-
-    let all_provided: std::collections::HashSet<String> =
-        existing.union(&macro_provided).cloned().collect();
-
     // Validate that all user-written methods are known Guest methods.
     let known = known_guest_methods();
     let mut errors = Vec::new();
@@ -109,78 +89,13 @@ pub fn kasane_wasm_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream 
     }
 
     // Generate defaults for every Guest method not already present.
-    let defaults = generate_defaults(&all_provided);
+    let defaults = generate_defaults(&existing);
 
     impl_block
         .items
         .extend(defaults.into_iter().map(ImplItem::Fn));
 
     TokenStream::from(quote! { #impl_block })
-}
-
-/// Maps a `default_*!()` macro name to the Guest method names it provides.
-fn macro_name_to_methods(macro_name: &str) -> Vec<String> {
-    match macro_name {
-        "default_init" => vec!["on_init_effects".into()],
-        "default_active_session_ready" => vec!["on_active_session_ready_effects".into()],
-        "default_shutdown" => vec!["on_shutdown".into()],
-        "default_state_changed" => vec!["on_state_changed_effects".into()],
-        "default_lifecycle" => vec![
-            "on_init_effects".into(),
-            "on_active_session_ready_effects".into(),
-            "on_shutdown".into(),
-            "on_state_changed_effects".into(),
-        ],
-        "default_typed_lifecycle" => vec![
-            "on_init_effects".into(),
-            "on_active_session_ready_effects".into(),
-            "on_state_changed_effects".into(),
-            "on_shutdown".into(),
-        ],
-        "default_typed_init" => vec!["on_init_effects".into()],
-        "default_typed_active_session_ready" => vec!["on_active_session_ready_effects".into()],
-        "default_typed_state_changed" => vec!["on_state_changed_effects".into()],
-        "default_cache" => vec!["state_hash".into()],
-        "default_input" => vec![
-            "handle_mouse".into(),
-            "handle_key".into(),
-            "handle_key_middleware".into(),
-            "handle_default_scroll".into(),
-            "observe_key".into(),
-            "observe_mouse".into(),
-        ],
-        "default_surfaces" => vec!["surfaces".into()],
-        "default_render_surface" => vec!["render_surface".into()],
-        "default_handle_surface_event" => vec!["handle_surface_event".into()],
-        "default_handle_surface_state_changed" => {
-            vec!["handle_surface_state_changed".into()]
-        }
-        "default_contribute" => vec!["contribute".into()],
-        "default_contribute_to" => vec!["contribute_to".into()],
-        "default_line" => vec!["contribute_line".into()],
-        "default_overlay" => vec!["contribute_overlay".into()],
-        "default_overlay_v2" => vec!["contribute_overlay_v2".into()],
-        "default_annotate" => vec!["annotate_line".into()],
-        "default_display_directives" => vec!["display_directives".into()],
-        "default_workspace_changed" => vec!["on_workspace_changed".into()],
-        "default_named_slot" => vec!["contribute_named".into()],
-        "default_transform" => vec!["transform".into()],
-        "default_transform_priority" => vec!["transform_priority".into()],
-        "default_menu_transform" => vec!["transform_menu_item".into()],
-        "default_replace" => vec!["replace".into()],
-        "default_decorate" => vec!["decorate".into()],
-        "default_decorator_priority" => vec!["decorator_priority".into()],
-        "default_cursor_style" => vec!["cursor_style_override".into()],
-        "default_update" => vec!["update_effects".into()],
-        "default_typed_runtime" => vec!["update_effects".into(), "on_io_event_effects".into()],
-        "default_typed_update" => vec!["update_effects".into()],
-        "default_typed_io_event" => vec!["on_io_event_effects".into()],
-        "default_capabilities" => vec!["requested_capabilities".into()],
-        "default_authorities" => vec!["requested_authorities".into()],
-        "default_io_event" => vec!["on_io_event_effects".into()],
-        "slots" => vec!["contribute_to".into()],
-        _ => vec![],
-    }
 }
 
 /// The complete set of valid Guest trait method names.
@@ -208,6 +123,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "decorate",
         "decorator_priority",
         "transform",
+        "transform_patch",
         "transform_priority",
         "transform_menu_item",
         "handle_mouse",
@@ -293,14 +209,14 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "on_init_effects",
-        quote! { fn on_init_effects() -> BootstrapEffects { BootstrapEffects::default() } }
+        quote! { fn on_init_effects() -> BootstrapEffects { Effects::default().into() } }
     );
 
     add_default!(
         "on_active_session_ready_effects",
         quote! {
             fn on_active_session_ready_effects() -> SessionReadyEffects {
-                SessionReadyEffects::default()
+                Effects::default().into()
             }
         }
     );
@@ -314,7 +230,7 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         "on_state_changed_effects",
         quote! {
             fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
-                RuntimeEffects::default()
+                Effects::default()
             }
         }
     );
@@ -475,6 +391,18 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
     );
 
     add_default!(
+        "transform_patch",
+        quote! {
+            fn transform_patch(
+                _target: TransformTarget,
+                _ctx: TransformContext,
+            ) -> Vec<ElementPatchOp> {
+                Vec::new()
+            }
+        }
+    );
+
+    add_default!(
         "transform_priority",
         quote! { fn transform_priority() -> i16 { 0 } }
     );
@@ -578,7 +506,7 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "state_hash",
-        quote! { fn state_hash() -> u64 { __kasane_auto_state_hash() } }
+        quote! { fn state_hash() -> u64 { 0 } }
     );
 
     // --- Cursor ---
@@ -597,7 +525,7 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "update_effects",
-        quote! { fn update_effects(_payload: Vec<u8>) -> RuntimeEffects { RuntimeEffects::default() } }
+        quote! { fn update_effects(_payload: Vec<u8>) -> RuntimeEffects { Effects::default() } }
     );
 
     // --- WASI capabilities ---
@@ -616,7 +544,7 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 
     add_default!(
         "on_io_event_effects",
-        quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { RuntimeEffects::default() } }
+        quote! { fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects { Effects::default() } }
     );
 
     // --- View dependency declaration ---
@@ -667,6 +595,7 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
         }
         // TRANSFORMER = 1 << 15
         if existing.contains("transform")
+            || existing.contains("transform_patch")
             || existing.contains("replace")
             || existing.contains("decorate")
         {
@@ -714,6 +643,8 @@ fn generate_defaults(existing: &std::collections::HashSet<String>) -> Vec<syn::I
 /// In addition to the WIT bindings, this macro emits:
 /// - Auto `use` statements for common WIT types (`Guest`, `types::*`, etc.)
 /// - Face/Color helper functions (`default_face()`, `face_bg()`, `rgb()`, etc.)
+/// - Element builder helpers (`text()`, `column()`, `row()`, `flex_row()`,
+///   `flex_column()`, `grid()`, `scrollable()`, `container()`, `empty()`, etc.)
 /// - Overlay positioning helpers (`centered_overlay()`)
 #[proc_macro]
 pub fn kasane_generate(input: TokenStream) -> TokenStream {
@@ -789,6 +720,33 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                         redraw: 0,
                         commands: vec![],
                         scroll_plans: vec![],
+                    }
+                }
+            }
+
+            /// Unified effects type — alias for `RuntimeEffects`.
+            ///
+            /// Use this in all lifecycle hooks. The `#[plugin]` macro
+            /// auto-converts to the WIT-specific return type via `Into`.
+            pub type Effects = RuntimeEffects;
+
+            impl ::core::convert::From<RuntimeEffects> for BootstrapEffects {
+                fn from(e: RuntimeEffects) -> Self {
+                    Self { redraw: e.redraw }
+                }
+            }
+
+            impl ::core::convert::From<RuntimeEffects> for SessionReadyEffects {
+                fn from(e: RuntimeEffects) -> Self {
+                    Self {
+                        redraw: e.redraw,
+                        commands: e.commands.into_iter().filter_map(|c| match c {
+                            Command::SendKeys(keys) => Some(SessionReadyCommand::SendKeys(keys)),
+                            Command::Paste => Some(SessionReadyCommand::Paste),
+                            Command::PluginMessage(msg) => Some(SessionReadyCommand::PluginMessage(msg)),
+                            _ => None,
+                        }).collect(),
+                        scroll_plans: e.scroll_plans,
                     }
                 }
             }
@@ -928,6 +886,60 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                     super::kasane::plugin::types::ImageFit::Contain,
                     1.0,
                 )
+            }
+
+            /// Create an empty element.
+            pub fn empty() -> ElementHandle {
+                super::kasane::plugin::element_builder::create_empty()
+            }
+
+            /// Create a horizontal flex layout with proportional children.
+            ///
+            /// Each `FlexEntry` specifies a child and its flex weight.
+            /// Use `flex_entry()` to create entries conveniently.
+            pub fn flex_row(children: &[FlexEntry], gap: u16) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_row_flex(children, gap)
+            }
+
+            /// Create a vertical flex layout with proportional children.
+            ///
+            /// Each `FlexEntry` specifies a child and its flex weight.
+            /// Use `flex_entry()` to create entries conveniently.
+            pub fn flex_column(children: &[FlexEntry], gap: u16) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_column_flex(children, gap)
+            }
+
+            /// Create a 2D grid layout.
+            ///
+            /// `columns` defines the width of each column (fixed, flex, or auto).
+            /// `children` are placed left-to-right, top-to-bottom.
+            pub fn grid(
+                columns: &[GridWidth],
+                children: &[ElementHandle],
+                col_gap: u16,
+                row_gap: u16,
+            ) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_grid(columns, children, col_gap, row_gap)
+            }
+
+            /// Create a scrollable wrapper around a child element.
+            ///
+            /// `offset` is the scroll position (in lines for vertical, columns for horizontal).
+            /// `vertical` selects the scroll axis.
+            pub fn scrollable(child: ElementHandle, offset: u16, vertical: bool) -> ElementHandle {
+                super::kasane::plugin::element_builder::create_scrollable(child, offset, vertical)
+            }
+
+            /// Create a `FlexEntry` pairing a child element with a flex weight.
+            pub fn flex_entry(child: ElementHandle, flex: f32) -> FlexEntry {
+                FlexEntry { child, flex }
+            }
+
+            impl FlexEntry {
+                /// Create a new `FlexEntry` pairing a child element with a flex weight.
+                pub fn new(child: ElementHandle, flex: f32) -> Self {
+                    Self { child, flex }
+                }
             }
 
             // ----- LineAnnotation shortcuts -----
@@ -1292,22 +1304,22 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                 host_log::log_message(host_log::LogLevel::Error, msg);
             }
 
-            // --- RuntimeEffects shortcuts ---
+            // --- Effects shortcuts ---
 
-            /// RuntimeEffects with commands only (no redraw flag, no scroll).
-            pub fn effects(commands: Vec<Command>) -> RuntimeEffects {
-                RuntimeEffects { redraw: 0, commands, scroll_plans: vec![] }
+            /// Effects with commands only (no redraw flag, no scroll).
+            pub fn effects(commands: Vec<Command>) -> Effects {
+                Effects { redraw: 0, commands, scroll_plans: vec![] }
             }
 
-            /// RuntimeEffects with commands + trailing RequestRedraw(ALL).
-            pub fn effects_redraw(mut commands: Vec<Command>) -> RuntimeEffects {
+            /// Effects with commands + trailing RequestRedraw(ALL).
+            pub fn effects_redraw(mut commands: Vec<Command>) -> Effects {
                 commands.push(Command::RequestRedraw(0x17F));
-                RuntimeEffects { redraw: 0, commands, scroll_plans: vec![] }
+                Effects { redraw: 0, commands, scroll_plans: vec![] }
             }
 
-            /// RuntimeEffects with only RequestRedraw(ALL).
-            pub fn just_redraw() -> RuntimeEffects {
-                RuntimeEffects {
+            /// Effects with only RequestRedraw(ALL).
+            pub fn just_redraw() -> Effects {
+                Effects {
                     redraw: 0,
                     commands: vec![Command::RequestRedraw(0x17F)],
                     scroll_plans: vec![],
@@ -1387,9 +1399,9 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `id: "plugin_id"` — plugin identifier (required)
 /// - `state { field: Type = default, ... }` — plugin state with generation counter
 ///   - Fields support `#[bind(expr, on: flags)]` for auto-sync from host state
-/// - `on_init_effects() { ... }` → `fn on_init_effects() -> BootstrapEffects`
-/// - `on_active_session_ready_effects() { ... }` → `fn on_active_session_ready_effects() -> SessionReadyEffects`
-/// - `on_state_changed_effects(dirty) { ... }` → `fn on_state_changed_effects() -> RuntimeEffects`
+/// - `on_init_effects() { ... }` → `fn on_init_effects() -> Effects` (auto-converted)
+/// - `on_active_session_ready_effects() { ... }` → `fn on_active_session_ready_effects() -> Effects` (auto-converted)
+/// - `on_state_changed_effects(dirty) { ... }` → `fn on_state_changed_effects() -> Effects`
 /// - `slots { SLOT => expr, ... }` — simple form (auto-wraps in `auto_contribution()`)
 /// - `slots { SLOT(deps) => |ctx| { ... }, ... }` — full form with state access via `state.field`
 /// - `on_workspace_changed(snapshot) { ... }` → `fn on_workspace_changed()`
@@ -1403,8 +1415,9 @@ fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 /// - `handle_mouse(event, id) { ... }` → `fn handle_mouse()`
 /// - `capabilities: [Cap1, Cap2]` → `fn requested_capabilities()`
 /// - `authorities: [Auth1, Auth2]` → `fn requested_authorities()`
-/// - `update_effects(payload) { ... }` → `fn update_effects() -> RuntimeEffects`
-/// - `on_io_event_effects(event) { ... }` → `fn on_io_event_effects() -> RuntimeEffects`
+/// - `update_effects(payload) { ... }` → `fn update_effects() -> Effects`
+/// - `on_io_event_effects(event) { ... }` → `fn on_io_event_effects() -> Effects`
+/// - `impl { fn method(&self) { ... } ... }` — helper methods on `__KasanePluginState` (requires `state`)
 #[proc_macro]
 pub fn kasane_define_plugin(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();
@@ -1432,6 +1445,12 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     let sdk_helpers = generate_sdk_helpers();
 
     // 2. State definition (if present)
+    let user_impl_methods: Vec<_> = def
+        .impl_block
+        .as_ref()
+        .map(|methods| methods.iter().collect())
+        .unwrap_or_default();
+
     let state_tokens = if let Some(ref state_def) = def.state {
         let fields: Vec<_> = state_def
             .fields
@@ -1471,6 +1490,8 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
                 fn bump_generation(&mut self) {
                     self.generation = self.generation.wrapping_add(1);
                 }
+
+                #( #user_impl_methods )*
             }
 
             ::std::thread_local! {
@@ -1565,7 +1586,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
 
     let on_init_method = if let Some(ref body) = def.on_init_effects {
         let wrapped = wrap_state(body);
-        quote! { fn on_init_effects() -> BootstrapEffects { #wrapped } }
+        quote! { fn on_init_effects() -> BootstrapEffects { let __effects: Effects = { #wrapped }; __effects.into() } }
     } else {
         quote! {}
     };
@@ -1574,7 +1595,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
     {
         let wrapped = wrap_state(body);
         quote! {
-            fn on_active_session_ready_effects() -> SessionReadyEffects { #wrapped }
+            fn on_active_session_ready_effects() -> SessionReadyEffects { let __effects: Effects = { #wrapped }; __effects.into() }
         }
     } else {
         quote! {}
@@ -1620,7 +1641,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             .on_state_changed_effects
             .as_ref()
             .map(|osc| osc.body.clone())
-            .unwrap_or_else(|| quote! { RuntimeEffects::default() });
+            .unwrap_or_else(|| quote! { Effects::default() });
 
         let wrapped = if has_state {
             quote! {
@@ -1918,6 +1939,11 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
         quote! {}
     };
 
+    // state_hash: always connect to __kasane_auto_state_hash() (defined in state_tokens)
+    let state_hash_method = quote! {
+        fn state_hash() -> u64 { __kasane_auto_state_hash() }
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -1953,6 +1979,7 @@ fn define_plugin_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro
             #on_io_event_method
             #view_deps_method
             #key_map_methods
+            #state_hash_method
         }
 
         export!(__KasanePlugin);
@@ -2242,6 +2269,7 @@ struct PluginDef {
     view_deps: Option<proc_macro2::TokenStream>,
     key_map: Option<KeyMapDef>,
     actions: Option<Vec<ActionDef>>,
+    impl_block: Option<Vec<ImplItemFn>>,
 }
 
 struct StateDef {
@@ -2367,11 +2395,31 @@ impl syn::parse::Parse for PluginDef {
             view_deps: None,
             key_map: None,
             actions: None,
+            impl_block: None,
         };
 
         let mut has_id = false;
 
         while !input.is_empty() {
+            // `impl` is a Rust keyword, so it cannot be parsed as syn::Ident.
+            // Check for it before the normal ident parse.
+            if input.peek(syn::Token![impl]) {
+                input.parse::<syn::Token![impl]>()?;
+                let content;
+                syn::braced!(content in input);
+                let mut methods = Vec::new();
+                while !content.is_empty() {
+                    let method: ImplItemFn = content.parse()?;
+                    methods.push(method);
+                }
+                def.impl_block = Some(methods);
+                // Consume optional trailing comma between sections
+                if !input.is_empty() {
+                    let _ = input.parse::<syn::Token![,]>();
+                }
+                continue;
+            }
+
             let ident: syn::Ident = input.parse()?;
             let section = ident.to_string();
 
@@ -2638,7 +2686,7 @@ impl syn::parse::Parse for PluginDef {
                 "on_state_changed_commands" => {
                     return Err(syn::Error::new(
                         ident.span(),
-                        "define_plugin! `on_state_changed_commands` was removed; return `RuntimeEffects` from `on_state_changed_effects(...)`",
+                        "define_plugin! `on_state_changed_commands` was removed; return `Effects` from `on_state_changed_effects(...)`",
                     ));
                 }
                 "update" => {
@@ -2681,6 +2729,13 @@ impl syn::parse::Parse for PluginDef {
             return Err(syn::Error::new(
                 proc_macro2::Span::call_site(),
                 "define_plugin! requires an `id: \"...\"` section",
+            ));
+        }
+
+        if def.impl_block.is_some() && def.state.is_none() {
+            return Err(syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "define_plugin! `impl { ... }` requires a `state { ... }` section",
             ));
         }
 

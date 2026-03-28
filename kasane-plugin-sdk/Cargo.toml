@@ -10,6 +10,9 @@ keywords = ["kakoune", "wasm", "plugin", "component-model"]
 categories = ["development-tools"]
 readme = "README.md"
 
+[features]
+test-harness = []
+
 [dependencies]
 wit-bindgen = "0.41"
 kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.3.0" }

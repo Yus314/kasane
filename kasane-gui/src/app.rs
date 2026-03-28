@@ -842,7 +842,7 @@ where
 
     fn apply_runtime_batch(
         &mut self,
-        mut batch: kasane_core::plugin::RuntimeBatch,
+        mut batch: kasane_core::plugin::EffectsBatch,
         source_plugin: Option<&kasane_core::plugin::PluginId>,
     ) -> bool {
         self.dirty |= batch.effects.redraw;

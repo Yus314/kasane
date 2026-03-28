@@ -6,9 +6,7 @@ use anyhow::Result;
 
 use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
-use super::{
-    BootstrapEffects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime,
-};
+use super::{Effects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResolvedPluginSnapshot {
@@ -70,7 +68,7 @@ impl AppliedWinnerDelta {
 
 #[derive(Default)]
 pub struct PluginApplyResult {
-    pub bootstrap: BootstrapEffects,
+    pub bootstrap: Effects,
     pub deltas: Vec<AppliedWinnerDelta>,
     pub diagnostics: Vec<PluginDiagnostic>,
 }
@@ -477,7 +475,7 @@ mod tests {
         let descriptor = host_descriptor("demo", "r1");
         let pending = PendingPluginCommit {
             result: PluginApplyResult {
-                bootstrap: BootstrapEffects::default(),
+                bootstrap: Effects::default(),
                 deltas: vec![AppliedWinnerDelta {
                     id: plugin_id.clone(),
                     old: None,
@@ -518,7 +516,7 @@ mod tests {
         let new_descriptor = host_descriptor("demo", "r2");
         let pending = PendingPluginCommit {
             result: PluginApplyResult {
-                bootstrap: BootstrapEffects::default(),
+                bootstrap: Effects::default(),
                 deltas: vec![AppliedWinnerDelta {
                     id: plugin_id.clone(),
                     old: Some(old_descriptor.clone()),

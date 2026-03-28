@@ -65,6 +65,8 @@ interface types {
     /// Commands that WASM plugins can return to the host.
     variant command {
         send-keys(list<string>),
+        /// Execute a Kakoune command string (convenience for `send-keys(<esc>:cmd<ret>)`).
+        eval-command(string),
         paste,
         quit,
         request-redraw(u16),
@@ -583,6 +585,22 @@ interface types {
         chain-position: u32,
     }
 
+    /// A single declarative transform operation (Salsa-cacheable).
+    ///
+    /// WASM plugins return a `list<element-patch-op>` from `transform-patch`.
+    /// An empty list means identity (no-op). A single-element list is that
+    /// operation. Multiple elements are composed left-to-right.
+    ///
+    /// `modify-anchor` and `custom` are not representable in WIT (closures);
+    /// plugins needing those fall back to imperative `transform`.
+    variant element-patch-op {
+        wrap-container(face),
+        prepend(element-handle),
+        append(element-handle),
+        replace(element-handle),
+        modify-face(face),
+    }
+
     record annotate-context {
         line-width: u16,
         gutter-width: u16,
@@ -937,6 +955,7 @@ interface plugin-api {
     use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
                atom, decorate-target, replace-target,
                slot-id, contribute-context, contribution, transform-target, transform-subject, transform-context,
+               element-patch-op,
                annotate-context, line-annotation, overlay-context, overlay-contribution,
                display-directive, workspace-snapshot, key-handle-result,
                capability, plugin-authority, io-event, surface-view-context,
@@ -946,8 +965,12 @@ interface plugin-api {
                cell-decoration,
                key-group-decl, key-response};
 
+    // --- Identity ---
+
     /// Unique plugin identifier.
     get-id: func() -> string;
+
+    // --- Lifecycle ---
 
     /// Typed bootstrap effects (redraw-only).
     on-init-effects: func() -> bootstrap-effects;
@@ -962,6 +985,8 @@ interface plugin-api {
     /// Notification that the workspace layout has changed.
     on-workspace-changed: func(snapshot: workspace-snapshot);
 
+    // --- Hosted surfaces ---
+
     /// Static hosted surfaces exposed by this plugin.
     /// Called during bootstrap preflight before `on-init`.
     surfaces: func() -> list<surface-descriptor>;
@@ -975,6 +1000,8 @@ interface plugin-api {
     /// Notify a hosted surface that shared application state changed.
     handle-surface-state-changed: func(surface-key: string, dirty-flags: u16) -> list<command>;
 
+    // --- Slot contributions ---
+
     /// Line decoration (gutter elements + background).
     contribute-line: func(line: u32) -> option<line-decoration>;
 
@@ -982,6 +1009,8 @@ interface plugin-api {
     /// Slot indices: 0=BufferLeft, 1=BufferRight, 2=AboveBuffer,
     /// 3=BelowBuffer, 4=AboveStatus, 5=StatusLeft, 6=StatusRight, 7=Overlay.
     contribute: func(slot: u8) -> option<element-handle>;
+
+    // --- Caching ---
 
     /// Plugin state hash for view caching (L1).
     state-hash: func() -> u64;
@@ -1021,6 +1050,8 @@ interface plugin-api {
 
     /// Invoke a named action identified by key map dispatch.
     invoke-action: func(action-id: string, event: key-event) -> key-response;
+
+    // --- Overlay contributions ---
 
     /// Contribute an overlay element with positioning.
     contribute-overlay: func() -> option<overlay>;
@@ -1069,6 +1100,14 @@ interface plugin-api {
     /// Transform a subject for a given target (replaces decorate + replace).
     /// The subject is either a bare element or an overlay (element + anchor).
     transform: func(target: transform-target, subject: transform-subject, ctx: transform-context) -> transform-subject;
+
+    /// Return a declarative transform patch for the given target.
+    ///
+    /// When non-empty, the host uses the declarative patch (Salsa-cacheable)
+    /// instead of calling `transform`. When empty, the host falls back
+    /// to the imperative `transform` export.
+    /// An empty list = no patch (fall back). A list with ops = compose them.
+    transform-patch: func(target: transform-target, ctx: transform-context) -> list<element-patch-op>;
 
     /// Priority for transform chain ordering.
     transform-priority: func() -> s16;

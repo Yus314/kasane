@@ -371,13 +371,13 @@ fn convert_session_ready_effects_from_wit() {
     assert_eq!(converted.redraw, DirtyFlags::STATUS);
     assert!(matches!(
         converted.commands.first(),
-        Some(kasane_core::plugin::SessionReadyCommand::SendToKakoune(
+        Some(Command::SendToKakoune(
             KasaneRequest::Keys(keys)
         )) if keys == &vec!["g".to_string(), "g".to_string()]
     ));
     assert!(matches!(
         converted.commands.get(1),
-        Some(kasane_core::plugin::SessionReadyCommand::PluginMessage { target, .. })
+        Some(Command::PluginMessage { target, .. })
         if target.0 == "peer"
     ));
     assert_eq!(

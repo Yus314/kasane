@@ -13,6 +13,7 @@ pub mod handler_registry;
 pub(crate) mod handler_table;
 pub mod io;
 mod manager;
+pub mod process_task;
 mod provider;
 pub mod pubsub;
 mod registry;
@@ -36,8 +37,8 @@ pub use diagnostics::{
     PluginDiagnosticTarget, ProviderArtifactStage, report_plugin_diagnostics,
 };
 pub use effects::{
-    BootstrapEffects, InitBatch, MouseHandleResult, NullEffects, PluginEffects, ReadyBatch,
-    RecordingEffects, RuntimeBatch, RuntimeEffects, SessionReadyCommand, SessionReadyEffects,
+    Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
+    RecordingEffects,
 };
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{
@@ -88,7 +89,8 @@ pub use element_patch::ElementPatch;
 pub use extension_point::{CompositionRule, ExtensionPointId, ExtensionResults};
 pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
-pub use pubsub::{TopicBus, TopicId};
+pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
+pub use pubsub::{Topic, TopicBus, TopicId};
 pub use state::{Plugin, PluginState};
 
 bitflags! {

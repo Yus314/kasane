@@ -11,6 +11,7 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use compact_str::CompactString;
@@ -31,6 +32,56 @@ impl TopicId {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Phantom-typed topic handle for compile-time pub/sub type safety.
+///
+/// Created by [`HandlerRegistry::publish_typed`] and consumed by
+/// [`HandlerRegistry::subscribe_typed`]. The type parameter `T` ensures
+/// that publishers and subscribers agree on the value type at compile time.
+///
+/// Zero runtime cost — the type parameter exists only at compile time.
+///
+/// ```ignore
+/// let topic: Topic<u32> = r.publish_typed("cursor.line", |s, _| s.line);
+/// r.subscribe_typed(&topic, |state, value: &u32| { ... });
+/// ```
+pub struct Topic<T> {
+    id: TopicId,
+    _marker: PhantomData<fn() -> T>,
+}
+
+impl<T> Topic<T> {
+    /// Create a new typed topic handle.
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self {
+            id: TopicId::new(name),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Get the underlying topic ID.
+    pub fn id(&self) -> &TopicId {
+        &self.id
+    }
+}
+
+impl<T> Clone for Topic<T> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> std::fmt::Debug for Topic<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Topic")
+            .field("id", &self.id)
+            .field("type", &std::any::type_name::<T>())
+            .finish()
     }
 }
 
@@ -81,6 +132,9 @@ pub(crate) struct PublishedValue {
     #[allow(dead_code)]
     pub(crate) publisher: PluginId,
     pub(crate) value: Box<dyn Any + Send>,
+    /// Type name for debug diagnostics (set by typed publishers).
+    #[allow(dead_code)]
+    pub(crate) type_name: &'static str,
 }
 
 impl TopicBus {
@@ -98,6 +152,17 @@ impl TopicBus {
         publisher: PluginId,
         value: Box<dyn Any + Send>,
     ) {
+        self.publish_with_type_name(topic, publisher, value, "unknown");
+    }
+
+    /// Record a publication with type name for debug diagnostics.
+    pub(crate) fn publish_with_type_name(
+        &mut self,
+        topic: TopicId,
+        publisher: PluginId,
+        value: Box<dyn Any + Send>,
+        type_name: &'static str,
+    ) {
         debug_assert!(
             !self.delivering.load(Ordering::Relaxed),
             "cannot publish during delivery phase (cycle detected)"
@@ -105,7 +170,11 @@ impl TopicBus {
         self.publications
             .entry(topic)
             .or_default()
-            .push(PublishedValue { publisher, value });
+            .push(PublishedValue {
+                publisher,
+                value,
+                type_name,
+            });
     }
 
     /// Get published values for a topic (for subscriber delivery).

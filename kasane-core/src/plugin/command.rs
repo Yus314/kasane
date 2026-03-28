@@ -181,9 +181,37 @@ pub enum Command {
     UnbindSurfaceSession {
         surface_id: SurfaceId,
     },
+    /// Start a registered process task by name.
+    ///
+    /// The framework looks up the task spec in the plugin's `HandlerTable`,
+    /// allocates a job ID, and spawns the process.
+    StartProcessTask {
+        task_name: String,
+    },
 }
 
 impl Command {
+    /// Convenience: execute a Kakoune command string.
+    ///
+    /// Wraps the command in the key sequence `<esc>:cmd<ret>` and sends it
+    /// as `SendToKakoune(Keys(...))`. This is the native-side equivalent of
+    /// `kasane_plugin_sdk::keys::command()`.
+    pub fn kakoune_command(cmd: &str) -> Self {
+        let mut keys = vec!["<esc>".to_string(), ":".to_string()];
+        for c in cmd.chars() {
+            match c {
+                '<' => keys.push("<lt>".to_string()),
+                '>' => keys.push("<gt>".to_string()),
+                ' ' => keys.push("<space>".to_string()),
+                '-' => keys.push("<minus>".to_string()),
+                '\n' => keys.push("<ret>".to_string()),
+                c => keys.push(c.to_string()),
+            }
+        }
+        keys.push("<ret>".to_string());
+        Command::SendToKakoune(KasaneRequest::Keys(keys))
+    }
+
     /// Returns true if this command requires event-loop-level handling
     /// (timers, inter-plugin messages, config, workspace, processes, sessions).
     pub fn is_deferred(&self) -> bool {
@@ -264,7 +292,8 @@ pub fn execute_commands(
             | Command::SpawnPaneClient { .. }
             | Command::ClosePaneClient { .. }
             | Command::BindSurfaceSession { .. }
-            | Command::UnbindSurfaceSession { .. } => {}
+            | Command::UnbindSurfaceSession { .. }
+            | Command::StartProcessTask { .. } => {}
         }
     }
     CommandResult::Continue

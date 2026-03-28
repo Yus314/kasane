@@ -4,7 +4,7 @@ use kasane_core::state::DirtyFlags;
 
 #[kasane_plugin(v2)]
 mod highlight {
-    use kasane_core::plugin::{AppView, BackgroundLayer, BlendMode, RuntimeEffects};
+    use kasane_core::plugin::{AppView, BackgroundLayer, BlendMode, Effects};
     use kasane_core::protocol::{Color, Face, NamedColor};
     use kasane_core::state::DirtyFlags;
 
@@ -19,12 +19,12 @@ mod highlight {
         state: &State,
         _app: &AppView<'_>,
         _dirty: DirtyFlags,
-    ) -> (State, RuntimeEffects) {
+    ) -> (State, Effects) {
         (
             State {
                 active_line: state.active_line,
             },
-            RuntimeEffects::default(),
+            Effects::default(),
         )
     }
 

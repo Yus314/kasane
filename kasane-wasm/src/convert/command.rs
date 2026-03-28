@@ -2,10 +2,7 @@ use std::time::Duration;
 
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::input::InputEvent;
-use kasane_core::plugin::{
-    BootstrapEffects, BufferEdit, BufferPosition, Command, PluginId, RuntimeEffects,
-    SessionReadyCommand, SessionReadyEffects, StdinMode,
-};
+use kasane_core::plugin::{BufferEdit, BufferPosition, Command, Effects, PluginId, StdinMode};
 use kasane_core::protocol::KasaneRequest;
 use kasane_core::session::SessionCommand as CoreSessionCommand;
 use kasane_core::state::DirtyFlags;
@@ -15,6 +12,7 @@ use super::{wit_key_event_to_key_event, wit_scroll_plan_to_scroll_plan};
 pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
     match wc {
         wit::Command::SendKeys(keys) => Command::SendToKakoune(KasaneRequest::Keys(keys.clone())),
+        wit::Command::EvalCommand(cmd) => Command::kakoune_command(cmd),
         wit::Command::Paste => Command::Paste,
         wit::Command::Quit => Command::Quit,
         wit::Command::RequestRedraw(bits) => {
@@ -150,8 +148,8 @@ fn wit_focus_dir_to_focus_direction(dir: wit::FocusDir) -> kasane_core::workspac
 pub(crate) fn wit_runtime_effects_to_effects_with(
     effects: &wit::RuntimeEffects,
     mut convert_command: impl FnMut(&wit::Command) -> Vec<Command>,
-) -> RuntimeEffects {
-    RuntimeEffects {
+) -> Effects {
+    Effects {
         redraw: DirtyFlags::from_bits_truncate(effects.redraw),
         commands: effects
             .commands
@@ -166,23 +164,29 @@ pub(crate) fn wit_runtime_effects_to_effects_with(
     }
 }
 
-pub(crate) fn wit_bootstrap_effects_to_effects(
-    effects: &wit::BootstrapEffects,
-) -> BootstrapEffects {
-    BootstrapEffects {
+pub(crate) fn wit_bootstrap_effects_to_effects(effects: &wit::BootstrapEffects) -> Effects {
+    Effects {
         redraw: DirtyFlags::from_bits_truncate(effects.redraw),
+        ..Effects::default()
     }
 }
 
-pub(crate) fn wit_session_ready_effects_to_effects(
-    effects: &wit::SessionReadyEffects,
-) -> SessionReadyEffects {
-    SessionReadyEffects {
+pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEffects) -> Effects {
+    Effects {
         redraw: DirtyFlags::from_bits_truncate(effects.redraw),
         commands: effects
             .commands
             .iter()
-            .map(wit_session_ready_command_to_command)
+            .map(|command| match command {
+                wit::SessionReadyCommand::SendKeys(keys) => {
+                    Command::SendToKakoune(KasaneRequest::Keys(keys.clone()))
+                }
+                wit::SessionReadyCommand::Paste => Command::Paste,
+                wit::SessionReadyCommand::PluginMessage(message) => Command::PluginMessage {
+                    target: PluginId(message.target_plugin.clone()),
+                    payload: Box::new(message.payload.clone()),
+                },
+            })
             .collect(),
         scroll_plans: effects
             .scroll_plans
@@ -192,20 +196,7 @@ pub(crate) fn wit_session_ready_effects_to_effects(
     }
 }
 
-fn wit_session_ready_command_to_command(command: &wit::SessionReadyCommand) -> SessionReadyCommand {
-    match command {
-        wit::SessionReadyCommand::SendKeys(keys) => {
-            SessionReadyCommand::SendToKakoune(KasaneRequest::Keys(keys.clone()))
-        }
-        wit::SessionReadyCommand::Paste => SessionReadyCommand::Paste,
-        wit::SessionReadyCommand::PluginMessage(message) => SessionReadyCommand::PluginMessage {
-            target: PluginId(message.target_plugin.clone()),
-            payload: Box::new(message.payload.clone()),
-        },
-    }
-}
-
 #[cfg(test)]
-pub(crate) fn wit_runtime_effects_to_effects(effects: &wit::RuntimeEffects) -> RuntimeEffects {
+pub(crate) fn wit_runtime_effects_to_effects(effects: &wit::RuntimeEffects) -> Effects {
     wit_runtime_effects_to_effects_with(effects, |command| vec![wit_command_to_command(command)])
 }

@@ -17,6 +17,7 @@ fn workspace_summary() -> Option<String> {
     WORKSPACE_SUMMARY.with(|summary| summary.borrow().clone())
 }
 
+#[kasane_plugin_sdk::plugin]
 impl Guest for SurfaceProbePlugin {
     fn get_id() -> String {
         "surface_probe".to_string()
@@ -205,8 +206,10 @@ impl Guest for SurfaceProbePlugin {
         host_state::get_cursor_line() as u64
     }
 
-    kasane_plugin_sdk::default_typed_lifecycle!();
-    kasane_plugin_sdk::default_line!();
+    fn contribute_line(_line: u32) -> Option<LineDecoration> {
+        None
+    }
+
     fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
         None
     }
@@ -235,25 +238,6 @@ impl Guest for SurfaceProbePlugin {
     fn observe_key(_event: KeyEvent) {}
 
     fn observe_mouse(_event: MouseEvent) {}
-
-    kasane_plugin_sdk::default_overlay!();
-    kasane_plugin_sdk::default_menu_transform!();
-    kasane_plugin_sdk::default_replace!();
-    kasane_plugin_sdk::default_decorate!();
-    kasane_plugin_sdk::default_decorator_priority!();
-    kasane_plugin_sdk::default_typed_runtime!();
-    kasane_plugin_sdk::default_cursor_style!();
-    kasane_plugin_sdk::default_named_slot!();
-    kasane_plugin_sdk::default_transform!();
-    kasane_plugin_sdk::default_transform_priority!();
-    kasane_plugin_sdk::default_annotate!();
-    kasane_plugin_sdk::default_overlay_v2!();
-    kasane_plugin_sdk::default_contribute!();
-    kasane_plugin_sdk::default_contribute_to!();
-    kasane_plugin_sdk::default_decorate_cells!();
-    kasane_plugin_sdk::default_capabilities!();
-    kasane_plugin_sdk::default_view_deps!();
-    kasane_plugin_sdk::default_key_map!();
 
     fn register_capabilities() -> u32 {
         0xFFFFFFFF

@@ -3,9 +3,7 @@
 //! Session spawn, close, switch, pane death, ready gate, and ready batch handling.
 
 use crate::layout::Rect;
-use crate::plugin::{
-    AppView, Command, CommandResult, ReadyBatch, SessionReadyCommand, execute_commands,
-};
+use crate::plugin::{AppView, Command, CommandResult, EffectsBatch, execute_commands};
 use crate::session::{SessionId, SessionManager, SessionSpec, SessionStateStore};
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::{SurfaceId, SurfaceRegistry};
@@ -279,12 +277,12 @@ impl SessionReadyGate {
     }
 }
 
-pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bool {
+pub fn apply_ready_batch(batch: EffectsBatch, ctx: &mut DeferredContext<'_>) -> bool {
     *ctx.dirty |= batch.effects.redraw;
 
     for command in batch.effects.commands {
         match command {
-            SessionReadyCommand::SendToKakoune(request) => {
+            Command::SendToKakoune(request) => {
                 if matches!(
                     execute_commands(
                         vec![Command::SendToKakoune(request)],
@@ -296,21 +294,27 @@ pub fn apply_ready_batch(batch: ReadyBatch, ctx: &mut DeferredContext<'_>) -> bo
                     return true;
                 }
             }
-            SessionReadyCommand::Paste => {
+            Command::Paste => {
                 if matches!(
-                    execute_commands(vec![Command::Paste], focused_writer!(ctx), ctx.clipboard,),
+                    execute_commands(vec![Command::Paste], focused_writer!(ctx), ctx.clipboard),
                     CommandResult::Quit
                 ) {
                     return true;
                 }
             }
-            SessionReadyCommand::PluginMessage { target, payload } => {
+            Command::PluginMessage { target, payload } => {
                 let batch =
                     ctx.registry
                         .deliver_message_batch(&target, payload, &AppView::new(ctx.state));
                 if apply_runtime_batch(batch, ctx, Some(&target), 0) {
                     return true;
                 }
+            }
+            Command::RequestRedraw(flags) => {
+                *ctx.dirty |= flags;
+            }
+            _ => {
+                tracing::warn!("SessionReady phase: unexpected command variant, dropping");
             }
         }
     }

@@ -1,82 +1,34 @@
-use std::any::Any;
-
 use crate::element::InteractiveId;
 use crate::input::{KeyEvent, MouseEvent};
-use crate::protocol::KasaneRequest;
 use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 
 use super::{AppView, Command, KeyDispatchResult, PluginId};
 
+/// Lifecycle phase for effect validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BootstrapEffects {
-    pub redraw: DirtyFlags,
+pub enum LifecyclePhase {
+    /// Plugin initialization. Only `RequestRedraw` is allowed.
+    Bootstrap,
+    /// Active session ready. `SendToKakoune`, `Paste`, `PluginMessage`,
+    /// `RequestRedraw`, and scroll plans are allowed.
+    SessionReady,
+    /// Full runtime. All commands allowed.
+    Runtime,
 }
 
-impl Default for BootstrapEffects {
-    fn default() -> Self {
-        Self {
-            redraw: DirtyFlags::empty(),
-        }
-    }
-}
-
-impl BootstrapEffects {
-    pub fn merge(&mut self, other: Self) {
-        self.redraw |= other.redraw;
-    }
-}
-
-pub struct SessionReadyEffects {
-    pub redraw: DirtyFlags,
-    pub commands: Vec<SessionReadyCommand>,
-    pub scroll_plans: Vec<ScrollPlan>,
-}
-
-impl Default for SessionReadyEffects {
-    fn default() -> Self {
-        Self {
-            redraw: DirtyFlags::empty(),
-            commands: Vec::new(),
-            scroll_plans: Vec::new(),
-        }
-    }
-}
-
-impl SessionReadyEffects {
-    pub fn merge(&mut self, mut other: Self) {
-        self.redraw |= other.redraw;
-        self.commands.append(&mut other.commands);
-        self.scroll_plans.append(&mut other.scroll_plans);
-    }
-}
-
-pub enum SessionReadyCommand {
-    SendToKakoune(KasaneRequest),
-    Paste,
-    PluginMessage {
-        target: PluginId,
-        payload: Box<dyn Any + Send>,
-    },
-}
-
-#[derive(Default)]
-pub struct InitBatch {
-    pub effects: BootstrapEffects,
-}
-
-#[derive(Default)]
-pub struct ReadyBatch {
-    pub effects: SessionReadyEffects,
-}
-
-pub struct RuntimeEffects {
+/// Unified plugin effects type used across all lifecycle phases.
+///
+/// Replaces the previous `BootstrapEffects` / `SessionReadyEffects` /
+/// `RuntimeEffects` trio. Framework validates command legality per phase
+/// via [`Effects::validate`].
+pub struct Effects {
     pub redraw: DirtyFlags,
     pub commands: Vec<Command>,
     pub scroll_plans: Vec<ScrollPlan>,
 }
 
-impl Default for RuntimeEffects {
+impl Default for Effects {
     fn default() -> Self {
         Self {
             redraw: DirtyFlags::empty(),
@@ -86,17 +38,98 @@ impl Default for RuntimeEffects {
     }
 }
 
-#[derive(Default)]
-pub struct RuntimeBatch {
-    pub effects: RuntimeEffects,
-}
+impl Effects {
+    pub fn none() -> Self {
+        Self::default()
+    }
 
-impl RuntimeEffects {
+    pub fn redraw(flags: DirtyFlags) -> Self {
+        Self {
+            redraw: flags,
+            ..Self::default()
+        }
+    }
+
+    pub fn with(commands: Vec<Command>) -> Self {
+        Self {
+            commands,
+            ..Self::default()
+        }
+    }
+
     pub fn merge(&mut self, mut other: Self) {
         self.redraw |= other.redraw;
         self.commands.append(&mut other.commands);
         self.scroll_plans.append(&mut other.scroll_plans);
     }
+
+    /// Validate and filter commands for the given lifecycle phase.
+    ///
+    /// - **Bootstrap**: only `RequestRedraw`; no scroll plans.
+    /// - **SessionReady**: `SendToKakoune`, `Paste`, `PluginMessage`, `RequestRedraw`; scroll plans allowed.
+    /// - **Runtime**: all commands and scroll plans allowed.
+    ///
+    /// Debug builds panic on illegal commands; release builds warn and drop them.
+    pub fn validate(mut self, phase: LifecyclePhase) -> Self {
+        match phase {
+            LifecyclePhase::Runtime => self,
+            LifecyclePhase::Bootstrap => {
+                if !self.commands.is_empty() {
+                    let before = self.commands.len();
+                    self.commands
+                        .retain(|cmd| matches!(cmd, Command::RequestRedraw(_)));
+                    let dropped = before - self.commands.len();
+                    if dropped > 0 {
+                        debug_assert!(
+                            false,
+                            "Bootstrap phase received {dropped} illegal command(s); \
+                             only RequestRedraw is allowed"
+                        );
+                        tracing::warn!(
+                            count = dropped,
+                            "Bootstrap phase: dropping illegal commands"
+                        );
+                    }
+                }
+                if !self.scroll_plans.is_empty() {
+                    debug_assert!(false, "Bootstrap phase does not allow scroll plans");
+                    tracing::warn!("Bootstrap phase: dropping scroll plans");
+                    self.scroll_plans.clear();
+                }
+                self
+            }
+            LifecyclePhase::SessionReady => {
+                let before = self.commands.len();
+                self.commands.retain(|cmd| {
+                    matches!(
+                        cmd,
+                        Command::SendToKakoune(_)
+                            | Command::Paste
+                            | Command::PluginMessage { .. }
+                            | Command::RequestRedraw(_)
+                    )
+                });
+                let dropped = before - self.commands.len();
+                if dropped > 0 {
+                    debug_assert!(
+                        false,
+                        "SessionReady phase received {dropped} illegal command(s)"
+                    );
+                    tracing::warn!(
+                        count = dropped,
+                        "SessionReady phase: dropping illegal commands"
+                    );
+                }
+                self
+            }
+        }
+    }
+}
+
+/// Aggregated effects batch from multiple plugins.
+#[derive(Default)]
+pub struct EffectsBatch {
+    pub effects: Effects,
 }
 
 /// Result of first-wins mouse dispatch across plugins.
@@ -114,7 +147,7 @@ pub enum MouseHandleResult {
 /// enabling isolated testing with mock implementations.
 pub trait PluginEffects {
     /// Notify plugins of state changes and collect batched effects.
-    fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> RuntimeBatch;
+    fn notify_state_changed(&mut self, app: &AppView<'_>, flags: DirtyFlags) -> EffectsBatch;
 
     /// Broadcast key observation to all plugins (cannot consume).
     fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>);
@@ -145,8 +178,8 @@ pub trait PluginEffects {
 pub struct NullEffects;
 
 impl PluginEffects for NullEffects {
-    fn notify_state_changed(&mut self, _: &AppView<'_>, _: DirtyFlags) -> RuntimeBatch {
-        RuntimeBatch::default()
+    fn notify_state_changed(&mut self, _: &AppView<'_>, _: DirtyFlags) -> EffectsBatch {
+        EffectsBatch::default()
     }
     fn observe_key_all(&mut self, _: &KeyEvent, _: &AppView<'_>) {}
     fn dispatch_key_middleware(&mut self, key: &KeyEvent, _: &AppView<'_>) -> KeyDispatchResult {
@@ -181,9 +214,9 @@ pub struct RecordingEffects {
 }
 
 impl PluginEffects for RecordingEffects {
-    fn notify_state_changed(&mut self, _: &AppView<'_>, flags: DirtyFlags) -> RuntimeBatch {
+    fn notify_state_changed(&mut self, _: &AppView<'_>, flags: DirtyFlags) -> EffectsBatch {
         self.state_notifications.push(flags);
-        RuntimeBatch::default()
+        EffectsBatch::default()
     }
     fn observe_key_all(&mut self, key: &KeyEvent, _: &AppView<'_>) {
         self.key_observations.push(key.clone());

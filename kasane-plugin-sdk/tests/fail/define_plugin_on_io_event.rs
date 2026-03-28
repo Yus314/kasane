@@ -3,7 +3,7 @@ kasane_plugin_sdk::define_plugin! {
 
     on_io_event(event) {
         let _ = event;
-        RuntimeEffects::default()
+        Effects::default()
     },
 }
 

@@ -12,7 +12,7 @@ impl Guest for Bad {
 
     fn on_state_changd_effects(dirty_flags: u16) -> RuntimeEffects {
         let _ = dirty_flags;
-        RuntimeEffects::default()
+        Effects::default()
     }
 }
 

@@ -2,7 +2,7 @@ use kasane_core::kasane_plugin;
 
 #[kasane_plugin]
 mod counter_plugin {
-    use kasane_core::plugin::{AppView, RuntimeEffects};
+    use kasane_core::plugin::{AppView, Effects};
 
     #[state]
     #[derive(Default)]
@@ -19,11 +19,11 @@ mod counter_plugin {
         state: &mut State,
         msg: &mut dyn std::any::Any,
         _core: &AppView<'_>,
-    ) -> RuntimeEffects {
+    ) -> Effects {
         if let Some(Msg::Increment) = msg.downcast_ref::<Msg>() {
             state.count += 1;
         }
-        RuntimeEffects::default()
+        Effects::default()
     }
 }
 

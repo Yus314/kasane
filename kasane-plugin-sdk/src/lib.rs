@@ -74,7 +74,9 @@
 //!
 //! `generate!()` emits WIT bindings and auto-imports common types (`Guest`,
 //! `host_state`, `element_builder`, `types::*`) plus helper functions
-//! (`default_face()`, `rgb()`, `face_bg()`, `plain()`, `colored()`, etc.).
+//! (`default_face()`, `rgb()`, `face_bg()`, `plain()`, `colored()`,
+//! `flex_row()`, `flex_column()`, `grid()`, `scrollable()`, `flex_entry()`,
+//! `empty()`, etc.).
 //!
 //! `#[plugin]` fills in default implementations for all `Guest` methods
 //! you don't write.
@@ -260,386 +262,6 @@ pub const WIT: &str = include_str!("../wit/plugin.wit");
 /// `wit_bindgen::generate!` generates code referencing `wit_bindgen` runtime types.
 pub use kasane_plugin_sdk_macros::kasane_generate as generate;
 
-/// Default lifecycle stubs.
-///
-/// Use inside a `Guest` trait impl to skip implementing unused lifecycle hooks.
-/// For partial overrides, use `default_init!`, `default_shutdown!`, or
-/// `default_state_changed!` individually.
-#[macro_export]
-macro_rules! default_lifecycle {
-    () => {
-        $crate::default_typed_lifecycle!();
-    };
-}
-
-/// Default typed lifecycle stubs.
-#[macro_export]
-macro_rules! default_typed_lifecycle {
-    () => {
-        $crate::default_typed_init!();
-        $crate::default_typed_active_session_ready!();
-        $crate::default_typed_state_changed!();
-        $crate::default_shutdown!();
-    };
-}
-
-/// Default typed on_init stub.
-#[macro_export]
-macro_rules! default_typed_init {
-    () => {
-        fn on_init_effects() -> BootstrapEffects {
-            BootstrapEffects::default()
-        }
-    };
-}
-
-/// Default typed active-session-ready stub.
-#[macro_export]
-macro_rules! default_typed_active_session_ready {
-    () => {
-        fn on_active_session_ready_effects() -> SessionReadyEffects {
-            SessionReadyEffects::default()
-        }
-    };
-}
-
-/// Default typed on_state_changed stub.
-#[macro_export]
-macro_rules! default_typed_state_changed {
-    () => {
-        fn on_state_changed_effects(_dirty_flags: u16) -> RuntimeEffects {
-            RuntimeEffects::default()
-        }
-    };
-}
-
-/// Default on_init stubs.
-#[macro_export]
-macro_rules! default_init {
-    () => {
-        $crate::default_typed_init!();
-    };
-}
-
-/// Default active-session-ready stubs.
-#[macro_export]
-macro_rules! default_active_session_ready {
-    () => {
-        $crate::default_typed_active_session_ready!();
-    };
-}
-
-/// Default on_shutdown stub (returns empty command list).
-#[macro_export]
-macro_rules! default_shutdown {
-    () => {
-        fn on_shutdown() -> Vec<Command> {
-            vec![]
-        }
-    };
-}
-
-/// Default on_state_changed stubs.
-#[macro_export]
-macro_rules! default_state_changed {
-    () => {
-        $crate::default_typed_state_changed!();
-    };
-}
-
-/// Default hosted surface preflight stub (returns no surfaces).
-#[macro_export]
-macro_rules! default_surfaces {
-    () => {
-        fn surfaces() -> Vec<SurfaceDescriptor> {
-            vec![]
-        }
-    };
-}
-
-/// Default hosted surface render stub (returns no surface content).
-#[macro_export]
-macro_rules! default_render_surface {
-    () => {
-        fn render_surface(_surface_key: String, _ctx: SurfaceViewContext) -> Option<ElementHandle> {
-            None
-        }
-    };
-}
-
-/// Default hosted surface event stub (returns no commands).
-#[macro_export]
-macro_rules! default_handle_surface_event {
-    () => {
-        fn handle_surface_event(
-            _surface_key: String,
-            _event: SurfaceEvent,
-            _ctx: SurfaceEventContext,
-        ) -> Vec<Command> {
-            vec![]
-        }
-    };
-}
-
-/// Default hosted surface state-change stub (returns no commands).
-#[macro_export]
-macro_rules! default_handle_surface_state_changed {
-    () => {
-        fn handle_surface_state_changed(_surface_key: String, _dirty_flags: u16) -> Vec<Command> {
-            vec![]
-        }
-    };
-}
-
-/// Default line decoration stub (contribute_line returns None).
-#[macro_export]
-macro_rules! default_line {
-    () => {
-        fn contribute_line(_line: u32) -> Option<LineDecoration> {
-            None
-        }
-    };
-}
-
-/// Default caching stubs (state_hash returns 0).
-#[macro_export]
-macro_rules! default_cache {
-    () => {
-        fn state_hash() -> u64 {
-            0
-        }
-    };
-}
-
-/// Default contribute stub (returns None for all slots).
-#[macro_export]
-macro_rules! default_contribute {
-    () => {
-        fn contribute(_slot: u8) -> Option<ElementHandle> {
-            None
-        }
-    };
-}
-
-/// Default input handling stubs
-/// (`handle_mouse`, `handle_key`, `handle_key_middleware`,
-/// `handle_default_scroll`, `observe_key`, `observe_mouse`).
-#[macro_export]
-macro_rules! default_input {
-    () => {
-        fn handle_mouse(_event: MouseEvent, _id: InteractiveId) -> Option<Vec<Command>> {
-            None
-        }
-        fn handle_key(_event: KeyEvent) -> Option<Vec<Command>> {
-            None
-        }
-        fn handle_key_middleware(event: KeyEvent) -> KeyHandleResult {
-            match Self::handle_key(event) {
-                Some(commands) => KeyHandleResult::Consumed(commands),
-                None => KeyHandleResult::Passthrough,
-            }
-        }
-        fn handle_default_scroll(_candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
-            None
-        }
-        fn observe_key(_event: KeyEvent) {}
-        fn observe_mouse(_event: MouseEvent) {}
-    };
-}
-
-/// Default overlay stub (contribute_overlay returns None).
-#[macro_export]
-macro_rules! default_overlay {
-    () => {
-        fn contribute_overlay() -> Option<Overlay> {
-            None
-        }
-    };
-}
-
-/// Default menu transformation stub (returns None = no change).
-#[macro_export]
-macro_rules! default_menu_transform {
-    () => {
-        fn transform_menu_item(
-            _item: Vec<Atom>,
-            _index: u32,
-            _selected: bool,
-        ) -> Option<Vec<Atom>> {
-            None
-        }
-    };
-}
-
-/// Default replacement stub (returns None for all targets).
-#[macro_export]
-macro_rules! default_replace {
-    () => {
-        fn replace(_target: ReplaceTarget) -> Option<ElementHandle> {
-            None
-        }
-    };
-}
-
-/// Default decorator stub (passes through the element unchanged).
-#[macro_export]
-macro_rules! default_decorate {
-    () => {
-        fn decorate(_target: DecorateTarget, element: ElementHandle) -> ElementHandle {
-            element
-        }
-    };
-}
-
-/// Default decorator priority stub (returns 0).
-#[macro_export]
-macro_rules! default_decorator_priority {
-    () => {
-        fn decorator_priority() -> u32 {
-            0
-        }
-    };
-}
-
-/// Default cell decoration stub (returns empty list).
-#[macro_export]
-macro_rules! default_decorate_cells {
-    () => {
-        fn decorate_cells() -> Vec<CellDecoration> {
-            Vec::new()
-        }
-    };
-}
-
-/// Default cursor style override stub (returns None = no override).
-#[macro_export]
-macro_rules! default_cursor_style {
-    () => {
-        fn cursor_style_override() -> Option<u8> {
-            None
-        }
-    };
-}
-
-/// Default named slot contribution stub (returns None).
-#[macro_export]
-macro_rules! default_named_slot {
-    () => {
-        fn contribute_named(_slot_name: String) -> Option<ElementHandle> {
-            None
-        }
-    };
-}
-
-/// Default update stub (returns empty command list).
-#[macro_export]
-macro_rules! default_update {
-    () => {
-        $crate::default_typed_update!();
-    };
-}
-
-/// Default typed runtime stubs.
-#[macro_export]
-macro_rules! default_typed_runtime {
-    () => {
-        $crate::default_typed_update!();
-        $crate::default_typed_io_event!();
-    };
-}
-
-/// Default typed update stub.
-#[macro_export]
-macro_rules! default_typed_update {
-    () => {
-        fn update_effects(_payload: Vec<u8>) -> RuntimeEffects {
-            RuntimeEffects::default()
-        }
-    };
-}
-
-/// Default typed on-io-event stub.
-#[macro_export]
-macro_rules! default_typed_io_event {
-    () => {
-        fn on_io_event_effects(_event: IoEvent) -> RuntimeEffects {
-            RuntimeEffects::default()
-        }
-    };
-}
-
-/// Default contribute-to stub (returns None for all regions).
-#[macro_export]
-macro_rules! default_contribute_to {
-    () => {
-        fn contribute_to(_region: SlotId, _ctx: ContributeContext) -> Option<Contribution> {
-            None
-        }
-    };
-}
-
-/// Default transform stub (passes through subject unchanged).
-#[macro_export]
-macro_rules! default_transform {
-    () => {
-        fn transform(
-            _target: TransformTarget,
-            subject: TransformSubject,
-            _ctx: TransformContext,
-        ) -> TransformSubject {
-            subject
-        }
-    };
-}
-
-/// Default transform-priority stub (returns 0).
-#[macro_export]
-macro_rules! default_transform_priority {
-    () => {
-        fn transform_priority() -> i16 {
-            0
-        }
-    };
-}
-
-/// Default annotate-line stub (returns None).
-#[macro_export]
-macro_rules! default_annotate {
-    () => {
-        fn annotate_line(_line: u32, _ctx: AnnotateContext) -> Option<LineAnnotation> {
-            None
-        }
-    };
-}
-
-/// Default display-directives stub (returns no directives).
-#[macro_export]
-macro_rules! default_display_directives {
-    () => {
-        fn display_directives() -> Vec<DisplayDirective> {
-            vec![]
-        }
-    };
-}
-
-/// Default workspace-changed stub (ignores workspace layout notifications).
-#[macro_export]
-macro_rules! default_workspace_changed {
-    () => {
-        fn on_workspace_changed(_snapshot: WorkspaceSnapshot) {}
-    };
-}
-
-/// Default contribute-overlay-v2 stub (returns None).
-#[macro_export]
-macro_rules! default_overlay_v2 {
-    () => {
-        fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
-            None
-        }
-    };
-}
-
 /// Build a first-class slot identifier for `contribute_to()`.
 ///
 /// # Example
@@ -736,60 +358,6 @@ macro_rules! __route_slot_ids_impl {
         match $slot {
             SlotId::WellKnown(WellKnownSlot::Overlay) => $body,
             _ => $crate::__route_slot_ids_impl!($slot, { $($rest)* }),
-        }
-    };
-}
-
-/// Default requested-capabilities stub (returns empty list = no WASI capabilities).
-#[macro_export]
-macro_rules! default_capabilities {
-    () => {
-        fn requested_capabilities() -> Vec<Capability> {
-            vec![]
-        }
-    };
-}
-
-/// Default requested-authorities stub (returns empty list = no privileged host authorities).
-#[macro_export]
-macro_rules! default_authorities {
-    () => {
-        fn requested_authorities() -> Vec<PluginAuthority> {
-            vec![]
-        }
-    };
-}
-
-/// Default on-io-event stub (returns empty command list).
-#[macro_export]
-macro_rules! default_io_event {
-    () => {
-        $crate::default_typed_io_event!();
-    };
-}
-
-/// Default view-deps stub (returns ALL = 0x17F).
-#[macro_export]
-macro_rules! default_view_deps {
-    () => {
-        fn view_deps() -> u16 {
-            0x17F
-        }
-    };
-}
-
-/// Default key map stub (declare_key_map returns empty, is_group_active returns true, invoke_action returns Pass).
-#[macro_export]
-macro_rules! default_key_map {
-    () => {
-        fn declare_key_map() -> Vec<KeyGroupDecl> {
-            Vec::new()
-        }
-        fn is_group_active(_group_name: String) -> bool {
-            true
-        }
-        fn invoke_action(_action_id: String, _event: KeyEvent) -> KeyResponse {
-            KeyResponse::Pass
         }
     };
 }
@@ -1095,7 +663,6 @@ macro_rules! __iid_dec {
     }};
 }
 
-
 /// Helpers for tracking async job results with generation-based stale detection.
 ///
 /// Useful for plugins that spawn external processes and need to handle
@@ -1325,7 +892,10 @@ pub mod process {
         #[test]
         fn primary_stdout_then_exit_zero() {
             let mut h = ProcessHandle::new(1);
-            assert!(matches!(h.feed(1, IoEventKind::Stdout(b"hello")), ProcessResult::Pending));
+            assert!(matches!(
+                h.feed(1, IoEventKind::Stdout(b"hello")),
+                ProcessResult::Pending
+            ));
             match h.feed(1, IoEventKind::Exited(0)) {
                 ProcessResult::Completed(data) => assert_eq!(data, b"hello"),
                 other => panic!("expected Completed, got {other:?}"),
@@ -1334,8 +904,13 @@ pub mod process {
 
         #[test]
         fn primary_exit_nonzero_empty_tries_fallback() {
-            let mut h = ProcessHandle::new(1)
-                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            let mut h = ProcessHandle::new(1).with_fallback(
+                2,
+                ProcessStep {
+                    program: "find".into(),
+                    args: vec![],
+                },
+            );
             match h.feed(1, IoEventKind::Exited(1)) {
                 ProcessResult::TryFallback => {}
                 other => panic!("expected TryFallback, got {other:?}"),
@@ -1344,8 +919,13 @@ pub mod process {
 
         #[test]
         fn primary_spawn_failed_tries_fallback() {
-            let mut h = ProcessHandle::new(1)
-                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            let mut h = ProcessHandle::new(1).with_fallback(
+                2,
+                ProcessStep {
+                    program: "find".into(),
+                    args: vec![],
+                },
+            );
             match h.feed(1, IoEventKind::SpawnFailed("not found")) {
                 ProcessResult::TryFallback => {}
                 other => panic!("expected TryFallback, got {other:?}"),
@@ -1354,12 +934,23 @@ pub mod process {
 
         #[test]
         fn fallback_completes() {
-            let mut h = ProcessHandle::new(1)
-                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            let mut h = ProcessHandle::new(1).with_fallback(
+                2,
+                ProcessStep {
+                    program: "find".into(),
+                    args: vec![],
+                },
+            );
             // Primary fails
-            assert!(matches!(h.feed(1, IoEventKind::SpawnFailed("nope")), ProcessResult::TryFallback));
+            assert!(matches!(
+                h.feed(1, IoEventKind::SpawnFailed("nope")),
+                ProcessResult::TryFallback
+            ));
             // Fallback produces output
-            assert!(matches!(h.feed(2, IoEventKind::Stdout(b"file.txt\n")), ProcessResult::Pending));
+            assert!(matches!(
+                h.feed(2, IoEventKind::Stdout(b"file.txt\n")),
+                ProcessResult::Pending
+            ));
             match h.feed(2, IoEventKind::Exited(0)) {
                 ProcessResult::Completed(data) => assert_eq!(data, b"file.txt\n"),
                 other => panic!("expected Completed, got {other:?}"),
@@ -1368,9 +959,17 @@ pub mod process {
 
         #[test]
         fn fallback_fails() {
-            let mut h = ProcessHandle::new(1)
-                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
-            assert!(matches!(h.feed(1, IoEventKind::SpawnFailed("nope")), ProcessResult::TryFallback));
+            let mut h = ProcessHandle::new(1).with_fallback(
+                2,
+                ProcessStep {
+                    program: "find".into(),
+                    args: vec![],
+                },
+            );
+            assert!(matches!(
+                h.feed(1, IoEventKind::SpawnFailed("nope")),
+                ProcessResult::TryFallback
+            ));
             match h.feed(2, IoEventKind::SpawnFailed("also not found")) {
                 ProcessResult::Failed(msg) => assert!(msg.contains("also not found")),
                 other => panic!("expected Failed, got {other:?}"),
@@ -1380,19 +979,28 @@ pub mod process {
         #[test]
         fn unknown_job_id_ignored() {
             let mut h = ProcessHandle::new(1);
-            assert!(matches!(h.feed(99, IoEventKind::Stdout(b"x")), ProcessResult::Ignored));
+            assert!(matches!(
+                h.feed(99, IoEventKind::Stdout(b"x")),
+                ProcessResult::Ignored
+            ));
         }
 
         #[test]
         fn stderr_is_pending() {
             let mut h = ProcessHandle::new(1);
-            assert!(matches!(h.feed(1, IoEventKind::Stderr(b"warn")), ProcessResult::Pending));
+            assert!(matches!(
+                h.feed(1, IoEventKind::Stderr(b"warn")),
+                ProcessResult::Pending
+            ));
         }
 
         #[test]
         fn primary_exit_nonzero_with_data_completes() {
             let mut h = ProcessHandle::new(1);
-            assert!(matches!(h.feed(1, IoEventKind::Stdout(b"partial")), ProcessResult::Pending));
+            assert!(matches!(
+                h.feed(1, IoEventKind::Stdout(b"partial")),
+                ProcessResult::Pending
+            ));
             match h.feed(1, IoEventKind::Exited(1)) {
                 ProcessResult::Completed(data) => assert_eq!(data, b"partial"),
                 other => panic!("expected Completed, got {other:?}"),
@@ -1410,17 +1018,28 @@ pub mod process {
 
         #[test]
         fn reset_clears_state() {
-            let mut h = ProcessHandle::new(1)
-                .with_fallback(2, ProcessStep { program: "find".into(), args: vec![] });
+            let mut h = ProcessHandle::new(1).with_fallback(
+                2,
+                ProcessStep {
+                    program: "find".into(),
+                    args: vec![],
+                },
+            );
             h.feed(1, IoEventKind::SpawnFailed("nope"));
             h.reset();
             // After reset, primary events should work again
-            assert!(matches!(h.feed(1, IoEventKind::Stdout(b"ok")), ProcessResult::Pending));
+            assert!(matches!(
+                h.feed(1, IoEventKind::Stdout(b"ok")),
+                ProcessResult::Pending
+            ));
         }
 
         #[test]
         fn fallback_info_present() {
-            let step = ProcessStep { program: "find".into(), args: vec![".".into()] };
+            let step = ProcessStep {
+                program: "find".into(),
+                args: vec![".".into()],
+            };
             let h = ProcessHandle::new(1).with_fallback(2, step);
             let (s, id) = h.fallback_info().unwrap();
             assert_eq!(s.program, "find");
@@ -1794,5 +1413,76 @@ mod tests {
         tracker.append_stdout(id, "a\nb\nc");
         let lines: Vec<&str> = tracker.lines().collect();
         assert_eq!(lines, vec!["a", "b", "c"]);
+    }
+}
+
+/// Test harness for WASM plugins (feature-gated: `test-harness`).
+///
+/// Provides a mock host environment for unit-testing Kasane WASM plugins
+/// without the full runtime. See [`test::TestHarness`] for usage.
+#[cfg(feature = "test-harness")]
+pub mod test;
+
+#[cfg(all(test, feature = "test-harness"))]
+mod test_harness_tests {
+    use super::test::*;
+
+    #[test]
+    fn harness_default_state() {
+        let h = TestHarness::new();
+        let state = h.state();
+        assert_eq!(state.cursor_line, 1);
+        assert_eq!(state.cursor_col, 1);
+        assert_eq!(state.cols, 80);
+        assert_eq!(state.rows, 24);
+        assert!(state.focused);
+    }
+
+    #[test]
+    fn harness_set_cursor() {
+        let mut h = TestHarness::new();
+        h.set_cursor_line(42);
+        h.set_cursor_col(10);
+        assert_eq!(mock_host_state::get_cursor_line(), 42);
+        assert_eq!(mock_host_state::get_cursor_col(), 10);
+    }
+
+    #[test]
+    fn harness_set_selection_count() {
+        let mut h = TestHarness::new();
+        h.set_selection_count(5);
+        assert_eq!(mock_host_state::get_selection_count(), 5);
+    }
+
+    #[test]
+    fn harness_element_arena() {
+        let h = TestHarness::new();
+        let handle = mock_element_builder::create_text("hello", "default");
+        let arena = h.arena();
+        assert_eq!(arena.len(), 1);
+        assert!(arena.get(handle).unwrap().contains("hello"));
+    }
+
+    #[test]
+    fn harness_logs() {
+        let mut h = TestHarness::new();
+        mock_host_log::log_message(1, "test message");
+        let logs = h.drain_logs();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, 1);
+        assert_eq!(logs[0].message, "test message");
+    }
+
+    #[test]
+    fn harness_cleanup_on_drop() {
+        {
+            let mut h = TestHarness::new();
+            h.set_cursor_line(99);
+            mock_element_builder::create_text("temp", "default");
+        }
+        // After drop, state should be reset
+        assert_eq!(mock_host_state::get_cursor_line(), 1);
+        let h = TestHarness::new();
+        assert!(h.arena().is_empty());
     }
 }

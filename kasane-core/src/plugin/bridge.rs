@@ -15,14 +15,18 @@ use crate::workspace::WorkspaceQuery;
 use super::extension_point::{ExtensionDefinition, ExtensionOutput, ExtensionPointId};
 use super::handler_registry::HandlerRegistry;
 use super::handler_table::HandlerTable;
+use super::io::ProcessEvent;
+use super::process_task::{
+    ProcessTaskFeedResult, ProcessTaskHandle, collect_fallbacks, spawn_command,
+};
 use super::pubsub::TopicBus;
 use super::state::{Plugin, PluginState};
 use super::{
-    AnnotateContext, AppView, BackgroundLayer, BootstrapEffects, Command, ContributeContext,
-    Contribution, DisplayDirective, ElementPatch, GutterSide, IoEvent, KeyHandleResult,
-    LineAnnotation, OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend,
-    PluginCapabilities, PluginId, RuntimeEffects, SessionReadyEffects, SlotId, TransformContext,
-    TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
+    AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
+    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, KeyHandleResult, LineAnnotation,
+    OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
+    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
+    VirtualTextItem,
 };
 
 /// Adapts a [`Plugin`] to the internal [`PluginBackend`] trait via data-driven dispatch.
@@ -37,6 +41,10 @@ pub struct PluginBridge {
     generation: u64,
     prev_state: Box<dyn PluginState>,
     plugin_tag: PluginTag,
+    /// Active process tasks managed by the framework.
+    active_process_tasks: Vec<ProcessTaskHandle>,
+    /// Job ID counter for process tasks (framework-managed, avoids collisions).
+    next_task_job_id: u64,
 }
 
 impl PluginBridge {
@@ -55,6 +63,9 @@ impl PluginBridge {
             generation: 0,
             prev_state,
             plugin_tag: PluginTag::UNASSIGNED,
+            active_process_tasks: Vec::new(),
+            // Start at a high offset to avoid collisions with manually managed job IDs.
+            next_task_job_id: 0x8000_0000_0000_0000,
         }
     }
 
@@ -63,6 +74,83 @@ impl PluginBridge {
         if *self.state != *self.prev_state {
             self.generation += 1;
             self.prev_state = self.state.clone();
+        }
+    }
+
+    /// Try to route a process event through active task handles.
+    ///
+    /// Returns `Some(effects)` if a task handle matched the event (including
+    /// fallback respawn). Returns `None` if no task handle matched, so the
+    /// caller should fall through to the manual `io_event_handler`.
+    fn try_process_task_event(
+        &mut self,
+        proc_event: &ProcessEvent,
+        app: &AppView<'_>,
+    ) -> Option<Effects> {
+        // Find the matching active task handle.
+        let idx = self.active_process_tasks.iter().position(|h| {
+            let job_id = match proc_event {
+                ProcessEvent::Stdout { job_id, .. }
+                | ProcessEvent::Stderr { job_id, .. }
+                | ProcessEvent::Exited { job_id, .. }
+                | ProcessEvent::SpawnFailed { job_id, .. } => *job_id,
+            };
+            h.job_id == job_id
+        })?;
+
+        // Determine if this task is streaming.
+        let task_name = self.active_process_tasks[idx].name;
+        let streaming = self
+            .table
+            .process_tasks
+            .iter()
+            .find(|e| e.name == task_name)
+            .is_some_and(|e| e.streaming);
+
+        let feed_result = self.active_process_tasks[idx].feed(proc_event, streaming);
+
+        match feed_result {
+            ProcessTaskFeedResult::Pending => Some(Effects::default()),
+            ProcessTaskFeedResult::Deliver(result) => {
+                // Terminal events (Completed, Failed) remove the handle.
+                let is_terminal = matches!(
+                    result,
+                    super::process_task::ProcessTaskResult::Completed { .. }
+                        | super::process_task::ProcessTaskResult::Failed(_)
+                );
+
+                // Look up the handler and invoke it.
+                let effects = if let Some(entry) = self
+                    .table
+                    .process_tasks
+                    .iter()
+                    .find(|e| e.name == task_name)
+                {
+                    let (new_state, effects) = (entry.handler)(&*self.state, &result, app);
+                    self.state = new_state;
+                    self.check_state_change();
+                    effects
+                } else {
+                    Effects::default()
+                };
+
+                if is_terminal {
+                    self.active_process_tasks.remove(idx);
+                }
+
+                Some(effects)
+            }
+            ProcessTaskFeedResult::TryFallback(fallback_spec) => {
+                // Respawn with the fallback. Allocate a new job ID.
+                let new_job_id = self.next_task_job_id;
+                self.next_task_job_id += 1;
+                self.active_process_tasks[idx].job_id = new_job_id;
+                self.active_process_tasks[idx].stdout_buf.clear();
+
+                let cmd = spawn_command(&fallback_spec, new_job_id);
+                Some(Effects::with(vec![cmd]))
+            }
+            ProcessTaskFeedResult::Ignored => None,
         }
     }
 }
@@ -162,25 +250,25 @@ impl PluginBackend for PluginBridge {
 
     // === Lifecycle ===
 
-    fn on_init_effects(&mut self, app: &AppView<'_>) -> BootstrapEffects {
+    fn on_init_effects(&mut self, app: &AppView<'_>) -> Effects {
         if let Some(handler) = &self.table.init_handler {
             let (new_state, effects) = handler(&*self.state, app);
             self.state = new_state;
             self.check_state_change();
             effects
         } else {
-            BootstrapEffects::default()
+            Effects::default()
         }
     }
 
-    fn on_active_session_ready_effects(&mut self, app: &AppView<'_>) -> SessionReadyEffects {
+    fn on_active_session_ready_effects(&mut self, app: &AppView<'_>) -> Effects {
         if let Some(handler) = &self.table.session_ready_handler {
             let (new_state, effects) = handler(&*self.state, app);
             self.state = new_state;
             self.check_state_change();
             effects
         } else {
-            SessionReadyEffects::default()
+            Effects::default()
         }
     }
 
@@ -190,25 +278,32 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn on_state_changed_effects(&mut self, app: &AppView<'_>, dirty: DirtyFlags) -> RuntimeEffects {
+    fn on_state_changed_effects(&mut self, app: &AppView<'_>, dirty: DirtyFlags) -> Effects {
         if let Some(handler) = &self.table.state_changed_handler {
             let (new_state, effects) = handler(&*self.state, app, dirty);
             self.state = new_state;
             self.check_state_change();
             effects
         } else {
-            RuntimeEffects::default()
+            Effects::default()
         }
     }
 
-    fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> RuntimeEffects {
+    fn on_io_event_effects(&mut self, event: &IoEvent, app: &AppView<'_>) -> Effects {
+        // Route process events through active task handles first.
+        let IoEvent::Process(proc_event) = event;
+        if let Some(effects) = self.try_process_task_event(proc_event, app) {
+            return effects;
+        }
+
+        // Fall through to the manual io_event handler.
         if let Some(handler) = &self.table.io_event_handler {
             let (new_state, effects) = handler(&*self.state, event, app);
             self.state = new_state;
             self.check_state_change();
             effects
         } else {
-            RuntimeEffects::default()
+            Effects::default()
         }
     }
 
@@ -218,6 +313,23 @@ impl PluginBackend for PluginBridge {
             self.state = new_state;
             self.check_state_change();
         }
+    }
+
+    fn start_process_task(&mut self, name: &str) -> Vec<Command> {
+        let Some(entry) = self.table.process_tasks.iter().find(|e| e.name == name) else {
+            tracing::warn!(plugin = self.id.0.as_str(), name, "unknown process task");
+            return vec![];
+        };
+
+        let job_id = self.next_task_job_id;
+        self.next_task_job_id += 1;
+
+        let fallbacks = collect_fallbacks(&entry.spec);
+        let cmd = spawn_command(&entry.spec, job_id);
+        self.active_process_tasks
+            .push(ProcessTaskHandle::new(entry.name, job_id, fallbacks));
+
+        vec![cmd]
     }
 
     // === Input ===
@@ -321,14 +433,14 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn update_effects(&mut self, msg: &mut dyn Any, app: &AppView<'_>) -> RuntimeEffects {
+    fn update_effects(&mut self, msg: &mut dyn Any, app: &AppView<'_>) -> Effects {
         if let Some(handler) = &self.table.update_handler {
             let (new_state, effects) = handler(&*self.state, msg, app);
             self.state = new_state;
             self.check_state_change();
             effects
         } else {
-            RuntimeEffects::default()
+            Effects::default()
         }
     }
 
@@ -1213,25 +1325,25 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_init(move |s, _app| {
                     inv.lock().unwrap().insert("init");
-                    (*s, BootstrapEffects::default())
+                    (*s, Effects::default())
                 });
 
                 let inv = self.invoked.clone();
                 r.on_session_ready(move |s, _app| {
                     inv.lock().unwrap().insert("session_ready");
-                    (*s, SessionReadyEffects::default())
+                    (*s, Effects::default())
                 });
 
                 let inv = self.invoked.clone();
                 r.on_state_changed(move |s, _app, _dirty| {
                     inv.lock().unwrap().insert("state_changed");
-                    (*s, RuntimeEffects::default())
+                    (*s, Effects::default())
                 });
 
                 let inv = self.invoked.clone();
                 r.on_io_event(move |s, _event, _app| {
                     inv.lock().unwrap().insert("io_event");
-                    (*s, RuntimeEffects::default())
+                    (*s, Effects::default())
                 });
 
                 let inv = self.invoked.clone();
@@ -1248,7 +1360,7 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_update(move |s, _msg, _app| {
                     inv.lock().unwrap().insert("update");
-                    (*s, RuntimeEffects::default())
+                    (*s, Effects::default())
                 });
 
                 let inv = self.invoked.clone();
