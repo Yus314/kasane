@@ -204,7 +204,7 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     on_session_ready() {
-        SessionReadyEffects {
+        Effects {
             commands: vec![spawn_process(SpawnProcessConfig {
                 job_id: state.job_id,
                 program: "fd".into(),
@@ -217,19 +217,19 @@ kasane_plugin_sdk::define_plugin! {
 
     on_io_event(event) {
         let IoEvent::Process(pe) = event;
-        if pe.job_id != state.job_id { return RuntimeEffects::default(); }
+        if pe.job_id != state.job_id { return Effects::default(); }
 
         match pe.kind {
             ProcessEventKind::Stdout(data) => {
                 if let Ok(text) = String::from_utf8(data) {
                     state.files.extend(text.lines().map(String::from));
                 }
-                RuntimeEffects { redraw: dirty::ALL, ..Default::default() }
+                Effects { redraw: dirty::ALL, ..Default::default() }
             }
             ProcessEventKind::Exited(_) => {
-                RuntimeEffects { redraw: dirty::ALL, ..Default::default() }
+                Effects { redraw: dirty::ALL, ..Default::default() }
             }
-            _ => RuntimeEffects::default(),
+            _ => Effects::default(),
         }
     },
 }

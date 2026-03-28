@@ -15,20 +15,21 @@ The plugin API provides extension points for UI contributions, line annotations,
 Kasane embeds a small set of WASM plugins in the binary. Their source is in
 [`examples/wasm/`](../examples/wasm/):
 
-| Plugin | ID | Demonstrates |
-|---|---|---|
-| Cursor Line | `cursor_line` | Line annotation (`annotate_line_with_ctx`) |
-| Color Preview | `color_preview` | Line annotation + overlay + mouse input |
-| Selection Badge | `sel_badge` | Slot contribution (`contribute_to`) |
-| Fuzzy Finder | `fuzzy_finder` | Overlay + key input + external process I/O |
-| Pane Manager | `pane_manager` | Workspace authority + pane split/focus commands |
+| Plugin | ID | Default | Demonstrates |
+|---|---|---|---|
+| Cursor Line | `cursor_line` | Off | Line annotation (`annotate_line_with_ctx`) |
+| Color Preview | `color_preview` | Off | Line annotation + overlay + mouse input |
+| Selection Badge | `sel_badge` | Off | Slot contribution (`contribute_to`) |
+| Fuzzy Finder | `fuzzy_finder` | Off | Overlay + key input + external process I/O |
+| Pane Manager | `pane_manager` | **On** | Workspace authority + pane split/focus commands |
 
 A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
 
 ## Enabling Bundled Plugins
 
-Bundled WASM plugins are not loaded by default. Add plugin IDs to the `enabled`
-list in your configuration:
+Most bundled WASM plugins are not loaded by default. Add plugin IDs to the `enabled`
+list in your configuration. `pane_manager` is the exception — it loads automatically
+unless explicitly disabled.
 
 ```toml
 # ~/.config/kasane/config.toml

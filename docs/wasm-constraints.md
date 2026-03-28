@@ -32,9 +32,9 @@ WASM plugins cover the primary UI extension surface: slot contributions, line an
 | Pane lifecycle | Full | None | No create/close/focus hooks |
 | Pane rendering | Full | None | Cannot own custom panes |
 | Pane commands | Full | None | No split/close/focus commands |
-| Workspace commands | Full | None | No layout manipulation |
-| Workspace notifications | Full | None | No `on_workspace_changed` |
-| Theme token registration | Full | None | Cannot define custom faces |
+| Workspace commands | Full | Full | — |
+| Workspace notifications | Full | Full | — |
+| Theme token registration | Full | Full | — |
 | State access | Direct `&AppState` | ~40 getter functions | See [Host State Access](#host-state-access) |
 | Capability declaration | Auto-inferred from `HandlerRegistry` | `register-capabilities()` WIT export | SDK macro auto-generates bitmask |
 | Cache invalidation | Automatic (`PartialEq`) | Manual `state_hash()` | See [Developer Experience](#developer-experience) |
@@ -58,19 +58,17 @@ WASM plugins have no pane-related APIs. This depends on Phase 5 (Surface / Works
 
 > Workaround: Use surfaces for dedicated panels. For IDE-like multi-pane layouts, use a native plugin.
 
-### Workspace Commands and Notifications \[Not Yet Implemented\]
+### Workspace Commands and Notifications \[Resolved — WIT v0.22.0\]
 
-Native plugins can issue `PaneCommand` and `WorkspaceCommand` to manipulate layout, and receive `on_workspace_changed` notifications.
-
-WASM has no equivalent commands or notifications. Depends on the parity model in roadmap §3.5.
+WASM plugins can issue `WorkspaceCommand` (focus direction, resize, resize direction) and receive `on-workspace-changed` notifications with a `workspace-snapshot`.
 
 ### Dynamic Surfaces \[Not Yet Implemented\]
 
 WASM surfaces are declared statically at init time via `surfaces()`. Native surfaces can be created, destroyed, and reparented at runtime. WASM surfaces cannot change their placement or slot declarations after initialization.
 
-### Theme Token Registration \[Not Yet Implemented\]
+### Theme Token Registration \[Resolved — WIT v0.22.0\]
 
-Native plugins can issue `RegisterThemeTokens` commands to define custom face names. WASM has no equivalent command.
+WASM plugins can issue `register-theme-tokens(list<theme-token-default>)` to define custom face names with fallback defaults.
 
 ## Host State Access
 
@@ -129,8 +127,6 @@ There is no feedback mechanism — plugins cannot know whether a command succeed
 | Command | Native | WASM |
 |---|---|---|
 | `Pane(PaneCommand)` | Available | Not available |
-| `Workspace(WorkspaceCommand)` | Available | Not available |
-| `RegisterThemeTokens(...)` | Available | Not available |
 
 ## Runtime Constraints
 
@@ -183,35 +179,19 @@ fn state_hash() -> u64 {
 
 The `generation` counter pattern is sufficient for most plugins. Complex plugins may still need custom hash combining.
 
-### Interactive Element ID Encoding \[Improvement\]
+### Interactive Element ID Encoding \[Resolved\]
 
-Interactive elements use a single `u32` identifier for hit-testing. Plugins encoding multiple pieces of information (element index, channel, direction) must manually pack and unpack this value:
-
-```rust
-fn encode_picker_id(color_idx: usize, channel: usize, is_down: bool) -> u32 {
-    2000 + (color_idx * 6 + channel + if is_down { 3 } else { 0 }) as u32
-}
-```
-
-There is no namespace isolation between plugins — ID collisions are the plugin author's responsibility.
-
-> Workaround: Use a base offset (e.g., 2000) to avoid collisions with other plugins.
+The SDK provides the `interactive_id!` macro for declarative bit-packed ID encoding with automatic stride calculation and namespace isolation via `PluginTag`. Manual bit-packing is no longer necessary.
 
 ### SendKeys Character Escaping \[Resolved\]
 
 The SDK provides `kasane_plugin_sdk::keys::push_literal()` and `kasane_plugin_sdk::keys::command()` for key escaping. Plugins no longer need to implement their own escaping logic.
 
-### Process Job ID Management \[Improvement\]
+### Process Job ID Management \[Resolved\]
 
-Plugins spawning multiple processes must manually assign and track job IDs, handle stale results across process generations, and buffer output:
+The SDK provides `kasane_plugin_sdk::job::JobTracker` for automatic generation tracking (discards stale results) and `kasane_plugin_sdk::process::ProcessHandle` with `.with_fallback()` for process pipeline helpers. Manual ID allocation is no longer necessary for common patterns.
 
-```rust
-const JOB_FD: u64 = 1;
-const JOB_FIND_FALLBACK: u64 = 2;
-const JOB_FZF_BASE: u64 = 100;
-```
-
-A higher-level job abstraction in the SDK could simplify this pattern.
+Native plugins can use the higher-level `ProcessTaskSpec` / `ProcessTaskResult` model via `HandlerRegistry::on_process_task()`, which provides framework-managed job IDs, stdout buffering, and fallback chains. This model is not yet exposed to WASM plugins.
 
 ### Multi-Language Support \[Not Yet Implemented\]
 
@@ -232,15 +212,16 @@ The WIT interface is language-neutral by design — any language compiling to th
 | Constraint | Resolution path | Roadmap reference |
 |---|---|---|
 | PaintHook | Redesign into high-level render hook | §3.5 |
-| Pane / Workspace | Define parity model, then expose via WIT | §3.5 |
+| Pane lifecycle/rendering | Define parity model, then expose via WIT | §3.5 |
 | Missing host state | Add getters as needed per use case | — |
-| Theme tokens | Add `RegisterThemeTokens` command to WIT | — |
+| Theme tokens | `register-theme-tokens` in WIT | — resolved |
+| Workspace commands | `workspace-command` + `on-workspace-changed` in WIT | — resolved |
 | Dynamic surfaces | Extend WIT surface API with lifecycle commands | — |
 | Fuel / timeout | Configure wasmtime fuel or epoch interruption | — |
 | State hash | `state!` macro (generation counter pattern) | §3.4 — resolved |
 | SendKeys escaping | `keys::push_literal()` / `keys::command()` | §3.4 — resolved |
-| ID encoding | SDK helper or structured metadata on elements | §3.4 |
-| Job management | SDK job abstraction | §3.4 |
+| ID encoding | `interactive_id!` macro with namespace isolation | §3.4 — resolved |
+| Job management | `JobTracker` + `ProcessHandle` in SDK | §3.4 — resolved |
 | Multi-language | Validate and document non-Rust toolchains | §3.4 |
 
 ## Related Documents

@@ -99,7 +99,7 @@ The **Display Transform API** (`display_directives()`) provides the first concre
 - InsertAfter/InsertBefore targeting hidden or folded lines are suppressed
 
 **Constraints:**
-- Display-oriented navigation (Display Units, P-040..P-043) is not yet implemented
+- Display-oriented navigation (Display Units, P-040..P-043) is implemented via `DisplayUnit`, `NavigationPolicy`, and `NavigationAction` (see §3.4.1)
 - Kakoune controls the viewport and cursor movement, so true code folding (where folded lines are skipped during navigation) is not possible; `Fold` is best suited for read-only summaries
 - `InsertAfter`/`InsertBefore` (virtual text) are the primary practical use cases; `InsertBefore` enables Gap 0 (before the first buffer line)
 
@@ -138,9 +138,9 @@ impl Plugin for MyPlugin {
         r.declare_interests(DirtyFlags::BUFFER);
         r.on_state_changed(|state, _app, dirty| {
             if dirty.intersects(DirtyFlags::BUFFER) {
-                (MyState { counter: state.counter + 1 }, RuntimeEffects::default())
+                (MyState { counter: state.counter + 1 }, Effects::default())
             } else {
-                (state.clone(), RuntimeEffects::default())
+                (state.clone(), Effects::default())
             }
         });
         r.on_annotate_background(|state, line, _app, _ctx| {
@@ -638,21 +638,21 @@ The `DisplayMap` provides the first concrete implementation of source mapping an
 
 Mouse clicks on `ReadOnly` or `Skip` lines are suppressed by `mouse_to_kakoune()` (returns `None`). Cursor positioning uses `buffer_to_display()` to translate buffer coordinates to display coordinates.
 
-The full Display Unit model (P-040..P-043) with per-unit hit test, focus, and navigation is not yet implemented. Plugins should use existing APIs under the following constraints:
+The Display Unit model (P-040..P-043) is implemented. `DisplayUnit`, `DisplayUnitId`, `SemanticRole`, and `UnitSource` provide a first-class unit abstraction. Navigation is handled via `NavigationPolicy` (per-unit policy resolution through plugin dispatch) and `NavigationAction` / `ActionResult` (movement, selection, hit test, fold toggle). Plugins can define custom navigation policies by registering a `navigate_with_policy` handler in `HandlerRegistry`.
 
-- `InteractiveId` is a hit test target identifier and does not yet represent the full semantics of a display unit
-- `handle_mouse()` may need to interpret source mapping on its own
+Constraints:
+- Sub-line display units (`UnitSource::Span`) are defined in the type but not yet produced by the builder
 - Plugins must not fabricate facts that Kakoune has not provided as the result of interactions
 
 ### 3.5 Commands
 
-Hook functions issue side-effect requests through typed effect structs:
+Hook functions issue side-effect requests through the unified `Effects` struct. The framework validates command legality per lifecycle phase via `Effects::validate(phase)`:
 
-- `BootstrapEffects`
-- `SessionReadyEffects`
-- `RuntimeEffects`
+- **Bootstrap**: only `RequestRedraw`; no scroll plans.
+- **SessionReady**: `SendToKakoune`, `Paste`, `PluginMessage`, `RequestRedraw`; scroll plans allowed.
+- **Runtime**: all commands and scroll plans allowed.
 
-Runtime and session-ready effects carry `Command` values in their `commands` field.
+`Effects` carries `redraw: DirtyFlags`, `commands: Vec<Command>`, and `scroll_plans: Vec<ScrollPlan>`.
 
 | Command | Description |
 |---|---|
@@ -958,10 +958,8 @@ Custom tokens can be created and registered by plugins.
 ```rust
 StyleToken::new("myplugin.highlight")
 
-fn on_init_effects(&mut self, _app: &AppView<'_>) -> BootstrapEffects {
-    BootstrapEffects {
-        redraw: DirtyFlags::STATUS,
-    }
+fn on_init_effects(&mut self, _app: &AppView<'_>) -> Effects {
+    Effects::redraw(DirtyFlags::STATUS)
 }
 ```
 
@@ -999,7 +997,7 @@ impl PluginBackend for MyPlugin {
 | `initial_placement() -> Option<SurfacePlacementRequest>` | Static initial placement |
 | `view(ctx: &ViewContext) -> Element` | Build `Element` tree |
 | `handle_event(event, ctx) -> Vec<Command>` | Event handling |
-| `on_state_changed_effects(state, dirty) -> RuntimeEffects` | Shared state change notification |
+| `on_state_changed_effects(state, dirty) -> Effects` | Shared state change notification |
 | `state_hash() -> u64` | Hash for view cache |
 | `declared_slots() -> &[SlotDeclaration]` | Extension point declarations |
 

@@ -605,7 +605,7 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 
-> **Effects merge**: When multiple plugins produce `RuntimeEffects` in the same notification cycle, effects are merged by OR-ing `DirtyFlags` and appending `commands` and `scroll_plans` in plugin registration order.
+> **Effects merge**: When multiple plugins produce `Effects` in the same notification cycle, effects are merged by OR-ing `DirtyFlags` and appending `commands` and `scroll_plans` in plugin registration order.
 
 ### 9.7 Input Dispatch and Key Consumption
 
@@ -1000,11 +1000,11 @@ The GUI-side scene invalidation and plugin overlay dependencies are not fully in
 
 The `DisplayMap` is integrated into the rendering pipeline. Display directives flow through the incremental computation system, and the `DisplayMap` is rebuilt each frame and propagated through the rendering pipeline and cursor/input functions. Salsa's automatic dependency tracking ensures that changes to display directives trigger re-evaluation of dependent tracked functions.
 
-Remaining gap: the display unit model (P-040..P-043) has not yet been introduced as a first-class invalidation unit. Per-display-unit dirty tracking and navigation are not implemented.
+The display unit model (P-040..P-043) is implemented: `DisplayUnit`, `DisplayUnitId`, `SemanticRole`, and `UnitSource` provide a first-class unit abstraction. Navigation is resolved per unit via `NavigationPolicy` (plugin-dispatched, FirstWins composition) and `NavigationAction` / `ActionResult`. Remaining gap: per-display-unit dirty tracking is not yet implemented; invalidation still operates at the full-`DisplayMap` granularity.
 
-### 13.7 Incomplete Display-Oriented Navigation
+### 13.7 Display-Oriented Navigation Scope
 
-Visual unit-based navigation is required as a future foundation, but the current implementation still centers on buffer-oriented navigation, and a complete unification theory with display units is unfinished.
+Visual unit-based navigation is implemented via `NavigationPolicy` and `NavigationAction` (P-042, P-043). Plugin-defined navigation policies are dispatched through `HandlerRegistry`. Remaining gap: sub-line display units (`UnitSource::Span`) are defined in the type but not yet produced by the builder, and a complete unification theory with Kakoune's buffer-oriented cursor model is unfinished.
 
 ### 13.8 WASM State Hash Accuracy
 

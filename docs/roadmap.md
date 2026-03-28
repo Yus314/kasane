@@ -30,7 +30,7 @@ for the current specification from a plugin's perspective, see
 | Workstream | Next deliverable | Completion criteria |
 |---|---|---|
 | Multi-pane UI polish | ✓ Complete | Pane layout persistence landed |
-| Display transformation / display unit model | P-040 through P-043 (display unit model) | Display unit abstraction, visual navigation, and plugin-defined navigation policy are in place |
+| Display transformation / display unit model | ✓ Complete | Display unit abstraction, visual navigation, and plugin-defined navigation policy are in place |
 
 ### 2.2 Next
 
@@ -89,7 +89,10 @@ Completed (first slice):
 Remaining work:
 
 - P-032: Formal observed/policy separation (theory organized, not yet enforced)
-- P-040 through P-043: Display unit model, geometry/source mapping/role, visual navigation, plugin-defined navigation policy
+
+Completed (second slice):
+
+- P-040 through P-043: Display unit model (`DisplayUnit`, `DisplayUnitId`, `SemanticRole`, `UnitSource`), geometry/source mapping/role, visual navigation (`NavigationPolicy`, `NavigationAction`, `ActionResult`), plugin-defined navigation policy via `HandlerRegistry` dispatch
 
 ### 3.3 WASM runtime operations
 

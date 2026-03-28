@@ -311,7 +311,8 @@ pub struct PluginsConfig {
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
     pub path: Option<String>,
     /// Bundled plugin IDs to enable (opt-in). Bundled plugins are NOT loaded unless
-    /// listed here. Available: "cursor_line", "color_preview", "sel_badge", "fuzzy_finder".
+    /// listed here, except for default-enabled plugins (e.g. "pane_manager").
+    /// Available: "cursor_line", "color_preview", "sel_badge", "fuzzy_finder", "pane_manager".
     pub enabled: Vec<String>,
     /// Plugin IDs to disable (by plugin ID, e.g. "cursor_line").
     /// Applies to filesystem-discovered and user-registered plugins.

@@ -72,7 +72,7 @@ For the full extension point catalog with composition types and details, see [se
 
 ### 4.1 Command Enum
 
-Plugins request side effects by returning `Vec<Command>` from lifecycle methods and input handlers. For the full command table, see [plugin-api.md §3.5](./plugin-api.md#35-commands).
+Plugins request side effects by returning `Effects` from lifecycle methods. `Effects` carries `redraw: DirtyFlags`, `commands: Vec<Command>`, and `scroll_plans: Vec<ScrollPlan>`, with per-phase validation via `LifecyclePhase`. Input handlers return `Option<(new_state, Vec<Command>)>`. For the full command table, see [plugin-api.md §3.5](./plugin-api.md#35-commands).
 
 ### 4.2 Lifecycle Phase Constraints
 
@@ -273,7 +273,10 @@ inexpressible:
 | `kasane-core/src/plugin/command.rs` | `Command` enum |
 | `kasane-core/src/plugin/context.rs` | Extension point context types |
 | `kasane-core/src/surface/traits.rs` | `Surface` trait |
+| `kasane-core/src/plugin/process_task.rs` | `ProcessTaskSpec`, `ProcessTaskResult` (declarative process model) |
 | `kasane-core/src/display/mod.rs` | `DisplayMap`, `DisplayDirective` |
+| `kasane-core/src/display/unit.rs` | `DisplayUnit`, `DisplayUnitId`, `SemanticRole`, `UnitSource` |
+| `kasane-core/src/display/navigation.rs` | `NavigationPolicy`, `NavigationAction`, `ActionResult` |
 | `kasane-wasm/src/capability.rs` | WASI capability resolution |
 | `kasane-wasm/src/authority.rs` | Kasane authority resolution |
 | `kasane-wasm/wit/plugin.wit` | WIT interface definition |

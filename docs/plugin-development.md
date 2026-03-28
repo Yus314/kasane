@@ -413,10 +413,10 @@ impl Plugin for CursorLinePlugin {
                     CursorLineState {
                         active_line: app.cursor_line(),
                     },
-                    RuntimeEffects::default(),
+                    Effects::default(),
                 )
             } else {
-                (state.clone(), RuntimeEffects::default())
+                (state.clone(), Effects::default())
             }
         });
         r.on_annotate_background(|state, line, _app, _ctx| {
@@ -528,11 +528,11 @@ impl Guest for SelBadgePlugin {
         "sel_badge".to_string()
     }
 
-    fn on_state_changed_effects(dirty_flags: u16) -> RuntimeEffects {
+    fn on_state_changed_effects(dirty_flags: u16) -> Effects {
         if dirty_flags & dirty::BUFFER != 0 {
             CURSOR_COUNT.set(host_state::get_cursor_count());
         }
-        RuntimeEffects::default()
+        Effects::default()
     }
 
     fn state_hash() -> u64 {
