@@ -1,19 +1,24 @@
 # Kasane
 
-Extensible Kakoune frontend — independent rendering, GPU backend, WASM plugins.
-Drop in, then grow.
+Drop-in Kakoune frontend with independent rendering, GPU backend, and WASM plugins.
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Kasane demo" width="800"><br>
-  <sub>GPU backend · Cursor line highlight and fuzzy finder are WASM plugins running sandboxed</sub>
+  <img src="docs/assets/demo.gif" alt="Kasane demo — fuzzy finder, pane splits, and color preview running as WASM plugins" width="800"><br>
+  <sub>Fuzzy finder, pane splits, and color preview are WASM plugins — no code in Kasane itself</sub>
 </p>
 
 [![CI](https://github.com/Yus314/kasane/actions/workflows/ci.yml/badge.svg)](https://github.com/Yus314/kasane/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-MIT)
+[![Rust: 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org)
 
 [Getting Started](docs/getting-started.md) · [What's Different](docs/whats-different.md) · [Configuration](docs/config.md) · [Using Plugins](docs/using-plugins.md) · [Plugin Development](docs/plugin-development.md) · [Plugin API](docs/plugin-api.md) · [Vision](docs/vision.md)
 
 ## What You Get
+
+Kakoune's `-ui json` protocol was designed to let external processes
+drive the UI, but its built-in terminal renderer leaves that potential
+untapped. Kasane rebuilds the rendering pipeline from scratch and opens
+it to plugins.
 
 Your kakrc works unchanged. `alias kak=kasane` and these improvements
 apply automatically:
@@ -24,25 +29,25 @@ apply automatically:
 - **Correct Unicode** — independent width calculation, CJK and emoji handled
 
 Opt in to smooth scrolling, GPU backend (`--ui gui`), themes, border
-styles, and search dropdown.
-See [What's Different](docs/whats-different.md) for the full list.
+styles, and search dropdown. Existing Kakoune plugins (kak-lsp, …)
+work as before. See [What's Different](docs/whats-different.md) for
+the full list.
 
 ## Quick Start
 
-```bash
-# Requires Rust toolchain and Kakoune (2024.12.09+)
-cargo install --path kasane
-
-# Use it — your Kakoune config works unchanged
-kasane file.txt
-
-# Make it your default
-alias kak=kasane  # add to .bashrc / .zshrc
-```
+> [!NOTE]
+> Requires [Kakoune](https://kakoune.org/) 2024.12.09 or later.
+> Binary packages skip the Rust toolchain requirement.
 
 Arch Linux: `yay -S kasane-bin`
 · macOS: `brew install Yus314/kasane/kasane`
 · Nix: `nix run github:Yus314/kasane`
+· From source: `cargo install --path kasane`
+
+```bash
+kasane file.txt               # your Kakoune config works unchanged
+alias kak=kasane              # add to .bashrc / .zshrc
+```
 
 GPU backend: `cargo install --path kasane --features gui`, then
 `kasane --ui gui`.
@@ -65,11 +70,14 @@ try today:
 | [fuzzy-finder](examples/wasm/fuzzy-finder/) | fzf-powered file picker as a floating overlay |
 | [sel-badge](examples/wasm/sel-badge/) | Show selection count in the status bar |
 | [color-preview](examples/wasm/color-preview/) | Inline color swatches next to hex values |
+| [pane-manager](examples/wasm/pane-manager/) | Tmux-like splits with Ctrl+W — no external multiplexer needed |
+| [image-preview](examples/wasm/image-preview/) | Display images in a floating overlay anchored to the cursor |
 | [smooth-scroll](examples/wasm/smooth-scroll/) | Animated scrolling |
 | [prompt-highlight](examples/wasm/prompt-highlight/) | Visual feedback when entering prompt mode |
 
 Each plugin ships as a single `.wasm` file — sandboxed, composable,
-auto-cached. Here is the full source of sel-badge:
+auto-cached. A complete plugin in 15 lines — here is sel-badge in its
+entirety:
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
@@ -123,7 +131,20 @@ kasane --ui gui file.txt     # GPU backend
 kasane -l                    # List sessions (delegates to kak)
 ```
 
-Configuration: `~/.config/kasane/config.toml` — see [docs/config.md](docs/config.md).
+Configuration lives in `~/.config/kasane/config.toml`:
+
+```toml
+[ui]
+border_style = "rounded"   # single | rounded | double | heavy | ascii
+
+[scroll]
+smooth = true              # enable smooth scrolling (via plugin)
+
+[search]
+dropdown = true            # vertical dropdown instead of inline
+```
+
+See [docs/config.md](docs/config.md) for the full reference.
 
 ## Contributing
 

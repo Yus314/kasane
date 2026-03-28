@@ -71,6 +71,7 @@ Kakoune (kak -ui json)
 - **Layout**: `kasane-core/src/layout/flex.rs` (flexbox), `grid.rs`, `position.rs` (overlay)
 - **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, 3 methods, HandlerRegistry-based), `handler_registry.rs` (HandlerRegistry, handler registration API), `handler_table.rs` (type-erased dispatch table), `bridge.rs` (PluginBridge adapter, Plugin→PluginBackend), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `element_patch.rs` (declarative transform algebra), `compose.rs` (monoidal composition traits + types), `pubsub.rs` (topic-based inter-plugin pub/sub), `extension_point.rs` (plugin-defined extension points)
 - **Event loop**: `kasane-core/src/event_loop/` — `mod.rs` (re-exports), `dispatch.rs` (command dispatch), `context.rs` (deferred context), `session.rs` (session lifecycle), `surface.rs` (surface lifecycle)
+- **Workspace persistence**: `kasane-core/src/workspace/persist.rs` (layout save/restore across sessions)
 - **Salsa integration**: `kasane-core/src/salsa_sync.rs`, `salsa_inputs.rs`, `salsa_views/`
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
 - **Display transform**: `kasane-core/src/display/mod.rs` (DisplayMap, DisplayDirective)
