@@ -1,4 +1,4 @@
-use glyphon::{Attrs, Buffer as GlyphonBuffer, FontSystem, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer as GlyphonBuffer, FontSystem, Metrics, Shaping};
 use kasane_core::config::FontConfig;
 use winit::dpi::PhysicalSize;
 

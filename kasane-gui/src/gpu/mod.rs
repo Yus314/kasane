@@ -12,6 +12,7 @@ pub mod metrics;
 pub(crate) mod pipeline_common;
 pub mod scene_renderer;
 mod text_helpers;
+pub(crate) mod text_pipeline;
 pub mod texture_cache;
 
 pub use metrics::CellMetrics;
@@ -26,7 +27,7 @@ pub(crate) const CURSOR_OUTLINE_THICKNESS: f32 = 1.0;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use glyphon::Family;
+use cosmic_text::Family;
 use winit::window::Window;
 
 /// Map generic CSS family names to glyphon's `Family` enum variants.

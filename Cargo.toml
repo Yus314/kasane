@@ -43,7 +43,10 @@ kasane-gui = { path = "kasane-gui" }
 kasane-wasm = { path = "kasane-wasm" }
 winit = "0.30"
 wgpu = "28"
-glyphon = "0.10"
+cosmic-text = "0.15"
+etagere = "0.2"
+lru = { version = "0.16", default-features = false }
+rustc-hash = "2"
 pollster = "0.4"
 base64 = "0.22"
 

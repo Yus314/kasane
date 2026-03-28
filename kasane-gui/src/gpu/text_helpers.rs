@@ -1,6 +1,6 @@
-use glyphon::{
-    Attrs, Buffer as GlyphonBuffer, Color as GlyphonColor, TextArea, TextBounds,
-    cosmic_text::{FeatureTag, FontFeatures},
+use super::text_pipeline::{TextArea, TextBounds};
+use cosmic_text::{
+    Attrs, Buffer as GlyphonBuffer, Color as GlyphonColor, FeatureTag, FontFeatures,
 };
 use kasane_core::element::BorderLineStyle;
 
@@ -43,7 +43,6 @@ pub(super) fn prepare_text_areas<'a>(
                 scale: 1.0,
                 bounds,
                 default_color: GlyphonColor::rgb(255, 255, 255),
-                custom_glyphs: &[],
             }
         })
         .collect()

@@ -8,7 +8,10 @@ license.workspace = true
 kasane-core = { workspace = true, features = ["svg"] }
 winit = { workspace = true }
 wgpu = { workspace = true }
-glyphon = { workspace = true }
+cosmic-text = { workspace = true }
+etagere = { workspace = true }
+lru = { workspace = true }
+rustc-hash = { workspace = true }
 pollster = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

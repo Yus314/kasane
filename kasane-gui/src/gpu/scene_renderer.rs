@@ -1,8 +1,6 @@
+use super::text_pipeline::{Cache, Resolution, TextAtlas, TextRenderer, Viewport};
 use crate::animation::CursorRenderState;
-use glyphon::{
-    Buffer as GlyphonBuffer, Cache, FontSystem, Metrics, Resolution, Shaping, SwashCache,
-    TextAtlas, TextRenderer, Viewport,
-};
+use cosmic_text::{Buffer as GlyphonBuffer, FontSystem, Metrics, Shaping, SwashCache};
 use kasane_core::config::FontConfig;
 use kasane_core::render::scene::line_display_width_str;
 use kasane_core::render::{CellSize, CursorStyle, DrawCommand, PixelRect};
@@ -1025,6 +1023,7 @@ impl SceneRenderer {
         let glyph_metrics = Metrics::new(self.font_size, self.line_height);
         if idx >= self.text_buffers.len() {
             let mut buffer = GlyphonBuffer::new(&mut self.font_system, glyph_metrics);
+            // Font hinting will be enabled after cosmic-text upgrade
             buffer.set_size(
                 &mut self.font_system,
                 Some(max_width),

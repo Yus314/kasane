@@ -1630,19 +1630,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glyphon"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "201b40693830fc7f5e53159003e694d40fa56d32352224439ca93f7654ce3566"
-dependencies = [
- "cosmic-text",
- "etagere",
- "lru",
- "rustc-hash 2.1.1",
- "wgpu",
-]
-
-[[package]]
 name = "gpu-allocator"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2221,11 +2208,14 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "cosmic-text",
  "criterion",
- "glyphon",
+ "etagere",
  "image",
  "kasane-core",
+ "lru",
  "pollster",
+ "rustc-hash 2.1.1",
  "tracing",
  "wgpu",
  "winit",
