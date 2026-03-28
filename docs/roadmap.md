@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable | Completion criteria |
 |---|---|---|
-| Multi-pane UI polish | Pane layout persistence | Restore layout on session reconnect |
+| Multi-pane UI polish | ✓ Complete | Pane layout persistence landed |
 | Display transformation / display unit model | P-040 through P-043 (display unit model) | Display unit abstraction, visual navigation, and plugin-defined navigation policy are in place |
 
 ### 2.2 Next
@@ -66,12 +66,9 @@ Foundation delivered in Phase 5b/5c:
 - TUI and GUI backend support
 
 - Per-pane status bar — each pane displays its own mode, file name, and status via singleton N-render of `StatusBarSurface` (reuses `resolve_surface_tree()` with `PaneContext`; Kakoune clients resized to `rect.h - 1`; prompt cursor positioned relative to focused pane rect)
+- Pane layout persistence — workspace tree (splits, ratios, focus, buffer names) saved to `$XDG_STATE_HOME/kasane/layout/{session}.json` on structural changes and shutdown; automatically restored on `kasane -c <session>` reconnect
 
-Remaining work:
-
-- Pane layout persistence — restore layout on session reconnect
-
-Next deliverable: Pane layout persistence
+Status: ✓ Complete
 
 ### 3.2 Display transformation / display unit model
 
@@ -137,7 +134,7 @@ Next deliverable: Select either D-001 or P-023 as the first slice and land it on
 | Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete. Image element GPU pipeline + texture cache landed |
 | Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Remaining operational issues consolidated into `WASM runtime operations` |
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
-| Phase 5 | Surface / Workspace / multi-pane foundation | Foundation complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish ongoing |
+| Phase 5 | Surface / Workspace / multi-pane foundation | ✓ Complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish (pane layout persistence) complete |
 | Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
 | Plugin Redesign | Plugin architecture redesign (HandlerRegistry, ElementPatch, annotation decomposition, per-plugin invalidation, pub/sub, extension points, WASM capability inference, proc macro v2) | ✓ Complete | ADR-025 through ADR-029 |
 

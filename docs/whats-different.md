@@ -85,6 +85,8 @@ Split the editor into multiple panes, each connected to an independent Kakoune s
 
 Pane dividers can also be dragged with the mouse to resize.
 
+The pane layout (split structure, ratios, and focus) is automatically saved and restored when reconnecting to a session with `kasane -c <session>`. Named sessions (`kasane -s <name>`) keep the Kakoune daemon alive after exit, matching Kakoune's native `:q` / `:kill` semantics — `:q` disconnects (daemon survives for reconnect), `:kill` destroys the session.
+
 ## Opt-in: Plugin System
 
 Kasane has a WASM plugin system for UI extensions. Plugins can add visual elements, decorations, overlays, and input handling that Kakoune's shell-based plugins cannot — for example, line highlights, gutter annotations, floating pickers, and status bar widgets.
