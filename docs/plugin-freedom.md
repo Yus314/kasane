@@ -84,7 +84,7 @@ Effects are phase-gated: bootstrap allows only `DirtyFlags`, view phase allows n
 
 ### 5.1 Available Mechanisms
 
-1. **PluginMessage**: Async message passing via `Command::PluginMessage { target, payload }`.
+1. **PluginMessage**: Point-to-point message passing via `Command::PluginMessage { target, payload }`.
    Receiver processes in `update_effects()` by downcasting `Box<dyn Any>`. **No type
    safety, no delivery guarantee, no RPC.**
 
@@ -92,18 +92,30 @@ Effects are phase-gated: bootstrap allows only `DirtyFlags`, view phase allows n
    read via `AppView::plugin_config()`. **Indirect, delayed (next frame).**
 
 3. **Transform chain**: Indirectly modify other plugins' contributions through the
-   Transform extension point. **The transformer does not know whose contribution it is
+   Transform extension point (`ElementPatch`). **The transformer does not know whose contribution it is
    transforming.**
+
+4. **Topic-based Pub/Sub**: Broadcast communication via `TopicBus`. Publishers register on a
+   `TopicId` and produce values each frame; subscribers receive published values. Two-phase
+   evaluation (collect → deliver) with cycle prevention. **Type safety is runtime-enforced
+   (downcast), not compile-time.** See `plugin/pubsub.rs`.
+
+5. **Plugin-defined Extension Points**: A plugin defines an `ExtensionPointId` with a
+   `CompositionRule` (`Merge`, `FirstWins`, `Chain`). Other plugins contribute handlers.
+   The runtime evaluates contributions and applies the composition rule. **Enables
+   ecosystem-driven extensibility without framework source changes.** See `plugin/extension_point.rs`.
 
 ### 5.2 Impossible Cooperation Patterns
 
 - **Conditional contribution**: "If Plugin B contributed to slot X, adjust my contribution"
-  — impossible. Each plugin generates contributions independently.
+  — impossible. Each plugin generates contributions independently. (Plugin-defined extension
+  points can approximate this pattern for known collaborators.)
 - **Relative positioning**: "Place my overlay next to Plugin C's overlay" — impossible.
   Overlays use absolute positioning or anchors.
 - **Resource budget negotiation**: "Negotiate gutter width budget across plugins"
   — impossible. Framework resolves via layout.
-- **Synchronous RPC**: Plugin A → B → A request/response — impossible. Messages are async.
+- **Synchronous RPC**: Plugin A → B → A request/response — impossible. Pub/sub is
+  broadcast-only; messages are unidirectional.
 - **Atomic transactions**: Coordinated state updates across multiple plugins — impossible.
   Each plugin's state transition is independent.
 
@@ -199,8 +211,8 @@ inexpressible:
 
 | Gap | Impact | Status |
 |-----|--------|--------|
-| No inter-plugin RPC | Complex plugin cooperation patterns (request/response, negotiation) are impossible. | Open — would require new protocol design. |
-| No composition result visibility | Adaptive UI (adjusting contributions based on what other plugins contribute) is impossible. | Open — fundamental to the monoid model. |
+| No inter-plugin RPC | Synchronous request/response between plugins is impossible. | Partially addressed by topic-based pub/sub (broadcast) and plugin-defined extension points (structured collection). True RPC remains unsupported. |
+| No composition result visibility | Adaptive UI (adjusting contributions based on what other plugins contribute) is impossible. | Partially addressed: plugin-defined extension points allow structured data collection across plugins. Full context-dependent composition remains inexpressible in the monoid model. |
 
 ---
 
@@ -218,6 +230,8 @@ inexpressible:
 │  · Buffer editing (via Kakoune key simulation)          │
 │  · Overlay anchor modification via Transform            │
 │  · Synthetic input injection                            │
+│  · Topic-based pub/sub (broadcast communication)        │
+│  · Define custom extension points for other plugins     │
 ├─────────────────────────────────────────────────────────┤
 │               Conditionally Free                        │
 │  · Workspace operations → WORKSPACE authority required  │
@@ -231,7 +245,7 @@ inexpressible:
 │  · Direct AppState mutation                             │
 │  · Read/write other plugins' internal state             │
 │  · Side effects during view phase                       │
-│  · Composition result visibility (context-dep. compose) │
+│  · Full context-dependent composition                   │
 │  · Synchronous inter-plugin RPC                         │
 │  · WASM PaintHook / network I/O                         │
 │  · Rendering pipeline intermediate access               │
@@ -244,12 +258,17 @@ inexpressible:
 
 | File | Content |
 |------|---------|
-| `kasane-core/src/plugin/state.rs` | `Plugin` trait (recommended API) |
+| `kasane-core/src/plugin/state.rs` | `Plugin` trait (3 methods, HandlerRegistry-based) |
+| `kasane-core/src/plugin/handler_registry.rs` | `HandlerRegistry` (handler registration API) |
+| `kasane-core/src/plugin/handler_table.rs` | `HandlerTable` (type-erased dispatch table) |
 | `kasane-core/src/plugin/traits.rs` | `PluginBackend` trait (internal API) |
+| `kasane-core/src/plugin/element_patch.rs` | `ElementPatch` (declarative transform algebra) |
 | `kasane-core/src/plugin/compose.rs` | Monoid composition framework |
 | `kasane-core/src/plugin/app_view.rs` | `AppView` (read interface) |
-| `kasane-core/src/plugin/bridge.rs` | `Plugin` → `PluginBackend` adapter |
+| `kasane-core/src/plugin/bridge.rs` | `Plugin` → `PluginBackend` adapter via `HandlerTable` |
 | `kasane-core/src/plugin/registry.rs` | `PluginRuntime` (registration, dispatch) |
+| `kasane-core/src/plugin/pubsub.rs` | `TopicBus` (topic-based inter-plugin pub/sub) |
+| `kasane-core/src/plugin/extension_point.rs` | Plugin-defined extension points |
 | `kasane-core/src/plugin/effects.rs` | Effect type definitions |
 | `kasane-core/src/plugin/command.rs` | `Command` enum |
 | `kasane-core/src/plugin/context.rs` | Extension point context types |

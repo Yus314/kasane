@@ -69,7 +69,7 @@ Kakoune (kak -ui json)
 - **Element tree**: `kasane-core/src/element.rs`
 - **Rendering**: `kasane-core/src/render/` — `pipeline_salsa.rs` (Salsa-backed entry), `view/mod.rs`, `paint.rs`
 - **Layout**: `kasane-core/src/layout/flex.rs` (flexbox), `grid.rs`, `position.rs` (overlay)
-- **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, recommended), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `bridge.rs` (PluginBridge adapter), `compose.rs` (monoidal composition traits + types)
+- **Plugin system**: `kasane-core/src/plugin/` — `state.rs` (Plugin trait, 3 methods, HandlerRegistry-based), `handler_registry.rs` (HandlerRegistry, handler registration API), `handler_table.rs` (type-erased dispatch table), `bridge.rs` (PluginBridge adapter, Plugin→PluginBackend), `traits.rs` (PluginBackend, internal), `registry.rs` (PluginRuntime), `element_patch.rs` (declarative transform algebra), `compose.rs` (monoidal composition traits + types), `pubsub.rs` (topic-based inter-plugin pub/sub), `extension_point.rs` (plugin-defined extension points)
 - **Event loop**: `kasane-core/src/event_loop/` — `mod.rs` (re-exports), `dispatch.rs` (command dispatch), `context.rs` (deferred context), `session.rs` (session lifecycle), `surface.rs` (surface lifecycle)
 - **Salsa integration**: `kasane-core/src/salsa_sync.rs`, `salsa_inputs.rs`, `salsa_views/`
 - **Plugin prelude**: `kasane-core/src/plugin_prelude.rs` (public API for external plugins)
@@ -82,10 +82,6 @@ For architecture details, see `docs/index.md`. For plugin API reference, see `do
 - Plugin API expressiveness is a first-class goal: building infrastructure for future plugin authors is intentional, not speculative. Do not argue against extensibility work on the basis that no current consumer exists.
 - The roadmap documents planned work. Do not suggest deferring items that appear in the roadmap or that the user has explicitly requested.
 - When a simpler alternative exists, present it alongside the requested approach as an option — not as a reason to defer or reject.
-
-## Documentation Sync
-
-When modifying code listed in Key Module Locations, check if corresponding docs need updates. See `.claude/rules/` for file-specific documentation coupling rules.
 
 ## Conventions
 

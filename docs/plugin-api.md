@@ -111,9 +111,11 @@ For mechanisms not covered by DisplayDirective (overlay composition, element-lev
 
 Native plugins can be implemented using one of two traits:
 
-| | `Plugin` (state-externalized, recommended) | `PluginBackend` (mutable, internal) |
+| | `Plugin` (HandlerRegistry, recommended) | `PluginBackend` (mutable, internal) |
 |---|---|---|
-| State ownership | Framework holds state; methods are `(&self, &State) → (State, effects)` | Plugin holds its own state (`&mut self`) |
+| Registration | 3 methods: `id()`, `State` type, `register()` with `HandlerRegistry` | 20+ trait methods with defaults |
+| State ownership | Framework holds state; handlers are pure functions | Plugin holds its own state (`&mut self`) |
+| Capabilities | Auto-inferred from registered handlers | Manual `capabilities()` method |
 | Cache invalidation | Automatic via `PartialEq` comparison (generation counter) | Manual `state_hash()` |
 | Salsa compatibility | State transitions are pure functions; future Salsa integration path | Not directly memoizable (mutable state) |
 | Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, `PaintHook`, workspace observation, or complex host integration |
@@ -131,25 +133,21 @@ struct MyPlugin;
 impl Plugin for MyPlugin {
     type State = MyState;
     fn id(&self) -> PluginId { PluginId("my_plugin".into()) }
-    fn capabilities(&self) -> PluginCapabilities { PluginCapabilities::ANNOTATOR }
 
-    fn on_state_changed_effects(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-        dirty: DirtyFlags
-    ) -> (Self::State, RuntimeEffects)
-    {
-        if dirty.intersects(DirtyFlags::BUFFER) {
-            (
-                MyState { counter: state.counter + 1 },
-                RuntimeEffects::default(),
-            )
-        } else {
-            (state.clone(), RuntimeEffects::default())
-        }
+    fn register(&self, r: &mut HandlerRegistry<MyState>) {
+        r.declare_interests(DirtyFlags::BUFFER);
+        r.on_state_changed(|state, _app, dirty| {
+            if dirty.intersects(DirtyFlags::BUFFER) {
+                (MyState { counter: state.counter + 1 }, RuntimeEffects::default())
+            } else {
+                (state.clone(), RuntimeEffects::default())
+            }
+        });
+        r.on_annotate_background(|state, line, _app, _ctx| {
+            // ... return Option<BackgroundLayer>
+            None
+        });
     }
-    // ... view methods receive &Self::State as parameter
 }
 
 // Unit-test registration:

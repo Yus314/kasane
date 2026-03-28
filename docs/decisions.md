@@ -50,6 +50,11 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Session management boundaries | Current | **Mechanism (core) / Policy (plugin) split** | Session lifecycle in core; session UI in plugins. Details in [ADR-023](#adr-023-session-management-boundaries--mechanism--policy-split) |
 | Display transformation | Current | **DisplayMap + DisplayDirective** | Plugin-declared directives (Fold/InsertAfter/Hide) → core builds O(1) bidirectional mapping. Single-plugin constraint initially. Virtual text proof artifact in `examples/virtual-text-demo/`. Kakoune viewport control limits true folding |
 | Performance policy | Current | **Three-layer perceptual framework** | Perceptual compass + engineering ratchets + optimization accountability. Details in [ADR-024](#adr-024-perception-oriented-performance-policy) |
+| Plugin registration model | Current | **HandlerRegistry + Plugin trait (3 methods)** | Plugins register handlers declaratively; capabilities auto-inferred. Details in [ADR-025](#adr-025-handlerregistry-plugin-architecture) |
+| Declarative transforms | Current | **ElementPatch algebra** | Composable, normalizable, Salsa-memoizable. Custom escape hatch for imperative transforms. Details in [ADR-026](#adr-026-elementpatch-declarative-transforms) |
+| Annotation decomposition | Current | **5 independent extension points** | Gutter, background, inline, virtual text, cell decoration — each with own handler type and composition rule. Details in [ADR-027](#adr-027-lineannotation-decomposition) |
+| WASM capability inference | Current | **`register-capabilities` WIT export** | WASM plugins declare capabilities as a bitmask; host skips non-participating dispatch. Details in [ADR-028](#adr-028-wasm-capability-inference) |
+| Inter-plugin communication | Current | **Topic-based pub/sub + plugin-defined extension points** | Two-phase evaluation with cycle prevention; typed extension points with composition rules. Details in [ADR-029](#adr-029-topic-based-pubsub-and-plugin-defined-extension-points) |
 
 ## ADR-001: Rendering Approach — TUI + GUI Hybrid
 
@@ -1628,6 +1633,154 @@ keypress → terminal emulator → Kakoune → JSON-RPC → [Kasane] → termina
 - SLO values unchanged — they coincidentally align with the perceptual derivation
 - Historical ADRs (010, 013, 015, 020) not retroactively reframed; policy applies prospectively
 - Origin: vision.md line 68. This ADR develops it; performance.md operationalizes it.
+
+## ADR-025: HandlerRegistry Plugin Architecture
+
+**Status:** Current
+
+### Context
+
+- The original `Plugin` trait grew to 20+ methods, requiring every plugin to interact with the full trait surface even when most methods used defaults
+- `PluginBridge` contained 343 lines of mechanical type-erasure boilerplate
+- `PluginCapabilities` had to be manually declared, creating a maintenance burden and risk of stale declarations
+- Adding a new extension point required touching the Plugin trait, PluginBackend trait, PluginBridge adapter, and all test doubles
+
+### Decision
+
+Replace the monolithic trait with a 3-method `Plugin` trait + `HandlerRegistry`:
+
+```rust
+pub trait Plugin: Send + 'static {
+    type State: PluginState + PartialEq + Clone + Default;
+    fn id(&self) -> PluginId;
+    fn register(&self, registry: &mut HandlerRegistry<Self::State>);
+}
+```
+
+Plugins call registration methods on `HandlerRegistry` (e.g., `r.on_annotate_background(...)`, `r.on_contribute(...)`, `r.on_key(...)`) to declare only the handlers they implement. The registry produces a `HandlerTable` — a type-erased dispatch table consumed by `PluginBridge`.
+
+`PluginCapabilities` are auto-inferred from which handlers are registered: if `on_annotate_background` is called, `ANNOTATOR` is set; if `on_key` is called, `INPUT_HANDLER` is set; etc.
+
+### Implications
+
+- Entry barrier reduced: a minimal plugin (e.g., line numbers) needs only `register()` with `on_annotate_gutter()`
+- New extension points are additive: add a registration method to `HandlerRegistry` and a field to `HandlerTable`; no existing trait methods change
+- `PluginBackend` remains as the internal dispatch interface; `PluginBridge` adapts `Plugin` → `PluginBackend` via `HandlerTable`
+- The `#[kasane_plugin(v2)]` proc macro generates `impl Plugin` with `register()` body from annotated module items
+
+## ADR-026: ElementPatch Declarative Transforms
+
+**Status:** Current
+
+### Context
+
+- `transform()` was an opaque `fn(TransformSubject) -> TransformSubject`, blocking Salsa memoization of transform results
+- Debug-mode conflict detection required manual `TransformDescriptor` declarations that could diverge from actual behavior
+- No algebraic simplification: an Identity transform still incurred dispatch overhead
+
+### Decision
+
+Introduce `ElementPatch` as a declarative transform algebra:
+
+- Variants: `Identity`, `WrapContainer`, `Prepend`, `Append`, `Replace`, `ModifyFace`, `Compose`, `ModifyAnchor`, `Custom`
+- `normalize()` — algebraic simplification (Identity removal, Replace absorption, Compose flattening)
+- `apply()` — execute the patch against a `TransformSubject`
+- `is_pure()` — true when no `Custom` variants are present (Salsa-memoizable)
+- `scope()` — auto-infer `TransformScope` from variant (replaces manual `TransformDescriptor`)
+- `impl Composable` — monoid with `Identity` as identity element
+
+The transform chain collects `ElementPatch` from all plugins, composes them, normalizes, and applies. The `Custom` variant wraps `Arc<dyn Fn(TransformSubject) -> TransformSubject>` as an escape hatch for transforms that cannot be expressed declaratively.
+
+### Implications
+
+- Pure patches (no `Custom`) are data, enabling future Salsa memoization of composed transform results
+- `TransformDescriptor` can be auto-derived from `ElementPatch::scope()` instead of manual declaration
+- `Replace` algebraically absorbs all preceding patches, matching intuition
+- Legacy `PluginBackend` transforms are wrapped in `Custom` for backward compatibility
+
+## ADR-027: LineAnnotation Decomposition
+
+**Status:** Current
+
+### Context
+
+- `annotate_line_with_ctx()` returned a `LineAnnotation` struct combining 5 independent concerns (gutter, background, inline decoration, virtual text, cell decoration) into one return value
+- A plugin that only provided background highlighting still had to construct the full struct
+- Composition rules differed per concern but were applied monolithically
+
+### Decision
+
+Decompose annotations into 5 independent extension points, each with its own handler type and composition rule:
+
+1. **Gutter** (`on_annotate_gutter`): `(GutterSide, priority, Fn(&S, usize, &AppView, &AnnotateContext) -> Option<Element>)` — priority-sorted, left/right placement
+2. **Background** (`on_annotate_background`): `Fn(&S, usize, &AppView, &AnnotateContext) -> Option<BackgroundLayer>` — z-order-sorted, last wins
+3. **Inline** (`on_annotate_inline`): `Fn(&S, usize, &AppView, &AnnotateContext) -> Option<InlineDecoration>` — first-wins with warning
+4. **Virtual text** (`on_virtual_text`): `Fn(&S, usize, &AppView, &AnnotateContext) -> Vec<VirtualTextItem>` — merged
+5. **Cell decoration** (`on_cell_decoration`): `Fn(&S, &AppView, &AnnotateContext) -> Vec<CellDecoration>` — priority-sorted, merge by `FaceMerge` mode
+
+`LineAnnotation` is retained for `PluginBackend` (Legacy/WASM backward compatibility); the bridge decomposes it into individual concerns.
+
+### Implications
+
+- Plugins register only the annotation types they produce — simpler API surface
+- Per-plugin invalidation is granular: a plugin's background handler can be skipped when its relevant `DirtyFlags` haven't changed, even if another plugin's gutter handler is stale
+- Each concern can evolve independently (e.g., adding multi-line gutter spans) without affecting the others
+
+## ADR-028: WASM Capability Inference
+
+**Status:** Current
+
+### Context
+
+- WASM plugins previously reported `PluginCapabilities::all()`, causing the host to dispatch every extension point call across the WASM boundary even for non-participating plugins
+- Each unnecessary boundary crossing costs ~6-8 μs (measured in kasane-wasm-bench), significant for the per-frame budget
+
+### Decision
+
+Add `register-capabilities() -> u32` to the WIT interface. WASM plugins return a bitmask of `PluginCapabilities` bits for the extension points they actually implement. The host calls this once at plugin construction and caches the result.
+
+The SDK macro (`define_plugin!`) auto-generates the bitmask by inspecting which handler functions the plugin provides, matching the native `HandlerRegistry` capability inference.
+
+### Implications
+
+- WASM plugins that only provide annotations skip transform, overlay, input, and display directive dispatch
+- Fallback for plugins not implementing the export: `PluginCapabilities::all()` (safe, conservative)
+- Bit layout matches the native `PluginCapabilities` bitflags exactly
+
+## ADR-029: Topic-Based Pub/Sub and Plugin-Defined Extension Points
+
+**Status:** Current
+
+### Context
+
+- Inter-plugin communication was limited to `PluginMessage` (untyped, point-to-point) and `ConfigEntry` (string key-value, delayed by one frame)
+- Plugins could not define new extension points without framework source changes
+- Common patterns (e.g., "broadcast current git branch to all interested plugins") had no clean expression
+
+### Decision
+
+Introduce two complementary mechanisms:
+
+**Topic-based Pub/Sub** (`TopicBus`):
+- `TopicId` identifies a topic (e.g., `"git.branch"`)
+- Publishers register via `r.publish::<T>(topic, handler)`; subscribers via `r.subscribe::<T>(topic, handler)`
+- Two-phase evaluation: (1) collect all publications, (2) deliver to subscribers
+- Cycle prevention: publishing during delivery panics in debug, returns error in release
+- Type-erased via `Box<dyn Any + Send>` with downcast at delivery
+
+**Plugin-defined Extension Points** (`ExtensionPointId` + `CompositionRule`):
+- `ExtensionPointId` identifies an extension point (e.g., `"lint.diagnostics"`)
+- Defining plugin: `r.define_extension::<I, O>(id, rule)` with optional own handler
+- Contributing plugins: `r.on_extension::<I, O>(id, handler)`
+- `CompositionRule`: `Merge` (collect all), `FirstWins` (first non-empty), `Chain` (sequential pipe)
+- Results collected via `PluginRuntime::evaluate_extensions()` returning `ExtensionResults`
+
+### Implications
+
+- Plugins can define new extension points without framework changes, enabling ecosystem-driven extensibility
+- Pub/sub enables broadcast communication patterns without point-to-point message routing
+- Type safety is runtime-enforced (downcast), not compile-time — mismatched types are silently filtered
+- Both mechanisms integrate with the existing `PluginBackend` trait via default methods, keeping backward compatibility
 
 ## Related Documents
 

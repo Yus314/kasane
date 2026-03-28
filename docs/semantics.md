@@ -571,11 +571,11 @@ Cell decorations are available to both native plugins (`Plugin::decorate_cells`,
 
 `transform()` is a mechanism that receives an existing `Element` and returns a transformed version. It fulfills the roles of both the former Decorator (wrapping/decoration) and Replacement (substitution). The target is specified via `TransformTarget` and the application order via `transform_priority()`.
 
-Element-level transforms are unified in the plugin composition pipeline. The transform chain is modeled as a non-commutative monoid: chain membership can be composed algebraically, though the chain's *application* (executing each transform function in sequence) remains imperative. See `plugin/compose.rs` for implementation.
+Element-level transforms are unified in the plugin composition pipeline. The transform chain uses `ElementPatch` — a declarative algebra with variants `Identity`, `WrapContainer`, `Prepend`, `Append`, `Replace`, `ModifyFace`, `Compose`, `ModifyAnchor`, and `Custom`. Patches are collected, composed, normalized (Identity removal, Replace absorption, Compose flattening), and applied. Pure patches (no `Custom`) are data values suitable for Salsa memoization. See `plugin/element_patch.rs` for implementation.
 
 **Target hierarchy**: `TransformTarget` variants form a two-level refinement hierarchy. Style-specific targets (e.g. `MenuPrompt`, `InfoModal`) refine their generic parent (`Menu`, `Info`). Transforms are applied hierarchically: the generic parent chain first, then the specific target chain.
 
-**Declarative properties**: Plugins may optionally declare a `TransformDescriptor` specifying their `TransformScope` (Identity, Wrapper, Prepend, Append, Attribute, Replacement, Structural) and target list. In debug builds, the framework emits `tracing::warn!` when multiple plugins declare `Replacement` scope for the same target, or when non-identity transforms precede a replacement (since they will be absorbed).
+**Declarative properties**: `ElementPatch::scope()` auto-infers `TransformScope` from the patch variant, replacing manual `TransformDescriptor` declarations. In debug builds, the framework emits `tracing::warn!` when multiple plugins declare `Replacement` scope for the same target, or when non-identity transforms precede a replacement (since they will be absorbed). The `Custom` variant wraps an opaque function for transforms that cannot be expressed declaratively; it is treated as `Structural` scope.
 
 `transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of the unified transform chain.
 
@@ -601,7 +601,7 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Cursor style override | registration order | first non-None wins | Single winner |
 | Scroll policy override | registration order | first non-None wins | Single winner |
 
-> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). Transform chains are modeled as a non-commutative monoid (`TransformChain`). Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an imperative Kleisli-style chain over `(Consumed, Ignored, Forward)` and is not modeled as `Composable`. `resolve()` remains unmodeled.
+> **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). `ElementPatch` forms a non-commutative monoid with `Identity` as identity and `Compose` as the binary operation; `normalize()` provides algebraic simplification (Identity removal, Replace absorption). Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an imperative Kleisli-style chain over `(Consumed, Ignored, Forward)` and is not modeled as `Composable`. `resolve()` remains unmodeled.
 
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 
@@ -620,11 +620,15 @@ This is a first-wins dispatch model. Plugin registration order determines priori
 
 **Algebraic characterization**: Key middleware forms a Kleisli-style chain over a 3-variant result type (`Consumed`, `Ignored`, `Forward`). Each plugin receives the key and returns one of these variants; the chain threads through plugins sequentially, short-circuiting on `Consumed`. This is fundamentally imperative and order-dependent, so it is not modeled as `Composable` in `plugin/compose.rs`.
 
-### 9.8 Inter-Plugin Messaging
+### 9.8 Inter-Plugin Communication
 
-Plugins may communicate via `PluginMessage`, which carries a target plugin ID and an opaque payload. The runtime delivers the message to the target plugin's `update()` (for `Plugin` trait) or a dedicated handler (for `PluginBackend` trait).
+Kasane provides three inter-plugin communication mechanisms with increasing levels of structure:
 
-Message delivery returns `(DirtyFlags, Vec<Command>)`, allowing the receiving plugin to trigger state changes and side effects in response. Message delivery is synchronous within a single update cycle.
+**PluginMessage** (point-to-point, untyped): Carries a target plugin ID and an opaque `Box<dyn Any>` payload. The runtime delivers the message to the target plugin's handler. Message delivery returns `(DirtyFlags, Vec<Command>)`. Delivery is synchronous within a single update cycle. No type safety or delivery guarantee.
+
+**Topic-based Pub/Sub** (broadcast, typed at runtime): Publishers register on a `TopicId` and produce values each frame; subscribers register on the same topic and receive published values. Evaluation is two-phase: (1) all publications are collected into `TopicBus`, (2) values are delivered to subscribers. Cycle prevention: publishing during the delivery phase panics in debug builds. Type matching is runtime-enforced via `Box<dyn Any + Send>` downcast; mismatched types are silently ignored.
+
+**Plugin-defined Extension Points** (structured, composable): A plugin defines an extension point (`ExtensionPointId`) with a `CompositionRule` (`Merge`, `FirstWins`, `Chain`). Other plugins contribute handlers for that extension point. The runtime evaluates contributions by collecting outputs from all contributors and applying the composition rule. Results are returned as typed `ExtensionResults`. This enables ecosystem-driven extensibility without framework source changes.
 
 ### 9.9 What Plugins May and May Not Change
 
@@ -656,14 +660,14 @@ Both tiers are necessary. The generation counter provides the coarse "did anythi
 
 Kasane provides two plugin trait models with different levels of abstraction.
 
-- **`Plugin` trait** (recommended, primary API): State-externalized model. The framework owns plugin state; all methods are pure functions. Automatic cache invalidation via `PartialEq`. Suitable for most plugins.
-- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and workspace observation. Intended for framework-internal use and advanced scenarios.
+- **`Plugin` trait** (recommended, primary API): 3-method trait with `HandlerRegistry`-based registration. The framework owns plugin state; handlers are pure functions. Plugins register only the handlers they need via `register(&self, r: &mut HandlerRegistry<Self::State>)`. Capabilities are auto-inferred from registered handlers. Automatic cache invalidation via `PartialEq`. Suitable for most plugins.
+- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and workspace observation. Intended for framework-internal use, WASM adapter, and advanced scenarios.
 
 The following extension points are available only via `PluginBackend` (not `Plugin` trait): `surfaces()`, `workspace_request()`, `paint_hooks()`. PaintHook is further restricted to native plugins only (not available to WASM).
 
-`PluginBridge` adapts `Plugin` to `PluginBackend`, enabling both models to coexist in `PluginRuntime`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
+`PluginBridge` adapts `Plugin` to `PluginBackend` via `HandlerTable` — a type-erased dispatch table produced by `HandlerRegistry`. This enables both models to coexist in `PluginRuntime`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
 
-WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer. WASM plugins have access to surfaces but not to PaintHook.
+WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer. WASM plugins declare capabilities via `register-capabilities()` WIT export. WASM plugins have access to surfaces but not to PaintHook.
 
 ### 9.12 WASM Plugin Semantics
 

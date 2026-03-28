@@ -36,6 +36,7 @@ WASM plugins cover the primary UI extension surface: slot contributions, line an
 | Workspace notifications | Full | None | No `on_workspace_changed` |
 | Theme token registration | Full | None | Cannot define custom faces |
 | State access | Direct `&AppState` | ~40 getter functions | See [Host State Access](#host-state-access) |
+| Capability declaration | Auto-inferred from `HandlerRegistry` | `register-capabilities()` WIT export | SDK macro auto-generates bitmask |
 | Cache invalidation | Automatic (`PartialEq`) | Manual `state_hash()` | See [Developer Experience](#developer-experience) |
 | Fuel / timeout | N/A | None | No runaway protection |
 

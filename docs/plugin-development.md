@@ -386,7 +386,7 @@ For the full list of bundled and source example plugins, see [using-plugins.md](
 
 For use cases that require features not yet available via WASM (such as `Surface` or `PaintHook`), you can write a native plugin. Native plugins are distributed as custom binaries.
 
-The `Plugin` trait (state-externalized) is the recommended native API. The framework owns the state; all methods are pure functions receiving state as a parameter and returning new state + effects.
+The `Plugin` trait uses `HandlerRegistry`-based registration: 3 methods (`id()`, `State` type, `register()`). The framework owns the state; handlers are pure functions. Capabilities are auto-inferred from which handlers are registered.
 
 ```rust
 use kasane::kasane_core::plugin_prelude::*;
@@ -405,54 +405,31 @@ impl Plugin for CursorLinePlugin {
         PluginId("cursor_line".into())
     }
 
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::ANNOTATOR
-    }
-
-    fn view_deps(&self) -> DirtyFlags {
-        DirtyFlags::BUFFER
-    }
-
-    fn on_state_changed_effects(
-        &self,
-        state: &Self::State,
-        app: &AppView<'_>,
-        dirty: DirtyFlags,
-    ) -> (Self::State, RuntimeEffects) {
-        if dirty.intersects(DirtyFlags::BUFFER) {
-            (
-                CursorLineState {
-                    active_line: app.cursor_line(),
-                },
-                RuntimeEffects::default(),
-            )
-        } else {
-            (state.clone(), RuntimeEffects::default())
-        }
-    }
-
-    fn annotate_line_with_ctx(
-        &self,
-        state: &Self::State,
-        line: usize,
-        _app: &AppView<'_>,
-        _ctx: &AnnotateContext,
-    ) -> Option<LineAnnotation> {
-        if line as i32 == state.active_line {
-            Some(LineAnnotation {
-                left_gutter: None,
-                right_gutter: None,
-                background: Some(BackgroundLayer {
+    fn register(&self, r: &mut HandlerRegistry<CursorLineState>) {
+        r.declare_interests(DirtyFlags::BUFFER);
+        r.on_state_changed(|state, app, dirty| {
+            if dirty.intersects(DirtyFlags::BUFFER) {
+                (
+                    CursorLineState {
+                        active_line: app.cursor_line(),
+                    },
+                    RuntimeEffects::default(),
+                )
+            } else {
+                (state.clone(), RuntimeEffects::default())
+            }
+        });
+        r.on_annotate_background(|state, line, _app, _ctx| {
+            if line as i32 == state.active_line {
+                Some(BackgroundLayer {
                     face: Face { bg: Color::Named(NamedColor::Blue), ..Face::default() },
                     z_order: 0,
                     blend: BlendMode::Opaque,
-                }),
-                priority: 0,
-                inline: None,
-            })
-        } else {
-            None
-        }
+                })
+            } else {
+                None
+            }
+        });
     }
 }
 

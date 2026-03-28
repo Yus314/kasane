@@ -139,6 +139,7 @@ Next deliverable: Select either D-001 or P-023 as the first slice and land it on
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
 | Phase 5 | Surface / Workspace / multi-pane foundation | Foundation complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish ongoing |
 | Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
+| Plugin Redesign | Plugin architecture redesign (HandlerRegistry, ElementPatch, annotation decomposition, per-plugin invalidation, pub/sub, extension points, WASM capability inference, proc macro v2) | ✓ Complete | ADR-025 through ADR-029 |
 
 ## 5. Items Separated to Upstream Dependencies
 
