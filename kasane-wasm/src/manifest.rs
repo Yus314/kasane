@@ -72,6 +72,9 @@ pub enum ManifestError {
     #[error("unknown view dep: {0}")]
     UnknownViewDep(String),
 
+    #[error("duplicate entry in [{section}]: {name}")]
+    DuplicateEntry { section: &'static str, name: String },
+
     #[error("multiple validation errors:\n{}", .0.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n"))]
     Multiple(Vec<ManifestError>),
 }
@@ -101,31 +104,63 @@ impl PluginManifest {
 
         let mut errors = Vec::new();
 
-        // Validate capability names
-        for name in &self.capabilities.wasi {
-            if capability_from_name(name).is_none() {
-                errors.push(ManifestError::UnknownCapability(name.clone()));
+        // Validate capability names + check duplicates
+        {
+            let mut seen = std::collections::HashSet::new();
+            for name in &self.capabilities.wasi {
+                if !seen.insert(name.as_str()) {
+                    errors.push(ManifestError::DuplicateEntry {
+                        section: "capabilities.wasi",
+                        name: name.clone(),
+                    });
+                } else if capability_from_name(name).is_none() {
+                    errors.push(ManifestError::UnknownCapability(name.clone()));
+                }
             }
         }
 
-        // Validate authority names
-        for name in &self.authorities.host {
-            if authority_from_name(name).is_none() {
-                errors.push(ManifestError::UnknownAuthority(name.clone()));
+        // Validate authority names + check duplicates
+        {
+            let mut seen = std::collections::HashSet::new();
+            for name in &self.authorities.host {
+                if !seen.insert(name.as_str()) {
+                    errors.push(ManifestError::DuplicateEntry {
+                        section: "authorities.host",
+                        name: name.clone(),
+                    });
+                } else if authority_from_name(name).is_none() {
+                    errors.push(ManifestError::UnknownAuthority(name.clone()));
+                }
             }
         }
 
-        // Validate handler flag names
-        for name in &self.handlers.flags {
-            if handler_flag_bit(name).is_none() {
-                errors.push(ManifestError::UnknownHandlerFlag(name.clone()));
+        // Validate handler flag names + check duplicates
+        {
+            let mut seen = std::collections::HashSet::new();
+            for name in &self.handlers.flags {
+                if !seen.insert(name.as_str()) {
+                    errors.push(ManifestError::DuplicateEntry {
+                        section: "handlers.flags",
+                        name: name.clone(),
+                    });
+                } else if handler_flag_bit(name).is_none() {
+                    errors.push(ManifestError::UnknownHandlerFlag(name.clone()));
+                }
             }
         }
 
-        // Validate view dep names
-        for name in &self.view.deps {
-            if view_dep_bit(name).is_none() {
-                errors.push(ManifestError::UnknownViewDep(name.clone()));
+        // Validate view dep names + check duplicates
+        {
+            let mut seen = std::collections::HashSet::new();
+            for name in &self.view.deps {
+                if !seen.insert(name.as_str()) {
+                    errors.push(ManifestError::DuplicateEntry {
+                        section: "view.deps",
+                        name: name.clone(),
+                    });
+                } else if view_dep_bit(name).is_none() {
+                    errors.push(ManifestError::UnknownViewDep(name.clone()));
+                }
             }
         }
 
@@ -509,6 +544,74 @@ deps = ["magic-data"]
             }
             _ => panic!("expected Multiple error, got: {err}"),
         }
+    }
+
+    #[test]
+    fn validate_detects_duplicate_wasi_capability() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[capabilities]
+wasi = ["filesystem", "filesystem"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "capabilities.wasi", ref name } if name == "filesystem")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_authority() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[authorities]
+host = ["pty-process", "pty-process"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "authorities.host", ref name } if name == "pty-process")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_handler_flag() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["overlay", "overlay"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "handlers.flags", ref name } if name == "overlay")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_view_dep() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[view]
+deps = ["status", "status"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "view.deps", ref name } if name == "status")
+        );
     }
 
     #[test]
