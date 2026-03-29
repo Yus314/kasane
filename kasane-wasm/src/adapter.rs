@@ -1,8 +1,10 @@
 //! WASM adapter: bridges wasmtime Component Model guests to the `PluginBackend` trait.
 
 use std::any::Any;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+
+use parking_lot::Mutex;
 
 use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId, PluginTag};
@@ -56,7 +58,7 @@ struct WasmPluginShared {
 
 impl WasmPluginShared {
     fn with_runtime<R>(&self, f: impl FnOnce(&mut WasmPluginRuntime) -> R) -> R {
-        let mut runtime = self.runtime.lock().expect("wasm runtime poisoned");
+        let mut runtime = self.runtime.lock();
         f(&mut runtime)
     }
 
@@ -66,10 +68,7 @@ impl WasmPluginShared {
             method.to_string(),
             error.to_string(),
         );
-        let mut pending = self
-            .pending_diagnostics
-            .lock()
-            .expect("diagnostics poisoned");
+        let mut pending = self.pending_diagnostics.lock();
         if pending.len() >= MAX_PENDING_DIAGNOSTICS {
             pending.remove(0);
         }
@@ -85,7 +84,7 @@ impl WasmPluginShared {
     ) -> R {
         self.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
-            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().expect("plugin_tag lock");
+            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock();
             match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -106,7 +105,7 @@ impl WasmPluginShared {
     ) -> R {
         self.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
-            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock().expect("plugin_tag lock");
+            runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock();
             let result = match f(runtime) {
                 Ok(result) => result,
                 Err(e) => {
@@ -427,7 +426,7 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn set_plugin_tag(&mut self, tag: PluginTag) {
-        *self.shared.plugin_tag.lock().expect("plugin_tag lock") = tag;
+        *self.shared.plugin_tag.lock() = tag;
     }
 
     fn view_deps(&self) -> DirtyFlags {
@@ -435,11 +434,7 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
-        let mut pending = self
-            .shared
-            .pending_diagnostics
-            .lock()
-            .expect("diagnostics poisoned");
+        let mut pending = self.shared.pending_diagnostics.lock();
         std::mem::take(&mut *pending)
     }
 
@@ -606,8 +601,7 @@ impl PluginBackend for WasmPlugin {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {
             host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
-            runtime.store.data_mut().plugin_tag =
-                *shared.plugin_tag.lock().expect("plugin_tag lock");
+            runtime.store.data_mut().plugin_tag = *shared.plugin_tag.lock();
             let api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
             let result = match api.call_invoke_action(&mut runtime.store, action_id, wit_key) {
