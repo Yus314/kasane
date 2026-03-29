@@ -30,8 +30,9 @@ pub use dispatch::{
     handle_sourced_surface_commands, maybe_flush_active_session_ready, sync_session_ready_gate,
 };
 pub use session::{
-    SessionMutContext, SessionReadyGate, apply_ready_batch, close_session_core, handle_pane_death,
-    send_pane_resizes, spawn_session_core, switch_session_core, sync_session_metadata,
+    SessionMutContext, SessionReadyGate, SharedSessionRuntime, apply_ready_batch,
+    close_session_core, handle_pane_death, restore_panes, send_pane_resizes, spawn_session_core,
+    spawn_session_reader, switch_session_core, sync_session_metadata,
 };
 pub use surface::{
     rebuild_plugin_surface_registry, reconcile_plugin_surfaces, register_builtin_surfaces,
@@ -145,7 +146,48 @@ pub fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
     }
 }
 
-// ── Traits ──────────────────────────────────────────────────────
+// ── EventSink ────────────��──────────────────────────────────────
+
+/// Backend-agnostic event delivery.
+///
+/// Abstracts over TUI's `crossbeam_channel::Sender<Event>` and
+/// GUI's `winit::event_loop::EventLoopProxy<GuiEvent>`.
+pub trait EventSink: Clone + Send + 'static {
+    fn send_kakoune(&self, session_id: SessionId, req: crate::protocol::KakouneRequest);
+    fn send_died(&self, session_id: SessionId);
+    fn send_timer(&self, target: PluginId, payload: Box<dyn Any + Send>);
+    fn send_diagnostic_expire(&self, generation: u64);
+}
+
+// ── Generic schedulers ─────────────���────────────────────────────
+
+/// Timer scheduler generic over [`EventSink`].
+pub struct GenericTimerScheduler<E>(pub E);
+
+impl<E: EventSink> TimerScheduler for GenericTimerScheduler<E> {
+    fn schedule_timer(&self, delay: Duration, target: PluginId, payload: Box<dyn Any + Send>) {
+        let sink = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            sink.send_timer(target, payload);
+        });
+    }
+}
+
+/// Diagnostic overlay scheduler generic over [`EventSink`].
+pub struct GenericDiagnosticScheduler<E>(pub E);
+
+impl<E: EventSink> DiagnosticOverlayScheduler for GenericDiagnosticScheduler<E> {
+    fn schedule_expiry(&self, delay: Duration, generation: u64) {
+        let sink = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            sink.send_diagnostic_expire(generation);
+        });
+    }
+}
+
+// ── Traits ────────────���─────────────────────────────���───────────
 
 /// Backend-agnostic timer scheduling.
 ///
@@ -247,6 +289,22 @@ pub fn schedule_diagnostic_overlay(
         return;
     };
     scheduler.schedule_expiry(delay, generation);
+}
+
+/// Synchronize all Salsa inputs for a render frame.
+///
+/// Shared sequence used by both TUI and GUI backends before rendering.
+pub fn sync_salsa_for_render(
+    db: &mut crate::salsa_db::KasaneDatabase,
+    state: &AppState,
+    registry: &PluginRuntime,
+    handles: &crate::salsa_sync::SalsaInputHandles,
+    contribution_cache: &mut crate::plugin::ContributionCache,
+) {
+    crate::salsa_sync::sync_inputs_from_state(db, state, handles);
+    let view = registry.view();
+    crate::salsa_sync::sync_display_directives(db, state, &view, handles);
+    crate::salsa_sync::sync_plugin_contributions(db, state, &view, handles, contribution_cache);
 }
 
 /// Print a hint about reconnecting to a running Kakoune session.

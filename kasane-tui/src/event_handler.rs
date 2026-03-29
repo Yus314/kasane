@@ -30,8 +30,6 @@ use crate::backend::TuiBackend;
 use crate::paint_hooks::PaintHookState;
 use kasane_core::event_loop::schedule_diagnostic_overlay;
 
-use crate::TuiDiagnosticScheduler;
-
 pub(crate) enum Event {
     Kakoune(SessionId, KakouneRequest),
     Input(InputEvent),
@@ -63,142 +61,22 @@ impl ProcessEventSink for TuiProcessEventSink {
     }
 }
 
-/// TimerScheduler that injects timer events into the TUI event channel.
-pub(crate) struct TuiTimerScheduler(pub(crate) crossbeam_channel::Sender<Event>);
+/// EventSink that injects events into the TUI crossbeam channel.
+#[derive(Clone)]
+pub(crate) struct TuiEventSink(pub(crate) crossbeam_channel::Sender<Event>);
 
-impl TimerScheduler for TuiTimerScheduler {
-    fn schedule_timer(
-        &self,
-        delay: std::time::Duration,
-        target: PluginId,
-        payload: Box<dyn std::any::Any + Send>,
-    ) {
-        let tx = self.0.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            let _ = tx.send(Event::PluginTimer(target, payload));
-        });
+impl kasane_core::event_loop::EventSink for TuiEventSink {
+    fn send_kakoune(&self, session_id: SessionId, req: KakouneRequest) {
+        let _ = self.0.send(Event::Kakoune(session_id, req));
     }
-}
-
-pub(crate) fn spawn_session_reader<R>(
-    session_id: SessionId,
-    reader: R,
-    tx: crossbeam_channel::Sender<Event>,
-) where
-    R: std::io::BufRead + Send + 'static,
-{
-    let died_tx = tx.clone();
-    kasane_core::io::spawn_kak_reader(
-        reader,
-        move |req| {
-            let _ = tx.send(Event::Kakoune(session_id, req));
-        },
-        move || {
-            let _ = died_tx.send(Event::KakouneDied(session_id));
-        },
-    );
-}
-
-pub(crate) struct TuiSessionRuntime<'a, R, W, C>
-where
-    R: std::io::BufRead + Send + 'static,
-    W: Write + Send + 'static,
-    C: Send + 'static,
-{
-    pub(crate) session_manager: &'a mut SessionManager<R, W, C>,
-    pub(crate) session_states: &'a mut SessionStateStore,
-    pub(crate) tx: crossbeam_channel::Sender<Event>,
-    pub(crate) spawn_session: fn(&SessionSpec) -> Result<(R, W, C)>,
-}
-
-impl<'a, R, W, C> kasane_core::event_loop::SessionRuntime for TuiSessionRuntime<'a, R, W, C>
-where
-    R: std::io::BufRead + Send + 'static,
-    W: Write + Send + 'static,
-    C: Send + 'static,
-{
-    fn spawn_session(
-        &mut self,
-        spec: SessionSpec,
-        activate: bool,
-        state: &mut AppState,
-        dirty: &mut DirtyFlags,
-        initial_resize_sent: &mut bool,
-    ) {
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager: self.session_manager,
-            session_states: self.session_states,
-            state,
-            dirty,
-            initial_resize_sent,
-        };
-        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
-            &spec,
-            activate,
-            &mut ctx,
-            self.spawn_session,
-        ) {
-            spawn_session_reader(session_id, reader, self.tx.clone());
-        }
+    fn send_died(&self, session_id: SessionId) {
+        let _ = self.0.send(Event::KakouneDied(session_id));
     }
-
-    fn close_session(
-        &mut self,
-        key: Option<&str>,
-        state: &mut AppState,
-        dirty: &mut DirtyFlags,
-        initial_resize_sent: &mut bool,
-    ) -> bool {
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager: self.session_manager,
-            session_states: self.session_states,
-            state,
-            dirty,
-            initial_resize_sent,
-        };
-        kasane_core::event_loop::close_session_core(key, &mut ctx)
+    fn send_timer(&self, target: PluginId, payload: Box<dyn std::any::Any + Send>) {
+        let _ = self.0.send(Event::PluginTimer(target, payload));
     }
-
-    fn switch_session(
-        &mut self,
-        key: &str,
-        state: &mut AppState,
-        dirty: &mut DirtyFlags,
-        initial_resize_sent: &mut bool,
-    ) {
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager: self.session_manager,
-            session_states: self.session_states,
-            state,
-            dirty,
-            initial_resize_sent,
-        };
-        kasane_core::event_loop::switch_session_core(key, &mut ctx);
-    }
-
-    fn session_id_by_key(&self, key: &str) -> Option<SessionId> {
-        self.session_manager.session_id_by_key(key)
-    }
-}
-
-impl<'a, R, W, C> kasane_core::event_loop::SessionHost for TuiSessionRuntime<'a, R, W, C>
-where
-    R: std::io::BufRead + Send + 'static,
-    W: Write + Send + 'static,
-    C: Send + 'static,
-{
-    fn active_writer(&mut self) -> &mut dyn Write {
-        self.session_manager
-            .active_writer_mut()
-            .expect("missing active session writer")
-    }
-
-    fn writer_for_session(&mut self, session_id: SessionId) -> Option<&mut dyn Write> {
-        self.session_manager
-            .writer_mut(session_id)
-            .ok()
-            .map(|w| w as &mut dyn Write)
+    fn send_diagnostic_expire(&self, generation: u64) {
+        let _ = self.0.send(Event::DiagnosticOverlayExpire(generation));
     }
 }
 
@@ -217,7 +95,7 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub backend: &'a mut TuiBackend,
     pub initial_resize_sent: &'a mut bool,
     pub dirty: &'a mut DirtyFlags,
-    pub timer: &'a TuiTimerScheduler,
+    pub timer: &'a dyn TimerScheduler,
     pub scroll_runtime: &'a mut ScrollRuntime,
     pub scroll_runtime_session: &'a mut Option<SessionId>,
     pub session_ready_gate: &'a mut SessionReadyGate,
@@ -524,7 +402,7 @@ where
     )?;
     report_plugin_diagnostics(&reload.diagnostics);
     schedule_diagnostic_overlay(
-        &TuiDiagnosticScheduler(ctx.session_tx.clone()),
+        &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(ctx.session_tx.clone())),
         ctx.diagnostic_overlay,
         &reload.diagnostics,
     );
@@ -691,10 +569,10 @@ where
     W: Write + Send + 'static,
     C: Send + 'static,
 {
-    let mut session_host = TuiSessionRuntime {
+    let mut session_host = kasane_core::event_loop::SharedSessionRuntime {
         session_manager: ctx.session_manager,
         session_states: ctx.session_states,
-        tx: ctx.session_tx.clone(),
+        sink: TuiEventSink(ctx.session_tx.clone()),
         spawn_session: ctx.spawn_session,
     };
     let scroll_runtime = &mut *ctx.scroll_runtime;

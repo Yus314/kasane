@@ -14,8 +14,8 @@ use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 use kasane_core::clipboard::SystemClipboard;
 use kasane_core::config::Config;
 use kasane_core::event_loop::{
-    DeferredContext, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
-    handle_command_batch, handle_sourced_surface_commands, handle_workspace_divider_input,
+    DeferredContext, SessionReadyGate, apply_bootstrap_effects, handle_command_batch,
+    handle_sourced_surface_commands, handle_workspace_divider_input,
     maybe_flush_active_session_ready, notify_workspace_observers, register_builtin_surfaces,
     surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
 };
@@ -29,9 +29,7 @@ use kasane_core::protocol::KasaneRequest;
 use kasane_core::render::scene_render_pipeline_cached;
 use kasane_core::render::{RenderResult, SceneCache};
 use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{
-    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
-};
+use kasane_core::salsa_sync::SalsaInputHandles;
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
@@ -45,209 +43,7 @@ use crate::diagnostics_overlay::build_diagnostic_overlay_commands;
 use crate::gpu::GpuState;
 use crate::gpu::scene_renderer::SceneRenderer;
 use crate::input::{apply_modifiers, convert_window_event};
-use crate::{GuiEvent, TimerPayload, spawn_session_reader};
-
-/// Restore pane layout from a saved plan (GUI variant).
-#[allow(clippy::too_many_arguments)]
-fn restore_panes_gui<R, W, C>(
-    plan: &kasane_core::workspace::persist::RestorePlan,
-    server_name: &str,
-    surface_registry: &mut SurfaceRegistry,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    state: &mut AppState,
-    initial_resize_sent: &mut bool,
-    spawn_session: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
-    event_proxy: &winit::event_loop::EventLoopProxy<GuiEvent>,
-) where
-    R: std::io::BufRead + Send + 'static,
-    W: std::io::Write + Send + 'static,
-    C: Send + 'static,
-{
-    use kasane_core::surface::SurfaceId;
-    use kasane_core::surface::buffer::ClientBufferSurface;
-    use kasane_core::workspace::persist;
-    use std::collections::HashMap;
-
-    let mut id_map: HashMap<String, SurfaceId> = HashMap::new();
-
-    for pane in &plan.panes {
-        let surface_id = surface_registry.workspace_mut().next_surface_id();
-
-        let mut args = vec!["-c".to_string(), server_name.to_string()];
-        if let Some(ref buf_name) = pane.buffer_name {
-            args.push("-e".to_string());
-            args.push(format!("buffer {}", persist::kak_quote(buf_name)));
-        }
-
-        let spec = SessionSpec::new(pane.pane_key.clone(), Some(server_name.to_string()), args);
-
-        let mut dirty = DirtyFlags::empty();
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager,
-            session_states,
-            state,
-            dirty: &mut dirty,
-            initial_resize_sent,
-        };
-
-        let Some((session_id, reader)) =
-            kasane_core::event_loop::spawn_session_core(&spec, false, &mut ctx, spawn_session)
-        else {
-            tracing::warn!(pane_key = pane.pane_key, "failed to spawn restored pane");
-            continue;
-        };
-
-        spawn_session_reader(session_id, reader, event_proxy.clone());
-
-        surface_registry.register(Box::new(ClientBufferSurface::with_key(
-            surface_id,
-            &*pane.pane_key,
-        )));
-        surface_registry.bind_session(surface_id, session_id);
-        surface_registry.mark_pending_resize(session_id);
-
-        id_map.insert(pane.pane_key.clone(), surface_id);
-    }
-
-    if let Some(restored) = persist::build_restored_tree(&plan.saved.root, &id_map) {
-        surface_registry
-            .workspace_mut()
-            .replace_root(restored.root, restored.next_id_min);
-
-        // Restore focus
-        if let Some(ref focused_key) = plan.saved.focused_key
-            && let Some(surface_id) = surface_registry.surface_id_by_key(focused_key)
-        {
-            surface_registry.workspace_mut().focus(surface_id);
-        }
-    }
-
-    kasane_core::event_loop::sync_session_metadata(session_manager, session_states, state);
-}
-
-/// TimerScheduler that injects timer events into the winit event loop.
-struct GuiTimerScheduler(winit::event_loop::EventLoopProxy<GuiEvent>);
-
-impl TimerScheduler for GuiTimerScheduler {
-    fn schedule_timer(
-        &self,
-        delay: std::time::Duration,
-        target: kasane_core::plugin::PluginId,
-        payload: Box<dyn std::any::Any + Send>,
-    ) {
-        let proxy = self.0.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            let _ = proxy.send_event(GuiEvent::PluginTimer(target, TimerPayload(payload)));
-        });
-    }
-}
-
-struct GuiSessionRuntime<'a, R, W, C>
-where
-    R: std::io::BufRead + Send + 'static,
-    W: Write + Send + 'static,
-    C: Send + 'static,
-{
-    session_manager: &'a mut SessionManager<R, W, C>,
-    session_states: &'a mut SessionStateStore,
-    proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
-    spawn_session: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
-}
-
-impl<'a, R, W, C> kasane_core::event_loop::SessionRuntime for GuiSessionRuntime<'a, R, W, C>
-where
-    R: std::io::BufRead + Send + 'static,
-    W: Write + Send + 'static,
-    C: Send + 'static,
-{
-    fn spawn_session(
-        &mut self,
-        spec: SessionSpec,
-        activate: bool,
-        state: &mut AppState,
-        dirty: &mut DirtyFlags,
-        initial_resize_sent: &mut bool,
-    ) {
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager: self.session_manager,
-            session_states: self.session_states,
-            state,
-            dirty,
-            initial_resize_sent,
-        };
-        if let Some((session_id, reader)) = kasane_core::event_loop::spawn_session_core(
-            &spec,
-            activate,
-            &mut ctx,
-            self.spawn_session,
-        ) {
-            spawn_session_reader(session_id, reader, self.proxy.clone());
-        }
-    }
-
-    fn close_session(
-        &mut self,
-        key: Option<&str>,
-        state: &mut AppState,
-        dirty: &mut DirtyFlags,
-        initial_resize_sent: &mut bool,
-    ) -> bool {
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager: self.session_manager,
-            session_states: self.session_states,
-            state,
-            dirty,
-            initial_resize_sent,
-        };
-        kasane_core::event_loop::close_session_core(key, &mut ctx)
-    }
-
-    fn switch_session(
-        &mut self,
-        key: &str,
-        state: &mut AppState,
-        dirty: &mut DirtyFlags,
-        initial_resize_sent: &mut bool,
-    ) {
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager: self.session_manager,
-            session_states: self.session_states,
-            state,
-            dirty,
-            initial_resize_sent,
-        };
-        kasane_core::event_loop::switch_session_core(key, &mut ctx);
-    }
-
-    fn session_id_by_key(&self, key: &str) -> Option<kasane_core::session::SessionId> {
-        self.session_manager.session_id_by_key(key)
-    }
-}
-
-impl<'a, R, W, C> kasane_core::event_loop::SessionHost for GuiSessionRuntime<'a, R, W, C>
-where
-    R: std::io::BufRead + Send + 'static,
-    W: Write + Send + 'static,
-    C: Send + 'static,
-{
-    fn active_writer(&mut self) -> &mut dyn Write {
-        self.session_manager
-            .active_writer_mut()
-            .expect("missing active session writer")
-    }
-
-    fn writer_for_session(
-        &mut self,
-        session_id: kasane_core::session::SessionId,
-    ) -> Option<&mut dyn Write> {
-        self.session_manager
-            .writer_mut(session_id)
-            .ok()
-            .map(|w| w as &mut dyn Write)
-    }
-}
+use crate::{GuiEvent, GuiEventSink};
 
 pub struct App<R, W, C>
 where
@@ -304,8 +100,8 @@ where
     // Event loop proxy for scheduling
     event_proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
 
-    // Timer scheduler for plugin timer events
-    timer_scheduler: GuiTimerScheduler,
+    // Event sink for generic schedulers
+    gui_sink: GuiEventSink,
 
     // Process dispatcher for plugin process execution
     process_dispatcher: Box<dyn ProcessDispatcher>,
@@ -357,8 +153,9 @@ where
         })?;
         let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
         report_plugin_diagnostics(&initial_plugins.diagnostics);
+        let gui_sink = GuiEventSink(event_proxy.clone());
         kasane_core::event_loop::schedule_diagnostic_overlay(
-            &GuiDiagnosticScheduler(event_proxy.clone()),
+            &kasane_core::event_loop::GenericDiagnosticScheduler(gui_sink.clone()),
             &mut diagnostic_overlay,
             &initial_plugins.diagnostics,
         );
@@ -377,7 +174,7 @@ where
         let (salsa_db, salsa_handles) = {
             let mut db = KasaneDatabase::default();
             let handles = SalsaInputHandles::new(&mut db);
-            sync_inputs_from_state(&mut db, &state, &handles);
+            kasane_core::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
             (db, handles)
         };
         let scroll_runtime_session = session_manager.active_session_id();
@@ -398,7 +195,7 @@ where
             && let Some(saved) = kasane_core::workspace::persist::load_layout(&server_name)
             && let Some(plan) = kasane_core::workspace::persist::plan_restore(saved)
         {
-            restore_panes_gui(
+            kasane_core::event_loop::restore_panes(
                 &plan,
                 &server_name,
                 &mut surface_registry,
@@ -407,7 +204,7 @@ where
                 &mut state,
                 &mut initial_resize_sent,
                 session_spawner,
-                &event_proxy,
+                &gui_sink,
             );
             kasane_core::event_loop::notify_workspace_observers(
                 &mut registry,
@@ -446,7 +243,7 @@ where
             last_render_result: None,
             diagnostic_overlay,
             event_proxy: event_proxy.clone(),
-            timer_scheduler: GuiTimerScheduler(event_proxy),
+            gui_sink,
             process_dispatcher,
             salsa_db,
             salsa_handles,
@@ -487,7 +284,7 @@ where
                     &self.config.font,
                     scale_factor,
                     phys_size,
-                    self.timer_scheduler.0.clone(),
+                    self.event_proxy.clone(),
                 );
                 let metrics = sr.metrics().clone();
 
@@ -746,7 +543,7 @@ where
         if !diagnostics.is_empty() {
             report_plugin_diagnostics(&diagnostics);
             kasane_core::event_loop::schedule_diagnostic_overlay(
-                &GuiDiagnosticScheduler(self.event_proxy.clone()),
+                &kasane_core::event_loop::GenericDiagnosticScheduler(self.gui_sink.clone()),
                 &mut self.diagnostic_overlay,
                 &diagnostics,
             );
@@ -887,12 +684,12 @@ where
 
     /// Build a `DeferredContext` from `self` fields and pass it to the closure.
     fn with_deferred_context<T>(&mut self, f: impl FnOnce(&mut DeferredContext<'_>) -> T) -> T {
-        let proxy = self.timer_scheduler.0.clone();
+        let timer = kasane_core::event_loop::GenericTimerScheduler(self.gui_sink.clone());
         let spawn_session = self.session_spawner;
-        let mut session_runtime = GuiSessionRuntime {
+        let mut session_runtime = kasane_core::event_loop::SharedSessionRuntime {
             session_manager: &mut self.session_manager,
             session_states: &mut self.session_states,
-            proxy,
+            sink: self.gui_sink.clone(),
             spawn_session,
         };
         let scroll_runtime = &mut self.scroll_runtime;
@@ -904,7 +701,7 @@ where
                 surface_registry: &mut self.surface_registry,
                 clipboard: &mut self.clipboard,
                 dirty: &mut self.dirty,
-                timer: &self.timer_scheduler,
+                timer: &timer,
                 session_host: &mut session_runtime,
                 initial_resize_sent: &mut self.initial_resize_sent,
                 session_ready_gate: Some(&mut self.session_ready_gate),
@@ -1008,12 +805,11 @@ where
                 w: self.state.cols,
                 h: self.state.rows,
             };
-            let proxy = self.timer_scheduler.0.clone();
             let spawn_session = self.session_spawner;
-            let mut session_runtime = GuiSessionRuntime {
+            let mut session_runtime = kasane_core::event_loop::SharedSessionRuntime {
                 session_manager: &mut self.session_manager,
                 session_states: &mut self.session_states,
-                proxy,
+                sink: self.gui_sink.clone(),
                 spawn_session,
             };
             kasane_core::event_loop::send_pane_resizes(
@@ -1030,16 +826,14 @@ where
             self.registry.prepare_plugin_cache(self.dirty);
 
             // Sync Salsa inputs from updated state
-            sync_inputs_from_state(&mut self.salsa_db, &self.state, &self.salsa_handles);
-            let view = self.registry.view();
-            sync_display_directives(&mut self.salsa_db, &self.state, &view, &self.salsa_handles);
-            sync_plugin_contributions(
+            kasane_core::event_loop::sync_salsa_for_render(
                 &mut self.salsa_db,
                 &self.state,
-                &view,
+                &self.registry,
                 &self.salsa_handles,
                 &mut self.contribution_cache,
             );
+            let view = self.registry.view();
 
             let pane_states_val;
             let pane_states_opt = if self.surface_registry.is_multi_pane() {
@@ -1169,19 +963,6 @@ fn append_overlay_commands(
     combined.extend_from_slice(base_commands);
     combined.extend(overlay_commands);
     Cow::Owned(combined)
-}
-
-/// Newtype wrapper for winit EventLoopProxy to implement `DiagnosticOverlayScheduler`.
-struct GuiDiagnosticScheduler(winit::event_loop::EventLoopProxy<GuiEvent>);
-
-impl kasane_core::event_loop::DiagnosticOverlayScheduler for GuiDiagnosticScheduler {
-    fn schedule_expiry(&self, delay: std::time::Duration, generation: u64) {
-        let proxy = self.0.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            let _ = proxy.send_event(GuiEvent::DiagnosticOverlayExpire(generation));
-        });
-    }
 }
 
 impl<R, W, C> Drop for App<R, W, C>

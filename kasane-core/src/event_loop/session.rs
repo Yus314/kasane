@@ -158,14 +158,17 @@ pub fn spawn_session_core<R, W, C>(
     };
     ctx.session_states.ensure_session(session_id, ctx.state);
     *ctx.dirty |= DirtyFlags::SESSION;
-    let reader = ctx
-        .session_manager
-        .take_reader(session_id)
-        .expect("spawned session reader missing");
+    let Ok(reader) = ctx.session_manager.take_reader(session_id) else {
+        tracing::error!(session_id = session_id.0, "spawned session reader missing");
+        return None;
+    };
     if activate {
-        ctx.session_manager
-            .sync_and_activate(ctx.session_states, session_id, ctx.state)
-            .expect("spawned session must be activeable");
+        if let Err(e) =
+            ctx.session_manager
+                .sync_and_activate(ctx.session_states, session_id, ctx.state)
+        {
+            tracing::error!("spawned session activation failed: {e:?}");
+        }
         if !ctx.session_states.restore_into(session_id, ctx.state) {
             ctx.state.reset_for_session_switch();
         }
@@ -222,9 +225,14 @@ pub fn switch_session_core<R, W, C>(key: &str, ctx: &mut SessionMutContext<'_, R
     if ctx.session_manager.active_session_id() == Some(target) {
         return;
     }
-    ctx.session_manager
+    if ctx
+        .session_manager
         .sync_and_activate(ctx.session_states, target, ctx.state)
-        .expect("switch target must be valid");
+        .is_err()
+    {
+        tracing::warn!("session switch target {key} vanished");
+        return;
+    }
     if !ctx.session_states.restore_into(target, ctx.state) {
         ctx.state.reset_for_session_switch();
     }
@@ -324,4 +332,198 @@ pub fn apply_ready_batch(batch: EffectsBatch, ctx: &mut DeferredContext<'_>) -> 
     }
 
     false
+}
+
+// ── Generic session helpers (EventSink-based) ───────────────────
+
+use super::EventSink;
+
+/// Spawn a Kakoune reader thread that delivers events through an [`EventSink`].
+pub fn spawn_session_reader<R, E: EventSink>(session_id: SessionId, reader: R, sink: E)
+where
+    R: std::io::BufRead + Send + 'static,
+{
+    let died_sink = sink.clone();
+    crate::io::spawn_kak_reader(
+        reader,
+        move |req| {
+            sink.send_kakoune(session_id, req);
+        },
+        move || {
+            died_sink.send_died(session_id);
+        },
+    );
+}
+
+/// Session runtime generic over [`EventSink`].
+///
+/// Replaces the backend-specific `GuiSessionRuntime` / `TuiSessionRuntime`.
+pub struct SharedSessionRuntime<'a, R, W, C, E: EventSink> {
+    pub session_manager: &'a mut SessionManager<R, W, C>,
+    pub session_states: &'a mut SessionStateStore,
+    pub sink: E,
+    pub spawn_session: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+}
+
+impl<'a, R, W, C, E: EventSink> super::SessionRuntime for SharedSessionRuntime<'a, R, W, C, E>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: std::io::Write + Send + 'static,
+    C: Send + 'static,
+{
+    fn spawn_session(
+        &mut self,
+        spec: SessionSpec,
+        activate: bool,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) {
+        let mut ctx = SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+        };
+        if let Some((session_id, reader)) =
+            spawn_session_core(&spec, activate, &mut ctx, self.spawn_session)
+        {
+            spawn_session_reader(session_id, reader, self.sink.clone());
+        }
+    }
+
+    fn close_session(
+        &mut self,
+        key: Option<&str>,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) -> bool {
+        let mut ctx = SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+        };
+        close_session_core(key, &mut ctx)
+    }
+
+    fn switch_session(
+        &mut self,
+        key: &str,
+        state: &mut AppState,
+        dirty: &mut DirtyFlags,
+        initial_resize_sent: &mut bool,
+    ) {
+        let mut ctx = SessionMutContext {
+            session_manager: self.session_manager,
+            session_states: self.session_states,
+            state,
+            dirty,
+            initial_resize_sent,
+        };
+        switch_session_core(key, &mut ctx);
+    }
+
+    fn session_id_by_key(&self, key: &str) -> Option<SessionId> {
+        self.session_manager.session_id_by_key(key)
+    }
+}
+
+impl<'a, R, W, C, E: EventSink> super::SessionHost for SharedSessionRuntime<'a, R, W, C, E>
+where
+    R: std::io::BufRead + Send + 'static,
+    W: std::io::Write + Send + 'static,
+    C: Send + 'static,
+{
+    fn active_writer(&mut self) -> &mut dyn std::io::Write {
+        self.session_manager
+            .active_writer_mut()
+            .expect("missing active session writer")
+    }
+
+    fn writer_for_session(&mut self, session_id: SessionId) -> Option<&mut dyn std::io::Write> {
+        self.session_manager
+            .writer_mut(session_id)
+            .ok()
+            .map(|w| w as &mut dyn std::io::Write)
+    }
+}
+
+/// Restore workspace panes from a persisted layout, generic over [`EventSink`].
+#[allow(clippy::too_many_arguments)]
+pub fn restore_panes<R, W, C, E: EventSink>(
+    plan: &crate::workspace::persist::RestorePlan,
+    server_name: &str,
+    surface_registry: &mut SurfaceRegistry,
+    session_manager: &mut SessionManager<R, W, C>,
+    session_states: &mut SessionStateStore,
+    state: &mut AppState,
+    initial_resize_sent: &mut bool,
+    spawn_fn: fn(&SessionSpec) -> anyhow::Result<(R, W, C)>,
+    sink: &E,
+) where
+    R: std::io::BufRead + Send + 'static,
+    W: std::io::Write + Send + 'static,
+    C: Send + 'static,
+{
+    use crate::surface::buffer::ClientBufferSurface;
+    use crate::workspace::persist;
+    use std::collections::HashMap;
+
+    let mut id_map: HashMap<String, SurfaceId> = HashMap::new();
+
+    for pane in &plan.panes {
+        let surface_id = surface_registry.workspace_mut().next_surface_id();
+
+        let mut args = vec!["-c".to_string(), server_name.to_string()];
+        if let Some(ref buf_name) = pane.buffer_name {
+            args.push("-e".to_string());
+            args.push(format!("buffer {}", persist::kak_quote(buf_name)));
+        }
+
+        let spec = SessionSpec::new(pane.pane_key.clone(), Some(server_name.to_string()), args);
+
+        let mut dirty = DirtyFlags::empty();
+        let mut ctx = SessionMutContext {
+            session_manager,
+            session_states,
+            state,
+            dirty: &mut dirty,
+            initial_resize_sent,
+        };
+
+        let Some((session_id, reader)) = spawn_session_core(&spec, false, &mut ctx, spawn_fn)
+        else {
+            tracing::warn!(pane_key = pane.pane_key, "failed to spawn restored pane");
+            continue;
+        };
+
+        spawn_session_reader(session_id, reader, sink.clone());
+
+        surface_registry.register(Box::new(ClientBufferSurface::with_key(
+            surface_id,
+            &*pane.pane_key,
+        )));
+        surface_registry.bind_session(surface_id, session_id);
+        surface_registry.mark_pending_resize(session_id);
+
+        id_map.insert(pane.pane_key.clone(), surface_id);
+    }
+
+    if let Some(restored) = persist::build_restored_tree(&plan.saved.root, &id_map) {
+        surface_registry
+            .workspace_mut()
+            .replace_root(restored.root, restored.next_id_min);
+
+        if let Some(ref focused_key) = plan.saved.focused_key
+            && let Some(surface_id) = surface_registry.surface_id_by_key(focused_key)
+        {
+            surface_registry.workspace_mut().focus(surface_id);
+        }
+    }
+
+    sync_session_metadata(session_manager, session_states, state);
 }

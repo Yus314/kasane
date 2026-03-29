@@ -29,9 +29,7 @@ use kasane_core::plugin::{
 use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
 use kasane_core::salsa_db::KasaneDatabase;
-use kasane_core::salsa_sync::{
-    SalsaInputHandles, sync_display_directives, sync_inputs_from_state, sync_plugin_contributions,
-};
+use kasane_core::salsa_sync::SalsaInputHandles;
 use kasane_core::scroll::ScrollRuntime;
 use kasane_core::session::{SessionManager, SessionSpec, SessionStateStore};
 use kasane_core::state::{AppState, DirtyFlags};
@@ -41,94 +39,10 @@ use kasane_core::surface::pane_map::PaneStates;
 use backend::TuiBackend;
 use diagnostics_overlay::paint_diagnostic_overlay;
 use event_handler::{
-    Event, EventProcessingContext, TuiProcessEventSink, TuiSessionRuntime, TuiTimerScheduler,
-    process_event, spawn_session_reader,
+    Event, EventProcessingContext, TuiEventSink, TuiProcessEventSink, process_event,
 };
 use input::convert_event;
 use paint_hooks::PaintHookState;
-
-/// Restore pane layout from a saved plan.
-///
-/// Spawns Kakoune client processes for each saved pane, registers surfaces,
-/// and replaces the workspace tree.
-#[allow(clippy::too_many_arguments)]
-fn restore_panes_tui<R, W, C>(
-    plan: &kasane_core::workspace::persist::RestorePlan,
-    server_name: &str,
-    surface_registry: &mut SurfaceRegistry,
-    session_manager: &mut SessionManager<R, W, C>,
-    session_states: &mut SessionStateStore,
-    state: &mut AppState,
-    initial_resize_sent: &mut bool,
-    spawn_session: fn(&kasane_core::session::SessionSpec) -> anyhow::Result<(R, W, C)>,
-    tx: &crossbeam_channel::Sender<event_handler::Event>,
-) where
-    R: std::io::BufRead + Send + 'static,
-    W: std::io::Write + Send + 'static,
-    C: Send + 'static,
-{
-    use kasane_core::session::SessionSpec;
-    use kasane_core::surface::SurfaceId;
-    use kasane_core::surface::buffer::ClientBufferSurface;
-    use kasane_core::workspace::persist;
-    use std::collections::HashMap;
-
-    let mut id_map: HashMap<String, SurfaceId> = HashMap::new();
-
-    for pane in &plan.panes {
-        let surface_id = surface_registry.workspace_mut().next_surface_id();
-
-        let mut args = vec!["-c".to_string(), server_name.to_string()];
-        if let Some(ref buf_name) = pane.buffer_name {
-            args.push("-e".to_string());
-            args.push(format!("buffer {}", persist::kak_quote(buf_name)));
-        }
-
-        let spec = SessionSpec::new(pane.pane_key.clone(), Some(server_name.to_string()), args);
-
-        let mut dirty = kasane_core::state::DirtyFlags::empty();
-        let mut ctx = kasane_core::event_loop::SessionMutContext {
-            session_manager,
-            session_states,
-            state,
-            dirty: &mut dirty,
-            initial_resize_sent,
-        };
-
-        let Some((session_id, reader)) =
-            kasane_core::event_loop::spawn_session_core(&spec, false, &mut ctx, spawn_session)
-        else {
-            tracing::warn!(pane_key = pane.pane_key, "failed to spawn restored pane");
-            continue;
-        };
-
-        event_handler::spawn_session_reader(session_id, reader, tx.clone());
-
-        surface_registry.register(Box::new(ClientBufferSurface::with_key(
-            surface_id,
-            &*pane.pane_key,
-        )));
-        surface_registry.bind_session(surface_id, session_id);
-        surface_registry.mark_pending_resize(session_id);
-
-        id_map.insert(pane.pane_key.clone(), surface_id);
-    }
-
-    if let Some(restored) = persist::build_restored_tree(&plan.saved.root, &id_map) {
-        surface_registry
-            .workspace_mut()
-            .replace_root(restored.root, restored.next_id_min);
-
-        // Restore focus
-        if let Some(ref focused_key) = plan.saved.focused_key
-            && let Some(surface_id) = surface_registry.surface_id_by_key(focused_key)
-        {
-            surface_registry.workspace_mut().focus(surface_id);
-        }
-    }
-
-    kasane_core::event_loop::sync_session_metadata(session_manager, session_states, state);
-}
 
 /// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {
@@ -248,7 +162,7 @@ where
     })?;
     report_plugin_diagnostics(&initial_plugins.diagnostics);
     kasane_core::event_loop::schedule_diagnostic_overlay(
-        &TuiDiagnosticScheduler(tx.clone()),
+        &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(tx.clone())),
         &mut diagnostic_overlay,
         &initial_plugins.diagnostics,
     );
@@ -265,7 +179,8 @@ where
     let mut initial_resize_sent = false;
 
     // Kakoune stdout reader thread
-    spawn_session_reader(active_session, kak_reader, tx.clone());
+    let tui_sink = TuiEventSink(tx.clone());
+    kasane_core::event_loop::spawn_session_reader(active_session, kak_reader, tui_sink.clone());
 
     // crossterm input reader thread
     spawn_input_thread(tx.clone());
@@ -291,7 +206,7 @@ where
     }
 
     // Timer scheduler for plugin timer events
-    let timer = TuiTimerScheduler(tx.clone());
+    let timer = kasane_core::event_loop::GenericTimerScheduler(tui_sink.clone());
     let mut scroll_runtime = ScrollRuntime::default();
     let mut scroll_runtime_session = session_manager.active_session_id();
 
@@ -310,7 +225,7 @@ where
     if let Some(plan) = pending_restore
         && let Some(server_name) = surface_registry.server_session_name().map(str::to_owned)
     {
-        restore_panes_tui(
+        kasane_core::event_loop::restore_panes(
             &plan,
             &server_name,
             &mut surface_registry,
@@ -319,7 +234,7 @@ where
             &mut state,
             &mut initial_resize_sent,
             spawn_session,
-            &tx,
+            &tui_sink,
         );
         kasane_core::event_loop::notify_workspace_observers(
             &mut registry,
@@ -335,7 +250,7 @@ where
     let (mut salsa_db, salsa_handles) = {
         let mut db = KasaneDatabase::default();
         let handles = SalsaInputHandles::new(&mut db);
-        sync_inputs_from_state(&mut db, &state, &handles);
+        kasane_core::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
         (db, handles)
     };
     let mut contribution_cache = kasane_core::plugin::ContributionCache::default();
@@ -482,7 +397,7 @@ where
             if !runtime_diagnostics.is_empty() {
                 report_plugin_diagnostics(&runtime_diagnostics);
                 kasane_core::event_loop::schedule_diagnostic_overlay(
-                    &TuiDiagnosticScheduler(tx.clone()),
+                    &kasane_core::event_loop::GenericDiagnosticScheduler(tui_sink.clone()),
                     &mut diagnostic_overlay,
                     &runtime_diagnostics,
                 );
@@ -497,10 +412,10 @@ where
                 w: state.cols,
                 h: state.rows,
             };
-            let mut session_host = TuiSessionRuntime {
+            let mut session_host = kasane_core::event_loop::SharedSessionRuntime {
                 session_manager: &mut session_manager,
                 session_states: &mut session_states,
-                tx: tx.clone(),
+                sink: tui_sink.clone(),
                 spawn_session,
             };
             kasane_core::event_loop::send_pane_resizes(
@@ -517,16 +432,14 @@ where
             registry.prepare_plugin_cache(dirty);
 
             // Sync Salsa inputs from updated state
-            sync_inputs_from_state(&mut salsa_db, &state, &salsa_handles);
-            let view = registry.view();
-            sync_display_directives(&mut salsa_db, &state, &view, &salsa_handles);
-            sync_plugin_contributions(
+            kasane_core::event_loop::sync_salsa_for_render(
                 &mut salsa_db,
                 &state,
-                &view,
+                &registry,
                 &salsa_handles,
                 &mut contribution_cache,
             );
+            let view = registry.view();
 
             let pane_states_val;
             let pane_states_opt = if surface_registry.is_multi_pane() {
@@ -606,17 +519,4 @@ where
     registry.shutdown_all();
     backend.cleanup();
     Ok(())
-}
-
-/// Newtype wrapper for crossbeam Sender to implement `DiagnosticOverlayScheduler`.
-pub(crate) struct TuiDiagnosticScheduler(pub(crate) crossbeam_channel::Sender<Event>);
-
-impl kasane_core::event_loop::DiagnosticOverlayScheduler for TuiDiagnosticScheduler {
-    fn schedule_expiry(&self, delay: std::time::Duration, generation: u64) {
-        let tx = self.0.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
-            let _ = tx.send(Event::DiagnosticOverlayExpire(generation));
-        });
-    }
 }

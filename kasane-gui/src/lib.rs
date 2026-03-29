@@ -54,28 +54,27 @@ pub(crate) enum GuiEvent {
     ),
 }
 
-fn spawn_session_reader<R>(
-    session_id: SessionId,
-    reader: R,
-    proxy: winit::event_loop::EventLoopProxy<GuiEvent>,
-) where
-    R: std::io::BufRead + Send + 'static,
-{
-    let died_proxy = proxy.clone();
-    kasane_core::io::spawn_kak_reader(
-        reader,
-        move |req| {
-            if proxy
-                .send_event(GuiEvent::Kakoune(session_id, req))
-                .is_err()
-            {
-                tracing::error!("[reader] event loop closed");
-            }
-        },
-        move || {
-            let _ = died_proxy.send_event(GuiEvent::KakouneDied(session_id));
-        },
-    );
+/// EventSink that injects events into the winit event loop.
+#[derive(Clone)]
+pub(crate) struct GuiEventSink(pub(crate) winit::event_loop::EventLoopProxy<GuiEvent>);
+
+impl kasane_core::event_loop::EventSink for GuiEventSink {
+    fn send_kakoune(&self, session_id: SessionId, req: KakouneRequest) {
+        let _ = self.0.send_event(GuiEvent::Kakoune(session_id, req));
+    }
+    fn send_died(&self, session_id: SessionId) {
+        let _ = self.0.send_event(GuiEvent::KakouneDied(session_id));
+    }
+    fn send_timer(&self, target: PluginId, payload: Box<dyn std::any::Any + Send>) {
+        let _ = self
+            .0
+            .send_event(GuiEvent::PluginTimer(target, TimerPayload(payload)));
+    }
+    fn send_diagnostic_expire(&self, generation: u64) {
+        let _ = self
+            .0
+            .send_event(GuiEvent::DiagnosticOverlayExpire(generation));
+    }
 }
 
 /// ProcessEventSink that injects process I/O events into the winit event loop.
@@ -132,7 +131,8 @@ where
     let process_dispatcher = create_process_dispatcher(process_sink);
 
     // Kakoune reader thread: forward JSON-RPC messages into the winit event loop
-    spawn_session_reader(active_session, kak_reader, proxy.clone());
+    let gui_sink = GuiEventSink(proxy.clone());
+    kasane_core::event_loop::spawn_session_reader(active_session, kak_reader, gui_sink.clone());
 
     let mut app_handler = app::App::new(
         config,
