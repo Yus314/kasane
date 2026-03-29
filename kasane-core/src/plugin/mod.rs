@@ -106,6 +106,9 @@ bitflags! {
         const MENU_TRANSFORM     = 1 << 5;
         const CURSOR_STYLE       = 1 << 6;
         const INPUT_HANDLER      = 1 << 7;
+        /// NOTE: SURFACE_PROVIDER is declarative metadata only. It is not used
+        /// for dispatch gating in PluginRuntime — surface lifecycle is managed
+        /// separately via the SurfaceRegistry.
         const SURFACE_PROVIDER   = 1 << 11;
         const WORKSPACE_OBSERVER = 1 << 12;
         const PAINT_HOOK         = 1 << 13;

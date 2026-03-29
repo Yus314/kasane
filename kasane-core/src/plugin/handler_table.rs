@@ -311,6 +311,9 @@ impl HandlerTable {
     }
 
     /// Auto-inferred capabilities derived from which handlers are registered.
+    ///
+    /// NOTE: SURFACE_PROVIDER is not inferred here — it is declarative metadata
+    /// only and is not used for dispatch gating.
     pub(crate) fn capabilities(&self) -> PluginCapabilities {
         let mut caps = PluginCapabilities::empty();
         if self.io_event_handler.is_some() || !self.process_tasks.is_empty() {
