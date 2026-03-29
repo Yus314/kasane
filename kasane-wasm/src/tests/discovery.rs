@@ -86,9 +86,9 @@ fn resolve_wasm_plugins_loads_fixtures_directory() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    // 9 fixtures (including instantiate-trap, which succeeds with manifest path)
-    // + pane_manager (bundled default-enabled) = 10
-    assert_eq!(resolved.len(), 10);
+    // 8 loadable fixtures (instantiate-trap now fails: P2.2 ID verification calls get_id())
+    // + pane_manager (bundled default-enabled) = 9
+    assert_eq!(resolved.len(), 9);
     let cursor_line = PluginId("cursor_line".to_string());
     assert!(snapshot.contains(&cursor_line));
     assert!(matches!(
@@ -117,8 +117,8 @@ fn resolve_wasm_plugins_skips_disabled_plugins() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    // 8 remaining fixtures (9 total - 1 disabled) + pane_manager (bundled default-enabled)
-    assert_eq!(resolved.len(), 9);
+    // 7 remaining loadable fixtures (8 loadable - 1 disabled) + pane_manager (bundled default-enabled)
+    assert_eq!(resolved.len(), 8);
     assert!(!snapshot.contains(&PluginId("cursor_line".to_string())));
 }
 
@@ -174,8 +174,8 @@ fn resolve_wasm_plugins_prefers_filesystem_over_bundled_for_same_id() {
     let resolved = crate::resolve_wasm_plugins(&config).unwrap();
     let snapshot = resolved.snapshot();
 
-    // 9 fixtures + pane_manager (bundled default-enabled) = 10
-    assert_eq!(resolved.len(), 10);
+    // 8 loadable fixtures + pane_manager (bundled default-enabled) = 9
+    assert_eq!(resolved.len(), 9);
     assert!(matches!(
         snapshot.revision(&PluginId("cursor_line".to_string())),
         Some(WasmPluginRevision {
@@ -254,9 +254,10 @@ fn wasm_provider_collect_reports_artifact_read_failures_without_dropping_valid_p
 }
 
 #[test]
-fn instantiate_trap_fixture_loads_successfully_with_manifest() {
-    // The instantiate-trap fixture traps in get_id(), but with manifest-first
-    // loading, get_id() is never called — the manifest supplies the plugin ID.
+fn instantiate_trap_fixture_reports_diagnostic_with_manifest() {
+    // The instantiate-trap fixture traps in get_id(). With P2.2 ID verification,
+    // load_with_manifest now calls get_id() to verify consistency, so the trap
+    // causes an instantiation failure reported as a diagnostic.
     let dir = TempPluginDir::new();
     dir.copy_fixture("cursor-line.wasm");
     dir.copy_fixture("instantiate-trap.wasm");
@@ -276,13 +277,22 @@ fn instantiate_trap_fixture_loads_successfully_with_manifest() {
             .iter()
             .any(|factory| factory.descriptor().id == PluginId("cursor_line".to_string()))
     );
+    // instantiate-trap should NOT load (get_id traps during ID verification)
     assert!(
-        collected
+        !collected
             .factories
             .iter()
             .any(|factory| factory.descriptor().id == PluginId("instantiate_trap".to_string()))
     );
-    assert!(collected.diagnostics.is_empty());
+    // Should have one diagnostic for the instantiate failure
+    assert_eq!(collected.diagnostics.len(), 1);
+    assert!(matches!(
+        collected.diagnostics[0].kind,
+        PluginDiagnosticKind::ProviderArtifactFailed {
+            stage: ProviderArtifactStage::Instantiate,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -321,9 +331,9 @@ fn discover_skips_disabled_plugins() {
     let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
 
-    // cursor-line skipped; the remaining 8 fixtures still load
-    // (including instantiate-trap which succeeds with manifest path).
-    assert_eq!(registry.plugin_count(), 8);
+    // cursor-line skipped; the remaining 7 loadable fixtures still load
+    // (instantiate-trap fails: P2.2 ID verification traps).
+    assert_eq!(registry.plugin_count(), 7);
 }
 
 #[test]

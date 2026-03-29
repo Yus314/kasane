@@ -169,6 +169,16 @@ impl WasmPluginLoader {
         let mut store = wasmtime::Store::new(&self.engine, host_state);
         let instance = bindings::KasanePlugin::instantiate(&mut store, &component, &self.linker)?;
 
+        // Verify WASM module's self-reported ID matches manifest
+        let wasm_id = instance
+            .kasane_plugin_plugin_api()
+            .call_get_id(&mut store)?;
+        if wasm_id != *plugin_id {
+            anyhow::bail!(
+                "manifest-WASM ID mismatch: manifest declares `{plugin_id}`, WASM reports `{wasm_id}`"
+            );
+        }
+
         let process_allowed = capability::is_process_allowed_by_manifest(
             plugin_id,
             manifest.wasi_capabilities(),
