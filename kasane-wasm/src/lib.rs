@@ -239,7 +239,11 @@ pub enum WasmPluginOrigin {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmPluginFingerprint {
     Bundled(&'static str),
-    Filesystem { len: u64, modified_ns: Option<u128> },
+    Filesystem {
+        len: u64,
+        modified_ns: Option<u128>,
+        manifest_modified_ns: Option<u128>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -357,15 +361,23 @@ impl PluginProvider for WasmPluginProvider {
 
 const WASM_PROVIDER_NAME: &str = "kasane_wasm::WasmPluginProvider";
 
-fn filesystem_fingerprint(path: &Path, wasm_len: u64) -> WasmPluginFingerprint {
-    let modified_ns = std::fs::metadata(path)
+fn mtime_ns(path: &Path) -> Option<u128> {
+    std::fs::metadata(path)
         .ok()
         .and_then(|meta| meta.modified().ok())
         .and_then(|time: SystemTime| time.duration_since(SystemTime::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_nanos());
+        .map(|duration| duration.as_nanos())
+}
+
+fn filesystem_fingerprint(
+    wasm_path: &Path,
+    wasm_len: u64,
+    manifest_path: Option<&Path>,
+) -> WasmPluginFingerprint {
     WasmPluginFingerprint::Filesystem {
         len: wasm_len,
-        modified_ns,
+        modified_ns: mtime_ns(wasm_path),
+        manifest_modified_ns: manifest_path.and_then(mtime_ns),
     }
 }
 
@@ -476,6 +488,7 @@ fn bundled_plugin_specs() -> &'static [BundledPluginSpec] {
 struct DiscoveredPlugin {
     manifest: manifest::PluginManifest,
     wasm_path: PathBuf,
+    manifest_path: PathBuf,
 }
 
 /// Scan a plugins directory for `.toml` manifest files and their sibling `.wasm` files.
@@ -513,6 +526,7 @@ fn discover_plugin_artifacts(plugins_dir: &Path) -> Result<Vec<DiscoveredPlugin>
                 plugins.push(DiscoveredPlugin {
                     manifest: m,
                     wasm_path,
+                    manifest_path: toml_path.clone(),
                 });
             }
             Err(e) => {
@@ -706,6 +720,7 @@ fn resolve_filesystem_plugins(
                             fingerprint: filesystem_fingerprint(
                                 &artifact.wasm_path,
                                 bytes.len() as u64,
+                                Some(&artifact.manifest_path),
                             ),
                         },
                         plugin,
@@ -798,6 +813,7 @@ fn resolve_filesystem_plugins_with_factories(
                         fingerprint: filesystem_fingerprint(
                             &artifact.wasm_path,
                             bytes.len() as u64,
+                            Some(&artifact.manifest_path),
                         ),
                     },
                 );
