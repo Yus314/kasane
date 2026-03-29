@@ -2,6 +2,10 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
 
+/// SDK dirty::ALL value (excludes PLUGIN_STATE bit 7).
+/// Must match `kasane_plugin_sdk::dirty::ALL`.
+const SDK_DIRTY_ALL: u16 = 0x17F;
+
 /// Implementation of the `kasane_generate` proc macro.
 ///
 /// Generates Kasane WIT bindings with embedded WIT content plus SDK helper
@@ -39,6 +43,7 @@ pub(crate) fn kasane_generate_impl(input: TokenStream) -> TokenStream {
 /// This code lives in the user's crate so it can reference WIT-generated types
 /// (Face, Color, RgbColor, etc.) which are not accessible from the SDK crate.
 pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
+    let sdk_dirty_all = SDK_DIRTY_ALL;
     quote! {
         /// SDK-generated prelude and helper functions.
         ///
@@ -452,7 +457,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 
             /// Request a full redraw (all dirty flags).
             pub fn redraw() -> Vec<Command> {
-                vec![Command::RequestRedraw(0x17F)]
+                vec![Command::RequestRedraw(#sdk_dirty_all)]
             }
 
             /// Request a redraw with specific dirty flags.
@@ -672,7 +677,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 
             /// Effects with commands + trailing RequestRedraw(ALL).
             pub fn effects_redraw(mut commands: Vec<Command>) -> Effects {
-                commands.push(Command::RequestRedraw(0x17F));
+                commands.push(Command::RequestRedraw(#sdk_dirty_all));
                 Effects { redraw: 0, commands, scroll_plans: vec![] }
             }
 
@@ -680,7 +685,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             pub fn just_redraw() -> Effects {
                 Effects {
                     redraw: 0,
-                    commands: vec![Command::RequestRedraw(0x17F)],
+                    commands: vec![Command::RequestRedraw(#sdk_dirty_all)],
                     scroll_plans: vec![],
                 }
             }
@@ -689,7 +694,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
 
             /// Consume key with RequestRedraw(ALL).
             pub fn consumed_redraw() -> Option<Vec<Command>> {
-                Some(vec![Command::RequestRedraw(0x17F)])
+                Some(vec![Command::RequestRedraw(#sdk_dirty_all)])
             }
 
             /// Consume key with no side effects.

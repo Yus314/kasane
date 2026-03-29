@@ -154,6 +154,10 @@ fn edit_distance(a: &str, b: &str) -> usize {
     dp[m][n]
 }
 
+/// SDK dirty::ALL value (excludes PLUGIN_STATE bit 7).
+/// Must match `kasane_plugin_sdk::dirty::ALL`.
+const SDK_DIRTY_ALL: u16 = 0x17F;
+
 /// Generate default `ImplItemFn` nodes for all Guest methods not in `existing`.
 pub(crate) fn generate_defaults(
     existing: &std::collections::HashSet<String>,
@@ -514,10 +518,13 @@ pub(crate) fn generate_defaults(
 
     // --- View dependency declaration ---
 
-    add_default!(
-        "view_deps",
-        quote! { fn view_deps() -> u16 { 0x17F } } // ALL
-    );
+    {
+        let all = SDK_DIRTY_ALL;
+        add_default!(
+            "view_deps",
+            quote! { fn view_deps() -> u16 { #all } } // SDK dirty::ALL
+        );
+    }
 
     // --- Navigation (DU-4) ---
 
