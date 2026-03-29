@@ -14,7 +14,7 @@ readme = "README.md"
 test-harness = []
 
 [dependencies]
-wit-bindgen = "0.41"
+wit-bindgen = "0.53"
 kasane-plugin-sdk-macros = { path = "../kasane-plugin-sdk-macros", version = "=0.3.0" }
 
 [dev-dependencies]

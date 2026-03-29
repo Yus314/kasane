@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 kasane-plugin-sdk = { path = "../../../kasane-plugin-sdk" }
-wit-bindgen = "0.41"
+wit-bindgen = "0.53"
 
 [profile.release]
 opt-level = "s"

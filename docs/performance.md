@@ -457,7 +457,7 @@ Kasane's CPU pipeline (~57 μs) is roughly 73× below the 240 Hz display scanout
 
 ## WASM Plugin Benchmarks
 
-Measured with `cargo bench -p kasane-wasm-bench` (wasmtime 42, Component Model, criterion).
+Measured with `cargo bench -p kasane-wasm-bench` (wasmtime 43, Component Model, criterion).
 See [ADR-013](./decisions.md#adr-013-wasm-plugin-runtime--component-model-adoption) for the full decision record.
 
 ### Raw WASM Overhead

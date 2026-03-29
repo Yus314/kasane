@@ -9,8 +9,8 @@ autobenches = false
 bench = false
 
 [dependencies]
-wasmtime = "42"
-wasmtime-wasi = "42"
+wasmtime = "43"
+wasmtime-wasi = "43"
 anyhow = { workspace = true }
 
 [dev-dependencies]

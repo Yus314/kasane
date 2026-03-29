@@ -820,7 +820,7 @@ Proof artifacts for extension points reachable from WASM:
 **Context:**
 While evaluating runtime loading approaches for external plugins in Phase 5b, it was necessary to quantitatively assess the performance feasibility of WASM sandboxing. The current compile-time binding approach (`kasane::run()` + `#[kasane::plugin]`) is type-safe but requires rebuilding to add plugins. WASM would enable install-and-activate without rebuilds, expanding the plugin ecosystem.
 
-**Benchmark environment:** `kasane-wasm-bench` crate (wasmtime 42, criterion)
+**Benchmark environment:** `kasane-wasm-bench` crate (wasmtime 43, criterion)
 
 **Evaluation method:** A 4-stage gate approach with pass criteria predefined for each gate, evaluated incrementally.
 

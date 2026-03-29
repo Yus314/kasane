@@ -6,8 +6,8 @@ license.workspace = true
 
 [dependencies]
 kasane-core = { workspace = true }
-wasmtime = "42"
-wasmtime-wasi = "42"
+wasmtime = "43"
+wasmtime-wasi = "43"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 compact_str = { workspace = true }

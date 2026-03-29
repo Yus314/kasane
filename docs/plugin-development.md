@@ -90,7 +90,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 kasane-plugin-sdk = "0.1"
-wit-bindgen = "0.41"
+wit-bindgen = "0.53"
 ```
 
 </details>
