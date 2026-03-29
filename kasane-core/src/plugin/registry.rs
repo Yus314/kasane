@@ -738,6 +738,12 @@ impl PluginRuntime {
         }
         // Legacy fallback for framework/unassigned IDs
         for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                continue;
+            }
             if let Some(commands) = slot.backend.handle_mouse(event, id, app) {
                 let source = slot.backend.id();
                 return MouseHandleResult::Handled {
