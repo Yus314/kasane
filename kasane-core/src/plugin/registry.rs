@@ -474,6 +474,12 @@ impl PluginRuntime {
     ) -> KeyDispatchResult {
         let mut current_key = key.clone();
         for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                continue;
+            }
             // --- Key map dispatch path (Phase 2+) ---
             if slot.backend.compiled_key_map().is_some() {
                 // Refresh group active flags if state changed.
