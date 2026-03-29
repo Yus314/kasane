@@ -71,6 +71,46 @@ fn load_smooth_scroll_plugin() -> crate::WasmPlugin {
         .expect("failed to load plugin")
 }
 
+fn load_fixture_manifest(name: &str) -> crate::manifest::PluginManifest {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join(name);
+    let toml_str = std::fs::read_to_string(path).expect("failed to read fixture manifest");
+    let manifest = crate::manifest::PluginManifest::parse(&toml_str).expect("failed to parse");
+    manifest.validate().expect("manifest validation failed");
+    manifest
+}
+
+fn load_cursor_line_with_manifest() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("cursor-line.wasm").expect("failed to load fixture");
+    let manifest = load_fixture_manifest("cursor-line.toml");
+    loader
+        .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
+        .map_err(|(_, e)| e)
+        .expect("failed to load plugin with manifest")
+}
+
+fn load_prompt_highlight_with_manifest() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("prompt-highlight.wasm").expect("failed to load fixture");
+    let manifest = load_fixture_manifest("prompt-highlight.toml");
+    loader
+        .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
+        .map_err(|(_, e)| e)
+        .expect("failed to load plugin with manifest")
+}
+
+fn load_fuzzy_finder_with_manifest() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("fuzzy-finder.wasm").expect("failed to load fixture");
+    let manifest = load_fixture_manifest("fuzzy-finder.toml");
+    loader
+        .load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default())
+        .map_err(|(_, e)| e)
+        .expect("failed to load plugin with manifest")
+}
+
 fn default_annotate_ctx() -> AnnotateContext {
     AnnotateContext {
         line_width: 80,
@@ -150,4 +190,80 @@ fn make_state_with_lines(lines: &[&str]) -> AppState {
         .collect();
     state.lines_dirty = vec![true; lines.len()];
     state
+}
+
+// ---- Manifest-path test variants ----
+
+#[test]
+fn cursor_line_with_manifest_id() {
+    let plugin = load_cursor_line_with_manifest();
+    assert_eq!(plugin.id().0, "cursor_line");
+}
+
+#[test]
+fn prompt_highlight_with_manifest_id() {
+    let plugin = load_prompt_highlight_with_manifest();
+    assert_eq!(plugin.id().0, "prompt_highlight");
+}
+
+#[test]
+fn fuzzy_finder_with_manifest_id() {
+    let plugin = load_fuzzy_finder_with_manifest();
+    assert_eq!(plugin.id().0, "fuzzy_finder");
+}
+
+#[test]
+fn manifest_wasm_id_mismatch_detected() {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::load_wasm_fixture("cursor-line.wasm").expect("failed to load fixture");
+    // Use a manifest with a different plugin ID
+    let toml = r#"
+[plugin]
+id = "wrong_id"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["annotator"]
+"#;
+    let manifest = crate::manifest::PluginManifest::parse(toml).unwrap();
+    let result =
+        loader.load_with_manifest(&bytes, &manifest, &crate::WasiCapabilityConfig::default());
+    let err_msg = match result {
+        Err((_, e)) => e.to_string(),
+        Ok(_) => panic!("expected error for ID mismatch"),
+    };
+    assert!(
+        err_msg.contains("mismatch"),
+        "expected mismatch error, got: {err_msg}"
+    );
+}
+
+#[test]
+fn fingerprint_includes_manifest_mtime() {
+    let fp1 = crate::WasmPluginFingerprint::Filesystem {
+        len: 100,
+        modified_ns: Some(1000),
+        manifest_modified_ns: Some(2000),
+    };
+    let fp2 = crate::WasmPluginFingerprint::Filesystem {
+        len: 100,
+        modified_ns: Some(1000),
+        manifest_modified_ns: Some(3000),
+    };
+    assert_ne!(fp1, fp2);
+}
+
+#[test]
+fn fingerprint_same_when_all_fields_match() {
+    let fp1 = crate::WasmPluginFingerprint::Filesystem {
+        len: 100,
+        modified_ns: Some(1000),
+        manifest_modified_ns: Some(2000),
+    };
+    let fp2 = crate::WasmPluginFingerprint::Filesystem {
+        len: 100,
+        modified_ns: Some(1000),
+        manifest_modified_ns: Some(2000),
+    };
+    assert_eq!(fp1, fp2);
 }
