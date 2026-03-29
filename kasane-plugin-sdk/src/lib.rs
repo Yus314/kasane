@@ -137,13 +137,18 @@ pub mod dirty {
     pub const OPTIONS: u16 = 1 << 5;
     /// Cursor position or mode changed.
     pub const BUFFER_CURSOR: u16 = 1 << 6;
+    /// Another plugin's state changed (bit 7).
+    ///
+    /// Excluded from `ALL` because inter-plugin observation is opt-in:
+    /// most plugins only care about editor state, not sibling plugins.
+    pub const PLUGIN_STATE: u16 = 1 << 7;
     /// Session metadata changed (session added/removed/switched).
     pub const SESSION: u16 = 1 << 8;
     /// Composite: any buffer-related change (content or cursor).
     pub const BUFFER: u16 = BUFFER_CONTENT | BUFFER_CURSOR;
     /// Composite: any menu-related change (structure or selection).
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
-    /// All flags combined.
+    /// All flags combined (excludes PLUGIN_STATE — opt-in only).
     pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS | SESSION;
 }
 
@@ -1180,6 +1185,11 @@ mod tests {
     fn dirty_all_matches_bitflags() {
         // SDK's ALL intentionally excludes PLUGIN_STATE (bit 7). Core ALL = 0x1FF, SDK ALL = 0x17F.
         assert_eq!(dirty::ALL, 0x17F);
+    }
+
+    #[test]
+    fn test_plugin_state_constant() {
+        assert_eq!(dirty::PLUGIN_STATE, 0x80);
     }
 
     #[test]
