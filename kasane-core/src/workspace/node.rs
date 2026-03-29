@@ -135,6 +135,31 @@ impl WorkspaceNode {
         }
     }
 
+    /// Search direct children for the first result of `f` (including floating entries).
+    #[allow(dead_code)]
+    fn find_in_children<T>(&self, f: &mut impl FnMut(&WorkspaceNode) -> Option<T>) -> Option<T> {
+        match self {
+            WorkspaceNode::Leaf { .. } => None,
+            WorkspaceNode::Split { first, second, .. } => f(first).or_else(|| f(second)),
+            WorkspaceNode::Tabs { tabs, .. } => tabs.iter().find_map(&mut *f),
+            WorkspaceNode::Float { base, floating } => {
+                f(base).or_else(|| floating.iter().find_map(|e| f(&e.node)))
+            }
+        }
+    }
+
+    /// Search direct children mutably for the first `true` result (including floating entries).
+    fn find_in_children_mut(&mut self, f: &mut impl FnMut(&mut WorkspaceNode) -> bool) -> bool {
+        match self {
+            WorkspaceNode::Leaf { .. } => false,
+            WorkspaceNode::Split { first, second, .. } => f(first) || f(second),
+            WorkspaceNode::Tabs { tabs, .. } => tabs.iter_mut().any(&mut *f),
+            WorkspaceNode::Float { base, floating } => {
+                f(base) || floating.iter_mut().any(|e| f(&mut e.node))
+            }
+        }
+    }
+
     /// Find a node containing the given SurfaceId.
     pub fn find(&self, target: SurfaceId) -> Option<&WorkspaceNode> {
         match self {
@@ -185,8 +210,8 @@ impl WorkspaceNode {
         new_id: SurfaceId,
         new_side: SplitSide,
     ) -> bool {
-        match self {
-            WorkspaceNode::Leaf { surface_id } if *surface_id == target => {
+        if let WorkspaceNode::Leaf { surface_id } = self {
+            if *surface_id == target {
                 let old = WorkspaceNode::Leaf {
                     surface_id: *surface_id,
                 };
@@ -205,25 +230,13 @@ impl WorkspaceNode {
                         second: Box::new(new),
                     },
                 };
-                true
+                return true;
             }
-            WorkspaceNode::Leaf { .. } => false,
-            WorkspaceNode::Split { first, second, .. } => {
-                first.split_with_side(target, direction, ratio, new_id, new_side)
-                    || second.split_with_side(target, direction, ratio, new_id, new_side)
-            }
-            WorkspaceNode::Tabs { tabs, .. } => tabs
-                .iter_mut()
-                .any(|tab| tab.split_with_side(target, direction, ratio, new_id, new_side)),
-            WorkspaceNode::Float { base, floating } => {
-                base.split_with_side(target, direction, ratio, new_id, new_side)
-                    || floating.iter_mut().any(|entry| {
-                        entry
-                            .node
-                            .split_with_side(target, direction, ratio, new_id, new_side)
-                    })
-            }
+            return false;
         }
+        self.find_in_children_mut(&mut |child| {
+            child.split_with_side(target, direction, ratio, new_id, new_side)
+        })
     }
 
     /// Add a new tab to the tab group containing `target`, or wrap the target
@@ -249,10 +262,6 @@ impl WorkspaceNode {
                 true
             }
             WorkspaceNode::Leaf { .. } => false,
-            WorkspaceNode::Split { first, second, .. } => {
-                first.add_tab(target, new_id, target_label, new_label)
-                    || second.add_tab(target, new_id, target_label, new_label)
-            }
             WorkspaceNode::Tabs {
                 tabs,
                 active,
@@ -267,12 +276,9 @@ impl WorkspaceNode {
                     false
                 }
             }
-            WorkspaceNode::Float { base, floating } => {
-                base.add_tab(target, new_id, target_label, new_label)
-                    || floating
-                        .iter_mut()
-                        .any(|entry| entry.node.add_tab(target, new_id, target_label, new_label))
-            }
+            _ => self.find_in_children_mut(&mut |child| {
+                child.add_tab(target, new_id, target_label, new_label)
+            }),
         }
     }
 
