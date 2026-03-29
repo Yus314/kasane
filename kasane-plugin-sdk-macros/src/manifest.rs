@@ -7,11 +7,16 @@ use serde::Deserialize;
 /// Manifest schema for compile-time validation in `define_plugin!`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct CompileTimeManifest {
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub(crate) manifest_version: Option<u32>,
     pub(crate) plugin: ManifestPlugin,
     #[serde(default)]
     pub(crate) capabilities: ManifestCapabilities,
     #[serde(default)]
     pub(crate) authorities: ManifestAuthorities,
+    #[serde(default)]
+    pub(crate) handlers: ManifestHandlers,
     #[serde(default)]
     pub(crate) view: ManifestView,
 }
@@ -33,6 +38,12 @@ pub(crate) struct ManifestCapabilities {
 pub(crate) struct ManifestAuthorities {
     #[serde(default)]
     pub(crate) host: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ManifestHandlers {
+    #[serde(default)]
+    pub(crate) flags: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -80,6 +91,31 @@ pub(crate) fn compile_time_view_dep_bit(name: &str) -> Option<u16> {
     }
 }
 
+/// Map handler flag name to its bit value.
+// NOTE: kasane-wasm/src/manifest.rs has a `handler_flag_bit` function that must stay in sync.
+// proc-macro crates cannot share code with runtime crates.
+pub(crate) fn compile_time_handler_flag_bit(name: &str) -> Option<u32> {
+    match name {
+        "overlay" => Some(1 << 2),
+        "menu-transform" => Some(1 << 5),
+        "cursor-style" => Some(1 << 6),
+        "input-handler" => Some(1 << 7),
+        "surface-provider" => Some(1 << 11),
+        "workspace-observer" => Some(1 << 12),
+        "paint-hook" => Some(1 << 13),
+        "contributor" => Some(1 << 14),
+        "transformer" => Some(1 << 15),
+        "annotator" => Some(1 << 16),
+        "io-handler" => Some(1 << 17),
+        "display-transform" => Some(1 << 18),
+        "scroll-policy" => Some(1 << 19),
+        "cell-decoration" => Some(1 << 20),
+        "navigation-policy" => Some(1 << 21),
+        "navigation-action" => Some(1 << 22),
+        _ => None,
+    }
+}
+
 /// Resolved manifest data from compile-time TOML parsing.
 pub(crate) struct ManifestDef {
     /// The plugin ID from `[plugin].id`.
@@ -92,6 +128,9 @@ pub(crate) struct ManifestDef {
     pub(crate) view_deps_mask: u16,
     /// Whether view.deps was non-empty (use mask) vs empty (use ALL default).
     pub(crate) has_view_deps: bool,
+    /// Pre-computed handler capabilities bitmask from `[handlers].flags`.
+    /// None if `[handlers]` is absent or flags is empty.
+    pub(crate) handler_caps_mask: Option<u32>,
 }
 
 /// Read and parse a manifest TOML file at compile time.
@@ -160,11 +199,29 @@ pub(crate) fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Res
         view_deps_mask |= bit;
     }
 
+    // Compute handler capabilities bitmask
+    let handler_caps_mask = if manifest.handlers.flags.is_empty() {
+        None
+    } else {
+        let mut mask: u32 = 0;
+        for name in &manifest.handlers.flags {
+            let bit = compile_time_handler_flag_bit(name).ok_or_else(|| {
+                syn::Error::new(
+                    path_lit.span(),
+                    format!("unknown handler flag in manifest: `{name}`"),
+                )
+            })?;
+            mask |= bit;
+        }
+        Some(mask)
+    };
+
     Ok(ManifestDef {
         id: manifest.plugin.id,
         capability_variants,
         authority_variants,
         view_deps_mask,
         has_view_deps,
+        handler_caps_mask,
     })
 }

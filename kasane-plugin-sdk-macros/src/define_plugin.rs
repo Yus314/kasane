@@ -637,6 +637,18 @@ pub(crate) fn define_plugin_impl(
         fn state_hash() -> u64 { __kasane_auto_state_hash() }
     };
 
+    // Generate register_capabilities from manifest handler_caps_mask if available.
+    // This takes precedence over the auto-inference in #[plugin].
+    let register_capabilities_method = if let Some(ref m) = def.manifest {
+        if let Some(mask) = m.handler_caps_mask {
+            quote! { fn register_capabilities() -> u32 { #mask } }
+        } else {
+            quote! {} // No handler flags in manifest → fall through to auto-inference
+        }
+    } else {
+        quote! {} // No manifest → fall through to auto-inference
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -672,6 +684,7 @@ pub(crate) fn define_plugin_impl(
             #on_io_event_method
             #view_deps_method
             #key_map_methods
+            #register_capabilities_method
             #state_hash_method
         }
 
