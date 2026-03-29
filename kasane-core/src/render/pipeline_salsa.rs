@@ -264,11 +264,11 @@ fn compose_base_from_salsa(
         let visible_height = display_map.display_line_count().min(buffer_rows);
         let offset = crate::display::compute_display_scroll_offset(
             display_map,
-            state.cursor_pos.line as usize,
+            crate::display::BufferLine(state.cursor_pos.line as usize),
             visible_height,
         );
-        let end = (offset + visible_height).min(display_map.display_line_count());
-        (offset, end, offset)
+        let end = (offset.0 + visible_height).min(display_map.display_line_count());
+        (offset.0, end, offset.0)
     } else {
         (0, buffer_rows, 0)
     };
@@ -291,14 +291,20 @@ fn compose_base_from_salsa(
         buffer_el
     };
 
-    // Apply buffer transform chain (imperative)
-    let transformed_buffer = registry
-        .apply_transform_chain(
-            TransformTarget::Buffer,
-            TransformSubject::Element(buffer_with_bg),
-            &AppView::new(state),
-        )
-        .into_element();
+    // Apply buffer transform chain: use Salsa-cached patch when available
+    let transformed_buffer = match handles.transform_patches.buffer(db) {
+        Some(patch) => patch
+            .clone()
+            .apply(TransformSubject::Element(buffer_with_bg))
+            .into_element(),
+        None => registry
+            .apply_transform_chain(
+                TransformTarget::Buffer,
+                TransformSubject::Element(buffer_with_bg),
+                &AppView::new(state),
+            )
+            .into_element(),
+    };
 
     // Read buffer slot contributions from Salsa input
     let buffer_left = handles.slot_contributions.buffer_left(db).clone();
@@ -330,14 +336,20 @@ fn compose_base_from_salsa(
         Element::column(children)
     };
 
-    // Apply status transform chain (imperative)
-    let transformed_status = registry
-        .apply_transform_chain(
-            TransformTarget::StatusBar,
-            TransformSubject::Element(status_el),
-            &AppView::new(state),
-        )
-        .into_element();
+    // Apply status transform chain: use Salsa-cached patch when available
+    let transformed_status = match handles.transform_patches.status_bar(db) {
+        Some(patch) => patch
+            .clone()
+            .apply(TransformSubject::Element(status_el))
+            .into_element(),
+        None => registry
+            .apply_transform_chain(
+                TransformTarget::StatusBar,
+                TransformSubject::Element(status_el),
+                &AppView::new(state),
+            )
+            .into_element(),
+    };
 
     // Read status slot contributions from Salsa input
     let status_left = handles.slot_contributions.status_left(db).clone();

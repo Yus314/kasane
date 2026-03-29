@@ -11,7 +11,7 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-use crate::display::{DisplayMap, InteractionPolicy, SourceMapping};
+use crate::display::{DisplayLine, DisplayMap, InteractionPolicy, SourceMapping};
 use crate::element::PluginTag;
 
 /// Stable identity for a display unit, derived from content (not insertion order).
@@ -126,12 +126,12 @@ impl DisplayUnitMap {
 
         for dl in 0..count {
             let entry = display_map
-                .entry(dl)
+                .entry(DisplayLine(dl))
                 .expect("display line in range during build");
 
             let (source, role) = match &entry.source {
                 SourceMapping::BufferLine(line) => {
-                    (UnitSource::Line(*line), SemanticRole::BufferContent)
+                    (UnitSource::Line(line.0), SemanticRole::BufferContent)
                 }
                 SourceMapping::LineRange(range) => (
                     UnitSource::LineRange(range.clone()),
@@ -268,10 +268,10 @@ impl DisplayUnitMap {
             // DU-INV-2 (Source Consistency): each unit's source matches its DisplayEntry.
             for unit in &self.units {
                 let entry = display_map
-                    .entry(unit.display_line)
+                    .entry(DisplayLine(unit.display_line))
                     .expect("DU-INV-2: display_line out of range");
                 let source_matches = match (&unit.source, &entry.source) {
-                    (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == *bl,
+                    (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == bl.0,
                     (UnitSource::LineRange(r), SourceMapping::LineRange(er)) => r == er,
                     (UnitSource::None, SourceMapping::None) => true,
                     _ => false,
@@ -378,10 +378,10 @@ pub(crate) fn assert_display_unit_map_invariants(dum: &DisplayUnitMap, display_m
     // DU-INV-2 (Source Consistency)
     for unit in &dum.units {
         let entry = display_map
-            .entry(unit.display_line)
+            .entry(DisplayLine(unit.display_line))
             .expect("DU-INV-2: display_line out of range");
         let source_matches = match (&unit.source, &entry.source) {
-            (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == *bl,
+            (UnitSource::Line(l), SourceMapping::BufferLine(bl)) => *l == bl.0,
             (UnitSource::LineRange(r), SourceMapping::LineRange(er)) => r == er,
             (UnitSource::None, SourceMapping::None) => true,
             _ => false,

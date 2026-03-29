@@ -1,6 +1,8 @@
 mod fixtures;
 
-use iai_callgrind::{library_benchmark, library_benchmark_group, main};
+use iai_callgrind::{
+    Callgrind, EventKind, LibraryBenchmarkConfig, library_benchmark, library_benchmark_group, main,
+};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
@@ -90,11 +92,21 @@ fn setup_grid_diff_incremental() -> CellGrid {
 }
 
 // ---------------------------------------------------------------------------
+// Regression config
+// ---------------------------------------------------------------------------
+
+fn regression_config() -> LibraryBenchmarkConfig {
+    let mut config = LibraryBenchmarkConfig::default();
+    config.tool(Callgrind::default().soft_limits([(EventKind::Ir, 5.0)]));
+    config
+}
+
+// ---------------------------------------------------------------------------
 // Benchmarks
 // ---------------------------------------------------------------------------
 
 // Full pipeline: view -> place -> paint -> diff -> swap (80x24)
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_full_frame())]
 fn iai_full_frame(
     (state, registry, mut grid): (kasane_core::state::AppState, PluginRuntime, CellGrid),
@@ -114,14 +126,14 @@ fn iai_full_frame(
 }
 
 // Parse 100-line draw JSON-RPC message
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_parse_draw_100())]
 fn iai_parse_draw_100(mut json: Vec<u8>) {
     let _ = parse_request(&mut json).unwrap();
 }
 
 // state.apply() for a 23-line draw message
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_state_apply_draw())]
 fn iai_state_apply_draw((mut state, mut json): (kasane_core::state::AppState, Vec<u8>)) {
     let request = parse_request(&mut json).unwrap();
@@ -129,7 +141,7 @@ fn iai_state_apply_draw((mut state, mut json): (kasane_core::state::AppState, Ve
 }
 
 // Paint only (80x24)
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_paint())]
 fn iai_paint_80x24(
     (state, element, layout, mut grid): (
@@ -144,14 +156,14 @@ fn iai_paint_80x24(
 }
 
 // Grid diff: full redraw (previous buffer empty)
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_grid_diff_full())]
 fn iai_grid_diff_full(grid: CellGrid) {
     let _ = grid.diff();
 }
 
 // Grid diff: incremental (identical content — empty diff)
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_grid_diff_incremental())]
 fn iai_grid_diff_incremental(grid: CellGrid) {
     let _ = grid.diff();

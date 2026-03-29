@@ -169,7 +169,10 @@ impl SurfaceRegistry {
                 ),
             );
             surface_reports.push(outcome.report);
-            outcome.tree.map(|tree| tree.root).unwrap_or(Element::Empty)
+            outcome
+                .tree
+                .map(|tree| tree.into_root())
+                .unwrap_or(Element::Empty)
         });
 
         let base = match status_bar {
@@ -275,7 +278,10 @@ impl SurfaceRegistry {
                         rect,
                         focused,
                     );
-                    let buffer_elem = outcome.tree.map(|tree| tree.root).unwrap_or(Element::Empty);
+                    let buffer_elem = outcome
+                        .tree
+                        .map(|tree| tree.into_root())
+                        .unwrap_or(Element::Empty);
                     let mut reports = vec![outcome.report];
 
                     // In multi-pane mode, render per-pane status bar
@@ -307,7 +313,7 @@ impl SurfaceRegistry {
                         reports.push(status_outcome.report);
                         let status_elem = status_outcome
                             .tree
-                            .map(|tree| tree.root)
+                            .map(|tree| tree.into_root())
                             .unwrap_or(Element::Empty);
 
                         let mut children = Vec::new();

@@ -241,7 +241,6 @@ fn state_apply_under_200us() {
 #[test]
 #[ignore]
 fn salsa_full_frame_under_2ms() {
-    use kasane_core::plugin::ContributionCache;
     use kasane_core::render::render_pipeline_cached;
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{
@@ -254,15 +253,14 @@ fn salsa_full_frame_under_2ms() {
     let registry = PluginRuntime::new();
     let mut grid = CellGrid::new(state.cols, state.rows);
     let mut db = KasaneDatabase::default();
-    let handles = SalsaInputHandles::new(&mut db);
+    let mut handles = SalsaInputHandles::new(&mut db);
     let dirty = DirtyFlags::ALL;
-    let mut cache = ContributionCache::default();
 
     // Warmup
     for _ in 0..20 {
         sync_inputs_from_state(&mut db, &state, &handles);
         sync_display_directives(&mut db, &state, &registry.view(), &handles);
-        sync_plugin_contributions(&mut db, &state, &registry.view(), &handles, &mut cache);
+        sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
         let (_result, _) = render_pipeline_cached(
             &db,
             &handles,
@@ -281,7 +279,7 @@ fn salsa_full_frame_under_2ms() {
             let start = Instant::now();
             sync_inputs_from_state(&mut db, &state, &handles);
             sync_display_directives(&mut db, &state, &registry.view(), &handles);
-            sync_plugin_contributions(&mut db, &state, &registry.view(), &handles, &mut cache);
+            sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
             let (_result, _) = render_pipeline_cached(
                 &db,
                 &handles,

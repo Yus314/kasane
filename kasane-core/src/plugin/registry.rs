@@ -937,6 +937,50 @@ impl<'a> PluginView<'a> {
             .into_vec()
     }
 
+    /// Collect transform patches from all TRANSFORMER plugins for a target,
+    /// without applying them.
+    ///
+    /// Returns a composed `Some(patch)` when all plugins return pure patches,
+    /// or `None` when any plugin returns a legacy (imperative) or impure patch.
+    /// Used by `sync_transform_patches()` to store patches as Salsa inputs.
+    pub fn collect_transform_patches(
+        &self,
+        target: TransformTarget,
+        state: &AppView<'_>,
+    ) -> Option<super::element_patch::ElementPatch> {
+        use super::element_patch::ElementPatch;
+
+        let mut chain: Vec<(usize, i16, PluginId)> = Vec::new();
+        for (i, slot) in self.slots.iter().enumerate() {
+            if slot.capabilities.contains(PluginCapabilities::TRANSFORMER) {
+                let prio = slot.backend.transform_priority();
+                chain.push((i, prio, slot.backend.id()));
+            }
+        }
+        chain.sort_by_key(|(_, prio, id)| (std::cmp::Reverse(*prio), id.clone()));
+
+        if chain.is_empty() {
+            return Some(ElementPatch::Identity);
+        }
+
+        let pane_context = PaneContext::default();
+        let mut patches = Vec::new();
+        for (pos, (i, _, _)) in chain.iter().enumerate() {
+            let ctx = TransformContext {
+                is_default: true,
+                chain_position: pos,
+                pane_surface_id: pane_context.surface_id,
+                pane_focused: pane_context.focused,
+            };
+            match self.slots[*i].backend.transform_patch(&target, state, &ctx) {
+                Some(p) if p.is_pure() => patches.push(p),
+                Some(_) | None => return None, // impure or legacy → fall back to imperative
+            }
+        }
+
+        Some(ElementPatch::Compose(patches).normalize())
+    }
+
     /// Apply the transform chain for a given target.
     ///
     /// Plugins with the `TRANSFORMER` capability are collected into a chain,

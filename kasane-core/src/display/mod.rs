@@ -16,6 +16,16 @@ use std::sync::Arc;
 
 use crate::protocol::Atom;
 
+/// A buffer line index (0-based).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct BufferLine(pub usize);
+
+/// A display line index (0-based).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct DisplayLine(pub usize);
+
 pub use fold_state::FoldToggleState;
 pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};
 pub use resolve::{DirectiveSet, TaggedDirective, resolve};
@@ -43,7 +53,7 @@ pub enum DisplayDirective {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceMapping {
     /// This display line corresponds to exactly one buffer line.
-    BufferLine(usize),
+    BufferLine(BufferLine),
     /// This display line represents a folded range of buffer lines.
     LineRange(Range<usize>),
     /// This display line is virtual text (no buffer origin).
@@ -116,7 +126,7 @@ impl DisplayMap {
     pub fn identity(n: usize) -> Self {
         let entries: Vec<DisplayEntry> = (0..n)
             .map(|i| DisplayEntry {
-                source: SourceMapping::BufferLine(i),
+                source: SourceMapping::BufferLine(BufferLine(i)),
                 interaction: InteractionPolicy::Normal,
                 synthetic: None,
             })
@@ -258,7 +268,7 @@ impl DisplayMap {
             // Normal buffer line
             let display_idx = entries.len();
             entries.push(DisplayEntry {
-                source: SourceMapping::BufferLine(line),
+                source: SourceMapping::BufferLine(BufferLine(line)),
                 interaction: InteractionPolicy::Normal,
                 synthetic: None,
             });
@@ -298,12 +308,12 @@ impl DisplayMap {
     /// Map a display line index to the corresponding buffer line (O(1)).
     ///
     /// Returns `None` for virtual text lines.
-    pub fn display_to_buffer(&self, display_y: usize) -> Option<usize> {
+    pub fn display_to_buffer(&self, display_y: DisplayLine) -> Option<BufferLine> {
         self.entries
-            .get(display_y)
+            .get(display_y.0)
             .and_then(|entry| match &entry.source {
                 SourceMapping::BufferLine(line) => Some(*line),
-                SourceMapping::LineRange(range) => Some(range.start),
+                SourceMapping::LineRange(range) => Some(BufferLine(range.start)),
                 SourceMapping::None => None,
             })
     }
@@ -311,13 +321,17 @@ impl DisplayMap {
     /// Map a buffer line to its display line (O(1)).
     ///
     /// Returns `None` if the buffer line is hidden or folded away.
-    pub fn buffer_to_display(&self, buffer_line: usize) -> Option<usize> {
-        self.buffer_to_display.get(buffer_line).copied().flatten()
+    pub fn buffer_to_display(&self, buffer_line: BufferLine) -> Option<DisplayLine> {
+        self.buffer_to_display
+            .get(buffer_line.0)
+            .copied()
+            .flatten()
+            .map(DisplayLine)
     }
 
     /// Get the display entry for a given display line (O(1)).
-    pub fn entry(&self, display_y: usize) -> Option<&DisplayEntry> {
-        self.entries.get(display_y)
+    pub fn entry(&self, display_y: DisplayLine) -> Option<&DisplayEntry> {
+        self.entries.get(display_y.0)
     }
 
     /// Check if a display line is dirty based on the buffer's `lines_dirty` flags.
@@ -325,12 +339,12 @@ impl DisplayMap {
     /// For fold summary lines, returns true if any buffer line in the fold range is dirty.
     /// For virtual text lines, always returns false (they don't change from buffer edits).
     /// For identity maps, delegates directly to the `lines_dirty` array.
-    pub fn is_display_line_dirty(&self, display_y: usize, lines_dirty: &[bool]) -> bool {
-        let Some(entry) = self.entries.get(display_y) else {
+    pub fn is_display_line_dirty(&self, display_y: DisplayLine, lines_dirty: &[bool]) -> bool {
+        let Some(entry) = self.entries.get(display_y.0) else {
             return true; // out of bounds → treat as dirty
         };
         match &entry.source {
-            SourceMapping::BufferLine(line) => lines_dirty.get(*line).copied().unwrap_or(true),
+            SourceMapping::BufferLine(line) => lines_dirty.get(line.0).copied().unwrap_or(true),
             SourceMapping::LineRange(range) => range
                 .clone()
                 .any(|l| lines_dirty.get(l).copied().unwrap_or(true)),
@@ -354,7 +368,7 @@ impl DisplayMap {
                 );
                 for i in 0..self.entries.len() {
                     debug_assert!(
-                        matches!(&self.entries[i].source, SourceMapping::BufferLine(bl) if *bl == i),
+                        matches!(&self.entries[i].source, SourceMapping::BufferLine(bl) if bl.0 == i),
                         "INV-7: identity entries[{i}] is not BufferLine({i})"
                     );
                     debug_assert_eq!(
@@ -386,8 +400,8 @@ impl DisplayMap {
                     );
                     match &self.entries[dl].source {
                         SourceMapping::BufferLine(b) => debug_assert_eq!(
-                            *b, bl,
-                            "INV-1: b2d[{bl}] = {dl} but entries[{dl}] = BufferLine({b})"
+                            b.0, bl,
+                            "INV-1: b2d[{bl}] = {dl} but entries[{dl}] = BufferLine({b:?})"
                         ),
                         SourceMapping::LineRange(r) => debug_assert!(
                             r.contains(&bl),
@@ -406,22 +420,26 @@ impl DisplayMap {
                 match &self.entries[dl].source {
                     SourceMapping::BufferLine(bl) => {
                         debug_assert!(
-                            *bl < n_buf,
-                            "INV-2: entries[{dl}] = BufferLine({bl}) but line_count = {n_buf}"
+                            bl.0 < n_buf,
+                            "INV-2: entries[{dl}] = BufferLine({:?}) but line_count = {n_buf}",
+                            bl
                         );
                         debug_assert_eq!(
-                            self.buffer_to_display[*bl],
+                            self.buffer_to_display[bl.0],
                             Some(dl),
-                            "INV-2: entries[{dl}] = BufferLine({bl}) but b2d[{bl}] = {:?}",
-                            self.buffer_to_display[*bl]
+                            "INV-2: entries[{dl}] = BufferLine({:?}) but b2d[{}] = {:?}",
+                            bl,
+                            bl.0,
+                            self.buffer_to_display[bl.0]
                         );
                         if let Some(p) = prev_buf {
                             debug_assert!(
-                                *bl > p,
-                                "INV-5: non-monotonic: entries[{dl}] = BufferLine({bl}) after {p}"
+                                bl.0 > p,
+                                "INV-5: non-monotonic: entries[{dl}] = BufferLine({:?}) after {p}",
+                                bl
                             );
                         }
-                        prev_buf = Some(*bl);
+                        prev_buf = Some(bl.0);
                     }
                     SourceMapping::LineRange(r) => {
                         let end = r.end.min(n_buf);
@@ -449,7 +467,7 @@ impl DisplayMap {
             let mut covered = vec![false; n_buf];
             for dl in 0..self.entries.len() {
                 let range = match &self.entries[dl].source {
-                    SourceMapping::BufferLine(bl) => *bl..*bl + 1,
+                    SourceMapping::BufferLine(bl) => bl.0..bl.0 + 1,
                     SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
                     SourceMapping::None => continue,
                 };
@@ -495,25 +513,26 @@ impl DisplayMap {
 /// Returns 0 for identity maps or when the content fits in the viewport.
 pub fn compute_display_scroll_offset(
     display_map: &DisplayMap,
-    cursor_buffer_line: usize,
+    cursor_buffer_line: BufferLine,
     visible_height: usize,
-) -> usize {
+) -> DisplayLine {
     if display_map.is_identity() {
-        return 0;
+        return DisplayLine(0);
     }
     let display_total = display_map.display_line_count();
     if display_total <= visible_height {
-        return 0;
+        return DisplayLine(0);
     }
     let cursor_display_y = display_map
         .buffer_to_display(cursor_buffer_line)
-        .unwrap_or(cursor_buffer_line);
+        .map(|dl| dl.0)
+        .unwrap_or(cursor_buffer_line.0);
     if cursor_display_y < visible_height {
-        return 0;
+        return DisplayLine(0);
     }
     let offset = cursor_display_y - visible_height + 1;
     let max_offset = display_total.saturating_sub(visible_height);
-    offset.min(max_offset)
+    DisplayLine(offset.min(max_offset))
 }
 
 #[cfg(test)]
@@ -528,7 +547,7 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
         assert_eq!(dm.entries.len(), dm.buffer_to_display.len(), "INV-7");
         for i in 0..dm.entries.len() {
             assert!(
-                matches!(&dm.entries[i].source, SourceMapping::BufferLine(bl) if *bl == i),
+                matches!(&dm.entries[i].source, SourceMapping::BufferLine(bl) if bl.0 == i),
                 "INV-7: entries[{i}]"
             );
             assert_eq!(
@@ -551,8 +570,8 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
             match &dm.entries[dl].source {
                 SourceMapping::BufferLine(b) => {
                     assert_eq!(
-                        *b, bl,
-                        "INV-1: b2d[{bl}] = {dl} but source = BufferLine({b})"
+                        b.0, bl,
+                        "INV-1: b2d[{bl}] = {dl} but source = BufferLine({b:?})"
                     );
                 }
                 SourceMapping::LineRange(r) => {
@@ -573,16 +592,19 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
     for dl in 0..dm.entries.len() {
         match &dm.entries[dl].source {
             SourceMapping::BufferLine(bl) => {
-                assert!(*bl < n_buf, "INV-2: BufferLine({bl}) >= line_count {n_buf}");
+                assert!(
+                    bl.0 < n_buf,
+                    "INV-2: BufferLine({bl:?}) >= line_count {n_buf}"
+                );
                 assert_eq!(
-                    dm.buffer_to_display[*bl],
+                    dm.buffer_to_display[bl.0],
                     Some(dl),
-                    "INV-2: entries[{dl}] = BufferLine({bl})"
+                    "INV-2: entries[{dl}] = BufferLine({bl:?})"
                 );
                 if let Some(p) = prev_buf {
-                    assert!(*bl > p, "INV-5: non-monotonic at entries[{dl}]");
+                    assert!(bl.0 > p, "INV-5: non-monotonic at entries[{dl}]");
                 }
-                prev_buf = Some(*bl);
+                prev_buf = Some(bl.0);
             }
             SourceMapping::LineRange(r) => {
                 let end = r.end.min(n_buf);
@@ -606,7 +628,7 @@ pub(crate) fn assert_display_map_invariants(dm: &DisplayMap, line_count: usize) 
     let mut covered = vec![false; n_buf];
     for dl in 0..dm.entries.len() {
         let range = match &dm.entries[dl].source {
-            SourceMapping::BufferLine(bl) => *bl..*bl + 1,
+            SourceMapping::BufferLine(bl) => bl.0..bl.0 + 1,
             SourceMapping::LineRange(r) => r.start..r.end.min(n_buf),
             SourceMapping::None => continue,
         };

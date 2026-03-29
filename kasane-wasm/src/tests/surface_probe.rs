@@ -1,5 +1,5 @@
 use super::*;
-use kasane_core::display::SourceMapping;
+use kasane_core::display::{BufferLine, DisplayLine, SourceMapping};
 use kasane_core::layout::SplitDirection;
 use kasane_core::plugin::{KeyHandleResult, PluginAuthorities};
 use kasane_core::surface::SurfaceId;
@@ -458,10 +458,10 @@ fn converts_fold_display_directive_from_guest() {
 
     let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
     assert_eq!(map.display_line_count(), 3);
-    assert_eq!(map.buffer_to_display(1), Some(1));
-    assert_eq!(map.buffer_to_display(2), Some(1));
+    assert_eq!(map.buffer_to_display(BufferLine(1)), Some(DisplayLine(1)));
+    assert_eq!(map.buffer_to_display(BufferLine(2)), Some(DisplayLine(1)));
 
-    let entry = map.entry(1).expect("fold summary line");
+    let entry = map.entry(DisplayLine(1)).expect("fold summary line");
     assert_eq!(entry.source, SourceMapping::LineRange(1..3));
     assert_eq!(
         entry
@@ -483,10 +483,10 @@ fn converts_hide_display_directive_from_guest() {
 
     let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
     assert_eq!(map.display_line_count(), 2);
-    assert_eq!(map.buffer_to_display(1), None);
-    assert_eq!(map.buffer_to_display(2), None);
-    assert_eq!(map.display_to_buffer(0), Some(0));
-    assert_eq!(map.display_to_buffer(1), Some(3));
+    assert_eq!(map.buffer_to_display(BufferLine(1)), None);
+    assert_eq!(map.buffer_to_display(BufferLine(2)), None);
+    assert_eq!(map.display_to_buffer(DisplayLine(0)), Some(BufferLine(0)));
+    assert_eq!(map.display_to_buffer(DisplayLine(1)), Some(BufferLine(3)));
 }
 
 #[test]
@@ -499,12 +499,12 @@ fn converts_insert_after_display_directive_from_guest() {
 
     let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
     assert_eq!(map.display_line_count(), 4);
-    assert_eq!(map.display_to_buffer(0), Some(0));
-    assert_eq!(map.display_to_buffer(1), Some(1));
-    assert_eq!(map.display_to_buffer(2), None);
-    assert_eq!(map.display_to_buffer(3), Some(2));
+    assert_eq!(map.display_to_buffer(DisplayLine(0)), Some(BufferLine(0)));
+    assert_eq!(map.display_to_buffer(DisplayLine(1)), Some(BufferLine(1)));
+    assert_eq!(map.display_to_buffer(DisplayLine(2)), None);
+    assert_eq!(map.display_to_buffer(DisplayLine(3)), Some(BufferLine(2)));
     assert_eq!(
-        map.entry(2)
+        map.entry(DisplayLine(2))
             .and_then(|entry| entry.synthetic.as_ref())
             .expect("virtual line")
             .text(),

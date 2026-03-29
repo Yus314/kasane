@@ -3,7 +3,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::grid::CellGrid;
 use super::theme::Theme;
-use crate::display::{DisplayMap, SourceMapping, SyntheticContent};
+use crate::display::{DisplayLine, DisplayMap, SourceMapping, SyntheticContent};
 use crate::element::{BorderLineStyle, BufferRefState, Element};
 use crate::layout::Rect;
 use crate::layout::flex::LayoutResult;
@@ -149,9 +149,9 @@ pub(crate) fn analyze_buffer_line<'a>(
     // Step 1: Resolve display line → buffer line via DisplayMap
     let (buffer_line_idx, synthetic): (Option<usize>, Option<&SyntheticContent>) =
         if let Some(dm) = display_map {
-            if let Some(entry) = dm.entry(display_line) {
+            if let Some(entry) = dm.entry(DisplayLine(display_line)) {
                 let buf_line = match &entry.source {
-                    SourceMapping::BufferLine(l) => Some(*l),
+                    SourceMapping::BufferLine(l) => Some(l.0),
                     SourceMapping::LineRange(r) => Some(r.start),
                     SourceMapping::None => None,
                 };
@@ -168,7 +168,7 @@ pub(crate) fn analyze_buffer_line<'a>(
     // Synthetic lines are always repainted: lines_dirty tracks buffer lines only.
     if skip_clean && synthetic.is_none() {
         let is_dirty = if let Some(dm) = display_map {
-            dm.is_display_line_dirty(display_line, params.lines_dirty)
+            dm.is_display_line_dirty(DisplayLine(display_line), params.lines_dirty)
         } else {
             params
                 .lines_dirty

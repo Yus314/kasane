@@ -109,9 +109,6 @@ where
     // Salsa database
     salsa_db: KasaneDatabase,
     salsa_handles: SalsaInputHandles,
-
-    // Per-plugin contribution cache for incremental recollection
-    contribution_cache: kasane_core::plugin::ContributionCache,
 }
 
 impl<R, W, C> App<R, W, C>
@@ -247,7 +244,6 @@ where
             process_dispatcher,
             salsa_db,
             salsa_handles,
-            contribution_cache: kasane_core::plugin::ContributionCache::default(),
         })
     }
 
@@ -830,8 +826,7 @@ where
                 &mut self.salsa_db,
                 &self.state,
                 &self.registry,
-                &self.salsa_handles,
-                &mut self.contribution_cache,
+                &mut self.salsa_handles,
             );
             let view = self.registry.view();
 

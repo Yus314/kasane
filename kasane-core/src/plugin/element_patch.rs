@@ -86,6 +86,24 @@ impl Clone for ElementPatch {
     }
 }
 
+impl PartialEq for ElementPatch {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Identity, Self::Identity) => true,
+            (Self::WrapContainer { face: a }, Self::WrapContainer { face: b }) => a == b,
+            (Self::Prepend { element: a }, Self::Prepend { element: b }) => a == b,
+            (Self::Append { element: a }, Self::Append { element: b }) => a == b,
+            (Self::Replace { element: a }, Self::Replace { element: b }) => a == b,
+            (Self::ModifyFace { overlay: a }, Self::ModifyFace { overlay: b }) => a == b,
+            (Self::Compose(a), Self::Compose(b)) => a == b,
+            // Impure variants: always unequal (opaque closures cannot be compared).
+            // This blocks Salsa memoization for chains containing these variants.
+            (Self::ModifyAnchor { .. }, _) | (Self::Custom(_), _) => false,
+            _ => false,
+        }
+    }
+}
+
 impl std::fmt::Debug for ElementPatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -593,6 +611,79 @@ mod tests {
         }
         .apply(subject.clone());
         assert_eq!(result, subject);
+    }
+
+    // --- PartialEq ---
+
+    #[test]
+    fn eq_identity() {
+        assert_eq!(ElementPatch::Identity, ElementPatch::Identity);
+    }
+
+    #[test]
+    fn eq_replace_same() {
+        let a = ElementPatch::Replace {
+            element: Element::Empty,
+        };
+        let b = ElementPatch::Replace {
+            element: Element::Empty,
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn ne_replace_different() {
+        let a = ElementPatch::Replace {
+            element: Element::Empty,
+        };
+        let b = ElementPatch::Replace {
+            element: sample_element(),
+        };
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn ne_different_variants() {
+        assert_ne!(
+            ElementPatch::Identity,
+            ElementPatch::Replace {
+                element: Element::Empty,
+            }
+        );
+    }
+
+    #[test]
+    fn ne_custom_always_unequal() {
+        let a = ElementPatch::Custom(Arc::new(|s| s));
+        let b = ElementPatch::Custom(Arc::new(|s| s));
+        assert_ne!(a, b);
+        // Even the same instance cloned compares as unequal
+        assert_ne!(a, a.clone());
+    }
+
+    #[test]
+    fn ne_modify_anchor_always_unequal() {
+        let a = ElementPatch::ModifyAnchor {
+            transform: Arc::new(|a| a),
+        };
+        assert_ne!(a, a.clone());
+    }
+
+    #[test]
+    fn eq_compose_structural() {
+        let a = ElementPatch::Compose(vec![
+            ElementPatch::Identity,
+            ElementPatch::Replace {
+                element: Element::Empty,
+            },
+        ]);
+        let b = ElementPatch::Compose(vec![
+            ElementPatch::Identity,
+            ElementPatch::Replace {
+                element: Element::Empty,
+            },
+        ]);
+        assert_eq!(a, b);
     }
 
     // --- Composable monoid laws (via proptest in tests/compose.rs) ---

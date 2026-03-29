@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::display::assert_display_map_invariants;
+use crate::display::{BufferLine, DisplayLine, assert_display_map_invariants};
 use crate::protocol::{Atom, Face};
 
 fn pid(name: &str) -> PluginId {
@@ -116,12 +116,12 @@ fn resolve_hides_overlap_idempotent() {
     assert_eq!(result.len(), 2);
     // Build the map to verify net effect: lines 1..5 hidden
     let dm = crate::display::DisplayMap::build(10, &result);
-    assert_eq!(dm.buffer_to_display(1), None);
-    assert_eq!(dm.buffer_to_display(2), None);
-    assert_eq!(dm.buffer_to_display(3), None);
-    assert_eq!(dm.buffer_to_display(4), None);
-    assert!(dm.buffer_to_display(0).is_some());
-    assert!(dm.buffer_to_display(5).is_some());
+    assert_eq!(dm.buffer_to_display(BufferLine(1)), None);
+    assert_eq!(dm.buffer_to_display(BufferLine(2)), None);
+    assert_eq!(dm.buffer_to_display(BufferLine(3)), None);
+    assert_eq!(dm.buffer_to_display(BufferLine(4)), None);
+    assert!(dm.buffer_to_display(BufferLine(0)).is_some());
+    assert!(dm.buffer_to_display(BufferLine(5)).is_some());
 }
 
 #[test]

@@ -112,8 +112,10 @@ fn compute_render_result(
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
             let cy = display_map
                 .filter(|dm| !dm.is_identity())
-                .and_then(|dm| dm.buffer_to_display(state.cursor_pos.line as usize))
-                .map(|y| y as u16)
+                .and_then(|dm| {
+                    dm.buffer_to_display(crate::display::BufferLine(state.cursor_pos.line as usize))
+                })
+                .map(|y| y.0 as u16)
                 .unwrap_or(state.cursor_pos.line as u16)
                 .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;

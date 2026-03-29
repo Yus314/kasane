@@ -298,13 +298,13 @@ pub fn sync_salsa_for_render(
     db: &mut crate::salsa_db::KasaneDatabase,
     state: &AppState,
     registry: &PluginRuntime,
-    handles: &crate::salsa_sync::SalsaInputHandles,
-    contribution_cache: &mut crate::plugin::ContributionCache,
+    handles: &mut crate::salsa_sync::SalsaInputHandles,
 ) {
     crate::salsa_sync::sync_inputs_from_state(db, state, handles);
     let view = registry.view();
     crate::salsa_sync::sync_display_directives(db, state, &view, handles);
-    crate::salsa_sync::sync_plugin_contributions(db, state, &view, handles, contribution_cache);
+    crate::salsa_sync::sync_plugin_contributions(db, state, &view, handles);
+    crate::salsa_sync::sync_transform_patches(db, state, &view, handles);
 }
 
 /// Print a hint about reconnecting to a running Kakoune session.

@@ -36,6 +36,14 @@ jobs:
           restore-keys: |
             cargo-bench-
 
+      - name: Restore iai-callgrind baselines
+        uses: actions/cache@v4
+        with:
+          path: target/iai
+          key: iai-baseline-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            iai-baseline-refs/heads/master-
+
       - name: Install valgrind
         run: sudo apt-get update && sudo apt-get install -y valgrind
 

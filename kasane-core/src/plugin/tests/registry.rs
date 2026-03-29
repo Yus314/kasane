@@ -425,12 +425,27 @@ fn test_collect_display_map_composes_multi_plugin() {
     let display_map = registry.view().collect_display_map(&AppView::new(&state));
     // 4 lines - 2 hidden + 1 virtual = 3 display lines
     assert_eq!(display_map.display_line_count(), 3);
-    assert_eq!(display_map.buffer_to_display(0), Some(0));
-    assert_eq!(display_map.buffer_to_display(1), None); // hidden
-    assert_eq!(display_map.buffer_to_display(2), None); // hidden
-    assert_eq!(display_map.buffer_to_display(3), Some(1)); // visible
+    assert_eq!(
+        display_map.buffer_to_display(crate::display::BufferLine(0)),
+        Some(crate::display::DisplayLine(0))
+    );
+    assert_eq!(
+        display_map.buffer_to_display(crate::display::BufferLine(1)),
+        None
+    ); // hidden
+    assert_eq!(
+        display_map.buffer_to_display(crate::display::BufferLine(2)),
+        None
+    ); // hidden
+    assert_eq!(
+        display_map.buffer_to_display(crate::display::BufferLine(3)),
+        Some(crate::display::DisplayLine(1))
+    ); // visible
     // display line 2 is the virtual text
-    assert_eq!(display_map.display_to_buffer(2), None);
+    assert_eq!(
+        display_map.display_to_buffer(crate::display::DisplayLine(2)),
+        None
+    );
 }
 
 #[test]

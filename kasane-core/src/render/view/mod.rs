@@ -45,7 +45,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
     let buffer_rows = state.available_height() as usize;
     let display_scroll_offset = crate::display::compute_display_scroll_offset(
         &display_map,
-        state.cursor_pos.line as usize,
+        crate::display::BufferLine(state.cursor_pos.line as usize),
         buffer_rows,
     );
 
@@ -56,7 +56,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
         plugin_overlays,
         surface_reports: base.surface_reports,
         display_map,
-        display_scroll_offset,
+        display_scroll_offset: display_scroll_offset.0,
         focused_pane_rect: None,
         focused_pane_state: None,
     }
@@ -329,11 +329,11 @@ pub(crate) fn build_buffer_core_parts(
         let visible_height = display_map.display_line_count().min(buffer_rows);
         let offset = crate::display::compute_display_scroll_offset(
             &display_map,
-            state.cursor_pos.line as usize,
+            crate::display::BufferLine(state.cursor_pos.line as usize),
             visible_height,
         );
-        let end = (offset + visible_height).min(display_map.display_line_count());
-        (offset, end, offset)
+        let end = (offset.0 + visible_height).min(display_map.display_line_count());
+        (offset.0, end, offset.0)
     } else {
         (0, buffer_rows, 0)
     };

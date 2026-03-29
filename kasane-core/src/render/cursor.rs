@@ -1,6 +1,6 @@
 use super::grid::CellGrid;
 use super::{CursorStyle, CursorStyleHint};
-use crate::display::DisplayMap;
+use crate::display::{BufferLine, DisplayMap};
 use crate::element::Element;
 use crate::layout::flex::LayoutResult;
 use crate::layout::line_display_width;
@@ -164,8 +164,8 @@ pub fn neutralize_unfocused_cursors(
                 if dm.is_identity() {
                     None
                 } else {
-                    dm.buffer_to_display(state.cursor_pos.line as usize)
-                        .map(|y| y as u16)
+                    dm.buffer_to_display(BufferLine(state.cursor_pos.line as usize))
+                        .map(|y| y.0 as u16)
                 }
             })
             .unwrap_or(state.cursor_pos.line as u16)
@@ -183,7 +183,8 @@ pub fn neutralize_unfocused_cursors(
                     if dm.is_identity() {
                         None
                     } else {
-                        dm.buffer_to_display(coord.line as usize).map(|y| y as u16)
+                        dm.buffer_to_display(BufferLine(coord.line as usize))
+                            .map(|y| y.0 as u16)
                     }
                 })
                 .unwrap_or(coord.line as u16)
@@ -217,8 +218,8 @@ pub fn cursor_position(
                     if dm.is_identity() {
                         None
                     } else {
-                        dm.buffer_to_display(state.cursor_pos.line as usize)
-                            .map(|y| y as u16)
+                        dm.buffer_to_display(BufferLine(state.cursor_pos.line as usize))
+                            .map(|y| y.0 as u16)
                     }
                 })
                 .unwrap_or(state.cursor_pos.line as u16)
@@ -305,8 +306,8 @@ pub fn clear_block_cursor_face(
                     if dm.is_identity() {
                         None
                     } else {
-                        dm.buffer_to_display(state.cursor_pos.line as usize)
-                            .map(|y| y as u16)
+                        dm.buffer_to_display(BufferLine(state.cursor_pos.line as usize))
+                            .map(|y| y.0 as u16)
                     }
                 })
                 .unwrap_or(state.cursor_pos.line as u16)
@@ -431,7 +432,8 @@ pub fn apply_secondary_cursor_faces(
                 if dm.is_identity() {
                     None
                 } else {
-                    dm.buffer_to_display(coord.line as usize).map(|y| y as u16)
+                    dm.buffer_to_display(BufferLine(coord.line as usize))
+                        .map(|y| y.0 as u16)
                 }
             })
             .unwrap_or(coord.line as u16)

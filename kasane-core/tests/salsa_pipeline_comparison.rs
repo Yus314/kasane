@@ -5,7 +5,6 @@
 //! of AppState configurations, including with active plugins.
 
 use kasane_core::element::Element;
-use kasane_core::plugin::ContributionCache;
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, ContribSizeHint, ContributeContext,
     Contribution, LineAnnotation, PluginBackend, PluginCapabilities, PluginId, PluginRuntime,
@@ -62,17 +61,11 @@ fn setup_salsa_with_plugins(
     registry: &PluginRuntime,
 ) -> (KasaneDatabase, SalsaInputHandles) {
     let mut db = KasaneDatabase::default();
-    let handles = SalsaInputHandles::new(&mut db);
+    let mut handles = SalsaInputHandles::new(&mut db);
     sync_inputs_from_state(&mut db, state, &handles);
 
     sync_display_directives(&mut db, state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        state,
-        &registry.view(),
-        &handles,
-        &mut ContributionCache::default(),
-    );
+    sync_plugin_contributions(&mut db, state, &registry.view(), &mut handles);
     (db, handles)
 }
 
@@ -259,7 +252,7 @@ fn compare_memoization_consistency() {
     state.status_line = vec![make_atom("status")];
     state.status_mode_line = vec![make_atom("normal")];
     let registry = PluginRuntime::new();
-    let (mut db, handles) = setup_salsa(&state);
+    let (mut db, mut handles) = setup_salsa(&state);
 
     // First render
     let salsa1 = render_salsa(&state, &registry, &db, &handles);
@@ -269,13 +262,7 @@ fn compare_memoization_consistency() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry.view(),
-        &handles,
-        &mut ContributionCache::default(),
-    );
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
 
     let legacy2 = render_legacy(&state, &registry);
     let salsa2 = render_salsa(&state, &registry, &db, &handles);
@@ -670,7 +657,7 @@ fn compare_menu_appears_while_info_visible() {
     state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
 
     let registry = PluginRuntime::new();
-    let (mut db, handles) = setup_salsa(&state);
+    let (mut db, mut handles) = setup_salsa(&state);
 
     // Render with only info visible
     let legacy_info_only = render_legacy(&state, &registry);
@@ -686,13 +673,7 @@ fn compare_menu_appears_while_info_visible() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry.view(),
-        &handles,
-        &mut ContributionCache::default(),
-    );
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
 
     let legacy_both = render_legacy(&state, &registry);
     let salsa_both = render_salsa(&state, &registry, &db, &handles);
@@ -707,7 +688,7 @@ fn compare_menu_disappears_while_info_visible() {
     state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
 
     let registry = PluginRuntime::new();
-    let (mut db, handles) = setup_salsa(&state);
+    let (mut db, mut handles) = setup_salsa(&state);
 
     // Render with both menu and info
     let legacy_both = render_legacy(&state, &registry);
@@ -719,13 +700,7 @@ fn compare_menu_disappears_while_info_visible() {
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
-    sync_plugin_contributions(
-        &mut db,
-        &state,
-        &registry.view(),
-        &handles,
-        &mut ContributionCache::default(),
-    );
+    sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
 
     let legacy_info_only = render_legacy(&state, &registry);
     let salsa_info_only = render_salsa(&state, &registry, &db, &handles);

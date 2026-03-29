@@ -83,7 +83,11 @@ impl WasmPluginShared {
         f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
     ) -> R {
         self.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state.as_app_state(),
+                self.cached_view_deps,
+            );
             runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock();
             match f(runtime) {
                 Ok(result) => result,
@@ -104,7 +108,11 @@ impl WasmPluginShared {
         f: impl FnOnce(&mut WasmPluginRuntime) -> anyhow::Result<R>,
     ) -> R {
         self.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state.as_app_state(),
+                self.cached_view_deps,
+            );
             runtime.store.data_mut().plugin_tag = *self.plugin_tag.lock();
             let result = match f(runtime) {
                 Ok(result) => result,
@@ -216,7 +224,11 @@ impl Surface for WasmHostedSurface {
         let surface_key = self.surface_key.to_string();
         let wit_ctx = convert::surface_view_context_to_wit(ctx);
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), ctx.state);
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                ctx.state,
+                self.shared.cached_view_deps,
+            );
             runtime.store.data_mut().focused = ctx.focused;
             runtime.store.data_mut().elements.clear();
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
@@ -237,7 +249,11 @@ impl Surface for WasmHostedSurface {
     fn handle_event(&mut self, _event: SurfaceEvent, _ctx: &EventContext<'_>) -> Vec<Command> {
         let surface_key = self.surface_key.to_string();
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), _ctx.state);
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                _ctx.state,
+                self.shared.cached_view_deps,
+            );
             runtime.store.data_mut().focused = _ctx.focused;
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_event = convert::surface_event_to_wit(&_event);
@@ -273,7 +289,11 @@ impl Surface for WasmHostedSurface {
     ) -> Vec<Command> {
         let surface_key = self.surface_key.to_string();
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state);
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state,
+                self.shared.cached_view_deps,
+            );
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             match plugin_api.call_handle_surface_state_changed(
                 &mut runtime.store,
@@ -535,7 +555,11 @@ impl PluginBackend for WasmPlugin {
     fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state.as_app_state(),
+                self.shared.cached_view_deps,
+            );
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
             let result = match plugin_api.call_handle_key(&mut runtime.store, wit_key) {
@@ -600,7 +624,11 @@ impl PluginBackend for WasmPlugin {
     ) -> KeyResponse {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state.as_app_state(),
+                self.shared.cached_view_deps,
+            );
             runtime.store.data_mut().plugin_tag = *shared.plugin_tag.lock();
             let api = runtime.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
@@ -659,7 +687,11 @@ impl PluginBackend for WasmPlugin {
         state: &AppView<'_>,
     ) -> Option<ScrollPolicyResult> {
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state.as_app_state(),
+                self.shared.cached_view_deps,
+            );
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_candidate = convert::default_scroll_candidate_to_wit(&candidate);
             let result =
@@ -795,7 +827,11 @@ impl PluginBackend for WasmPlugin {
         ctx: &TransformContext,
     ) -> TransformSubject {
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                state.as_app_state(),
+                self.shared.cached_view_deps,
+            );
             runtime.store.data_mut().elements.clear();
 
             // Convert TransformSubject → WIT transform-subject
@@ -850,7 +886,11 @@ impl PluginBackend for WasmPlugin {
         ctx: &TransformContext,
     ) -> Option<ElementPatch> {
         self.shared.with_runtime(|runtime| {
-            host::sync_from_app_state(runtime.store.data_mut(), _state.as_app_state());
+            host::sync_from_app_state(
+                runtime.store.data_mut(),
+                _state.as_app_state(),
+                self.shared.cached_view_deps,
+            );
             runtime.store.data_mut().elements.clear();
 
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();

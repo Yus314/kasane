@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::display::resolve;
+use crate::display::{BufferLine, DisplayLine, resolve};
 use crate::plugin::PluginId;
 use crate::protocol::{Atom, Face};
 
@@ -12,16 +12,16 @@ fn identity_map_roundtrip() {
     assert_eq!(dm.display_line_count(), 10);
 
     for i in 0..10 {
-        assert_eq!(dm.display_to_buffer(i), Some(i));
-        assert_eq!(dm.buffer_to_display(i), Some(i));
+        assert_eq!(dm.display_to_buffer(DisplayLine(i)), Some(BufferLine(i)));
+        assert_eq!(dm.buffer_to_display(BufferLine(i)), Some(DisplayLine(i)));
     }
 }
 
 #[test]
 fn identity_map_entry() {
     let dm = DisplayMap::identity(3);
-    let entry = dm.entry(1).unwrap();
-    assert_eq!(entry.source, SourceMapping::BufferLine(1));
+    let entry = dm.entry(DisplayLine(1)).unwrap();
+    assert_eq!(entry.source, SourceMapping::BufferLine(BufferLine(1)));
     assert_eq!(entry.interaction, InteractionPolicy::Normal);
     assert!(entry.synthetic.is_none());
 }
@@ -68,28 +68,28 @@ fn fold_mapping_correctness() {
     assert_eq!(dm.display_line_count(), 6);
 
     // Lines before fold
-    assert_eq!(dm.display_to_buffer(0), Some(0));
-    assert_eq!(dm.display_to_buffer(1), Some(1));
+    assert_eq!(dm.display_to_buffer(DisplayLine(0)), Some(BufferLine(0)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(1)), Some(BufferLine(1)));
 
     // Fold summary line maps to first line of range
-    assert_eq!(dm.display_to_buffer(2), Some(2));
-    let entry = dm.entry(2).unwrap();
+    assert_eq!(dm.display_to_buffer(DisplayLine(2)), Some(BufferLine(2)));
+    let entry = dm.entry(DisplayLine(2)).unwrap();
     assert_eq!(entry.source, SourceMapping::LineRange(2..5));
     assert!(entry.synthetic.is_some());
     assert_eq!(entry.interaction, InteractionPolicy::ReadOnly);
 
     // Lines after fold
-    assert_eq!(dm.display_to_buffer(3), Some(5));
-    assert_eq!(dm.display_to_buffer(4), Some(6));
-    assert_eq!(dm.display_to_buffer(5), Some(7));
+    assert_eq!(dm.display_to_buffer(DisplayLine(3)), Some(BufferLine(5)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(4)), Some(BufferLine(6)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(5)), Some(BufferLine(7)));
 
     // Buffer → display
-    assert_eq!(dm.buffer_to_display(0), Some(0));
-    assert_eq!(dm.buffer_to_display(1), Some(1));
-    assert_eq!(dm.buffer_to_display(2), Some(2)); // fold start → summary line
-    assert_eq!(dm.buffer_to_display(3), Some(2)); // inside fold → summary line
-    assert_eq!(dm.buffer_to_display(4), Some(2)); // inside fold → summary line
-    assert_eq!(dm.buffer_to_display(5), Some(3));
+    assert_eq!(dm.buffer_to_display(BufferLine(0)), Some(DisplayLine(0)));
+    assert_eq!(dm.buffer_to_display(BufferLine(1)), Some(DisplayLine(1)));
+    assert_eq!(dm.buffer_to_display(BufferLine(2)), Some(DisplayLine(2))); // fold start → summary line
+    assert_eq!(dm.buffer_to_display(BufferLine(3)), Some(DisplayLine(2))); // inside fold → summary line
+    assert_eq!(dm.buffer_to_display(BufferLine(4)), Some(DisplayLine(2))); // inside fold → summary line
+    assert_eq!(dm.buffer_to_display(BufferLine(5)), Some(DisplayLine(3)));
 }
 
 #[test]
@@ -99,12 +99,12 @@ fn hide_removes_lines() {
 
     // 5 - 2 = 3 display lines
     assert_eq!(dm.display_line_count(), 3);
-    assert_eq!(dm.display_to_buffer(0), Some(0));
-    assert_eq!(dm.display_to_buffer(1), Some(3));
-    assert_eq!(dm.display_to_buffer(2), Some(4));
+    assert_eq!(dm.display_to_buffer(DisplayLine(0)), Some(BufferLine(0)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(1)), Some(BufferLine(3)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(2)), Some(BufferLine(4)));
 
-    assert_eq!(dm.buffer_to_display(1), None);
-    assert_eq!(dm.buffer_to_display(2), None);
+    assert_eq!(dm.buffer_to_display(BufferLine(1)), None);
+    assert_eq!(dm.buffer_to_display(BufferLine(2)), None);
 }
 
 #[test]
@@ -121,15 +121,15 @@ fn insert_after_adds_lines() {
     // 3 + 1 = 4 display lines
     assert_eq!(dm.display_line_count(), 4);
 
-    assert_eq!(dm.display_to_buffer(0), Some(0));
-    assert_eq!(dm.display_to_buffer(1), Some(1));
+    assert_eq!(dm.display_to_buffer(DisplayLine(0)), Some(BufferLine(0)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(1)), Some(BufferLine(1)));
     // Virtual line
-    assert_eq!(dm.display_to_buffer(2), None);
-    let entry = dm.entry(2).unwrap();
+    assert_eq!(dm.display_to_buffer(DisplayLine(2)), None);
+    let entry = dm.entry(DisplayLine(2)).unwrap();
     assert_eq!(entry.source, SourceMapping::None);
     assert!(entry.synthetic.is_some());
 
-    assert_eq!(dm.display_to_buffer(3), Some(2));
+    assert_eq!(dm.display_to_buffer(DisplayLine(3)), Some(BufferLine(2)));
 }
 
 #[test]
@@ -137,10 +137,10 @@ fn dirty_identity() {
     let dm = DisplayMap::identity(5);
     let dirty = vec![false, true, false, true, false];
 
-    assert!(!dm.is_display_line_dirty(0, &dirty));
-    assert!(dm.is_display_line_dirty(1, &dirty));
-    assert!(!dm.is_display_line_dirty(2, &dirty));
-    assert!(dm.is_display_line_dirty(3, &dirty));
+    assert!(!dm.is_display_line_dirty(DisplayLine(0), &dirty));
+    assert!(dm.is_display_line_dirty(DisplayLine(1), &dirty));
+    assert!(!dm.is_display_line_dirty(DisplayLine(2), &dirty));
+    assert!(dm.is_display_line_dirty(DisplayLine(3), &dirty));
 }
 
 #[test]
@@ -157,9 +157,9 @@ fn dirty_fold_any_dirty() {
 
     // Only line 2 (inside fold) is dirty
     let dirty = vec![false, false, true, false, false];
-    assert!(!dm.is_display_line_dirty(0, &dirty));
-    assert!(dm.is_display_line_dirty(1, &dirty)); // fold summary: line 2 is dirty
-    assert!(!dm.is_display_line_dirty(2, &dirty));
+    assert!(!dm.is_display_line_dirty(DisplayLine(0), &dirty));
+    assert!(dm.is_display_line_dirty(DisplayLine(1), &dirty)); // fold summary: line 2 is dirty
+    assert!(!dm.is_display_line_dirty(DisplayLine(2), &dirty));
 }
 
 #[test]
@@ -175,7 +175,7 @@ fn dirty_virtual_line_never_dirty() {
 
     let dirty = vec![true, true];
     // Virtual line at display index 1 should not be dirty
-    assert!(!dm.is_display_line_dirty(1, &dirty));
+    assert!(!dm.is_display_line_dirty(DisplayLine(1), &dirty));
 }
 
 #[test]
@@ -188,13 +188,13 @@ fn empty_directives_produce_identity() {
 #[test]
 fn out_of_bounds_display_to_buffer() {
     let dm = DisplayMap::identity(3);
-    assert_eq!(dm.display_to_buffer(5), None);
+    assert_eq!(dm.display_to_buffer(DisplayLine(5)), None);
 }
 
 #[test]
 fn out_of_bounds_buffer_to_display() {
     let dm = DisplayMap::identity(3);
-    assert_eq!(dm.buffer_to_display(5), None);
+    assert_eq!(dm.buffer_to_display(BufferLine(5)), None);
 }
 
 // --- Phase 2: Precondition tests ---
@@ -293,15 +293,15 @@ fn insert_before_adds_lines() {
     // 3 + 1 = 4 display lines
     assert_eq!(dm.display_line_count(), 4);
 
-    assert_eq!(dm.display_to_buffer(0), Some(0));
+    assert_eq!(dm.display_to_buffer(DisplayLine(0)), Some(BufferLine(0)));
     // Virtual line before buffer line 1
-    assert_eq!(dm.display_to_buffer(1), None);
-    let entry = dm.entry(1).unwrap();
+    assert_eq!(dm.display_to_buffer(DisplayLine(1)), None);
+    let entry = dm.entry(DisplayLine(1)).unwrap();
     assert_eq!(entry.source, SourceMapping::None);
     assert!(entry.synthetic.is_some());
 
-    assert_eq!(dm.display_to_buffer(2), Some(1));
-    assert_eq!(dm.display_to_buffer(3), Some(2));
+    assert_eq!(dm.display_to_buffer(DisplayLine(2)), Some(BufferLine(1)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(3)), Some(BufferLine(2)));
 }
 
 #[test]
@@ -319,14 +319,14 @@ fn insert_before_at_first_line() {
     assert_eq!(dm.display_line_count(), 4);
 
     // Virtual line at display[0], buffer line 0 at display[1]
-    assert_eq!(dm.display_to_buffer(0), None);
-    let entry = dm.entry(0).unwrap();
+    assert_eq!(dm.display_to_buffer(DisplayLine(0)), None);
+    let entry = dm.entry(DisplayLine(0)).unwrap();
     assert_eq!(entry.source, SourceMapping::None);
     assert!(entry.synthetic.is_some());
 
-    assert_eq!(dm.display_to_buffer(1), Some(0));
-    assert_eq!(dm.display_to_buffer(2), Some(1));
-    assert_eq!(dm.display_to_buffer(3), Some(2));
+    assert_eq!(dm.display_to_buffer(DisplayLine(1)), Some(BufferLine(0)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(2)), Some(BufferLine(1)));
+    assert_eq!(dm.display_to_buffer(DisplayLine(3)), Some(BufferLine(2)));
 }
 
 #[test]
@@ -354,18 +354,28 @@ fn insert_before_and_after_at_same_gap() {
     // 2 + 2 = 4 display lines
     assert_eq!(dm.display_line_count(), 4);
 
-    assert_eq!(dm.display_to_buffer(0), Some(0)); // buffer(0)
-    assert_eq!(dm.display_to_buffer(1), None); // after-virtual
+    assert_eq!(dm.display_to_buffer(DisplayLine(0)), Some(BufferLine(0))); // buffer(0)
+    assert_eq!(dm.display_to_buffer(DisplayLine(1)), None); // after-virtual
     assert_eq!(
-        dm.entry(1).unwrap().synthetic.as_ref().unwrap().text(),
+        dm.entry(DisplayLine(1))
+            .unwrap()
+            .synthetic
+            .as_ref()
+            .unwrap()
+            .text(),
         "after-0"
     );
-    assert_eq!(dm.display_to_buffer(2), None); // before-virtual
+    assert_eq!(dm.display_to_buffer(DisplayLine(2)), None); // before-virtual
     assert_eq!(
-        dm.entry(2).unwrap().synthetic.as_ref().unwrap().text(),
+        dm.entry(DisplayLine(2))
+            .unwrap()
+            .synthetic
+            .as_ref()
+            .unwrap()
+            .text(),
         "before-1"
     );
-    assert_eq!(dm.display_to_buffer(3), Some(1)); // buffer(1)
+    assert_eq!(dm.display_to_buffer(DisplayLine(3)), Some(BufferLine(1))); // buffer(1)
 }
 
 #[test]
@@ -381,7 +391,7 @@ fn dirty_virtual_line_before_never_dirty() {
 
     let dirty = vec![true, true];
     // Virtual line at display index 1 should not be dirty
-    assert!(!dm.is_display_line_dirty(1, &dirty));
+    assert!(!dm.is_display_line_dirty(DisplayLine(1), &dirty));
 }
 
 // --- compute_display_scroll_offset tests ---
@@ -389,7 +399,10 @@ fn dirty_virtual_line_before_never_dirty() {
 #[test]
 fn scroll_offset_identity_map_returns_zero() {
     let dm = DisplayMap::identity(20);
-    assert_eq!(super::compute_display_scroll_offset(&dm, 15, 10), 0);
+    assert_eq!(
+        super::compute_display_scroll_offset(&dm, BufferLine(15), 10),
+        DisplayLine(0)
+    );
 }
 
 #[test]
@@ -413,7 +426,10 @@ fn scroll_offset_content_fits_returns_zero() {
     ];
     let dm = DisplayMap::build(5, &directives);
     assert_eq!(dm.display_line_count(), 7);
-    assert_eq!(super::compute_display_scroll_offset(&dm, 4, 10), 0);
+    assert_eq!(
+        super::compute_display_scroll_offset(&dm, BufferLine(4), 10),
+        DisplayLine(0)
+    );
 }
 
 #[test]
@@ -436,7 +452,10 @@ fn scroll_offset_cursor_in_visible_area_returns_zero() {
     // Buffer 2 → display 4, virtual → display 5
     // Buffer 3 → display 6, virtual → display 7
     // display_y = 6, visible_height = 10, 6 < 10 → offset = 0
-    assert_eq!(super::compute_display_scroll_offset(&dm, 3, 10), 0);
+    assert_eq!(
+        super::compute_display_scroll_offset(&dm, BufferLine(3), 10),
+        DisplayLine(0)
+    );
 }
 
 #[test]
@@ -455,8 +474,8 @@ fn scroll_offset_cursor_below_visible_area() {
     assert_eq!(dm.display_line_count(), 15);
     // Cursor at buffer line 8 → display line 13 (8 + 5 virtual lines before it)
     // offset = 13 - 5 + 1 = 9
-    let offset = super::compute_display_scroll_offset(&dm, 8, 5);
-    assert_eq!(offset, 9);
+    let offset = super::compute_display_scroll_offset(&dm, BufferLine(8), 5);
+    assert_eq!(offset, DisplayLine(9));
 }
 
 #[test]
@@ -474,7 +493,10 @@ fn scroll_offset_cursor_at_last_visible_line_returns_zero() {
     let dm = DisplayMap::build(10, &directives);
     // Cursor at buffer line 4 → display line 9 (4 buffer + 5 virtual = display 9)
     // 9 < 10 → offset = 0
-    assert_eq!(super::compute_display_scroll_offset(&dm, 4, 10), 0);
+    assert_eq!(
+        super::compute_display_scroll_offset(&dm, BufferLine(4), 10),
+        DisplayLine(0)
+    );
 }
 
 #[test]
@@ -494,8 +516,8 @@ fn scroll_offset_clamped_to_max() {
     // max_offset = 9 - 5 = 4
     // Cursor at buffer line 5 → display line 8
     // raw offset = 8 - 5 + 1 = 4, max = 4, clamped = 4
-    let offset = super::compute_display_scroll_offset(&dm, 5, 5);
-    assert_eq!(offset, 4);
+    let offset = super::compute_display_scroll_offset(&dm, BufferLine(5), 5);
+    assert_eq!(offset, DisplayLine(4));
 }
 
 #[test]
@@ -528,8 +550,8 @@ fn scroll_offset_multiple_insert_after_at_end() {
     assert_eq!(dm.display_line_count(), 6);
     // viewport = 3, cursor at buffer line 2 → display line 5
     // offset = 5 - 3 + 1 = 3, max = 6 - 3 = 3
-    let offset = super::compute_display_scroll_offset(&dm, 2, 3);
-    assert_eq!(offset, 3);
+    let offset = super::compute_display_scroll_offset(&dm, BufferLine(2), 3);
+    assert_eq!(offset, DisplayLine(3));
 }
 
 proptest! {

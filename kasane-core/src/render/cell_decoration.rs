@@ -101,7 +101,8 @@ fn buffer_to_grid(
             if dm.is_identity() {
                 None
             } else {
-                dm.buffer_to_display(buf_line as usize).map(|y| y as u16)
+                dm.buffer_to_display(crate::display::BufferLine(buf_line as usize))
+                    .map(|y| y.0 as u16)
             }
         })
         .unwrap_or(buf_line)

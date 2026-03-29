@@ -3,7 +3,9 @@ use crossterm::{
     style::{self, Attribute as CtAttribute, SetAttribute},
     terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate},
 };
-use iai_callgrind::{library_benchmark, library_benchmark_group, main};
+use iai_callgrind::{
+    Callgrind, EventKind, LibraryBenchmarkConfig, library_benchmark, library_benchmark_group, main,
+};
 use kasane_core::layout::Rect;
 use kasane_core::layout::flex;
 use kasane_core::plugin::PluginRuntime;
@@ -308,18 +310,28 @@ fn setup_present_incremental() -> (CellGrid, MockBackend) {
 }
 
 // ---------------------------------------------------------------------------
+// Regression config
+// ---------------------------------------------------------------------------
+
+fn regression_config() -> LibraryBenchmarkConfig {
+    let mut config = LibraryBenchmarkConfig::default();
+    config.tool(Callgrind::default().soft_limits([(EventKind::Ir, 5.0)]));
+    config
+}
+
+// ---------------------------------------------------------------------------
 // Benchmarks
 // ---------------------------------------------------------------------------
 
 // present() full redraw: diff + SGR escape generation + update_previous (80x24)
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_present_full_redraw())]
 fn iai_present_full_redraw((mut grid, mut backend): (CellGrid, MockBackend)) {
     backend.present(&mut grid, default_result());
 }
 
 // present() incremental: 1-line change diff + SGR + update_previous (80x24)
-#[library_benchmark]
+#[library_benchmark(config = regression_config())]
 #[bench::default(setup_present_incremental())]
 fn iai_present_incremental((mut grid, mut backend): (CellGrid, MockBackend)) {
     backend.present(&mut grid, default_result());

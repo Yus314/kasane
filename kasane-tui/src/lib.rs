@@ -247,13 +247,12 @@ where
     let mut paint_hooks = PaintHookState::from_registry(&registry);
 
     // Salsa database
-    let (mut salsa_db, salsa_handles) = {
+    let (mut salsa_db, mut salsa_handles) = {
         let mut db = KasaneDatabase::default();
         let handles = SalsaInputHandles::new(&mut db);
         kasane_core::salsa_sync::sync_inputs_from_state(&mut db, &state, &handles);
         (db, handles)
     };
-    let mut contribution_cache = kasane_core::plugin::ContributionCache::default();
 
     // Cell grid
     let mut grid = CellGrid::new(cols, rows);
@@ -436,8 +435,7 @@ where
                 &mut salsa_db,
                 &state,
                 &registry,
-                &salsa_handles,
-                &mut contribution_cache,
+                &mut salsa_handles,
             );
             let view = registry.view();
 

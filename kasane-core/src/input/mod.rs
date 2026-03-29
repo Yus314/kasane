@@ -272,13 +272,16 @@ pub fn mouse_to_kakoune(
     let (line, column) = if let Some(dm) = display_map.filter(|dm| !dm.is_identity()) {
         let display_y = event.line as usize + display_scroll_offset;
         // Check interaction policy — skip ReadOnly/Skip lines
-        if let Some(entry) = dm.entry(display_y) {
+        if let Some(entry) = dm.entry(crate::display::DisplayLine(display_y)) {
             match entry.interaction {
                 InteractionPolicy::Normal => {}
                 InteractionPolicy::ReadOnly | InteractionPolicy::Skip => return None,
             }
         }
-        let buffer_line = dm.display_to_buffer(display_y).unwrap_or(display_y) as u32;
+        let buffer_line = dm
+            .display_to_buffer(crate::display::DisplayLine(display_y))
+            .map(|bl| bl.0)
+            .unwrap_or(display_y) as u32;
         (buffer_line, event.column)
     } else {
         (event.line + display_scroll_offset as u32, event.column)

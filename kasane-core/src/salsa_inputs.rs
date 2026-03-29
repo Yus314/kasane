@@ -4,6 +4,7 @@
 //! They follow the protocol message boundary grouping from `apply.rs`.
 
 use crate::config::MenuPosition;
+use crate::plugin::element_patch::ElementPatch;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 
@@ -131,4 +132,20 @@ pub struct DisplayDirectivesInput {
     #[returns(ref)]
     pub directives: Vec<crate::display::DisplayDirective>,
     pub buffer_line_count: usize,
+}
+
+/// Pre-collected transform patches from TRANSFORMER plugins.
+///
+/// Each field stores the composed pure patch for a transform target, or `None`
+/// when impure/legacy patches require imperative application via the registry.
+/// Set by `sync_transform_patches()` each frame.
+///
+/// Salsa's `set_*.to()` uses `PartialEq` on `ElementPatch` to detect unchanged
+/// patches across frames, skipping downstream revalidation when transforms are stable.
+#[salsa::input]
+pub struct TransformPatchesInput {
+    #[returns(ref)]
+    pub buffer: Option<ElementPatch>,
+    #[returns(ref)]
+    pub status_bar: Option<ElementPatch>,
 }

@@ -7,13 +7,17 @@
 
 use salsa::{Durability, Setter};
 
-use crate::plugin::{AppView, ContributionCache, PluginView};
+use crate::plugin::ContributionCache;
+use crate::plugin::{AppView, PluginView};
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_inputs::*;
 use crate::state::AppState;
 use crate::state::snapshot::{InfoSnapshot, MenuSnapshot};
 
 /// Handles to Salsa input instances, created once at startup and reused across frames.
+///
+/// Also owns the [`ContributionCache`] used by `sync_plugin_contributions()`
+/// to avoid redundant `contribute_to()` calls for non-stale plugins.
 pub struct SalsaInputHandles {
     pub buffer: BufferInput,
     pub cursor: CursorInput,
@@ -25,6 +29,8 @@ pub struct SalsaInputHandles {
     pub slot_contributions: SlotContributionsInput,
     pub annotations: AnnotationResultInput,
     pub plugin_overlays: PluginOverlaysInput,
+    pub transform_patches: TransformPatchesInput,
+    contribution_cache: ContributionCache,
 }
 
 impl SalsaInputHandles {
@@ -76,7 +82,14 @@ impl SalsaInputHandles {
             ),
             annotations: AnnotationResultInput::new(db, None, None, None, None, None),
             plugin_overlays: PluginOverlaysInput::new(db, vec![]),
+            transform_patches: TransformPatchesInput::new(db, None, None),
+            contribution_cache: ContributionCache::default(),
         }
+    }
+
+    /// Remove cached contributions for a plugin (e.g., after unloading).
+    pub fn remove_plugin_cache(&mut self, plugin_id: &crate::plugin::PluginId) {
+        self.contribution_cache.remove_plugin(plugin_id);
     }
 }
 
@@ -193,14 +206,13 @@ pub fn sync_inputs_from_state(
 ///
 /// Call this after `prepare_plugin_cache()` and `sync_display_directives()`.
 /// Uses per-extension-point granularity: only re-collects extension points
-/// where at least one participating plugin needs recollection. Uses `cache`
-/// for per-plugin contribution caching across frames.
+/// where at least one participating plugin needs recollection. The
+/// [`ContributionCache`] inside `inputs` provides per-plugin caching across frames.
 pub fn sync_plugin_contributions(
     db: &mut KasaneDatabase,
     state: &AppState,
     registry: &PluginView<'_>,
-    inputs: &SalsaInputHandles,
-    cache: &mut ContributionCache,
+    inputs: &mut SalsaInputHandles,
 ) {
     use crate::display::DisplayMapRef;
     use crate::element::Overlay;
@@ -240,76 +252,42 @@ pub fn sync_plugin_contributions(
     if registry.any_contributor_needs_recollect() {
         let view = AppView::new(state);
         let ctx = ContributeContext::new(&view, None);
+        let cache = &mut inputs.contribution_cache;
+        let buffer_left = collect_slot_cached(&SlotId::BUFFER_LEFT, state, registry, &ctx, cache);
+        let buffer_right = collect_slot_cached(&SlotId::BUFFER_RIGHT, state, registry, &ctx, cache);
+        let above_buffer = collect_slot_cached(&SlotId::ABOVE_BUFFER, state, registry, &ctx, cache);
+        let below_buffer = collect_slot_cached(&SlotId::BELOW_BUFFER, state, registry, &ctx, cache);
+        let status_left = collect_slot_cached(&SlotId::STATUS_LEFT, state, registry, &ctx, cache);
+        let status_right = collect_slot_cached(&SlotId::STATUS_RIGHT, state, registry, &ctx, cache);
+        let above_status = collect_slot_cached(&SlotId::ABOVE_STATUS, state, registry, &ctx, cache);
         inputs
             .slot_contributions
             .set_buffer_left(db)
-            .to(collect_slot_cached(
-                &SlotId::BUFFER_LEFT,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(buffer_left);
         inputs
             .slot_contributions
             .set_buffer_right(db)
-            .to(collect_slot_cached(
-                &SlotId::BUFFER_RIGHT,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(buffer_right);
         inputs
             .slot_contributions
             .set_above_buffer(db)
-            .to(collect_slot_cached(
-                &SlotId::ABOVE_BUFFER,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(above_buffer);
         inputs
             .slot_contributions
             .set_below_buffer(db)
-            .to(collect_slot_cached(
-                &SlotId::BELOW_BUFFER,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(below_buffer);
         inputs
             .slot_contributions
             .set_status_left(db)
-            .to(collect_slot_cached(
-                &SlotId::STATUS_LEFT,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(status_left);
         inputs
             .slot_contributions
             .set_status_right(db)
-            .to(collect_slot_cached(
-                &SlotId::STATUS_RIGHT,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(status_right);
         inputs
             .slot_contributions
             .set_above_status(db)
-            .to(collect_slot_cached(
-                &SlotId::ABOVE_STATUS,
-                state,
-                registry,
-                &ctx,
-                cache,
-            ));
+            .to(above_status);
     }
 
     // Annotations: only re-collect if any annotator is stale
@@ -389,4 +367,28 @@ pub fn sync_display_directives(
         .display_directives
         .set_buffer_line_count(db)
         .to(line_count);
+}
+
+/// Synchronize transform patches from TRANSFORMER plugins into Salsa.
+///
+/// Collects patches for Buffer and StatusBar targets. When all patches for a
+/// target are pure, stores the composed result as a Salsa input (enabling
+/// PartialEq-based memoization). When any patch is impure or legacy, stores
+/// `None` to signal that the render pipeline should fall back to imperative
+/// `apply_transform_chain()`.
+pub fn sync_transform_patches(
+    db: &mut KasaneDatabase,
+    state: &AppState,
+    registry: &PluginView<'_>,
+    inputs: &SalsaInputHandles,
+) {
+    use crate::plugin::TransformTarget;
+
+    let app_view = AppView::new(state);
+
+    let buffer = registry.collect_transform_patches(TransformTarget::Buffer, &app_view);
+    inputs.transform_patches.set_buffer(db).to(buffer);
+
+    let status_bar = registry.collect_transform_patches(TransformTarget::StatusBar, &app_view);
+    inputs.transform_patches.set_status_bar(db).to(status_bar);
 }
