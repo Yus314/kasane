@@ -53,6 +53,50 @@ use super::{
     PluginState, SlotId, TransformContext, TransformTarget, VirtualTextItem,
 };
 
+/// Downcast state, call handler, box the new state and return `(BoxedState, second)`.
+macro_rules! register_state_effect {
+    ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
+        $self.table.$field = Some(Box::new(move |state, $($arg),*| {
+            let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
+            let (new_state, effects) = $handler(s, $($arg),*);
+            (Box::new(new_state) as Box<dyn PluginState>, effects)
+        }));
+    };
+}
+
+/// Downcast state, call handler, forward the return value directly.
+macro_rules! register_view {
+    ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
+        $self.table.$field = Some(Box::new(move |state, $($arg),*| {
+            let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
+            $handler(s, $($arg),*)
+        }));
+    };
+}
+
+/// Downcast state, call handler, box only the returned state.
+macro_rules! register_state_only {
+    ($self:ident, $field:ident, $handler:ident $(, $arg:ident)*) => {
+        $self.table.$field = Some(Box::new(move |state, $($arg),*| {
+            let s = state.as_any().downcast_ref::<S>().expect("state type mismatch");
+            Box::new($handler(s, $($arg),*)) as Box<dyn PluginState>
+        }));
+    };
+}
+
+/// Downcast state, call handler (no return value).
+macro_rules! register_void {
+    ($self:ident, $field:ident, $handler:ident) => {
+        $self.table.$field = Some(Box::new(move |state| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            $handler(s);
+        }));
+    };
+}
+
 /// Type-safe handler registration builder.
 ///
 /// `S` is the plugin's concrete state type. Registration methods accept closures
@@ -99,14 +143,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
     ) {
-        self.table.init_handler = Some(Box::new(move |state, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects)
-        }));
+        register_state_effect!(self, init_handler, handler, app);
     }
 
     /// Register a session-ready handler.
@@ -114,14 +151,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
     ) {
-        self.table.session_ready_handler = Some(Box::new(move |state, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects)
-        }));
+        register_state_effect!(self, session_ready_handler, handler, app);
     }
 
     /// Register a state-changed handler.
@@ -129,14 +159,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, Effects) + Send + Sync + 'static,
     ) {
-        self.table.state_changed_handler = Some(Box::new(move |state, app, dirty| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, app, dirty);
-            (Box::new(new_state) as Box<dyn PluginState>, effects)
-        }));
+        register_state_effect!(self, state_changed_handler, handler, app, dirty);
     }
 
     /// Register an I/O event handler.
@@ -144,14 +167,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
     ) {
-        self.table.io_event_handler = Some(Box::new(move |state, event, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, event, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects)
-        }));
+        register_state_effect!(self, io_event_handler, handler, event, app);
     }
 
     /// Register a declarative process task.
@@ -227,24 +243,12 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &WorkspaceQuery<'_>) -> S + Send + Sync + 'static,
     ) {
-        self.table.workspace_changed_handler = Some(Box::new(move |state, query| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            Box::new(handler(s, query)) as Box<dyn PluginState>
-        }));
+        register_state_only!(self, workspace_changed_handler, handler, query);
     }
 
     /// Register a shutdown handler.
     pub fn on_shutdown(&mut self, handler: impl Fn(&S) + Send + Sync + 'static) {
-        self.table.shutdown_handler = Some(Box::new(move |state| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            handler(s);
-        }));
+        register_void!(self, shutdown_handler, handler);
     }
 
     /// Register an update (message) handler.
@@ -252,14 +256,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
     ) {
-        self.table.update_handler = Some(Box::new(move |state, msg, app| {
-            let s = state
-                .as_any()
-                .downcast_ref::<S>()
-                .expect("state type mismatch");
-            let (new_state, effects) = handler(s, msg, app);
-            (Box::new(new_state) as Box<dyn PluginState>, effects)
-        }));
+        register_state_effect!(self, update_handler, handler, msg, app);
     }
 
     // =========================================================================
@@ -540,19 +537,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        self.table.background_handler = Some(Box::new(
-            move |state: &dyn PluginState,
-                  line: usize,
-                  app: &AppView<'_>,
-                  ctx: &AnnotateContext|
-                  -> Option<BackgroundLayer> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, line, app, ctx)
-            },
-        ));
+        register_view!(self, background_handler, handler, line, app, ctx);
     }
 
     /// Register an inline decoration handler.
@@ -563,19 +548,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        self.table.inline_handler = Some(Box::new(
-            move |state: &dyn PluginState,
-                  line: usize,
-                  app: &AppView<'_>,
-                  ctx: &AnnotateContext|
-                  -> Option<InlineDecoration> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, line, app, ctx)
-            },
-        ));
+        register_view!(self, inline_handler, handler, line, app, ctx);
     }
 
     /// Register a virtual text handler.
@@ -586,19 +559,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        self.table.virtual_text_handler = Some(Box::new(
-            move |state: &dyn PluginState,
-                  line: usize,
-                  app: &AppView<'_>,
-                  ctx: &AnnotateContext|
-                  -> Vec<VirtualTextItem> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, line, app, ctx)
-            },
-        ));
+        register_view!(self, virtual_text_handler, handler, line, app, ctx);
     }
 
     /// Register an overlay contribution handler.
@@ -609,18 +570,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        self.table.overlay_handler = Some(Box::new(
-            move |state: &dyn PluginState,
-                  app: &AppView<'_>,
-                  ctx: &OverlayContext|
-                  -> Option<OverlayContribution> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, app, ctx)
-            },
-        ));
+        register_view!(self, overlay_handler, handler, app, ctx);
     }
 
     /// Register a display directive handler.
@@ -628,15 +578,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync + 'static,
     ) {
-        self.table.display_handler = Some(Box::new(
-            move |state: &dyn PluginState, app: &AppView<'_>| -> Vec<DisplayDirective> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, app)
-            },
-        ));
+        register_view!(self, display_handler, handler, app);
     }
 
     /// Register a cell decoration handler.
@@ -644,15 +586,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> Vec<CellDecoration> + Send + Sync + 'static,
     ) {
-        self.table.cell_decoration_handler = Some(Box::new(
-            move |state: &dyn PluginState, app: &AppView<'_>| -> Vec<CellDecoration> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, app)
-            },
-        ));
+        register_view!(self, cell_decoration_handler, handler, app);
     }
 
     /// Register a cursor style override handler.
@@ -660,15 +594,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> Option<CursorStyleHint> + Send + Sync + 'static,
     ) {
-        self.table.cursor_style_handler = Some(Box::new(
-            move |state: &dyn PluginState, app: &AppView<'_>| -> Option<CursorStyleHint> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, app)
-            },
-        ));
+        register_view!(self, cursor_style_handler, handler, app);
     }
 
     /// Register a menu item transform handler.
@@ -679,20 +605,15 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        self.table.menu_transform_handler = Some(Box::new(
-            move |state: &dyn PluginState,
-                  item: &[Atom],
-                  index: usize,
-                  selected: bool,
-                  app: &AppView<'_>|
-                  -> Option<Vec<Atom>> {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, item, index, selected, app)
-            },
-        ));
+        register_view!(
+            self,
+            menu_transform_handler,
+            handler,
+            item,
+            index,
+            selected,
+            app
+        );
     }
 
     // =========================================================================
@@ -708,15 +629,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         &mut self,
         handler: impl Fn(&S, &DisplayUnit) -> NavigationPolicy + Send + Sync + 'static,
     ) {
-        self.table.navigation_policy_handler = Some(Box::new(
-            move |state: &dyn PluginState, unit: &DisplayUnit| -> NavigationPolicy {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                handler(s, unit)
-            },
-        ));
+        register_view!(self, navigation_policy_handler, handler, unit);
     }
 
     /// Register a navigation action handler for display units.
@@ -731,19 +644,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + Sync
         + 'static,
     ) {
-        self.table.navigation_action_handler = Some(Box::new(
-            move |state: &dyn PluginState,
-                  unit: &DisplayUnit,
-                  action: NavigationAction|
-                  -> (Box<dyn PluginState>, ActionResult) {
-                let s = state
-                    .as_any()
-                    .downcast_ref::<S>()
-                    .expect("state type mismatch");
-                let (new_state, result) = handler(s, unit, action);
-                (Box::new(new_state) as Box<dyn PluginState>, result)
-            },
-        ));
+        register_state_effect!(self, navigation_action_handler, handler, unit, action);
     }
 
     // =========================================================================
