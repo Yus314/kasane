@@ -260,7 +260,7 @@ pub fn authority_from_name(name: &str) -> Option<PluginAuthorities> {
 }
 
 /// Map handler flag name to its bit value.
-fn handler_flag_bit(name: &str) -> Option<u32> {
+pub fn handler_flag_bit(name: &str) -> Option<u32> {
     match name {
         "overlay" => Some(1 << 2),
         "menu-transform" => Some(1 << 5),
@@ -283,7 +283,7 @@ fn handler_flag_bit(name: &str) -> Option<u32> {
 }
 
 /// Map view dep name to its bit value.
-fn view_dep_bit(name: &str) -> Option<u16> {
+pub fn view_dep_bit(name: &str) -> Option<u16> {
     match name {
         "buffer-content" => Some(1 << 0),
         "status" => Some(1 << 1),
@@ -505,6 +505,8 @@ id = "test"
         assert!(matches!(err, ManifestError::TomlParse(_)));
     }
 
+    // --- Error accumulation tests ---
+
     #[test]
     fn validate_accumulates_multiple_errors() {
         let toml = r#"
@@ -545,6 +547,23 @@ deps = ["magic-data"]
             _ => panic!("expected Multiple error, got: {err}"),
         }
     }
+
+    #[test]
+    fn validate_single_error_not_wrapped_in_multiple() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["time-travel"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(matches!(err, ManifestError::UnknownHandlerFlag(_)));
+    }
+
+    // --- Duplicate detection tests ---
 
     #[test]
     fn validate_detects_duplicate_wasi_capability() {
@@ -614,18 +633,101 @@ deps = ["status", "status"]
         );
     }
 
-    #[test]
-    fn validate_single_error_not_wrapped_in_multiple() {
-        let toml = r#"
-[plugin]
-id = "test"
-abi_version = "0.22.0"
+    // --- Bit sync verification tests (P3.6) ---
 
-[handlers]
-flags = ["time-travel"]
-"#;
-        let manifest = PluginManifest::parse(toml).unwrap();
-        let err = manifest.validate().unwrap_err();
-        assert!(matches!(err, ManifestError::UnknownHandlerFlag(_)));
+    #[test]
+    fn handler_flag_bits_match_plugin_capabilities() {
+        assert_eq!(
+            handler_flag_bit("overlay"),
+            Some(PluginCapabilities::OVERLAY.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("menu-transform"),
+            Some(PluginCapabilities::MENU_TRANSFORM.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("cursor-style"),
+            Some(PluginCapabilities::CURSOR_STYLE.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("input-handler"),
+            Some(PluginCapabilities::INPUT_HANDLER.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("surface-provider"),
+            Some(PluginCapabilities::SURFACE_PROVIDER.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("workspace-observer"),
+            Some(PluginCapabilities::WORKSPACE_OBSERVER.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("paint-hook"),
+            Some(PluginCapabilities::PAINT_HOOK.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("contributor"),
+            Some(PluginCapabilities::CONTRIBUTOR.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("transformer"),
+            Some(PluginCapabilities::TRANSFORMER.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("annotator"),
+            Some(PluginCapabilities::ANNOTATOR.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("io-handler"),
+            Some(PluginCapabilities::IO_HANDLER.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("display-transform"),
+            Some(PluginCapabilities::DISPLAY_TRANSFORM.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("scroll-policy"),
+            Some(PluginCapabilities::SCROLL_POLICY.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("cell-decoration"),
+            Some(PluginCapabilities::CELL_DECORATION.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("navigation-policy"),
+            Some(PluginCapabilities::NAVIGATION_POLICY.bits())
+        );
+        assert_eq!(
+            handler_flag_bit("navigation-action"),
+            Some(PluginCapabilities::NAVIGATION_ACTION.bits())
+        );
+    }
+
+    #[test]
+    fn view_dep_bits_match_dirty_flags() {
+        assert_eq!(
+            view_dep_bit("buffer-content"),
+            Some(DirtyFlags::BUFFER_CONTENT.bits())
+        );
+        assert_eq!(view_dep_bit("status"), Some(DirtyFlags::STATUS.bits()));
+        assert_eq!(
+            view_dep_bit("menu-structure"),
+            Some(DirtyFlags::MENU_STRUCTURE.bits())
+        );
+        assert_eq!(
+            view_dep_bit("menu-selection"),
+            Some(DirtyFlags::MENU_SELECTION.bits())
+        );
+        assert_eq!(view_dep_bit("info"), Some(DirtyFlags::INFO.bits()));
+        assert_eq!(view_dep_bit("options"), Some(DirtyFlags::OPTIONS.bits()));
+        assert_eq!(
+            view_dep_bit("buffer-cursor"),
+            Some(DirtyFlags::BUFFER_CURSOR.bits())
+        );
+        assert_eq!(
+            view_dep_bit("plugin-state"),
+            Some(DirtyFlags::PLUGIN_STATE.bits())
+        );
+        assert_eq!(view_dep_bit("session"), Some(DirtyFlags::SESSION.bits()));
     }
 }
