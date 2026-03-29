@@ -173,11 +173,11 @@ impl PluginManifest {
 
     /// Convert handler flags to `PluginCapabilities` bitmask.
     ///
-    /// Empty flags → `PluginCapabilities::all()` (conservative: assume plugin
-    /// implements everything).
+    /// Empty flags → `PluginCapabilities::empty()` (opt-in: plugin must declare
+    /// which dispatch paths it participates in).
     pub fn plugin_capabilities(&self) -> PluginCapabilities {
         if self.handlers.flags.is_empty() {
-            return PluginCapabilities::all();
+            return PluginCapabilities::empty();
         }
         let mut bits: u32 = 0;
         for name in &self.handlers.flags {
@@ -466,9 +466,9 @@ deps = ["buffer-content", "magic-data"]
     }
 
     #[test]
-    fn empty_flags_returns_all_capabilities() {
+    fn empty_flags_returns_empty_capabilities() {
         let manifest = PluginManifest::parse(MINIMAL_MANIFEST).unwrap();
-        assert_eq!(manifest.plugin_capabilities(), PluginCapabilities::all());
+        assert_eq!(manifest.plugin_capabilities(), PluginCapabilities::empty());
     }
 
     #[test]
