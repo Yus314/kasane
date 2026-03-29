@@ -11,6 +11,8 @@ use serde::Deserialize;
 /// Parsed plugin manifest from a `.toml` sidecar file.
 #[derive(Clone, Debug, Deserialize)]
 pub struct PluginManifest {
+    #[serde(default)]
+    pub manifest_version: Option<u32>,
     pub plugin: PluginSection,
     #[serde(default)]
     pub capabilities: CapabilitiesSection,
@@ -75,9 +77,15 @@ pub enum ManifestError {
     #[error("duplicate entry in [{section}]: {name}")]
     DuplicateEntry { section: &'static str, name: String },
 
+    #[error("unsupported manifest_version: {found} (max supported: {max_supported})")]
+    UnsupportedManifestVersion { found: u32, max_supported: u32 },
+
     #[error("multiple validation errors:\n{}", .0.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n"))]
     Multiple(Vec<ManifestError>),
 }
+
+/// Maximum supported manifest schema version.
+pub const CURRENT_MANIFEST_VERSION: u32 = 1;
 
 /// Current host ABI version (from WIT package declaration).
 pub const HOST_ABI_VERSION: &str = "0.22.0";
@@ -103,6 +111,16 @@ impl PluginManifest {
         }
 
         let mut errors = Vec::new();
+
+        // Validate manifest_version
+        if let Some(v) = self.manifest_version
+            && v > CURRENT_MANIFEST_VERSION
+        {
+            errors.push(ManifestError::UnsupportedManifestVersion {
+                found: v,
+                max_supported: CURRENT_MANIFEST_VERSION,
+            });
+        }
 
         // Validate capability names + check duplicates
         {
@@ -631,6 +649,48 @@ deps = ["status", "status"]
         assert!(
             matches!(err, ManifestError::DuplicateEntry { section: "view.deps", ref name } if name == "status")
         );
+    }
+
+    // --- Manifest version tests ---
+
+    #[test]
+    fn manifest_version_1_is_valid() {
+        let toml = r#"
+manifest_version = 1
+
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        assert!(manifest.validate().is_ok());
+    }
+
+    #[test]
+    fn manifest_version_99_is_rejected() {
+        let toml = r#"
+manifest_version = 99
+
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(matches!(
+            err,
+            ManifestError::UnsupportedManifestVersion {
+                found: 99,
+                max_supported: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn manifest_version_absent_is_valid() {
+        let manifest = PluginManifest::parse(MINIMAL_MANIFEST).unwrap();
+        assert_eq!(manifest.manifest_version, None);
+        assert!(manifest.validate().is_ok());
     }
 
     // --- Bit sync verification tests (P3.6) ---
