@@ -987,9 +987,9 @@ mod salsa_benches {
     use kasane_core::plugin::PluginRuntime;
     use kasane_core::render::CellGrid;
     use kasane_core::render::SceneCache;
-    use kasane_core::render::render_pipeline_cached;
     use kasane_core::render::scene::CellSize;
     use kasane_core::render::scene_render_pipeline_cached;
+    use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
     use kasane_core::salsa_db::KasaneDatabase;
     use kasane_core::salsa_sync::{SalsaInputHandles, sync_inputs_from_state};
     use kasane_core::state::DirtyFlags;
@@ -1122,12 +1122,10 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
-                            &paint_hooks,
-                            None,
-                            None,
-                            None,
-                            Default::default(),
-                            None,
+                            RenderPipelineOptions {
+                                paint_hooks: &paint_hooks,
+                                ..Default::default()
+                            },
                         );
                     },
                     BatchSize::SmallInput,
@@ -1165,12 +1163,10 @@ mod salsa_benches {
                     &registry.view(),
                     &mut grid,
                     DirtyFlags::ALL,
-                    &paint_hooks,
-                    None,
-                    None,
-                    None,
-                    Default::default(),
-                    None,
+                    RenderPipelineOptions {
+                        paint_hooks: &paint_hooks,
+                        ..Default::default()
+                    },
                 );
                 grid.swap_with_dirty();
 
@@ -1182,12 +1178,10 @@ mod salsa_benches {
                         &registry.view(),
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
-                        &paint_hooks,
-                        None,
-                        None,
-                        None,
-                        Default::default(),
-                        None,
+                        RenderPipelineOptions {
+                            paint_hooks: &paint_hooks,
+                            ..Default::default()
+                        },
                     );
                 });
             });
@@ -1231,12 +1225,10 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
-                            &paint_hooks,
-                            None,
-                            None,
-                            None,
-                            Default::default(),
-                            None,
+                            RenderPipelineOptions {
+                                paint_hooks: &paint_hooks,
+                                ..Default::default()
+                            },
                         );
                         grid.swap_with_dirty();
                         sync_inputs_from_state(&mut db, &edited, &handles);
@@ -1250,12 +1242,10 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::BUFFER,
-                            &paint_hooks,
-                            None,
-                            None,
-                            None,
-                            Default::default(),
-                            None,
+                            RenderPipelineOptions {
+                                paint_hooks: &paint_hooks,
+                                ..Default::default()
+                            },
                         );
                     },
                     BatchSize::SmallInput,
@@ -1319,8 +1309,7 @@ mod salsa_benches {
                         cell_size,
                         DirtyFlags::ALL,
                         &mut scene_cache,
-                        None,
-                        None,
+                        Default::default(),
                     );
                 },
                 BatchSize::SmallInput,
@@ -1339,8 +1328,7 @@ mod salsa_benches {
                 cell_size,
                 DirtyFlags::ALL,
                 &mut scene_cache,
-                None,
-                None,
+                Default::default(),
             );
 
             group.bench_function("warm", |b| {
@@ -1353,8 +1341,7 @@ mod salsa_benches {
                         cell_size,
                         DirtyFlags::MENU_SELECTION,
                         &mut scene_cache,
-                        None,
-                        None,
+                        Default::default(),
                     );
                 });
             });
@@ -1390,12 +1377,10 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
-                            &paint_hooks,
-                            None,
-                            None,
-                            None,
-                            Default::default(),
-                            None,
+                            RenderPipelineOptions {
+                                paint_hooks: &paint_hooks,
+                                ..Default::default()
+                            },
                         );
                     },
                     BatchSize::SmallInput,

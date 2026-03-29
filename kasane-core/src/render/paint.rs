@@ -224,19 +224,24 @@ pub(crate) fn analyze_buffer_line<'a>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Decoration overlays applied to a buffer paint pass.
+#[derive(Default)]
+pub(crate) struct BufferPaintContext<'a> {
+    pub buffer_state: Option<&'a BufferRefState>,
+    pub line_backgrounds: Option<&'a [Option<Face>]>,
+    pub display_map: Option<&'a DisplayMap>,
+    pub inline_decorations: Option<&'a [Option<InlineDecoration>]>,
+    pub virtual_text: Option<&'a [Option<Vec<Atom>>]>,
+}
+
 pub(crate) fn paint_buffer_ref(
     grid: &mut CellGrid,
     area: &Rect,
     line_range: std::ops::Range<usize>,
     state: &AppState,
-    buffer_state: Option<&BufferRefState>,
-    line_backgrounds: Option<&[Option<Face>]>,
-    display_map: Option<&DisplayMap>,
-    inline_decorations: Option<&[Option<InlineDecoration>]>,
-    virtual_text: Option<&[Option<Vec<Atom>>]>,
+    ctx: &BufferPaintContext<'_>,
 ) {
-    let params = BufferRefParams::resolve(state, buffer_state);
+    let params = BufferRefParams::resolve(state, ctx.buffer_state);
     let skip_clean = !params.lines_dirty.is_empty();
 
     for y_offset in 0..area.h {
@@ -246,10 +251,10 @@ pub(crate) fn paint_buffer_ref(
         match analyze_buffer_line(
             &params,
             display_line,
-            display_map,
-            line_backgrounds,
-            inline_decorations,
-            virtual_text,
+            ctx.display_map,
+            ctx.line_backgrounds,
+            ctx.inline_decorations,
+            ctx.virtual_text,
             skip_clean,
         ) {
             BufferLineAction::Skip => continue,
@@ -942,11 +947,10 @@ mod tests {
             &area,
             0..3,
             &state,
-            None,
-            None,
-            None,
-            None,
-            Some(&vt),
+            &BufferPaintContext {
+                virtual_text: Some(&vt),
+                ..Default::default()
+            },
         );
 
         // Buffer content "hello" at columns 0-4
@@ -985,11 +989,10 @@ mod tests {
             &area,
             0..1,
             &state,
-            None,
-            None,
-            None,
-            None,
-            Some(&vt),
+            &BufferPaintContext {
+                virtual_text: Some(&vt),
+                ..Default::default()
+            },
         );
 
         // Buffer content fills the entire width
@@ -1039,11 +1042,11 @@ mod tests {
             &area,
             0..1,
             &state,
-            None,
-            None,
-            None,
-            Some(&decos),
-            Some(&vt),
+            &BufferPaintContext {
+                inline_decorations: Some(&decos),
+                virtual_text: Some(&vt),
+                ..Default::default()
+            },
         );
 
         // Decorated content present
@@ -1075,11 +1078,7 @@ mod tests {
             &area,
             0..3,
             &state,
-            None,
-            None,
-            None,
-            None,
-            None,
+            &BufferPaintContext::default(),
         );
 
         // With empty VT (no entries)
@@ -1090,11 +1089,10 @@ mod tests {
             &area,
             0..3,
             &state,
-            None,
-            None,
-            None,
-            None,
-            Some(&vt),
+            &BufferPaintContext {
+                virtual_text: Some(&vt),
+                ..Default::default()
+            },
         );
 
         // Both grids should be identical

@@ -270,12 +270,7 @@ fn salsa_full_frame_under_2ms() {
             &registry.view(),
             &mut grid,
             dirty,
-            &[],
-            None,
-            None,
-            None,
             Default::default(),
-            None,
         );
         let _ = grid.diff();
         grid.swap();
@@ -294,12 +289,7 @@ fn salsa_full_frame_under_2ms() {
                 &registry.view(),
                 &mut grid,
                 dirty,
-                &[],
-                None,
-                None,
-                None,
                 Default::default(),
-                None,
             );
             let _ = grid.diff();
             grid.swap();

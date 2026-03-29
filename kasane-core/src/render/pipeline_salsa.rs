@@ -386,8 +386,21 @@ fn compose_base_from_salsa(
 // Public API: Salsa-backed pipeline wrappers
 // ---------------------------------------------------------------------------
 
+/// Optional parameters for [`render_pipeline_cached`].
+///
+/// All fields default to empty/None/Off — test and benchmark call sites can
+/// use `Default::default()` instead of listing a dozen `None` arguments.
+#[derive(Default)]
+pub struct RenderPipelineOptions<'a> {
+    pub paint_hooks: &'a [Box<dyn PaintHook>],
+    pub surface_registry: Option<&'a SurfaceRegistry>,
+    pub pane_states: Option<&'a PaneStates<'a>>,
+    pub halfblock_cache: Option<&'a mut super::halfblock::HalfblockCache>,
+    pub image_protocol: super::ImageProtocol,
+    pub image_requests: Option<&'a mut Vec<super::ImageRequest>>,
+}
+
 /// Salsa-backed cached rendering pipeline (TUI).
-#[allow(clippy::too_many_arguments)]
 pub fn render_pipeline_cached(
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
@@ -395,25 +408,28 @@ pub fn render_pipeline_cached(
     registry: &PluginView<'_>,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    paint_hooks: &[Box<dyn PaintHook>],
-    surface_registry: Option<&SurfaceRegistry>,
-    pane_states: Option<&PaneStates<'_>>,
-    halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
-    image_protocol: super::ImageProtocol,
-    image_requests: Option<&mut Vec<super::ImageRequest>>,
+    options: RenderPipelineOptions<'_>,
 ) -> (RenderResult, crate::display::DisplayMapRef) {
-    let mut source = SalsaViewSource::new(db, handles, surface_registry, pane_states);
+    let mut source =
+        SalsaViewSource::new(db, handles, options.surface_registry, options.pane_states);
     render_cached_core(
         &mut source,
         state,
         registry,
         grid,
         dirty,
-        paint_hooks,
-        halfblock_cache,
-        image_protocol,
-        image_requests,
+        options.paint_hooks,
+        options.halfblock_cache,
+        options.image_protocol,
+        options.image_requests,
     )
+}
+
+/// Optional parameters for [`scene_render_pipeline_cached`].
+#[derive(Default)]
+pub struct SceneRenderOptions<'a> {
+    pub surface_registry: Option<&'a SurfaceRegistry>,
+    pub pane_states: Option<&'a PaneStates<'a>>,
 }
 
 /// Salsa-backed scene rendering pipeline (GPU).
@@ -426,14 +442,14 @@ pub fn scene_render_pipeline_cached<'a>(
     cell_size: scene::CellSize,
     dirty: DirtyFlags,
     scene_cache: &'a mut SceneCache,
-    surface_registry: Option<&SurfaceRegistry>,
-    pane_states: Option<&PaneStates<'_>>,
+    options: SceneRenderOptions<'_>,
 ) -> (
     &'a [DrawCommand],
     RenderResult,
     crate::display::DisplayMapRef,
 ) {
-    let mut source = SalsaViewSource::new(db, handles, surface_registry, pane_states);
+    let mut source =
+        SalsaViewSource::new(db, handles, options.surface_registry, options.pane_states);
     scene_render_core(&mut source, state, registry, cell_size, dirty, scene_cache)
 }
 

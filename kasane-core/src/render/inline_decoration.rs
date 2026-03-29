@@ -154,16 +154,16 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                     pos = gap_end;
                 }
                 InlineOp::Hide { range } => {
-                    if advance_hide(
-                        range,
-                        &mut op_idx,
-                        &mut pos,
+                    let mut cx = InlineOpContext {
+                        op_idx: &mut op_idx,
+                        pos: &mut pos,
                         atom_end,
                         contents,
                         atom_start,
-                        atom.face,
-                        &mut result,
-                    ) {
+                        atom_face: atom.face,
+                        result: &mut result,
+                    };
+                    if advance_hide(range, &mut cx) {
                         continue;
                     }
                 }
@@ -171,17 +171,16 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
                     range,
                     face: op_face,
                 } => {
-                    if advance_style(
-                        range,
-                        op_face,
-                        &mut op_idx,
-                        &mut pos,
+                    let mut cx = InlineOpContext {
+                        op_idx: &mut op_idx,
+                        pos: &mut pos,
                         atom_end,
                         contents,
                         atom_start,
-                        atom.face,
-                        &mut result,
-                    ) {
+                        atom_face: atom.face,
+                        result: &mut result,
+                    };
+                    if advance_style(range, op_face, &mut cx) {
                         continue;
                     }
                 }
@@ -194,88 +193,82 @@ pub fn apply_inline_ops(atoms: &[Atom], decoration: &InlineDecoration) -> Vec<At
     result
 }
 
-/// Process a Hide op: emit any gap before the hidden range, then skip hidden bytes.
-/// Returns `true` when the caller's `while` loop should `continue`.
-#[allow(clippy::too_many_arguments)]
-fn advance_hide(
-    range: &std::ops::Range<usize>,
-    op_idx: &mut usize,
-    pos: &mut usize,
+/// Shared mutable context for inline op processing within a single atom.
+struct InlineOpContext<'a> {
+    op_idx: &'a mut usize,
+    pos: &'a mut usize,
     atom_end: usize,
-    contents: &str,
+    contents: &'a str,
     atom_start: usize,
     atom_face: Face,
-    result: &mut Vec<Atom>,
-) -> bool {
-    if range.end <= *pos {
-        *op_idx += 1;
+    result: &'a mut Vec<Atom>,
+}
+
+/// Process a Hide op: emit any gap before the hidden range, then skip hidden bytes.
+/// Returns `true` when the caller's `while` loop should `continue`.
+fn advance_hide(range: &std::ops::Range<usize>, cx: &mut InlineOpContext<'_>) -> bool {
+    if range.end <= *cx.pos {
+        *cx.op_idx += 1;
         return true;
     }
-    if range.start > *pos {
-        let gap_end = range.start.min(atom_end);
+    if range.start > *cx.pos {
+        let gap_end = range.start.min(cx.atom_end);
         emit_sub_atom(
-            contents,
-            *pos - atom_start,
-            gap_end - atom_start,
-            atom_face,
-            result,
+            cx.contents,
+            *cx.pos - cx.atom_start,
+            gap_end - cx.atom_start,
+            cx.atom_face,
+            cx.result,
         );
-        *pos = gap_end;
+        *cx.pos = gap_end;
         return true;
     }
     // Hide overlaps current position — skip
-    let effective_end = atom_end.min(range.end);
-    *pos = effective_end;
-    if *pos >= range.end {
-        *op_idx += 1;
+    let effective_end = cx.atom_end.min(range.end);
+    *cx.pos = effective_end;
+    if *cx.pos >= range.end {
+        *cx.op_idx += 1;
     }
     false
 }
 
 /// Process a Style op: emit any gap before the styled range, then emit styled bytes.
 /// Returns `true` when the caller's `while` loop should `continue`.
-#[allow(clippy::too_many_arguments)]
 fn advance_style(
     range: &std::ops::Range<usize>,
     op_face: &Face,
-    op_idx: &mut usize,
-    pos: &mut usize,
-    atom_end: usize,
-    contents: &str,
-    atom_start: usize,
-    atom_face: Face,
-    result: &mut Vec<Atom>,
+    cx: &mut InlineOpContext<'_>,
 ) -> bool {
-    if range.end <= *pos {
-        *op_idx += 1;
+    if range.end <= *cx.pos {
+        *cx.op_idx += 1;
         return true;
     }
-    if range.start > *pos {
-        let gap_end = range.start.min(atom_end);
+    if range.start > *cx.pos {
+        let gap_end = range.start.min(cx.atom_end);
         emit_sub_atom(
-            contents,
-            *pos - atom_start,
-            gap_end - atom_start,
-            atom_face,
-            result,
+            cx.contents,
+            *cx.pos - cx.atom_start,
+            gap_end - cx.atom_start,
+            cx.atom_face,
+            cx.result,
         );
-        *pos = gap_end;
+        *cx.pos = gap_end;
         return true;
     }
     // Style overlaps — emit with resolved face
-    let effective_start = (*pos).max(range.start);
-    let effective_end = atom_end.min(range.end);
-    let local_start = clamp_to_char_boundary(contents, effective_start - atom_start);
-    let local_end = clamp_to_char_boundary(contents, effective_end - atom_start);
+    let effective_start = (*cx.pos).max(range.start);
+    let effective_end = cx.atom_end.min(range.end);
+    let local_start = clamp_to_char_boundary(cx.contents, effective_start - cx.atom_start);
+    let local_end = clamp_to_char_boundary(cx.contents, effective_end - cx.atom_start);
     if local_start < local_end {
-        result.push(Atom {
-            face: crate::protocol::resolve_face(op_face, &atom_face),
-            contents: contents[local_start..local_end].into(),
+        cx.result.push(Atom {
+            face: crate::protocol::resolve_face(op_face, &cx.atom_face),
+            contents: cx.contents[local_start..local_end].into(),
         });
     }
-    *pos = effective_end;
-    if *pos >= range.end {
-        *op_idx += 1;
+    *cx.pos = effective_end;
+    if *cx.pos >= range.end {
+        *cx.op_idx += 1;
     }
     false
 }

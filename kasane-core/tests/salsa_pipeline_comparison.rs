@@ -51,12 +51,7 @@ fn render_salsa(
         &registry.view(),
         &mut grid,
         DirtyFlags::ALL,
-        &[],
-        None,
-        None,
-        None,
         Default::default(),
-        None,
     );
     grid
 }

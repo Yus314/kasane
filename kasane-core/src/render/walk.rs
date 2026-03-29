@@ -10,8 +10,8 @@ use std::ops::Range;
 use super::CursorStyle;
 use super::grid::CellGrid;
 use super::paint::{
-    BufferLineAction, BufferRefParams, analyze_buffer_line, paint_border, paint_border_title,
-    paint_buffer_ref, paint_shadow, paint_text,
+    BufferLineAction, BufferPaintContext, BufferRefParams, analyze_buffer_line, paint_border,
+    paint_border_title, paint_buffer_ref, paint_shadow, paint_text,
 };
 use super::scene::{
     CellSize, DrawCommand, PixelPos, PixelRect, clear_cursor_atom, dim_cursor_atom, resolve_atoms,
@@ -319,11 +319,13 @@ impl PaintVisitor for GridPaintVisitor<'_> {
             &area,
             line_range,
             state,
-            buffer_state,
-            line_backgrounds,
-            display_map,
-            inline_decorations,
-            virtual_text,
+            &BufferPaintContext {
+                buffer_state,
+                line_backgrounds,
+                display_map,
+                inline_decorations,
+                virtual_text,
+            },
         );
     }
 

@@ -26,8 +26,8 @@ use kasane_core::plugin::{
     ProcessDispatcher, ProcessEvent, extract_redraw_flags, report_plugin_diagnostics,
 };
 use kasane_core::protocol::KasaneRequest;
-use kasane_core::render::scene_render_pipeline_cached;
 use kasane_core::render::{RenderResult, SceneCache};
+use kasane_core::render::{SceneRenderOptions, scene_render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::SalsaInputHandles;
 use kasane_core::scroll::ScrollRuntime;
@@ -856,8 +856,10 @@ where
                 cell_size,
                 self.dirty,
                 &mut self.scene_cache,
-                Some(&self.surface_registry),
-                pane_states_opt,
+                SceneRenderOptions {
+                    surface_registry: Some(&self.surface_registry),
+                    pane_states: pane_states_opt,
+                },
             );
             self.last_render_result = Some(result);
             self.state.display_scroll_offset = result.display_scroll_offset;

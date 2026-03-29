@@ -682,12 +682,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
         &registry.view(),
         &mut salsa_grid,
         DirtyFlags::ALL,
-        &[],
-        None,
-        None,
-        None,
         Default::default(),
-        None,
     );
 
     // Compare cursor positions
@@ -766,12 +761,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
         &registry.view(),
         &mut salsa_grid,
         DirtyFlags::ALL,
-        &[],
-        None,
-        None,
-        None,
         Default::default(),
-        None,
     );
 
     // Compare cell grids

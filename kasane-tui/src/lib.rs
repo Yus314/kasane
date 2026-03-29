@@ -26,8 +26,8 @@ use kasane_core::plugin::{
     AppView, CommandResult, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
     ProcessDispatcher, ProcessEventSink, execute_commands, report_plugin_diagnostics,
 };
-use kasane_core::render::render_pipeline_cached;
 use kasane_core::render::{CellGrid, ImageProtocol, ImageRequest};
+use kasane_core::render::{RenderPipelineOptions, render_pipeline_cached};
 use kasane_core::salsa_db::KasaneDatabase;
 use kasane_core::salsa_sync::SalsaInputHandles;
 use kasane_core::scroll::ScrollRuntime;
@@ -462,12 +462,14 @@ where
                 &view,
                 &mut grid,
                 dirty,
-                paint_hooks.hooks(),
-                Some(&surface_registry),
-                pane_states_opt,
-                Some(&mut halfblock_cache),
-                image_protocol,
-                Some(&mut image_requests),
+                RenderPipelineOptions {
+                    paint_hooks: paint_hooks.hooks(),
+                    surface_registry: Some(&surface_registry),
+                    pane_states: pane_states_opt,
+                    halfblock_cache: Some(&mut halfblock_cache),
+                    image_protocol,
+                    image_requests: Some(&mut image_requests),
+                },
             );
             if diagnostic_overlay.is_active() {
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
