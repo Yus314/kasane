@@ -39,15 +39,15 @@ Ordered by tier. Within each tier, original numbering is preserved for cross-ref
 <!-- BENCH:slo -->
 | Metric | SLO | Current | Headroom |
 |---|---|---|---|
-| Full frame CPU (80×24) | p99 < 200 μs | 57.5 us | 3.4× |
+| Full frame CPU (80×24) | p99 < 200 μs | 57.3 us | 3.4× |
 | Per-plugin WASM overhead | < 3 μs/plugin | 1.5 us | 2× |
 | Per-frame allocation (warm) | < 150 allocs | 100 | 1.5× |
-| state.apply(Draw) 100 lines | < 200 μs | 132.1 us | 1.5× |
+| state.apply(Draw) 100 lines | < 200 μs | 139.1 us | 1.4× |
 <!-- /BENCH:slo -->
 
 ### SLO Derivation
 
-These SLOs function as engineering ratchets ([ADR-024](./decisions.md#adr-024-perception-oriented-performance-policy), Layer 2), not perceptual thresholds. The 200 μs full-frame budget is derived from: the current baseline of ~58 μs leaves 3.4× headroom, and regression up to 200 μs still keeps Kasane well under 1 ms — comfortably below the 4.17 ms display scanout at 240 Hz. Plugin budgets (< 3 μs/plugin) ensure ecosystem scalability: 50 plugins at budget would consume ~150 μs, still under 1 ms.
+These SLOs function as engineering ratchets ([ADR-024](./decisions.md#adr-024-perception-oriented-performance-policy), Layer 2), not perceptual thresholds. The 200 μs full-frame budget is derived from: the current baseline of ~57 μs leaves 3.5× headroom, and regression up to 200 μs still keeps Kasane well under 1 ms — comfortably below the 4.17 ms display scanout at 240 Hz. Plugin budgets (< 3 μs/plugin) ensure ecosystem scalability: 50 plugins at budget would consume ~150 μs, still under 1 ms.
 
 ## Degradation Model
 
@@ -58,7 +58,7 @@ frame_cost(w, h, n) ≈ base_cpu(w,h) + salsa_sync(w,h) + plugin_overhead(n) + b
 - `base_cpu(80,24)` ≈ 57 μs, sub-linear with area
 - `salsa_sync` ≈ 0.2–7 μs (AppState sync is unconditional; plugin contribution sync is skipped when no plugin needs re-collection via `view_deps()`)
 - `plugin_overhead` ≈ 1.5 μs × n (WASM CM)
-- `backend_io` ≈ 45–93 μs (TUI, terminal I/O dominated)
+- `backend_io` ≈ 30–60 μs (TUI, terminal I/O dominated)
 
 For Kasane's position within the full input-to-photon chain, see [ADR-024](./decisions.md#adr-024-perception-oriented-performance-policy).
 
@@ -96,14 +96,14 @@ Measured with `cargo bench --bench rendering_pipeline`.
 <!-- BENCH:per_frame_cost -->
 | Phase | Complexity | Measured | Notes |
 |---|---|---|---|
-| `view()` | O(nodes) | 4.4 us (0 plugins) / 9.4 us (10 plugins) | Element tree + plugin contributions + Salsa sync |
+| `view()` | O(nodes) | 4.6 us (0 plugins) / 9.7 us (10 plugins) | Element tree + plugin contributions + Salsa sync |
 | `place()` | O(nodes) | 1.2 us |  |
-| `grid.clear()` | O(w*h) | 4.6 us |  |
-| `paint()` | O(w*h) | 26.5 us | paint-only = clear+paint − clear |
-| `grid.diff()` (incremental) | O(w*h) = 1,920 cells | 13.3 us |  |
-| `grid.diff()` (full redraw) | O(w*h) | 30.3 us | First frame only; builds all CellDiffs |
-| **CPU pipeline total** |  | **57.5 us** |  |
-| `backend.present()` | O(changed_cells) | **45.2-93.1 us** | Incremental diff + SGR + I/O |
+| `grid.clear()` | O(w*h) | 4.4 us |  |
+| `paint()` | O(w*h) | 26.9 us | paint-only = clear+paint − clear |
+| `grid.diff()` (incremental) | O(w*h) = 1,920 cells | 13.4 us |  |
+| `grid.diff()` (full redraw) | O(w*h) | 31.2 us | First frame only; builds all CellDiffs |
+| **CPU pipeline total** |  | **57.3 us** |  |
+| `backend.present()` | O(changed_cells) | **29.6-60.1 us** | Incremental diff + SGR + I/O |
 <!-- /BENCH:per_frame_cost -->
 
 Note: paint-only cost is derived from the `paint/80x24` benchmark (which includes `grid.clear()`) minus `grid_clear/80x24`. `backend.present()` includes stdout write (50–500 μs, not benchmarked by criterion).
@@ -136,12 +136,12 @@ The view() cost includes Salsa incremental sync, plugin registry preparation, se
 
 | Phase | Initial Estimate | Measured |
 |---|---|---|
-| Element construction (view) | ~1-4 us | 5.0-10.4 us |
+| Element construction (view) | ~1-4 us | 4.6-9.7 us |
 | Layout calculation (place) | ~1 us | 1.2 us |
 | Recursive traversal (paint overhead) | ~0.3 us | Included in paint |
-| **Total** | **~4-7 us** | **~7 us** (0 plugins) / **~12 us** (10 plugins) |
+| **Total** | **~4-7 us** | **~6 us** (0 plugins) / **~11 us** (10 plugins) |
 
-**7-12 us out of the full pipeline = 12-21%. Relative to terminal I/O (100-700 us) = 1-12%.**
+**6-11 us out of the full pipeline = 10-19%. Relative to terminal I/O (100-700 us) = 1-11%.**
 **No practical impact on end-to-end latency.**
 
 ## Micro Benchmarks (10)
@@ -149,16 +149,16 @@ The view() cost includes Salsa incremental sync, plugin registry preparation, se
 <!-- BENCH:micro -->
 | Benchmark | What It Measures | Target | Measured | Verdict |
 |---|---|---|---|---|
-| `element_construct/plugins_0` | view() tree construction (0 plugins) | < 10 us | 4.4 us | OK (2.2× headroom) |
-| `element_construct/plugins_10` | view() tree construction (10 plugins) | < 15 us | 9.4 us | OK (1.5× headroom) |
+| `element_construct/plugins_0` | view() tree construction (0 plugins) | < 10 us | 4.6 us | OK (2.1× headroom) |
+| `element_construct/plugins_10` | view() tree construction (10 plugins) | < 15 us | 9.7 us | OK (1.5× headroom) |
 | `flex_layout` | place() layout calculation | < 5 us | 1.2 us | OK (4.1× headroom) |
-| `paint/80x24` | clear() + paint() combined | -- | 31.1 us |  paint-only: 26.5 us |
-| `paint/200x60` | clear() + paint() combined (large) | -- | 118.2 us |  paint-only: 89.6 us |
-| `paint/80x24_realistic` | clear() + paint() combined (varied Face/lengths) | -- | 37.4 us |  paint-only: 32.8 us |
-| `grid_clear/80x24` | clear() standalone | -- | 4.6 us |  |
-| `grid_clear/200x60` | clear() standalone (large) | -- | 28.6 us |  |
-| `grid_diff/full_redraw` | diff() first frame | -- | 30.3 us |  First frame only |
-| `grid_diff/incremental` | diff() no changes | -- | 13.3 us |  Steady-state path |
+| `paint/80x24` | clear() + paint() combined | -- | 31.3 us |  paint-only: 26.9 us |
+| `paint/200x60` | clear() + paint() combined (large) | -- | 118.7 us |  paint-only: 91.5 us |
+| `paint/80x24_realistic` | clear() + paint() combined (varied Face/lengths) | -- | 35.8 us |  paint-only: 31.4 us |
+| `grid_clear/80x24` | clear() standalone | -- | 4.4 us |  |
+| `grid_clear/200x60` | clear() standalone (large) | -- | 27.1 us |  |
+| `grid_diff/full_redraw` | diff() first frame | -- | 31.2 us |  First frame only |
+| `grid_diff/incremental` | diff() no changes | -- | 13.4 us |  Steady-state path |
 <!-- /BENCH:micro -->
 
 ## Integration Benchmarks (8)
@@ -166,14 +166,14 @@ The view() cost includes Salsa incremental sync, plugin registry preparation, se
 <!-- BENCH:integration -->
 | Benchmark | What It Measures | Target | Measured | Verdict |
 |---|---|---|---|---|
-| `full_frame` | view -> layout -> paint -> diff -> swap | < 16 ms | 57.5 us | OK (278.2× headroom) |
-| `draw_message` | state.apply(Draw) + full frame | < 5 ms | 60.8 us | OK (82.2× headroom) |
-| `menu_show/items/10` | Menu display + full frame | < 5 ms | 64.5 us | OK (77.5× headroom) |
-| `menu_show/items/50` | Menu 50 items + full frame | < 5 ms | 68.2 us | OK (73.3× headroom) |
-| `menu_show/items/100` | Menu 100 items + full frame | < 5 ms | 68.4 us | OK (73× headroom) |
-| `incremental_edit/lines/1` | 1 line edit -> view + paint + diff | -- | 53.1 us |  |
-| `incremental_edit/lines/5` | 5 line edit -> view + paint + diff | -- | 54.1 us |  |
-| `message_sequence` | draw_status + draw -> full frame | -- | 61.3 us |  |
+| `full_frame` | view -> layout -> paint -> diff -> swap | < 16 ms | 57.3 us | OK (279.2× headroom) |
+| `draw_message` | state.apply(Draw) + full frame | < 5 ms | 61.6 us | OK (81.1× headroom) |
+| `menu_show/items/10` | Menu display + full frame | < 5 ms | 65.3 us | OK (76.5× headroom) |
+| `menu_show/items/50` | Menu 50 items + full frame | < 5 ms | 67.6 us | OK (73.9× headroom) |
+| `menu_show/items/100` | Menu 100 items + full frame | < 5 ms | 65.4 us | OK (76.4× headroom) |
+| `incremental_edit/lines/1` | 1 line edit -> view + paint + diff | -- | 50.9 us |  |
+| `incremental_edit/lines/5` | 5 line edit -> view + paint + diff | -- | 52.1 us |  |
+| `message_sequence` | draw_status + draw -> full frame | -- | 61.5 us |  |
 <!-- /BENCH:integration -->
 
 `menu_show` is independent of item count because `menu_max_height=10` caps the visible rows.
@@ -185,10 +185,10 @@ The view() cost includes Salsa incremental sync, plugin registry preparation, se
 <!-- BENCH:parse_request -->
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
-| `parse_request/draw_lines/10` | JSON-RPC parse (10-line draw) | 58.1 us |  |
-| `parse_request/draw_lines/100` | JSON-RPC parse (100-line draw) | 501.5 us |  |
-| `parse_request/draw_lines/500` | JSON-RPC parse (500-line draw) | 2.45 ms |  |
-| `parse_request/draw_status` | JSON-RPC parse (draw_status) | 2.7 us | Small message, high frequency |
+| `parse_request/draw_lines/10` | JSON-RPC parse (10-line draw) | 54.9 us |  |
+| `parse_request/draw_lines/100` | JSON-RPC parse (100-line draw) | 495.7 us |  |
+| `parse_request/draw_lines/500` | JSON-RPC parse (500-line draw) | 2.56 ms |  |
+| `parse_request/draw_status` | JSON-RPC parse (draw_status) | 3.1 us | Small message, high frequency |
 | `parse_request/menu_show_50` | JSON-RPC parse (menu_show 50 items) | 52.2 us |  |
 <!-- /BENCH:parse_request -->
 
@@ -197,11 +197,11 @@ The view() cost includes Salsa incremental sync, plugin registry preparation, se
 <!-- BENCH:state_apply -->
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
-| `state_apply/draw_lines/23` | state.apply(Draw) standalone | 34.0 us | Includes detect_cursors + compute_lines_dirty |
-| `state_apply/draw_lines/100` | state.apply(Draw) standalone | 132.1 us | O(lines × atoms) cursor scanning |
-| `state_apply/draw_lines/500` | state.apply(Draw) standalone | 694.9 us |  |
+| `state_apply/draw_lines/23` | state.apply(Draw) standalone | 34.1 us | Includes detect_cursors + compute_lines_dirty |
+| `state_apply/draw_lines/100` | state.apply(Draw) standalone | 139.1 us | O(lines × atoms) cursor scanning |
+| `state_apply/draw_lines/500` | state.apply(Draw) standalone | 696.2 us |  |
 | `state_apply/draw_status` | state.apply(DrawStatus) | 1.3 us |  |
-| `state_apply/menu_show_50` | state.apply(MenuShow) | 4.6 us |  |
+| `state_apply/menu_show_50` | state.apply(MenuShow) | 4.7 us |  |
 <!-- /BENCH:state_apply -->
 
 The `state_apply/draw_lines` numbers above reflect the cold-cache / all-lines-dirty path (first frame, resize, scroll, file open). On typical cursor-move frames, `detect_cursors_incremental` re-scans only the 2 dirty lines (~1.2 μs for 23-line viewport), reducing the Draw cost from ~31 μs to ~17 μs. The full-scan path remains unchanged and dominates when Kakoune sends a new viewport (24-80 lines); the worst practical case is still ~132 μs (100 lines).
@@ -211,14 +211,14 @@ The `state_apply/draw_lines` numbers above reflect the cold-cache / all-lines-di
 <!-- BENCH:scaling -->
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
-| `scaling/full_frame/80x24` | Full frame at 80x24 | 55.0 us | Baseline |
-| `scaling/full_frame/200x60` | Full frame at 200x60 | 226.0 us |  |
-| `scaling/full_frame/300x80` | Full frame at 300x80 | 407.4 us |  |
-| `scaling/parse_apply_draw/500` | Parse + apply (500 lines) | 3.15 ms |  |
-| `scaling/parse_apply_draw/1000` | Parse + apply (1000 lines) | 7.50 ms | Near-linear |
+| `scaling/full_frame/80x24` | Full frame at 80x24 | 57.7 us | Baseline |
+| `scaling/full_frame/200x60` | Full frame at 200x60 | 227.5 us |  |
+| `scaling/full_frame/300x80` | Full frame at 300x80 | 411.1 us |  |
+| `scaling/parse_apply_draw/500` | Parse + apply (500 lines) | 3.16 ms |  |
+| `scaling/parse_apply_draw/1000` | Parse + apply (1000 lines) | 6.65 ms | Near-linear |
 | `scaling/diff_incremental/80x24` | diff() no-change 80x24 | 12.8 us |  |
-| `scaling/diff_incremental/200x60` | diff() no-change 200x60 | 81.4 us |  |
-| `scaling/diff_incremental/300x80` | diff() no-change 300x80 | 154.9 us |  |
+| `scaling/diff_incremental/200x60` | diff() no-change 200x60 | 77.9 us |  |
+| `scaling/diff_incremental/300x80` | diff() no-change 300x80 | 154.7 us |  |
 <!-- /BENCH:scaling -->
 
 Full frame scales sub-linearly with area (cache effects). diff() scales linearly.
@@ -232,10 +232,10 @@ Measured with `kasane-tui/benches/backend.rs` using MockBackend (no real termina
 <!-- BENCH:present -->
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
-| `present/full_redraw/80x24` | 80x24 all cells | 93.1 us | Cursor auto-advance + incremental SGR |
-| `present/full_redraw/200x60` | 200x60 all cells | 580.8 us | Large screen |
-| `present/incremental_1line` | 1 line changed | 45.2 us | Diff + SGR for changed row |
-| `present/full_redraw_realistic/80x24` | Realistic data at 80x24 | 97.5 us | Diverse Face values |
+| `present/full_redraw/80x24` | 80x24 all cells | 60.1 us | Cursor auto-advance + incremental SGR |
+| `present/full_redraw/200x60` | 200x60 all cells | 347.8 us | Large screen |
+| `present/incremental_1line` | 1 line changed | 29.6 us | Diff + SGR for changed row |
+| `present/full_redraw_realistic/80x24` | Realistic data at 80x24 | 59.4 us | Diverse Face values |
 <!-- /BENCH:present -->
 
 ## E2E Pipeline Benchmarks
@@ -245,8 +245,8 @@ JSON bytes -> parse -> apply -> render -> backend.present -> escape bytes.
 <!-- BENCH:e2e_pipeline -->
 | Benchmark | What It Measures | Measured | Notes |
 |---|---|---|---|
-| `e2e_pipeline/json_to_escape_80x24` | Full pipeline (uniform data) | 255.8 us |  |
-| `e2e_pipeline/json_to_escape_realistic` | Full pipeline (realistic data) | 133.9 us |  |
+| `e2e_pipeline/json_to_escape_80x24` | Full pipeline (uniform data) | 161.1 us |  |
+| `e2e_pipeline/json_to_escape_realistic` | Full pipeline (realistic data) | 118.1 us |  |
 <!-- /BENCH:e2e_pipeline -->
 
 ## Allocation Breakdown (Per-Phase)
@@ -308,10 +308,10 @@ End-to-end scenario replay (parse + apply + render for each message).
 <!-- BENCH:replay -->
 | Scenario | Messages | Measured | Per-message |
 |---|---|---|---|
-| `normal_editing_50msg` | 50 | 10.45 ms | 209.0 us |
-| `fast_scroll_100msg` | 100 | 34.01 ms | 340.1 us |
-| `menu_completion_20msg` | 20 | 2.81 ms | 140.6 us |
-| `mixed_session_200msg` | 200 | 20.78 ms | 103.9 us |
+| `normal_editing_50msg` | 50 | 4.56 ms | 91.1 us |
+| `fast_scroll_100msg` | 100 | 16.49 ms | 164.9 us |
+| `menu_completion_20msg` | 20 | 1.71 ms | 85.5 us |
+| `mixed_session_200msg` | 200 | 19.26 ms | 96.3 us |
 <!-- /BENCH:replay -->
 
 Fast scroll is heavier per-message due to full buffer redraws.
@@ -340,15 +340,15 @@ Overhead of syncing AppState changes into Salsa tracked inputs.
 <!-- BENCH:salsa_sync -->
 | Benchmark | Measured | Notes |
 |---|---|---|
-| `salsa_sync_inputs/buffer_content/23_lines` | 3.4 us | Typical viewport |
-| `salsa_sync_inputs/buffer_content/59_lines` | 6.4 us | Large viewport |
-| `salsa_sync_inputs/buffer_content/79_lines` | 8.0 us |  |
+| `salsa_sync_inputs/buffer_content/23_lines` | 3.2 us | Typical viewport |
+| `salsa_sync_inputs/buffer_content/59_lines` | 6.3 us | Large viewport |
+| `salsa_sync_inputs/buffer_content/79_lines` | 7.5 us |  |
 | `salsa_sync_inputs/buffer_content_realistic_23` | 2.6 us | Realistic face distribution |
-| `salsa_sync_inputs/buffer_cursor_only` | 3251.4 ns | Cursor move, no buffer change |
-| `salsa_sync_inputs/status` | 3018.9 ns | Status bar update only |
-| `salsa_sync_inputs/menu_100_items` | 7.7 us |  |
-| `salsa_sync_inputs/all_flags_80x24` | 3.2 us | All flags dirty at 80x24 |
-| `salsa_sync_inputs/all_flags_300x80` | 8.0 us | All flags dirty at 300x80 |
+| `salsa_sync_inputs/buffer_cursor_only` | 3303.3 ns | Cursor move, no buffer change |
+| `salsa_sync_inputs/status` | 3370.5 ns | Status bar update only |
+| `salsa_sync_inputs/menu_100_items` | 7.3 us |  |
+| `salsa_sync_inputs/all_flags_80x24` | 3.3 us | All flags dirty at 80x24 |
+| `salsa_sync_inputs/all_flags_300x80` | 7.5 us | All flags dirty at 300x80 |
 <!-- /BENCH:salsa_sync -->
 
 Cursor-only updates and status updates are extremely cheap, enabling efficient incremental recomputation.
@@ -358,9 +358,9 @@ Cursor-only updates and status updates are extremely cheap, enabling efficient i
 <!-- BENCH:salsa_vs_legacy -->
 | Scenario | Salsa | Legacy | Difference |
 |---|---|---|---|
-| Full cold (80x24) | 42.8 us | **40.8 us** | +4.8% |
-| Menu select warm | **43.1 us** | 49.0 us | -12.1% |
-| Incremental edit | 46.7 us | **41.3 us** | +13.1% |
+| Full cold (80x24) | 43.0 us | **40.2 us** | +6.9% |
+| Menu select warm | **42.9 us** | 48.8 us | -12.1% |
+| Incremental edit | 47.4 us | **43.2 us** | +9.6% |
 <!-- /BENCH:salsa_vs_legacy -->
 
 Salsa's value emerges in **warm-cache scenarios**: menu selection (the most interactive operation) benefits from Salsa skipping unchanged computations.
@@ -370,9 +370,9 @@ Salsa's value emerges in **warm-cache scenarios**: menu selection (the most inte
 <!-- BENCH:salsa_scaling -->
 | Screen size | Salsa | Legacy | Improvement |
 |---|---|---|---|
-| 80×24 | **49.6 us** | 55.0 us | -9.7% |
-| 200×60 | **150.6 us** | 226.0 us | -33.3% |
-| 300×80 | **247.0 us** | 407.4 us | -39.4% |
+| 80×24 | **47.3 us** | 57.7 us | -18.1% |
+| 200×60 | **149.9 us** | 227.5 us | -34.1% |
+| 300×80 | **250.8 us** | 411.1 us | -39% |
 <!-- /BENCH:salsa_scaling -->
 
 At larger screen sizes, Salsa's incremental computation provides significant speedup over the legacy pipeline by avoiding redundant recomputation of unchanged element subtrees and layout regions.
@@ -382,7 +382,7 @@ At larger screen sizes, Salsa's incremental computation provides significant spe
 <!-- BENCH:salsa_patched -->
 | Benchmark | Measured | Notes |
 |---|---|---|
-| `salsa_scene/cold` | 27.0 us | Scene cold start |
+| `salsa_scene/cold` | 26.3 us | Scene cold start |
 | `salsa_scene/warm` | 4.6 us | Scene warm (Salsa-cached DrawCommands) |
 <!-- /BENCH:salsa_patched -->
 
@@ -395,9 +395,9 @@ Measured with `cargo bench --bench rendering_pipeline -- cache\|section`.
 <!-- BENCH:cache_view_scene -->
 | Benchmark | Measured | Notes |
 |---|---|---|
-| `scene_cache_cold` | 27.8 us | Cold: full scene construction |
-| `scene_cache_warm` | 26.8 us | Warm: cached DrawCommands |
-| `scene_cache_menu_select` | 36.4 us | Menu section rebuild only |
+| `scene_cache_cold` | 26.3 us | Cold: full scene construction |
+| `scene_cache_warm` | 26.2 us | Warm: cached DrawCommands |
+| `scene_cache_menu_select` | 37.2 us | Menu section rebuild only |
 <!-- /BENCH:cache_view_scene -->
 
 ### Line-Dirty Optimization
@@ -405,9 +405,9 @@ Measured with `cargo bench --bench rendering_pipeline -- cache\|section`.
 <!-- BENCH:line_dirty -->
 | Benchmark | Measured | Notes |
 |---|---|---|
-| `line_dirty_single_edit` | 11.4 us | 1 line changed: selective_clear + paint |
-| `line_dirty_all_changed` | 9.0 us | All lines dirty: full repaint |
-| `line_dirty_buffer_status/1_line_changed` | 16.6 us | BUFFER|STATUS combo, 1 line |
+| `line_dirty_single_edit` | 11.9 us | 1 line changed: selective_clear + paint |
+| `line_dirty_all_changed` | 9.1 us | All lines dirty: full repaint |
+| `line_dirty_buffer_status/1_line_changed` | 12.0 us | BUFFER|STATUS combo, 1 line |
 <!-- /BENCH:line_dirty -->
 
 ## Bottleneck Analysis
@@ -423,9 +423,9 @@ Ranked by severity with current measurements.
 <!-- BENCH:bottleneck_detect_cursors -->
 | Lines | state_apply(Draw) | Notes |
 |---|---|---|
-| `state_apply/draw_lines/23` | 34.0 us | Typical viewport |
-| `state_apply/draw_lines/100` | 132.1 us | Large viewport |
-| `state_apply/draw_lines/500` | 694.9 us | Exceeds 200 μs budget |
+| `state_apply/draw_lines/23` | 34.1 us | Typical viewport |
+| `state_apply/draw_lines/100` | 139.1 us | Large viewport |
+| `state_apply/draw_lines/500` | 696.2 us | Exceeds 200 μs budget |
 <!-- /BENCH:bottleneck_detect_cursors -->
 
 Kakoune sends only viewport lines (24-80), so the worst practical case is ~132 μs (100 lines), within the latency budget. Remaining optimization opportunity:
@@ -453,7 +453,7 @@ For historical context on the compiler-driven optimization (superseded by Salsa 
 
 For rendering pipeline improvements (zero-alloc diff, draw_grid, line-dirty expansion, container fill optimization), see [ADR-015 in decisions.md](./decisions.md#adr-015-rendering-pipeline-performance-improvements).
 
-Kasane's CPU pipeline (~58 μs) is roughly 70× below the 240 Hz display scanout period. Steady-state overhead is demonstrably imperceptible (ADR-024). Remaining optimization work is justified by headroom preservation and structural improvements, not perceptual necessity. Edge cases identified by Principle 9 — large viewports, terminal resize, plugin startup — remain the primary perceptual risk area.
+Kasane's CPU pipeline (~57 μs) is roughly 73× below the 240 Hz display scanout period. Steady-state overhead is demonstrably imperceptible (ADR-024). Remaining optimization work is justified by headroom preservation and structural improvements, not perceptual necessity. Edge cases identified by Principle 9 — large viewports, terminal resize, plugin startup — remain the primary perceptual risk area.
 
 ## WASM Plugin Benchmarks
 
@@ -493,8 +493,8 @@ See [ADR-013](./decisions.md#adr-013-wasm-plugin-runtime--component-model-adopti
 |---|---|---|---|
 | 1 plugin full frame | **1.5 us** | **2.7%** |  |
 | 3 plugins full frame | **4.4 us** | **7.7%** |  |
-| 5 plugins full frame | **7.4 us** | **12.9%** |  |
-| 10 plugins full frame | **15.0 us** | **26.1%** |  |
+| 5 plugins full frame | **7.4 us** | **13%** |  |
+| 10 plugins full frame | **15.0 us** | **26.2%** |  |
 | Cache hit (no state change) | **0.3 ns** | **0%** | DirtyFlags skip |
 <!-- /BENCH:wasm_realistic -->
 
