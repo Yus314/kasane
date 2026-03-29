@@ -57,6 +57,9 @@ strip = true
 codegen-units = 1
 panic = "abort"
 
+[profile.bench]
+strip = false
+
 [profile.dev.package."*"]
 opt-level = 2
 

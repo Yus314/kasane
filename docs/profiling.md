@@ -70,11 +70,11 @@ iai-callgrind uses Valgrind's callgrind to count instructions, making results fu
 ### Running
 
 ```sh
-cargo bench --bench iai_pipeline              # Core pipeline
-cargo bench -p kasane-tui --bench iai_backend  # TUI backend
+IAI_CALLGRIND_VALGRIND="$(which valgrind)" cargo bench --bench iai_pipeline              # Core pipeline
+IAI_CALLGRIND_VALGRIND="$(which valgrind)" cargo bench -p kasane-tui --bench iai_backend  # TUI backend
 ```
 
-Requires `valgrind` installed and `iai-callgrind-runner` in PATH. With the Nix devShell, valgrind is provided automatically (Linux only):
+Requires `valgrind` installed, `iai-callgrind-runner` in PATH, and `IAI_CALLGRIND_VALGRIND` pointing to the valgrind binary. With the Nix devShell, valgrind is provided automatically (Linux only):
 
 ```sh
 # Non-Nix: install manually
