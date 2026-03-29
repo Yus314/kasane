@@ -687,16 +687,28 @@ impl PluginRuntime {
         self.register_backend(Box::new(bridge));
     }
 
-    /// Broadcast key observation to all plugins.
+    /// Broadcast key observation to all plugins with INPUT_HANDLER capability.
     pub fn observe_key_all(&mut self, key: &KeyEvent, app: &AppView<'_>) {
         for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                continue;
+            }
             slot.backend.observe_key(key, app);
         }
     }
 
-    /// Broadcast mouse observation to all plugins.
+    /// Broadcast mouse observation to all plugins with INPUT_HANDLER capability.
     pub fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {
         for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                continue;
+            }
             slot.backend.observe_mouse(event, app);
         }
     }

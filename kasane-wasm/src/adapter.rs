@@ -535,6 +535,13 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn observe_key(&mut self, key: &KeyEvent, state: &AppView<'_>) {
+        if !self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::INPUT_HANDLER)
+        {
+            return;
+        }
         self.shared.call_synced(state, "observe_key", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_key = convert::key_event_to_wit(key);
@@ -543,6 +550,13 @@ impl PluginBackend for WasmPlugin {
     }
 
     fn observe_mouse(&mut self, event: &MouseEvent, state: &AppView<'_>) {
+        if !self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::INPUT_HANDLER)
+        {
+            return;
+        }
         self.shared.call_synced(state, "observe_mouse", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
             let wit_event = convert::mouse_event_to_wit(event);
