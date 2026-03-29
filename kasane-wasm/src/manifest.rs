@@ -71,6 +71,9 @@ pub enum ManifestError {
 
     #[error("unknown view dep: {0}")]
     UnknownViewDep(String),
+
+    #[error("multiple validation errors:\n{}", .0.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n"))]
+    Multiple(Vec<ManifestError>),
 }
 
 /// Current host ABI version (from WIT package declaration).
@@ -83,8 +86,12 @@ impl PluginManifest {
     }
 
     /// Validate the manifest against the host ABI version and check all names.
+    ///
+    /// Accumulates all errors and returns them together (except ABI mismatch,
+    /// which is an early return since subsequent checks are meaningless).
     pub fn validate(&self) -> Result<(), ManifestError> {
-        // ABI version check: must match major.minor (patch can differ)
+        // ABI version check: must match major.minor (patch can differ).
+        // Early return — subsequent validation is meaningless on ABI mismatch.
         if !abi_compatible(&self.plugin.abi_version, HOST_ABI_VERSION) {
             return Err(ManifestError::AbiMismatch {
                 manifest: self.plugin.abi_version.clone(),
@@ -92,35 +99,41 @@ impl PluginManifest {
             });
         }
 
+        let mut errors = Vec::new();
+
         // Validate capability names
         for name in &self.capabilities.wasi {
             if capability_from_name(name).is_none() {
-                return Err(ManifestError::UnknownCapability(name.clone()));
+                errors.push(ManifestError::UnknownCapability(name.clone()));
             }
         }
 
         // Validate authority names
         for name in &self.authorities.host {
             if authority_from_name(name).is_none() {
-                return Err(ManifestError::UnknownAuthority(name.clone()));
+                errors.push(ManifestError::UnknownAuthority(name.clone()));
             }
         }
 
         // Validate handler flag names
         for name in &self.handlers.flags {
             if handler_flag_bit(name).is_none() {
-                return Err(ManifestError::UnknownHandlerFlag(name.clone()));
+                errors.push(ManifestError::UnknownHandlerFlag(name.clone()));
             }
         }
 
         // Validate view dep names
         for name in &self.view.deps {
             if view_dep_bit(name).is_none() {
-                return Err(ManifestError::UnknownViewDep(name.clone()));
+                errors.push(ManifestError::UnknownViewDep(name.clone()));
             }
         }
 
-        Ok(())
+        match errors.len() {
+            0 => Ok(()),
+            1 => Err(errors.into_iter().next().unwrap()),
+            _ => Err(ManifestError::Multiple(errors)),
+        }
     }
 
     /// Convert handler flags to `PluginCapabilities` bitmask.
@@ -455,5 +468,61 @@ id = "test"
 "#;
         let err = PluginManifest::parse(toml).unwrap_err();
         assert!(matches!(err, ManifestError::TomlParse(_)));
+    }
+
+    #[test]
+    fn validate_accumulates_multiple_errors() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[capabilities]
+wasi = ["teleportation"]
+
+[handlers]
+flags = ["time-travel"]
+
+[view]
+deps = ["magic-data"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        match err {
+            ManifestError::Multiple(errors) => {
+                assert_eq!(errors.len(), 3);
+                assert!(
+                    errors
+                        .iter()
+                        .any(|e| matches!(e, ManifestError::UnknownCapability(_)))
+                );
+                assert!(
+                    errors
+                        .iter()
+                        .any(|e| matches!(e, ManifestError::UnknownHandlerFlag(_)))
+                );
+                assert!(
+                    errors
+                        .iter()
+                        .any(|e| matches!(e, ManifestError::UnknownViewDep(_)))
+                );
+            }
+            _ => panic!("expected Multiple error, got: {err}"),
+        }
+    }
+
+    #[test]
+    fn validate_single_error_not_wrapped_in_multiple() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["time-travel"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(matches!(err, ManifestError::UnknownHandlerFlag(_)));
     }
 }
