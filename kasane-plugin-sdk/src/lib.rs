@@ -1178,7 +1178,7 @@ mod tests {
 
     #[test]
     fn dirty_all_matches_bitflags() {
-        // SDK's ALL intentionally excludes PLUGIN_STATE (bit 7). Core ALL = 0xFF, SDK ALL = 0x17F.
+        // SDK's ALL intentionally excludes PLUGIN_STATE (bit 7). Core ALL = 0x1FF, SDK ALL = 0x17F.
         assert_eq!(dirty::ALL, 0x17F);
     }
 
