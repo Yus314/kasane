@@ -15,9 +15,14 @@ image = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+iai-callgrind = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [[bench]]
 name = "backend"
+harness = false
+
+[[bench]]
+name = "iai_backend"
 harness = false

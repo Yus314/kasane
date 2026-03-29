@@ -138,6 +138,8 @@
             rustToolchain
             pkgs.pkg-config
           ] ++ pkgs.lib.optionals isLinux [
+            pkgs.valgrind
+
             # GUI backend dependencies (Linux)
             pkgs.vulkan-loader
             pkgs.wayland

@@ -70,14 +70,16 @@ iai-callgrind uses Valgrind's callgrind to count instructions, making results fu
 ### Running
 
 ```sh
-cargo bench --bench iai_pipeline
+cargo bench --bench iai_pipeline              # Core pipeline
+cargo bench -p kasane-tui --bench iai_backend  # TUI backend
 ```
 
-Requires `valgrind` installed and `iai-callgrind-runner` in PATH:
+Requires `valgrind` installed and `iai-callgrind-runner` in PATH. With the Nix devShell, valgrind is provided automatically (Linux only):
 
 ```sh
+# Non-Nix: install manually
 sudo apt install valgrind          # Ubuntu/Debian
-cargo install iai-callgrind-runner --version 0.14.2
+cargo install iai-callgrind-runner --version 0.16.1
 ```
 
 ### Reading output
@@ -85,6 +87,8 @@ cargo install iai-callgrind-runner --version 0.14.2
 Output shows instruction counts, L1/L2 cache stats, and estimated cycles per benchmark function. Instruction counts should be identical (±0.01%) across runs.
 
 ### Benchmarked functions
+
+**Core pipeline** (`kasane-core`, bench `iai_pipeline`):
 
 | Benchmark | What it measures |
 |-----------|-----------------|
@@ -94,6 +98,13 @@ Output shows instruction counts, L1/L2 cache stats, and estimated cycles per ben
 | `iai_paint_80x24` | paint only (80×24) |
 | `iai_grid_diff_full` | Full redraw diff |
 | `iai_grid_diff_incremental` | Identical content diff (empty) |
+
+**TUI backend** (`kasane-tui`, bench `iai_backend`):
+
+| Benchmark | What it measures |
+|-----------|-----------------|
+| `iai_present_full_redraw` | present() full redraw: diff + SGR + update_previous (80×24) |
+| `iai_present_incremental` | present() incremental: 1-line change (80×24) |
 
 ### Baseline management
 

@@ -61,8 +61,11 @@ jobs:
       - name: Run WASM benchmarks
         run: nix develop --command cargo bench -p kasane-wasm-bench -- --output-format bencher --warm-up-time 3 --measurement-time 5 | tee -a output.txt
 
-      - name: Run iai-callgrind benchmarks
+      - name: Run iai-callgrind benchmarks (core)
         run: nix develop --command env PATH="$HOME/.cargo/bin:$PATH" IAI_CALLGRIND_RUNNER="$HOME/.cargo/bin/iai-callgrind-runner" cargo bench --bench iai_pipeline 2>&1 | tee iai_results.txt
+
+      - name: Run iai-callgrind benchmarks (tui)
+        run: nix develop --command env PATH="$HOME/.cargo/bin:$PATH" IAI_CALLGRIND_RUNNER="$HOME/.cargo/bin/iai-callgrind-runner" cargo bench -p kasane-tui --bench iai_backend 2>&1 | tee -a iai_results.txt
 
       - name: Run allocation budget
         run: |
