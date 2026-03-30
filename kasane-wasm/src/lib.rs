@@ -1,5 +1,6 @@
 mod adapter;
 mod authority;
+mod cache;
 pub mod capability;
 mod convert;
 mod host;
@@ -36,10 +37,33 @@ use wasmtime::{Config, Engine};
 pub struct WasmPluginLoader {
     engine: Engine,
     linker: Linker<host::HostState>,
+    cache: Option<cache::ComponentCache>,
 }
 
 impl WasmPluginLoader {
     pub fn new() -> anyhow::Result<Self> {
+        let (engine, linker) = Self::create_engine_and_linker()?;
+        let cache = cache::ComponentCache::new(&engine);
+        Ok(Self {
+            engine,
+            linker,
+            cache,
+        })
+    }
+
+    /// Create a loader with a custom cache base directory (for testing).
+    #[doc(hidden)]
+    pub fn new_with_cache_base(cache_base: &std::path::Path) -> anyhow::Result<Self> {
+        let (engine, linker) = Self::create_engine_and_linker()?;
+        let cache = cache::ComponentCache::new_with_base(&engine, cache_base);
+        Ok(Self {
+            engine,
+            linker,
+            cache,
+        })
+    }
+
+    fn create_engine_and_linker() -> anyhow::Result<(Engine, Linker<host::HostState>)> {
         let mut config = Config::new();
         config.wasm_component_model(true);
         let engine = Engine::new(&config)?;
@@ -57,7 +81,20 @@ impl WasmPluginLoader {
             host::HostState,
             HasSelf<host::HostState>,
         >(&mut linker, |state| state)?;
-        Ok(Self { engine, linker })
+        Ok((engine, linker))
+    }
+
+    fn load_component(&self, wasm_bytes: &[u8]) -> anyhow::Result<Component> {
+        if let Some(ref cache) = self.cache
+            && let Some(component) = cache.get(wasm_bytes, &self.engine)
+        {
+            return Ok(component);
+        }
+        let component = Component::new(&self.engine, wasm_bytes)?;
+        if let Some(ref cache) = self.cache {
+            cache.put(wasm_bytes, &component);
+        }
+        Ok(component)
     }
 
     /// Load a WASM plugin from raw bytes with WASI capability configuration.
@@ -71,8 +108,9 @@ impl WasmPluginLoader {
         wasm_bytes: &[u8],
         wasi_config: &WasiCapabilityConfig,
     ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
-        let component = Component::new(&self.engine, wasm_bytes)
-            .map_err(|err| (ProviderArtifactStage::Load, err.into()))?;
+        let component = self
+            .load_component(wasm_bytes)
+            .map_err(|err| (ProviderArtifactStage::Load, err))?;
         self.instantiate_component(component, wasi_config)
             .map_err(|err| (ProviderArtifactStage::Instantiate, err))
     }
@@ -136,8 +174,9 @@ impl WasmPluginLoader {
         manifest: &manifest::PluginManifest,
         wasi_config: &WasiCapabilityConfig,
     ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
-        let component = Component::new(&self.engine, wasm_bytes)
-            .map_err(|err| (ProviderArtifactStage::Load, err.into()))?;
+        let component = self
+            .load_component(wasm_bytes)
+            .map_err(|err| (ProviderArtifactStage::Load, err))?;
         self.instantiate_with_manifest(component, manifest, wasi_config)
             .map_err(|err| (ProviderArtifactStage::Instantiate, err))
     }

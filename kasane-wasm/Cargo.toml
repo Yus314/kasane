@@ -15,9 +15,11 @@ toml = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
+sha2 = "0.10"
 
 [dev-dependencies]
 criterion = { workspace = true }
+tempfile = "3"
 
 [[bench]]
 name = "io_event"

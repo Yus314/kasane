@@ -2268,6 +2268,8 @@ dependencies = [
  "kasane-core",
  "parking_lot",
  "serde",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "toml 0.9.12+spec-1.1.0",
  "tracing",

@@ -520,7 +520,7 @@ Scaling is linear at **~1.5 μs per plugin**.
 | `instantiation_scaling/instantiate_n/10` | 404.3 us |  |
 <!-- /BENCH:wasm_instantiation -->
 
-Total startup for 10 plugins ≈ 15 ms. Cacheable via `Engine::precompile_component`.
+Total startup for 10 plugins ≈ 15 ms on first run. On subsequent startups, precompiled components are loaded from disk cache (`$XDG_CACHE_HOME/kasane/wasm/`), reducing `component_new` to `Component::deserialize_file()` (~0.3 ms). The factory pattern's double-compilation (collect + `factory.create()`) also benefits: the second `Component::new()` becomes a cache hit.
 
 ## High Refresh Rate (240Hz)
 

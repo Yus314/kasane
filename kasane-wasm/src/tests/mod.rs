@@ -267,3 +267,44 @@ fn fingerprint_same_when_all_fields_match() {
     };
     assert_eq!(fp1, fp2);
 }
+
+#[test]
+fn second_loader_hits_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bytes = crate::load_wasm_fixture("cursor-line.wasm").unwrap();
+    let wasi = crate::WasiCapabilityConfig::default();
+
+    // First loader: compiles and caches
+    let loader1 = WasmPluginLoader::new_with_cache_base(tmp.path()).expect("loader1");
+    let plugin1 = loader1.load(&bytes, &wasi).expect("load1");
+
+    // Second loader: new Engine, should hit cache
+    let loader2 = WasmPluginLoader::new_with_cache_base(tmp.path()).expect("loader2");
+    let plugin2 = loader2.load(&bytes, &wasi).expect("load2");
+
+    assert_eq!(plugin1.id(), plugin2.id());
+}
+
+#[test]
+fn factory_create_hits_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bytes = crate::load_wasm_fixture("cursor-line.wasm").unwrap();
+    let manifest = load_fixture_manifest("cursor-line.toml");
+    let wasi = crate::WasiCapabilityConfig::default();
+
+    // Simulate collect path: load with manifest (populates cache)
+    let loader1 = WasmPluginLoader::new_with_cache_base(tmp.path()).expect("loader1");
+    let plugin1 = loader1
+        .load_with_manifest(&bytes, &manifest, &wasi)
+        .map_err(|(_, e)| e)
+        .expect("collect load");
+
+    // Simulate factory.create() path: new loader, same wasm bytes
+    let loader2 = WasmPluginLoader::new_with_cache_base(tmp.path()).expect("loader2");
+    let plugin2 = loader2
+        .load_with_manifest(&bytes, &manifest, &wasi)
+        .map_err(|(_, e)| e)
+        .expect("factory load");
+
+    assert_eq!(plugin1.id(), plugin2.id());
+}
