@@ -24,4 +24,4 @@ A warm, retro color scheme for Kasane.
 
 ## Preview
 
-![palette](docs/assets/demo-image.png)
+![palette](demo-image.png)
