@@ -27,20 +27,13 @@ for the current specification from a plugin's perspective, see
 
 ### 2.1 Now
 
-| Workstream | Next deliverable | Completion criteria |
-|---|---|---|
-| Multi-pane UI polish | ✓ Complete | Pane layout persistence landed |
-| Display transformation / display unit model | ✓ Complete | Display unit abstraction, visual navigation, and plugin-defined navigation policy are in place |
-
-### 2.2 Next
-
 | Workstream | Next deliverable |
 |---|---|
-| WASM runtime operations | Plugin manifest, plugin settings API, precompiled component cache (in order) |
+| WASM runtime operations | Plugin settings API |
 | Native escape hatch redesign | Higher-level `PaintHook` redesign |
 | Core event / degraded behavior | Minimal queuing for D-001, introduction of P-023 `DropEvent` |
 
-### 2.3 Backlog
+### 2.2 Backlog
 
 | Workstream | Notes |
 |---|---|
@@ -49,52 +42,11 @@ for the current specification from a plugin's perspective, see
 
 ## 3. Open Workstreams
 
-### 3.1 Multi-pane UI polish
-
-Foundation delivered in Phase 5b/5c:
-
-- `PaneMap` per-session surface binding with `ClientBufferSurface`
-- `Workspace` split tree with flexbox-based pane layout
-- Per-pane rendering via `PaneStates` + `BufferRefState`
-- Overlay offset for multi-pane (menu/info positioned in pane-local → screen coordinates)
-- Focused pane command routing (`focused_writer!` macro) across all dispatch sites and scroll runtime
-- `<C-w>v/s/w/W/h/j/k/l/q` key bindings (split, focus, close)
-- Pane border / separator glyphs — box-drawing characters (`│` / `─`) with `SPLIT_DIVIDER` / `SPLIT_DIVIDER_FOCUSED` theme tokens; edge-adjacency detection for focused pane highlight
-- Mouse divider drag-to-resize (`handle_workspace_divider_mouse()`, `WorkspaceCommand::Resize`)
-- Pane resize key bindings — `<C-w>+/-` via pane-manager plugin (`WorkspaceCommand::Resize`)
-- Pane resize direction key bindings — `<C-w>>/<` for width-axis resize via `WorkspaceCommand::ResizeDirection` (direction-filtered tree-walk; skips cross-axis splits)
-- TUI and GUI backend support
-
-- Per-pane status bar — each pane displays its own mode, file name, and status via singleton N-render of `StatusBarSurface` (reuses `resolve_surface_tree()` with `PaneContext`; Kakoune clients resized to `rect.h - 1`; prompt cursor positioned relative to focused pane rect)
-- Pane layout persistence — workspace tree (splits, ratios, focus, buffer names) saved to `$XDG_STATE_HOME/kasane/layout/{session}.json` on structural changes and shutdown; automatically restored on `kasane -c <session>` reconnect
-
-Status: ✓ Complete
-
-### 3.2 Display transformation / display unit model
-
-Completed (first slice):
-
-- P-030: Display transformation hook — `display_directives()` API on `Plugin` / `PluginBackend`
-- P-031: Composition rules — `DirectiveSet` monoid + `resolve()` with priority-based composition
-- P-033: Plugin-defined transformation API — `DisplayDirective` enum (`Fold`, `InsertAfter`, `InsertBefore`, `Hide`)
-- P-034: Read-only / restricted interaction policy — `InteractionPolicy` enum, `SourceMapping`
-- Core `DisplayMap` with O(1) bidirectional mapping, integrated into paint, cursor, input, and patch layers
-- WASM WIT extension: `display-directives` function for WASM plugins (host conversion, adapter, roundtrip tests)
-- `InsertBefore` directive for virtual text before buffer lines (WIT v0.17.0)
-- `InlineOp::Insert` for inline virtual text insertion within buffer lines (WIT v0.16.0)
-- EOL virtual text (Phase VT-1) — append virtual atoms after buffer line content
-- Display scroll offset for virtual line overflow
-- Proof artifact: `examples/virtual-text-demo/`
-
-Remaining work:
+### 3.1 Display transformation — remaining work
 
 - P-032: Formal observed/policy separation (theory organized, not yet enforced)
 
-Completed (second slice):
-
-- P-040 through P-043: Display unit model (`DisplayUnit`, `DisplayUnitId`, `SemanticRole`, `UnitSource`), geometry/source mapping/role, visual navigation (`NavigationPolicy`, `NavigationAction`, `ActionResult`), plugin-defined navigation policy via `HandlerRegistry` dispatch
-
-### 3.3 WASM runtime operations
+### 3.2 WASM runtime operations
 
 Completed:
 
@@ -107,7 +59,7 @@ Remaining work:
 
 Next deliverable: Plugin settings API
 
-### 3.4 Native escape hatch redesign
+### 3.3 Native escape hatch redesign
 
 Completed:
 
@@ -120,7 +72,7 @@ Remaining work:
 
 Next deliverable: Finalize the redesign direction for `PaintHook` and land the minimal skeleton of the migration target API
 
-### 3.5 Core event / degraded behavior
+### 3.4 Core event / degraded behavior
 
 Remaining work:
 
