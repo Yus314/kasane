@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774836865645,
+  "lastUpdate": 1774854981599,
   "repoUrl": "https://github.com/Yus314/kasane",
   "entries": {
     "Kasane Rendering Pipeline": [
@@ -84989,6 +84989,822 @@ window.BENCHMARK_DATA = {
             "name": "native_baseline/native_gutter_24",
             "value": 1567,
             "range": "± 4",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "committer": {
+            "email": "shizhaoyoujie@gmail.com",
+            "name": "Yus314",
+            "username": "Yus314"
+          },
+          "distinct": true,
+          "id": "c3ecd6f58d0286297236bb56f06f2356eb009b1b",
+          "message": "feat(plugin): implement typed plugin settings API (ABI 0.23.0)\n\nReplace the untyped HashMap<String, String> plugin configuration with a\ntyped, per-plugin scoped settings system. Settings are declared in plugin\nmanifests with type/default/description schemas, overridden via config.toml\n[settings.<plugin_id>] sections, and accessed through typed WIT host\nfunctions (get-setting-bool/integer/float/string).\n\nCore changes:\n- SettingValue enum (Bool/Integer/Float/Str) in kasane-core/src/plugin/setting.rs\n- DirtyFlags::SETTINGS (bit 9) for change tracking\n- AppState::plugin_settings per-plugin typed storage\n- Command::SetSetting for runtime setting mutations\n- AppView settings accessors\n- Manifest [settings.*] schema validation and config.toml integration\n- WIT ABI bump to 0.23.0 with setting-value variant and set-setting command\n- define_plugin! settings {} block with compile-time manifest validation\n- SDK TestHarness mock support for typed settings\n- Smooth-scroll plugin migrated from get_config_string to settings API\n- Legacy smooth-scroll helpers removed from kasane-core\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-03-30T15:31:00+09:00",
+          "tree_id": "911fd158d55b7f08b567e31dbd0e55ff2a6c9efb",
+          "url": "https://github.com/Yus314/kasane/commit/c3ecd6f58d0286297236bb56f06f2356eb009b1b"
+        },
+        "date": 1774854980690,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "element_construct/plugins_0",
+            "value": 5417,
+            "range": "± 65",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construct/plugins_10",
+            "value": 9787,
+            "range": "± 217",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "flex_layout",
+            "value": 1083,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24",
+            "value": 30288,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/200x60",
+            "value": 103048,
+            "range": "± 1028",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "paint/80x24_realistic",
+            "value": 34860,
+            "range": "± 498",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/full_redraw",
+            "value": 28620,
+            "range": "± 265",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff/incremental",
+            "value": 14088,
+            "range": "± 73",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/full_redraw",
+            "value": 28313,
+            "range": "± 262",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_diff_into/incremental",
+            "value": 14096,
+            "range": "± 35",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/80x24",
+            "value": 3834,
+            "range": "± 71",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "grid_clear/200x60",
+            "value": 24167,
+            "range": "± 375",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "full_frame",
+            "value": 54972,
+            "range": "± 246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "draw_message",
+            "value": 61213,
+            "range": "± 3042",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/10",
+            "value": 65851,
+            "range": "± 648",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/50",
+            "value": 65995,
+            "range": "± 1327",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "menu_show/items/100",
+            "value": 66339,
+            "range": "± 647",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/1",
+            "value": 52230,
+            "range": "± 343",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "incremental_edit/lines/5",
+            "value": 53550,
+            "range": "± 1117",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "message_sequence",
+            "value": 60388,
+            "range": "± 7621",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/10",
+            "value": 60750,
+            "range": "± 729",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/100",
+            "value": 539917,
+            "range": "± 15333",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_lines/500",
+            "value": 2641256,
+            "range": "± 30237",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/draw_status",
+            "value": 2966,
+            "range": "± 81",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "parse_request/menu_show_50",
+            "value": 54475,
+            "range": "± 863",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/23",
+            "value": 30945,
+            "range": "± 9487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/100",
+            "value": 125790,
+            "range": "± 2904",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_lines/500",
+            "value": 662839,
+            "range": "± 3771",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/draw_status",
+            "value": 955,
+            "range": "± 858",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "state_apply/menu_show_50",
+            "value": 5183,
+            "range": "± 79",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/80x24",
+            "value": 55172,
+            "range": "± 718",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/200x60",
+            "value": 221060,
+            "range": "± 1280",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/full_frame/300x80",
+            "value": 391088,
+            "range": "± 3985",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/500",
+            "value": 3291479,
+            "range": "± 10784",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/parse_apply_draw/1000",
+            "value": 6567761,
+            "range": "± 59467",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/80x24",
+            "value": 13938,
+            "range": "± 600",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/200x60",
+            "value": 85457,
+            "range": "± 195",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scaling/diff_incremental/300x80",
+            "value": 169472,
+            "range": "± 377",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cached_pipeline_dirty_flags/all_dirty",
+            "value": 50049,
+            "range": "± 755",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cached_pipeline_dirty_flags/menu_select_only",
+            "value": 50151,
+            "range": "± 444",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_cold",
+            "value": 29970,
+            "range": "± 135",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_warm",
+            "value": 30374,
+            "range": "± 130",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scene_cache_menu_select",
+            "value": 40452,
+            "range": "± 335",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_status_only",
+            "value": 39064,
+            "range": "± 216",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "section_paint_menu_select",
+            "value": 49771,
+            "range": "± 249",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_single_edit",
+            "value": 12974,
+            "range": "± 263",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_all_changed",
+            "value": 10389,
+            "range": "± 155",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "apply_draw_line_comparison",
+            "value": 30998,
+            "range": "± 8321",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_dirty_buffer_status/1_line_changed",
+            "value": 13135,
+            "range": "± 1345",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/full_scan_23_lines",
+            "value": 13309,
+            "range": "± 94",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/incremental_2_dirty",
+            "value": 986,
+            "range": "± 18",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "detect_cursors/incremental_all_dirty",
+            "value": 13260,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/23_lines",
+            "value": 3168,
+            "range": "± 120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/59_lines",
+            "value": 6186,
+            "range": "± 284",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/79_lines",
+            "value": 7869,
+            "range": "± 410",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_content/realistic_23",
+            "value": 2568,
+            "range": "± 77",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/buffer_cursor_only",
+            "value": 3215,
+            "range": "± 107",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/status",
+            "value": 3219,
+            "range": "± 108",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/menu/100_items",
+            "value": 7506,
+            "range": "± 109",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/80x24",
+            "value": 3250,
+            "range": "± 108",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_sync_inputs/all_flags/300x80",
+            "value": 7922,
+            "range": "± 380",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/salsa",
+            "value": 44215,
+            "range": "± 5830",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/full_cold/legacy",
+            "value": 40566,
+            "range": "± 533",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/salsa",
+            "value": 42716,
+            "range": "± 239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/menu_select_warm/legacy",
+            "value": 49909,
+            "range": "± 178",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/salsa",
+            "value": 46592,
+            "range": "± 39383",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_vs_legacy/incremental_edit/legacy",
+            "value": 42707,
+            "range": "± 886",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/cold",
+            "value": 26509,
+            "range": "± 51675",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scene/warm",
+            "value": 4761,
+            "range": "± 39",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/80x24",
+            "value": 45980,
+            "range": "± 4330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/200x60",
+            "value": 145157,
+            "range": "± 7047",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "salsa_scaling/full_frame/300x80",
+            "value": 233054,
+            "range": "± 9343",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw/80x24",
+            "value": 64637,
+            "range": "± 1020",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw/200x60",
+            "value": 369978,
+            "range": "± 5928",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/incremental_1line",
+            "value": 33671,
+            "range": "± 2528",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "present/full_redraw_realistic/80x24",
+            "value": 64628,
+            "range": "± 1075",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_80x24",
+            "value": 170754,
+            "range": "± 1430",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "e2e_pipeline/json_to_escape_realistic",
+            "value": 125847,
+            "range": "± 1202",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/normal_editing_50msg",
+            "value": 4680069,
+            "range": "± 15332",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/fast_scroll_100msg",
+            "value": 17316343,
+            "range": "± 64185",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/menu_completion_20msg",
+            "value": 1779718,
+            "range": "± 5894",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "replay/mixed_session_200msg",
+            "value": 20090579,
+            "range": "± 72070",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/bg_instances_80x24",
+            "value": 4384,
+            "range": "± 267",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_hash_24rows",
+            "value": 50639,
+            "range": "± 367",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/row_spans_80cols",
+            "value": 469,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "gpu/color_resolve_1920cells",
+            "value": 2286,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_instantiation/component_new",
+            "value": 21734207,
+            "range": "± 290377",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_instantiation/component_instantiate",
+            "value": 34050,
+            "range": "± 329",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/noop",
+            "value": 526,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/add",
+            "value": 523,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/echo_string_100",
+            "value": 693,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/echo_string_10",
+            "value": 684,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/build_gutter_24",
+            "value": 5641,
+            "range": "± 27",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/on_state_changed",
+            "value": 997,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/contribute_lines_24",
+            "value": 951,
+            "range": "± 8",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cm_calls/full_cycle",
+            "value": 1974,
+            "range": "± 19",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/10",
+            "value": 46,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/100",
+            "value": 60,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/write_echo/1000",
+            "value": 121,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/10",
+            "value": 45,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/100",
+            "value": 185,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "string_passing/guest_build_read/1000",
+            "value": 1451,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/single_text",
+            "value": 91,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/gutter_24",
+            "value": 1572,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/nested_3x8",
+            "value": 1707,
+            "range": "± 9",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/nested_3x24",
+            "value": 4721,
+            "range": "± 41",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "element_construction/decode_only_gutter_24",
+            "value": 926,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/state_changed_3calls",
+            "value": 47,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/state_changed_6calls",
+            "value": 60,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/contribute_lines_24",
+            "value": 72,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_fn_density/full_cycle_state_lines",
+            "value": 124,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/engine_new",
+            "value": 1560,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/module_new_noop",
+            "value": 294244,
+            "range": "± 4001",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation/instance_new_noop",
+            "value": 752,
+            "range": "± 28",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "empty_call/wasm_noop",
+            "value": 19,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "empty_call/native_noop",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "integer_call/wasm_add",
+            "value": 20,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "integer_call/native_add",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_import/1x",
+            "value": 21,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "host_import/10x",
+            "value": 71,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor_line_plugin/full_cycle",
+            "value": 2002,
+            "range": "± 17",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "cursor_line_plugin/cache_hit_no_call",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "line_numbers_gutter_24",
+            "value": 5633,
+            "range": "± 39",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/1",
+            "value": 2037,
+            "range": "± 88",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/3",
+            "value": 5987,
+            "range": "± 75",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/5",
+            "value": 10024,
+            "range": "± 111",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "multi_plugin/full_frame/10",
+            "value": 19881,
+            "range": "± 196",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/1",
+            "value": 28449,
+            "range": "± 212",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/5",
+            "value": 135789,
+            "range": "± 1443",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "instantiation_scaling/instantiate_n/10",
+            "value": 267972,
+            "range": "± 2749",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "native_baseline/native_cursor_line_full",
+            "value": 7,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "native_baseline/native_gutter_24",
+            "value": 1406,
+            "range": "± 3",
             "unit": "ns/iter"
           }
         ]
