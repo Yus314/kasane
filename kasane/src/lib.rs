@@ -129,7 +129,7 @@ fn run_inner(
         },
     };
 
-    let plugin_manager = build_plugin_manager(config.plugins.clone(), provider);
+    let plugin_manager = build_plugin_manager(&config, provider);
 
     // Build tokio runtime for async process management (Phase P-2).
     // The runtime must outlive run_tui/run_gui which are blocking calls.
@@ -238,19 +238,20 @@ fn run_inner(
 }
 
 fn build_plugin_manager(
-    plugins_config: kasane_core::config::PluginsConfig,
+    config: &kasane_core::config::Config,
     provider: impl PluginProvider + 'static,
 ) -> PluginManager {
     let mut providers: Vec<Box<dyn PluginProvider>> = Vec::new();
     #[cfg(feature = "wasm-plugins")]
     {
         providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
-            plugins_config.clone(),
+            config.plugins.clone(),
+            config.settings.clone(),
         )));
     }
     #[cfg(not(feature = "wasm-plugins"))]
     {
-        let _ = plugins_config;
+        let _ = config;
     }
     providers.push(Box::new(provider));
     providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
@@ -349,6 +350,7 @@ mod tests {
     fn wasm_manager(config: &PluginsConfig) -> PluginManager {
         PluginManager::new(vec![Box::new(kasane_wasm::WasmPluginProvider::new(
             config.clone(),
+            std::collections::HashMap::new(),
         ))])
     }
 
@@ -364,7 +366,11 @@ mod tests {
         config: &PluginsConfig,
         provider: impl PluginProvider + 'static,
     ) -> PluginManager {
-        build_plugin_manager(config.clone(), provider)
+        let full_config = kasane_core::config::Config {
+            plugins: config.clone(),
+            ..Default::default()
+        };
+        build_plugin_manager(&full_config, provider)
     }
 
     #[derive(Clone, Copy)]
@@ -497,6 +503,7 @@ mod tests {
                     Ok(Box::new(ReloadChainPlugin { variant }))
                 })],
                 diagnostics: vec![],
+                initial_settings: std::collections::HashMap::new(),
             })
         }
     }
@@ -563,6 +570,7 @@ mod tests {
                     Ok(Box::new(DiagnosticSurfacePlugin { variant }))
                 })],
                 diagnostics: vec![],
+                initial_settings: std::collections::HashMap::new(),
             })
         }
     }

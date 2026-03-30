@@ -4,6 +4,10 @@
 //! authorities), plugin identity, and handler metadata. It is parsed before WASM
 //! compilation, so plugins never participate in their own permission decisions.
 
+use std::collections::HashMap;
+
+use compact_str::CompactString;
+use kasane_core::plugin::SettingValue;
 use kasane_core::plugin::extension_point::ExtensionPointId;
 use kasane_core::plugin::pubsub::TopicId;
 use kasane_core::plugin::{
@@ -26,6 +30,8 @@ pub struct PluginManifest {
     pub handlers: HandlersSection,
     #[serde(default)]
     pub view: ViewSection,
+    #[serde(default)]
+    pub settings: HashMap<String, SettingSchema>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,6 +74,16 @@ pub struct ViewSection {
     pub deps: Vec<String>,
 }
 
+/// Schema for a single plugin setting declared in the manifest.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SettingSchema {
+    #[serde(rename = "type")]
+    pub setting_type: String,
+    pub default: toml::Value,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestError {
     #[error("TOML parse error: {0}")]
@@ -94,15 +110,23 @@ pub enum ManifestError {
     #[error("unsupported manifest_version: {found} (max supported: {max_supported})")]
     UnsupportedManifestVersion { found: u32, max_supported: u32 },
 
+    #[error(
+        "invalid setting type for key `{key}`: `{found}` (expected bool, integer, float, or string)"
+    )]
+    InvalidSettingType { key: String, found: String },
+
+    #[error("invalid default value for setting `{key}`: expected {expected_type}")]
+    InvalidSettingDefault { key: String, expected_type: String },
+
     #[error("multiple validation errors:\n{}", .0.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n"))]
     Multiple(Vec<ManifestError>),
 }
 
 /// Maximum supported manifest schema version.
-pub const CURRENT_MANIFEST_VERSION: u32 = 1;
+pub const CURRENT_MANIFEST_VERSION: u32 = 2;
 
 /// Current host ABI version (from WIT package declaration).
-pub const HOST_ABI_VERSION: &str = "0.22.0";
+pub const HOST_ABI_VERSION: &str = "0.23.0";
 
 impl PluginManifest {
     /// Parse a manifest from a TOML string.
@@ -225,6 +249,33 @@ impl PluginManifest {
             "handlers.extensions_consumed"
         );
 
+        // Validate settings section
+        for (key, schema) in &self.settings {
+            if !matches!(
+                schema.setting_type.as_str(),
+                "bool" | "integer" | "float" | "string"
+            ) {
+                errors.push(ManifestError::InvalidSettingType {
+                    key: key.clone(),
+                    found: schema.setting_type.clone(),
+                });
+                continue;
+            }
+            let type_ok = match schema.setting_type.as_str() {
+                "bool" => schema.default.is_bool(),
+                "integer" => schema.default.is_integer(),
+                "float" => schema.default.is_float(),
+                "string" => schema.default.is_str(),
+                _ => false,
+            };
+            if !type_ok {
+                errors.push(ManifestError::InvalidSettingDefault {
+                    key: key.clone(),
+                    expected_type: schema.setting_type.clone(),
+                });
+            }
+        }
+
         match errors.len() {
             0 => Ok(()),
             1 => Err(errors.into_iter().next().unwrap()),
@@ -273,6 +324,50 @@ impl PluginManifest {
     /// Host authority names from the manifest.
     pub fn host_authorities(&self) -> &[String] {
         &self.authorities.host
+    }
+
+    /// Convert manifest setting defaults to a map of `SettingValue`.
+    pub fn resolve_setting_defaults(&self) -> HashMap<String, SettingValue> {
+        self.settings
+            .iter()
+            .filter_map(|(key, schema)| {
+                toml_value_to_setting(&schema.setting_type, &schema.default)
+                    .map(|v| (key.clone(), v))
+            })
+            .collect()
+    }
+
+    /// Validate config.toml values against the manifest schema.
+    ///
+    /// Returns `(valid_settings, warnings)`. Unknown keys and type mismatches
+    /// produce warnings but do not fail — the default is used instead.
+    pub fn validate_config_settings(
+        &self,
+        config: &toml::Table,
+    ) -> (HashMap<String, SettingValue>, Vec<String>) {
+        let mut valid = HashMap::new();
+        let mut warnings = Vec::new();
+
+        for (key, value) in config {
+            let Some(schema) = self.settings.get(key) else {
+                warnings.push(format!("unknown setting key `{key}`"));
+                continue;
+            };
+            match toml_value_to_setting(&schema.setting_type, value) {
+                Some(sv) => {
+                    valid.insert(key.clone(), sv);
+                }
+                None => {
+                    warnings.push(format!(
+                        "setting `{key}`: expected {}, got {}",
+                        schema.setting_type,
+                        toml_type_name(value)
+                    ));
+                }
+            }
+        }
+
+        (valid, warnings)
     }
 
     /// Build a [`CapabilityDescriptor`] from manifest metadata.
@@ -381,6 +476,32 @@ pub fn handler_flag_bit(name: &str) -> Option<u32> {
     }
 }
 
+/// Convert a TOML value to a `SettingValue` given the expected type.
+fn toml_value_to_setting(setting_type: &str, value: &toml::Value) -> Option<SettingValue> {
+    match setting_type {
+        "bool" => value.as_bool().map(SettingValue::Bool),
+        "integer" => value.as_integer().map(SettingValue::Integer),
+        "float" => value.as_float().map(SettingValue::Float),
+        "string" => value
+            .as_str()
+            .map(|s| SettingValue::Str(CompactString::new(s))),
+        _ => None,
+    }
+}
+
+/// Return a human-readable type name for a TOML value.
+fn toml_type_name(value: &toml::Value) -> &'static str {
+    match value {
+        toml::Value::Boolean(_) => "bool",
+        toml::Value::Integer(_) => "integer",
+        toml::Value::Float(_) => "float",
+        toml::Value::String(_) => "string",
+        toml::Value::Array(_) => "array",
+        toml::Value::Table(_) => "table",
+        toml::Value::Datetime(_) => "datetime",
+    }
+}
+
 /// Map view dep name to its bit value.
 pub fn view_dep_bit(name: &str) -> Option<u16> {
     match name {
@@ -393,6 +514,7 @@ pub fn view_dep_bit(name: &str) -> Option<u16> {
         "buffer-cursor" => Some(1 << 6),
         "plugin-state" => Some(1 << 7),
         "session" => Some(1 << 8),
+        "settings" => Some(1 << 9),
         _ => None,
     }
 }
@@ -404,13 +526,13 @@ mod tests {
     const MINIMAL_MANIFEST: &str = r#"
 [plugin]
 id = "test_plugin"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 "#;
 
     const FULL_MANIFEST: &str = r#"
 [plugin]
 id = "fuzzy_finder"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [capabilities]
 wasi = ["filesystem", "process"]
@@ -429,7 +551,7 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
     fn parse_minimal_manifest() {
         let manifest = PluginManifest::parse(MINIMAL_MANIFEST).unwrap();
         assert_eq!(manifest.plugin.id, "test_plugin");
-        assert_eq!(manifest.plugin.abi_version, "0.22.0");
+        assert_eq!(manifest.plugin.abi_version, "0.23.0");
         assert!(manifest.capabilities.wasi.is_empty());
         assert!(manifest.authorities.host.is_empty());
         assert!(manifest.handlers.flags.is_empty());
@@ -468,7 +590,7 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.1"
+abi_version = "0.23.1"
 "#;
         let manifest = PluginManifest::parse(toml).unwrap();
         assert!(manifest.validate().is_ok());
@@ -491,7 +613,7 @@ abi_version = "0.21.0"
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [capabilities]
 wasi = ["filesystem", "teleportation"]
@@ -506,7 +628,7 @@ wasi = ["filesystem", "teleportation"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [authorities]
 host = ["root-access"]
@@ -521,7 +643,7 @@ host = ["root-access"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 flags = ["overlay", "time-travel"]
@@ -536,7 +658,7 @@ flags = ["overlay", "time-travel"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [view]
 deps = ["buffer-content", "magic-data"]
@@ -611,7 +733,7 @@ id = "test"
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [capabilities]
 wasi = ["teleportation"]
@@ -652,7 +774,7 @@ deps = ["magic-data"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 flags = ["time-travel"]
@@ -669,7 +791,7 @@ flags = ["time-travel"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [capabilities]
 wasi = ["filesystem", "filesystem"]
@@ -686,7 +808,7 @@ wasi = ["filesystem", "filesystem"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [authorities]
 host = ["pty-process", "pty-process"]
@@ -703,7 +825,7 @@ host = ["pty-process", "pty-process"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 flags = ["overlay", "overlay"]
@@ -720,7 +842,7 @@ flags = ["overlay", "overlay"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [view]
 deps = ["status", "status"]
@@ -741,7 +863,7 @@ manifest_version = 1
 
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 "#;
         let manifest = PluginManifest::parse(toml).unwrap();
         assert!(manifest.validate().is_ok());
@@ -754,7 +876,7 @@ manifest_version = 99
 
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 "#;
         let manifest = PluginManifest::parse(toml).unwrap();
         let err = manifest.validate().unwrap_err();
@@ -762,7 +884,7 @@ abi_version = "0.22.0"
             err,
             ManifestError::UnsupportedManifestVersion {
                 found: 99,
-                max_supported: 1
+                max_supported: 2
             }
         ));
     }
@@ -851,7 +973,7 @@ abi_version = "0.22.0"
         let toml = r#"
 [plugin]
 id = "ext_plugin"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 flags = ["transformer"]
@@ -884,7 +1006,7 @@ extensions_consumed = ["other.ext"]
         let toml = r#"
 [plugin]
 id = "desc_test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 transform_targets = ["kasane.buffer"]
@@ -923,7 +1045,7 @@ extensions_consumed = ["other.ext"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 transform_targets = ["kasane.buffer", "kasane.buffer"]
@@ -940,7 +1062,7 @@ transform_targets = ["kasane.buffer", "kasane.buffer"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 publish_topics = ["my.topic", "my.topic"]
@@ -957,7 +1079,7 @@ publish_topics = ["my.topic", "my.topic"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 subscribe_topics = ["t", "t"]
@@ -974,7 +1096,7 @@ subscribe_topics = ["t", "t"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 extensions_defined = ["my.ext", "my.ext"]
@@ -991,7 +1113,7 @@ extensions_defined = ["my.ext", "my.ext"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 extensions_consumed = ["x", "x"]

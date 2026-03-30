@@ -5,7 +5,6 @@ use kasane_core::input::BuiltinInputPlugin;
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{Command, PluginBackend, PluginId};
 use kasane_core::protocol::{Coord, KasaneRequest};
-use kasane_core::scroll::set_smooth_scroll_enabled;
 use kasane_core::state::{DirtyFlags, DragState};
 
 use support::scroll_fixtures::{
@@ -190,69 +189,4 @@ fn modified_pageup_is_forwarded_as_key_not_scroll() {
         outcome.requests(),
         vec![KasaneRequest::Keys(vec!["<c-pageup>".to_string()])]
     );
-}
-
-#[test]
-fn smooth_scroll_enabled_arms_animation_without_immediate_scroll_request() {
-    let mut state = state_80x24();
-    set_smooth_scroll_enabled(&mut state.plugin_config, true);
-    let mut registry = registry_empty();
-    registry.register_backend(Box::new(BuiltinInputPlugin));
-    let mut harness = LegacyHarness::new(state, registry);
-
-    let outcome = harness.dispatch_input(mouse_scroll_down(8, 3));
-
-    assert!(outcome.requests().is_empty());
-    let plan = harness
-        .runtime
-        .active_plan
-        .as_ref()
-        .expect("smooth scroll should arm runtime plan");
-    assert_eq!(plan.remaining_amount, 3);
-    assert_eq!(plan.line, 8);
-    assert_eq!(plan.column, 3);
-}
-
-#[test]
-fn smooth_scroll_tick_emits_unit_steps_until_remaining_is_zero() {
-    let mut state = state_80x24();
-    set_smooth_scroll_enabled(&mut state.plugin_config, true);
-    let mut registry = registry_empty();
-    registry.register_backend(Box::new(BuiltinInputPlugin));
-    let mut harness = LegacyHarness::new(state, registry);
-
-    let arm = harness.dispatch_input(mouse_scroll_down(8, 3));
-    assert!(arm.requests().is_empty());
-
-    let mut requests = Vec::new();
-    loop {
-        let tick = harness.tick_animation();
-        let emitted = tick.requests();
-        if emitted.is_empty() {
-            break;
-        }
-        requests.extend(emitted);
-    }
-
-    assert_eq!(
-        requests,
-        vec![
-            KasaneRequest::Scroll {
-                amount: 1,
-                line: 8,
-                column: 3,
-            },
-            KasaneRequest::Scroll {
-                amount: 1,
-                line: 8,
-                column: 3,
-            },
-            KasaneRequest::Scroll {
-                amount: 1,
-                line: 8,
-                column: 3,
-            },
-        ]
-    );
-    assert!(!harness.runtime.has_active_plan());
 }

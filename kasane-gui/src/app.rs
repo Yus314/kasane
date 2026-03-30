@@ -148,6 +148,7 @@ where
         let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
             kasane_core::event_loop::setup_plugin_surfaces(registry, &mut surface_registry, &state)
         })?;
+        initial_plugins.apply_settings(&mut state);
         let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
         report_plugin_diagnostics(&initial_plugins.diagnostics);
         let gui_sink = GuiEventSink(event_proxy.clone());

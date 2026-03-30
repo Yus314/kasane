@@ -400,6 +400,7 @@ where
             )
         },
     )?;
+    reload.apply_settings(ctx.state);
     report_plugin_diagnostics(&reload.diagnostics);
     schedule_diagnostic_overlay(
         &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(ctx.session_tx.clone())),

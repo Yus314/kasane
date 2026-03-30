@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::plugin::AppView;
 use crate::protocol::{Coord, Face, KakouneRequest, MenuStyle};
-use crate::scroll::{SMOOTH_SCROLL_CONFIG_KEY, set_smooth_scroll_enabled, smooth_scroll_enabled};
 use crate::state::{AppState, DirtyFlags};
 use crate::test_utils::make_line;
 
@@ -54,34 +53,29 @@ fn test_menu_hide_returns_both_menu_flags() {
 }
 
 #[test]
-fn test_apply_set_config_smooth_scroll_alias_updates_plugin_config() {
+fn test_apply_set_setting_updates_plugin_settings() {
+    use crate::plugin::PluginId;
+    use crate::plugin::setting::SettingValue;
+
     let mut state = AppState::default();
     let mut dirty = DirtyFlags::empty();
+    let plugin_id = PluginId("smooth_scroll".to_string());
 
-    crate::state::apply_set_config(&mut state, &mut dirty, "smooth_scroll", "true");
-
-    assert!(dirty.contains(DirtyFlags::OPTIONS));
-    assert!(smooth_scroll_enabled(&AppView::new(&state)));
-    assert_eq!(
-        state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
-        Some(&"true".to_string())
+    crate::state::apply_set_setting(
+        &mut state,
+        &mut dirty,
+        &plugin_id,
+        "enabled",
+        SettingValue::Bool(true),
     );
-    assert!(!state.plugin_config.contains_key("smooth_scroll"));
-}
 
-#[test]
-fn test_apply_set_config_canonical_smooth_scroll_updates_plugin_config() {
-    let mut state = AppState::default();
-    let mut dirty = DirtyFlags::empty();
-
-    crate::state::apply_set_config(&mut state, &mut dirty, SMOOTH_SCROLL_CONFIG_KEY, "true");
-    crate::state::apply_set_config(&mut state, &mut dirty, SMOOTH_SCROLL_CONFIG_KEY, "false");
-
-    assert!(dirty.contains(DirtyFlags::OPTIONS));
-    assert!(!smooth_scroll_enabled(&AppView::new(&state)));
+    assert!(dirty.contains(DirtyFlags::SETTINGS));
     assert_eq!(
-        state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
-        Some(&"false".to_string())
+        state
+            .plugin_settings
+            .get(&plugin_id)
+            .and_then(|s| s.get("enabled")),
+        Some(&SettingValue::Bool(true))
     );
 }
 
@@ -315,7 +309,6 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     state.assistant_art = Some(vec!["art".into()]);
     state.plugin_config.insert("key".into(), "value".into());
     state.secondary_blend_ratio = 0.8;
-    set_smooth_scroll_enabled(&mut state.plugin_config, true);
     state.session_descriptors = vec![SessionDescriptor {
         key: "work".into(),
         session_name: Some("proj".into()),
@@ -349,11 +342,6 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     assert_eq!(state.assistant_art.as_ref().unwrap()[0], "art");
     assert_eq!(state.plugin_config.get("key").unwrap(), "value");
     assert_eq!(state.secondary_blend_ratio, 0.8);
-    assert!(smooth_scroll_enabled(&AppView::new(&state)));
-    assert_eq!(
-        state.plugin_config.get(SMOOTH_SCROLL_CONFIG_KEY),
-        Some(&"true".to_string())
-    );
     assert_eq!(state.session_descriptors.len(), 1);
     assert_eq!(state.active_session_key.as_deref(), Some("work"));
 
@@ -412,6 +400,7 @@ fn test_field_dirty_map_matches_macro_analysis() {
         ("scrollbar_track", &["MENU_STRUCTURE"]),
         ("assistant_art", &["OPTIONS"]),
         ("plugin_config", &["OPTIONS"]),
+        ("plugin_settings", &["SETTINGS"]),
         ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
         ("theme", &["OPTIONS"]),
         ("color_context", &["BUFFER_CONTENT"]),
@@ -518,6 +507,7 @@ fn test_field_epistemic_map_complete() {
         ("assistant_art", "config"),
         ("plugin_config", "config"),
         ("secondary_blend_ratio", "config"),
+        ("plugin_settings", "config"),
         ("theme", "config"),
         // Session (2)
         ("session_descriptors", "session"),

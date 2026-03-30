@@ -1,4 +1,4 @@
-package kasane:plugin@0.22.0;
+package kasane:plugin@0.23.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -71,6 +71,7 @@ interface types {
         quit,
         request-redraw(u16),
         set-config(config-entry),
+        set-setting(setting-entry),
         schedule-timer(timer-config),
         plugin-message(message-config),
         register-surface(dynamic-surface-config),
@@ -136,6 +137,19 @@ interface types {
     record config-entry {
         key: string,
         value: string,
+    }
+
+    /// Typed setting value for the plugin settings system.
+    variant setting-value {
+        bool-val(bool),
+        integer-val(s64),
+        float-val(f64),
+        string-val(string),
+    }
+
+    record setting-entry {
+        key: string,
+        value: setting-value,
     }
     record timer-config {
         delay-ms: u64,
@@ -901,6 +915,12 @@ interface host-state {
 
     // --- v0.4.0 Tier 5: Config ---
     get-config-string: func(key: string) -> option<string>;
+
+    // --- v0.23.0: Typed plugin settings ---
+    get-setting-bool: func(key: string) -> option<bool>;
+    get-setting-integer: func(key: string) -> option<s64>;
+    get-setting-float: func(key: string) -> option<f64>;
+    get-setting-string: func(key: string) -> option<string>;
 
     // --- v0.4.0 Tier 6: Info content ---
     get-info-title: func(index: u32) -> option<list<atom>>;

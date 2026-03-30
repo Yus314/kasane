@@ -1,15 +1,12 @@
-fn smooth_scroll_enabled() -> bool {
-    host_state::get_config_string("smooth-scroll.enabled")
-        .or_else(|| host_state::get_config_string("smooth_scroll"))
-        .and_then(|raw| raw.parse::<bool>().ok())
-        .unwrap_or(false)
-}
-
 kasane_plugin_sdk::define_plugin! {
     manifest: "kasane-plugin.toml",
 
+    settings {
+        enabled: bool = false,
+    }
+
     handle_default_scroll(candidate) {
-        if !smooth_scroll_enabled() {
+        if !__setting_enabled() {
             return None;
         }
 

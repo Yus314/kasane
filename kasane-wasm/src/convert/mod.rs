@@ -261,5 +261,20 @@ pub(crate) fn wit_channel_value_to_core(wv: &wit::ChannelValue) -> ChannelValue 
     ChannelValue::from_raw(wv.data.clone(), wv.type_hint.clone())
 }
 
+// ---------------------------------------------------------------------------
+// SettingValue conversions (WIT → native)
+// ---------------------------------------------------------------------------
+
+use kasane_core::plugin::setting::SettingValue;
+
+pub(crate) fn wit_setting_value_to_setting_value(wv: &wit::SettingValue) -> SettingValue {
+    match wv {
+        wit::SettingValue::BoolVal(b) => SettingValue::Bool(*b),
+        wit::SettingValue::IntegerVal(i) => SettingValue::Integer(*i),
+        wit::SettingValue::FloatVal(f) => SettingValue::Float(*f),
+        wit::SettingValue::StringVal(s) => SettingValue::Str(s.as_str().into()),
+    }
+}
+
 #[cfg(test)]
 mod tests;

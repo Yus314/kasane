@@ -6,6 +6,10 @@ use super::*;
 use crate::{WasmPluginOrigin, WasmPluginRevision};
 use kasane_core::plugin::{PluginDiagnosticKind, PluginProvider, ProviderArtifactStage};
 
+fn test_provider(plugins_config: PluginsConfig) -> crate::WasmPluginProvider {
+    crate::WasmPluginProvider::new(plugins_config, std::collections::HashMap::new())
+}
+
 struct TempPluginDir {
     path: PathBuf,
 }
@@ -54,7 +58,7 @@ impl TempPluginDir {
 
     /// Write a minimal valid manifest TOML for a fixture that doesn't have one.
     fn write_manifest(&self, toml_name: &str, plugin_id: &str) {
-        let content = format!("[plugin]\nid = \"{plugin_id}\"\nabi_version = \"0.22.0\"\n");
+        let content = format!("[plugin]\nid = \"{plugin_id}\"\nabi_version = \"0.23.0\"\n");
         fs::write(self.path.join(toml_name), content).expect("failed to write manifest");
     }
 
@@ -192,7 +196,7 @@ fn wasm_provider_collect_reports_artifact_load_failures_without_dropping_valid_p
     dir.write_invalid_wasm("broken.wasm");
     dir.write_manifest("broken.toml", "broken");
 
-    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+    let provider = test_provider(PluginsConfig {
         auto_discover: true,
         path: Some(dir.path.to_string_lossy().into_owned()),
         disabled: vec![],
@@ -228,7 +232,7 @@ fn wasm_provider_collect_reports_artifact_read_failures_without_dropping_valid_p
     dir.create_wasm_dir("unreadable.wasm");
     dir.write_manifest("unreadable.toml", "unreadable");
 
-    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+    let provider = test_provider(PluginsConfig {
         auto_discover: true,
         path: Some(dir.path.to_string_lossy().into_owned()),
         disabled: vec![],
@@ -262,7 +266,7 @@ fn instantiate_trap_fixture_reports_diagnostic_with_manifest() {
     dir.copy_fixture("cursor-line.wasm");
     dir.copy_fixture("instantiate-trap.wasm");
 
-    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+    let provider = test_provider(PluginsConfig {
         auto_discover: true,
         path: Some(dir.path.to_string_lossy().into_owned()),
         disabled: vec![],
@@ -455,7 +459,7 @@ fn wasm_without_manifest_is_not_discovered() {
         .join("cursor-line.wasm");
     fs::copy(src, dir.path.join("cursor-line.wasm")).expect("failed to copy");
 
-    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+    let provider = test_provider(PluginsConfig {
         auto_discover: true,
         path: Some(dir.path.to_string_lossy().into_owned()),
         disabled: vec!["pane_manager".to_string()],
@@ -476,7 +480,7 @@ fn invalid_manifest_toml_is_skipped() {
     fs::write(dir.path.join("cursor-line.toml"), "not valid [[ toml")
         .expect("failed to write bad toml");
 
-    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+    let provider = test_provider(PluginsConfig {
         auto_discover: true,
         path: Some(dir.path.to_string_lossy().into_owned()),
         disabled: vec!["pane_manager".to_string()],
@@ -497,7 +501,7 @@ fn manifest_abi_mismatch_reports_manifest_stage_diagnostic() {
     let bad_manifest = "[plugin]\nid = \"cursor_line\"\nabi_version = \"99.0.0\"\n";
     fs::write(dir.path.join("cursor-line.toml"), bad_manifest).expect("failed to write manifest");
 
-    let provider = crate::WasmPluginProvider::new(PluginsConfig {
+    let provider = test_provider(PluginsConfig {
         auto_discover: true,
         path: Some(dir.path.to_string_lossy().into_owned()),
         disabled: vec!["pane_manager".to_string()],

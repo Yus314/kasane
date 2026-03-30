@@ -30,12 +30,17 @@ fn passes_through_when_disabled() {
 }
 
 #[test]
-fn returns_legacy_plan_when_enabled() {
+fn returns_plan_when_enabled_via_settings() {
     let mut plugin = load_smooth_scroll_plugin();
     let mut state = AppState::default();
     state
-        .plugin_config
-        .insert("smooth-scroll.enabled".into(), "true".into());
+        .plugin_settings
+        .entry(PluginId("smooth_scroll".into()))
+        .or_default()
+        .insert(
+            "enabled".into(),
+            kasane_core::plugin::setting::SettingValue::Bool(true),
+        );
     let candidate = DefaultScrollCandidate::new(
         10,
         5,
@@ -59,12 +64,17 @@ fn returns_legacy_plan_when_enabled() {
 }
 
 #[test]
-fn legacy_config_alias_enables_plan() {
+fn returns_plan_when_enabled_via_settings_negative_amount() {
     let mut plugin = load_smooth_scroll_plugin();
     let mut state = AppState::default();
     state
-        .plugin_config
-        .insert("smooth_scroll".into(), "true".into());
+        .plugin_settings
+        .entry(PluginId("smooth_scroll".into()))
+        .or_default()
+        .insert(
+            "enabled".into(),
+            kasane_core::plugin::setting::SettingValue::Bool(true),
+        );
     let candidate = DefaultScrollCandidate::new(
         4,
         2,

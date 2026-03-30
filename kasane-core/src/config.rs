@@ -17,6 +17,9 @@ pub struct Config {
     pub font: FontConfig,
     pub colors: ColorsConfig,
     pub plugins: PluginsConfig,
+    /// Per-plugin typed settings: `[settings.<plugin_id>]` sections.
+    #[serde(default)]
+    pub settings: HashMap<String, toml::Table>,
 }
 
 /// Menu configuration.

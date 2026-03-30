@@ -34,6 +34,9 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
         wit::Command::RegisterSurface(_) => {
             unreachable!("register-surface commands require adapter context")
         }
+        wit::Command::SetSetting(_) => {
+            unreachable!("set-setting commands require adapter context for plugin_id")
+        }
         wit::Command::UnregisterSurface(surface_key) => Command::UnregisterSurfaceKey {
             surface_key: surface_key.clone(),
         },

@@ -581,11 +581,15 @@ For semantic classification, see [semantics.md](./semantics.md).
 | `get_secondary_cursor_count()` | `u32` |
 | `get_secondary_cursor(index)` | `Option<Coord>` |
 
-**Configuration (Tier 5):**
+**Typed Settings (Tier 5):**
 
 | Function | Return type |
 |---|---|
-| `get_config_string(key)` | `Option<String>` |
+| `get_setting_bool(key)` | `Option<bool>` |
+| `get_setting_integer(key)` | `Option<i64>` |
+| `get_setting_float(key)` | `Option<f64>` |
+| `get_setting_string(key)` | `Option<String>` |
+| `get_config_string(key)` | `Option<String>` *(deprecated, use typed settings)* |
 
 **Info details (Tier 6):**
 
@@ -693,7 +697,8 @@ Hook functions issue side-effect requests through the unified `Effects` struct. 
 | `RequestRedraw(flags)` | Request a redraw |
 | `ScheduleTimer { delay, target, payload }` | Send a message to target after a delay |
 | `PluginMessage { target, payload }` | Send a message to another plugin |
-| `SetConfig { key, value }` | Change a runtime configuration. For smooth scroll policy plugins, use `smooth-scroll.enabled` |
+| `SetConfig { key, value }` | Change a runtime configuration *(deprecated, use `SetSetting`)* |
+| `SetSetting { key, value }` | Set a typed plugin setting. Value is a `SettingValue` variant (bool/integer/float/string). Scoped to the calling plugin. |
 | `SpawnProcess { job_id, program, args, stdin_mode }` | Spawn an external process (Phase P-2) |
 | `Session(SessionCommand)` | Create or close a Kakoune session managed by the host runtime |
 | `WriteToProcess { job_id, data }` | Write to the stdin of a spawned process |

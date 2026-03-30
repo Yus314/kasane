@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use crate::plugin::PluginId;
+use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::session::SessionDescriptor;
 use crate::state::{AppState, InfoState, MenuState};
@@ -265,6 +267,21 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn secondary_blend_ratio(&self) -> f32 {
         self.state.secondary_blend_ratio
+    }
+
+    /// All per-plugin settings.
+    #[inline]
+    pub fn plugin_settings(&self) -> &HashMap<PluginId, HashMap<String, SettingValue>> {
+        &self.state.plugin_settings
+    }
+
+    /// Look up a single plugin setting by plugin ID and key.
+    #[inline]
+    pub fn plugin_setting(&self, plugin_id: &PluginId, key: &str) -> Option<&SettingValue> {
+        self.state
+            .plugin_settings
+            .get(plugin_id)
+            .and_then(|m| m.get(key))
     }
 
     // =========================================================================

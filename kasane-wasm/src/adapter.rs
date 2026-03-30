@@ -180,6 +180,14 @@ impl WasmPluginShared {
                     placement,
                 }]
             }
+            wit::Command::SetSetting(entry) => {
+                let value = convert::wit_setting_value_to_setting_value(&entry.value);
+                vec![Command::SetSetting {
+                    plugin_id: self.plugin_id.clone(),
+                    key: entry.key.clone(),
+                    value,
+                }]
+            }
             _ => vec![convert::wit_command_to_command(command)],
         }
     }

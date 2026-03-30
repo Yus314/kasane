@@ -38,6 +38,7 @@ pub(crate) struct PluginDef {
     view_deps: Option<proc_macro2::TokenStream>,
     key_map: Option<KeyMapDef>,
     actions: Option<Vec<ActionDef>>,
+    settings: Option<Vec<SettingFieldDef>>,
     impl_block: Option<Vec<ImplItemFn>>,
 }
 
@@ -102,6 +103,48 @@ struct HandleMouseDef {
     event_param: syn::Ident,
     id_param: syn::Ident,
     body: proc_macro2::TokenStream,
+}
+
+/// Supported setting types in the `settings { ... }` block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettingType {
+    Bool,
+    Integer,
+    Float,
+    Str,
+}
+
+impl SettingType {
+    fn from_ident(ident: &syn::Ident) -> syn::Result<Self> {
+        match ident.to_string().as_str() {
+            "bool" => Ok(Self::Bool),
+            "i64" => Ok(Self::Integer),
+            "f64" => Ok(Self::Float),
+            "String" => Ok(Self::Str),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!(
+                    "unsupported setting type `{other}`; expected bool, i64, f64, or String"
+                ),
+            )),
+        }
+    }
+
+    /// The manifest `[settings.<key>].type` string this maps to.
+    fn manifest_type_str(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::Integer => "integer",
+            Self::Float => "float",
+            Self::Str => "string",
+        }
+    }
+}
+
+struct SettingFieldDef {
+    name: syn::Ident,
+    ty: SettingType,
+    default: syn::Expr,
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +716,54 @@ pub(crate) fn define_plugin_impl(
         quote! {} // No manifest → fall through to auto-inference
     };
 
+    // Generate typed setting getters from `settings { ... }` block
+    let settings_getters = if let Some(ref settings_fields) = def.settings {
+        let getters: Vec<_> = settings_fields
+            .iter()
+            .map(|field| {
+                let fn_name = syn::Ident::new(
+                    &format!("__setting_{}", field.name),
+                    field.name.span(),
+                );
+                let key_str = field.name.to_string();
+                let default = &field.default;
+                match field.ty {
+                    SettingType::Bool => quote! {
+                        #[doc(hidden)]
+                        #[allow(dead_code)]
+                        fn #fn_name() -> bool {
+                            host_state::get_setting_bool(#key_str).unwrap_or(#default)
+                        }
+                    },
+                    SettingType::Integer => quote! {
+                        #[doc(hidden)]
+                        #[allow(dead_code)]
+                        fn #fn_name() -> i64 {
+                            host_state::get_setting_integer(#key_str).unwrap_or(#default)
+                        }
+                    },
+                    SettingType::Float => quote! {
+                        #[doc(hidden)]
+                        #[allow(dead_code)]
+                        fn #fn_name() -> f64 {
+                            host_state::get_setting_float(#key_str).unwrap_or(#default)
+                        }
+                    },
+                    SettingType::Str => quote! {
+                        #[doc(hidden)]
+                        #[allow(dead_code)]
+                        fn #fn_name() -> String {
+                            host_state::get_setting_string(#key_str).unwrap_or_else(|| (#default).to_string())
+                        }
+                    },
+                }
+            })
+            .collect();
+        quote! { #( #getters )* }
+    } else {
+        quote! {}
+    };
+
     // Combine everything
     Ok(quote! {
         #wit_bindings
@@ -682,6 +773,7 @@ pub(crate) fn define_plugin_impl(
         use kasane_plugin_sdk::{dirty, modifiers, keys, attributes};
 
         #state_tokens
+        #settings_getters
 
         struct __KasanePlugin;
 
@@ -882,6 +974,7 @@ impl syn::parse::Parse for PluginDef {
             view_deps: None,
             key_map: None,
             actions: None,
+            settings: None,
             impl_block: None,
         };
 
@@ -1224,6 +1317,24 @@ impl syn::parse::Parse for PluginDef {
                     syn::braced!(body in input);
                     def.actions = Some(parse_actions_def(&body)?);
                 }
+                "settings" => {
+                    let body;
+                    syn::braced!(body in input);
+                    let mut fields = Vec::new();
+                    while !body.is_empty() {
+                        let name: syn::Ident = body.parse()?;
+                        body.parse::<syn::Token![:]>()?;
+                        let ty_ident: syn::Ident = body.parse()?;
+                        let ty = SettingType::from_ident(&ty_ident)?;
+                        body.parse::<syn::Token![=]>()?;
+                        let default: syn::Expr = body.parse()?;
+                        if !body.is_empty() {
+                            body.parse::<syn::Token![,]>()?;
+                        }
+                        fields.push(SettingFieldDef { name, ty, default });
+                    }
+                    def.settings = Some(fields);
+                }
                 other => {
                     return Err(syn::Error::new(
                         ident.span(),
@@ -1264,6 +1375,39 @@ impl syn::parse::Parse for PluginDef {
                     proc_macro2::Span::call_site(),
                     "define_plugin! `authorities:` conflicts with `manifest:` — authorities are declared in the manifest TOML",
                 ));
+            }
+        }
+
+        // Validate settings {} fields against manifest [settings.*] if both present
+        if has_manifest {
+            if let (Some(manifest), Some(settings_fields)) =
+                (&def.manifest, &def.settings)
+            {
+                for field in settings_fields {
+                    let key = field.name.to_string();
+                    match manifest.settings_schema.get(&key) {
+                        None => {
+                            return Err(syn::Error::new(
+                                field.name.span(),
+                                format!(
+                                    "setting `{key}` is declared in define_plugin! but not in manifest [settings.{key}]"
+                                ),
+                            ));
+                        }
+                        Some(manifest_type) => {
+                            let expected = field.ty.manifest_type_str();
+                            if manifest_type != expected {
+                                return Err(syn::Error::new(
+                                    field.name.span(),
+                                    format!(
+                                        "setting `{key}` type mismatch: define_plugin! declares `{}` (manifest type \"{expected}\") but manifest has type \"{manifest_type}\"",
+                                        field.name
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         }
 

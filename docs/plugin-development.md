@@ -136,7 +136,7 @@ Every plugin ships with a `kasane-plugin.toml` manifest file alongside its `.was
 ```toml
 [plugin]
 id = "fuzzy_finder"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [capabilities]
 wasi = ["process"]
@@ -169,6 +169,18 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
 | `handlers.extensions_defined` | No | `[]` | Extension points defined by this plugin |
 | `handlers.extensions_consumed` | No | `[]` | Extension points consumed by this plugin |
 | `view.deps` | No | `[]` (→ ALL) | Dirty-flag subscription (empty = all flags) |
+| `settings.<key>.type` | No | — | Setting type: `"bool"`, `"integer"`, `"float"`, `"string"` |
+| `settings.<key>.default` | No | — | Default value (must match type) |
+| `settings.<key>.description` | No | — | Human-readable description |
+
+Example with settings:
+
+```toml
+[settings.enabled]
+type = "bool"
+default = false
+description = "Enable smooth scrolling animation"
+```
 
 In `define_plugin!`, use the `manifest:` section instead of `id:`, `capabilities:`, and `authorities:`:
 
@@ -197,7 +209,7 @@ For filesystem plugins, the host discovers `.toml` manifests and loads their sib
 | Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
 | Scroll policy | `handle_default_scroll` | — | smooth-scroll |
 
-Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_patch`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
+Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `settings`, `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_patch`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
 
 ### Build & Deploy
 
@@ -213,7 +225,7 @@ kasane plugin dev --release      # Same, but release builds
 `kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
-`kasane:plugin@0.22.0`. Rebuild and reinstall any plugin that was built
+`kasane:plugin@0.23.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
 
 To see installed plugins or diagnose environment issues:
@@ -283,32 +295,19 @@ kasane_plugin_sdk::define_plugin! {
 
 This plugin demonstrates `handle_default_scroll()` — a policy hook that runs
 after core has classified the event as a default buffer scroll candidate, but
-before fallback scroll behavior is applied.
+before fallback scroll behavior is applied. It also shows the `settings {}` block
+for typed configuration.
 
 ```rust
-kasane_plugin_sdk::generate!();
+kasane_plugin_sdk::define_plugin! {
+    manifest: "kasane-plugin.toml",
 
-use kasane_plugin_sdk::plugin;
-
-struct SmoothScrollPlugin;
-
-#[plugin]
-impl Guest for SmoothScrollPlugin {
-    fn get_id() -> String {
-        "smooth_scroll".to_string()
+    settings {
+        enabled: bool = false,
     }
 
-    fn state_hash() -> u64 {
-        0
-    }
-
-    fn handle_default_scroll(candidate: DefaultScrollCandidate) -> Option<ScrollPolicyResult> {
-        let enabled = host_state::get_config_string("smooth-scroll.enabled")
-            .or_else(|| host_state::get_config_string("smooth_scroll"))
-            .and_then(|raw| raw.parse::<bool>().ok())
-            .unwrap_or(false);
-
-        if !enabled {
+    handle_default_scroll(candidate) {
+        if !__setting_enabled() {
             return None;
         }
 
@@ -320,11 +319,14 @@ impl Guest for SmoothScrollPlugin {
             curve: ScrollCurve::Linear,
             accumulation: ScrollAccumulationMode::Add,
         }))
-    }
+    },
 }
-
-export!(SmoothScrollPlugin);
 ```
+
+The `settings {}` block generates `__setting_enabled() -> bool` which calls
+`host_state::get_setting_bool("enabled")` with the manifest default as fallback.
+When `manifest:` is present, the macro validates at compile time that each setting
+exists in the manifest's `[settings.*]` and types match.
 
 **Key points:**
 

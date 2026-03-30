@@ -18,6 +18,7 @@ pub mod process_task;
 mod provider;
 pub mod pubsub;
 mod registry;
+pub mod setting;
 pub mod state;
 mod traits;
 
@@ -97,6 +98,7 @@ pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
 pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
+pub use setting::SettingValue;
 pub use state::{Plugin, PluginState};
 
 bitflags! {

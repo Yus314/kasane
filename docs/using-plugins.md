@@ -73,7 +73,7 @@ auto_discover = false
 ```
 
 Current Kasane releases expect WASM plugins built against
-`kasane:plugin@0.22.0`. If you are upgrading from an older build,
+`kasane:plugin@0.23.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
 will not load.
 

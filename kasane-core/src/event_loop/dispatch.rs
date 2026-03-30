@@ -76,7 +76,8 @@ pub(super) fn handle_deferred_commands_inner(
         let quit = match &cmd {
             Command::PluginMessage { .. }
             | Command::ScheduleTimer { .. }
-            | Command::SetConfig { .. } => {
+            | Command::SetConfig { .. }
+            | Command::SetSetting { .. } => {
                 handle_inter_plugin_command(cmd, ctx, command_source_plugin, depth)
             }
             Command::RegisterSurface { .. }
@@ -140,6 +141,13 @@ fn handle_inter_plugin_command(
         }
         Command::SetConfig { key, value } => {
             crate::state::apply_set_config(ctx.state, ctx.dirty, &key, &value);
+        }
+        Command::SetSetting {
+            plugin_id,
+            key,
+            value,
+        } => {
+            crate::state::apply_set_setting(ctx.state, ctx.dirty, &plugin_id, &key, value);
         }
         _ => unreachable!(),
     }

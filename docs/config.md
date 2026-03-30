@@ -47,7 +47,7 @@ Scroll behavior settings.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `lines_per_scroll` | integer | `3` | Lines per mouse wheel / scroll event |
-| `smooth` | bool | `false` | Enable smooth scroll policy plugins that honor `smooth-scroll.enabled` |
+| `smooth` | bool | `false` | *Deprecated.* Use `[settings.smooth_scroll] enabled = true` instead. Kept for backward compatibility; seeds the plugin setting at startup. |
 | `inertia` | bool | `false` | Momentum/inertia scrolling (reserved, not yet implemented) |
 
 ```toml
@@ -56,11 +56,22 @@ lines_per_scroll = 5
 smooth = true
 ```
 
-Runtime/plugin note:
+## `[settings.<plugin_id>]`
 
-- The canonical runtime key for smooth scroll policy plugins is `smooth-scroll.enabled`.
-- `SetConfig { key: "smooth_scroll", ... }` is still accepted as a deprecated alias and is normalized internally.
-- The TOML file continues to use `[scroll].smooth`; it seeds `smooth-scroll.enabled` during startup.
+Per-plugin typed settings. Each plugin declares its settings schema in its `kasane-plugin.toml` manifest (type, default, description). You can override defaults here.
+
+```toml
+[settings.smooth_scroll]
+enabled = true
+
+[settings.my_custom_plugin]
+threshold = 42
+label = "custom"
+```
+
+Values must match the type declared in the plugin's manifest (`bool`, `integer`, `float`, `string`). Unknown keys or type mismatches produce a warning at startup and fall back to the manifest default.
+
+Plugins read settings via `get_setting_bool`, `get_setting_integer`, `get_setting_float`, or `get_setting_string` host functions.
 
 ## `[log]`
 

@@ -144,12 +144,14 @@ pub mod dirty {
     pub const PLUGIN_STATE: u16 = 1 << 7;
     /// Session metadata changed (session added/removed/switched).
     pub const SESSION: u16 = 1 << 8;
+    /// Plugin settings changed (typed per-plugin configuration).
+    pub const SETTINGS: u16 = 1 << 9;
     /// Composite: any buffer-related change (content or cursor).
     pub const BUFFER: u16 = BUFFER_CONTENT | BUFFER_CURSOR;
     /// Composite: any menu-related change (structure or selection).
     pub const MENU: u16 = MENU_STRUCTURE | MENU_SELECTION;
     /// All flags combined (excludes PLUGIN_STATE — opt-in only).
-    pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS | SESSION;
+    pub const ALL: u16 = BUFFER | STATUS | MENU | INFO | OPTIONS | SESSION | SETTINGS;
 }
 
 /// WASI capability identifiers matching the WIT `capability` enum ordinals.

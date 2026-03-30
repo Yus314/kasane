@@ -13,6 +13,7 @@ use crate::workspace::{Placement, WorkspaceCommand};
 
 use super::PluginId;
 use super::io::StdinMode;
+use super::setting::SettingValue;
 
 /// Buffer edit coordinates in Kakoune's editing coordinate space.
 ///
@@ -92,6 +93,12 @@ pub enum Command {
     SetConfig {
         key: String,
         value: String,
+    },
+    /// Set a typed plugin setting at runtime.
+    SetSetting {
+        plugin_id: PluginId,
+        key: String,
+        value: SettingValue,
     },
     /// Workspace layout command (add/remove surface, focus, split, float, etc.).
     Workspace(WorkspaceCommand),
@@ -219,7 +226,10 @@ impl Command {
     pub fn is_commutative(&self) -> bool {
         matches!(
             self,
-            Command::RequestRedraw(_) | Command::RegisterThemeTokens(_) | Command::SetConfig { .. }
+            Command::RequestRedraw(_)
+                | Command::RegisterThemeTokens(_)
+                | Command::SetConfig { .. }
+                | Command::SetSetting { .. }
         )
     }
 
@@ -287,6 +297,7 @@ pub fn execute_commands(
             Command::ScheduleTimer { .. }
             | Command::PluginMessage { .. }
             | Command::SetConfig { .. }
+            | Command::SetSetting { .. }
             | Command::Workspace(_)
             | Command::RegisterSurface { .. }
             | Command::RegisterSurfaceRequested { .. }

@@ -1,11 +1,12 @@
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use super::AppView;
 use super::diagnostics::{PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget};
+use super::setting::SettingValue;
 use super::{Effects, PluginDescriptor, PluginFactory, PluginId, PluginProvider, PluginRuntime};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -27,6 +28,7 @@ struct ResolvedWinner {
 struct ResolvedCatalog {
     winners: BTreeMap<PluginId, ResolvedWinner>,
     diagnostics: Vec<PluginDiagnostic>,
+    initial_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
 }
 
 impl ResolvedCatalog {
@@ -71,11 +73,25 @@ pub struct PluginApplyResult {
     pub bootstrap: Effects,
     pub deltas: Vec<AppliedWinnerDelta>,
     pub diagnostics: Vec<PluginDiagnostic>,
+    /// Per-plugin initial settings to apply to AppState after plugin loading.
+    pub settings_to_apply: HashMap<PluginId, HashMap<String, SettingValue>>,
 }
 
 impl PluginApplyResult {
     pub fn active_set_changed(&self) -> bool {
         !self.deltas.is_empty()
+    }
+
+    /// Apply initial plugin settings to AppState.
+    /// Should be called after plugin loading to seed per-plugin settings.
+    pub fn apply_settings(&self, state: &mut crate::state::AppState) {
+        for (plugin_id, settings) in &self.settings_to_apply {
+            state
+                .plugin_settings
+                .entry(plugin_id.clone())
+                .or_default()
+                .extend(settings.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
     }
 
     pub fn ready_targets(&self) -> impl Iterator<Item = &PluginId> {
@@ -103,6 +119,7 @@ struct PluginApplyPlan {
     upserts: Vec<PlannedPluginUpsert>,
     next_snapshot: ResolvedPluginSnapshot,
     catalog_diagnostics: Vec<PluginDiagnostic>,
+    initial_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
 }
 
 enum PluginApplyMode<'a> {
@@ -169,6 +186,7 @@ impl PluginManager {
     fn plan_initial(&self) -> Result<PluginApplyPlan> {
         let catalog = self.collect_and_resolve()?;
         let next_snapshot = catalog.snapshot();
+        let initial_settings = catalog.initial_settings;
         Ok(PluginApplyPlan {
             removals: vec![],
             upserts: catalog
@@ -183,6 +201,7 @@ impl PluginManager {
                 .collect(),
             next_snapshot,
             catalog_diagnostics: catalog.diagnostics,
+            initial_settings,
         })
     }
 
@@ -223,6 +242,7 @@ impl PluginManager {
             upserts,
             next_snapshot: new_snapshot,
             catalog_diagnostics: catalog.diagnostics,
+            initial_settings: catalog.initial_settings,
         })
     }
 
@@ -236,9 +256,13 @@ impl PluginManager {
             removals,
             upserts,
             mut next_snapshot,
+            initial_settings,
             ..
         } = plan;
-        let mut result = PluginApplyResult::default();
+        let mut result = PluginApplyResult {
+            settings_to_apply: initial_settings,
+            ..PluginApplyResult::default()
+        };
 
         for removal in removals {
             if registry.unload_plugin(&removal.id) {
@@ -342,6 +366,7 @@ impl PluginManager {
     fn collect_and_resolve(&self) -> Result<ResolvedCatalog> {
         let mut winners: BTreeMap<PluginId, ResolvedWinner> = BTreeMap::new();
         let mut diagnostics = Vec::new();
+        let mut initial_settings: HashMap<PluginId, HashMap<String, SettingValue>> = HashMap::new();
         for provider in &self.providers {
             let collect = match provider.collect() {
                 Ok(collect) => collect,
@@ -354,6 +379,7 @@ impl PluginManager {
                 }
             };
             diagnostics.extend(collect.diagnostics);
+            initial_settings.extend(collect.initial_settings);
             for factory in collect.factories {
                 let descriptor = factory.descriptor().clone();
                 match winners.get(&descriptor.id) {
@@ -375,6 +401,7 @@ impl PluginManager {
         Ok(ResolvedCatalog {
             winners,
             diagnostics,
+            initial_settings,
         })
     }
 }
@@ -465,6 +492,7 @@ mod tests {
                     FactoryVariant::Err => Err(anyhow!("factory exploded")),
                 })],
                 diagnostics: vec![],
+                initial_settings: HashMap::new(),
             })
         }
     }
@@ -482,6 +510,7 @@ mod tests {
                     new: Some(descriptor.clone()),
                 }],
                 diagnostics: vec![],
+                settings_to_apply: HashMap::new(),
             },
             next_snapshot: ResolvedPluginSnapshot {
                 winners: BTreeMap::from([(plugin_id.clone(), descriptor)]),
@@ -523,6 +552,7 @@ mod tests {
                     new: Some(new_descriptor.clone()),
                 }],
                 diagnostics: vec![],
+                settings_to_apply: HashMap::new(),
             },
             next_snapshot: ResolvedPluginSnapshot {
                 winners: BTreeMap::from([(plugin_id.clone(), new_descriptor.clone())]),

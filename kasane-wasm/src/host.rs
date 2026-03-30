@@ -4,8 +4,9 @@ use kasane_core::element::{
     BorderConfig, BorderLineStyle, Direction, Element, FlexChild, InteractiveId, Overlay,
     PluginTag, Style,
 };
+use kasane_core::plugin::PluginId;
+use kasane_core::plugin::setting::SettingValue;
 use kasane_core::protocol::{Coord, CursorMode, Face, Line};
-use kasane_core::scroll::{SMOOTH_SCROLL_CONFIG_KEY, smooth_scroll_enabled};
 use kasane_core::state::{AppState, DirtyFlags, InfoState};
 use wasmtime_wasi::WasiCtxBuilder;
 
@@ -56,6 +57,9 @@ pub(crate) struct HostState {
 
     // --- v0.4.0 Tier 5: Config ---
     pub config_values: std::collections::HashMap<String, String>,
+
+    // --- v0.23.0: Typed plugin settings ---
+    pub settings: std::collections::HashMap<String, SettingValue>,
 
     // --- v0.4.0 Tier 6: Info content ---
     pub infos: Vec<InfoState>,
@@ -136,6 +140,7 @@ impl Default for HostState {
             cursor_count: 0,
             secondary_cursors: Vec::new(),
             config_values: std::collections::HashMap::new(),
+            settings: std::collections::HashMap::new(),
             infos: Vec::new(),
             menu_anchor: None,
             menu_style: None,
@@ -310,6 +315,32 @@ impl bindings::kasane::plugin::host_state::Host for HostState {
     // --- v0.4.0 Tier 5: Config ---
     fn get_config_string(&mut self, key: String) -> Option<String> {
         self.config_values.get(&key).cloned()
+    }
+
+    // --- v0.23.0: Typed plugin settings ---
+    fn get_setting_bool(&mut self, key: String) -> Option<bool> {
+        match self.settings.get(&key) {
+            Some(SettingValue::Bool(v)) => Some(*v),
+            _ => None,
+        }
+    }
+    fn get_setting_integer(&mut self, key: String) -> Option<i64> {
+        match self.settings.get(&key) {
+            Some(SettingValue::Integer(v)) => Some(*v),
+            _ => None,
+        }
+    }
+    fn get_setting_float(&mut self, key: String) -> Option<f64> {
+        match self.settings.get(&key) {
+            Some(SettingValue::Float(v)) => Some(*v),
+            _ => None,
+        }
+    }
+    fn get_setting_string(&mut self, key: String) -> Option<String> {
+        match self.settings.get(&key) {
+            Some(SettingValue::Str(v)) => Some(v.to_string()),
+            _ => None,
+        }
     }
 
     // --- v0.4.0 Tier 6: Info content ---
@@ -924,10 +955,13 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
         for (k, v) in &state.plugin_config {
             host.config_values.insert(k.clone(), v.clone());
         }
-        host.config_values.insert(
-            SMOOTH_SCROLL_CONFIG_KEY.into(),
-            smooth_scroll_enabled(&kasane_core::plugin::AppView::new(state)).to_string(),
-        );
+    }
+
+    // Tier (SETTINGS): per-plugin typed settings
+    if view_deps.intersects(DirtyFlags::SETTINGS)
+        && let Some(ps) = state.plugin_settings.get(&PluginId(host.plugin_id.clone()))
+    {
+        host.settings.clone_from(ps);
     }
 
     // Tier 6 (SESSION): session metadata

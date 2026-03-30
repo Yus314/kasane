@@ -19,6 +19,9 @@ pub(crate) struct CompileTimeManifest {
     pub(crate) handlers: ManifestHandlers,
     #[serde(default)]
     pub(crate) view: ManifestView,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub(crate) settings: std::collections::HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +90,7 @@ pub(crate) fn compile_time_view_dep_bit(name: &str) -> Option<u16> {
         "buffer-cursor" => Some(1 << 6),
         "plugin-state" => Some(1 << 7),
         "session" => Some(1 << 8),
+        "settings" => Some(1 << 9),
         _ => None,
     }
 }
@@ -131,6 +135,9 @@ pub(crate) struct ManifestDef {
     /// Pre-computed handler capabilities bitmask from `[handlers].flags`.
     /// None if `[handlers]` is absent or flags is empty.
     pub(crate) handler_caps_mask: Option<u32>,
+    /// Settings declared in manifest `[settings.*]` sections, keyed by name.
+    /// Each value is the `type` string ("bool", "integer", "float", "string").
+    pub(crate) settings_schema: std::collections::HashMap<String, String>,
 }
 
 /// Read and parse a manifest TOML file at compile time.
@@ -216,6 +223,18 @@ pub(crate) fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Res
         Some(mask)
     };
 
+    // Extract settings schema (key → type string)
+    let mut settings_schema = std::collections::HashMap::new();
+    for (key, value) in &manifest.settings {
+        if let Some(table) = value.as_table() {
+            if let Some(type_val) = table.get("type") {
+                if let Some(type_str) = type_val.as_str() {
+                    settings_schema.insert(key.clone(), type_str.to_string());
+                }
+            }
+        }
+    }
+
     Ok(ManifestDef {
         id: manifest.plugin.id,
         capability_variants,
@@ -223,5 +242,6 @@ pub(crate) fn parse_manifest_at_compile_time(path_lit: &syn::LitStr) -> syn::Res
         view_deps_mask,
         has_view_deps,
         handler_caps_mask,
+        settings_schema,
     })
 }

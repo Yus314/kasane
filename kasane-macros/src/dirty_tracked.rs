@@ -90,6 +90,7 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
         "INFO",
         "OPTIONS",
         "SESSION",
+        "SETTINGS",
     ];
 
     let mut field_entries = Vec::new(); // (field_name, &[flag_names])

@@ -1,6 +1,6 @@
 [plugin]
 id = "cursor_line"
-abi_version = "0.22.0"
+abi_version = "0.23.0"
 
 [handlers]
 flags = ["annotator"]

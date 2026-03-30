@@ -19,12 +19,11 @@ use crate::config::{Config, MenuPosition, StatusPosition};
 use crate::display::DisplayMapRef;
 use crate::input::MouseButton;
 use crate::layout::HitMap;
+use crate::plugin::PluginId;
+use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::render::color_context::ColorContext;
 use crate::render::theme::Theme;
-use crate::scroll::{
-    SMOOTH_SCROLL_CONFIG_KEY, is_smooth_scroll_config_key, set_smooth_scroll_enabled,
-};
 use crate::session::SessionDescriptor;
 
 pub use info::{InfoIdentity, InfoState};
@@ -56,13 +55,16 @@ bitflags! {
         const PLUGIN_STATE    = 1 << 7;
         /// Session list or active session changed.
         const SESSION         = 1 << 8;
+        /// Plugin settings changed (typed per-plugin configuration).
+        const SETTINGS        = 1 << 9;
 
         /// Composite: any buffer-related change.
         const BUFFER = Self::BUFFER_CONTENT.bits() | Self::BUFFER_CURSOR.bits();
         const MENU = Self::MENU_STRUCTURE.bits() | Self::MENU_SELECTION.bits();
         const ALL  = Self::BUFFER.bits() | Self::STATUS.bits()
                    | Self::MENU.bits() | Self::INFO.bits() | Self::OPTIONS.bits()
-                   | Self::PLUGIN_STATE.bits() | Self::SESSION.bits();
+                   | Self::PLUGIN_STATE.bits() | Self::SESSION.bits()
+                   | Self::SETTINGS.bits();
     }
 }
 
@@ -222,6 +224,10 @@ pub struct AppState {
     #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub plugin_config: HashMap<String, String>,
+    /// Typed per-plugin settings (schema-validated, from manifest + config.toml).
+    #[epistemic(config)]
+    #[dirty(SETTINGS)]
+    pub plugin_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
     #[epistemic(config)]
     #[dirty(BUFFER_CONTENT)]
     pub secondary_blend_ratio: f32,
@@ -326,7 +332,6 @@ impl AppState {
         self.menu_position = config.menu.position;
         self.search_dropdown = config.search.dropdown;
         self.status_at_top = config.ui.status_position == StatusPosition::Top;
-        set_smooth_scroll_enabled(&mut self.plugin_config, config.scroll.smooth);
         self.theme = Theme::from_config(&config.theme);
         self.theme.apply_color_context(&self.color_context);
     }
@@ -379,6 +384,7 @@ impl AppState {
             scrollbar_track: _,
             assistant_art: _,
             plugin_config: _,
+            plugin_settings: _,
             secondary_blend_ratio: _,
             theme: _,
             session_descriptors: _,
@@ -439,10 +445,6 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
             state.status_at_top = value == "true";
             *dirty |= DirtyFlags::OPTIONS;
         }
-        key if is_smooth_scroll_config_key(key) => {
-            set_smooth_scroll_enabled(&mut state.plugin_config, value == "true");
-            *dirty |= DirtyFlags::OPTIONS;
-        }
         "cursor.secondary_blend" => {
             if let Ok(ratio) = value.parse::<f32>() {
                 state.secondary_blend_ratio = ratio.clamp(0.0, 1.0);
@@ -459,7 +461,7 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
         }
         _ => {
             // Unknown keys go to ui_options (for Kakoune ui_options) or plugin_config
-            if key == SMOOTH_SCROLL_CONFIG_KEY || key.contains('.') {
+            if key.contains('.') {
                 // Plugin-namespaced keys (e.g. "color-preview.opacity")
                 state
                     .plugin_config
@@ -470,6 +472,24 @@ pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str,
             *dirty |= DirtyFlags::OPTIONS;
         }
     }
+}
+
+/// Apply a SetSetting command to AppState.
+///
+/// Stores the typed value in `plugin_settings` under the plugin's namespace.
+pub fn apply_set_setting(
+    state: &mut AppState,
+    dirty: &mut DirtyFlags,
+    plugin_id: &PluginId,
+    key: &str,
+    value: SettingValue,
+) {
+    state
+        .plugin_settings
+        .entry(plugin_id.clone())
+        .or_default()
+        .insert(key.to_string(), value);
+    *dirty |= DirtyFlags::SETTINGS;
 }
 
 impl Default for AppState {
@@ -503,6 +523,7 @@ impl Default for AppState {
             scrollbar_track: "\u{2591}".to_string(), // ░
             assistant_art: None,
             plugin_config: HashMap::new(),
+            plugin_settings: HashMap::new(),
             cursor_count: 0,
             secondary_cursors: Vec::new(),
             editor_mode: derived::EditorMode::default(),

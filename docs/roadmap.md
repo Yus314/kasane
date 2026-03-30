@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| WASM runtime operations | Plugin settings API |
+| WASM runtime operations | Precompiled component cache |
 | Native escape hatch redesign | Higher-level `PaintHook` redesign |
 | Core event / degraded behavior | Minimal queuing for D-001, introduction of P-023 `DropEvent` |
 
@@ -51,13 +51,13 @@ for the current specification from a plugin's perspective, see
 Completed:
 
 - Plugin manifest — static TOML sidecar (`kasane-plugin.toml`) as authoritative source for plugin identity, sandbox capabilities, handler flags, and view deps. Manifest-first loading eliminates untrusted code from permission decisions and enables pre-instantiation metadata queries. `define_plugin!` supports `manifest:` syntax for compile-time validation.
+- Plugin settings API — typed per-plugin settings with `SettingValue` enum (bool/integer/float/string), manifest-declared schemas (`[settings.*]`), config.toml overrides (`[settings.<plugin_id>]`), WIT host functions (`get-setting-bool/integer/float/string`), `set-setting` command, and `define_plugin!` `settings {}` block with compile-time validation. ABI 0.23.0.
 
 Remaining work:
 
-- Plugin settings API
 - Precompiled component cache
 
-Next deliverable: Plugin settings API
+Next deliverable: Precompiled component cache
 
 ### 3.3 Native escape hatch redesign
 

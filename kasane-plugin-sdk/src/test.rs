@@ -71,6 +71,12 @@ pub struct MockHostState {
     pub config: HashMap<String, String>,
     pub ui_options: HashMap<String, String>,
 
+    // --- Typed Settings (v0.23.0) ---
+    pub settings_bool: HashMap<String, bool>,
+    pub settings_integer: HashMap<String, i64>,
+    pub settings_float: HashMap<String, f64>,
+    pub settings_string: HashMap<String, String>,
+
     // --- Session ---
     pub session_count: u32,
     pub active_session_key: Option<String>,
@@ -110,6 +116,10 @@ impl Default for MockHostState {
             has_info: false,
             config: HashMap::new(),
             ui_options: HashMap::new(),
+            settings_bool: HashMap::new(),
+            settings_integer: HashMap::new(),
+            settings_float: HashMap::new(),
+            settings_string: HashMap::new(),
             session_count: 1,
             active_session_key: None,
             dark_background: true,
@@ -294,6 +304,34 @@ impl TestHarness {
         });
     }
 
+    // --- Typed Settings setters (v0.23.0) ---
+
+    pub fn set_setting_bool(&mut self, key: impl Into<String>, value: bool) {
+        MOCK_STATE.with(|s| {
+            s.borrow_mut().settings_bool.insert(key.into(), value);
+        });
+    }
+
+    pub fn set_setting_integer(&mut self, key: impl Into<String>, value: i64) {
+        MOCK_STATE.with(|s| {
+            s.borrow_mut().settings_integer.insert(key.into(), value);
+        });
+    }
+
+    pub fn set_setting_float(&mut self, key: impl Into<String>, value: f64) {
+        MOCK_STATE.with(|s| {
+            s.borrow_mut().settings_float.insert(key.into(), value);
+        });
+    }
+
+    pub fn set_setting_string(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        MOCK_STATE.with(|s| {
+            s.borrow_mut()
+                .settings_string
+                .insert(key.into(), value.into());
+        });
+    }
+
     // --- Session setters ---
 
     pub fn set_session_count(&mut self, count: u32) {
@@ -447,6 +485,18 @@ pub mod mock_host_state {
     }
     pub fn get_widget_columns() -> u16 {
         MOCK_STATE.with(|s| s.borrow().cols)
+    }
+    pub fn get_setting_bool(key: &str) -> Option<bool> {
+        MOCK_STATE.with(|s| s.borrow().settings_bool.get(key).copied())
+    }
+    pub fn get_setting_integer(key: &str) -> Option<i64> {
+        MOCK_STATE.with(|s| s.borrow().settings_integer.get(key).copied())
+    }
+    pub fn get_setting_float(key: &str) -> Option<f64> {
+        MOCK_STATE.with(|s| s.borrow().settings_float.get(key).copied())
+    }
+    pub fn get_setting_string(key: &str) -> Option<String> {
+        MOCK_STATE.with(|s| s.borrow().settings_string.get(key).cloned())
     }
 }
 

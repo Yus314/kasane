@@ -1,7 +1,5 @@
 //! Types for default buffer scroll routing and policy decisions.
 
-use std::collections::HashMap;
-
 use crate::input::Modifiers;
 use crate::input::{self, MouseButton, MouseEvent, MouseEventKind};
 use crate::layout::HitMap;
@@ -77,35 +75,6 @@ impl DefaultScrollCandidate {
             resolved,
         }
     }
-}
-
-pub const SMOOTH_SCROLL_CONFIG_KEY: &str = "smooth-scroll.enabled";
-pub const SMOOTH_SCROLL_LEGACY_CONFIG_KEY: &str = "smooth_scroll";
-
-fn parse_bool_config(value: Option<&String>) -> bool {
-    value
-        .and_then(|raw| raw.parse::<bool>().ok())
-        .unwrap_or(false)
-}
-
-pub fn smooth_scroll_enabled(app: &AppView<'_>) -> bool {
-    parse_bool_config(
-        app.plugin_config()
-            .get(SMOOTH_SCROLL_CONFIG_KEY)
-            .or_else(|| app.plugin_config().get(SMOOTH_SCROLL_LEGACY_CONFIG_KEY)),
-    )
-}
-
-pub fn set_smooth_scroll_enabled(config: &mut HashMap<String, String>, enabled: bool) {
-    config.insert(SMOOTH_SCROLL_CONFIG_KEY.to_string(), enabled.to_string());
-    config.remove(SMOOTH_SCROLL_LEGACY_CONFIG_KEY);
-}
-
-pub fn is_smooth_scroll_config_key(key: &str) -> bool {
-    matches!(
-        key,
-        SMOOTH_SCROLL_CONFIG_KEY | SMOOTH_SCROLL_LEGACY_CONFIG_KEY
-    )
 }
 
 /// Build the default buffer scroll candidate produced by the current fallback path.
@@ -310,17 +279,6 @@ pub enum LegacyScrollDispatch {
     ConsumedInfo,
     Requests(Vec<KasaneRequest>),
     Plan(ScrollPlan),
-}
-
-pub const fn legacy_smooth_scroll_plan(candidate: DefaultScrollCandidate) -> ScrollPlan {
-    ScrollPlan::new(
-        candidate.resolved.amount,
-        candidate.resolved.line,
-        candidate.resolved.column,
-        16,
-        ScrollCurve::Linear,
-        ScrollAccumulationMode::Add,
-    )
 }
 
 pub fn dispatch_legacy_mouse_scroll<E: PluginEffects>(

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use super::diagnostics::PluginDiagnostic;
+use super::setting::SettingValue;
 use super::{PluginBackend, PluginId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -59,12 +61,15 @@ pub trait PluginFactory: Send + Sync {
 pub struct PluginCollect {
     pub factories: Vec<Arc<dyn PluginFactory>>,
     pub diagnostics: Vec<PluginDiagnostic>,
+    /// Per-plugin initial settings resolved from manifest defaults + config overrides.
+    pub initial_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
 }
 
 impl PluginCollect {
     pub fn extend(&mut self, other: PluginCollect) {
         self.factories.extend(other.factories);
         self.diagnostics.extend(other.diagnostics);
+        self.initial_settings.extend(other.initial_settings);
     }
 }
 
@@ -164,6 +169,7 @@ impl PluginProvider for StaticPluginProvider {
         Ok(PluginCollect {
             factories: self.factories.clone(),
             diagnostics: vec![],
+            initial_settings: HashMap::new(),
         })
     }
 }

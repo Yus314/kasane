@@ -340,11 +340,18 @@ impl ResolvedWasmPlugins {
 
 pub struct WasmPluginProvider {
     plugins_config: kasane_core::config::PluginsConfig,
+    config_settings: std::collections::HashMap<String, toml::Table>,
 }
 
 impl WasmPluginProvider {
-    pub fn new(plugins_config: kasane_core::config::PluginsConfig) -> Self {
-        Self { plugins_config }
+    pub fn new(
+        plugins_config: kasane_core::config::PluginsConfig,
+        config_settings: std::collections::HashMap<String, toml::Table>,
+    ) -> Self {
+        Self {
+            plugins_config,
+            config_settings,
+        }
     }
 }
 
@@ -359,6 +366,7 @@ impl PluginProvider for WasmPluginProvider {
                         self.name(),
                         err.to_string(),
                     )],
+                    ..PluginCollect::default()
                 });
             }
         };
@@ -368,12 +376,14 @@ impl PluginProvider for WasmPluginProvider {
             &self.plugins_config,
             &loader,
             &wasi_config,
+            &self.config_settings,
             &mut resolved,
         );
         resolve_filesystem_plugins_with_factories(
             &self.plugins_config,
             &loader,
             &wasi_config,
+            &self.config_settings,
             &mut resolved,
         );
         Ok(resolved)
@@ -388,6 +398,22 @@ fn mtime_ns(path: &Path) -> Option<u128> {
         .and_then(|meta| meta.modified().ok())
         .and_then(|time: SystemTime| time.duration_since(SystemTime::UNIX_EPOCH).ok())
         .map(|duration| duration.as_nanos())
+}
+
+/// Resolve settings for a plugin: start with manifest defaults, then apply config overrides.
+fn resolve_plugin_settings(
+    manifest: &manifest::PluginManifest,
+    config_settings: &std::collections::HashMap<String, toml::Table>,
+) -> std::collections::HashMap<String, kasane_core::plugin::setting::SettingValue> {
+    let mut settings = manifest.resolve_setting_defaults();
+    if let Some(config_table) = config_settings.get(&manifest.plugin.id) {
+        let (overrides, warnings) = manifest.validate_config_settings(config_table);
+        for warning in warnings {
+            tracing::warn!("{}", warning);
+        }
+        settings.extend(overrides);
+    }
+    settings
 }
 
 fn filesystem_fingerprint(
@@ -616,6 +642,7 @@ fn resolve_bundled_plugins_with_factories(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
+    config_settings: &std::collections::HashMap<String, toml::Table>,
     resolved: &mut PluginCollect,
 ) {
     for spec in bundled_plugin_specs() {
@@ -647,8 +674,15 @@ fn resolve_bundled_plugins_with_factories(
         }
         match loader.load_with_manifest(spec.wasm_bytes, &manifest, wasi_config) {
             Ok(plugin) => {
+                let plugin_id = plugin.id();
+                let settings = resolve_plugin_settings(&manifest, config_settings);
+                if !settings.is_empty() {
+                    resolved
+                        .initial_settings
+                        .insert(plugin_id.clone(), settings);
+                }
                 let descriptor = descriptor_from_wasm_revision(
-                    plugin.id(),
+                    plugin_id,
                     WasmPluginRevision {
                         origin: WasmPluginOrigin::Bundled(spec.name),
                         fingerprint: WasmPluginFingerprint::Bundled(spec.name),
@@ -759,6 +793,7 @@ fn resolve_filesystem_plugins_with_factories(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
+    config_settings: &std::collections::HashMap<String, toml::Table>,
     resolved: &mut PluginCollect,
 ) {
     if !plugins_config.auto_discover {
@@ -827,6 +862,10 @@ fn resolve_filesystem_plugins_with_factories(
         match loader.load_with_manifest(&bytes, &artifact.manifest, wasi_config) {
             Ok(plugin) => {
                 let id = plugin.id();
+                let settings = resolve_plugin_settings(&artifact.manifest, config_settings);
+                if !settings.is_empty() {
+                    resolved.initial_settings.insert(id.clone(), settings);
+                }
                 let descriptor = descriptor_from_wasm_revision(
                     id,
                     WasmPluginRevision {

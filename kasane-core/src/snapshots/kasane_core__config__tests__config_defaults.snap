@@ -1,6 +1,6 @@
 ---
 source: kasane-core/src/config.rs
-assertion_line: 694
+assertion_line: 698
 expression: toml_str
 ---
 [ui]
@@ -76,3 +76,5 @@ disabled = []
 [plugins.deny_capabilities]
 
 [plugins.deny_authorities]
+
+[settings]
