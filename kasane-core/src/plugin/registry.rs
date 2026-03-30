@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::display::{DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild, InteractiveId, PluginTag};
-use crate::input::{ChordState, KeyEvent, KeyResponse, MouseEvent};
+use crate::input::{ChordState, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::Placement;
@@ -785,6 +785,48 @@ impl PluginRuntime {
         }
         MouseHandleResult::NotHandled
     }
+
+    /// Broadcast drop observation to all plugins with DROP_HANDLER capability.
+    pub fn observe_drop_all(&mut self, event: &DropEvent, app: &AppView<'_>) {
+        for slot in &mut self.slots {
+            if !slot.capabilities.contains(PluginCapabilities::DROP_HANDLER) {
+                continue;
+            }
+            slot.backend.observe_drop(event, app);
+        }
+    }
+
+    /// Owner-based drop handler dispatch.
+    pub fn dispatch_drop_handler(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        app: &AppView<'_>,
+    ) -> MouseHandleResult {
+        if id.owner != PluginTag::FRAMEWORK && id.owner != PluginTag::UNASSIGNED {
+            if let Some(slot) = self.slots.iter_mut().find(|s| s.plugin_tag == id.owner)
+                && let Some(commands) = slot.backend.handle_drop(event, id, app)
+            {
+                return MouseHandleResult::Handled {
+                    source_plugin: slot.backend.id(),
+                    commands,
+                };
+            }
+            return MouseHandleResult::NotHandled;
+        }
+        for slot in &mut self.slots {
+            if !slot.capabilities.contains(PluginCapabilities::DROP_HANDLER) {
+                continue;
+            }
+            if let Some(commands) = slot.backend.handle_drop(event, id, app) {
+                return MouseHandleResult::Handled {
+                    source_plugin: slot.backend.id(),
+                    commands,
+                };
+            }
+        }
+        MouseHandleResult::NotHandled
+    }
 }
 
 impl PluginEffects for PluginRuntime {
@@ -811,6 +853,19 @@ impl PluginEffects for PluginRuntime {
         app: &AppView<'_>,
     ) -> MouseHandleResult {
         PluginRuntime::dispatch_mouse_handler(self, event, id, app)
+    }
+
+    fn observe_drop_all(&mut self, event: &DropEvent, app: &AppView<'_>) {
+        PluginRuntime::observe_drop_all(self, event, app)
+    }
+
+    fn dispatch_drop_handler(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        app: &AppView<'_>,
+    ) -> MouseHandleResult {
+        PluginRuntime::dispatch_drop_handler(self, event, id, app)
     }
 
     fn handle_default_scroll(

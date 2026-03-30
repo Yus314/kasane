@@ -1,7 +1,7 @@
 use crate::bindings::kasane::plugin::types as wit;
 use kasane_core::input::{
-    ChordBinding, CompiledKeyMap, Key, KeyBinding, KeyEvent, KeyGroup, KeyPattern, KeyResponse,
-    Modifiers, MouseButton, MouseEvent, MouseEventKind,
+    ChordBinding, CompiledKeyMap, DropEvent, Key, KeyBinding, KeyEvent, KeyGroup, KeyPattern,
+    KeyResponse, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use kasane_core::plugin::{Command, IoEvent, ProcessEvent};
 use kasane_core::scroll::{
@@ -51,6 +51,18 @@ fn mouse_event_kind_to_wit(kind: &MouseEventKind) -> wit::MouseEventKind {
         MouseEventKind::Drag(b) => wit::MouseEventKind::Drag(mouse_button_to_wit(*b)),
         MouseEventKind::ScrollUp => wit::MouseEventKind::ScrollUp,
         MouseEventKind::ScrollDown => wit::MouseEventKind::ScrollDown,
+    }
+}
+
+pub(crate) fn drop_event_to_wit(event: &DropEvent) -> wit::DropEvent {
+    wit::DropEvent {
+        paths: event
+            .paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        col: event.col as u32,
+        row: event.row as u32,
     }
 }
 

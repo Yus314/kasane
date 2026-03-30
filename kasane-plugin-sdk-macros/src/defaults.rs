@@ -90,11 +90,13 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "transform_priority",
         "transform_menu_item",
         "handle_mouse",
+        "handle_drop",
         "handle_key",
         "handle_key_middleware",
         "handle_default_scroll",
         "observe_key",
         "observe_mouse",
+        "observe_drop",
         "state_hash",
         "cursor_style_override",
         "decorate_cells",
@@ -448,6 +450,20 @@ pub(crate) fn generate_defaults(
         quote! { fn observe_mouse(_event: MouseEvent) {} }
     );
 
+    add_default!(
+        "handle_drop",
+        quote! {
+            fn handle_drop(_event: DropEvent, _id: InteractiveId) -> Option<Vec<Command>> {
+                None
+            }
+        }
+    );
+
+    add_default!(
+        "observe_drop",
+        quote! { fn observe_drop(_event: DropEvent) {} }
+    );
+
     // --- Key map protocol (Phase 3+) ---
 
     add_default!(
@@ -642,6 +658,10 @@ pub(crate) fn generate_defaults(
         // NAVIGATION_ACTION = 1 << 22
         if existing.contains("on_navigation_action") {
             caps |= 1 << 22;
+        }
+        // DROP_HANDLER = 1 << 23
+        if existing.contains("handle_drop") {
+            caps |= 1 << 23;
         }
 
         let caps_literal = caps;

@@ -112,7 +112,7 @@ See [Plugin Development](docs/plugin-development.md) and
 
 Kasane is stable as a Kakoune frontend — `alias kak=kasane` and use it
 daily. The plugin API is still evolving; expect breaking changes if
-you write plugins. The current WASM plugin ABI is `kasane:plugin@0.23.0`;
+you write plugins. The current WASM plugin ABI is `kasane:plugin@0.24.0`;
 plugins built against an older ABI must be rebuilt before they will load.
 
 ## Usage

@@ -30,7 +30,7 @@ for the current specification from a plugin's perspective, see
 | Workstream | Next deliverable |
 |---|---|
 | Native escape hatch redesign | Higher-level `PaintHook` redesign |
-| Core event / degraded behavior | Minimal queuing for D-001, introduction of P-023 `DropEvent` |
+| Core event / degraded behavior | Minimal queuing for D-001 |
 
 ### 2.2 Backlog
 
@@ -70,12 +70,15 @@ Next deliverable: Finalize the redesign direction for `PaintHook` and land the m
 
 ### 3.4 Core event / degraded behavior
 
+Completed:
+
+- P-023: `DropEvent` in `InputEvent` / `Msg` / `SurfaceEvent` / plugin API / WIT (ABI 0.24.0)
+
 Remaining work:
 
 - D-001: Minimal queuing based on `update()`
-- P-023: Introduce `DropEvent` into `InputEvent` / plugin API / WIT
 
-Next deliverable: Select either D-001 or P-023 as the first slice and land it on the core path
+Next deliverable: D-001 minimal queuing
 
 ## 4. Phase Status Summary
 

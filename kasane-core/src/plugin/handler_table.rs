@@ -10,7 +10,7 @@
 use std::any::Any;
 
 use crate::element::{Element, InteractiveId};
-use crate::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
+use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::protocol::Atom;
 use crate::render::{CursorStyleHint, InlineDecoration};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -93,6 +93,18 @@ pub(crate) type ErasedHandleMouseHandler = Box<
     dyn Fn(
             &dyn PluginState,
             &MouseEvent,
+            InteractiveId,
+            &AppView<'_>,
+        ) -> Option<(Box<dyn PluginState>, Vec<Command>)>
+        + Send
+        + Sync,
+>;
+pub(crate) type ErasedObserveDropHandler =
+    Box<dyn Fn(&dyn PluginState, &DropEvent, &AppView<'_>) -> Box<dyn PluginState> + Send + Sync>;
+pub(crate) type ErasedHandleDropHandler = Box<
+    dyn Fn(
+            &dyn PluginState,
+            &DropEvent,
             InteractiveId,
             &AppView<'_>,
         ) -> Option<(Box<dyn PluginState>, Vec<Command>)>
@@ -227,6 +239,8 @@ pub(crate) struct HandlerTable {
     pub(crate) observe_key_handler: Option<ErasedObserveKeyHandler>,
     pub(crate) observe_mouse_handler: Option<ErasedObserveMouseHandler>,
     pub(crate) handle_mouse_handler: Option<ErasedHandleMouseHandler>,
+    pub(crate) observe_drop_handler: Option<ErasedObserveDropHandler>,
+    pub(crate) handle_drop_handler: Option<ErasedHandleDropHandler>,
     pub(crate) default_scroll_handler: Option<ErasedDefaultScrollHandler>,
 
     // --- Key Map (Phase 2) ---
@@ -284,6 +298,8 @@ impl HandlerTable {
             observe_key_handler: None,
             observe_mouse_handler: None,
             handle_mouse_handler: None,
+            observe_drop_handler: None,
+            handle_drop_handler: None,
             default_scroll_handler: None,
             key_map: None,
             key_map_builder: None,
@@ -329,6 +345,9 @@ impl HandlerTable {
             || self.key_map.is_some()
         {
             caps |= PluginCapabilities::INPUT_HANDLER;
+        }
+        if self.handle_drop_handler.is_some() {
+            caps |= PluginCapabilities::DROP_HANDLER;
         }
         if self.default_scroll_handler.is_some() {
             caps |= PluginCapabilities::SCROLL_POLICY;
@@ -467,6 +486,17 @@ mod tests {
     fn empty_table_has_no_annotation_handlers() {
         let table = HandlerTable::empty();
         assert!(!table.has_annotation_handlers());
+    }
+
+    #[test]
+    fn drop_handler_sets_capability() {
+        let mut table = HandlerTable::empty();
+        table.handle_drop_handler = Some(Box::new(|_state, _event, _id, _app| None));
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::DROP_HANDLER)
+        );
     }
 
     #[test]

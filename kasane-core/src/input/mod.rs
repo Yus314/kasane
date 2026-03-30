@@ -5,6 +5,8 @@ pub mod key_map;
 pub use builtin::BuiltinInputPlugin;
 pub use key_map::{ChordBinding, ChordState, CompiledKeyMap, KeyBinding, KeyGroup};
 
+use std::path::{Path, PathBuf};
+
 use bitflags::bitflags;
 
 use crate::plugin::Command;
@@ -21,6 +23,21 @@ pub enum InputEvent {
     Resize(u16, u16),
     FocusGained,
     FocusLost,
+    Drop(DropEvent),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DropEvent {
+    pub paths: Vec<PathBuf>,
+    pub col: u16,
+    pub row: u16,
+}
+
+/// Quote a file path for Kakoune's command parser.
+/// Uses single-quote wrapping: `'` is escaped as `''`.
+pub fn kakoune_quote_path(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    format!("'{}'", s.replace('\'', "''"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -581,6 +598,37 @@ mod tests {
                 line: 0,
                 column: 0
             }
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // kakoune_quote_path tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_kakoune_quote_path_simple() {
+        use std::path::Path;
+        assert_eq!(
+            kakoune_quote_path(Path::new("/tmp/foo.txt")),
+            "'/tmp/foo.txt'"
+        );
+    }
+
+    #[test]
+    fn test_kakoune_quote_path_spaces() {
+        use std::path::Path;
+        assert_eq!(
+            kakoune_quote_path(Path::new("/tmp/my file.txt")),
+            "'/tmp/my file.txt'"
+        );
+    }
+
+    #[test]
+    fn test_kakoune_quote_path_single_quote() {
+        use std::path::Path;
+        assert_eq!(
+            kakoune_quote_path(Path::new("/tmp/it's a file.txt")),
+            "'/tmp/it''s a file.txt'"
         );
     }
 

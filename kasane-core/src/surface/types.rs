@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use compact_str::CompactString;
 
+use crate::input::DropEvent;
 use crate::input::KeyEvent;
 use crate::input::MouseEvent;
 use crate::layout::{Rect, SplitDirection};
@@ -142,6 +143,8 @@ pub enum SurfaceEvent {
     FocusGained,
     /// This surface lost focus.
     FocusLost,
+    /// A file drop event (routed by hit testing).
+    Drop(DropEvent),
     /// This surface was resized.
     Resize(Rect),
 }

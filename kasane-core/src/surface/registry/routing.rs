@@ -84,6 +84,45 @@ impl SurfaceRegistry {
                     vec![]
                 }
             }
+            SurfaceEvent::Drop(drop_event) => {
+                // Route to surface under drop position
+                let target = self
+                    .workspace
+                    .surface_at(drop_event.col, drop_event.row, total);
+                if let Some(surface_id) = target {
+                    if let Some(entry) = self.surfaces.get_mut(&surface_id) {
+                        let rect = self
+                            .workspace
+                            .compute_rects(total)
+                            .get(&surface_id)
+                            .copied()
+                            .unwrap_or(Rect {
+                                x: 0,
+                                y: 0,
+                                w: 0,
+                                h: 0,
+                            });
+                        let ctx = EventContext {
+                            state,
+                            rect,
+                            focused: surface_id == self.workspace.focused(),
+                        };
+                        let commands = entry.surface.handle_event(event, &ctx);
+                        if commands.is_empty() {
+                            vec![]
+                        } else {
+                            vec![SourcedSurfaceCommands {
+                                source_plugin: entry.owner_plugin.clone(),
+                                commands,
+                            }]
+                        }
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                }
+            }
             SurfaceEvent::Mouse(mouse_event) => {
                 // Route to surface under cursor
                 let target = self.workspace.surface_at(

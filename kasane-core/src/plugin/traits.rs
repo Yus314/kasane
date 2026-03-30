@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use crate::element::{InteractiveId, PluginTag};
-use crate::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
+use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::{self, DirtyFlags};
 
@@ -71,6 +71,8 @@ pub trait PluginBackend: Any {
     fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {}
     /// Observe a mouse event (notification only, cannot consume).
     fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppView<'_>) {}
+    /// Observe a drop event (notification only, cannot consume).
+    fn observe_drop(&mut self, _event: &DropEvent, _state: &AppView<'_>) {}
 
     // --- Update / Input handling ---
 
@@ -89,6 +91,14 @@ pub trait PluginBackend: Any {
     fn handle_mouse(
         &mut self,
         _event: &MouseEvent,
+        _id: InteractiveId,
+        _state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        None
+    }
+    fn handle_drop(
+        &mut self,
+        _event: &DropEvent,
         _id: InteractiveId,
         _state: &AppView<'_>,
     ) -> Option<Vec<Command>> {

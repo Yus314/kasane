@@ -7,7 +7,7 @@
 use std::any::Any;
 
 use crate::element::{Element, InteractiveId, PluginTag};
-use crate::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
+use crate::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
@@ -359,6 +359,14 @@ impl PluginBackend for PluginBridge {
         }
     }
 
+    fn observe_drop(&mut self, event: &DropEvent, app: &AppView<'_>) {
+        if let Some(handler) = &self.table.observe_drop_handler {
+            let new_state = handler(&*self.state, event, app);
+            self.state = new_state;
+            self.check_state_change();
+        }
+    }
+
     fn handle_key(&mut self, key: &KeyEvent, app: &AppView<'_>) -> Option<Vec<Command>> {
         if let Some(handler) = &self.table.key_handler {
             handler(&*self.state, key, app).map(|(new_state, cmds)| {
@@ -393,6 +401,23 @@ impl PluginBackend for PluginBridge {
         app: &AppView<'_>,
     ) -> Option<Vec<Command>> {
         if let Some(handler) = &self.table.handle_mouse_handler {
+            handler(&*self.state, event, id, app).map(|(new_state, cmds)| {
+                self.state = new_state;
+                self.check_state_change();
+                cmds
+            })
+        } else {
+            None
+        }
+    }
+
+    fn handle_drop(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        app: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        if let Some(handler) = &self.table.handle_drop_handler {
             handler(&*self.state, event, id, app).map(|(new_state, cmds)| {
                 self.state = new_state;
                 self.check_state_change();

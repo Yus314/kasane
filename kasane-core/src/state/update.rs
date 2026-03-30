@@ -1,5 +1,5 @@
 use crate::input;
-use crate::input::{InputEvent, KeyEvent, MouseEvent};
+use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
     AppView, Command, KeyDispatchResult, MouseHandleResult, PluginEffects, PluginId,
     extract_redraw_flags,
@@ -15,6 +15,7 @@ pub enum Msg {
     Key(KeyEvent),
     Mouse(MouseEvent),
     Paste,
+    Drop(DropEvent),
     Resize { cols: u16, rows: u16 },
     FocusGained,
     FocusLost,
@@ -26,6 +27,7 @@ impl From<InputEvent> for Msg {
             InputEvent::Key(key) => Msg::Key(key),
             InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
             InputEvent::Paste(_) => Msg::Paste,
+            InputEvent::Drop(drop) => Msg::Drop(drop),
             InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
             InputEvent::FocusGained => Msg::FocusGained,
             InputEvent::FocusLost => Msg::FocusLost,
@@ -308,6 +310,45 @@ fn update_inner<E: PluginEffects>(
             UpdateResult {
                 flags: DirtyFlags::empty(),
                 commands: cmds,
+                scroll_plans: vec![],
+                source_plugin: None,
+            }
+        }
+        Msg::Drop(drop) => {
+            // 1. Broadcast observation
+            effects.observe_drop_all(&drop, &AppView::new(state));
+
+            // 2. Hit-test + owner-based dispatch
+            if let Some(id) = state.hit_map.test(drop.col, drop.row) {
+                match effects.dispatch_drop_handler(&drop, id, &AppView::new(state)) {
+                    MouseHandleResult::Handled {
+                        source_plugin,
+                        mut commands,
+                    } => {
+                        let flags = extract_redraw_flags(&mut commands);
+                        return UpdateResult {
+                            flags,
+                            commands,
+                            scroll_plans: vec![],
+                            source_plugin: Some(source_plugin),
+                        };
+                    }
+                    MouseHandleResult::NotHandled => {}
+                }
+            }
+
+            // 3. Default: edit each dropped file
+            let commands = drop
+                .paths
+                .iter()
+                .map(|p| {
+                    Command::kakoune_command(&format!("edit {}", input::kakoune_quote_path(p)))
+                })
+                .collect();
+
+            UpdateResult {
+                flags: DirtyFlags::empty(),
+                commands,
                 scroll_plans: vec![],
                 source_plugin: None,
             }

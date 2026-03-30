@@ -125,6 +125,7 @@ bitflags! {
         const CELL_DECORATION    = 1 << 20;
         const NAVIGATION_POLICY  = 1 << 21;
         const NAVIGATION_ACTION  = 1 << 22;
+        const DROP_HANDLER       = 1 << 23;
     }
 }
 

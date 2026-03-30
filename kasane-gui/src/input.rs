@@ -1,5 +1,5 @@
 use kasane_core::input::{
-    InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind,
+    DropEvent, InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{Key as WinitKey, NamedKey};
@@ -109,26 +109,14 @@ pub fn convert_window_event(
             }
         }
         WindowEvent::DroppedFile(path) => {
-            // Send `:edit <path>` to Kakoune
-            let cmd = format!(":edit {}\n", path.display());
-            let keys = kasane_core::input::paste_text_to_keys(&cmd);
-            keys.into_iter()
-                .filter_map(|k| {
-                    if k.len() == 1 {
-                        let ch = k
-                            .chars()
-                            .next()
-                            .expect("len==1 guarantees at least one char");
-                        Some(InputEvent::Key(KeyEvent {
-                            key: Key::Char(ch),
-                            modifiers: Modifiers::empty(),
-                        }))
-                    } else {
-                        // Special key like <ret>, <space>, etc.
-                        parse_kakoune_key(&k).map(InputEvent::Key)
-                    }
-                })
-                .collect()
+            let (col, row) = cursor_pos
+                .map(|(px, py)| pixel_to_grid(px, py, cell_metrics))
+                .unwrap_or((0, 0));
+            vec![InputEvent::Drop(DropEvent {
+                paths: vec![path.clone()],
+                col,
+                row,
+            })]
         }
         _ => vec![],
     }
@@ -248,27 +236,6 @@ pub fn pixel_to_grid(px: f64, py: f64, metrics: &CellMetrics) -> (u16, u16) {
     )
 }
 
-/// Parse a Kakoune key name back to a KeyEvent (for D&D file path injection).
-fn parse_kakoune_key(s: &str) -> Option<KeyEvent> {
-    let inner = s.strip_prefix('<').and_then(|s| s.strip_suffix('>'))?;
-    let key = match inner {
-        "ret" => Key::Enter,
-        "space" => Key::Char(' '),
-        "lt" => Key::Char('<'),
-        "gt" => Key::Char('>'),
-        "minus" => Key::Char('-'),
-        "tab" => Key::Tab,
-        "esc" => Key::Escape,
-        "backspace" => Key::Backspace,
-        "del" => Key::Delete,
-        _ => return None,
-    };
-    Some(KeyEvent {
-        key,
-        modifiers: Modifiers::empty(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,17 +279,6 @@ mod tests {
             rows: 24,
         };
         assert_eq!(pixel_to_grid(30.0, 50.0, &metrics), (1, 1));
-    }
-
-    #[test]
-    fn test_parse_kakoune_key() {
-        let ke = parse_kakoune_key("<ret>").unwrap();
-        assert_eq!(ke.key, Key::Enter);
-
-        let ke = parse_kakoune_key("<space>").unwrap();
-        assert_eq!(ke.key, Key::Char(' '));
-
-        assert!(parse_kakoune_key("a").is_none());
     }
 
     #[test]
@@ -384,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dropped_file_converts_to_edit_command_keys() {
+    fn test_dropped_file_produces_drop_event() {
         let metrics = CellMetrics {
             cell_width: 10.0,
             cell_height: 20.0,
@@ -394,24 +350,18 @@ mod tests {
         };
         let path = PathBuf::from("/tmp/drop file.txt");
         let event = WindowEvent::DroppedFile(path.clone());
-        let mut cursor_pos = None;
+        let mut cursor_pos = Some((50.0, 40.0));
         let mut mouse_button_held = None;
 
         let events =
             convert_window_event(&event, &metrics, &mut cursor_pos, &mut mouse_button_held);
-        let rendered: String = events
-            .into_iter()
-            .map(|event| match event {
-                InputEvent::Key(KeyEvent {
-                    key: Key::Char(ch), ..
-                }) => ch,
-                InputEvent::Key(KeyEvent {
-                    key: Key::Enter, ..
-                }) => '\n',
-                other => panic!("unexpected event from drop conversion: {other:?}"),
-            })
-            .collect();
-
-        assert_eq!(rendered, format!(":edit {}\n", path.display()));
+        assert_eq!(
+            events,
+            vec![InputEvent::Drop(DropEvent {
+                paths: vec![path],
+                col: 5,
+                row: 2,
+            })]
+        );
     }
 }

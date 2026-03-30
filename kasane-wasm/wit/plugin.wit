@@ -1,4 +1,4 @@
-package kasane:plugin@0.23.0;
+package kasane:plugin@0.24.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -190,6 +190,12 @@ interface types {
         line: u32,
         column: u32,
         modifiers: modifier-flags,
+    }
+
+    record drop-event {
+        paths: list<string>,
+        col: u32,
+        row: u32,
     }
 
     enum scroll-granularity {
@@ -554,6 +560,7 @@ interface types {
     variant surface-event {
         key(key-event),
         mouse(mouse-event),
+        drop(drop-event),
         focus-gained,
         focus-lost,
         resize(rect),
@@ -1046,7 +1053,7 @@ interface element-builder {
 }
 
 interface plugin-api {
-    use types.{line-decoration, element-handle, command, mouse-event, key-event, interactive-id, overlay,
+    use types.{line-decoration, element-handle, command, mouse-event, drop-event, key-event, interactive-id, overlay,
                atom, decorate-target, replace-target,
                slot-id, contribute-context, contribution, transform-target, transform-subject, transform-context,
                element-patch-op,
@@ -1133,6 +1140,13 @@ interface plugin-api {
 
     /// Observe a mouse event (notification only, cannot consume).
     observe-mouse: func(event: mouse-event);
+
+    /// Handle a drop event on an interactive element owned by this plugin.
+    /// Return Some(commands) to consume the event, None to pass through.
+    handle-drop: func(event: drop-event, id: interactive-id) -> option<list<command>>;
+
+    /// Observe a drop event (notification only, cannot consume).
+    observe-drop: func(event: drop-event);
 
     // --- Key map protocol (Phase 3) ---
 

@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 
 use compact_str::CompactString;
 use kasane_core::element::{Element, InteractiveId, PluginTag};
-use kasane_core::input::{CompiledKeyMap, KeyEvent, KeyResponse, MouseEvent};
+use kasane_core::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, IoEvent, KeyHandleResult, LineAnnotation,
@@ -274,7 +274,7 @@ impl Surface for WasmHostedSurface {
             match plugin_api.call_handle_surface_event(
                 &mut runtime.store,
                 &surface_key,
-                wit_event,
+                &wit_event,
                 wit_ctx,
             ) {
                 Ok(commands) => {
@@ -595,6 +595,23 @@ impl PluginBackend for WasmPlugin {
         });
     }
 
+    fn observe_drop(&mut self, event: &DropEvent, state: &AppView<'_>) {
+        if !self
+            .shared
+            .cached_capabilities
+            .contains(PluginCapabilities::DROP_HANDLER)
+        {
+            return;
+        }
+        self.shared.call_synced(state, "observe_drop", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
+            let wit_event = convert::drop_event_to_wit(event);
+            Ok(api
+                .call_observe_drop(&mut rt.store, &wit_event)
+                .map(|_| ())?)
+        });
+    }
+
     fn handle_key(&mut self, key: &KeyEvent, state: &AppView<'_>) -> Option<Vec<Command>> {
         let shared = Arc::clone(&self.shared);
         self.shared.with_runtime(|runtime| {
@@ -720,6 +737,22 @@ impl PluginBackend for WasmPlugin {
             let wit_event = convert::mouse_event_to_wit(event);
             Ok(api
                 .call_handle_mouse(&mut rt.store, wit_event, id.local)
+                .map(|opt| opt.map(|cmds| shared.convert_commands(&cmds)))?)
+        })
+    }
+
+    fn handle_drop(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        state: &AppView<'_>,
+    ) -> Option<Vec<Command>> {
+        let shared = Arc::clone(&self.shared);
+        self.shared.call_synced(state, "handle_drop", |rt| {
+            let api = rt.instance.kasane_plugin_plugin_api();
+            let wit_event = convert::drop_event_to_wit(event);
+            Ok(api
+                .call_handle_drop(&mut rt.store, &wit_event, id.local)
                 .map(|opt| opt.map(|cmds| shared.convert_commands(&cmds)))?)
         })
     }

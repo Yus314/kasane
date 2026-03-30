@@ -31,6 +31,7 @@ pub(crate) struct PluginDef {
     handle_key: Option<ParamBodyDef>,
     handle_key_middleware: Option<ParamBodyDef>,
     handle_mouse: Option<HandleMouseDef>,
+    handle_drop: Option<HandleDropDef>,
     handle_default_scroll: Option<ParamBodyDef>,
     capabilities: Option<proc_macro2::TokenStream>,
     authorities: Option<proc_macro2::TokenStream>,
@@ -100,6 +101,12 @@ struct ParamBodyDef {
 }
 
 struct HandleMouseDef {
+    event_param: syn::Ident,
+    id_param: syn::Ident,
+    body: proc_macro2::TokenStream,
+}
+
+struct HandleDropDef {
     event_param: syn::Ident,
     id_param: syn::Ident,
     body: proc_macro2::TokenStream,
@@ -577,6 +584,20 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
+    let handle_drop_method = if let Some(ref hd) = def.handle_drop {
+        let event_param = &hd.event_param;
+        let id_param = &hd.id_param;
+        let body = &hd.body;
+        let wrapped = wrap_state(body);
+        quote! {
+            fn handle_drop(#event_param: DropEvent, #id_param: InteractiveId) -> Option<Vec<Command>> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let handle_default_scroll_method = if let Some(ref hs) = def.handle_default_scroll {
         let candidate_param = &hs.param;
         let body = &hs.body;
@@ -795,6 +816,7 @@ pub(crate) fn define_plugin_impl(
             #handle_key_method
             #handle_key_middleware_method
             #handle_mouse_method
+            #handle_drop_method
             #handle_default_scroll_method
             #capabilities_method
             #authorities_method
@@ -967,6 +989,7 @@ impl syn::parse::Parse for PluginDef {
             handle_key: None,
             handle_key_middleware: None,
             handle_mouse: None,
+            handle_drop: None,
             handle_default_scroll: None,
             capabilities: None,
             authorities: None,
@@ -1228,6 +1251,20 @@ impl syn::parse::Parse for PluginDef {
                     let body;
                     syn::braced!(body in input);
                     def.handle_mouse = Some(HandleMouseDef {
+                        event_param,
+                        id_param,
+                        body: body.parse()?,
+                    });
+                }
+                "handle_drop" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let event_param: syn::Ident = params.parse()?;
+                    params.parse::<syn::Token![,]>()?;
+                    let id_param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.handle_drop = Some(HandleDropDef {
                         event_param,
                         id_param,
                         body: body.parse()?,

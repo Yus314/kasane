@@ -30,8 +30,8 @@ use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolic
 use crate::display::unit::DisplayUnit;
 use crate::element::{Element, InteractiveId};
 use crate::input::{
-    ChordBinding, CompiledKeyMap, KeyBinding, KeyEvent, KeyGroup, KeyPattern, KeyResponse,
-    MouseEvent,
+    ChordBinding, CompiledKeyMap, DropEvent, KeyBinding, KeyEvent, KeyGroup, KeyPattern,
+    KeyResponse, MouseEvent,
 };
 use crate::protocol::Atom;
 use crate::render::{CursorStyleHint, InlineDecoration};
@@ -336,6 +336,38 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         + 'static,
     ) {
         self.table.handle_mouse_handler = Some(Box::new(move |state, event, id, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, event, id, app)
+                .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
+        }));
+    }
+
+    /// Register a drop observer (notification only, cannot consume).
+    pub fn on_observe_drop(
+        &mut self,
+        handler: impl Fn(&S, &DropEvent, &AppView<'_>) -> S + Send + Sync + 'static,
+    ) {
+        self.table.observe_drop_handler = Some(Box::new(move |state, event, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            Box::new(handler(s, event, app)) as Box<dyn PluginState>
+        }));
+    }
+
+    /// Register a drop handler (interactive element drop target).
+    pub fn on_drop(
+        &mut self,
+        handler: impl Fn(&S, &DropEvent, InteractiveId, &AppView<'_>) -> Option<(S, Vec<Command>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.handle_drop_handler = Some(Box::new(move |state, event, id, app| {
             let s = state
                 .as_any()
                 .downcast_ref::<S>()

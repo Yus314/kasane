@@ -142,6 +142,7 @@ pub fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
         })),
         InputEvent::FocusGained => Some(SurfaceEvent::FocusGained),
         InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
+        InputEvent::Drop(drop) => Some(SurfaceEvent::Drop(drop.clone())),
         InputEvent::Paste(_) => None,
     }
 }

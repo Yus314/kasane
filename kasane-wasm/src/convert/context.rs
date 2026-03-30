@@ -10,7 +10,10 @@ use kasane_core::surface::{
 };
 use kasane_core::workspace::DockPosition;
 
-use super::{input::key_event_to_wit, input::mouse_event_to_wit, rect_to_wit, wit_rect_to_rect};
+use super::{
+    input::drop_event_to_wit, input::key_event_to_wit, input::mouse_event_to_wit, rect_to_wit,
+    wit_rect_to_rect,
+};
 
 pub(crate) fn slot_id_to_wit(slot_id: &SlotId) -> wit::SlotId {
     match slot_id.well_known_index() {
@@ -149,6 +152,7 @@ pub(crate) fn surface_event_to_wit(event: &SurfaceEvent) -> wit::SurfaceEvent {
     match event {
         SurfaceEvent::Key(event) => wit::SurfaceEvent::Key(key_event_to_wit(event)),
         SurfaceEvent::Mouse(event) => wit::SurfaceEvent::Mouse(mouse_event_to_wit(event)),
+        SurfaceEvent::Drop(event) => wit::SurfaceEvent::Drop(drop_event_to_wit(event)),
         SurfaceEvent::FocusGained => wit::SurfaceEvent::FocusGained,
         SurfaceEvent::FocusLost => wit::SurfaceEvent::FocusLost,
         SurfaceEvent::Resize(rect) => wit::SurfaceEvent::Resize(rect_to_wit(rect)),

@@ -1039,6 +1039,7 @@ where
                 self.toggle_fullscreen();
                 return;
             }
+
             WindowEvent::RedrawRequested => {
                 if !self.dirty.is_empty() || self.cursor_dirty {
                     self.render_frame();

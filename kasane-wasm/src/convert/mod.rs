@@ -39,8 +39,8 @@ pub(crate) use context::*;
 pub(crate) use display::*;
 pub(crate) use element::*;
 pub(crate) use input::{
-    default_scroll_candidate_to_wit, io_event_to_wit, key_event_to_wit, mouse_event_to_wit,
-    wit_key_event_to_key_event, wit_key_group_decls_to_compiled_key_map,
+    default_scroll_candidate_to_wit, drop_event_to_wit, io_event_to_wit, key_event_to_wit,
+    mouse_event_to_wit, wit_key_event_to_key_event, wit_key_group_decls_to_compiled_key_map,
     wit_key_response_to_key_response, wit_scroll_plan_to_scroll_plan,
     wit_scroll_policy_result_to_result,
 };

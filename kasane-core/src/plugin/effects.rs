@@ -1,7 +1,7 @@
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 use crate::element::InteractiveId;
-use crate::input::{KeyEvent, MouseEvent};
+use crate::input::{DropEvent, KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 
@@ -238,6 +238,17 @@ pub trait PluginEffects {
         app: &AppView<'_>,
     ) -> MouseHandleResult;
 
+    /// Broadcast drop observation to all plugins with DROP_HANDLER capability.
+    fn observe_drop_all(&mut self, event: &DropEvent, app: &AppView<'_>);
+
+    /// Run first-wins drop handler dispatch via hit-test id.
+    fn dispatch_drop_handler(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        app: &AppView<'_>,
+    ) -> MouseHandleResult;
+
     /// Resolve default scroll policy for a scroll candidate.
     fn handle_default_scroll(
         &mut self,
@@ -276,6 +287,15 @@ impl PluginEffects for NullEffects {
     ) -> MouseHandleResult {
         MouseHandleResult::NotHandled
     }
+    fn observe_drop_all(&mut self, _: &DropEvent, _: &AppView<'_>) {}
+    fn dispatch_drop_handler(
+        &mut self,
+        _: &DropEvent,
+        _: InteractiveId,
+        _: &AppView<'_>,
+    ) -> MouseHandleResult {
+        MouseHandleResult::NotHandled
+    }
     fn handle_default_scroll(
         &mut self,
         _: DefaultScrollCandidate,
@@ -296,8 +316,10 @@ impl PluginEffects for NullEffects {
 pub struct RecordingEffects {
     pub key_observations: Vec<KeyEvent>,
     pub mouse_observations: Vec<MouseEvent>,
+    pub drop_observations: Vec<DropEvent>,
     pub key_dispatches: Vec<KeyEvent>,
     pub mouse_dispatches: Vec<(MouseEvent, InteractiveId)>,
+    pub drop_dispatches: Vec<(DropEvent, InteractiveId)>,
     pub state_notifications: Vec<DirtyFlags>,
     pub navigation_policy_queries: Vec<DisplayUnit>,
     pub navigation_action_dispatches: Vec<(DisplayUnit, NavigationAction)>,
@@ -325,6 +347,18 @@ impl PluginEffects for RecordingEffects {
         _: &AppView<'_>,
     ) -> MouseHandleResult {
         self.mouse_dispatches.push((event.clone(), id));
+        MouseHandleResult::NotHandled
+    }
+    fn observe_drop_all(&mut self, event: &DropEvent, _: &AppView<'_>) {
+        self.drop_observations.push(event.clone());
+    }
+    fn dispatch_drop_handler(
+        &mut self,
+        event: &DropEvent,
+        id: InteractiveId,
+        _: &AppView<'_>,
+    ) -> MouseHandleResult {
+        self.drop_dispatches.push((event.clone(), id));
         MouseHandleResult::NotHandled
     }
     fn handle_default_scroll(
