@@ -132,6 +132,8 @@ pub(crate) fn wit_image_fit_to_image_fit(wf: &wit::ImageFit) -> ImageFit {
 // ---------------------------------------------------------------------------
 
 use kasane_core::plugin::ElementPatch;
+use kasane_core::plugin::element_patch::PatchPredicate;
+use kasane_core::surface::SurfaceId;
 
 /// Convert a WIT `list<element-patch-op>` into a core `ElementPatch`.
 ///
@@ -149,9 +151,10 @@ pub(crate) fn wit_element_patch_ops_to_patch(
         return ElementPatch::Identity;
     }
 
-    let patches: Vec<ElementPatch> = ops
-        .iter()
-        .map(|op| match op {
+    let mut patches = Vec::new();
+    let mut i = 0;
+    while i < ops.len() {
+        let patch = match &ops[i] {
             wit::ElementPatchOp::WrapContainer(face) => ElementPatch::WrapContainer {
                 face: super::wit_face_to_face(face),
             },
@@ -167,12 +170,79 @@ pub(crate) fn wit_element_patch_ops_to_patch(
             wit::ElementPatchOp::ModifyFace(face) => ElementPatch::ModifyFace {
                 overlay: super::wit_face_to_face(face),
             },
-        })
-        .collect();
+            wit::ElementPatchOp::When(when) => {
+                let predicate = wit_predicate_ops_to_predicate(&when.predicate);
+                let then_count = when.then_count as usize;
+                let otherwise_count = when.otherwise_count as usize;
+                // Consume subsequent ops for then/otherwise branches
+                let then_start = i + 1;
+                let then_end = then_start + then_count;
+                let otherwise_end = then_end + otherwise_count;
+                let then_patch = wit_element_patch_ops_to_patch(
+                    &ops[then_start..then_end.min(ops.len())],
+                    take_element,
+                );
+                let otherwise_patch = wit_element_patch_ops_to_patch(
+                    &ops[then_end..otherwise_end.min(ops.len())],
+                    take_element,
+                );
+                i = otherwise_end;
+                patches.push(ElementPatch::When {
+                    predicate,
+                    then: Box::new(then_patch),
+                    otherwise: Box::new(otherwise_patch),
+                });
+                continue;
+            }
+        };
+        patches.push(patch);
+        i += 1;
+    }
 
     if patches.len() == 1 {
         patches.into_iter().next().unwrap()
     } else {
         ElementPatch::Compose(patches)
     }
+}
+
+// ---------------------------------------------------------------------------
+// PatchPredicate conversion (WIT RPN list<predicate-op> → core PatchPredicate)
+// ---------------------------------------------------------------------------
+
+/// Convert RPN-encoded `list<predicate-op>` to a core `PatchPredicate`.
+///
+/// The RPN stack produces a single predicate value. If the stack is empty
+/// or malformed, returns `HasFocus` as a safe fallback.
+fn wit_predicate_ops_to_predicate(ops: &[wit::PredicateOp]) -> PatchPredicate {
+    let mut stack: Vec<PatchPredicate> = Vec::new();
+    for op in ops {
+        match op {
+            wit::PredicateOp::HasFocus => stack.push(PatchPredicate::HasFocus),
+            wit::PredicateOp::SurfaceIs(id) => {
+                stack.push(PatchPredicate::SurfaceIs(SurfaceId(*id)));
+            }
+            wit::PredicateOp::LineRange(range) => {
+                stack.push(PatchPredicate::LineRange(
+                    range.start as usize..range.end as usize,
+                ));
+            }
+            wit::PredicateOp::NotOp => {
+                if let Some(p) = stack.pop() {
+                    stack.push(PatchPredicate::Not(Box::new(p)));
+                }
+            }
+            wit::PredicateOp::AndOp => {
+                if let (Some(b), Some(a)) = (stack.pop(), stack.pop()) {
+                    stack.push(PatchPredicate::And(Box::new(a), Box::new(b)));
+                }
+            }
+            wit::PredicateOp::OrOp => {
+                if let (Some(b), Some(a)) = (stack.pop(), stack.pop()) {
+                    stack.push(PatchPredicate::Or(Box::new(a), Box::new(b)));
+                }
+            }
+        }
+    }
+    stack.pop().unwrap_or(PatchPredicate::HasFocus)
 }

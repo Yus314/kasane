@@ -25,6 +25,7 @@ pub(crate) struct PluginDef {
     annotate: Option<AnnotateDef>,
     display_directives: Option<proc_macro2::TokenStream>,
     transform: Option<TransformDef>,
+    transform_patch: Option<TransformPatchDef>,
     transform_priority: Option<proc_macro2::TokenStream>,
     overlay: Option<ParamBodyDef>,
     handle_key: Option<ParamBodyDef>,
@@ -38,6 +39,12 @@ pub(crate) struct PluginDef {
     key_map: Option<KeyMapDef>,
     actions: Option<Vec<ActionDef>>,
     impl_block: Option<Vec<ImplItemFn>>,
+}
+
+struct TransformPatchDef {
+    target_param: syn::Ident,
+    ctx_param: syn::Ident,
+    body: proc_macro2::TokenStream,
 }
 
 struct StateDef {
@@ -451,6 +458,23 @@ pub(crate) fn define_plugin_impl(
         quote! {}
     };
 
+    let transform_patch_method = if let Some(ref tp) = def.transform_patch {
+        let target_param = &tp.target_param;
+        let ctx_param = &tp.ctx_param;
+        let body = &tp.body;
+        let wrapped = wrap_state_shared(body);
+        quote! {
+            fn transform_patch(
+                #target_param: TransformTarget,
+                #ctx_param: TransformContext,
+            ) -> Vec<ElementPatchOp> {
+                #wrapped
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let transform_priority_method = if let Some(ref tp) = def.transform_priority {
         quote! { fn transform_priority() -> i16 { #tp } }
     } else {
@@ -673,6 +697,7 @@ pub(crate) fn define_plugin_impl(
             #annotate_method
             #display_directives_method
             #transform_method
+            #transform_patch_method
             #transform_priority_method
             #overlay_method
             #handle_key_method
@@ -844,6 +869,7 @@ impl syn::parse::Parse for PluginDef {
             annotate: None,
             display_directives: None,
             transform: None,
+            transform_patch: None,
             transform_priority: None,
             overlay: None,
             handle_key: None,
@@ -1045,6 +1071,20 @@ impl syn::parse::Parse for PluginDef {
                     def.transform = Some(TransformDef {
                         target_param,
                         element_param,
+                        ctx_param,
+                        body: body.parse()?,
+                    });
+                }
+                "transform_patch" => {
+                    let params;
+                    syn::parenthesized!(params in input);
+                    let target_param: syn::Ident = params.parse()?;
+                    params.parse::<syn::Token![,]>()?;
+                    let ctx_param: syn::Ident = params.parse()?;
+                    let body;
+                    syn::braced!(body in input);
+                    def.transform_patch = Some(TransformPatchDef {
+                        target_param,
                         ctx_param,
                         body: body.parse()?,
                     });

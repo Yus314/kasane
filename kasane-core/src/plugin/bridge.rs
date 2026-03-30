@@ -241,7 +241,16 @@ impl PluginBackend for PluginBridge {
     }
 
     fn transform_descriptor(&self) -> Option<TransformDescriptor> {
-        None // Phase 4: derive from ElementPatch::scope()
+        self.table.transform_handler.as_ref().and_then(|entry| {
+            if entry.targets.is_empty() {
+                None
+            } else {
+                Some(TransformDescriptor {
+                    targets: entry.targets.clone(),
+                    scope: super::TransformScope::Structural,
+                })
+            }
+        })
     }
 
     fn display_directive_priority(&self) -> i16 {
@@ -700,7 +709,7 @@ impl PluginBackend for PluginBridge {
         for entry in &self.table.subscribers {
             if let Some(publications) = bus.get_publications(&entry.topic) {
                 for pub_value in publications {
-                    self.state = (entry.handler)(&*self.state, &*pub_value.value);
+                    self.state = (entry.handler)(&*self.state, &pub_value.value);
                     changed = true;
                 }
             }
@@ -711,6 +720,10 @@ impl PluginBackend for PluginBridge {
         changed
     }
 
+    fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
+        Some(self.table.capability_descriptor())
+    }
+
     fn extension_definitions(&self) -> &[ExtensionDefinition] {
         &self.table.extension_definitions
     }
@@ -718,7 +731,7 @@ impl PluginBackend for PluginBridge {
     fn evaluate_extension(
         &self,
         id: &ExtensionPointId,
-        input: &dyn std::any::Any,
+        input: &super::channel::ChannelValue,
         state: &AppView<'_>,
     ) -> Vec<ExtensionOutput> {
         let mut outputs = Vec::new();
@@ -1144,9 +1157,10 @@ mod tests {
             chain_position: 0,
             pane_surface_id: None,
             pane_focused: true,
+            target_line: None,
         };
 
-        let patch = bridge.transform_patch(&TransformTarget::Buffer, &AppView::new(&app), &ctx);
+        let patch = bridge.transform_patch(&TransformTarget::BUFFER, &AppView::new(&app), &ctx);
         assert!(patch.is_some());
         assert!(matches!(patch.unwrap(), ElementPatch::Append { .. }));
     }
@@ -1162,11 +1176,12 @@ mod tests {
             chain_position: 0,
             pane_surface_id: None,
             pane_focused: true,
+            target_line: None,
         };
 
         assert!(
             bridge
-                .transform_patch(&TransformTarget::Buffer, &AppView::new(&app), &ctx)
+                .transform_patch(&TransformTarget::BUFFER, &AppView::new(&app), &ctx)
                 .is_none()
         );
     }
@@ -1210,7 +1225,7 @@ mod tests {
         let app = AppState::default();
         let subject = TransformSubject::Element(Element::text("base", Face::default()));
         let result = runtime.view().apply_transform_chain(
-            TransformTarget::Buffer,
+            TransformTarget::BUFFER,
             subject,
             &AppView::new(&app),
         );
@@ -1268,7 +1283,7 @@ mod tests {
         let app = AppState::default();
         let subject = TransformSubject::Element(Element::text("original", Face::default()));
         let result = runtime.view().apply_transform_chain(
-            TransformTarget::Buffer,
+            TransformTarget::BUFFER,
             subject,
             &AppView::new(&app),
         );
@@ -1544,6 +1559,7 @@ mod tests {
             chain_position: 0,
             pane_surface_id: None,
             pane_focused: true,
+            target_line: None,
         };
         let overlay_ctx = OverlayContext {
             screen_cols: 80,
@@ -1594,7 +1610,7 @@ mod tests {
 
         // View
         bridge.contribute_to(&SlotId::STATUS_LEFT, &app, &contribute_ctx);
-        bridge.transform_patch(&TransformTarget::Buffer, &app, &transform_ctx);
+        bridge.transform_patch(&TransformTarget::BUFFER, &app, &transform_ctx);
         bridge.annotate_gutter(GutterSide::Left, 0, &app, &annotate_ctx);
         bridge.annotate_background(0, &app, &annotate_ctx);
         bridge.annotate_inline(0, &app, &annotate_ctx);
@@ -1620,7 +1636,7 @@ mod tests {
         bus.publish(
             TopicId::new("test.topic"),
             PluginId("external".into()),
-            Box::new(99u32),
+            super::super::channel::ChannelValue::new(&99u32).unwrap(),
         );
         bridge.deliver_subscriptions(&bus);
 

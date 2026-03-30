@@ -54,6 +54,11 @@ struct WasmPluginShared {
     process_allowed: bool,
     authorities: PluginAuthorities,
     pending_diagnostics: Mutex<Vec<PluginDiagnostic>>,
+    manifest_descriptor: Option<kasane_core::plugin::CapabilityDescriptor>,
+    publish_topics: Vec<String>,
+    subscribe_topics: Vec<String>,
+    extensions_consumed: Vec<String>,
+    extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
 }
 
 impl WasmPluginShared {
@@ -340,6 +345,7 @@ impl WasmPlugin {
     /// Unlike [`new()`], this accepts capabilities and view_deps as params
     /// instead of querying WASM. Still queries `declare_key_map()` since
     /// that is behavioral, not static metadata.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_from_manifest(
         mut store: wasmtime::Store<HostState>,
         instance: bindings::KasanePlugin,
@@ -348,6 +354,11 @@ impl WasmPlugin {
         authorities: PluginAuthorities,
         cached_capabilities: PluginCapabilities,
         cached_view_deps: DirtyFlags,
+        manifest_descriptor: Option<kasane_core::plugin::CapabilityDescriptor>,
+        publish_topics: Vec<String>,
+        subscribe_topics: Vec<String>,
+        extensions_consumed: Vec<String>,
+        extension_defs: Vec<kasane_core::plugin::extension_point::ExtensionDefinition>,
     ) -> Self {
         store.data_mut().plugin_id = id.clone();
 
@@ -378,6 +389,11 @@ impl WasmPlugin {
                 process_allowed,
                 authorities,
                 pending_diagnostics: Mutex::new(Vec::new()),
+                manifest_descriptor,
+                publish_topics,
+                subscribe_topics,
+                extensions_consumed,
+                extension_defs,
             }),
             key_map,
         }
@@ -434,6 +450,11 @@ impl WasmPlugin {
                 process_allowed,
                 authorities,
                 pending_diagnostics: Mutex::new(Vec::new()),
+                manifest_descriptor: None,
+                publish_topics: Vec::new(),
+                subscribe_topics: Vec::new(),
+                extensions_consumed: Vec::new(),
+                extension_defs: Vec::new(),
             }),
             key_map,
         }
@@ -870,7 +891,8 @@ impl PluginBackend for WasmPlugin {
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_target = convert::transform_target_to_wit(target);
             let wit_ctx = convert::transform_context_to_wit(ctx);
-            match plugin_api.call_transform(&mut runtime.store, wit_target, &wit_subject, wit_ctx) {
+            match plugin_api.call_transform(&mut runtime.store, &wit_target, &wit_subject, wit_ctx)
+            {
                 Ok(result) => match result {
                     wit::TransformSubject::ElementS(handle) => TransformSubject::Element(
                         runtime.store.data_mut().take_root_element(handle),
@@ -910,7 +932,7 @@ impl PluginBackend for WasmPlugin {
             let plugin_api = runtime.instance.kasane_plugin_plugin_api();
             let wit_target = convert::transform_target_to_wit(target);
             let wit_ctx = convert::transform_context_to_wit(ctx);
-            match plugin_api.call_transform_patch(&mut runtime.store, wit_target, wit_ctx) {
+            match plugin_api.call_transform_patch(&mut runtime.store, &wit_target, wit_ctx) {
                 Ok(ops) if ops.is_empty() => None,
                 Ok(ops) => {
                     let patch = convert::wit_element_patch_ops_to_patch(&ops, &mut |handle| {
@@ -1103,6 +1125,111 @@ impl PluginBackend for WasmPlugin {
 
     fn allows_process_spawn(&self) -> bool {
         self.shared.process_allowed
+    }
+
+    fn capability_descriptor(&self) -> Option<kasane_core::plugin::CapabilityDescriptor> {
+        self.shared.manifest_descriptor.clone()
+    }
+
+    fn extension_definitions(
+        &self,
+    ) -> &[kasane_core::plugin::extension_point::ExtensionDefinition] {
+        &self.shared.extension_defs
+    }
+
+    fn collect_publications(&self, bus: &mut kasane_core::plugin::TopicBus, state: &AppView<'_>) {
+        if self.shared.publish_topics.is_empty() {
+            return;
+        }
+        let plugin_id = self.shared.plugin_id.clone();
+        for topic_str in &self.shared.publish_topics {
+            let topic_id = kasane_core::plugin::TopicId::new(topic_str.clone());
+            let wit_topic = topic_str.clone();
+            let value: Option<kasane_core::plugin::channel::ChannelValue> =
+                self.shared.call_synced(state, "publish_value", |rt| {
+                    let api = rt.instance.kasane_plugin_plugin_api();
+                    Ok(api
+                        .call_publish_value(&mut rt.store, &wit_topic)?
+                        .map(|wv| convert::wit_channel_value_to_core(&wv)))
+                });
+            if let Some(cv) = value {
+                bus.publish(topic_id, plugin_id.clone(), cv);
+            }
+        }
+    }
+
+    fn deliver_subscriptions(&mut self, bus: &kasane_core::plugin::TopicBus) -> bool {
+        if self.shared.subscribe_topics.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for topic_str in &self.shared.subscribe_topics {
+            let topic_id = kasane_core::plugin::TopicId::new(topic_str.clone());
+            if let Some(publications) = bus.get_publications(&topic_id) {
+                let wit_values: Vec<_> = publications
+                    .iter()
+                    .map(|pv| convert::channel_value_to_wit(&pv.value))
+                    .collect();
+                if wit_values.is_empty() {
+                    continue;
+                }
+                let wit_topic = topic_str.clone();
+                let shared = Arc::clone(&self.shared);
+                self.shared.with_runtime(|runtime| {
+                    let api = runtime.instance.kasane_plugin_plugin_api();
+                    match api.call_on_subscription(&mut runtime.store, &wit_topic, &wit_values) {
+                        Ok(effects) => {
+                            // Process runtime effects (redraw flags bump state_hash)
+                            let _effects = shared.convert_runtime_effects(&effects);
+                            if let Ok(h) = api.call_state_hash(&mut runtime.store) {
+                                shared.set_state_hash(h);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "WASM plugin {}.on_subscription failed: {e}",
+                                shared.plugin_id.0
+                            );
+                        }
+                    }
+                });
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn evaluate_extension(
+        &self,
+        id: &kasane_core::plugin::extension_point::ExtensionPointId,
+        input: &kasane_core::plugin::channel::ChannelValue,
+        state: &AppView<'_>,
+    ) -> Vec<kasane_core::plugin::extension_point::ExtensionOutput> {
+        let consumes = self
+            .shared
+            .extensions_consumed
+            .iter()
+            .any(|s| s == id.as_str());
+        if !consumes {
+            return vec![];
+        }
+        let plugin_id = self.shared.plugin_id.clone();
+        let wit_input = convert::channel_value_to_wit(input);
+        let id_str = id.as_str().to_string();
+        let result: Option<kasane_core::plugin::channel::ChannelValue> =
+            self.shared.call_synced(state, "evaluate_extension", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(api
+                    .call_evaluate_extension(&mut rt.store, &id_str, &wit_input)?
+                    .map(|wv| convert::wit_channel_value_to_core(&wv)))
+            });
+        match result {
+            Some(cv) => vec![kasane_core::plugin::extension_point::ExtensionOutput {
+                plugin_id,
+                value: cv,
+            }],
+            None => vec![],
+        }
     }
 
     fn update_effects(&mut self, msg: &mut dyn Any, state: &AppView<'_>) -> Effects {

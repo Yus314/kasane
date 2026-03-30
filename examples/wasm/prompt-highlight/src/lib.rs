@@ -16,7 +16,7 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     transform(target, subject, _ctx) {
-        if !matches!(target, TransformTarget::StatusBarT) {
+        if target != "kasane.status-bar" {
             return subject;
         }
 

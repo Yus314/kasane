@@ -2,6 +2,7 @@
 
 pub mod app_view;
 pub mod bridge;
+pub mod channel;
 mod command;
 pub mod compose;
 mod context;
@@ -89,12 +90,13 @@ pub use compose::{
 // Re-export app_view, state, and bridge modules
 pub use app_view::AppView;
 pub use bridge::{IsBridgedPlugin, PluginBridge};
+pub use channel::ChannelValue;
 pub use element_patch::ElementPatch;
 pub use extension_point::{CompositionRule, ExtensionPointId, ExtensionResults};
 pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
-pub use pubsub::{Topic, TopicBus, TopicId};
+pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
 pub use state::{Plugin, PluginState};
 
 bitflags! {
@@ -186,5 +188,74 @@ impl SlotId {
     /// Return the well-known slot index (0..8), or None for custom slots.
     pub fn well_known_index(&self) -> Option<usize> {
         Self::WELL_KNOWN.iter().position(|wk| wk == self)
+    }
+}
+
+/// Scope of an annotation handler.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnnotationScope {
+    LeftGutter,
+    RightGutter,
+    Background,
+    Inline,
+    VirtualText,
+}
+
+/// Structural metadata describing a plugin's capabilities.
+///
+/// Complements [`PluginCapabilities`] bitflags with structured information
+/// about which targets, slots, topics, and extension points a plugin interacts
+/// with. Used for interference detection and dispatch optimization.
+#[derive(Debug, Clone, Default)]
+pub struct CapabilityDescriptor {
+    pub transform_targets: Vec<TransformTarget>,
+    pub contribution_slots: Vec<SlotId>,
+    pub annotation_scopes: Vec<AnnotationScope>,
+    pub publish_topics: Vec<TopicId>,
+    pub subscribe_topics: Vec<TopicId>,
+    pub extensions_defined: Vec<extension_point::ExtensionPointId>,
+    pub extensions_consumed: Vec<extension_point::ExtensionPointId>,
+}
+
+impl CapabilityDescriptor {
+    /// Check if this plugin may interfere with another.
+    ///
+    /// Interference is detected when:
+    /// - Both plugins transform the same target
+    /// - Both plugins contribute to the same slot
+    /// - One publishes a topic the other subscribes to (coupling)
+    pub fn may_interfere(&self, other: &Self) -> bool {
+        // Transform target overlap
+        if self
+            .transform_targets
+            .iter()
+            .any(|t| other.transform_targets.contains(t))
+        {
+            return true;
+        }
+        // Contribution slot overlap
+        if self
+            .contribution_slots
+            .iter()
+            .any(|s| other.contribution_slots.contains(s))
+        {
+            return true;
+        }
+        // Pub/sub coupling: one publishes what the other subscribes
+        if self
+            .publish_topics
+            .iter()
+            .any(|t| other.subscribe_topics.contains(t))
+        {
+            return true;
+        }
+        if other
+            .publish_topics
+            .iter()
+            .any(|t| self.subscribe_topics.contains(t))
+        {
+            return true;
+        }
+        false
     }
 }

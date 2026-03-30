@@ -359,7 +359,7 @@ impl PluginBackend for BufferTransformPlugin {
         _state: &kasane_core::plugin::AppView<'_>,
         _ctx: &TransformContext,
     ) -> kasane_core::plugin::TransformSubject {
-        if *target == TransformTarget::Buffer {
+        if *target == TransformTarget::BUFFER {
             subject.map_element(|element| {
                 Element::column(vec![
                     kasane_core::element::FlexChild::fixed(Element::text(

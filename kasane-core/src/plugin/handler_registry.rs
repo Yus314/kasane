@@ -24,6 +24,8 @@
 use std::any::Any;
 use std::marker::PhantomData;
 
+use serde::{Serialize, de::DeserializeOwned};
+
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 use crate::element::{Element, InteractiveId};
@@ -37,6 +39,7 @@ use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
 
+use super::channel::ChannelValue;
 use super::element_patch::ElementPatch;
 use super::extension_point::{
     CompositionRule, ExtensionContribution, ExtensionDefinition, ExtensionPointId,
@@ -492,6 +495,41 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         );
         self.table.transform_handler = Some(TransformEntry {
             priority,
+            targets: Vec::new(),
+            handler: erased,
+        });
+    }
+
+    /// Register a transform handler for specific targets.
+    ///
+    /// Unlike [`on_transform()`], this specifies which targets the transform applies to.
+    /// The `targets` list is exposed via [`CapabilityDescriptor::transform_targets`],
+    /// enabling `may_interfere()` to detect transform target overlap.
+    pub fn on_transform_for(
+        &mut self,
+        priority: i16,
+        targets: &[TransformTarget],
+        handler: impl Fn(&S, &TransformTarget, &AppView<'_>, &TransformContext) -> ElementPatch
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        let erased = Box::new(
+            move |state: &dyn PluginState,
+                  target: &TransformTarget,
+                  app: &AppView<'_>,
+                  ctx: &TransformContext|
+                  -> ElementPatch {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                handler(s, target, app, ctx)
+            },
+        );
+        self.table.transform_handler = Some(TransformEntry {
+            priority,
+            targets: targets.to_vec(),
             handler: erased,
         });
     }
@@ -659,7 +697,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// ```ignore
     /// r.publish::<u32>(TopicId::new("cursor.line"), |state, _app| state.cursor_line);
     /// ```
-    pub fn publish<T: Send + 'static>(
+    pub fn publish<T: Serialize + Send + 'static>(
         &mut self,
         topic: TopicId,
         handler: impl Fn(&S, &AppView<'_>) -> T + Send + Sync + 'static,
@@ -671,7 +709,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     .as_any()
                     .downcast_ref::<S>()
                     .expect("state type mismatch");
-                Box::new(handler(s, app)) as Box<dyn std::any::Any + Send>
+                let value = handler(s, app);
+                ChannelValue::new(&value).expect("publish serialization failed")
             }),
         });
     }
@@ -686,7 +725,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///     MyState { tracked_line: *value, ..state.clone() }
     /// });
     /// ```
-    pub fn subscribe<T: 'static>(
+    pub fn subscribe<T: DeserializeOwned + 'static>(
         &mut self,
         topic: TopicId,
         handler: impl Fn(&S, &T) -> S + Send + Sync + 'static,
@@ -694,13 +733,15 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.subscribers.push(SubscribeEntry {
             topic,
             handler: Box::new(
-                move |state: &dyn PluginState, value: &dyn std::any::Any| -> Box<dyn PluginState> {
+                move |state: &dyn PluginState, value: &ChannelValue| -> Box<dyn PluginState> {
                     let s = state
                         .as_any()
                         .downcast_ref::<S>()
                         .expect("state type mismatch");
-                    let v = value.downcast_ref::<T>().expect("topic type mismatch");
-                    Box::new(handler(s, v))
+                    let v: T = value
+                        .deserialize()
+                        .expect("subscribe deserialization failed");
+                    Box::new(handler(s, &v))
                 },
             ),
         });
@@ -717,7 +758,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// let topic: Topic<u32> = r.publish_typed("cursor.line", |s, _| s.line);
     /// r.subscribe_typed(&topic, |state, value: &u32| { ... });
     /// ```
-    pub fn publish_typed<T: Send + 'static>(
+    pub fn publish_typed<T: Serialize + Send + 'static>(
         &mut self,
         name: impl Into<compact_str::CompactString>,
         handler: impl Fn(&S, &AppView<'_>) -> T + Send + Sync + 'static,
@@ -730,7 +771,8 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                     .as_any()
                     .downcast_ref::<S>()
                     .expect("state type mismatch");
-                Box::new(handler(s, app)) as Box<dyn std::any::Any + Send>
+                let value = handler(s, app);
+                ChannelValue::new(&value).expect("publish serialization failed")
             }),
         });
         topic
@@ -740,7 +782,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///
     /// The `T` parameter is enforced by the `Topic<T>` handle, so no
     /// turbofish is needed and type mismatches are caught at compile time.
-    pub fn subscribe_typed<T: 'static>(
+    pub fn subscribe_typed<T: DeserializeOwned + 'static>(
         &mut self,
         topic: &Topic<T>,
         handler: impl Fn(&S, &T) -> S + Send + Sync + 'static,
@@ -775,7 +817,10 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Define a custom extension point and also contribute a handler for it.
-    pub fn define_extension_with_handler<I: Send + 'static, O: Send + 'static>(
+    pub fn define_extension_with_handler<
+        I: DeserializeOwned + Send + 'static,
+        O: Serialize + Send + 'static,
+    >(
         &mut self,
         id: ExtensionPointId,
         rule: CompositionRule,
@@ -786,17 +831,18 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
             rule,
             handler: Some(Box::new(
                 move |state: &dyn PluginState,
-                      input: &dyn std::any::Any,
+                      input: &ChannelValue,
                       app: &AppView<'_>|
-                      -> Box<dyn std::any::Any + Send> {
+                      -> ChannelValue {
                     let s = state
                         .as_any()
                         .downcast_ref::<S>()
                         .expect("state type mismatch");
-                    let i = input
-                        .downcast_ref::<I>()
-                        .expect("extension input type mismatch");
-                    Box::new(handler(s, i, app))
+                    let i: I = input
+                        .deserialize()
+                        .expect("extension input deserialization failed");
+                    let output = handler(s, &i, app);
+                    ChannelValue::new(&output).expect("extension output serialization failed")
                 },
             )),
         });
@@ -810,7 +856,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     ///     |_state, _input, _app| vec![StatusItem { text: "hello" }],
     /// );
     /// ```
-    pub fn on_extension<I: Send + 'static, O: Send + 'static>(
+    pub fn on_extension<I: DeserializeOwned + Send + 'static, O: Serialize + Send + 'static>(
         &mut self,
         id: ExtensionPointId,
         handler: impl Fn(&S, &I, &AppView<'_>) -> O + Send + Sync + 'static,
@@ -821,17 +867,18 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 id,
                 handler: Box::new(
                     move |state: &dyn PluginState,
-                          input: &dyn std::any::Any,
+                          input: &ChannelValue,
                           app: &AppView<'_>|
-                          -> Box<dyn std::any::Any + Send> {
+                          -> ChannelValue {
                         let s = state
                             .as_any()
                             .downcast_ref::<S>()
                             .expect("state type mismatch");
-                        let i = input
-                            .downcast_ref::<I>()
-                            .expect("extension input type mismatch");
-                        Box::new(handler(s, i, app))
+                        let i: I = input
+                            .deserialize()
+                            .expect("extension input deserialization failed");
+                        let output = handler(s, &i, app);
+                        ChannelValue::new(&output).expect("extension output serialization failed")
                     },
                 ),
             });
@@ -1068,6 +1115,91 @@ mod tests {
         );
         assert!(table.transform_handler.is_some());
         assert_eq!(table.transform_handler.as_ref().unwrap().priority, 10);
+    }
+
+    #[test]
+    fn on_transform_has_empty_targets() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_transform(10, |_state, _target, _app, _ctx| ElementPatch::Identity);
+        let table = registry.into_table();
+        let desc = table.capability_descriptor();
+        assert!(desc.transform_targets.is_empty());
+    }
+
+    #[test]
+    fn on_transform_for_populates_targets() {
+        use crate::plugin::context::TransformTarget;
+        let mut registry = HandlerRegistry::<TestState>::new();
+        let targets = [TransformTarget::BUFFER, TransformTarget::STATUS_BAR];
+        registry.on_transform_for(5, &targets, |_state, _target, _app, _ctx| {
+            ElementPatch::Identity
+        });
+        let table = registry.into_table();
+        let desc = table.capability_descriptor();
+        assert_eq!(desc.transform_targets.len(), 2);
+        assert!(desc.transform_targets.contains(&TransformTarget::BUFFER));
+        assert!(
+            desc.transform_targets
+                .contains(&TransformTarget::STATUS_BAR)
+        );
+    }
+
+    #[test]
+    fn on_transform_for_sets_priority() {
+        use crate::plugin::context::TransformTarget;
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_transform_for(
+            42,
+            &[TransformTarget::MENU],
+            |_state, _target, _app, _ctx| ElementPatch::Identity,
+        );
+        let table = registry.into_table();
+        assert_eq!(table.transform_handler.as_ref().unwrap().priority, 42);
+    }
+
+    #[test]
+    fn may_interfere_detects_transform_target_overlap() {
+        use crate::plugin::CapabilityDescriptor;
+        use crate::plugin::context::TransformTarget;
+
+        let mut r1 = HandlerRegistry::<TestState>::new();
+        r1.on_transform_for(
+            0,
+            &[TransformTarget::BUFFER, TransformTarget::MENU],
+            |_s, _t, _a, _c| ElementPatch::Identity,
+        );
+        let desc1 = r1.into_table().capability_descriptor();
+
+        let mut r2 = HandlerRegistry::<TestState>::new();
+        r2.on_transform_for(
+            0,
+            &[TransformTarget::MENU, TransformTarget::STATUS_BAR],
+            |_s, _t, _a, _c| ElementPatch::Identity,
+        );
+        let desc2 = r2.into_table().capability_descriptor();
+
+        // MENU overlaps
+        assert!(desc1.may_interfere(&desc2));
+    }
+
+    #[test]
+    fn may_interfere_no_overlap() {
+        use crate::plugin::CapabilityDescriptor;
+        use crate::plugin::context::TransformTarget;
+
+        let mut r1 = HandlerRegistry::<TestState>::new();
+        r1.on_transform_for(0, &[TransformTarget::BUFFER], |_s, _t, _a, _c| {
+            ElementPatch::Identity
+        });
+        let desc1 = r1.into_table().capability_descriptor();
+
+        let mut r2 = HandlerRegistry::<TestState>::new();
+        r2.on_transform_for(0, &[TransformTarget::MENU], |_s, _t, _a, _c| {
+            ElementPatch::Identity
+        });
+        let desc2 = r2.into_table().capability_descriptor();
+
+        assert!(!desc1.may_interfere(&desc2));
     }
 
     #[test]

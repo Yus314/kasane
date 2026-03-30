@@ -43,6 +43,8 @@ pub(crate) struct PluginSlot {
     pub(crate) chord_state: ChordState,
     /// State hash at last `refresh_key_groups` call for caching.
     pub(crate) last_group_refresh_hash: u64,
+    /// Structured capability descriptor for interference detection.
+    pub(crate) descriptor: Option<super::CapabilityDescriptor>,
 }
 
 pub struct PluginRuntime {
@@ -108,16 +110,33 @@ impl PluginRuntime {
             // Replace existing plugin with same ID (e.g. FS plugin overrides bundled)
             let tag = self.slots[pos].plugin_tag;
             plugin.set_plugin_tag(tag);
+            let descriptor = plugin.capability_descriptor();
             let slot = &mut self.slots[pos];
             slot.backend = plugin;
             slot.capabilities = caps;
             slot.authorities = authorities;
             slot.last_state_hash = HASH_SENTINEL;
             slot.needs_recollect = true;
+            slot.descriptor = descriptor;
         } else {
             let tag = PluginTag(self.next_tag);
             self.next_tag = self.next_tag.checked_add(1).expect("plugin tag overflow");
             plugin.set_plugin_tag(tag);
+            let descriptor = plugin.capability_descriptor();
+            // Check for potential interference with existing plugins
+            if let Some(ref new_desc) = descriptor {
+                for existing in &self.slots {
+                    if let Some(ref existing_desc) = existing.descriptor
+                        && new_desc.may_interfere(existing_desc)
+                    {
+                        tracing::warn!(
+                            new_plugin = %id.0,
+                            existing_plugin = %existing.backend.id().0,
+                            "potential plugin interference detected"
+                        );
+                    }
+                }
+            }
             self.slots.push(PluginSlot {
                 backend: plugin,
                 plugin_tag: tag,
@@ -127,6 +146,7 @@ impl PluginRuntime {
                 needs_recollect: true,
                 chord_state: ChordState::default(),
                 last_group_refresh_hash: HASH_SENTINEL,
+                descriptor,
             });
         }
     }
@@ -274,6 +294,17 @@ impl PluginRuntime {
             slot.backend.deliver_subscriptions(bus);
         }
         bus.end_delivery();
+
+        // Phase 3: Record frame hashes and detect oscillation.
+        bus.record_frame_hashes();
+        let oscillations = bus.detect_oscillation();
+        for (topic, kind) in &oscillations {
+            tracing::warn!(
+                topic = topic.as_str(),
+                kind = ?kind,
+                "pub/sub oscillation detected — topic values are cycling between frames"
+            );
+        }
     }
 
     /// Evaluate all plugin-defined extension points.
@@ -282,7 +313,7 @@ impl PluginRuntime {
     /// contributions from all plugins, and returns the collected results.
     pub fn evaluate_extensions(
         &self,
-        input: &dyn std::any::Any,
+        input: &super::channel::ChannelValue,
         app: &AppView<'_>,
     ) -> super::extension_point::ExtensionResults {
         let mut results = super::extension_point::ExtensionResults::new();
@@ -995,6 +1026,7 @@ impl<'a> PluginView<'a> {
                 chain_position: pos,
                 pane_surface_id: pane_context.surface_id,
                 pane_focused: pane_context.focused,
+                target_line: target.as_buffer_line(),
             };
             match self.slots[*i].backend.transform_patch(&target, state, &ctx) {
                 Some(p) if p.is_pure() => patches.push(p),
@@ -1052,6 +1084,7 @@ impl<'a> PluginView<'a> {
                     chain_position: pos,
                     pane_surface_id: pane_context.surface_id,
                     pane_focused: pane_context.focused,
+                    target_line: target.as_buffer_line(),
                 };
                 let patch = self.slots[*i].backend.transform_patch(&target, state, &ctx);
                 (*i, self.slots[*i].backend.id(), patch)
@@ -1073,13 +1106,21 @@ impl<'a> PluginView<'a> {
                     if !pending.is_empty() {
                         let composed =
                             ElementPatch::Compose(std::mem::take(&mut pending)).normalize();
-                        result = composed.apply(result);
+                        let ctx = TransformContext {
+                            is_default: true,
+                            chain_position: pos,
+                            pane_surface_id: pane_context.surface_id,
+                            pane_focused: pane_context.focused,
+                            target_line: target.as_buffer_line(),
+                        };
+                        result = composed.apply_with_context(result, &ctx);
                     }
                     let ctx = TransformContext {
                         is_default: true,
                         chain_position: pos,
                         pane_surface_id: pane_context.surface_id,
                         pane_focused: pane_context.focused,
+                        target_line: target.as_buffer_line(),
                     };
                     result = self.slots[slot_idx]
                         .backend
@@ -1090,8 +1131,15 @@ impl<'a> PluginView<'a> {
 
         // Final flush of remaining patches
         if !pending.is_empty() {
+            let ctx = TransformContext {
+                is_default: true,
+                chain_position: 0,
+                pane_surface_id: pane_context.surface_id,
+                pane_focused: pane_context.focused,
+                target_line: target.as_buffer_line(),
+            };
             let composed = ElementPatch::Compose(pending).normalize();
-            result = composed.apply(result);
+            result = composed.apply_with_context(result, &ctx);
         }
 
         result

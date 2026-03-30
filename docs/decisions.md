@@ -807,8 +807,8 @@ Proof artifacts for extension points reachable from WASM:
 | `contribute_to(SlotId::OVERLAY)` | Internal use (info/menu) | Implemented (external plugin proof pending) |
 | `contribute_to(SlotId::BUFFER_RIGHT)` | — | Unproven (full version deferred due to upstream blocker) |
 | `contribute_to(SlotId::ABOVE_BUFFER / BELOW_BUFFER)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
-| `transform(TransformTarget::Buffer)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
-| `transform(TransformTarget::StatusBar)` | prompt-highlight (status bar wrap in prompt mode) | Proven |
+| `transform(TransformTarget::BUFFER)` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
+| `transform(TransformTarget::STATUS_BAR)` | prompt-highlight (status bar wrap in prompt mode) | Proven |
 | `cursor_style_override()` | test plugin in `kasane-core/tests/plugin_integration.rs` | Proven |
 | `contribute_to(SlotId::Named(...))` | `surface_probe` hosted surface E2E in `kasane-wasm/src/tests.rs` | Proven |
 | `OverlayAnchor::Absolute` | `fuzzy_finder` overlay test in `kasane-wasm/src/tests.rs` | Proven |

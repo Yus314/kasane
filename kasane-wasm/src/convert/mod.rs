@@ -244,5 +244,22 @@ fn wit_face_merge_to_merge(code: u8) -> FaceMerge {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ChannelValue conversions (WIT ↔ native)
+// ---------------------------------------------------------------------------
+
+use kasane_core::plugin::channel::ChannelValue;
+
+pub(crate) fn channel_value_to_wit(cv: &ChannelValue) -> wit::ChannelValue {
+    wit::ChannelValue {
+        data: cv.data().to_vec(),
+        type_hint: cv.type_hint().to_string(),
+    }
+}
+
+pub(crate) fn wit_channel_value_to_core(wv: &wit::ChannelValue) -> ChannelValue {
+    ChannelValue::from_raw(wv.data.clone(), wv.type_hint.clone())
+}
+
 #[cfg(test)]
 mod tests;

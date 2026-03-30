@@ -212,6 +212,17 @@ impl Command {
         Command::SendToKakoune(KasaneRequest::Keys(keys))
     }
 
+    /// Returns true if this command commutes with other commands of the same kind.
+    ///
+    /// Commutative commands can be deduplicated or reordered without affecting
+    /// the final result.
+    pub fn is_commutative(&self) -> bool {
+        matches!(
+            self,
+            Command::RequestRedraw(_) | Command::RegisterThemeTokens(_) | Command::SetConfig { .. }
+        )
+    }
+
     /// Returns true if this command requires event-loop-level handling
     /// (timers, inter-plugin messages, config, workspace, processes, sessions).
     pub fn is_deferred(&self) -> bool {

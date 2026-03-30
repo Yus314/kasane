@@ -159,9 +159,9 @@ fn legacy_surface_compose_result(
 fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Overlay> {
     let menu_state = state.menu.as_ref()?;
     let transform_target = match menu_state.style {
-        MenuStyle::Prompt => TransformTarget::MenuPrompt,
-        MenuStyle::Inline => TransformTarget::MenuInline,
-        MenuStyle::Search => TransformTarget::MenuSearch,
+        MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
+        MenuStyle::Inline => TransformTarget::MENU_INLINE,
+        MenuStyle::Search => TransformTarget::MENU_SEARCH,
     };
 
     // Build the default menu overlay; apply_transform_chain handles
@@ -207,9 +207,9 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
             // Apply hierarchical transform chain (Info generic → style-specific)
             let app_view = AppView::new(state);
             let info_target = match info_state.style {
-                InfoStyle::Prompt => TransformTarget::InfoPrompt,
-                InfoStyle::Modal => TransformTarget::InfoModal,
-                _ => TransformTarget::Info,
+                InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
+                InfoStyle::Modal => TransformTarget::INFO_MODAL,
+                _ => TransformTarget::INFO,
             };
             let result = registry.apply_transform_chain_hierarchical(
                 info_target,
@@ -257,7 +257,7 @@ pub(crate) fn build_status_surface_abstract(
 ) -> Element {
     let transformed_core = registry
         .apply_transform_chain(
-            TransformTarget::StatusBar,
+            TransformTarget::STATUS_BAR,
             TransformSubject::Element(build_status_core(state)),
             &AppView::new(state),
         )
@@ -355,7 +355,7 @@ pub(crate) fn build_buffer_core_parts(
     };
     let transformed_buffer = registry
         .apply_transform_chain(
-            TransformTarget::Buffer,
+            TransformTarget::BUFFER,
             TransformSubject::Element(buffer_element),
             &app_view,
         )

@@ -85,9 +85,9 @@ impl Surface for InfoSurface {
                     use crate::plugin::TransformTarget;
                     let app_view = AppView::new(ctx.state);
                     let info_target = match info_state.style {
-                        InfoStyle::Prompt => TransformTarget::InfoPrompt,
-                        InfoStyle::Modal => TransformTarget::InfoModal,
-                        _ => TransformTarget::Info,
+                        InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
+                        InfoStyle::Modal => TransformTarget::INFO_MODAL,
+                        _ => TransformTarget::INFO,
                     };
                     ctx.registry
                         .apply_transform_chain_hierarchical(

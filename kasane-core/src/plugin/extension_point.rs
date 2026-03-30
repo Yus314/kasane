@@ -21,10 +21,10 @@
 //! );
 //! ```
 
-use std::any::Any;
-
 use compact_str::CompactString;
+use serde::de::DeserializeOwned;
 
+use super::channel::ChannelValue;
 use super::{AppView, PluginId, PluginState};
 
 /// Identifier for a plugin-defined extension point.
@@ -56,9 +56,9 @@ pub enum CompositionRule {
 // Type-erased handler types
 // =============================================================================
 
-/// Type-erased extension handler: `fn(&dyn PluginState, &dyn Any, &AppView) -> Box<dyn Any>`.
+/// Type-erased extension handler: `fn(&dyn PluginState, &ChannelValue, &AppView) -> ChannelValue`.
 pub(crate) type ErasedExtensionHandler =
-    Box<dyn Fn(&dyn PluginState, &dyn Any, &AppView<'_>) -> Box<dyn Any + Send> + Send + Sync>;
+    Box<dyn Fn(&dyn PluginState, &ChannelValue, &AppView<'_>) -> ChannelValue + Send + Sync>;
 
 /// Registration entry for defining an extension point.
 /// Registration entry for defining an extension point.
@@ -72,6 +72,19 @@ pub struct ExtensionDefinition {
     pub(crate) rule: CompositionRule,
     /// The definer's own handler (optional — the definer may also contribute).
     pub(crate) handler: Option<ErasedExtensionHandler>,
+}
+
+impl ExtensionDefinition {
+    /// Create a metadata-only extension definition (no handler).
+    ///
+    /// Used by WASM plugins to declare extension points from manifest metadata.
+    pub fn metadata_only(id: ExtensionPointId, rule: CompositionRule) -> Self {
+        Self {
+            id,
+            rule,
+            handler: None,
+        }
+    }
 }
 
 /// Registration entry for contributing to an extension point.
@@ -94,9 +107,10 @@ pub struct ExtensionResults {
 /// Framework-internal. Plugin authors use [`ExtensionResults::get()`] to access typed results.
 #[doc(hidden)]
 pub struct ExtensionOutput {
-    #[allow(dead_code)]
-    pub(crate) plugin_id: PluginId,
-    pub(crate) value: Box<dyn Any + Send>,
+    /// The plugin that produced this output.
+    pub plugin_id: PluginId,
+    /// The extension point output value.
+    pub value: ChannelValue,
 }
 
 impl ExtensionResults {
@@ -106,14 +120,14 @@ impl ExtensionResults {
         }
     }
 
-    /// Get all outputs for an extension point, typed.
-    pub fn get<T: 'static>(&self, id: &ExtensionPointId) -> Vec<&T> {
+    /// Get all outputs for an extension point, deserialized to type `T`.
+    pub fn get<T: DeserializeOwned>(&self, id: &ExtensionPointId) -> Vec<T> {
         self.results
             .get(id)
             .map(|outputs| {
                 outputs
                     .iter()
-                    .filter_map(|o| o.value.downcast_ref::<T>())
+                    .filter_map(|o| o.value.deserialize::<T>().ok())
                     .collect()
             })
             .unwrap_or_default()
@@ -151,21 +165,21 @@ mod tests {
             id.clone(),
             ExtensionOutput {
                 plugin_id: PluginId("p".to_string()),
-                value: Box::new(42u32),
+                value: ChannelValue::new(&42u32).unwrap(),
             },
         );
         results.insert(
             id.clone(),
             ExtensionOutput {
                 plugin_id: PluginId("q".to_string()),
-                value: Box::new(99u32),
+                value: ChannelValue::new(&99u32).unwrap(),
             },
         );
 
         let values = results.get::<u32>(&id);
         assert_eq!(values.len(), 2);
-        assert_eq!(*values[0], 42);
-        assert_eq!(*values[1], 99);
+        assert_eq!(values[0], 42);
+        assert_eq!(values[1], 99);
     }
 
     #[test]
@@ -183,11 +197,11 @@ mod tests {
             id.clone(),
             ExtensionOutput {
                 plugin_id: PluginId("p".to_string()),
-                value: Box::new("string value".to_string()),
+                value: ChannelValue::new(&"string value".to_string()).unwrap(),
             },
         );
 
-        // Request as u32 → filtered out
+        // Request as u32 → filtered out (deserialization fails)
         let values = results.get::<u32>(&id);
         assert!(values.is_empty());
 

@@ -422,10 +422,17 @@ pub trait PluginBackend: Any {
     fn evaluate_extension(
         &self,
         _id: &ExtensionPointId,
-        _input: &dyn std::any::Any,
+        _input: &super::channel::ChannelValue,
         _state: &AppView<'_>,
     ) -> Vec<ExtensionOutput> {
         vec![]
+    }
+
+    // --- Capability Descriptor ---
+
+    /// Return a structured capability descriptor for interference detection.
+    fn capability_descriptor(&self) -> Option<super::CapabilityDescriptor> {
+        None
     }
 
     // --- Diagnostics ---

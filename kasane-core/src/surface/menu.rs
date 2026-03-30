@@ -45,9 +45,9 @@ impl Surface for MenuSurface {
             use crate::render::view::menu;
 
             let transform_target = match menu_state.style {
-                MenuStyle::Prompt => TransformTarget::MenuPrompt,
-                MenuStyle::Inline => TransformTarget::MenuInline,
-                MenuStyle::Search => TransformTarget::MenuSearch,
+                MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
+                MenuStyle::Inline => TransformTarget::MENU_INLINE,
+                MenuStyle::Search => TransformTarget::MENU_SEARCH,
             };
             // Build default; apply hierarchical transform chain (Menu → style-specific).
             let menu_overlay = menu::build_menu_overlay(menu_state, ctx.state, ctx.registry);

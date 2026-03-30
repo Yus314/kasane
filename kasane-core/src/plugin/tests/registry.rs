@@ -1131,7 +1131,11 @@ fn test_pubsub_no_subscribers_is_noop() {
 fn test_pubsub_bus_clears_between_evaluations() {
     let mut bus = TopicBus::new();
     let topic = TopicId::new("test");
-    bus.publish(topic.clone(), PluginId("p".to_string()), Box::new(42u32));
+    bus.publish(
+        topic.clone(),
+        PluginId("p".to_string()),
+        super::super::channel::ChannelValue::new(&42u32).unwrap(),
+    );
     assert!(bus.get_publications(&topic).is_some());
 
     // evaluate_pubsub calls bus.clear() at the start.
@@ -1186,7 +1190,8 @@ fn test_extension_point_collects_from_definer_and_contributor() {
     state.cols = 80;
     let app = AppView::new(&state);
 
-    let results = runtime.evaluate_extensions(&(), &app);
+    let input = super::super::channel::ChannelValue::new(&()).unwrap();
+    let results = runtime.evaluate_extensions(&input, &app);
     let items = results.get::<Vec<String>>(&ExtensionPointId::new("test.items"));
 
     // Both definer and contributor should produce results.
@@ -1205,7 +1210,8 @@ fn test_extension_point_no_contributors_only_definer() {
     state.cols = 80;
     let app = AppView::new(&state);
 
-    let results = runtime.evaluate_extensions(&(), &app);
+    let input = super::super::channel::ChannelValue::new(&()).unwrap();
+    let results = runtime.evaluate_extensions(&input, &app);
     let items = results.get::<Vec<String>>(&ExtensionPointId::new("test.items"));
     assert_eq!(items.len(), 1);
     assert!(items[0].contains(&"from-definer".to_string()));
@@ -1221,7 +1227,8 @@ fn test_extension_point_unknown_returns_empty() {
     state.cols = 80;
     let app = AppView::new(&state);
 
-    let results = runtime.evaluate_extensions(&(), &app);
+    let input = super::super::channel::ChannelValue::new(&()).unwrap();
+    let results = runtime.evaluate_extensions(&input, &app);
     let items = results.get::<u32>(&ExtensionPointId::new("nonexistent"));
     assert!(items.is_empty());
 }

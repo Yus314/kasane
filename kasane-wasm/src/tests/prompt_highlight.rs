@@ -29,9 +29,10 @@ fn passthrough_in_buffer_mode() {
         chain_position: 0,
         pane_surface_id: None,
         pane_focused: true,
+        target_line: None,
     };
     let result = plugin.transform(
-        &TransformTarget::StatusBar,
+        &TransformTarget::STATUS_BAR,
         TransformSubject::Element(element.clone()),
         &AppView::new(&state),
         &ctx,
@@ -58,9 +59,10 @@ fn wraps_in_prompt_mode() {
         chain_position: 0,
         pane_surface_id: None,
         pane_focused: true,
+        target_line: None,
     };
     let result = plugin.transform(
-        &TransformTarget::StatusBar,
+        &TransformTarget::STATUS_BAR,
         TransformSubject::Element(element),
         &AppView::new(&state),
         &ctx,
@@ -98,10 +100,11 @@ fn ignores_non_status_targets() {
         chain_position: 0,
         pane_surface_id: None,
         pane_focused: true,
+        target_line: None,
     };
     // Buffer target should not be wrapped even in prompt mode
     let result = plugin.transform(
-        &TransformTarget::Buffer,
+        &TransformTarget::BUFFER,
         TransformSubject::Element(element.clone()),
         &AppView::new(&state),
         &ctx,

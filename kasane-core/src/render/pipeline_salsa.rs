@@ -163,11 +163,11 @@ impl ViewSource for SalsaViewSource<'_> {
                 let menu_state = state.menu.as_ref();
                 let target = menu_state
                     .map(|m| match m.style {
-                        MenuStyle::Prompt => TransformTarget::MenuPrompt,
-                        MenuStyle::Inline => TransformTarget::MenuInline,
-                        MenuStyle::Search => TransformTarget::MenuSearch,
+                        MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
+                        MenuStyle::Inline => TransformTarget::MENU_INLINE,
+                        MenuStyle::Search => TransformTarget::MENU_SEARCH,
                     })
-                    .unwrap_or(TransformTarget::Menu);
+                    .unwrap_or(TransformTarget::MENU);
 
                 registry
                     .apply_transform_chain_hierarchical(
@@ -196,9 +196,9 @@ impl ViewSource for SalsaViewSource<'_> {
             pure.into_iter()
                 .map(|(style, overlay)| {
                     let target = match style {
-                        crate::protocol::InfoStyle::Prompt => TransformTarget::InfoPrompt,
-                        crate::protocol::InfoStyle::Modal => TransformTarget::InfoModal,
-                        _ => TransformTarget::Info,
+                        crate::protocol::InfoStyle::Prompt => TransformTarget::INFO_PROMPT,
+                        crate::protocol::InfoStyle::Modal => TransformTarget::INFO_MODAL,
+                        _ => TransformTarget::INFO,
                     };
                     registry
                         .apply_transform_chain_hierarchical(
@@ -299,7 +299,7 @@ fn compose_base_from_salsa(
             .into_element(),
         None => registry
             .apply_transform_chain(
-                TransformTarget::Buffer,
+                TransformTarget::BUFFER,
                 TransformSubject::Element(buffer_with_bg),
                 &AppView::new(state),
             )
@@ -344,7 +344,7 @@ fn compose_base_from_salsa(
             .into_element(),
         None => registry
             .apply_transform_chain(
-                TransformTarget::StatusBar,
+                TransformTarget::STATUS_BAR,
                 TransformSubject::Element(status_el),
                 &AppView::new(state),
             )

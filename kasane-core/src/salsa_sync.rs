@@ -386,9 +386,9 @@ pub fn sync_transform_patches(
 
     let app_view = AppView::new(state);
 
-    let buffer = registry.collect_transform_patches(TransformTarget::Buffer, &app_view);
+    let buffer = registry.collect_transform_patches(TransformTarget::BUFFER, &app_view);
     inputs.transform_patches.set_buffer(db).to(buffer);
 
-    let status_bar = registry.collect_transform_patches(TransformTarget::StatusBar, &app_view);
+    let status_bar = registry.collect_transform_patches(TransformTarget::STATUS_BAR, &app_view);
     inputs.transform_patches.set_status_bar(db).to(status_bar);
 }

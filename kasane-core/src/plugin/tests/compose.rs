@@ -461,30 +461,33 @@ fn transform_chain_not_commutative() {
 
 #[test]
 fn transform_target_parent() {
-    assert_eq!(TransformTarget::Buffer.parent(), None);
-    assert_eq!(TransformTarget::BufferLine(0).parent(), None);
-    assert_eq!(TransformTarget::StatusBar.parent(), None);
-    assert_eq!(TransformTarget::Menu.parent(), None);
+    assert_eq!(TransformTarget::BUFFER.parent(), None);
     assert_eq!(
-        TransformTarget::MenuPrompt.parent(),
-        Some(TransformTarget::Menu)
+        TransformTarget::buffer_line(0).parent(),
+        Some(TransformTarget::BUFFER)
+    );
+    assert_eq!(TransformTarget::STATUS_BAR.parent(), None);
+    assert_eq!(TransformTarget::MENU.parent(), None);
+    assert_eq!(
+        TransformTarget::MENU_PROMPT.parent(),
+        Some(TransformTarget::MENU)
     );
     assert_eq!(
-        TransformTarget::MenuInline.parent(),
-        Some(TransformTarget::Menu)
+        TransformTarget::MENU_INLINE.parent(),
+        Some(TransformTarget::MENU)
     );
     assert_eq!(
-        TransformTarget::MenuSearch.parent(),
-        Some(TransformTarget::Menu)
+        TransformTarget::MENU_SEARCH.parent(),
+        Some(TransformTarget::MENU)
     );
-    assert_eq!(TransformTarget::Info.parent(), None);
+    assert_eq!(TransformTarget::INFO.parent(), None);
     assert_eq!(
-        TransformTarget::InfoPrompt.parent(),
-        Some(TransformTarget::Info)
+        TransformTarget::INFO_PROMPT.parent(),
+        Some(TransformTarget::INFO)
     );
     assert_eq!(
-        TransformTarget::InfoModal.parent(),
-        Some(TransformTarget::Info)
+        TransformTarget::INFO_MODAL.parent(),
+        Some(TransformTarget::INFO)
     );
 }
 
@@ -492,56 +495,81 @@ fn transform_target_parent() {
 fn transform_target_refinement_chain() {
     // Non-refinement targets: chain is [self]
     assert_eq!(
-        TransformTarget::Buffer.refinement_chain(),
-        vec![TransformTarget::Buffer]
+        TransformTarget::BUFFER.refinement_chain(),
+        vec![TransformTarget::BUFFER]
     );
     assert_eq!(
-        TransformTarget::Menu.refinement_chain(),
-        vec![TransformTarget::Menu]
+        TransformTarget::MENU.refinement_chain(),
+        vec![TransformTarget::MENU]
     );
     assert_eq!(
-        TransformTarget::Info.refinement_chain(),
-        vec![TransformTarget::Info]
+        TransformTarget::INFO.refinement_chain(),
+        vec![TransformTarget::INFO]
     );
     assert_eq!(
-        TransformTarget::StatusBar.refinement_chain(),
-        vec![TransformTarget::StatusBar]
+        TransformTarget::STATUS_BAR.refinement_chain(),
+        vec![TransformTarget::STATUS_BAR]
     );
 
     // Refinement targets: chain is [parent, self]
     assert_eq!(
-        TransformTarget::MenuPrompt.refinement_chain(),
-        vec![TransformTarget::Menu, TransformTarget::MenuPrompt]
+        TransformTarget::MENU_PROMPT.refinement_chain(),
+        vec![TransformTarget::MENU, TransformTarget::MENU_PROMPT]
     );
     assert_eq!(
-        TransformTarget::MenuInline.refinement_chain(),
-        vec![TransformTarget::Menu, TransformTarget::MenuInline]
+        TransformTarget::MENU_INLINE.refinement_chain(),
+        vec![TransformTarget::MENU, TransformTarget::MENU_INLINE]
     );
     assert_eq!(
-        TransformTarget::MenuSearch.refinement_chain(),
-        vec![TransformTarget::Menu, TransformTarget::MenuSearch]
+        TransformTarget::MENU_SEARCH.refinement_chain(),
+        vec![TransformTarget::MENU, TransformTarget::MENU_SEARCH]
     );
     assert_eq!(
-        TransformTarget::InfoPrompt.refinement_chain(),
-        vec![TransformTarget::Info, TransformTarget::InfoPrompt]
+        TransformTarget::INFO_PROMPT.refinement_chain(),
+        vec![TransformTarget::INFO, TransformTarget::INFO_PROMPT]
     );
     assert_eq!(
-        TransformTarget::InfoModal.refinement_chain(),
-        vec![TransformTarget::Info, TransformTarget::InfoModal]
+        TransformTarget::INFO_MODAL.refinement_chain(),
+        vec![TransformTarget::INFO, TransformTarget::INFO_MODAL]
+    );
+
+    // buffer_line is now a refinement of BUFFER
+    assert_eq!(
+        TransformTarget::buffer_line(0).refinement_chain(),
+        vec![TransformTarget::BUFFER, TransformTarget::buffer_line(0)]
     );
 }
 
 #[test]
 fn transform_target_is_refinement() {
-    assert!(!TransformTarget::Buffer.is_refinement());
-    assert!(!TransformTarget::Menu.is_refinement());
-    assert!(!TransformTarget::Info.is_refinement());
-    assert!(!TransformTarget::StatusBar.is_refinement());
-    assert!(TransformTarget::MenuPrompt.is_refinement());
-    assert!(TransformTarget::MenuInline.is_refinement());
-    assert!(TransformTarget::MenuSearch.is_refinement());
-    assert!(TransformTarget::InfoPrompt.is_refinement());
-    assert!(TransformTarget::InfoModal.is_refinement());
+    assert!(!TransformTarget::BUFFER.is_refinement());
+    assert!(!TransformTarget::MENU.is_refinement());
+    assert!(!TransformTarget::INFO.is_refinement());
+    assert!(!TransformTarget::STATUS_BAR.is_refinement());
+    assert!(TransformTarget::MENU_PROMPT.is_refinement());
+    assert!(TransformTarget::MENU_INLINE.is_refinement());
+    assert!(TransformTarget::MENU_SEARCH.is_refinement());
+    assert!(TransformTarget::INFO_PROMPT.is_refinement());
+    assert!(TransformTarget::INFO_MODAL.is_refinement());
+    assert!(TransformTarget::buffer_line(0).is_refinement());
+}
+
+#[test]
+fn transform_target_buffer_line() {
+    let target = TransformTarget::buffer_line(42);
+    assert_eq!(target.as_buffer_line(), Some(42));
+    assert_eq!(target.parent(), Some(TransformTarget::BUFFER));
+
+    // Non-buffer-line targets return None
+    assert_eq!(TransformTarget::BUFFER.as_buffer_line(), None);
+    assert_eq!(TransformTarget::STATUS_BAR.as_buffer_line(), None);
+
+    // BUFFER_LINE const has no parameter suffix, so as_buffer_line returns None
+    assert_eq!(TransformTarget::BUFFER_LINE.as_buffer_line(), None);
+    assert_eq!(
+        TransformTarget::BUFFER_LINE.parent(),
+        Some(TransformTarget::BUFFER)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -559,7 +587,7 @@ mod conflict_detection {
         let descriptors = vec![(PluginId("a".into()), None), (PluginId("b".into()), None)];
         // Should not panic; warnings go to tracing (not captured here but
         // verifies the function runs without errors).
-        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+        check_transform_conflicts(&descriptors, &TransformTarget::BUFFER);
     }
 
     #[test]
@@ -567,11 +595,11 @@ mod conflict_detection {
         let descriptors = vec![(
             PluginId("a".into()),
             Some(TransformDescriptor {
-                targets: vec![TransformTarget::Buffer],
+                targets: vec![TransformTarget::BUFFER],
                 scope: TransformScope::Replacement,
             }),
         )];
-        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+        check_transform_conflicts(&descriptors, &TransformTarget::BUFFER);
     }
 
     #[test]
@@ -580,20 +608,20 @@ mod conflict_detection {
             (
                 PluginId("a".into()),
                 Some(TransformDescriptor {
-                    targets: vec![TransformTarget::Menu],
+                    targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Replacement,
                 }),
             ),
             (
                 PluginId("b".into()),
                 Some(TransformDescriptor {
-                    targets: vec![TransformTarget::Menu],
+                    targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Replacement,
                 }),
             ),
         ];
         // Checking Buffer target — neither descriptor matches, so no warning.
-        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+        check_transform_conflicts(&descriptors, &TransformTarget::BUFFER);
     }
 
     #[test]
@@ -604,19 +632,19 @@ mod conflict_detection {
             (
                 PluginId("a".into()),
                 Some(TransformDescriptor {
-                    targets: vec![TransformTarget::Buffer],
+                    targets: vec![TransformTarget::BUFFER],
                     scope: TransformScope::Replacement,
                 }),
             ),
             (
                 PluginId("b".into()),
                 Some(TransformDescriptor {
-                    targets: vec![TransformTarget::Buffer],
+                    targets: vec![TransformTarget::BUFFER],
                     scope: TransformScope::Replacement,
                 }),
             ),
         ];
-        check_transform_conflicts(&descriptors, &TransformTarget::Buffer);
+        check_transform_conflicts(&descriptors, &TransformTarget::BUFFER);
     }
 
     #[test]
@@ -626,18 +654,18 @@ mod conflict_detection {
             (
                 PluginId("wrapper".into()),
                 Some(TransformDescriptor {
-                    targets: vec![TransformTarget::Menu],
+                    targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Wrapper,
                 }),
             ),
             (
                 PluginId("replacer".into()),
                 Some(TransformDescriptor {
-                    targets: vec![TransformTarget::Menu],
+                    targets: vec![TransformTarget::MENU],
                     scope: TransformScope::Replacement,
                 }),
             ),
         ];
-        check_transform_conflicts(&descriptors, &TransformTarget::Menu);
+        check_transform_conflicts(&descriptors, &TransformTarget::MENU);
     }
 }

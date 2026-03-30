@@ -582,18 +582,11 @@ interface types {
         size-hint: contrib-size-hint,
     }
 
-    enum transform-target {
-        buffer,
-        buffer-line,
-        status-bar-t,
-        menu-t,
-        menu-prompt-t,
-        menu-inline-t,
-        menu-search-t,
-        info-t,
-        info-prompt-t,
-        info-modal-t,
-    }
+    /// Open-ended transform target identifier (Phase 2).
+    ///
+    /// Well-known targets use `kasane.*` namespace (e.g. "kasane.buffer",
+    /// "kasane.menu.prompt"). Plugins can define custom targets.
+    type transform-target = string;
 
     /// Subject passed through the transform chain — either a bare element
     /// or an overlay (element + anchor) for menu/info targets.
@@ -626,6 +619,40 @@ interface types {
         append(element-handle),
         replace(element-handle),
         modify-face(face),
+        when(when-patch),
+    }
+
+    /// RPN-encoded predicate operation for conditional patches (Phase 1).
+    ///
+    /// Predicates are encoded as a stack-based postfix sequence:
+    /// - Operands push a boolean onto the stack
+    /// - `not-op` pops one, pushes negation
+    /// - `and-op` / `or-op` pop two, push the result
+    variant predicate-op {
+        has-focus,
+        surface-is(u32),
+        line-range(line-range-predicate),
+        not-op,
+        and-op,
+        or-op,
+    }
+
+    record line-range-predicate {
+        start: u32,
+        end: u32,
+    }
+
+    /// Conditional patch: evaluate predicate, apply then-branch or otherwise-branch.
+    ///
+    /// `then-count` and `otherwise-count` specify how many of the immediately
+    /// following `element-patch-op` entries belong to each branch. The host
+    /// peels them off the flat op list during conversion.
+    ///
+    /// Encoding: `[... when(predicate, then-count, otherwise-count), <then ops...>, <otherwise ops...>, ...]`
+    record when-patch {
+        predicate: list<predicate-op>,
+        then-count: u32,
+        otherwise-count: u32,
     }
 
     record annotate-context {
@@ -809,6 +836,16 @@ interface types {
         contain,
         cover,
         fill,
+    }
+
+    // --- v0.24.0: Channel value (Phase 5) ---
+
+    /// Serialized value for cross-boundary plugin communication.
+    ///
+    /// Data is MessagePack-encoded bytes with a type hint for diagnostics.
+    record channel-value {
+        data: list<u8>,
+        type-hint: string,
     }
 }
 
@@ -1001,7 +1038,8 @@ interface plugin-api {
                bootstrap-effects, session-ready-effects, runtime-effects,
                cell-decoration,
                key-group-decl, key-response,
-               display-unit-info, navigation-policy-kind, navigation-action-result};
+               display-unit-info, navigation-policy-kind, navigation-action-result,
+               channel-value};
 
     // --- Identity ---
 
@@ -1193,6 +1231,21 @@ interface plugin-api {
     /// Handle a navigation action on a display unit.
     /// action-kind: 0=None, 1=ToggleFold, 2+=Plugin(tag, id).
     on-navigation-action: func(unit: display-unit-info, action-kind: u32) -> navigation-action-result;
+
+    // --- v0.24.0: Pub/Sub bridge ---
+
+    /// Called per topic during publication collection phase.
+    /// Returns None to skip (no publication this frame).
+    publish-value: func(topic: string) -> option<channel-value>;
+
+    /// Called during delivery phase with all published values for a subscribed topic.
+    on-subscription: func(topic: string, values: list<channel-value>) -> runtime-effects;
+
+    // --- v0.24.0: Extension point bridge ---
+
+    /// Evaluate an extension point contribution.
+    /// Returns None if this plugin has no contribution for this extension point.
+    evaluate-extension: func(id: string, input: channel-value) -> option<channel-value>;
 
     // --- v0.23.0: handler declaration ---
 

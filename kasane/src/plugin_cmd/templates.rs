@@ -132,7 +132,7 @@ fn transform_template(id: &str) -> String {
     }},
 
     transform(target, subject, _ctx) {{
-        if !matches!(target, TransformTarget::StatusBarT) {{
+        if target != "kasane.status-bar" {{
             return subject;
         }}
         if state.cursor_mode != 1 {{

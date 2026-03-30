@@ -698,6 +698,7 @@ fn apply_runtime_effects(
     command_source_plugin: Option<&PluginId>,
     depth: usize,
 ) -> bool {
+    effects.deduplicate_commutative();
     *ctx.dirty |= effects.redraw;
     *ctx.dirty |= extract_redraw_flags(&mut effects.commands);
 

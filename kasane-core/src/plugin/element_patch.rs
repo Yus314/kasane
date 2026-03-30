@@ -18,12 +18,48 @@
 //! - `Identity` is eliminated during normalization
 //! - Nested `Compose` is flattened
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use crate::element::{Align, Direction, Element, FlexChild, OverlayAnchor, Style};
 use crate::protocol::Face;
+use crate::surface::SurfaceId;
 
-use super::context::{FaceMerge, TransformScope, TransformSubject};
+use super::context::{FaceMerge, TransformContext, TransformScope, TransformSubject};
+
+/// A pure, inspectable predicate for conditional patch application.
+///
+/// Unlike closures, predicates are data — they implement `Clone`, `PartialEq`,
+/// and `Debug`, and are always considered pure for Salsa memoization purposes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatchPredicate {
+    /// True when the pane is focused.
+    HasFocus,
+    /// True when the pane's surface ID matches.
+    SurfaceIs(SurfaceId),
+    /// True when the target line falls within the given range.
+    LineRange(Range<usize>),
+    /// Logical negation.
+    Not(Box<PatchPredicate>),
+    /// Logical conjunction.
+    And(Box<PatchPredicate>, Box<PatchPredicate>),
+    /// Logical disjunction.
+    Or(Box<PatchPredicate>, Box<PatchPredicate>),
+}
+
+impl PatchPredicate {
+    /// Evaluate this predicate against a transform context.
+    pub fn evaluate(&self, ctx: &TransformContext) -> bool {
+        match self {
+            Self::HasFocus => ctx.pane_focused,
+            Self::SurfaceIs(id) => ctx.pane_surface_id == Some(*id),
+            Self::LineRange(range) => ctx.target_line.is_some_and(|l| range.contains(&l)),
+            Self::Not(p) => !p.evaluate(ctx),
+            Self::And(a, b) => a.evaluate(ctx) && b.evaluate(ctx),
+            Self::Or(a, b) => a.evaluate(ctx) || b.evaluate(ctx),
+        }
+    }
+}
 
 /// A declarative transform on a [`TransformSubject`].
 ///
@@ -57,6 +93,15 @@ pub enum ElementPatch {
         transform: Arc<dyn Fn(OverlayAnchor) -> OverlayAnchor + Send + Sync>,
     },
 
+    /// Conditional patch: evaluates a pure predicate and applies one of two branches.
+    ///
+    /// Unlike `Custom`, predicates are data and can be memoized by Salsa.
+    When {
+        predicate: PatchPredicate,
+        then: Box<ElementPatch>,
+        otherwise: Box<ElementPatch>,
+    },
+
     /// Escape hatch: arbitrary opaque transform function.
     /// Blocks Salsa memoization ([`is_pure()`](Self::is_pure) returns `false`).
     Custom(Arc<dyn Fn(TransformSubject) -> TransformSubject + Send + Sync>),
@@ -81,6 +126,15 @@ impl Clone for ElementPatch {
             Self::ModifyAnchor { transform } => Self::ModifyAnchor {
                 transform: Arc::clone(transform),
             },
+            Self::When {
+                predicate,
+                then,
+                otherwise,
+            } => Self::When {
+                predicate: predicate.clone(),
+                then: then.clone(),
+                otherwise: otherwise.clone(),
+            },
             Self::Custom(f) => Self::Custom(Arc::clone(f)),
         }
     }
@@ -96,6 +150,18 @@ impl PartialEq for ElementPatch {
             (Self::Replace { element: a }, Self::Replace { element: b }) => a == b,
             (Self::ModifyFace { overlay: a }, Self::ModifyFace { overlay: b }) => a == b,
             (Self::Compose(a), Self::Compose(b)) => a == b,
+            (
+                Self::When {
+                    predicate: pa,
+                    then: ta,
+                    otherwise: oa,
+                },
+                Self::When {
+                    predicate: pb,
+                    then: tb,
+                    otherwise: ob,
+                },
+            ) => pa == pb && ta == tb && oa == ob,
             // Impure variants: always unequal (opaque closures cannot be compared).
             // This blocks Salsa memoization for chains containing these variants.
             (Self::ModifyAnchor { .. }, _) | (Self::Custom(_), _) => false,
@@ -124,6 +190,16 @@ impl std::fmt::Debug for ElementPatch {
                 .finish(),
             Self::Compose(patches) => f.debug_tuple("Compose").field(patches).finish(),
             Self::ModifyAnchor { .. } => write!(f, "ModifyAnchor(<fn>)"),
+            Self::When {
+                predicate,
+                then,
+                otherwise,
+            } => f
+                .debug_struct("When")
+                .field("predicate", predicate)
+                .field("then", then)
+                .field("otherwise", otherwise)
+                .finish(),
             Self::Custom(_) => write!(f, "Custom(<fn>)"),
         }
     }
@@ -136,6 +212,7 @@ impl ElementPatch {
     /// - `Replace` absorbs all prior patches
     /// - Single-element `Compose` is unwrapped
     /// - Empty `Compose` becomes `Identity`
+    /// - `When` branches are recursively normalized; collapsed to `Identity` if both are `Identity`
     pub fn normalize(self) -> Self {
         match self {
             Self::Compose(patches) => {
@@ -159,6 +236,23 @@ impl ElementPatch {
                     0 => Self::Identity,
                     1 => normalized.into_iter().next().unwrap(),
                     _ => Self::Compose(normalized),
+                }
+            }
+            Self::When {
+                predicate,
+                then,
+                otherwise,
+            } => {
+                let then = then.normalize();
+                let otherwise = otherwise.normalize();
+                if matches!((&then, &otherwise), (Self::Identity, Self::Identity)) {
+                    Self::Identity
+                } else {
+                    Self::When {
+                        predicate,
+                        then: Box::new(then),
+                        otherwise: Box::new(otherwise),
+                    }
                 }
             }
             other => other,
@@ -211,17 +305,54 @@ impl ElementPatch {
 
             Self::ModifyAnchor { transform } => subject.map_anchor(|a| transform(a)),
 
+            Self::When { then, .. } => {
+                // Without context, When always takes the `then` branch.
+                then.apply(subject)
+            }
+
             Self::Custom(f) => f(subject),
+        }
+    }
+
+    /// Apply this patch to a [`TransformSubject`] with a [`TransformContext`].
+    ///
+    /// `When` predicates are evaluated against the context. Other variants
+    /// delegate to [`apply()`](Self::apply).
+    pub fn apply_with_context(
+        self,
+        subject: TransformSubject,
+        ctx: &TransformContext,
+    ) -> TransformSubject {
+        match self {
+            Self::When {
+                predicate,
+                then,
+                otherwise,
+            } => {
+                if predicate.evaluate(ctx) {
+                    then.apply_with_context(subject, ctx)
+                } else {
+                    otherwise.apply_with_context(subject, ctx)
+                }
+            }
+            Self::Compose(patches) => patches
+                .into_iter()
+                .fold(subject, |subj, patch| patch.apply_with_context(subj, ctx)),
+            other => other.apply(subject),
         }
     }
 
     /// Returns `true` if this patch contains no `Custom` or `ModifyAnchor` variants.
     ///
     /// Pure patches can potentially be stored as Salsa inputs for memoization.
+    /// `When` is pure if both branches are pure (predicates are always pure).
     pub fn is_pure(&self) -> bool {
         match self {
             Self::Custom(_) | Self::ModifyAnchor { .. } => false,
             Self::Compose(patches) => patches.iter().all(Self::is_pure),
+            Self::When {
+                then, otherwise, ..
+            } => then.is_pure() && otherwise.is_pure(),
             _ => true,
         }
     }
@@ -229,6 +360,7 @@ impl ElementPatch {
     /// Infer the [`TransformScope`] from this patch variant.
     ///
     /// For `Compose`, returns the most impactful scope among children.
+    /// For `When`, returns the most impactful scope across both branches.
     pub fn scope(&self) -> TransformScope {
         match self {
             Self::Identity => TransformScope::Identity,
@@ -243,6 +375,17 @@ impl ElementPatch {
                 .max_by_key(scope_impact)
                 .unwrap_or(TransformScope::Identity),
             Self::ModifyAnchor { .. } => TransformScope::Structural,
+            Self::When {
+                then, otherwise, ..
+            } => {
+                let t = then.scope();
+                let o = otherwise.scope();
+                if scope_impact(&t) >= scope_impact(&o) {
+                    t
+                } else {
+                    o
+                }
+            }
             Self::Custom(_) => TransformScope::Structural,
         }
     }

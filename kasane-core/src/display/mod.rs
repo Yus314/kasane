@@ -28,7 +28,10 @@ pub struct DisplayLine(pub usize);
 
 pub use fold_state::FoldToggleState;
 pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};
-pub use resolve::{DirectiveSet, TaggedDirective, resolve};
+pub use resolve::{
+    DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective, partition_directives, resolve,
+    resolve_incremental,
+};
 pub use unit::{
     DisplayUnit, DisplayUnitId, DisplayUnitMap, SemanticRole, SourceStrength, UnitSource,
 };

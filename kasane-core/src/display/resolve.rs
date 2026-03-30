@@ -219,3 +219,148 @@ pub fn resolve(set: &DirectiveSet, line_count: usize) -> Vec<DisplayDirective> {
 fn ranges_overlap(a: &Range<usize>, b: &Range<usize>) -> bool {
     a.start < b.end && b.start < a.end
 }
+
+// =============================================================================
+// Incremental resolve — spatial partitioning + cache
+// =============================================================================
+
+/// A group of directives with a common bounding range.
+///
+/// Directives whose affected ranges overlap are merged into the same group.
+/// Groups with unchanged hashes across frames can reuse cached results.
+#[derive(Debug, Clone)]
+pub struct DirectiveGroup {
+    /// Bounding range covering all directives in this group.
+    pub range: Range<usize>,
+    /// The tagged directives in this group.
+    pub directives: Vec<TaggedDirective>,
+    /// Hash of the directives for change detection.
+    pub hash: u64,
+}
+
+/// Partition directives into non-overlapping groups based on affected ranges.
+///
+/// Directives whose bounding ranges overlap are merged into the same group.
+/// Uses a greedy merge approach.
+pub fn partition_directives(set: &DirectiveSet) -> Vec<DirectiveGroup> {
+    use std::hash::{Hash, Hasher};
+
+    if set.is_empty() {
+        return Vec::new();
+    }
+
+    // Extract (bounding_range, directive_index) pairs
+    let mut bounds: Vec<(Range<usize>, usize)> = set
+        .directives
+        .iter()
+        .enumerate()
+        .map(|(i, td)| {
+            let range = match &td.directive {
+                DisplayDirective::Fold { range, .. } => range.clone(),
+                DisplayDirective::Hide { range } => range.clone(),
+                DisplayDirective::InsertAfter { after, .. } => *after..*after + 1,
+                DisplayDirective::InsertBefore { before, .. } => *before..*before + 1,
+            };
+            (range, i)
+        })
+        .collect();
+
+    // Sort by start position for greedy merge
+    bounds.sort_by_key(|(r, _)| r.start);
+
+    // Greedy merge: merge overlapping bounds into groups
+    let mut groups: Vec<(Range<usize>, Vec<usize>)> = Vec::new();
+    for (range, idx) in bounds {
+        if let Some(last) = groups.last_mut()
+            && range.start < last.0.end
+        {
+            // Overlaps — extend the group
+            last.0.end = last.0.end.max(range.end);
+            last.1.push(idx);
+            continue;
+        }
+        groups.push((range, vec![idx]));
+    }
+
+    // Build DirectiveGroups with hashes
+    groups
+        .into_iter()
+        .map(|(range, indices)| {
+            let directives: Vec<TaggedDirective> =
+                indices.iter().map(|&i| set.directives[i].clone()).collect();
+            let mut hasher = std::hash::DefaultHasher::new();
+            for td in &directives {
+                td.sort_key().hash(&mut hasher);
+                // Hash the directive content for change detection
+                match &td.directive {
+                    DisplayDirective::Fold { range, summary } => {
+                        range.start.hash(&mut hasher);
+                        range.end.hash(&mut hasher);
+                        summary.len().hash(&mut hasher);
+                    }
+                    DisplayDirective::Hide { range } => {
+                        range.start.hash(&mut hasher);
+                        range.end.hash(&mut hasher);
+                    }
+                    DisplayDirective::InsertAfter { after, content } => {
+                        after.hash(&mut hasher);
+                        content.len().hash(&mut hasher);
+                    }
+                    DisplayDirective::InsertBefore { before, content } => {
+                        before.hash(&mut hasher);
+                        content.len().hash(&mut hasher);
+                    }
+                }
+            }
+            let hash = hasher.finish();
+            DirectiveGroup {
+                range,
+                directives,
+                hash,
+            }
+        })
+        .collect()
+}
+
+/// Cache for incremental resolve results.
+#[derive(Debug, Clone, Default)]
+pub struct ResolveCache {
+    /// Cached group hashes and their resolved directives.
+    entries: Vec<(u64, Vec<DisplayDirective>)>,
+}
+
+/// Resolve with incremental caching.
+///
+/// Groups whose hash matches the previous frame reuse cached results.
+/// Changed groups are re-resolved.
+pub fn resolve_incremental(
+    set: &DirectiveSet,
+    line_count: usize,
+    cache: &mut ResolveCache,
+) -> Vec<DisplayDirective> {
+    let groups = partition_directives(set);
+
+    let mut result = Vec::new();
+    let mut new_entries = Vec::with_capacity(groups.len());
+
+    for (i, group) in groups.iter().enumerate() {
+        if let Some((cached_hash, cached_directives)) = cache.entries.get(i)
+            && *cached_hash == group.hash
+        {
+            // Cache hit — reuse
+            result.extend(cached_directives.iter().cloned());
+            new_entries.push((*cached_hash, cached_directives.clone()));
+            continue;
+        }
+        // Cache miss — resolve this group
+        let group_set = DirectiveSet {
+            directives: group.directives.clone(),
+        };
+        let resolved = resolve(&group_set, line_count);
+        new_entries.push((group.hash, resolved.clone()));
+        result.extend(resolved);
+    }
+
+    cache.entries = new_entries;
+    result
+}

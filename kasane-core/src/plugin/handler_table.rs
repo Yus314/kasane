@@ -189,6 +189,7 @@ pub(crate) struct ContributeEntry {
 #[allow(dead_code)] // consumed by PluginBridge
 pub(crate) struct TransformEntry {
     pub(crate) priority: i16,
+    pub(crate) targets: Vec<TransformTarget>,
     pub(crate) handler: ErasedTransformHandler,
 }
 
@@ -377,6 +378,72 @@ impl HandlerTable {
             || self.background_handler.is_some()
             || self.inline_handler.is_some()
             || self.virtual_text_handler.is_some()
+    }
+
+    /// Infer a [`CapabilityDescriptor`] from registered handlers.
+    pub(crate) fn capability_descriptor(&self) -> super::CapabilityDescriptor {
+        use super::{AnnotationScope, CapabilityDescriptor};
+
+        let contribution_slots: Vec<super::SlotId> = self
+            .contribute_handlers
+            .iter()
+            .map(|e| e.slot.clone())
+            .collect();
+
+        let mut annotation_scopes = Vec::new();
+        for gh in &self.gutter_handlers {
+            match gh.side {
+                GutterSide::Left => {
+                    if !annotation_scopes.contains(&AnnotationScope::LeftGutter) {
+                        annotation_scopes.push(AnnotationScope::LeftGutter);
+                    }
+                }
+                GutterSide::Right => {
+                    if !annotation_scopes.contains(&AnnotationScope::RightGutter) {
+                        annotation_scopes.push(AnnotationScope::RightGutter);
+                    }
+                }
+            }
+        }
+        if self.background_handler.is_some() {
+            annotation_scopes.push(AnnotationScope::Background);
+        }
+        if self.inline_handler.is_some() {
+            annotation_scopes.push(AnnotationScope::Inline);
+        }
+        if self.virtual_text_handler.is_some() {
+            annotation_scopes.push(AnnotationScope::VirtualText);
+        }
+
+        let publish_topics: Vec<super::pubsub::TopicId> =
+            self.publishers.iter().map(|e| e.topic.clone()).collect();
+        let subscribe_topics: Vec<super::pubsub::TopicId> =
+            self.subscribers.iter().map(|e| e.topic.clone()).collect();
+
+        let extensions_defined: Vec<super::extension_point::ExtensionPointId> = self
+            .extension_definitions
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
+        let extensions_consumed: Vec<super::extension_point::ExtensionPointId> = self
+            .extension_contributions
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
+
+        CapabilityDescriptor {
+            transform_targets: self
+                .transform_handler
+                .as_ref()
+                .map(|e| e.targets.clone())
+                .unwrap_or_default(),
+            contribution_slots,
+            annotation_scopes,
+            publish_topics,
+            subscribe_topics,
+            extensions_defined,
+            extensions_consumed,
+        }
     }
 }
 

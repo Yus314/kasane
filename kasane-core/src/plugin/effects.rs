@@ -5,7 +5,8 @@ use crate::input::{KeyEvent, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPlan, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 
-use super::{AppView, Command, KeyDispatchResult, PluginId};
+use super::command::Command;
+use super::{AppView, KeyDispatchResult, PluginId};
 
 /// Lifecycle phase for effect validation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +126,75 @@ impl Effects {
                 self
             }
         }
+    }
+}
+
+impl Effects {
+    /// Deduplicate commutative commands.
+    ///
+    /// - `SetConfig`: same key → last value wins.
+    /// - `RegisterThemeTokens`: merged into a single command.
+    /// - `RequestRedraw`: already handled by `extract_redraw_flags`.
+    ///
+    /// Non-commutative commands preserve their original order.
+    pub fn deduplicate_commutative(&mut self) {
+        use std::collections::HashMap;
+
+        if self.commands.is_empty() {
+            return;
+        }
+
+        let mut set_config_last: HashMap<String, usize> = HashMap::new();
+        let mut merged_tokens: Vec<(String, crate::protocol::Face)> = Vec::new();
+        let mut has_theme_tokens = false;
+
+        // First pass: identify last SetConfig per key, merge RegisterThemeTokens
+        for (i, cmd) in self.commands.iter().enumerate() {
+            match cmd {
+                Command::SetConfig { key, .. } => {
+                    set_config_last.insert(key.clone(), i);
+                }
+                Command::RegisterThemeTokens(tokens) => {
+                    has_theme_tokens = true;
+                    merged_tokens.extend(tokens.iter().cloned());
+                }
+                _ => {}
+            }
+        }
+
+        if set_config_last.is_empty() && !has_theme_tokens {
+            return;
+        }
+
+        // Second pass: rebuild commands, deduplicating
+        let mut new_commands = Vec::with_capacity(self.commands.len());
+        let mut theme_tokens_emitted = false;
+
+        let old_commands = std::mem::take(&mut self.commands);
+        for (i, cmd) in old_commands.into_iter().enumerate() {
+            match cmd {
+                Command::SetConfig { ref key, .. } => {
+                    // Only keep the last occurrence per key
+                    if set_config_last.get(key) == Some(&i) {
+                        new_commands.push(cmd);
+                    }
+                }
+                Command::RegisterThemeTokens(_) => {
+                    // Emit merged tokens once, skip subsequent
+                    if !theme_tokens_emitted {
+                        theme_tokens_emitted = true;
+                        new_commands.push(Command::RegisterThemeTokens(std::mem::take(
+                            &mut merged_tokens,
+                        )));
+                    }
+                }
+                other => {
+                    new_commands.push(other);
+                }
+            }
+        }
+
+        self.commands = new_commands;
     }
 }
 

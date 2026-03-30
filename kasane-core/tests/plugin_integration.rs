@@ -275,7 +275,7 @@ mod buffer_banner {
     #[derive(Default)]
     pub struct State;
 
-    #[transform(TransformTarget::Buffer)]
+    #[transform(TransformTarget::BUFFER)]
     pub fn wrap_buffer(
         _state: &State,
         subject: TransformSubject,
@@ -301,7 +301,7 @@ fn buffer_transform_adds_banner() {
     let transformed = registry
         .view()
         .apply_transform_chain(
-            kasane_core::plugin::TransformTarget::Buffer,
+            kasane_core::plugin::TransformTarget::BUFFER,
             kasane_core::plugin::TransformSubject::Element(Element::buffer_ref(0..2)),
             &AppView::new(&state),
         )

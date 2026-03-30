@@ -1104,3 +1104,42 @@ fn convert_workspace_resize_command() {
         _ => panic!("expected Workspace(Resize)"),
     }
 }
+
+// --- Phase D: ChannelValue WIT conversion tests ---
+
+use kasane_core::plugin::channel::ChannelValue;
+
+#[test]
+fn channel_value_wit_round_trip_u32() {
+    let original = ChannelValue::new(&42u32).unwrap();
+    let wit_val = channel_value_to_wit(&original);
+    let restored = wit_channel_value_to_core(&wit_val);
+    assert_eq!(restored.deserialize::<u32>().unwrap(), 42);
+    assert!(restored.type_hint().contains("u32"));
+}
+
+#[test]
+fn channel_value_wit_round_trip_string() {
+    let original = ChannelValue::new(&"hello world".to_string()).unwrap();
+    let wit_val = channel_value_to_wit(&original);
+    let restored = wit_channel_value_to_core(&wit_val);
+    assert_eq!(restored.deserialize::<String>().unwrap(), "hello world");
+}
+
+#[test]
+fn channel_value_wit_round_trip_vec() {
+    let original = ChannelValue::new(&vec![1u32, 2, 3]).unwrap();
+    let wit_val = channel_value_to_wit(&original);
+    let restored = wit_channel_value_to_core(&wit_val);
+    assert_eq!(restored.deserialize::<Vec<u32>>().unwrap(), vec![1, 2, 3]);
+}
+
+#[test]
+fn channel_value_wit_preserves_raw_data() {
+    let original = ChannelValue::new(&99u32).unwrap();
+    let wit_val = channel_value_to_wit(&original);
+    assert_eq!(wit_val.data, original.data());
+    assert_eq!(wit_val.type_hint, original.type_hint());
+    let restored = wit_channel_value_to_core(&wit_val);
+    assert_eq!(original, restored);
+}

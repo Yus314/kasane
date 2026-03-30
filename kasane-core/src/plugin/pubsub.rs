@@ -9,13 +9,14 @@
 //!
 //! Cycle prevention: publishing during delivery panics in debug mode.
 
-use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use compact_str::CompactString;
 
+use super::channel::ChannelValue;
 use super::{AppView, PluginId, PluginState};
 
 /// Identifier for a pub/sub topic.
@@ -89,13 +90,13 @@ impl<T> std::fmt::Debug for Topic<T> {
 // Type-erased handler types
 // =============================================================================
 
-/// Type-erased publisher: `fn(&dyn PluginState, &AppView) -> Box<dyn Any>`.
+/// Type-erased publisher: `fn(&dyn PluginState, &AppView) -> ChannelValue`.
 pub(crate) type ErasedPublisher =
-    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Box<dyn Any + Send> + Send + Sync>;
+    Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> ChannelValue + Send + Sync>;
 
-/// Type-erased subscriber: `fn(&dyn PluginState, &dyn Any) -> Box<dyn PluginState>`.
+/// Type-erased subscriber: `fn(&dyn PluginState, &ChannelValue) -> Box<dyn PluginState>`.
 pub(crate) type ErasedSubscriber =
-    Box<dyn Fn(&dyn PluginState, &dyn Any) -> Box<dyn PluginState> + Send + Sync>;
+    Box<dyn Fn(&dyn PluginState, &ChannelValue) -> Box<dyn PluginState> + Send + Sync>;
 
 // =============================================================================
 // Registration entries (stored in HandlerTable)
@@ -121,20 +122,34 @@ pub(crate) struct SubscribeEntry {
 ///
 /// Held externally (e.g. on the event loop) and passed to the plugin runtime
 /// during the pub/sub evaluation phase.
+/// Window size for oscillation detection history.
+const HISTORY_WINDOW: usize = 6;
+
+/// Kind of oscillation pattern detected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OscillationKind {
+    /// Period-2: ABAB pattern.
+    Period2,
+    /// Period-3: ABCABC pattern.
+    Period3,
+}
+
 pub struct TopicBus {
     /// Published values for the current frame, keyed by topic.
     publications: HashMap<TopicId, Vec<PublishedValue>>,
     /// Guard: true while delivering to subscribers (prevents publish-during-deliver).
     delivering: AtomicBool,
+    /// Rolling hash history per topic for oscillation detection.
+    history: HashMap<TopicId, VecDeque<u64>>,
+    /// Frame counter.
+    frame_count: u64,
 }
 
-pub(crate) struct PublishedValue {
-    #[allow(dead_code)]
-    pub(crate) publisher: PluginId,
-    pub(crate) value: Box<dyn Any + Send>,
-    /// Type name for debug diagnostics (set by typed publishers).
-    #[allow(dead_code)]
-    pub(crate) type_name: &'static str,
+pub struct PublishedValue {
+    /// The plugin that published this value.
+    pub publisher: PluginId,
+    /// The published value.
+    pub value: ChannelValue,
 }
 
 impl TopicBus {
@@ -142,27 +157,13 @@ impl TopicBus {
         Self {
             publications: HashMap::new(),
             delivering: AtomicBool::new(false),
+            history: HashMap::new(),
+            frame_count: 0,
         }
     }
 
     /// Record a publication. Panics if called during delivery phase.
-    pub(crate) fn publish(
-        &mut self,
-        topic: TopicId,
-        publisher: PluginId,
-        value: Box<dyn Any + Send>,
-    ) {
-        self.publish_with_type_name(topic, publisher, value, "unknown");
-    }
-
-    /// Record a publication with type name for debug diagnostics.
-    pub(crate) fn publish_with_type_name(
-        &mut self,
-        topic: TopicId,
-        publisher: PluginId,
-        value: Box<dyn Any + Send>,
-        type_name: &'static str,
-    ) {
+    pub fn publish(&mut self, topic: TopicId, publisher: PluginId, value: ChannelValue) {
         debug_assert!(
             !self.delivering.load(Ordering::Relaxed),
             "cannot publish during delivery phase (cycle detected)"
@@ -170,15 +171,11 @@ impl TopicBus {
         self.publications
             .entry(topic)
             .or_default()
-            .push(PublishedValue {
-                publisher,
-                value,
-                type_name,
-            });
+            .push(PublishedValue { publisher, value });
     }
 
     /// Get published values for a topic (for subscriber delivery).
-    pub(crate) fn get_publications(&self, topic: &TopicId) -> Option<&Vec<PublishedValue>> {
+    pub fn get_publications(&self, topic: &TopicId) -> Option<&Vec<PublishedValue>> {
         self.publications.get(topic)
     }
 
@@ -192,10 +189,73 @@ impl TopicBus {
         self.delivering.store(false, Ordering::Relaxed);
     }
 
+    /// Record frame hashes for oscillation detection.
+    ///
+    /// Call after each pub/sub evaluation round. Hashes the serialized
+    /// data bytes of each publication for accurate content-based detection.
+    pub fn record_frame_hashes(&mut self) {
+        self.frame_count += 1;
+        for (topic, pubs) in &self.publications {
+            let mut hasher = std::hash::DefaultHasher::new();
+            for pv in pubs {
+                pv.publisher.0.hash(&mut hasher);
+                pv.value.data().hash(&mut hasher);
+            }
+            let hash = hasher.finish();
+            let history = self.history.entry(topic.clone()).or_default();
+            history.push_back(hash);
+            if history.len() > HISTORY_WINDOW {
+                history.pop_front();
+            }
+        }
+    }
+
+    /// Detect oscillation patterns in topic publication history.
+    ///
+    /// Returns oscillation kind for any topic exhibiting period-2 (ABAB)
+    /// or period-3 (ABCABC) patterns across recent frames.
+    pub fn detect_oscillation(&self) -> Vec<(TopicId, OscillationKind)> {
+        let mut oscillations = Vec::new();
+        for (topic, history) in &self.history {
+            if let Some(kind) = detect_pattern(history) {
+                oscillations.push((topic.clone(), kind));
+            }
+        }
+        oscillations
+    }
+
     /// Clear all publications for the next frame.
     pub fn clear(&mut self) {
         self.publications.clear();
     }
+}
+
+/// Detect period-2 or period-3 oscillation in a hash history.
+fn detect_pattern(history: &VecDeque<u64>) -> Option<OscillationKind> {
+    let len = history.len();
+    // Period-2: need at least 4 entries (ABAB)
+    if len >= 4 {
+        let a = history[len - 4];
+        let b = history[len - 3];
+        let c = history[len - 2];
+        let d = history[len - 1];
+        if a != b && a == c && b == d {
+            return Some(OscillationKind::Period2);
+        }
+    }
+    // Period-3: need at least 6 entries (ABCABC)
+    if len >= 6 {
+        let a = history[len - 6];
+        let b = history[len - 5];
+        let c = history[len - 4];
+        let d = history[len - 3];
+        let e = history[len - 2];
+        let f = history[len - 1];
+        if a != b && b != c && a != c && a == d && b == e && c == f {
+            return Some(OscillationKind::Period3);
+        }
+    }
+    None
 }
 
 impl Default for TopicBus {
@@ -223,11 +283,11 @@ mod tests {
         let topic = TopicId::new("test.counter");
         let plugin = PluginId("test-plugin".to_string());
 
-        bus.publish(topic.clone(), plugin, Box::new(42u32));
+        bus.publish(topic.clone(), plugin, ChannelValue::new(&42u32).unwrap());
 
         let pubs = bus.get_publications(&topic).unwrap();
         assert_eq!(pubs.len(), 1);
-        assert_eq!(*pubs[0].value.downcast_ref::<u32>().unwrap(), 42);
+        assert_eq!(pubs[0].value.deserialize::<u32>().unwrap(), 42);
     }
 
     #[test]
@@ -235,8 +295,16 @@ mod tests {
         let mut bus = TopicBus::new();
         let topic = TopicId::new("shared.topic");
 
-        bus.publish(topic.clone(), PluginId("a".to_string()), Box::new(1u32));
-        bus.publish(topic.clone(), PluginId("b".to_string()), Box::new(2u32));
+        bus.publish(
+            topic.clone(),
+            PluginId("a".to_string()),
+            ChannelValue::new(&1u32).unwrap(),
+        );
+        bus.publish(
+            topic.clone(),
+            PluginId("b".to_string()),
+            ChannelValue::new(&2u32).unwrap(),
+        );
 
         let pubs = bus.get_publications(&topic).unwrap();
         assert_eq!(pubs.len(), 2);
@@ -246,7 +314,11 @@ mod tests {
     fn clear_removes_all() {
         let mut bus = TopicBus::new();
         let topic = TopicId::new("test");
-        bus.publish(topic.clone(), PluginId("p".to_string()), Box::new(()));
+        bus.publish(
+            topic.clone(),
+            PluginId("p".to_string()),
+            ChannelValue::new(&()).unwrap(),
+        );
         assert!(bus.get_publications(&topic).is_some());
 
         bus.clear();
@@ -259,7 +331,11 @@ mod tests {
     fn publish_during_delivery_panics_in_debug() {
         let mut bus = TopicBus::new();
         bus.begin_delivery();
-        bus.publish(TopicId::new("x"), PluginId("p".to_string()), Box::new(()));
+        bus.publish(
+            TopicId::new("x"),
+            PluginId("p".to_string()),
+            ChannelValue::new(&()).unwrap(),
+        );
     }
 
     #[test]
@@ -276,5 +352,95 @@ mod tests {
     fn missing_topic_returns_none() {
         let bus = TopicBus::new();
         assert!(bus.get_publications(&TopicId::new("nonexistent")).is_none());
+    }
+
+    // --- Oscillation detection ---
+
+    #[test]
+    fn no_oscillation_without_history() {
+        let bus = TopicBus::new();
+        assert!(bus.detect_oscillation().is_empty());
+    }
+
+    #[test]
+    fn detect_period_2_oscillation() {
+        let mut history = VecDeque::new();
+        history.push_back(100);
+        history.push_back(200);
+        history.push_back(100);
+        history.push_back(200);
+        assert_eq!(detect_pattern(&history), Some(OscillationKind::Period2));
+    }
+
+    #[test]
+    fn detect_period_3_oscillation() {
+        let mut history = VecDeque::new();
+        history.push_back(100);
+        history.push_back(200);
+        history.push_back(300);
+        history.push_back(100);
+        history.push_back(200);
+        history.push_back(300);
+        assert_eq!(detect_pattern(&history), Some(OscillationKind::Period3));
+    }
+
+    #[test]
+    fn no_oscillation_stable_values() {
+        let mut history = VecDeque::new();
+        history.push_back(100);
+        history.push_back(100);
+        history.push_back(100);
+        history.push_back(100);
+        assert_eq!(detect_pattern(&history), None);
+    }
+
+    #[test]
+    fn record_frame_hashes_builds_history() {
+        let mut bus = TopicBus::new();
+        let topic = TopicId::new("test.topic");
+        let plugin = PluginId("p".to_string());
+
+        // Frame 1
+        bus.publish(
+            topic.clone(),
+            plugin.clone(),
+            ChannelValue::new(&1u32).unwrap(),
+        );
+        bus.record_frame_hashes();
+        bus.clear();
+
+        // Frame 2
+        bus.publish(
+            topic.clone(),
+            plugin.clone(),
+            ChannelValue::new(&2u32).unwrap(),
+        );
+        bus.record_frame_hashes();
+        bus.clear();
+
+        assert_eq!(bus.history.get(&topic).unwrap().len(), 2);
+        assert!(bus.detect_oscillation().is_empty());
+    }
+
+    #[test]
+    fn alternating_publishers_trigger_period_2() {
+        let mut bus = TopicBus::new();
+        let topic = TopicId::new("test.osc");
+
+        for i in 0..4 {
+            let plugin_name = if i % 2 == 0 { "a" } else { "b" };
+            bus.publish(
+                topic.clone(),
+                PluginId(plugin_name.to_string()),
+                ChannelValue::new(&()).unwrap(),
+            );
+            bus.record_frame_hashes();
+            bus.clear();
+        }
+
+        let oscillations = bus.detect_oscillation();
+        assert_eq!(oscillations.len(), 1);
+        assert_eq!(oscillations[0].0, topic);
+        assert_eq!(oscillations[0].1, OscillationKind::Period2);
     }
 }

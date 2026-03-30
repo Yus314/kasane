@@ -4,7 +4,11 @@
 //! authorities), plugin identity, and handler metadata. It is parsed before WASM
 //! compilation, so plugins never participate in their own permission decisions.
 
-use kasane_core::plugin::{PluginAuthorities, PluginCapabilities};
+use kasane_core::plugin::extension_point::ExtensionPointId;
+use kasane_core::plugin::pubsub::TopicId;
+use kasane_core::plugin::{
+    CapabilityDescriptor, PluginAuthorities, PluginCapabilities, TransformTarget,
+};
 use kasane_core::state::DirtyFlags;
 use serde::Deserialize;
 
@@ -46,6 +50,16 @@ pub struct AuthoritiesSection {
 pub struct HandlersSection {
     #[serde(default)]
     pub flags: Vec<String>,
+    #[serde(default)]
+    pub transform_targets: Vec<String>,
+    #[serde(default)]
+    pub publish_topics: Vec<String>,
+    #[serde(default)]
+    pub subscribe_topics: Vec<String>,
+    #[serde(default)]
+    pub extensions_defined: Vec<String>,
+    #[serde(default)]
+    pub extensions_consumed: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -182,6 +196,35 @@ impl PluginManifest {
             }
         }
 
+        // Validate handler metadata fields (duplicates only — values are free-form strings)
+        macro_rules! check_duplicates {
+            ($field:expr, $section:expr) => {{
+                let mut seen = std::collections::HashSet::new();
+                for name in $field {
+                    if !seen.insert(name.as_str()) {
+                        errors.push(ManifestError::DuplicateEntry {
+                            section: $section,
+                            name: name.clone(),
+                        });
+                    }
+                }
+            }};
+        }
+        check_duplicates!(
+            &self.handlers.transform_targets,
+            "handlers.transform_targets"
+        );
+        check_duplicates!(&self.handlers.publish_topics, "handlers.publish_topics");
+        check_duplicates!(&self.handlers.subscribe_topics, "handlers.subscribe_topics");
+        check_duplicates!(
+            &self.handlers.extensions_defined,
+            "handlers.extensions_defined"
+        );
+        check_duplicates!(
+            &self.handlers.extensions_consumed,
+            "handlers.extensions_consumed"
+        );
+
         match errors.len() {
             0 => Ok(()),
             1 => Err(errors.into_iter().next().unwrap()),
@@ -230,6 +273,44 @@ impl PluginManifest {
     /// Host authority names from the manifest.
     pub fn host_authorities(&self) -> &[String] {
         &self.authorities.host
+    }
+
+    /// Build a [`CapabilityDescriptor`] from manifest metadata.
+    pub fn capability_descriptor(&self) -> CapabilityDescriptor {
+        CapabilityDescriptor {
+            transform_targets: self
+                .handlers
+                .transform_targets
+                .iter()
+                .map(|s| TransformTarget::new(s.clone()))
+                .collect(),
+            contribution_slots: Vec::new(),
+            annotation_scopes: Vec::new(),
+            publish_topics: self
+                .handlers
+                .publish_topics
+                .iter()
+                .map(|s| TopicId::new(s.clone()))
+                .collect(),
+            subscribe_topics: self
+                .handlers
+                .subscribe_topics
+                .iter()
+                .map(|s| TopicId::new(s.clone()))
+                .collect(),
+            extensions_defined: self
+                .handlers
+                .extensions_defined
+                .iter()
+                .map(|s| ExtensionPointId::new(s.clone()))
+                .collect(),
+            extensions_consumed: self
+                .handlers
+                .extensions_consumed
+                .iter()
+                .map(|s| ExtensionPointId::new(s.clone()))
+                .collect(),
+        }
     }
 }
 
@@ -760,6 +841,165 @@ abi_version = "0.22.0"
         assert_eq!(
             handler_flag_bit("navigation-action"),
             Some(PluginCapabilities::NAVIGATION_ACTION.bits())
+        );
+    }
+
+    // --- New handlers section fields tests ---
+
+    #[test]
+    fn parse_manifest_with_new_handler_fields() {
+        let toml = r#"
+[plugin]
+id = "ext_plugin"
+abi_version = "0.22.0"
+
+[handlers]
+flags = ["transformer"]
+transform_targets = ["kasane.buffer", "kasane.menu"]
+publish_topics = ["cursor.line", "cursor.col"]
+subscribe_topics = ["theme.changed"]
+extensions_defined = ["myplugin.status-items"]
+extensions_consumed = ["other.ext"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        assert_eq!(
+            manifest.handlers.transform_targets,
+            vec!["kasane.buffer", "kasane.menu"]
+        );
+        assert_eq!(
+            manifest.handlers.publish_topics,
+            vec!["cursor.line", "cursor.col"]
+        );
+        assert_eq!(manifest.handlers.subscribe_topics, vec!["theme.changed"]);
+        assert_eq!(
+            manifest.handlers.extensions_defined,
+            vec!["myplugin.status-items"]
+        );
+        assert_eq!(manifest.handlers.extensions_consumed, vec!["other.ext"]);
+        assert!(manifest.validate().is_ok());
+    }
+
+    #[test]
+    fn capability_descriptor_from_manifest() {
+        let toml = r#"
+[plugin]
+id = "desc_test"
+abi_version = "0.22.0"
+
+[handlers]
+transform_targets = ["kasane.buffer"]
+publish_topics = ["my.topic"]
+subscribe_topics = ["other.topic"]
+extensions_defined = ["my.ext"]
+extensions_consumed = ["other.ext"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let desc = manifest.capability_descriptor();
+        assert_eq!(desc.transform_targets.len(), 1);
+        assert_eq!(desc.transform_targets[0].as_str(), "kasane.buffer");
+        assert_eq!(desc.publish_topics.len(), 1);
+        assert_eq!(desc.publish_topics[0].as_str(), "my.topic");
+        assert_eq!(desc.subscribe_topics.len(), 1);
+        assert_eq!(desc.subscribe_topics[0].as_str(), "other.topic");
+        assert_eq!(desc.extensions_defined.len(), 1);
+        assert_eq!(desc.extensions_defined[0].as_str(), "my.ext");
+        assert_eq!(desc.extensions_consumed.len(), 1);
+        assert_eq!(desc.extensions_consumed[0].as_str(), "other.ext");
+    }
+
+    #[test]
+    fn capability_descriptor_empty_for_minimal_manifest() {
+        let manifest = PluginManifest::parse(MINIMAL_MANIFEST).unwrap();
+        let desc = manifest.capability_descriptor();
+        assert!(desc.transform_targets.is_empty());
+        assert!(desc.publish_topics.is_empty());
+        assert!(desc.subscribe_topics.is_empty());
+        assert!(desc.extensions_defined.is_empty());
+        assert!(desc.extensions_consumed.is_empty());
+    }
+
+    #[test]
+    fn validate_detects_duplicate_transform_targets() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+transform_targets = ["kasane.buffer", "kasane.buffer"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "handlers.transform_targets", ref name } if name == "kasane.buffer")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_publish_topics() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+publish_topics = ["my.topic", "my.topic"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "handlers.publish_topics", ref name } if name == "my.topic")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_subscribe_topics() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+subscribe_topics = ["t", "t"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "handlers.subscribe_topics", ref name } if name == "t")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_extensions_defined() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+extensions_defined = ["my.ext", "my.ext"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "handlers.extensions_defined", ref name } if name == "my.ext")
+        );
+    }
+
+    #[test]
+    fn validate_detects_duplicate_extensions_consumed() {
+        let toml = r#"
+[plugin]
+id = "test"
+abi_version = "0.22.0"
+
+[handlers]
+extensions_consumed = ["x", "x"]
+"#;
+        let manifest = PluginManifest::parse(toml).unwrap();
+        let err = manifest.validate().unwrap_err();
+        assert!(
+            matches!(err, ManifestError::DuplicateEntry { section: "handlers.extensions_consumed", ref name } if name == "x")
         );
     }
 

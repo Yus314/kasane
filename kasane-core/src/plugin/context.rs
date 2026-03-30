@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use compact_str::CompactString;
+
 use crate::display::DisplayMapRef;
 use crate::element::{Element, Overlay, OverlayAnchor};
 use crate::layout::Rect;
@@ -183,32 +185,56 @@ pub enum ContribSizeHint {
     Flex(f32),
 }
 
-/// Transform target — unifies Decorator + Replacement targets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TransformTarget {
-    Buffer,
-    BufferLine(usize),
-    StatusBar,
-    Menu,
-    MenuPrompt,
-    MenuInline,
-    MenuSearch,
-    Info,
-    InfoPrompt,
-    InfoModal,
-}
+/// Transform target — open, namespace-based identifier for UI regions.
+///
+/// Well-known targets have `const` definitions matching the legacy enum variants.
+/// Plugins can define custom targets using arbitrary namespaced names.
+/// Parametric targets (e.g., `buffer_line(42)`) encode the parameter in the string.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TransformTarget(CompactString);
 
 impl TransformTarget {
+    pub const BUFFER: Self = Self(CompactString::const_new("kasane.buffer"));
+    pub const BUFFER_LINE: Self = Self(CompactString::const_new("kasane.buffer.line"));
+    pub const STATUS_BAR: Self = Self(CompactString::const_new("kasane.status-bar"));
+    pub const MENU: Self = Self(CompactString::const_new("kasane.menu"));
+    pub const MENU_PROMPT: Self = Self(CompactString::const_new("kasane.menu.prompt"));
+    pub const MENU_INLINE: Self = Self(CompactString::const_new("kasane.menu.inline"));
+    pub const MENU_SEARCH: Self = Self(CompactString::const_new("kasane.menu.search"));
+    pub const INFO: Self = Self(CompactString::const_new("kasane.info"));
+    pub const INFO_PROMPT: Self = Self(CompactString::const_new("kasane.info.prompt"));
+    pub const INFO_MODAL: Self = Self(CompactString::const_new("kasane.info.modal"));
+
+    /// Create a parametric buffer-line target for a specific line.
+    pub fn buffer_line(line: usize) -> Self {
+        Self(CompactString::from(format!("kasane.buffer.line.{line}")))
+    }
+
+    /// Extract the line number from a parametric buffer-line target.
+    pub fn as_buffer_line(&self) -> Option<usize> {
+        self.0
+            .strip_prefix("kasane.buffer.line.")
+            .and_then(|s| s.parse().ok())
+    }
+
     /// Return the parent target in the refinement hierarchy, if any.
     ///
-    /// Style-specific menu/info targets refine their generic parent:
-    /// `MenuPrompt → Menu`, `InfoPrompt → Info`, etc.
-    pub fn parent(&self) -> Option<TransformTarget> {
-        match self {
-            Self::MenuPrompt | Self::MenuInline | Self::MenuSearch => Some(Self::Menu),
-            Self::InfoPrompt | Self::InfoModal => Some(Self::Info),
-            _ => None,
+    /// Namespace-based: splits on `.` and returns the prefix.
+    /// Top-level targets (e.g., `kasane.buffer`) have no parent.
+    /// For parametric `buffer_line(n)`, the suffix is stripped first.
+    pub fn parent(&self) -> Option<Self> {
+        let s = if self.as_buffer_line().is_some() {
+            "kasane.buffer.line"
+        } else {
+            self.0.as_str()
+        };
+        // Top-level targets (kasane.X) have no parent
+        let dot_count = s.matches('.').count();
+        if dot_count <= 1 {
+            return None;
         }
+        s.rsplit_once('.')
+            .map(|(p, _)| Self(CompactString::from(p)))
     }
 
     /// Return the refinement chain: `[parent, self]` if a parent exists, otherwise `[self]`.
@@ -217,14 +243,24 @@ impl TransformTarget {
     /// generic to specific.
     pub fn refinement_chain(&self) -> Vec<TransformTarget> {
         match self.parent() {
-            Some(parent) => vec![parent, *self],
-            None => vec![*self],
+            Some(parent) => vec![parent, self.clone()],
+            None => vec![self.clone()],
         }
     }
 
     /// Returns true if this target is a style-specific refinement of a generic target.
     pub fn is_refinement(&self) -> bool {
         self.parent().is_some()
+    }
+
+    /// Create a custom transform target.
+    pub fn new(name: impl Into<CompactString>) -> Self {
+        Self(name.into())
+    }
+
+    /// Get the target name.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -267,6 +303,8 @@ pub struct TransformContext {
     pub chain_position: usize,
     pub pane_surface_id: Option<SurfaceId>,
     pub pane_focused: bool,
+    /// The specific buffer line being transformed (set for `BufferLine` targets).
+    pub target_line: Option<usize>,
 }
 
 /// Context for `annotate_line_with_ctx()`.

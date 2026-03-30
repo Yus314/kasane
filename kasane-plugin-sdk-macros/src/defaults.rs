@@ -109,6 +109,9 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "invoke_action",
         "navigation_policy",
         "on_navigation_action",
+        "publish_value",
+        "on_subscription",
+        "evaluate_extension",
     ]
     .into_iter()
     .collect()
@@ -536,6 +539,33 @@ pub(crate) fn generate_defaults(
     add_default!(
         "on_navigation_action",
         quote! { fn on_navigation_action(_unit: DisplayUnitInfo, _action_kind: u32) -> NavigationActionResult { NavigationActionResult { handled: false, keys: None } } }
+    );
+
+    // --- Pub/Sub (v0.24.0) ---
+
+    add_default!(
+        "publish_value",
+        quote! {
+            fn publish_value(_topic: String) -> Option<ChannelValue> { None }
+        }
+    );
+
+    add_default!(
+        "on_subscription",
+        quote! {
+            fn on_subscription(_topic: String, _values: Vec<ChannelValue>) -> RuntimeEffects {
+                Effects::default()
+            }
+        }
+    );
+
+    // --- Extension points (v0.24.0) ---
+
+    add_default!(
+        "evaluate_extension",
+        quote! {
+            fn evaluate_extension(_id: String, _input: ChannelValue) -> Option<ChannelValue> { None }
+        }
     );
 
     // --- Handler capability declaration (v0.23.0) ---

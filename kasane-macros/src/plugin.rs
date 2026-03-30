@@ -119,7 +119,7 @@ fn has_attr(attrs: &[Attribute], name: &str) -> bool {
     attrs.iter().any(|a| a.path().is_ident(name))
 }
 
-/// Extract `#[transform(TransformTarget::StatusBar, priority = 50)]`
+/// Extract `#[transform(TransformTarget::STATUS_BAR, priority = 50)]`
 fn extract_transform_attr(attrs: &[Attribute]) -> syn::Result<Option<(ExprPath, Option<u32>)>> {
     for attr in attrs {
         if attr.path().is_ident("transform") {
@@ -343,14 +343,16 @@ fn gen_transform_impl(def: &PluginDef) -> TokenStream {
         return quote! {};
     }
 
-    let transform_arms: Vec<_> = def
+    let transform_branches: Vec<_> = def
         .transforms
         .iter()
         .map(|tb| {
             let target_path = &tb.target_path;
             let fn_name = &tb.fn_name;
             quote! {
-                kasane_core::plugin::#target_path => #mod_ident::#fn_name(&self.state, _subject, _state),
+                if *_target == kasane_core::plugin::#target_path {
+                    return #mod_ident::#fn_name(&self.state, _subject, _state);
+                }
             }
         })
         .collect();
@@ -363,10 +365,8 @@ fn gen_transform_impl(def: &PluginDef) -> TokenStream {
             _state: &kasane_core::plugin::AppView<'_>,
             _ctx: &kasane_core::plugin::TransformContext,
         ) -> kasane_core::plugin::TransformSubject {
-            match _target {
-                #(#transform_arms)*
-                _ => _subject,
-            }
+            #(#transform_branches)*
+            _subject
         }
     };
 
@@ -847,12 +847,10 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
 
     // Transform handlers
     for tb in &def.transforms {
-        let target_path = &tb.target_path;
         let fn_name = &tb.fn_name;
         let priority = tb.priority.unwrap_or(0);
         register_body.push(quote! {
             r.on_transform(
-                kasane_core::plugin::#target_path,
                 #priority,
                 |state, subject, app, ctx| #mod_ident::#fn_name(state, subject, app, ctx),
             );

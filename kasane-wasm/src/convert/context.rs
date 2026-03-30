@@ -186,19 +186,13 @@ pub(crate) fn wit_size_hint_to_size_hint(wsh: &wit::ContribSizeHint) -> ContribS
     }
 }
 
-pub(crate) fn transform_target_to_wit(target: &TransformTarget) -> wit::TransformTarget {
-    match target {
-        TransformTarget::Buffer => wit::TransformTarget::Buffer,
-        TransformTarget::BufferLine(_) => wit::TransformTarget::BufferLine,
-        TransformTarget::StatusBar => wit::TransformTarget::StatusBarT,
-        TransformTarget::Menu => wit::TransformTarget::MenuT,
-        TransformTarget::MenuPrompt => wit::TransformTarget::MenuPromptT,
-        TransformTarget::MenuInline => wit::TransformTarget::MenuInlineT,
-        TransformTarget::MenuSearch => wit::TransformTarget::MenuSearchT,
-        TransformTarget::Info => wit::TransformTarget::InfoT,
-        TransformTarget::InfoPrompt => wit::TransformTarget::InfoPromptT,
-        TransformTarget::InfoModal => wit::TransformTarget::InfoModalT,
-    }
+pub(crate) fn transform_target_to_wit(target: &TransformTarget) -> String {
+    target.as_str().to_string()
+}
+
+#[allow(dead_code)]
+pub(crate) fn wit_transform_target_to_target(s: &str) -> TransformTarget {
+    TransformTarget::new(s)
 }
 
 pub(crate) fn transform_context_to_wit(ctx: &TransformContext) -> wit::TransformContext {
