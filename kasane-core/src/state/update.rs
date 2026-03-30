@@ -2,7 +2,7 @@ use crate::input;
 use crate::input::{DropEvent, InputEvent, KeyEvent, MouseEvent};
 use crate::plugin::{
     AppView, Command, KeyDispatchResult, MouseHandleResult, PluginEffects, PluginId,
-    extract_redraw_flags,
+    TextInputHandleResult, extract_redraw_flags,
 };
 use crate::protocol::{KakouneRequest, KasaneRequest};
 use crate::scroll::{LegacyScrollDispatch, ScrollPlan};
@@ -13,8 +13,9 @@ use super::{AppState, DirtyFlags, DragState};
 pub enum Msg {
     Kakoune(KakouneRequest),
     Key(KeyEvent),
+    TextInput(String),
     Mouse(MouseEvent),
-    Paste,
+    ClipboardPaste,
     Drop(DropEvent),
     Resize { cols: u16, rows: u16 },
     FocusGained,
@@ -25,8 +26,9 @@ impl From<InputEvent> for Msg {
     fn from(event: InputEvent) -> Self {
         match event {
             InputEvent::Key(key) => Msg::Key(key),
+            InputEvent::TextInput(text) => Msg::TextInput(text),
             InputEvent::Mouse(mouse) => Msg::Mouse(mouse),
-            InputEvent::Paste(_) => Msg::Paste,
+            InputEvent::Paste(text) => Msg::TextInput(text),
             InputEvent::Drop(drop) => Msg::Drop(drop),
             InputEvent::Resize(cols, rows) => Msg::Resize { cols, rows },
             InputEvent::FocusGained => Msg::FocusGained,
@@ -148,6 +150,31 @@ fn update_inner<E: PluginEffects>(
                         source_plugin: None,
                     }
                 }
+            }
+        }
+        Msg::TextInput(text) => {
+            let app = AppView::new(state);
+            effects.observe_text_input_all(&text, &app);
+
+            match effects.dispatch_text_input_handler(&text, &app) {
+                TextInputHandleResult::Handled {
+                    source_plugin,
+                    mut commands,
+                } => {
+                    let flags = extract_redraw_flags(&mut commands);
+                    UpdateResult {
+                        flags,
+                        commands,
+                        scroll_plans: vec![],
+                        source_plugin: Some(source_plugin),
+                    }
+                }
+                TextInputHandleResult::NotHandled => UpdateResult {
+                    flags: DirtyFlags::empty(),
+                    commands: vec![Command::InsertText(text)],
+                    scroll_plans: vec![],
+                    source_plugin: None,
+                },
             }
         }
         Msg::Mouse(mouse) => {
@@ -353,9 +380,9 @@ fn update_inner<E: PluginEffects>(
                 source_plugin: None,
             }
         }
-        Msg::Paste => UpdateResult {
+        Msg::ClipboardPaste => UpdateResult {
             flags: DirtyFlags::empty(),
-            commands: vec![Command::Paste],
+            commands: vec![Command::PasteClipboard],
             scroll_plans: vec![],
             source_plugin: None,
         },

@@ -69,6 +69,8 @@ pub trait PluginBackend: Any {
 
     /// Observe a key event (notification only, cannot consume).
     fn observe_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) {}
+    /// Observe committed text input (notification only, cannot consume).
+    fn observe_text_input(&mut self, _text: &str, _state: &AppView<'_>) {}
     /// Observe a mouse event (notification only, cannot consume).
     fn observe_mouse(&mut self, _event: &MouseEvent, _state: &AppView<'_>) {}
     /// Observe a drop event (notification only, cannot consume).
@@ -80,6 +82,9 @@ pub trait PluginBackend: Any {
         Effects::default()
     }
     fn handle_key(&mut self, _key: &KeyEvent, _state: &AppView<'_>) -> Option<Vec<Command>> {
+        None
+    }
+    fn handle_text_input(&mut self, _text: &str, _state: &AppView<'_>) -> Option<Vec<Command>> {
         None
     }
     fn handle_key_middleware(&mut self, key: &KeyEvent, state: &AppView<'_>) -> KeyHandleResult {

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{Ime, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
@@ -16,10 +16,11 @@ use kasane_core::config::Config;
 use kasane_core::event_loop::{
     DeferredContext, SessionReadyGate, apply_bootstrap_effects, handle_command_batch,
     handle_sourced_surface_commands, handle_workspace_divider_input,
-    maybe_flush_active_session_ready, notify_workspace_observers, register_builtin_surfaces,
+    maybe_flush_active_session_ready, normalize_input_for_state, notify_workspace_observers,
+    register_builtin_surfaces, route_surface_key_input, route_surface_text_input,
     surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
 };
-use kasane_core::input::InputEvent;
+use kasane_core::input::{InputEvent, resolve_text_input_target};
 use kasane_core::layout::Rect;
 use kasane_core::plugin::{
     AppView, Command, IoEvent, PluginDiagnosticOverlayState, PluginManager, PluginRuntime,
@@ -42,6 +43,9 @@ use crate::colors::ColorResolver;
 use crate::diagnostics_overlay::build_diagnostic_overlay_commands;
 use crate::gpu::GpuState;
 use crate::gpu::scene_renderer::SceneRenderer;
+use crate::ime::{
+    GuiImeState, build_ime_overlay_commands, sync_ime_cursor_area as sync_window_ime_cursor_area,
+};
 use crate::input::{apply_modifiers, convert_window_event};
 use crate::{GuiEvent, GuiEventSink};
 
@@ -95,6 +99,7 @@ where
     cursor_animation: CursorAnimation,
     cursor_dirty: bool,
     last_render_result: Option<RenderResult>,
+    ime: GuiImeState,
     diagnostic_overlay: PluginDiagnosticOverlayState,
 
     // Event loop proxy for scheduling
@@ -239,6 +244,7 @@ where
             cursor_animation: CursorAnimation::new(),
             cursor_dirty: false,
             last_render_result: None,
+            ime: GuiImeState::default(),
             diagnostic_overlay,
             event_proxy: event_proxy.clone(),
             gui_sink,
@@ -268,7 +274,6 @@ where
                 .create_window(attrs)
                 .expect("failed to create window"),
         );
-        window.set_ime_allowed(true);
 
         let scale_factor = window.scale_factor();
         let phys_size = window.inner_size();
@@ -310,6 +315,7 @@ where
         }
 
         self.window = Some(window);
+        self.sync_ime_binding();
     }
 
     fn toggle_fullscreen(&mut self) {
@@ -533,6 +539,7 @@ where
                 }
             }
         }
+        self.sync_ime_binding();
     }
 
     fn drain_runtime_diagnostics(&mut self) {
@@ -548,6 +555,7 @@ where
     }
 
     fn handle_input_event(&mut self, input: InputEvent, event_loop: &ActiveEventLoop) {
+        let input = normalize_input_for_state(input, &self.state);
         let total = Rect {
             x: 0,
             y: 0,
@@ -566,6 +574,26 @@ where
                     );
                 }
                 (dirty, vec![], None, vec![], vec![])
+            } else if let Some(surface_commands) =
+                route_surface_key_input(&input, &mut self.surface_registry, &self.state, total)
+            {
+                (
+                    DirtyFlags::empty(),
+                    vec![],
+                    None,
+                    vec![surface_commands],
+                    vec![],
+                )
+            } else if let Some(surface_commands) =
+                route_surface_text_input(&input, &mut self.surface_registry, &self.state, total)
+            {
+                (
+                    DirtyFlags::empty(),
+                    vec![],
+                    None,
+                    vec![surface_commands],
+                    vec![],
+                )
             } else {
                 let surface_event = surface_event_from_input(&input);
                 let msg = Msg::from(input);
@@ -763,6 +791,77 @@ where
         notify_workspace_observers(&mut self.registry, &self.surface_registry, &self.state);
     }
 
+    fn request_redraw(&self) {
+        if let Some(ref window) = self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn sync_ime_binding(&mut self) {
+        let target =
+            resolve_text_input_target(&self.state, self.session_manager.active_session_id());
+        let target_changed = self.ime.bind_target(target);
+        let allowed = target.is_some();
+        let allowed_changed = self.ime.policy_allowed != allowed;
+
+        self.ime.policy_allowed = allowed;
+        if !allowed {
+            self.ime.platform_enabled = false;
+        }
+
+        if allowed_changed && let Some(ref window) = self.window {
+            window.set_ime_allowed(allowed);
+        }
+
+        if target_changed && self.ime.overlay_dirty {
+            self.request_redraw();
+        }
+        self.sync_ime_cursor_area();
+    }
+
+    fn sync_ime_cursor_area(&self) {
+        let (Some(window), Some(sr), Some(render_result)) = (
+            self.window.as_ref(),
+            self.scene_renderer.as_ref(),
+            self.last_render_result,
+        ) else {
+            return;
+        };
+
+        sync_window_ime_cursor_area(window, &self.ime, render_result, sr.metrics());
+    }
+
+    fn handle_ime_event(&mut self, ime: &Ime, event_loop: &ActiveEventLoop) {
+        match ime {
+            Ime::Enabled => {
+                self.ime.platform_enabled = true;
+                self.sync_ime_cursor_area();
+            }
+            Ime::Preedit(text, range) => {
+                if self.ime.set_preedit(text.clone(), *range) {
+                    self.request_redraw();
+                }
+                self.sync_ime_cursor_area();
+            }
+            Ime::Commit(text) => {
+                let had_overlay = self.ime.clear_preedit();
+                self.sync_ime_cursor_area();
+                if had_overlay {
+                    self.request_redraw();
+                }
+                if !text.is_empty() {
+                    self.handle_input_event(InputEvent::TextInput(text.clone()), event_loop);
+                }
+            }
+            Ime::Disabled => {
+                self.ime.platform_enabled = false;
+                if self.ime.clear_preedit() {
+                    self.request_redraw();
+                }
+            }
+        }
+    }
+
     fn render_frame(&mut self) {
         let Some(ref mut gpu) = self.gpu else {
             tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
@@ -777,16 +876,24 @@ where
             gpu.surface.configure(&gpu.device, &gpu.config);
         }
         let gpu = self.gpu.as_ref().unwrap();
-        let Some(ref mut resolver) = self.color_resolver else {
+        let Some(_) = self.color_resolver.as_ref() else {
             tracing::warn!("[app] render_frame skipped: missing gpu/resolver");
             return;
         };
-        resolver.sync_defaults(&self.state.default_face);
+        self.color_resolver
+            .as_mut()
+            .expect("resolver checked above")
+            .sync_defaults(&self.state.default_face);
         tracing::debug!(
             "[app] render_frame start ({}x{})",
             self.state.cols,
             self.state.rows
         );
+        let ime_overlay_face = if self.state.is_prompt_mode() {
+            self.state.status_default_face
+        } else {
+            self.state.default_face
+        };
 
         let Some(ref mut sr) = self.scene_renderer else {
             return;
@@ -858,6 +965,9 @@ where
                 },
             );
             self.last_render_result = Some(result);
+            if let Some(ref window) = self.window {
+                sync_window_ime_cursor_area(window, &self.ime, result, sr.metrics());
+            }
             self.state.display_scroll_offset = result.display_scroll_offset;
             self.state.display_map = Some(display_map);
             self.state.display_unit_map = self
@@ -872,9 +982,17 @@ where
                 self.state.cols,
                 self.state.rows,
             );
+            let ime_overlay_commands =
+                build_ime_overlay_commands(&self.ime, result, cell_size, ime_overlay_face);
+            let mut overlay_commands = overlay_commands;
+            overlay_commands.extend(ime_overlay_commands);
             let frame_commands = append_overlay_commands(commands, overlay_commands);
 
             let (cw, ch) = (sr.metrics().cell_width, sr.metrics().cell_height);
+            let resolver = self
+                .color_resolver
+                .as_ref()
+                .expect("resolver checked above");
             submit_render(
                 sr,
                 gpu,
@@ -897,14 +1015,25 @@ where
             // Cursor-only frame: reuse cached scene commands
             let _cursor_span = tracing::info_span!("cursor_only_frame").entered();
             let commands = self.scene_cache.composed_ref();
+            if let Some(ref window) = self.window {
+                sync_window_ime_cursor_area(window, &self.ime, result, sr.metrics());
+            }
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
                 cell_size,
                 self.state.cols,
                 self.state.rows,
             );
+            let ime_overlay_commands =
+                build_ime_overlay_commands(&self.ime, result, cell_size, ime_overlay_face);
+            let mut overlay_commands = overlay_commands;
+            overlay_commands.extend(ime_overlay_commands);
             let frame_commands = append_overlay_commands(commands, overlay_commands);
             let (cw, ch) = (sr.metrics().cell_width, sr.metrics().cell_height);
+            let resolver = self
+                .color_resolver
+                .as_ref()
+                .expect("resolver checked above");
             submit_render(
                 sr,
                 gpu,
@@ -1005,6 +1134,7 @@ where
                 self.gpu.is_some(),
                 self.scene_renderer.is_some()
             );
+            self.sync_ime_binding();
         }
     }
 
@@ -1041,10 +1171,11 @@ where
             }
 
             WindowEvent::RedrawRequested => {
-                if !self.dirty.is_empty() || self.cursor_dirty {
+                if !self.dirty.is_empty() || self.cursor_dirty || self.ime.overlay_dirty {
                     self.render_frame();
                     self.dirty = DirtyFlags::empty();
                     self.cursor_dirty = false;
+                    self.ime.overlay_dirty = false;
                 }
                 return;
             }
@@ -1053,8 +1184,16 @@ where
                     self.cursor_animation.resume();
                 } else {
                     self.cursor_animation.pause();
+                    self.ime.platform_enabled = false;
+                    if self.ime.clear_preedit() {
+                        self.request_redraw();
+                    }
                 }
                 // Fall through to input conversion so plugins can observe focus
+            }
+            WindowEvent::Ime(ime) => {
+                self.handle_ime_event(ime, event_loop);
+                return;
             }
             _ => {}
         }
@@ -1140,6 +1279,10 @@ where
             && let Some(ref window) = self.window
         {
             window.request_redraw();
+        }
+
+        if self.ime.overlay_dirty {
+            self.request_redraw();
         }
 
         let scroll_deadline = self

@@ -3,6 +3,82 @@
 use super::*;
 
 impl SurfaceRegistry {
+    /// Dispatch a key event to the focused surface.
+    ///
+    /// Returns `Some(...)` when the focused surface consumed the key, even when
+    /// it produced no commands. Returns `None` when the key should continue
+    /// through the normal editor/plugin input pipeline.
+    pub fn dispatch_key_input_with_sources(
+        &mut self,
+        key: &crate::input::KeyEvent,
+        state: &AppState,
+        total: Rect,
+    ) -> Option<SourcedSurfaceCommands> {
+        let focused = self.workspace.focused();
+        let entry = self.surfaces.get_mut(&focused)?;
+        let rect = self
+            .workspace
+            .compute_rects(total)
+            .get(&focused)
+            .copied()
+            .unwrap_or(Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            });
+        let ctx = EventContext {
+            state,
+            rect,
+            focused: true,
+        };
+        entry
+            .surface
+            .handle_key_input(key, &ctx)
+            .map(|commands| SourcedSurfaceCommands {
+                source_plugin: entry.owner_plugin.clone(),
+                commands,
+            })
+    }
+
+    /// Dispatch committed text input to the focused surface.
+    ///
+    /// Returns `Some(...)` when the focused surface consumed the text input,
+    /// even when it produced no commands. Returns `None` when the text input
+    /// should continue through the normal editor/plugin input pipeline.
+    pub fn dispatch_text_input_with_sources(
+        &mut self,
+        text: &str,
+        state: &AppState,
+        total: Rect,
+    ) -> Option<SourcedSurfaceCommands> {
+        let focused = self.workspace.focused();
+        let entry = self.surfaces.get_mut(&focused)?;
+        let rect = self
+            .workspace
+            .compute_rects(total)
+            .get(&focused)
+            .copied()
+            .unwrap_or(Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            });
+        let ctx = EventContext {
+            state,
+            rect,
+            focused: true,
+        };
+        entry
+            .surface
+            .handle_text_input(text, &ctx)
+            .map(|commands| SourcedSurfaceCommands {
+                source_plugin: entry.owner_plugin.clone(),
+                commands,
+            })
+    }
+
     /// Notify all surfaces of a state change.
     pub fn on_state_changed(&mut self, state: &AppState, dirty: DirtyFlags) -> Vec<Command> {
         self.on_state_changed_with_sources(state, dirty)

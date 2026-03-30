@@ -1,7 +1,7 @@
 use kasane_core::input::{
     DropEvent, InputEvent, Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use winit::event::{ElementState, Ime, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
 use crate::gpu::CellMetrics;
@@ -20,7 +20,6 @@ pub fn convert_window_event(
             }
             convert_key_event(event).into_iter().collect()
         }
-        WindowEvent::Ime(ime) => convert_ime(ime),
         WindowEvent::Resized(size) => {
             let cols = (size.width as f32 / cell_metrics.cell_width)
                 .floor()
@@ -209,21 +208,6 @@ fn build_modifiers(winit_mods: &winit::keyboard::ModifiersState) -> Modifiers {
         mods |= Modifiers::SHIFT;
     }
     mods
-}
-
-fn convert_ime(ime: &Ime) -> Vec<InputEvent> {
-    match ime {
-        Ime::Commit(text) => text
-            .chars()
-            .map(|ch| {
-                InputEvent::Key(KeyEvent {
-                    key: Key::Char(ch),
-                    modifiers: Modifiers::empty(),
-                })
-            })
-            .collect(),
-        Ime::Preedit(_, _) | Ime::Enabled | Ime::Disabled => vec![],
-    }
 }
 
 /// Convert pixel coordinates to grid (col, row), clamped to grid bounds.

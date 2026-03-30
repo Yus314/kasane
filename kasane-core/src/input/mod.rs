@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use bitflags::bitflags;
 
 use crate::plugin::Command;
+use crate::protocol::StatusStyle;
+use crate::session::SessionId;
+use crate::state::AppState;
+use crate::state::derived::EditorMode;
 
 // ---------------------------------------------------------------------------
 // Input event types
@@ -18,12 +22,33 @@ use crate::plugin::Command;
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputEvent {
     Key(KeyEvent),
+    TextInput(String),
     Mouse(MouseEvent),
     Paste(String),
     Resize(u16, u16),
     FocusGained,
     FocusLost,
     Drop(DropEvent),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextInputTargetKind {
+    Buffer,
+    Prompt(StatusStyle),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextInputTargetAuthority {
+    ObservedStatusStyle,
+    ObservedPromptCursor,
+    HeuristicModeLine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedTextInputTarget {
+    pub session_id: Option<SessionId>,
+    pub kind: TextInputTargetKind,
+    pub authority: TextInputTargetAuthority,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,6 +188,55 @@ impl KeyEvent {
             Key::Char(c) if !self.modifiers.intersects(Modifiers::CTRL | Modifiers::ALT) => Some(c),
             _ => None,
         }
+    }
+}
+
+pub fn resolve_text_input_target(
+    state: &AppState,
+    session_id: Option<SessionId>,
+) -> Option<ResolvedTextInputTarget> {
+    match state.status_style {
+        StatusStyle::Command | StatusStyle::Search | StatusStyle::Prompt => {
+            return Some(ResolvedTextInputTarget {
+                session_id,
+                kind: TextInputTargetKind::Prompt(state.status_style),
+                authority: TextInputTargetAuthority::ObservedStatusStyle,
+            });
+        }
+        StatusStyle::Status => {}
+    }
+
+    if state.status_content_cursor_pos >= 0 {
+        return Some(ResolvedTextInputTarget {
+            session_id,
+            kind: TextInputTargetKind::Prompt(state.status_style),
+            authority: TextInputTargetAuthority::ObservedPromptCursor,
+        });
+    }
+
+    match state.editor_mode {
+        EditorMode::Insert | EditorMode::Replace => Some(ResolvedTextInputTarget {
+            session_id,
+            kind: TextInputTargetKind::Buffer,
+            authority: TextInputTargetAuthority::HeuristicModeLine,
+        }),
+        _ => None,
+    }
+}
+
+/// Normalize plain character keys into semantic text input when a text target exists.
+pub fn normalize_text_input_event(input: InputEvent, state: &AppState) -> InputEvent {
+    match input {
+        InputEvent::Key(key)
+            if resolve_text_input_target(state, None).is_some() && key.plain_char().is_some() =>
+        {
+            InputEvent::TextInput(
+                key.plain_char()
+                    .expect("plain_char checked in guard")
+                    .to_string(),
+            )
+        }
+        other => other,
     }
 }
 
@@ -361,6 +435,8 @@ fn mouse_button_str(button: MouseButton) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::AppState;
+    use crate::state::derived::EditorMode;
 
     fn key(k: Key, m: Modifiers) -> KeyEvent {
         KeyEvent {
@@ -578,6 +654,49 @@ mod tests {
     fn test_paste_text_to_keys_multibyte() {
         let keys = paste_text_to_keys("日本語");
         assert_eq!(keys, vec!["日", "本", "語"]);
+    }
+
+    #[test]
+    fn test_normalize_text_input_event_upgrades_prompt_plain_char() {
+        let state = AppState {
+            status_content_cursor_pos: 0,
+            ..AppState::default()
+        };
+        let normalized =
+            normalize_text_input_event(InputEvent::Key(KeyEvent::char_plain('a')), &state);
+        assert_eq!(normalized, InputEvent::TextInput("a".into()));
+    }
+
+    #[test]
+    fn test_normalize_text_input_event_upgrades_insert_plain_char() {
+        let state = AppState {
+            editor_mode: EditorMode::Insert,
+            ..AppState::default()
+        };
+        let normalized = normalize_text_input_event(
+            InputEvent::Key(KeyEvent {
+                key: Key::Char('A'),
+                modifiers: Modifiers::SHIFT,
+            }),
+            &state,
+        );
+        assert_eq!(normalized, InputEvent::TextInput("A".into()));
+    }
+
+    #[test]
+    fn test_normalize_text_input_event_preserves_non_text_key_paths() {
+        let state = AppState::default();
+        let normal = normalize_text_input_event(InputEvent::Key(KeyEvent::char_plain('a')), &state);
+        assert_eq!(normal, InputEvent::Key(KeyEvent::char_plain('a')));
+
+        let ctrl = normalize_text_input_event(
+            InputEvent::Key(KeyEvent::ctrl('c')),
+            &AppState {
+                editor_mode: EditorMode::Insert,
+                ..AppState::default()
+            },
+        );
+        assert_eq!(ctrl, InputEvent::Key(KeyEvent::ctrl('c')));
     }
 
     #[test]

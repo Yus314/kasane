@@ -126,7 +126,7 @@ pub enum ManifestError {
 pub const CURRENT_MANIFEST_VERSION: u32 = 2;
 
 /// Current host ABI version (from WIT package declaration).
-pub const HOST_ABI_VERSION: &str = "0.23.0";
+pub const HOST_ABI_VERSION: &str = "0.25.0";
 
 impl PluginManifest {
     /// Parse a manifest from a TOML string.
@@ -526,13 +526,13 @@ mod tests {
     const MINIMAL_MANIFEST: &str = r#"
 [plugin]
 id = "test_plugin"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 "#;
 
     const FULL_MANIFEST: &str = r#"
 [plugin]
 id = "fuzzy_finder"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [capabilities]
 wasi = ["filesystem", "process"]
@@ -551,7 +551,7 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
     fn parse_minimal_manifest() {
         let manifest = PluginManifest::parse(MINIMAL_MANIFEST).unwrap();
         assert_eq!(manifest.plugin.id, "test_plugin");
-        assert_eq!(manifest.plugin.abi_version, "0.23.0");
+        assert_eq!(manifest.plugin.abi_version, "0.25.0");
         assert!(manifest.capabilities.wasi.is_empty());
         assert!(manifest.authorities.host.is_empty());
         assert!(manifest.handlers.flags.is_empty());
@@ -590,7 +590,7 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.1"
+abi_version = "0.25.1"
 "#;
         let manifest = PluginManifest::parse(toml).unwrap();
         assert!(manifest.validate().is_ok());
@@ -613,7 +613,7 @@ abi_version = "0.21.0"
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [capabilities]
 wasi = ["filesystem", "teleportation"]
@@ -628,7 +628,7 @@ wasi = ["filesystem", "teleportation"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [authorities]
 host = ["root-access"]
@@ -643,7 +643,7 @@ host = ["root-access"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 flags = ["overlay", "time-travel"]
@@ -658,7 +658,7 @@ flags = ["overlay", "time-travel"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [view]
 deps = ["buffer-content", "magic-data"]
@@ -733,7 +733,7 @@ id = "test"
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [capabilities]
 wasi = ["teleportation"]
@@ -774,7 +774,7 @@ deps = ["magic-data"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 flags = ["time-travel"]
@@ -791,7 +791,7 @@ flags = ["time-travel"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [capabilities]
 wasi = ["filesystem", "filesystem"]
@@ -808,7 +808,7 @@ wasi = ["filesystem", "filesystem"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [authorities]
 host = ["pty-process", "pty-process"]
@@ -825,7 +825,7 @@ host = ["pty-process", "pty-process"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 flags = ["overlay", "overlay"]
@@ -842,7 +842,7 @@ flags = ["overlay", "overlay"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [view]
 deps = ["status", "status"]
@@ -863,7 +863,7 @@ manifest_version = 1
 
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 "#;
         let manifest = PluginManifest::parse(toml).unwrap();
         assert!(manifest.validate().is_ok());
@@ -876,7 +876,7 @@ manifest_version = 99
 
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 "#;
         let manifest = PluginManifest::parse(toml).unwrap();
         let err = manifest.validate().unwrap_err();
@@ -973,7 +973,7 @@ abi_version = "0.23.0"
         let toml = r#"
 [plugin]
 id = "ext_plugin"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 flags = ["transformer"]
@@ -1006,7 +1006,7 @@ extensions_consumed = ["other.ext"]
         let toml = r#"
 [plugin]
 id = "desc_test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 transform_targets = ["kasane.buffer"]
@@ -1045,7 +1045,7 @@ extensions_consumed = ["other.ext"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 transform_targets = ["kasane.buffer", "kasane.buffer"]
@@ -1062,7 +1062,7 @@ transform_targets = ["kasane.buffer", "kasane.buffer"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 publish_topics = ["my.topic", "my.topic"]
@@ -1079,7 +1079,7 @@ publish_topics = ["my.topic", "my.topic"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 subscribe_topics = ["t", "t"]
@@ -1096,7 +1096,7 @@ subscribe_topics = ["t", "t"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 extensions_defined = ["my.ext", "my.ext"]
@@ -1113,7 +1113,7 @@ extensions_defined = ["my.ext", "my.ext"]
         let toml = r#"
 [plugin]
 id = "test"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 extensions_consumed = ["x", "x"]

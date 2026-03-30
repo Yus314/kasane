@@ -1,6 +1,6 @@
 [plugin]
 id = "image_preview"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 flags = ["overlay"]

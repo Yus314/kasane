@@ -1,4 +1,4 @@
-package kasane:plugin@0.24.0;
+package kasane:plugin@0.25.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -67,7 +67,8 @@ interface types {
         send-keys(list<string>),
         /// Execute a Kakoune command string (convenience for `send-keys(<esc>:cmd<ret>)`).
         eval-command(string),
-        paste,
+        /// Paste text from the host system clipboard.
+        paste-clipboard,
         quit,
         request-redraw(u16),
         set-config(config-entry),
@@ -251,7 +252,8 @@ interface types {
 
     variant session-ready-command {
         send-keys(list<string>),
-        paste,
+        /// Paste text from the host system clipboard.
+        paste-clipboard,
         plugin-message(message-config),
     }
 

@@ -10,7 +10,7 @@ use crate::surface::{SurfaceId, SurfaceRegistry};
 
 use super::SessionHost;
 use super::context::{DeferredContext, focused_writer};
-use super::dispatch::apply_runtime_batch;
+use super::dispatch::{apply_runtime_batch, dispatch_input_event};
 
 /// Send resize commands to all pane clients so each knows its allocated area.
 ///
@@ -302,11 +302,22 @@ pub fn apply_ready_batch(batch: EffectsBatch, ctx: &mut DeferredContext<'_>) -> 
                     return true;
                 }
             }
-            Command::Paste => {
+            Command::InsertText(text) => {
                 if matches!(
-                    execute_commands(vec![Command::Paste], focused_writer!(ctx), ctx.clipboard),
+                    execute_commands(
+                        vec![Command::InsertText(text)],
+                        focused_writer!(ctx),
+                        ctx.clipboard,
+                    ),
                     CommandResult::Quit
                 ) {
+                    return true;
+                }
+            }
+            Command::PasteClipboard => {
+                if let Some(text) = ctx.clipboard.get()
+                    && dispatch_input_event(ctx, crate::input::InputEvent::Paste(text), 0)
+                {
                     return true;
                 }
             }

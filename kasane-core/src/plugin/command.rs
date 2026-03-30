@@ -75,7 +75,8 @@ pub trait PaintHook: Send {
 
 pub enum Command {
     SendToKakoune(KasaneRequest),
-    Paste,
+    InsertText(String),
+    PasteClipboard,
     Quit,
     RequestRedraw(DirtyFlags),
     /// Schedule a timer that fires after `delay`, delivering `payload` to `target` plugin.
@@ -219,6 +220,11 @@ impl Command {
         Command::SendToKakoune(KasaneRequest::Keys(keys))
     }
 
+    /// Convenience: insert literal text into Kakoune.
+    pub fn insert_text(text: impl Into<String>) -> Self {
+        Command::InsertText(text.into())
+    }
+
     /// Returns true if this command commutes with other commands of the same kind.
     ///
     /// Commutative commands can be deduplicated or reordered without affecting
@@ -239,7 +245,8 @@ impl Command {
         !matches!(
             self,
             Command::SendToKakoune(_)
-                | Command::Paste
+                | Command::InsertText(_)
+                | Command::PasteClipboard
                 | Command::Quit
                 | Command::RequestRedraw(_)
                 | Command::EditBuffer { .. }
@@ -275,7 +282,13 @@ pub fn execute_commands(
             Command::SendToKakoune(req) => {
                 crate::io::send_request(kak_writer, &req);
             }
-            Command::Paste => {
+            Command::InsertText(text) => {
+                let keys = escape_kakoune_insert_text(&text);
+                if !keys.is_empty() {
+                    crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));
+                }
+            }
+            Command::PasteClipboard => {
                 if let Some(text) = clipboard.get() {
                     let keys = paste_text_to_keys(&text);
                     if !keys.is_empty() {

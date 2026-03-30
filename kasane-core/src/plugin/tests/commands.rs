@@ -18,7 +18,7 @@ fn test_extract_redraw_flags_merges() {
 fn test_extract_redraw_flags_empty() {
     let mut commands = vec![
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
-        Command::Paste,
+        Command::PasteClipboard,
     ];
     let flags = extract_redraw_flags(&mut commands);
     assert!(flags.is_empty());
@@ -29,6 +29,7 @@ fn test_extract_redraw_flags_empty() {
 fn test_partition_separates_correctly() {
     let commands = vec![
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+        Command::InsertText("hello".into()),
         Command::ScheduleTimer {
             delay: std::time::Duration::from_millis(100),
             target: PluginId("test".into()),
@@ -42,10 +43,10 @@ fn test_partition_separates_correctly() {
             key: "foo".into(),
             value: "bar".into(),
         },
-        Command::Paste,
+        Command::PasteClipboard,
     ];
     let (immediate, deferred) = partition_commands(commands);
-    assert_eq!(immediate.len(), 2); // SendToKakoune + Paste
+    assert_eq!(immediate.len(), 3); // SendToKakoune + InsertText + Paste
     assert_eq!(deferred.len(), 3); // Timer + Message + Config
 }
 
@@ -53,11 +54,32 @@ fn test_partition_separates_correctly() {
 fn test_partition_empty_deferred() {
     let commands = vec![
         Command::SendToKakoune(crate::protocol::KasaneRequest::Keys(vec!["a".into()])),
+        Command::InsertText("x".into()),
         Command::Quit,
     ];
     let (immediate, deferred) = partition_commands(commands);
-    assert_eq!(immediate.len(), 2);
+    assert_eq!(immediate.len(), 3);
     assert!(deferred.is_empty());
+}
+
+#[test]
+fn test_execute_commands_insert_text_translates_at_boundary() {
+    let mut output = Vec::new();
+    let mut clipboard = crate::clipboard::SystemClipboard::new();
+    let result = execute_commands(
+        vec![Command::InsertText("a<b>\n".into())],
+        &mut output,
+        &mut clipboard,
+    );
+
+    assert!(matches!(result, CommandResult::Continue));
+    let encoded = String::from_utf8(output).expect("utf8");
+    let json: serde_json::Value = serde_json::from_str(encoded.trim()).expect("json");
+    assert_eq!(json["method"], "keys");
+    assert_eq!(
+        json["params"],
+        serde_json::json!(["a", "<lt>", "b", "<gt>", "<ret>"])
+    );
 }
 
 #[test]
@@ -141,7 +163,7 @@ fn test_partition_mixed_process_commands() {
         },
         Command::CloseProcessStdin { job_id: 1 },
         Command::KillProcess { job_id: 2 },
-        Command::Paste,
+        Command::PasteClipboard,
     ];
     let (immediate, deferred) = partition_commands(commands);
     assert_eq!(immediate.len(), 2); // SendToKakoune + Paste
