@@ -146,6 +146,11 @@ host = ["pty-process"]
 
 [handlers]
 flags = ["overlay", "input-handler", "io-handler", "contributor"]
+transform_targets = ["kasane.buffer", "kasane.menu"]
+publish_topics = ["cursor.line"]
+subscribe_topics = ["theme.changed"]
+extensions_defined = ["myplugin.status-items"]
+extensions_consumed = ["other.ext"]
 
 [view]
 deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
@@ -158,6 +163,11 @@ deps = ["buffer-content", "buffer-cursor", "menu-structure", "menu-selection"]
 | `capabilities.wasi` | No | `[]` | WASI capabilities for sandbox construction |
 | `authorities.host` | No | `[]` | Host authorities for privileged effects |
 | `handlers.flags` | No | `[]` (→ all) | Handler capability bitmask (empty = all-set) |
+| `handlers.transform_targets` | No | `[]` | Transform target names for interference detection |
+| `handlers.publish_topics` | No | `[]` | Pub/sub topics this plugin publishes |
+| `handlers.subscribe_topics` | No | `[]` | Pub/sub topics this plugin subscribes to |
+| `handlers.extensions_defined` | No | `[]` | Extension points defined by this plugin |
+| `handlers.extensions_consumed` | No | `[]` | Extension points consumed by this plugin |
 | `view.deps` | No | `[]` (→ ALL) | Dirty-flag subscription (empty = all flags) |
 
 In `define_plugin!`, use the `manifest:` section instead of `id:`, `capabilities:`, and `authorities:`:
@@ -187,7 +197,7 @@ For filesystem plugins, the host discovers `.toml` manifests and loads their sib
 | Process launcher | Above + `on_io_event_effects`, `capabilities` | `process` | fuzzy-finder |
 | Scroll policy | `handle_default_scroll` | — | smooth-scroll |
 
-Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
+Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional `#[bind]`), `on_init_effects`, `on_active_session_ready_effects`, `on_state_changed_effects`, `update_effects`, `slots`, `annotate`, `transform`, `transform_patch`, `transform_priority`, `overlay`, `handle_key`, `handle_mouse`, `handle_default_scroll`, `capabilities`, `authorities`, `on_io_event_effects`.
 
 ### Build & Deploy
 
@@ -240,7 +250,7 @@ kasane_plugin_sdk::define_plugin! {
     },
 
     transform(target, subject, _ctx) {
-        if !matches!(target, TransformTarget::StatusBar) {
+        if *target != TransformTarget::STATUS_BAR {
             return subject;
         }
         if state.cursor_mode != 1 {
@@ -267,6 +277,7 @@ kasane_plugin_sdk::define_plugin! {
 - **`transform(target, subject, ctx)`** receives a `TransformSubject` — either `Element(Element)` for non-overlay targets or `Overlay(Overlay)` for overlay targets. Return it unchanged for passthrough, or pattern-match and wrap.
 - **`TransformTarget`** selects which UI component to transform (e.g., `StatusBar`, `Buffer`, `Menu`). Ignore targets your plugin doesn't handle.
 - **`transform_priority`** (default `0`) controls ordering in the transform chain. Higher priority = applied first (inner).
+- **`transform_patch(target, ctx)`** is a declarative alternative that returns `Vec<ElementPatchOp>` instead of imperatively transforming the subject. Pure patches are Salsa-memoizable. See [plugin-cookbook.md](./plugin-cookbook.md#declarative-transform-wasm) for an example.
 
 ### Scroll Policy Example: smooth-scroll
 

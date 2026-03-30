@@ -283,11 +283,10 @@ kasane_plugin_sdk::define_plugin! {
     // Return a declarative patch instead of an imperative transform.
     // The host caches this via Salsa when the patch is pure.
     transform_patch(target, ctx) {
-        match target {
-            TransformTarget::StatusBarT => {
-                vec![ElementPatchOp::Prepend(text("[K] ", default_face()))]
-            }
-            _ => vec![],  // empty = no patch, fall back to imperative
+        if target == "kasane.status-bar" {
+            vec![ElementPatchOp::Prepend(text("[K] ", default_face()))]
+        } else {
+            vec![]  // empty = no patch, fall back to imperative
         }
     },
 }
@@ -329,6 +328,65 @@ Key points:
 - `publish_typed<T>()` returns a `Topic<T>` phantom handle
 - `subscribe_typed<T>()` enforces type safety at compile time
 - Untyped `publish()`/`subscribe()` remain for WASM cross-boundary use
+
+## Inter-Plugin Communication (WASM)
+
+Publish and subscribe to topics from WASM plugins using `channel::serialize()` / `channel::deserialize()`.
+
+**Publisher:**
+
+```rust
+kasane_plugin_sdk::define_plugin! {
+    id: "cursor_pub",
+    manifest: "kasane-plugin.toml",  // publish_topics = ["cursor.line"]
+
+    state {
+        #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
+        line: i32 = 0,
+    },
+
+    // WIT export: called per topic during publication collection
+    publish_value(topic) {
+        if topic == "cursor.line" {
+            let (data, type_hint) = kasane_plugin_sdk::channel::serialize(&state.line);
+            Some(ChannelValue { data, type_hint })
+        } else {
+            None
+        }
+    },
+}
+```
+
+**Subscriber:**
+
+```rust
+kasane_plugin_sdk::define_plugin! {
+    id: "cursor_consumer",
+    manifest: "kasane-plugin.toml",  // subscribe_topics = ["cursor.line"]
+
+    state {
+        last_line: i32 = 0,
+    },
+
+    // WIT export: called during delivery with all published values
+    on_subscription(topic, values) {
+        if topic == "cursor.line" {
+            if let Some(line) = values.first()
+                .and_then(|v| kasane_plugin_sdk::channel::deserialize::<i32>(&v.data))
+            {
+                state.last_line = line;
+            }
+        }
+        RuntimeEffects::default()
+    },
+}
+```
+
+Key points:
+- Declare `publish_topics` / `subscribe_topics` in the manifest
+- Use `kasane_plugin_sdk::channel::serialize()` and `deserialize()` for MessagePack conversion
+- `publish_value()` returns `None` to skip publishing for a given frame
+- `on_subscription()` receives all published values for the subscribed topic
 
 ## Cell Decoration
 

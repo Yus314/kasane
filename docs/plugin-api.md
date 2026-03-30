@@ -319,9 +319,10 @@ fn contribute_overlay_v2(_ctx: OverlayContext) -> Option<OverlayContribution> {
 ```rust
 fn transform(&self, target: &TransformTarget, subject: TransformSubject, app: &AppView<'_>, _ctx: &TransformContext) -> TransformSubject {
     subject.map_element(|element| {
-        match target {
-            TransformTarget::Buffer => Element::container(element, Style::from(Face::default())),
-            _ => element,
+        if *target == TransformTarget::BUFFER {
+            Element::container(element, Style::from(Face::default()))
+        } else {
+            element
         }
     })
 }
@@ -346,16 +347,46 @@ fn transform_priority() -> i16 { 100 }
 
 `TransformTarget` includes `Buffer`, `StatusBar`, `Menu`, `Info`, and others.
 
+**Native (with target specification):**
+
+```rust
+r.on_transform_for(0, &[TransformTarget::BUFFER, TransformTarget::STATUS_BAR], |state, target, app, ctx| {
+    if *target == TransformTarget::STATUS_BAR {
+        ElementPatch::Append { element: Element::text("extra", Face::default()) }
+    } else {
+        ElementPatch::Identity
+    }
+});
+```
+
+`on_transform_for()` specifies which `TransformTarget`s the handler applies to. This populates `CapabilityDescriptor::transform_targets`, enabling `may_interfere()` to detect transform target overlap between plugins. Use `on_transform()` (without targets) when the handler applies to all targets.
+
+**WASM (declarative patch):**
+
+```rust
+// In define_plugin!:
+transform_patch(target, ctx) {
+    if target == "kasane.status-bar" {
+        vec![ElementPatchOp::Prepend(text("[K] ", default_face()))]
+    } else {
+        vec![]  // empty = identity (no patch)
+    }
+},
+```
+
+`transform_patch` returns `Vec<ElementPatchOp>` instead of imperatively transforming the subject. Pure patches are Salsa-memoizable.
+
 Guidelines:
 
 - Do not assume the internal structure of the received `Element`
 - For lightweight decoration, prefer wrapping the `Element` as-is
 - Full replacement is also performed via `transform()` (ignore the received element and return a new one)
 - Use `transform_priority()` to control the application order
+- Declare `handlers.transform_targets` in the manifest for interference detection
 
 ### 1.8 Menu Transform (`transform_menu_item`)
 
-`transform_menu_item()` is a per-menu-item transformation corresponding to the `MENU_TRANSFORM` capability. Use it when you want to locally transform the label or style of individual items. If you need to replace the entire menu structure, use `transform()` with `TransformTarget::Menu`.
+`transform_menu_item()` is a per-menu-item transformation corresponding to the `MENU_TRANSFORM` capability. Use it when you want to locally transform the label or style of individual items. If you need to replace the entire menu structure, use `transform()` with `TransformTarget::MENU`.
 
 ### 1.10 Display Transformation API
 
@@ -907,6 +938,48 @@ let face = face_bg(rgb(40, 40, 50));
 | `keys::push_literal(keys, text)` | Push each char as an escaped key string |
 | `keys::command(cmd)` | Build `<esc>:cmd<ret>` key sequence |
 
+### Channel Serialization (`kasane_plugin_sdk::channel`)
+
+Helpers for MessagePack serialization at the WASM boundary. WASM plugins work with the WIT-generated `ChannelValue { data, type_hint }` struct; this module handles the raw bytes.
+
+| Function | Description |
+|---|---|
+| `channel::serialize<T>(value)` | Serialize `T` into `(Vec<u8>, String)` for a WIT `channel-value` |
+| `channel::deserialize<T>(data)` | Deserialize `&[u8]` into `Option<T>` |
+
+```rust
+use kasane_plugin_sdk::channel;
+
+// Publishing
+let (data, type_hint) = channel::serialize(&42u32);
+// → ChannelValue { data, type_hint }
+
+// Subscribing
+let value: Option<u32> = channel::deserialize(&received.data);
+```
+
+### Predicate Builder Macros
+
+RPN-encoded predicate sequences for conditional transform patches. These macros use the WIT-generated `PredicateOp` type, so they must be called inside a plugin crate (after `generate!()` or `define_plugin!`).
+
+| Macro | Output |
+|---|---|
+| `pred_has_focus!()` | `[HasFocus]` |
+| `pred_surface_is!(id)` | `[SurfaceIs(id)]` |
+| `pred_line_range!(start, end)` | `[LineRange { start, end }]` |
+| `pred_not!(inner)` | `[...inner, NotOp]` |
+| `pred_and!(a, b)` | `[...a, ...b, AndOp]` |
+| `pred_or!(a, b)` | `[...a, ...b, OrOp]` |
+
+```rust
+use kasane_plugin_sdk::{pred_has_focus, pred_not, pred_and, pred_surface_is};
+
+// "has focus AND surface is 0"
+let pred = pred_and!(pred_has_focus!(), pred_surface_is!(0));
+// "NOT has focus"
+let pred = pred_not!(pred_has_focus!());
+```
+
 ### Attribute Constants (`kasane_plugin_sdk::attributes`)
 
 Constants matching `kasane_core::protocol::color::Attributes` bitflags: `UNDERLINE`, `BOLD`, `ITALIC`, `REVERSE`, etc.
@@ -1063,6 +1136,79 @@ Plugins with the `PANE_LIFECYCLE` capability can observe pane creation, deletion
 | `on_focus_changed(from, to, state)` | Focus change notification |
 
 With the `PANE_RENDERER` capability, `render_pane(pane_id, cols, rows)` can render plugin-owned panes.
+
+### 6.6 Inter-plugin pub/sub
+
+Topic-based publish/subscribe enables typed inter-plugin communication. Evaluation is two-phase: publishers produce values, then subscribers receive them.
+
+**Native (typed):**
+
+```rust
+// Publisher
+let topic: Topic<u32> = r.publish_typed("cursor.line", |state, _app| state.line);
+
+// Subscriber (type mismatch = compile error)
+r.subscribe_typed::<u32>("cursor.line", |state, value| {
+    MyState { last_line: *value, ..state.clone() }
+});
+```
+
+**WASM:** Declare topics in the manifest and implement the WIT exports:
+
+```toml
+[handlers]
+publish_topics = ["cursor.line"]
+subscribe_topics = ["theme.changed"]
+```
+
+```rust
+// WIT exports (default implementations provided by #[plugin])
+fn publish_value(topic: String) -> Option<ChannelValue> { ... }
+fn on_subscription(topic: String, values: Vec<ChannelValue>) -> RuntimeEffects { ... }
+```
+
+Use `kasane_plugin_sdk::channel::serialize()` / `deserialize()` for value conversion.
+
+### 6.7 Extension points
+
+Plugin-defined extension points allow plugins to define custom hooks that other plugins can contribute to.
+
+**Native:**
+
+```rust
+// Definer
+r.define_extension::<(), Vec<StatusItem>>(
+    ExtensionPointId::new("myplugin.status-items"),
+    CompositionRule::Merge,
+);
+
+// Contributor
+r.on_extension::<(), Vec<StatusItem>>(
+    ExtensionPointId::new("myplugin.status-items"),
+    |_state, _input, _app| vec![StatusItem { ... }],
+);
+```
+
+**WASM:** Declare in the manifest and implement the WIT export:
+
+```toml
+[handlers]
+extensions_defined = ["myplugin.status-items"]
+extensions_consumed = ["other.ext"]
+```
+
+```rust
+// WIT export (default implementation provided by #[plugin])
+fn evaluate_extension(id: String, input: ChannelValue) -> Option<ChannelValue> { ... }
+```
+
+### 6.8 Capability descriptor and interference detection
+
+`CapabilityDescriptor` provides structured metadata about a plugin's transform targets, contribution slots, pub/sub topics, and extension points. The framework uses `may_interfere()` to warn when two plugins overlap on the same targets or slots.
+
+Native plugins: inferred automatically from `HandlerRegistry` method calls (e.g., `on_transform_for()` populates `transform_targets`).
+
+WASM plugins: declared in the manifest `[handlers]` section (`transform_targets`, `publish_topics`, etc.) and converted to `CapabilityDescriptor` at load time.
 
 ## 7. Related Documents
 

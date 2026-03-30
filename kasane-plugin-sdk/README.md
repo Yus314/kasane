@@ -27,6 +27,10 @@ kasane_plugin_sdk::define_plugin! {
 `define_plugin!` combines WIT bindings, state, `#[plugin]`, and `export!()` into one macro.
 SDK helpers (`plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `redraw()`, `hex()`, etc.) are auto-imported.
 
+Additional SDK modules:
+- `kasane_plugin_sdk::channel` — MessagePack serialization helpers (`serialize()`, `deserialize()`) for pub/sub and extension point values
+- `pred_has_focus!()`, `pred_not!()`, `pred_and!()`, etc. — predicate builder macros for conditional transform patches
+
 For full control, use the explicit pattern: `generate!()` + `#[plugin]` + `export!()`.
 See the [Plugin Development Guide](https://github.com/Yus314/kasane/blob/master/docs/plugin-development.md) for details.
 
