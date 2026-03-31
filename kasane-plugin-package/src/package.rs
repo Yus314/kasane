@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::manifest::{
-    AuthoritiesSection, CapabilitiesSection, HandlersSection, PluginManifest, SettingSchema,
-    ViewSection,
+    AuthoritiesSection, CapabilitiesSection, HandlersSection, PluginManifest, PluginSection,
+    SettingSchema, ViewSection,
 };
 
 const MAGIC: &[u8; 8] = b"KASPKG1\0";
@@ -184,6 +184,28 @@ impl RuntimeMetadata {
             handlers,
             view,
             settings,
+        }
+    }
+}
+
+impl PackageHeader {
+    pub fn to_manifest(&self) -> PluginManifest {
+        PluginManifest {
+            manifest_version: self.runtime.manifest_version,
+            plugin: PluginSection {
+                id: self.plugin.id.clone(),
+                abi_version: self.plugin.abi_version.clone(),
+            },
+            capabilities: self.runtime.capabilities.clone(),
+            authorities: self.runtime.authorities.clone(),
+            handlers: self.runtime.handlers.clone(),
+            view: self.runtime.view.clone(),
+            settings: self
+                .runtime
+                .settings
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
         }
     }
 }
