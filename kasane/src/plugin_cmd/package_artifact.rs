@@ -8,6 +8,7 @@ use kasane_plugin_package::package::{self, BuildInput, InspectedPackage};
 use serde::Deserialize;
 
 use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
+use crate::plugin_store::{PluginStore, StoredArtifact};
 
 use super::build;
 
@@ -70,64 +71,28 @@ pub fn build_project_package(project_dir: &str, release: bool) -> Result<BuiltPa
 }
 
 pub fn install_package_file(path: &Path) -> Result<InstalledPackage> {
-    let inspected = package::verify_package_file(path)
-        .with_context(|| format!("failed to verify {}", path.display()))?;
-
     let config = Config::load();
     let plugins_dir = config.plugins.plugins_dir();
-    fs::create_dir_all(&plugins_dir)
-        .with_context(|| format!("failed to create {}", plugins_dir.display()))?;
-
-    let dest = plugins_dir.join(installed_package_filename(&inspected));
-    if path != dest {
-        fs::copy(path, &dest).with_context(|| format!("failed to copy to {}", dest.display()))?;
-    }
-
-    remove_conflicting_packages(&plugins_dir, &dest, &inspected.header.plugin.id)?;
+    let store = PluginStore::from_plugins_dir(&plugins_dir);
+    let stored = store.put_verified_package(path)?;
+    let inspected = package::inspect_package_file(&stored.path)
+        .with_context(|| format!("failed to inspect {}", stored.path.display()))?;
     touch_reload_sentinel(&plugins_dir);
 
     let mut lock = PluginsLock::load()?;
-    lock.plugins.insert(
-        inspected.header.plugin.id.clone(),
-        LockedPluginEntry {
-            plugin_id: inspected.header.plugin.id.clone(),
-            package: Some(inspected.header.package.name.clone()),
-            version: Some(inspected.header.package.version.clone()),
-            artifact_digest: inspected.header.digests.artifact.clone(),
-            code_digest: inspected.header.digests.code.clone(),
-            source_kind: "filesystem".to_string(),
-            abi_version: Some(inspected.header.plugin.abi_version.clone()),
-        },
-    );
+    lock.plugins
+        .insert(stored.plugin_id.clone(), lock_entry_from_artifact(&stored));
     let lock_path = lock.save()?;
 
     Ok(InstalledPackage {
-        path: dest,
+        path: stored.path,
         inspected,
         lock_path,
     })
 }
 
 pub fn discover_installed_packages(plugins_dir: &Path) -> Result<Vec<DiscoveredPackage>> {
-    let entries = match fs::read_dir(plugins_dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => {
-            return Err(err).with_context(|| format!("failed to read {}", plugins_dir.display()));
-        }
-    };
-
-    let mut package_paths: Vec<_> = entries
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) == Some("kpk") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut package_paths = discover_package_paths(plugins_dir)?;
     package_paths.sort();
 
     let mut discovered = Vec::with_capacity(package_paths.len());
@@ -189,31 +154,50 @@ fn package_filename(inspected: &InspectedPackage) -> String {
     )
 }
 
-fn installed_package_filename(inspected: &InspectedPackage) -> String {
-    format!("{}.kpk", inspected.header.plugin.id)
-}
-
-fn remove_conflicting_packages(plugins_dir: &Path, dest: &Path, plugin_id: &str) -> Result<()> {
-    for package in discover_installed_packages(plugins_dir)? {
-        let DiscoveredPackage::Valid { path, inspected } = package else {
-            continue;
-        };
-        if path == dest {
-            continue;
-        }
-        if inspected.header.plugin.id != plugin_id {
-            continue;
-        }
-
-        fs::remove_file(&path).with_context(|| format!("failed to remove {}", path.display()))?;
+fn lock_entry_from_artifact(artifact: &StoredArtifact) -> LockedPluginEntry {
+    LockedPluginEntry {
+        plugin_id: artifact.plugin_id.clone(),
+        package: Some(artifact.package_name.clone()),
+        version: Some(artifact.package_version.clone()),
+        artifact_digest: artifact.artifact_digest.clone(),
+        code_digest: artifact.code_digest.clone(),
+        source_kind: "filesystem".to_string(),
+        abi_version: Some(artifact.abi_version.clone()),
     }
-
-    Ok(())
 }
 
 fn touch_reload_sentinel(plugins_dir: &Path) {
     let reload_sentinel = plugins_dir.join(".reload");
     let _ = fs::write(reload_sentinel, "");
+}
+
+fn discover_package_paths(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    collect_package_paths(root, &mut paths)?;
+    Ok(paths)
+}
+
+fn collect_package_paths(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err).with_context(|| format!("failed to read {}", root.display())),
+    };
+
+    for entry in entries {
+        let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if file_type.is_dir() {
+            collect_package_paths(&path, out)?;
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("kpk") {
+            out.push(path);
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -247,6 +231,5 @@ abi_version = "0.25.0"
             package_filename(&inspected),
             "example-demo-plugin-0.1.0.kpk"
         );
-        assert_eq!(installed_package_filename(&inspected), "demo_plugin.kpk");
     }
 }
