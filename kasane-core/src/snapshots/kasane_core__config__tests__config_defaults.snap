@@ -69,7 +69,6 @@ bright_cyan = "#29b8db"
 bright_white = "#e5e5e5"
 
 [plugins]
-auto_discover = true
 enabled = []
 disabled = []
 

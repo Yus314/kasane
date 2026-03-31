@@ -75,13 +75,6 @@ kasane plugin resolve
 
 to rebuild `plugins.lock`.
 
-The old `auto_discover` setting is deprecated and has no effect:
-
-```toml
-[plugins]
-auto_discover = false
-```
-
 Current Kasane releases expect WASM plugins built against
 `kasane:plugin@0.25.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts

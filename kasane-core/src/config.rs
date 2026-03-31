@@ -312,8 +312,6 @@ impl Default for ColorsConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct PluginsConfig {
-    /// Deprecated legacy toggle. Runtime activation is driven by `plugins.lock`.
-    pub auto_discover: bool,
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
     pub path: Option<String>,
     /// Bundled plugin IDs to enable (opt-in). Bundled plugins are NOT loaded unless
@@ -336,7 +334,6 @@ pub struct PluginsConfig {
 impl Default for PluginsConfig {
     fn default() -> Self {
         PluginsConfig {
-            auto_discover: true,
             path: None,
             enabled: Vec::new(),
             disabled: Vec::new(),
@@ -575,7 +572,6 @@ maximized = true
     #[test]
     fn test_plugins_config_defaults() {
         let config = Config::default();
-        assert!(config.plugins.auto_discover);
         assert!(config.plugins.path.is_none());
         assert!(config.plugins.enabled.is_empty());
         assert!(config.plugins.disabled.is_empty());
@@ -586,13 +582,11 @@ maximized = true
     fn test_plugins_config_custom() {
         let toml_str = r#"
 [plugins]
-auto_discover = false
 path = "/custom/plugins"
 enabled = ["cursor_line"]
 disabled = ["line_numbers"]
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
-        assert!(!config.plugins.auto_discover);
         assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
         assert_eq!(config.plugins.enabled, vec!["cursor_line"]);
         assert_eq!(config.plugins.disabled, vec!["line_numbers"]);

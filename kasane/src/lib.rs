@@ -385,7 +385,6 @@ mod tests {
 
         fn config(&self) -> PluginsConfig {
             PluginsConfig {
-                auto_discover: true,
                 path: Some(self.plugins_dir.to_string_lossy().into_owned()),
                 disabled: vec![],
                 ..Default::default()
