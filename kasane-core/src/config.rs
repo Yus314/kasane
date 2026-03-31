@@ -1,5 +1,8 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -326,6 +329,8 @@ pub struct PluginsConfig {
     /// Per-plugin authority denials. Key: plugin ID, Value: list of denied authority names.
     /// Valid authority names: "dynamic-surface", "pty-process".
     pub deny_authorities: HashMap<String, Vec<String>>,
+    /// Per-plugin active-set selection policy.
+    pub selection: HashMap<String, PluginSelection>,
 }
 
 impl Default for PluginsConfig {
@@ -337,8 +342,23 @@ impl Default for PluginsConfig {
             disabled: Vec::new(),
             deny_capabilities: HashMap::new(),
             deny_authorities: HashMap::new(),
+            selection: HashMap::new(),
         }
     }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+pub enum PluginSelection {
+    #[default]
+    Auto,
+    PinDigest {
+        digest: String,
+    },
+    PinPackage {
+        package: String,
+        version: Option<String>,
+    },
 }
 
 impl PluginsConfig {
@@ -347,52 +367,116 @@ impl PluginsConfig {
         self.enabled.iter().any(|s| s == id)
     }
 
+    pub fn is_disabled(&self, id: &str) -> bool {
+        self.disabled.iter().any(|s| s == id)
+    }
+
+    pub fn selection_for(&self, id: &str) -> PluginSelection {
+        self.selection.get(id).cloned().unwrap_or_default()
+    }
+
     /// Resolve the plugins directory path.
-    pub fn plugins_dir(&self) -> std::path::PathBuf {
+    pub fn plugins_dir(&self) -> PathBuf {
         if let Some(ref p) = self.path {
-            std::path::PathBuf::from(p)
+            PathBuf::from(p)
         } else {
             dirs_data_path().join("plugins")
         }
     }
 }
 
-fn dirs_data_path() -> std::path::PathBuf {
+fn dirs_data_path() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        std::path::PathBuf::from(xdg).join("kasane")
+        PathBuf::from(xdg).join("kasane")
     } else if let Ok(home) = std::env::var("HOME") {
-        std::path::PathBuf::from(home)
+        PathBuf::from(home)
             .join(".local")
             .join("share")
             .join("kasane")
     } else {
-        std::path::PathBuf::from("kasane-data")
+        PathBuf::from("kasane-data")
     }
 }
 
 impl Config {
     pub fn load() -> Self {
-        let config_path = dirs_config_path();
-        match std::fs::read_to_string(&config_path) {
+        let config_path = config_path();
+        match fs::read_to_string(&config_path) {
             Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
             Err(_) => Config::default(),
         }
     }
+
+    pub fn try_load() -> Result<Self> {
+        Self::try_load_from_path(config_path())
+    }
+
+    pub fn try_load_from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(err) => {
+                return Err(err).with_context(|| format!("failed to read {}", path.display()));
+            }
+        };
+        toml::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+    }
+
+    pub fn save(&self) -> Result<PathBuf> {
+        let path = config_path();
+        self.save_to_path(&path)?;
+        Ok(path)
+    }
+
+    pub fn save_to_path(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+
+        let contents = toml::to_string_pretty(self).context("failed to serialize config")?;
+        let temp_path = temp_config_path(path);
+        fs::write(&temp_path, contents)
+            .with_context(|| format!("failed to write {}", temp_path.display()))?;
+        fs::rename(&temp_path, path).with_context(|| {
+            format!(
+                "failed to atomically replace {} with {}",
+                path.display(),
+                temp_path.display()
+            )
+        })?;
+        Ok(())
+    }
 }
 
-fn dirs_config_path() -> std::path::PathBuf {
+pub fn config_path() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        std::path::PathBuf::from(xdg)
-            .join("kasane")
-            .join("config.toml")
+        PathBuf::from(xdg).join("kasane").join("config.toml")
     } else if let Ok(home) = std::env::var("HOME") {
-        std::path::PathBuf::from(home)
+        PathBuf::from(home)
             .join(".config")
             .join("kasane")
             .join("config.toml")
     } else {
-        std::path::PathBuf::from("config.toml")
+        PathBuf::from("config.toml")
     }
+}
+
+fn temp_config_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id();
+    path.with_file_name(format!(".{file_name}.{pid}.{stamp}.tmp"))
 }
 
 #[cfg(test)]
@@ -495,6 +579,7 @@ maximized = true
         assert!(config.plugins.path.is_none());
         assert!(config.plugins.enabled.is_empty());
         assert!(config.plugins.disabled.is_empty());
+        assert!(config.plugins.selection.is_empty());
     }
 
     #[test]
@@ -511,6 +596,38 @@ disabled = ["line_numbers"]
         assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
         assert_eq!(config.plugins.enabled, vec!["cursor_line"]);
         assert_eq!(config.plugins.disabled, vec!["line_numbers"]);
+    }
+
+    #[test]
+    fn test_plugins_selection_config() {
+        let toml_str = r#"
+[plugins.selection.sel_badge]
+mode = "pin-digest"
+digest = "sha256:abc"
+
+[plugins.selection.cursor_line]
+mode = "pin-package"
+package = "builtin/cursor-line"
+version = "0.3.0"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.plugins.selection.get("sel_badge"),
+            Some(&PluginSelection::PinDigest {
+                digest: "sha256:abc".to_string()
+            })
+        );
+        assert_eq!(
+            config.plugins.selection.get("cursor_line"),
+            Some(&PluginSelection::PinPackage {
+                package: "builtin/cursor-line".to_string(),
+                version: Some("0.3.0".to_string()),
+            })
+        );
+        assert_eq!(
+            config.plugins.selection_for("missing"),
+            PluginSelection::Auto
+        );
     }
 
     #[test]
@@ -588,6 +705,28 @@ another_plugin = ["pty-process"]
             ..Default::default()
         };
         assert_eq!(pc.plugins_dir(), std::path::PathBuf::from("/my/plugins"));
+    }
+
+    #[test]
+    fn test_config_save_and_try_load_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config").join("config.toml");
+        let mut config = Config::default();
+        config.plugins.selection.insert(
+            "sel_badge".to_string(),
+            PluginSelection::PinDigest {
+                digest: "sha256:abc".to_string(),
+            },
+        );
+
+        config.save_to_path(&path).unwrap();
+        let loaded = Config::try_load_from_path(&path).unwrap();
+        assert_eq!(
+            loaded.plugins.selection.get("sel_badge"),
+            Some(&PluginSelection::PinDigest {
+                digest: "sha256:abc".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -674,7 +813,7 @@ image_protocol = "kitty"
 [menu]
 position = "invalid_position"
 "#;
-        let result: Result<Config, _> = toml::from_str(toml_str);
+        let result: std::result::Result<Config, _> = toml::from_str(toml_str);
         assert!(result.is_err());
     }
 
@@ -684,7 +823,7 @@ position = "invalid_position"
 [ui]
 status_position = "middle"
 "#;
-        let result: Result<Config, _> = toml::from_str(toml_str);
+        let result: std::result::Result<Config, _> = toml::from_str(toml_str);
         assert!(result.is_err());
     }
 

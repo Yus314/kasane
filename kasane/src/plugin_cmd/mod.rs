@@ -7,6 +7,7 @@ mod install;
 mod list;
 mod new;
 mod package_artifact;
+mod resolve;
 mod templates;
 
 use anyhow::Result;
@@ -21,5 +22,19 @@ pub fn execute(cmd: PluginSubcommand) -> Result<()> {
         PluginSubcommand::List => list::run(),
         PluginSubcommand::Doctor { fix } => doctor::run(fix),
         PluginSubcommand::Dev { path, release } => dev::run(path.as_deref(), release),
+        PluginSubcommand::Resolve => resolve::run(),
+        PluginSubcommand::Pin {
+            plugin_id,
+            digest,
+            package,
+            version,
+        } => resolve::run_pin(
+            &plugin_id,
+            digest.as_deref(),
+            package.as_deref(),
+            version.as_deref(),
+        ),
+        PluginSubcommand::Unpin { plugin_id } => resolve::run_unpin(&plugin_id),
+        PluginSubcommand::Update => resolve::run_update(),
     }
 }

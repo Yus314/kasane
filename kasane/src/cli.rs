@@ -43,6 +43,17 @@ pub enum PluginSubcommand {
         path: Option<String>,
         release: bool,
     },
+    Resolve,
+    Pin {
+        plugin_id: String,
+        digest: Option<String>,
+        package: Option<String>,
+        version: Option<String>,
+    },
+    Unpin {
+        plugin_id: String,
+    },
+    Update,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -65,6 +76,10 @@ pub enum CliError {
     PluginUnknownSubcommand(String),
     PluginMissingName,
     PluginUnknownTemplate(String),
+    PluginPinMissingPluginId,
+    PluginPinMissingSelector,
+    PluginPinInvalidArgs(String),
+    PluginUnpinMissingPluginId,
 }
 
 impl std::fmt::Display for CliError {
@@ -83,13 +98,13 @@ impl std::fmt::Display for CliError {
             CliError::PluginMissingSubcommand => {
                 write!(
                     f,
-                    "missing subcommand. Usage: kasane plugin <new|build|install|list|doctor|dev>"
+                    "missing subcommand. Usage: kasane plugin <new|build|install|list|doctor|dev|resolve|pin|unpin|update>"
                 )
             }
             CliError::PluginUnknownSubcommand(s) => {
                 write!(
                     f,
-                    "unknown plugin subcommand: {s}. Use new, build, install, list, doctor, or dev."
+                    "unknown plugin subcommand: {s}. Use new, build, install, list, doctor, dev, resolve, pin, unpin, or update."
                 )
             }
             CliError::PluginMissingName => {
@@ -99,6 +114,27 @@ impl std::fmt::Display for CliError {
                 write!(
                     f,
                     "unknown template: {t}. Use hello, contribution, annotation, transform, overlay, or process."
+                )
+            }
+            CliError::PluginPinMissingPluginId => {
+                write!(
+                    f,
+                    "missing plugin id. Usage: kasane plugin pin <plugin-id> (--digest DIGEST | --package NAME [--version VERSION])"
+                )
+            }
+            CliError::PluginPinMissingSelector => {
+                write!(
+                    f,
+                    "pin requires --digest DIGEST or --package NAME [--version VERSION]"
+                )
+            }
+            CliError::PluginPinInvalidArgs(arg) => {
+                write!(f, "invalid pin argument: {arg}")
+            }
+            CliError::PluginUnpinMissingPluginId => {
+                write!(
+                    f,
+                    "missing plugin id. Usage: kasane plugin unpin <plugin-id>"
                 )
             }
         }
@@ -250,6 +286,64 @@ fn parse_plugin_args<'a>(
             }
             Ok(PluginSubcommand::Dev { path, release })
         }
+        "resolve" => Ok(PluginSubcommand::Resolve),
+        "pin" => {
+            let plugin_id = iter
+                .next()
+                .ok_or(CliError::PluginPinMissingPluginId)?
+                .clone();
+            let mut digest = None;
+            let mut package = None;
+            let mut version = None;
+            while let Some(arg) = iter.next() {
+                match arg.as_str() {
+                    "--digest" => {
+                        digest = Some(
+                            iter.next()
+                                .ok_or_else(|| {
+                                    CliError::PluginPinInvalidArgs("--digest".to_string())
+                                })?
+                                .clone(),
+                        );
+                    }
+                    "--package" => {
+                        package = Some(
+                            iter.next()
+                                .ok_or_else(|| {
+                                    CliError::PluginPinInvalidArgs("--package".to_string())
+                                })?
+                                .clone(),
+                        );
+                    }
+                    "--version" => {
+                        version = Some(
+                            iter.next()
+                                .ok_or_else(|| {
+                                    CliError::PluginPinInvalidArgs("--version".to_string())
+                                })?
+                                .clone(),
+                        );
+                    }
+                    other => return Err(CliError::PluginPinInvalidArgs(other.to_string())),
+                }
+            }
+            if digest.is_some() == package.is_some() {
+                return Err(CliError::PluginPinMissingSelector);
+            }
+            Ok(PluginSubcommand::Pin {
+                plugin_id,
+                digest,
+                package,
+                version,
+            })
+        }
+        "unpin" => Ok(PluginSubcommand::Unpin {
+            plugin_id: iter
+                .next()
+                .ok_or(CliError::PluginUnpinMissingPluginId)?
+                .clone(),
+        }),
+        "update" => Ok(PluginSubcommand::Update),
         other => Err(CliError::PluginUnknownSubcommand(other.to_string())),
     }
 }
@@ -335,6 +429,10 @@ Subcommands:
   plugin list                       Show installed plugin packages
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
   plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
+  plugin resolve                    Rebuild plugins.lock from installed packages
+  plugin pin <id> ...               Pin a plugin to a digest or package/version
+  plugin unpin <id>                 Remove explicit selection for a plugin
+  plugin update                     Advance auto-selected plugins to newer installed versions
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.
@@ -727,6 +825,72 @@ mod tests {
                 path: Some("./my-plugin".to_string()),
                 release: true,
             }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_resolve() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "resolve"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Resolve))
+        );
+    }
+
+    #[test]
+    fn test_plugin_pin_digest() {
+        assert_eq!(
+            parse_cli_args(&args(&[
+                "plugin",
+                "pin",
+                "sel_badge",
+                "--digest",
+                "sha256:abc",
+            ])),
+            Ok(CliAction::Plugin(PluginSubcommand::Pin {
+                plugin_id: "sel_badge".to_string(),
+                digest: Some("sha256:abc".to_string()),
+                package: None,
+                version: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_pin_package() {
+        assert_eq!(
+            parse_cli_args(&args(&[
+                "plugin",
+                "pin",
+                "cursor_line",
+                "--package",
+                "builtin/cursor-line",
+                "--version",
+                "0.3.0",
+            ])),
+            Ok(CliAction::Plugin(PluginSubcommand::Pin {
+                plugin_id: "cursor_line".to_string(),
+                digest: None,
+                package: Some("builtin/cursor-line".to_string()),
+                version: Some("0.3.0".to_string()),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_unpin() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "unpin", "sel_badge"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Unpin {
+                plugin_id: "sel_badge".to_string(),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_update() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "update"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Update))
         );
     }
 

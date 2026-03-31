@@ -77,4 +77,6 @@ disabled = []
 
 [plugins.deny_authorities]
 
+[plugins.selection]
+
 [settings]

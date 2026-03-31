@@ -39,6 +39,7 @@ criterion = { workspace = true }
 iai-callgrind = { workspace = true }
 hdrhistogram = { workspace = true }
 proptest = "1"
+tempfile = "3"
 
 [[bench]]
 name = "rendering_pipeline"
