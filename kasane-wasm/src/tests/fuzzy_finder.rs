@@ -452,14 +452,13 @@ fn discover_loads_with_fixtures() {
     kasane_plugin_package::package::write_package(tmp.path().join("fuzzy-finder.kpk"), &output)
         .unwrap();
 
-    let config = PluginsConfig {
-        path: Some(tmp.path().to_string_lossy().into_owned()),
-        disabled: vec!["pane_manager".to_string()],
-        ..Default::default()
-    };
-    let mut registry = PluginRuntime::new();
-    crate::discover_and_register(&config, &mut registry);
+    let loader = WasmPluginLoader::new().unwrap();
+    let plugin = loader
+        .load_package_file(
+            &tmp.path().join("fuzzy-finder.kpk"),
+            &crate::WasiCapabilityConfig::default(),
+        )
+        .unwrap();
 
-    assert_eq!(registry.plugin_count(), 1);
-    assert!(registry.contains_plugin(&PluginId("fuzzy_finder".to_string())));
+    assert_eq!(plugin.id(), PluginId("fuzzy_finder".to_string()));
 }

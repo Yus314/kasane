@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -19,7 +20,7 @@ use crate::plugin_store::PluginStore;
 const LOCKED_WASM_PROVIDER_NAME: &str = "kasane::LockedWasmPluginProvider";
 
 pub struct LockedWasmPluginProvider {
-    lock: std::result::Result<PluginsLock, String>,
+    lock_path: PathBuf,
     store: PluginStore,
     plugins_config: kasane_core::config::PluginsConfig,
     config_settings: HashMap<String, toml::Table>,
@@ -27,17 +28,28 @@ pub struct LockedWasmPluginProvider {
 
 impl LockedWasmPluginProvider {
     pub fn new(
-        lock: Result<PluginsLock>,
+        lock_path: impl Into<PathBuf>,
         plugins_config: kasane_core::config::PluginsConfig,
         config_settings: HashMap<String, toml::Table>,
     ) -> Self {
         let store = PluginStore::from_plugins_dir(plugins_config.plugins_dir());
         Self {
-            lock: lock.map_err(|err| err.to_string()),
+            lock_path: lock_path.into(),
             store,
             plugins_config,
             config_settings,
         }
+    }
+
+    pub fn from_default_lock_path(
+        plugins_config: kasane_core::config::PluginsConfig,
+        config_settings: HashMap<String, toml::Table>,
+    ) -> Self {
+        Self::new(
+            crate::plugin_lock::plugins_lock_path(),
+            plugins_config,
+            config_settings,
+        )
     }
 }
 
@@ -49,14 +61,14 @@ impl PluginProvider for LockedWasmPluginProvider {
     fn collect(&self) -> Result<PluginCollect> {
         let mut resolved = PluginCollect::default();
 
-        let lock = match &self.lock {
+        let lock = match PluginsLock::load_from_path(&self.lock_path) {
             Ok(lock) => lock,
             Err(err) => {
                 resolved
                     .diagnostics
                     .push(PluginDiagnostic::provider_collect_failed(
                         self.name(),
-                        err.clone(),
+                        err.to_string(),
                     ));
                 return Ok(resolved);
             }
@@ -544,8 +556,11 @@ flags = ["contributor"]
             },
         );
 
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
         let provider = LockedWasmPluginProvider::new(
-            Ok(lock),
+            lock_path,
             kasane_core::config::PluginsConfig {
                 path: Some(plugins_dir.to_string_lossy().into_owned()),
                 ..Default::default()
@@ -584,8 +599,11 @@ flags = ["contributor"]
             },
         );
 
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
         let provider = LockedWasmPluginProvider::new(
-            Ok(lock),
+            lock_path,
             kasane_core::config::PluginsConfig {
                 path: Some(plugins_dir.to_string_lossy().into_owned()),
                 ..Default::default()
@@ -595,6 +613,50 @@ flags = ["contributor"]
         let collected = provider.collect().unwrap();
         assert!(collected.factories.is_empty());
         assert_eq!(collected.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn collect_rereads_lock_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let plugins_dir = tmp.path().join("plugins");
+        let store = PluginStore::from_plugins_dir(&plugins_dir);
+
+        let selected_source = build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge");
+        let selected_artifact = store.put_verified_package(&selected_source).unwrap();
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            selected_artifact.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: selected_artifact.plugin_id.clone(),
+                package: Some(selected_artifact.package_name.clone()),
+                version: Some(selected_artifact.package_version.clone()),
+                artifact_digest: selected_artifact.artifact_digest.clone(),
+                code_digest: selected_artifact.code_digest.clone(),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(selected_artifact.abi_version.clone()),
+            },
+        );
+
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
+        let provider = LockedWasmPluginProvider::new(
+            lock_path.clone(),
+            kasane_core::config::PluginsConfig {
+                path: Some(plugins_dir.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+            HashMap::new(),
+        );
+
+        let collected = provider.collect().unwrap();
+        assert_eq!(collected.factories.len(), 1);
+
+        PluginsLock::new().save_to_path(&lock_path).unwrap();
+        let collected = provider.collect().unwrap();
+        assert!(collected.factories.is_empty());
+        assert!(collected.diagnostics.is_empty());
     }
 
     #[test]
@@ -618,8 +680,11 @@ flags = ["contributor"]
             },
         );
 
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
         let provider = LockedWasmPluginProvider::new(
-            Ok(lock),
+            lock_path,
             kasane_core::config::PluginsConfig {
                 path: Some(tmp.path().join("plugins").to_string_lossy().into_owned()),
                 ..Default::default()
