@@ -45,6 +45,7 @@ pub enum PluginSubcommand {
         release: bool,
     },
     Resolve,
+    Rollback,
     Pin {
         plugin_id: String,
         digest: Option<String>,
@@ -99,13 +100,13 @@ impl std::fmt::Display for CliError {
             CliError::PluginMissingSubcommand => {
                 write!(
                     f,
-                    "missing subcommand. Usage: kasane plugin <new|build|install|list|gc|doctor|dev|resolve|pin|unpin|update>"
+                    "missing subcommand. Usage: kasane plugin <new|build|install|list|gc|doctor|dev|resolve|rollback|pin|unpin|update>"
                 )
             }
             CliError::PluginUnknownSubcommand(s) => {
                 write!(
                     f,
-                    "unknown plugin subcommand: {s}. Use new, build, install, list, gc, doctor, dev, resolve, pin, unpin, or update."
+                    "unknown plugin subcommand: {s}. Use new, build, install, list, gc, doctor, dev, resolve, rollback, pin, unpin, or update."
                 )
             }
             CliError::PluginMissingName => {
@@ -289,6 +290,7 @@ fn parse_plugin_args<'a>(
             Ok(PluginSubcommand::Dev { path, release })
         }
         "resolve" => Ok(PluginSubcommand::Resolve),
+        "rollback" => Ok(PluginSubcommand::Rollback),
         "pin" => {
             let plugin_id = iter
                 .next()
@@ -433,6 +435,7 @@ Subcommands:
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
   plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
   plugin resolve                    Rebuild plugins.lock from installed packages
+  plugin rollback                   Restore the previous plugins.lock generation
   plugin pin <id> ...               Pin a plugin to a digest or package/version
   plugin unpin <id>                 Remove explicit selection for a plugin
   plugin update                     Advance auto-selected plugins to newer installed versions
@@ -844,6 +847,14 @@ mod tests {
         assert_eq!(
             parse_cli_args(&args(&["plugin", "resolve"])),
             Ok(CliAction::Plugin(PluginSubcommand::Resolve))
+        );
+    }
+
+    #[test]
+    fn test_plugin_rollback() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "rollback"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Rollback))
         );
     }
 
