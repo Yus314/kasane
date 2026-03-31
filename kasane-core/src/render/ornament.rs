@@ -1,9 +1,11 @@
+use crate::element::BorderLineStyle;
 use crate::layout::Rect;
 use crate::plugin::{
     FaceMerge, OrnamentModality, SourcedOrnamentBatch, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 use crate::protocol::Face;
 use crate::render::grid::CellGrid;
+use crate::render::scene::{CellSize, DrawCommand, to_pixel_rect};
 use crate::surface::{SurfaceId, SurfaceRegistry};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +136,29 @@ pub(crate) fn apply_surface_ornaments_tui(grid: &mut CellGrid, ornaments: &[Reso
             }
         }
     }
+}
+
+pub(crate) fn lower_surface_ornaments_gui(
+    ornaments: &[ResolvedSurfaceOrn],
+    cell_size: CellSize,
+) -> Vec<DrawCommand> {
+    let mut commands = Vec::new();
+    for orn in ornaments {
+        match orn.kind {
+            SurfaceOrnKind::InactiveTint => commands.push(DrawCommand::FillRect {
+                rect: to_pixel_rect(&orn.rect, cell_size),
+                face: orn.face,
+                elevated: false,
+            }),
+            SurfaceOrnKind::FocusFrame => commands.push(DrawCommand::DrawBorder {
+                rect: to_pixel_rect(&orn.rect, cell_size),
+                line_style: BorderLineStyle::Single,
+                face: orn.face,
+                fill_face: None,
+            }),
+        }
+    }
+    commands
 }
 
 fn apply_rect_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merge: FaceMerge) {
@@ -381,5 +406,57 @@ mod tests {
             grid.get(5, 3).unwrap().face.bg,
             Color::Named(NamedColor::Black)
         );
+    }
+
+    #[test]
+    fn lower_surface_ornaments_gui_emits_fill_and_border_commands() {
+        let commands = lower_surface_ornaments_gui(
+            &[
+                ResolvedSurfaceOrn {
+                    surface_id: Some(SurfaceId(1)),
+                    rect: Rect {
+                        x: 1,
+                        y: 2,
+                        w: 3,
+                        h: 4,
+                    },
+                    kind: SurfaceOrnKind::InactiveTint,
+                    face: face(NamedColor::Blue),
+                },
+                ResolvedSurfaceOrn {
+                    surface_id: Some(SurfaceId(2)),
+                    rect: Rect {
+                        x: 0,
+                        y: 0,
+                        w: 5,
+                        h: 6,
+                    },
+                    kind: SurfaceOrnKind::FocusFrame,
+                    face: face(NamedColor::Red),
+                },
+            ],
+            CellSize {
+                width: 10.0,
+                height: 20.0,
+            },
+        );
+
+        assert!(matches!(
+            &commands[0],
+            DrawCommand::FillRect {
+                rect,
+                elevated: false,
+                ..
+            } if rect.x == 10.0 && rect.y == 40.0 && rect.w == 30.0 && rect.h == 80.0
+        ));
+        assert!(matches!(
+            &commands[1],
+            DrawCommand::DrawBorder {
+                rect,
+                line_style: BorderLineStyle::Single,
+                fill_face: None,
+                ..
+            } if rect.w == 50.0 && rect.h == 120.0
+        ));
     }
 }

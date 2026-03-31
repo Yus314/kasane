@@ -4,7 +4,9 @@ use super::cursor::{
     find_buffer_origin_in_rect, find_buffer_x_offset, neutralize_unfocused_cursors,
 };
 use super::grid::CellGrid;
-use super::ornament::{apply_surface_ornaments_tui, resolve_surface_ornaments};
+use super::ornament::{
+    apply_surface_ornaments_tui, lower_surface_ornaments_gui, resolve_surface_ornaments,
+};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::walk;
 use super::{RenderResult, view};
@@ -441,6 +443,18 @@ pub(crate) fn scene_render_core<'a>(
     let dm = dm_ref(&frame.display_map);
     let dso = frame.display_scroll_offset as u16;
     let root_area = frame.root_area;
+    let ornament_ctx = crate::plugin::RenderOrnamentContext {
+        screen_cols: state.cols,
+        screen_rows: state.rows,
+        visible_line_start: frame.display_scroll_offset as u32,
+        visible_line_end: frame.display_scroll_offset as u32 + state.rows as u32,
+    };
+    let surface_ornaments = resolve_surface_ornaments(
+        &registry.collect_render_ornaments(&AppView::new(state), &ornament_ctx),
+        source.surface_registry(),
+        frame.focused_pane_rect,
+        root_area,
+    );
 
     // Use focused pane state for cursor computation in multi-pane mode
     let cursor_state = frame.focused_pane_state.as_deref().unwrap_or(state);
@@ -464,7 +478,7 @@ pub(crate) fn scene_render_core<'a>(
 
     // Base section
     if scene_cache.base_commands.is_none() {
-        let cmds = walk::walk_paint_scene_section(
+        let mut cmds = walk::walk_paint_scene_section(
             &frame.sections.base,
             &frame.base_layout,
             state,
@@ -472,6 +486,9 @@ pub(crate) fn scene_render_core<'a>(
             cell_size,
             result.cursor_style,
         );
+        if !surface_ornaments.is_empty() {
+            cmds.extend(lower_surface_ornaments_gui(&surface_ornaments, cell_size));
+        }
         scene_cache.base_commands = Some(cmds);
     }
 
