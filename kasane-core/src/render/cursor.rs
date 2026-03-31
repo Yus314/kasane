@@ -259,7 +259,13 @@ pub fn cursor_style_hint(
     state: &AppState,
     registry: &crate::plugin::PluginView<'_>,
 ) -> CursorStyleHint {
-    if let Some(hint) = registry.cursor_style_override(&AppView::new(state)) {
+    let ornament_ctx = crate::plugin::RenderOrnamentContext {
+        screen_cols: state.cols,
+        screen_rows: state.rows,
+        visible_line_start: state.display_scroll_offset as u32,
+        visible_line_end: state.display_scroll_offset as u32 + state.rows as u32,
+    };
+    if let Some(hint) = registry.resolve_cursor_style_hint(&AppView::new(state), &ornament_ctx) {
         return hint;
     }
     cursor_style_default(state).into()

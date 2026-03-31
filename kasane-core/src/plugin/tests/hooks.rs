@@ -354,6 +354,78 @@ fn test_collect_emphasis_decorations_merges_legacy_and_render_ornaments() {
     );
 }
 
+struct LegacyCursorStylePlugin;
+
+impl PluginBackend for LegacyCursorStylePlugin {
+    fn id(&self) -> PluginId {
+        PluginId("legacy-cursor-style-test".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CURSOR_STYLE
+    }
+
+    fn cursor_style_override(
+        &self,
+        _state: &AppView<'_>,
+    ) -> Option<crate::render::CursorStyleHint> {
+        Some(crate::render::CursorStyle::Underline.into())
+    }
+}
+
+#[test]
+fn test_resolve_cursor_style_hint_prefers_render_ornament_style() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(LegacyCursorStylePlugin));
+    registry.register_backend(Box::new(RenderOrnamentPlugin {
+        batch: OrnamentBatch {
+            emphasis: vec![],
+            cursor: Some(CursorOrn {
+                kind: CursorOrnKind::Style(crate::render::CursorStyle::Bar.into()),
+                face: Face::default(),
+                priority: 10,
+                modality: OrnamentModality::Must,
+            }),
+            surfaces: vec![],
+        },
+    }));
+
+    let state = AppState::default();
+    let hint = registry
+        .view()
+        .resolve_cursor_style_hint(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    assert_eq!(hint.map(|h| h.shape), Some(crate::render::CursorStyle::Bar));
+}
+
+#[test]
+fn test_resolve_cursor_style_hint_falls_back_to_legacy_override() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(LegacyCursorStylePlugin));
+    registry.register_backend(Box::new(RenderOrnamentPlugin {
+        batch: OrnamentBatch {
+            emphasis: vec![],
+            cursor: Some(CursorOrn {
+                kind: CursorOrnKind::Halo,
+                face: Face::default(),
+                priority: 10,
+                modality: OrnamentModality::Must,
+            }),
+            surfaces: vec![],
+        },
+    }));
+
+    let state = AppState::default();
+    let hint = registry
+        .view()
+        .resolve_cursor_style_hint(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    assert_eq!(
+        hint.map(|h| h.shape),
+        Some(crate::render::CursorStyle::Underline)
+    );
+}
+
 #[test]
 fn test_paint_hook_applies_to_grid() {
     use crate::layout::Rect;

@@ -1572,6 +1572,59 @@ impl<'a> PluginView<'a> {
         None
     }
 
+    /// Resolve the winning cursor ornament proposal for the current frame.
+    ///
+    /// Ordering is stable: stronger modality wins, then higher priority, then
+    /// earlier plugin registration order.
+    pub fn resolve_cursor_ornament(
+        &self,
+        state: &AppView<'_>,
+        ctx: &RenderOrnamentContext,
+    ) -> Option<super::CursorOrn> {
+        fn modality_rank(m: super::OrnamentModality) -> i8 {
+            match m {
+                super::OrnamentModality::Must => 2,
+                super::OrnamentModality::Approximate => 1,
+                super::OrnamentModality::May => 0,
+            }
+        }
+
+        let mut winner: Option<super::CursorOrn> = None;
+        for sourced in self.collect_render_ornaments(state, ctx) {
+            let Some(candidate) = sourced.batch.cursor else {
+                continue;
+            };
+            let replace = match &winner {
+                None => true,
+                Some(current) => {
+                    let lhs = (modality_rank(candidate.modality), candidate.priority);
+                    let rhs = (modality_rank(current.modality), current.priority);
+                    lhs > rhs
+                }
+            };
+            if replace {
+                winner = Some(candidate);
+            }
+        }
+        winner
+    }
+
+    /// Resolve a cursor style hint from render ornaments, falling back to the
+    /// legacy cursor-style override path when no style-bearing cursor ornament wins.
+    pub fn resolve_cursor_style_hint(
+        &self,
+        state: &AppView<'_>,
+        ctx: &RenderOrnamentContext,
+    ) -> Option<crate::render::CursorStyleHint> {
+        match self.resolve_cursor_ornament(state, ctx) {
+            Some(super::CursorOrn {
+                kind: super::CursorOrnKind::Style(hint),
+                ..
+            }) => Some(hint),
+            _ => self.cursor_style_override(state),
+        }
+    }
+
     /// Collect cell decorations from all participating plugins, sorted by priority.
     pub fn collect_cell_decorations(&self, state: &AppView<'_>) -> Vec<super::CellDecoration> {
         let mut all = Vec::new();
