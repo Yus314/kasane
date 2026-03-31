@@ -52,8 +52,9 @@ use super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
 use super::traits::KeyHandleResult;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, CellDecoration, Command, ContributeContext,
-    Contribution, DisplayDirective, Effects, IoEvent, OverlayContext, OverlayContribution,
-    PluginState, SlotId, TransformContext, TransformTarget, VirtualTextItem,
+    Contribution, DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext,
+    OverlayContribution, PluginState, RenderOrnamentContext, SlotId, TransformContext,
+    TransformTarget, VirtualTextItem,
 };
 
 /// Downcast state, call handler, box the new state and return `(BoxedState, second)`.
@@ -667,6 +668,17 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         register_view!(self, cursor_style_handler, handler, app);
     }
 
+    /// Register backend-independent physical ornament proposals.
+    pub fn on_render_ornaments(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>, &RenderOrnamentContext) -> OrnamentBatch
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        register_view!(self, render_ornament_handler, handler, app, ctx);
+    }
+
     /// Register a menu item transform handler.
     pub fn on_menu_transform(
         &mut self,
@@ -1275,6 +1287,18 @@ mod tests {
             table
                 .capabilities()
                 .contains(PluginCapabilities::CURSOR_STYLE)
+        );
+    }
+
+    #[test]
+    fn on_render_ornaments_sets_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_render_ornaments(|_state, _app, _ctx| OrnamentBatch::default());
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::RENDER_ORNAMENT)
         );
     }
 

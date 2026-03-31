@@ -18,6 +18,7 @@ pub mod process_task;
 mod provider;
 pub mod pubsub;
 mod registry;
+pub mod render_ornament;
 pub mod setting;
 pub mod state;
 mod traits;
@@ -98,6 +99,10 @@ pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
 pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
+pub use render_ornament::{
+    CursorOrn, CursorOrnKind, EmphasisOrn, OrnamentBatch, OrnamentModality, RenderOrnamentContext,
+    SourcedOrnamentBatch, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
+};
 pub use setting::SettingValue;
 pub use state::{Plugin, PluginState};
 
@@ -126,6 +131,7 @@ bitflags! {
         const NAVIGATION_POLICY  = 1 << 21;
         const NAVIGATION_ACTION  = 1 << 22;
         const DROP_HANDLER       = 1 << 23;
+        const RENDER_ORNAMENT   = 1 << 24;
     }
 }
 

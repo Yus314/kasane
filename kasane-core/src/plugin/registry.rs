@@ -18,7 +18,8 @@ use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     EffectsBatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
     PaintHook, PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
-    PluginId, SlotId, SourcedContribution, TransformContext, TransformSubject, TransformTarget,
+    PluginId, RenderOrnamentContext, SlotId, SourcedContribution, SourcedOrnamentBatch,
+    TransformContext, TransformSubject, TransformTarget,
 };
 
 pub struct PluginSurfaceSet {
@@ -1584,6 +1585,32 @@ impl<'a> PluginView<'a> {
             all.extend(slot.backend.decorate_cells(state));
         }
         all.sort_by_key(|d| d.priority);
+        all
+    }
+
+    /// Collect backend-independent physical ornament proposals from all participating plugins.
+    pub fn collect_render_ornaments(
+        &self,
+        state: &AppView<'_>,
+        ctx: &RenderOrnamentContext,
+    ) -> Vec<SourcedOrnamentBatch> {
+        let mut all = Vec::new();
+        for slot in self.slots.iter() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::RENDER_ORNAMENT)
+            {
+                continue;
+            }
+            let batch = slot.backend.render_ornaments(state, ctx);
+            if batch.is_empty() {
+                continue;
+            }
+            all.push(SourcedOrnamentBatch {
+                plugin_id: slot.backend.id(),
+                batch,
+            });
+        }
         all
     }
 

@@ -27,8 +27,9 @@ use super::pubsub::{PublishEntry, SubscribeEntry};
 use super::traits::KeyHandleResult;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, CellDecoration, Command, ContributeContext,
-    Contribution, DisplayDirective, Effects, IoEvent, OverlayContext, OverlayContribution,
-    PluginCapabilities, PluginState, SlotId, TransformContext, TransformTarget, VirtualTextItem,
+    Contribution, DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext,
+    OverlayContribution, PluginCapabilities, PluginState, RenderOrnamentContext, SlotId,
+    TransformContext, TransformTarget, VirtualTextItem,
 };
 
 // =============================================================================
@@ -173,6 +174,9 @@ pub(crate) type ErasedCellDecorationHandler =
     Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Vec<CellDecoration> + Send + Sync>;
 pub(crate) type ErasedCursorStyleHandler =
     Box<dyn Fn(&dyn PluginState, &AppView<'_>) -> Option<CursorStyleHint> + Send + Sync>;
+pub(crate) type ErasedRenderOrnamentHandler = Box<
+    dyn Fn(&dyn PluginState, &AppView<'_>, &RenderOrnamentContext) -> OrnamentBatch + Send + Sync,
+>;
 pub(crate) type ErasedMenuTransformHandler = Box<
     dyn Fn(&dyn PluginState, &[Atom], usize, bool, &AppView<'_>) -> Option<Vec<Atom>> + Send + Sync,
 >;
@@ -260,6 +264,7 @@ pub(crate) struct HandlerTable {
     pub(crate) display_handler: Option<ErasedDisplayHandler>,
     pub(crate) cell_decoration_handler: Option<ErasedCellDecorationHandler>,
     pub(crate) cursor_style_handler: Option<ErasedCursorStyleHandler>,
+    pub(crate) render_ornament_handler: Option<ErasedRenderOrnamentHandler>,
     pub(crate) menu_transform_handler: Option<ErasedMenuTransformHandler>,
 
     // --- Navigation (DU-4) ---
@@ -315,6 +320,7 @@ impl HandlerTable {
             display_handler: None,
             cell_decoration_handler: None,
             cursor_style_handler: None,
+            render_ornament_handler: None,
             menu_transform_handler: None,
             navigation_policy_handler: None,
             navigation_action_handler: None,
@@ -372,6 +378,9 @@ impl HandlerTable {
         }
         if self.cursor_style_handler.is_some() {
             caps |= PluginCapabilities::CURSOR_STYLE;
+        }
+        if self.render_ornament_handler.is_some() {
+            caps |= PluginCapabilities::RENDER_ORNAMENT;
         }
         if self.menu_transform_handler.is_some() {
             caps |= PluginCapabilities::MENU_TRANSFORM;
@@ -520,6 +529,18 @@ mod tests {
             table
                 .capabilities()
                 .contains(PluginCapabilities::NAVIGATION_ACTION)
+        );
+    }
+
+    #[test]
+    fn render_ornament_handler_sets_capability() {
+        let mut table = HandlerTable::empty();
+        table.render_ornament_handler =
+            Some(Box::new(|_state, _app, _ctx| OrnamentBatch::default()));
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::RENDER_ORNAMENT)
         );
     }
 }

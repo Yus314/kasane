@@ -676,6 +676,18 @@ impl PluginBackend for PluginBridge {
         }
     }
 
+    fn render_ornaments(
+        &self,
+        app: &AppView<'_>,
+        ctx: &super::RenderOrnamentContext,
+    ) -> super::OrnamentBatch {
+        if let Some(handler) = &self.table.render_ornament_handler {
+            handler(&*self.state, app, ctx)
+        } else {
+            super::OrnamentBatch::default()
+        }
+    }
+
     fn transform_menu_item(
         &self,
         item: &[crate::protocol::Atom],

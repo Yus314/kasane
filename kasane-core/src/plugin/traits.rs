@@ -12,10 +12,10 @@ use crate::display::unit::DisplayUnit;
 
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OverlayContext,
-    OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
-    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
-    VirtualTextItem,
+    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OrnamentBatch,
+    OverlayContext, OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities,
+    PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId, TransformContext,
+    TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
 };
 
 /// Result of key middleware dispatch.
@@ -177,6 +177,20 @@ pub trait PluginBackend: Any {
     /// Return cell-level decorations for the current frame.
     fn decorate_cells(&self, _state: &AppView<'_>) -> Vec<super::CellDecoration> {
         vec![]
+    }
+
+    // --- Render ornaments ---
+
+    /// Return backend-independent physical ornament proposals for the current frame.
+    ///
+    /// This is additive for now; existing physical extension points remain in place
+    /// until the rendering pipeline is switched over in follow-up changes.
+    fn render_ornaments(
+        &self,
+        _state: &AppView<'_>,
+        _ctx: &RenderOrnamentContext,
+    ) -> OrnamentBatch {
+        OrnamentBatch::default()
     }
 
     // --- Menu item transformation ---

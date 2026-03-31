@@ -1,4 +1,8 @@
 use super::*;
+use crate::plugin::{
+    CursorOrn, CursorOrnKind, EmphasisOrn, OrnamentBatch, OrnamentModality, RenderOrnamentContext,
+    SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
+};
 
 // --- Input observation tests ---
 
@@ -228,6 +232,70 @@ fn test_collect_paint_hooks_for_owner() {
     assert_eq!(hooks.len(), 2);
     assert_eq!(hooks[0].id(), "hook-a");
     assert_eq!(hooks[1].id(), "hook-b");
+}
+
+struct RenderOrnamentPlugin {
+    batch: OrnamentBatch,
+}
+
+impl PluginBackend for RenderOrnamentPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("render-ornament-test".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::RENDER_ORNAMENT
+    }
+
+    fn render_ornaments(
+        &self,
+        _state: &AppView<'_>,
+        _ctx: &RenderOrnamentContext,
+    ) -> OrnamentBatch {
+        self.batch.clone()
+    }
+}
+
+#[test]
+fn test_collect_render_ornaments() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(RenderOrnamentPlugin {
+        batch: OrnamentBatch {
+            emphasis: vec![EmphasisOrn {
+                target: DecorationTarget::Column { column: 3 },
+                face: Face::default(),
+                merge: FaceMerge::Background,
+                priority: 10,
+            }],
+            cursor: Some(CursorOrn {
+                kind: CursorOrnKind::Halo,
+                face: Face::default(),
+                priority: 20,
+                modality: OrnamentModality::Approximate,
+            }),
+            surfaces: vec![SurfaceOrn {
+                anchor: SurfaceOrnAnchor::FocusedSurface,
+                kind: SurfaceOrnKind::FocusFrame,
+                face: Face::default(),
+                priority: 30,
+                modality: OrnamentModality::Must,
+            }],
+        },
+    }));
+
+    let state = AppState::default();
+    let batches = registry
+        .view()
+        .collect_render_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    assert_eq!(batches.len(), 1);
+    assert_eq!(
+        batches[0].plugin_id,
+        PluginId("render-ornament-test".into())
+    );
+    assert_eq!(batches[0].batch.emphasis.len(), 1);
+    assert!(batches[0].batch.cursor.is_some());
+    assert_eq!(batches[0].batch.surfaces.len(), 1);
 }
 
 #[test]
