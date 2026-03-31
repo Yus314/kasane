@@ -22,15 +22,19 @@ pub fn run(name: &str, template: PluginTemplate) -> Result<()> {
     fs::create_dir_all(&src_dir)?;
 
     fs::write(dir.join("Cargo.toml"), templates::cargo_toml(name))?;
+    fs::write(
+        dir.join("kasane-plugin.toml"),
+        templates::plugin_manifest_toml(name, template),
+    )?;
     fs::write(src_dir.join("lib.rs"), templates::lib_rs(name, template))?;
     fs::write(dir.join(".gitignore"), templates::gitignore())?;
 
-    println!("Created plugin \"{name}\" at ./{name}/");
+    println!("Created plugin project \"{name}\" at ./{name}/");
     println!();
     println!("Next steps:");
     println!("  cd {name}");
-    println!("  kasane plugin build        Build the plugin");
-    println!("  kasane plugin install      Build, validate, and install");
+    println!("  kasane plugin dev          Build, install, and watch for changes");
+    println!("  kasane plugin build        Build a .kpk package");
 
     Ok(())
 }

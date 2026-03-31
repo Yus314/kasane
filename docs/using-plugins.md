@@ -53,7 +53,7 @@ installed as external plugins before use.
 
 ### WASM Plugins
 
-Place `.wasm` files in the plugins directory:
+Place `.kpk` files in the plugins directory:
 
 ```
 ~/.local/share/kasane/plugins/
@@ -65,7 +65,7 @@ Or, if `$XDG_DATA_HOME` is set:
 $XDG_DATA_HOME/kasane/plugins/
 ```
 
-Kasane automatically discovers and loads `.wasm` files from this directory on startup. Disable auto-discovery with:
+Kasane automatically discovers and loads `.kpk` files from this directory on startup. Disable auto-discovery with:
 
 ```toml
 [plugins]
