@@ -6,6 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use kasane_plugin_package::package::{self, InspectedPackage};
 
+use crate::plugin_lock::{PluginsLock, plugins_lock_history_paths};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredArtifact {
     pub artifact_digest: String,
@@ -111,16 +113,24 @@ impl PluginStore {
         Ok(paths)
     }
 
-    pub fn garbage_collect(
+    pub fn garbage_collect(&self, lock: &PluginsLock) -> Result<GarbageCollectResult> {
+        let history_paths = plugins_lock_history_paths()?;
+        self.garbage_collect_with_history(lock, &history_paths)
+    }
+
+    fn garbage_collect_with_history(
         &self,
-        lock: &crate::plugin_lock::PluginsLock,
+        lock: &PluginsLock,
+        history_paths: &[PathBuf],
     ) -> Result<GarbageCollectResult> {
         let mut referenced = BTreeSet::new();
-        for entry in lock.plugins.values() {
-            if entry.source_kind != "filesystem" {
-                continue;
-            }
-            referenced.insert(self.path_for(&entry.artifact_digest)?);
+        self.collect_referenced_store_paths(lock, &mut referenced)?;
+
+        for history_path in history_paths {
+            let history = PluginsLock::load_from_path(history_path).with_context(|| {
+                format!("failed to load lock history {}", history_path.display())
+            })?;
+            self.collect_referenced_store_paths(&history, &mut referenced)?;
         }
 
         let mut removed_paths = Vec::new();
@@ -142,6 +152,20 @@ impl PluginStore {
             removed_paths,
             removed_bytes,
         })
+    }
+
+    fn collect_referenced_store_paths(
+        &self,
+        lock: &PluginsLock,
+        referenced: &mut BTreeSet<PathBuf>,
+    ) -> Result<()> {
+        for entry in lock.plugins.values() {
+            if entry.source_kind != "filesystem" {
+                continue;
+            }
+            referenced.insert(self.path_for(&entry.artifact_digest)?);
+        }
+        Ok(())
     }
 }
 
@@ -346,9 +370,80 @@ flags = ["contributor"]
             },
         );
 
-        let gc = store.garbage_collect(&lock).unwrap();
+        let gc = store.garbage_collect_with_history(&lock, &[]).unwrap();
         assert_eq!(gc.removed_paths, vec![stored_b.path.clone()]);
         assert!(stored_a.path.exists());
         assert!(!stored_b.path.exists());
+    }
+
+    #[test]
+    fn garbage_collect_keeps_artifacts_referenced_by_lock_history() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source_a = tmp.path().join("demo-a.kpk");
+        let source_b = tmp.path().join("demo-b.kpk");
+        build_test_package(&source_a);
+
+        let manifest = PluginManifest::parse(
+            r#"
+[plugin]
+id = "demo_plugin_b"
+abi_version = "0.25.0"
+
+[handlers]
+flags = ["contributor"]
+"#,
+        )
+        .unwrap();
+        let output = package::build_package(BuildInput {
+            package_name: "example/demo-plugin-b".to_string(),
+            package_version: "0.1.0".to_string(),
+            component_entry: "plugin.wasm".to_string(),
+            component: b"\0asmcomponent".to_vec(),
+            manifest,
+            assets: Vec::new(),
+        })
+        .unwrap();
+        package::write_package(&source_b, &output).unwrap();
+
+        let store = PluginStore::new(tmp.path().join("store"));
+        let stored_a = store.put_verified_package(&source_a).unwrap();
+        let stored_b = store.put_verified_package(&source_b).unwrap();
+
+        let mut current = PluginsLock::new();
+        current.plugins.insert(
+            stored_a.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: stored_a.plugin_id.clone(),
+                package: Some(stored_a.package_name.clone()),
+                version: Some(stored_a.package_version.clone()),
+                artifact_digest: stored_a.artifact_digest.clone(),
+                code_digest: stored_a.code_digest.clone(),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(stored_a.abi_version.clone()),
+            },
+        );
+
+        let mut history = PluginsLock::new();
+        history.plugins.insert(
+            stored_b.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: stored_b.plugin_id.clone(),
+                package: Some(stored_b.package_name.clone()),
+                version: Some(stored_b.package_version.clone()),
+                artifact_digest: stored_b.artifact_digest.clone(),
+                code_digest: stored_b.code_digest.clone(),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(stored_b.abi_version.clone()),
+            },
+        );
+        let history_path = tmp.path().join("plugins-0001.lock");
+        history.save_to_path(&history_path).unwrap();
+
+        let gc = store
+            .garbage_collect_with_history(&current, std::slice::from_ref(&history_path))
+            .unwrap();
+        assert!(gc.removed_paths.is_empty());
+        assert!(stored_a.path.exists());
+        assert!(stored_b.path.exists());
     }
 }

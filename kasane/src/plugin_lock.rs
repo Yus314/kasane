@@ -156,6 +156,10 @@ pub fn latest_plugins_lock_history_path() -> Result<Option<PathBuf>> {
     latest_plugins_lock_history_path_from_path(plugins_lock_path())
 }
 
+pub fn plugins_lock_history_paths() -> Result<Vec<PathBuf>> {
+    plugins_lock_history_paths_from_path(plugins_lock_path())
+}
+
 pub fn rollback_plugins_lock() -> Result<Option<PathBuf>> {
     rollback_plugins_lock_from_path(plugins_lock_path())
 }
@@ -221,11 +225,11 @@ fn archive_lock_generation(path: &Path) -> Result<PathBuf> {
     Ok(history_path)
 }
 
-fn latest_plugins_lock_history_path_from_path(path: impl AsRef<Path>) -> Result<Option<PathBuf>> {
+fn plugins_lock_history_paths_from_path(path: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
     let history_dir = plugins_lock_history_dir_from_path(path.as_ref());
     let entries = match fs::read_dir(&history_dir) {
         Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => {
             return Err(err).with_context(|| format!("failed to read {}", history_dir.display()));
         }
@@ -243,6 +247,11 @@ fn latest_plugins_lock_history_path_from_path(path: impl AsRef<Path>) -> Result<
         }
     }
     paths.sort();
+    Ok(paths)
+}
+
+fn latest_plugins_lock_history_path_from_path(path: impl AsRef<Path>) -> Result<Option<PathBuf>> {
+    let mut paths = plugins_lock_history_paths_from_path(path)?;
     Ok(paths.pop())
 }
 

@@ -94,7 +94,7 @@ kasane plugin resolve
 2. Rebuild `plugins.lock`: `kasane plugin resolve`
 3. Check the plugin is not in the `disabled` list
 4. Run `kasane plugin doctor`
-5. Remove stale package artifacts if needed: `kasane plugin gc`
+5. Remove stale package artifacts if needed: `kasane plugin gc` (this keeps rollback generations intact)
 6. Restore the previous active set if a recent resolve/update changed it: `kasane plugin rollback`
 7. Check the log for loading errors: `KASANE_LOG=info kasane file.txt`
 

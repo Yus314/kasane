@@ -3,7 +3,8 @@ use std::path::Path;
 use anyhow::Result;
 use kasane_core::config::Config;
 
-use crate::plugin_lock::PluginsLock;
+use crate::plugin_lock::{PluginsLock, plugins_lock_history_paths};
+use crate::plugin_store::PluginStore;
 
 pub fn run(fix: bool) -> Result<()> {
     println!("kasane plugin doctor");
@@ -15,6 +16,7 @@ pub fn run(fix: bool) -> Result<()> {
     all_ok &= check_sdk_version();
     all_ok &= check_plugins_directory(fix);
     all_ok &= check_plugins_lock();
+    all_ok &= check_lock_history();
     all_ok &= check_installed_plugins();
 
     println!();
@@ -163,6 +165,7 @@ fn check_plugins_lock() -> bool {
             return false;
         }
     };
+    let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
 
     if lock.plugins.is_empty() {
         if resolution.lock.plugins.is_empty() {
@@ -182,6 +185,25 @@ fn check_plugins_lock() -> bool {
     let mut all_ok = true;
     println!("{} entries", lock.plugins.len());
     for (plugin_id, entry) in &lock.plugins {
+        if entry.source_kind == "filesystem" {
+            match store.contains(&entry.artifact_digest) {
+                Ok(true) => {}
+                Ok(false) => {
+                    println!(
+                        "    {plugin_id}: MISSING STORE ARTIFACT ({})",
+                        entry.artifact_digest
+                    );
+                    all_ok = false;
+                    continue;
+                }
+                Err(e) => {
+                    println!("    {plugin_id}: ERROR ({e:#})");
+                    all_ok = false;
+                    continue;
+                }
+            }
+        }
+
         match resolution.lock.plugins.get(plugin_id) {
             Some(resolved) if resolved.artifact_digest == entry.artifact_digest => {
                 println!("    {plugin_id}: ok");
@@ -199,6 +221,68 @@ fn check_plugins_lock() -> bool {
             }
         }
     }
+    all_ok
+}
+
+fn check_lock_history() -> bool {
+    print!("  lock history ... ");
+    let config = match Config::try_load() {
+        Ok(config) => config,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
+    let history_paths = match plugins_lock_history_paths() {
+        Ok(paths) => paths,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
+    if history_paths.is_empty() {
+        println!("none");
+        return true;
+    }
+
+    let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
+    let mut all_ok = true;
+    println!("{} generations", history_paths.len());
+    for path in history_paths {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let lock = match PluginsLock::load_from_path(&path) {
+            Ok(lock) => lock,
+            Err(e) => {
+                println!("    {name}: ERROR ({e:#})");
+                all_ok = false;
+                continue;
+            }
+        };
+
+        let mut missing = Vec::new();
+        for (plugin_id, entry) in &lock.plugins {
+            if entry.source_kind != "filesystem" {
+                continue;
+            }
+            match store.contains(&entry.artifact_digest) {
+                Ok(true) => {}
+                Ok(false) => missing.push(format!("{plugin_id} ({})", entry.artifact_digest)),
+                Err(e) => missing.push(format!("{plugin_id} (error: {e:#})")),
+            }
+        }
+
+        if missing.is_empty() {
+            println!("    {name}: ok");
+            continue;
+        }
+
+        println!("    {name}: MISSING {} artifact(s)", missing.len());
+        for item in missing {
+            println!("      {item}");
+        }
+        all_ok = false;
+    }
+
     all_ok
 }
 
