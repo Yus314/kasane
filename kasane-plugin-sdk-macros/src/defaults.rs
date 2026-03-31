@@ -100,6 +100,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "state_hash",
         "cursor_style_override",
         "decorate_cells",
+        "render_ornaments",
         "update_effects",
         "requested_capabilities",
         "requested_authorities",
@@ -509,6 +510,19 @@ pub(crate) fn generate_defaults(
         quote! { fn decorate_cells() -> Vec<CellDecoration> { Vec::new() } }
     );
 
+    add_default!(
+        "render_ornaments",
+        quote! {
+            fn render_ornaments(_ctx: OrnamentContext) -> OrnamentBatch {
+                OrnamentBatch {
+                    emphasis: vec![],
+                    cursor: None,
+                    surfaces: vec![],
+                }
+            }
+        }
+    );
+
     // --- Inter-plugin messaging ---
 
     add_default!(
@@ -662,6 +676,10 @@ pub(crate) fn generate_defaults(
         // DROP_HANDLER = 1 << 23
         if existing.contains("handle_drop") {
             caps |= 1 << 23;
+        }
+        // RENDER_ORNAMENT = 1 << 24
+        if existing.contains("render_ornaments") {
+            caps |= 1 << 24;
         }
 
         let caps_literal = caps;

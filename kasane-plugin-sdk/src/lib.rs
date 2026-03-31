@@ -46,6 +46,9 @@
 //! In `handle_key`, `overlay`, `on_io_event_effects`, etc., `state` is mutable and
 //! `bump_generation()` is called automatically when the guard drops.
 //!
+//! For backend-independent physical chrome, implement `Guest::render_ornaments`
+//! and return an `OrnamentBatch` with emphasis, cursor, or surface proposals.
+//!
 //! # Explicit Pattern
 //!
 //! For full control over state management, use `generate!()` + `#[plugin]`

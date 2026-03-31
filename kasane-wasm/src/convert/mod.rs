@@ -208,7 +208,12 @@ impl From<wit::Rect> for Rect {
 // Cell decoration conversions (WIT → native)
 // ---------------------------------------------------------------------------
 
-use kasane_core::plugin::{CellDecoration, DecorationTarget, FaceMerge};
+use kasane_core::plugin::{
+    CellDecoration, CursorOrn, CursorOrnKind, DecorationTarget, EmphasisOrn, FaceMerge,
+    OrnamentBatch as CoreOrnamentBatch, OrnamentModality, RenderOrnamentContext, SurfaceOrn,
+    SurfaceOrnAnchor, SurfaceOrnKind,
+};
+use kasane_core::render::{CursorStyle, CursorStyleHint};
 
 pub(crate) fn wit_cell_decorations_to_decorations(
     wits: &[wit::CellDecoration],
@@ -241,6 +246,105 @@ fn wit_face_merge_to_merge(code: u8) -> FaceMerge {
         0 => FaceMerge::Replace,
         1 => FaceMerge::Overlay,
         _ => FaceMerge::Background,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Render ornament conversions (WIT ↔ native)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn render_ornament_context_to_wit(ctx: &RenderOrnamentContext) -> wit::OrnamentContext {
+    wit::OrnamentContext {
+        screen_cols: ctx.screen_cols,
+        screen_rows: ctx.screen_rows,
+        visible_line_start: ctx.visible_line_start,
+        visible_line_end: ctx.visible_line_end,
+    }
+}
+
+pub(crate) fn wit_ornament_batch_to_ornament_batch(w: &wit::OrnamentBatch) -> CoreOrnamentBatch {
+    CoreOrnamentBatch {
+        emphasis: w
+            .emphasis
+            .iter()
+            .map(wit_cell_decoration_to_emphasis)
+            .collect(),
+        cursor: w.cursor.as_ref().map(wit_cursor_orn_to_cursor_orn),
+        surfaces: w
+            .surfaces
+            .iter()
+            .map(wit_surface_orn_to_surface_orn)
+            .collect(),
+    }
+}
+
+fn wit_cell_decoration_to_emphasis(w: &wit::CellDecoration) -> EmphasisOrn {
+    EmphasisOrn {
+        target: wit_decoration_target_to_target(&w.target),
+        face: wit_face_to_face(&w.face),
+        merge: wit_face_merge_to_merge(w.merge),
+        priority: w.priority,
+    }
+}
+
+fn wit_cursor_orn_to_cursor_orn(w: &wit::CursorOrn) -> CursorOrn {
+    CursorOrn {
+        kind: wit_cursor_orn_kind_to_kind(&w.kind),
+        face: wit_face_to_face(&w.face),
+        priority: w.priority,
+        modality: wit_ornament_modality_to_modality(w.modality),
+    }
+}
+
+fn wit_cursor_orn_kind_to_kind(w: &wit::CursorOrnKind) -> CursorOrnKind {
+    match w {
+        wit::CursorOrnKind::Halo => CursorOrnKind::Halo,
+        wit::CursorOrnKind::Ring => CursorOrnKind::Ring,
+        wit::CursorOrnKind::Emphasis => CursorOrnKind::Emphasis,
+        wit::CursorOrnKind::Style(code) => CursorOrnKind::Style(wit_u8_to_cursor_style_hint(*code)),
+    }
+}
+
+fn wit_u8_to_cursor_style_hint(code: u8) -> CursorStyleHint {
+    let shape = match code {
+        0 => CursorStyle::Block,
+        1 => CursorStyle::Bar,
+        2 => CursorStyle::Underline,
+        3 => CursorStyle::Outline,
+        _ => CursorStyle::Block,
+    };
+    shape.into()
+}
+
+fn wit_surface_orn_to_surface_orn(w: &wit::SurfaceOrn) -> SurfaceOrn {
+    SurfaceOrn {
+        anchor: wit_surface_orn_anchor_to_anchor(&w.anchor),
+        kind: wit_surface_orn_kind_to_kind(w.kind),
+        face: wit_face_to_face(&w.face),
+        priority: w.priority,
+        modality: wit_ornament_modality_to_modality(w.modality),
+    }
+}
+
+fn wit_surface_orn_anchor_to_anchor(w: &wit::SurfaceOrnAnchor) -> SurfaceOrnAnchor {
+    match w {
+        wit::SurfaceOrnAnchor::FocusedSurface => SurfaceOrnAnchor::FocusedSurface,
+        wit::SurfaceOrnAnchor::SurfaceKey(key) => SurfaceOrnAnchor::SurfaceKey(key.clone()),
+    }
+}
+
+fn wit_surface_orn_kind_to_kind(w: wit::SurfaceOrnKind) -> SurfaceOrnKind {
+    match w {
+        wit::SurfaceOrnKind::FocusFrame => SurfaceOrnKind::FocusFrame,
+        wit::SurfaceOrnKind::InactiveTint => SurfaceOrnKind::InactiveTint,
+    }
+}
+
+fn wit_ornament_modality_to_modality(w: wit::OrnamentModality) -> OrnamentModality {
+    match w {
+        wit::OrnamentModality::Must => OrnamentModality::Must,
+        wit::OrnamentModality::May => OrnamentModality::May,
+        wit::OrnamentModality::Approximate => OrnamentModality::Approximate,
     }
 }
 
