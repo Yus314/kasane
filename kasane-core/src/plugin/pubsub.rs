@@ -15,26 +15,10 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use compact_str::CompactString;
+pub use kasane_plugin_model::TopicId;
 
 use super::channel::ChannelValue;
 use super::{AppView, PluginId, PluginState};
-
-/// Identifier for a pub/sub topic.
-///
-/// Topics are namespaced by convention (e.g., `"myplugin.cursor-position"`).
-/// Two `TopicId` values are equal if their string representations match.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TopicId(pub CompactString);
-
-impl TopicId {
-    pub fn new(name: impl Into<CompactString>) -> Self {
-        Self(name.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 /// Phantom-typed topic handle for compile-time pub/sub type safety.
 ///

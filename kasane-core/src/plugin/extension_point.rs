@@ -21,25 +21,11 @@
 //! );
 //! ```
 
-use compact_str::CompactString;
+pub use kasane_plugin_model::ExtensionPointId;
 use serde::de::DeserializeOwned;
 
 use super::channel::ChannelValue;
 use super::{AppView, PluginId, PluginState};
-
-/// Identifier for a plugin-defined extension point.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ExtensionPointId(pub CompactString);
-
-impl ExtensionPointId {
-    pub fn new(name: impl Into<CompactString>) -> Self {
-        Self(name.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 /// How to compose multiple contributions to an extension point.
 #[derive(Debug, Clone)]

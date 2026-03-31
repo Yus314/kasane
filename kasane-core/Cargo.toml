@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 arboard = { workspace = true }
 kasane-macros = { workspace = true }
+kasane-plugin-model = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 simd-json = { workspace = true }
