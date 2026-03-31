@@ -65,7 +65,17 @@ Or, if `$XDG_DATA_HOME` is set:
 $XDG_DATA_HOME/kasane/plugins/
 ```
 
-Kasane automatically discovers and loads `.kpk` files from this directory on startup. Disable auto-discovery with:
+`kasane plugin install`, `kasane plugin dev`, and `kasane plugin resolve` use this directory as the package source/store location and write the active set into `plugins.lock`. Runtime activation is driven by `plugins.lock`, not by scanning the directory on startup.
+
+After manually placing packages in this directory, run:
+
+```bash
+kasane plugin resolve
+```
+
+to rebuild `plugins.lock`.
+
+The old `auto_discover` setting is deprecated:
 
 ```toml
 [plugins]
@@ -85,7 +95,7 @@ if you want to enable it.
 
 ### Disabling Plugins
 
-Discovered plugins can be disabled by ID:
+Installed packages and bundled plugins can be disabled by ID:
 
 ```toml
 [plugins]

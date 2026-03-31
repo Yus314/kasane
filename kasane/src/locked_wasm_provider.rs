@@ -39,16 +39,6 @@ impl LockedWasmPluginProvider {
             config_settings,
         }
     }
-
-    pub fn has_lock_entries(&self) -> bool {
-        self.lock
-            .as_ref()
-            .is_ok_and(|lock| !lock.plugins.is_empty())
-    }
-
-    pub fn should_prefer_locked_runtime(&self) -> bool {
-        self.lock.is_err() || self.has_lock_entries()
-    }
 }
 
 impl PluginProvider for LockedWasmPluginProvider {
