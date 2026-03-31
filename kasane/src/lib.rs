@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod plugin_cmd;
+pub mod plugin_lock;
 pub mod process;
 pub mod process_manager;
 
