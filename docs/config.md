@@ -309,7 +309,7 @@ Plugin discovery and loading settings.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | array of strings | `[]` | Bundled plugin IDs to enable (opt-in). See [using-plugins.md](./using-plugins.md#bundled-wasm-plugins) for the full list |
-| `auto_discover` | bool | `true` | Deprecated. Normal runtime activation is driven by `plugins.lock`, not directory scanning |
+| `auto_discover` | bool | `true` | Deprecated no-op. Normal runtime activation is driven by `plugins.lock`, not directory scanning |
 | `path` | string or omit | *(auto)* | Custom plugins directory. Default: `$XDG_DATA_HOME/kasane/plugins/` or `~/.local/share/kasane/plugins/` |
 | `disabled` | array of strings | `[]` | Plugin IDs to disable when building `plugins.lock` via `kasane plugin resolve` / `install` / `dev` |
 

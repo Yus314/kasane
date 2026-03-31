@@ -20,7 +20,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use kasane_core::plugin::{
     PluginBackend, PluginCollect, PluginDescriptor, PluginDiagnostic, PluginFactory, PluginId,
@@ -448,7 +447,7 @@ impl PluginProvider for WasmPluginProvider {
             &self.config_settings,
             &mut resolved,
         );
-        resolve_filesystem_plugins_with_factories(
+        resolve_package_plugins_with_factories(
             &self.plugins_config,
             &loader,
             &wasi_config,
@@ -460,14 +459,6 @@ impl PluginProvider for WasmPluginProvider {
 }
 
 const WASM_PROVIDER_NAME: &str = "kasane_wasm::WasmPluginProvider";
-
-fn mtime_ns(path: &Path) -> Option<u128> {
-    std::fs::metadata(path)
-        .ok()
-        .and_then(|meta| meta.modified().ok())
-        .and_then(|time: SystemTime| time.duration_since(SystemTime::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_nanos())
-}
 
 /// Resolve settings for a plugin: start with manifest defaults, then apply config overrides.
 fn resolve_plugin_settings(
@@ -483,18 +474,6 @@ fn resolve_plugin_settings(
         settings.extend(overrides);
     }
     settings
-}
-
-fn filesystem_fingerprint(
-    wasm_path: &Path,
-    wasm_len: u64,
-    manifest_path: Option<&Path>,
-) -> WasmPluginFingerprint {
-    WasmPluginFingerprint::Filesystem {
-        len: wasm_len,
-        modified_ns: mtime_ns(wasm_path),
-        manifest_modified_ns: manifest_path.and_then(mtime_ns),
-    }
 }
 
 fn upsert_resolved_plugin(target: &mut Vec<ResolvedWasmPlugin>, plugin: ResolvedWasmPlugin) {
@@ -715,77 +694,35 @@ fn sha256_prefixed(bytes: &[u8]) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
-/// A discovered plugin artifact from the filesystem (manifest + WASM pair).
-struct DiscoveredPlugin {
-    manifest: manifest::PluginManifest,
-    wasm_path: PathBuf,
-    manifest_path: PathBuf,
-}
-
-/// Scan a plugins directory for `.toml` manifest files and their sibling `.wasm` files.
-fn discover_plugin_artifacts(plugins_dir: &Path) -> Result<Vec<DiscoveredPlugin>, std::io::Error> {
-    let entries = std::fs::read_dir(plugins_dir)?;
-    let mut toml_files: Vec<PathBuf> = entries
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
-    toml_files.sort();
-
-    let mut plugins = Vec::new();
-    for toml_path in toml_files {
-        let wasm_path = toml_path.with_extension("wasm");
-        if !wasm_path.exists() {
-            tracing::warn!("manifest {} has no sibling .wasm file", toml_path.display());
-            continue;
-        }
-        let toml_str = match std::fs::read_to_string(&toml_path) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("failed to read manifest {}: {e}", toml_path.display());
-                continue;
-            }
-        };
-        match manifest::PluginManifest::parse(&toml_str) {
-            Ok(m) => {
-                plugins.push(DiscoveredPlugin {
-                    manifest: m,
-                    wasm_path,
-                    manifest_path: toml_path.clone(),
-                });
-            }
-            Err(e) => {
-                tracing::error!("failed to parse manifest {}: {e}", toml_path.display());
-            }
-        }
-    }
-    Ok(plugins)
-}
-
 fn discover_package_artifacts(plugins_dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
-    let entries = std::fs::read_dir(plugins_dir)?;
-    let mut package_files: Vec<PathBuf> = entries
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("kpk") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut package_files = Vec::new();
+    collect_package_artifacts(plugins_dir, &mut package_files)?;
     package_files.sort();
     Ok(package_files)
 }
 
-fn resolve_filesystem_package_plugins(
+fn collect_package_artifacts(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_package_artifacts(&path, out)?;
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("kpk") {
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn resolve_package_plugins(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
@@ -853,7 +790,7 @@ fn resolve_filesystem_package_plugins(
     }
 }
 
-fn resolve_filesystem_package_plugins_with_factories(
+fn resolve_package_plugins_with_factories(
     plugins_config: &kasane_core::config::PluginsConfig,
     loader: &WasmPluginLoader,
     wasi_config: &WasiCapabilityConfig,
@@ -1074,205 +1011,6 @@ fn resolve_bundled_plugins_with_factories(
     }
 }
 
-fn resolve_filesystem_plugins(
-    plugins_config: &kasane_core::config::PluginsConfig,
-    loader: &WasmPluginLoader,
-    wasi_config: &WasiCapabilityConfig,
-    resolved: &mut Vec<ResolvedWasmPlugin>,
-) {
-    if !plugins_config.auto_discover {
-        return;
-    }
-
-    let plugins_dir = plugins_config.plugins_dir();
-    let artifacts = match discover_plugin_artifacts(&plugins_dir) {
-        Ok(a) => a,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(
-                    "failed to read plugins directory {}: {e}",
-                    plugins_dir.display()
-                );
-            }
-            return;
-        }
-    };
-
-    for artifact in &artifacts {
-        let file_name = artifact
-            .wasm_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
-
-        if let Err(e) = artifact.manifest.validate() {
-            tracing::error!("manifest validation failed for {file_name}: {e}");
-            continue;
-        }
-
-        let plugin_id = &artifact.manifest.plugin.id;
-        if is_plugin_disabled(plugins_config, plugin_id) {
-            tracing::info!("WASM plugin {plugin_id} ({file_name}) disabled by config");
-            continue;
-        }
-
-        let bytes = match std::fs::read(&artifact.wasm_path) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                tracing::error!("failed to read WASM plugin {file_name}: {e}");
-                continue;
-            }
-        };
-
-        match loader.load_with_manifest(&bytes, &artifact.manifest, wasi_config) {
-            Ok(plugin) => {
-                let id = plugin.id();
-                tracing::info!("loaded WASM plugin {id:?} from {file_name}");
-                upsert_resolved_plugin(
-                    resolved,
-                    ResolvedWasmPlugin {
-                        id,
-                        revision: WasmPluginRevision {
-                            origin: WasmPluginOrigin::Filesystem(artifact.wasm_path.clone()),
-                            fingerprint: filesystem_fingerprint(
-                                &artifact.wasm_path,
-                                bytes.len() as u64,
-                                Some(&artifact.manifest_path),
-                            ),
-                        },
-                        plugin,
-                    },
-                );
-            }
-            Err((_, e)) => {
-                tracing::error!("failed to load WASM plugin {file_name}: {e}");
-            }
-        }
-    }
-
-    resolve_filesystem_package_plugins(plugins_config, loader, wasi_config, resolved);
-}
-
-fn resolve_filesystem_plugins_with_factories(
-    plugins_config: &kasane_core::config::PluginsConfig,
-    loader: &WasmPluginLoader,
-    wasi_config: &WasiCapabilityConfig,
-    config_settings: &std::collections::HashMap<String, toml::Table>,
-    resolved: &mut PluginCollect,
-) {
-    if !plugins_config.auto_discover {
-        return;
-    }
-
-    let plugins_dir = plugins_config.plugins_dir();
-    let artifacts = match discover_plugin_artifacts(&plugins_dir) {
-        Ok(a) => a,
-        Err(e) => {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                resolved
-                    .diagnostics
-                    .push(PluginDiagnostic::provider_collect_failed(
-                        WASM_PROVIDER_NAME,
-                        format!(
-                            "failed to read plugins directory {}: {e}",
-                            plugins_dir.display()
-                        ),
-                    ));
-            }
-            return;
-        }
-    };
-
-    for artifact in &artifacts {
-        let file_name = artifact
-            .wasm_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
-
-        if let Err(e) = artifact.manifest.validate() {
-            resolved
-                .diagnostics
-                .push(PluginDiagnostic::provider_artifact_failed(
-                    WASM_PROVIDER_NAME,
-                    file_name.as_ref(),
-                    ProviderArtifactStage::Manifest,
-                    e.to_string(),
-                ));
-            continue;
-        }
-
-        let plugin_id = &artifact.manifest.plugin.id;
-        if is_plugin_disabled(plugins_config, plugin_id) {
-            tracing::info!("WASM plugin {plugin_id} ({file_name}) disabled by config");
-            continue;
-        }
-
-        let bytes = match std::fs::read(&artifact.wasm_path) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                resolved
-                    .diagnostics
-                    .push(PluginDiagnostic::provider_artifact_failed(
-                        WASM_PROVIDER_NAME,
-                        file_name.as_ref(),
-                        ProviderArtifactStage::Read,
-                        e.to_string(),
-                    ));
-                continue;
-            }
-        };
-
-        match loader.load_with_manifest(&bytes, &artifact.manifest, wasi_config) {
-            Ok(plugin) => {
-                let id = plugin.id();
-                let settings = resolve_plugin_settings(&artifact.manifest, config_settings);
-                if !settings.is_empty() {
-                    resolved.initial_settings.insert(id.clone(), settings);
-                }
-                let descriptor = descriptor_from_wasm_revision(
-                    id,
-                    WasmPluginRevision {
-                        origin: WasmPluginOrigin::Filesystem(artifact.wasm_path.clone()),
-                        fingerprint: filesystem_fingerprint(
-                            &artifact.wasm_path,
-                            bytes.len() as u64,
-                            Some(&artifact.manifest_path),
-                        ),
-                    },
-                );
-                upsert_resolved_factory(
-                    &mut resolved.factories,
-                    wasm_manifest_factory(
-                        descriptor,
-                        bytes,
-                        artifact.manifest.clone(),
-                        wasi_config.clone(),
-                    ),
-                );
-            }
-            Err((stage, err)) => {
-                resolved
-                    .diagnostics
-                    .push(PluginDiagnostic::provider_artifact_failed(
-                        WASM_PROVIDER_NAME,
-                        file_name.as_ref(),
-                        stage,
-                        err.to_string(),
-                    ));
-            }
-        }
-    }
-
-    resolve_filesystem_package_plugins_with_factories(
-        plugins_config,
-        loader,
-        wasi_config,
-        config_settings,
-        resolved,
-    );
-}
-
 pub fn resolve_wasm_plugins(
     plugins_config: &kasane_core::config::PluginsConfig,
 ) -> anyhow::Result<ResolvedWasmPlugins> {
@@ -1280,7 +1018,7 @@ pub fn resolve_wasm_plugins(
     let wasi_config = WasiCapabilityConfig::from_plugins_config(plugins_config);
     let mut resolved = Vec::new();
     resolve_bundled_plugins(plugins_config, &loader, &wasi_config, &mut resolved);
-    resolve_filesystem_plugins(plugins_config, &loader, &wasi_config, &mut resolved);
+    resolve_package_plugins(plugins_config, &loader, &wasi_config, &mut resolved);
     Ok(ResolvedWasmPlugins { plugins: resolved })
 }
 
@@ -1308,12 +1046,12 @@ pub fn register_bundled_plugins(
     ResolvedWasmPlugins { plugins: resolved }.register_into(registry);
 }
 
-/// Discover and register WASM plugins from the plugins directory.
+/// Discover and register packaged WASM plugins from the plugins directory.
 ///
-/// Scans `plugins_config.plugins_dir()` for `*.wasm` files, loads each one,
-/// and registers it with the given `PluginRuntime`. Plugins whose ID appears
-/// in `plugins_config.disabled` are skipped. Errors are logged and do not
-/// prevent other plugins from loading.
+/// Scans `plugins_config.plugins_dir()` recursively for `.kpk` packages, loads
+/// each one, and registers it with the given `PluginRuntime`. Plugins whose ID
+/// appears in `plugins_config.disabled` are skipped. Errors are logged and do
+/// not prevent other plugins from loading.
 pub fn discover_and_register(
     plugins_config: &kasane_core::config::PluginsConfig,
     registry: &mut kasane_core::plugin::PluginRuntime,
@@ -1328,7 +1066,7 @@ pub fn discover_and_register(
 
     let wasi_config = WasiCapabilityConfig::from_plugins_config(plugins_config);
     let mut resolved = Vec::new();
-    resolve_filesystem_plugins(plugins_config, &loader, &wasi_config, &mut resolved);
+    resolve_package_plugins(plugins_config, &loader, &wasi_config, &mut resolved);
     ResolvedWasmPlugins { plugins: resolved }.register_into(registry);
 }
 

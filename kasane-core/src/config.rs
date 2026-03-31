@@ -312,7 +312,7 @@ impl Default for ColorsConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct PluginsConfig {
-    /// Automatically discover .wasm plugins from the plugins directory.
+    /// Deprecated legacy toggle. Runtime activation is driven by `plugins.lock`.
     pub auto_discover: bool,
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
     pub path: Option<String>,

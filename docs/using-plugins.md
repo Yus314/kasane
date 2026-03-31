@@ -75,7 +75,7 @@ kasane plugin resolve
 
 to rebuild `plugins.lock`.
 
-The old `auto_discover` setting is deprecated:
+The old `auto_discover` setting is deprecated and has no effect:
 
 ```toml
 [plugins]
