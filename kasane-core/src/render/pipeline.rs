@@ -4,6 +4,7 @@ use super::cursor::{
     find_buffer_origin_in_rect, find_buffer_x_offset, neutralize_unfocused_cursors,
 };
 use super::grid::CellGrid;
+use super::ornament::{apply_surface_ornaments_tui, resolve_surface_ornaments};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::walk;
 use super::{RenderResult, view};
@@ -15,6 +16,7 @@ use crate::plugin::PluginView;
 use crate::plugin::{AppView, PaintHook};
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
+use crate::surface::SurfaceRegistry;
 
 // ---------------------------------------------------------------------------
 // ViewSource: abstracts where view sections come from
@@ -31,6 +33,11 @@ pub(crate) trait ViewSource {
 
     /// Build the decomposed view sections.
     fn view_sections(&mut self, state: &AppState, registry: &PluginView<'_>) -> view::ViewSections;
+
+    /// Expose the surface registry when the source is backed by multi-pane composition.
+    fn surface_registry(&self) -> Option<&SurfaceRegistry> {
+        None
+    }
 }
 
 /// Builds view sections directly from PluginRuntime without any memoization.
@@ -342,6 +349,16 @@ pub(crate) fn render_cached_core(
             frame.buffer_y_offset,
             dso,
         );
+    }
+
+    let surface_ornaments = resolve_surface_ornaments(
+        &registry.collect_render_ornaments(&AppView::new(state), &ornament_ctx),
+        source.surface_registry(),
+        frame.focused_pane_rect,
+        root_area,
+    );
+    if !surface_ornaments.is_empty() {
+        apply_surface_ornaments_tui(grid, &surface_ornaments);
     }
 
     // Use focused pane state for cursor operations in multi-pane mode

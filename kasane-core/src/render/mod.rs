@@ -8,6 +8,7 @@ mod grid;
 pub mod halfblock;
 pub mod inline_decoration;
 pub mod markup;
+pub(crate) mod ornament;
 pub mod paint;
 pub mod pipeline;
 mod pipeline_salsa;

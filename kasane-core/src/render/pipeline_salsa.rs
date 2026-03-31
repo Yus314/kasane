@@ -228,6 +228,10 @@ impl ViewSource for SalsaViewSource<'_> {
             focused_pane_state,
         }
     }
+
+    fn surface_registry(&self) -> Option<&SurfaceRegistry> {
+        self.surface_registry
+    }
 }
 
 /// Compose buffer + status elements into the base Element tree, reading
