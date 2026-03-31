@@ -298,6 +298,62 @@ fn test_collect_render_ornaments() {
     assert_eq!(batches[0].batch.surfaces.len(), 1);
 }
 
+struct LegacyDecorationPlugin;
+
+impl PluginBackend for LegacyDecorationPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("legacy-decoration-test".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::CELL_DECORATION
+    }
+
+    fn decorate_cells(&self, _state: &AppView<'_>) -> Vec<CellDecoration> {
+        vec![CellDecoration {
+            target: DecorationTarget::Column { column: 1 },
+            face: Face::default(),
+            merge: FaceMerge::Background,
+            priority: 5,
+        }]
+    }
+}
+
+#[test]
+fn test_collect_emphasis_decorations_merges_legacy_and_render_ornaments() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(LegacyDecorationPlugin));
+    registry.register_backend(Box::new(RenderOrnamentPlugin {
+        batch: OrnamentBatch {
+            emphasis: vec![EmphasisOrn {
+                target: DecorationTarget::Column { column: 3 },
+                face: Face::default(),
+                merge: FaceMerge::Background,
+                priority: 10,
+            }],
+            cursor: None,
+            surfaces: vec![],
+        },
+    }));
+
+    let state = AppState::default();
+    let decorations = registry
+        .view()
+        .collect_emphasis_decorations(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    assert_eq!(decorations.len(), 2);
+    assert_eq!(decorations[0].priority, 5);
+    assert_eq!(decorations[1].priority, 10);
+    assert_eq!(
+        decorations[0].target,
+        DecorationTarget::Column { column: 1 }
+    );
+    assert_eq!(
+        decorations[1].target,
+        DecorationTarget::Column { column: 3 }
+    );
+}
+
 #[test]
 fn test_paint_hook_applies_to_grid() {
     use crate::layout::Rect;

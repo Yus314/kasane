@@ -1588,6 +1588,32 @@ impl<'a> PluginView<'a> {
         all
     }
 
+    /// Collect all cell-level emphasis decorations, combining legacy cell decorations
+    /// with new render ornament emphasis proposals.
+    pub fn collect_emphasis_decorations(
+        &self,
+        state: &AppView<'_>,
+        ctx: &RenderOrnamentContext,
+    ) -> Vec<super::CellDecoration> {
+        let mut all = self.collect_cell_decorations(state);
+        for sourced in self.collect_render_ornaments(state, ctx) {
+            all.extend(
+                sourced
+                    .batch
+                    .emphasis
+                    .into_iter()
+                    .map(|orn| super::CellDecoration {
+                        target: orn.target,
+                        face: orn.face,
+                        merge: orn.merge,
+                        priority: orn.priority,
+                    }),
+            );
+        }
+        all.sort_by_key(|d| d.priority);
+        all
+    }
+
     /// Collect backend-independent physical ornament proposals from all participating plugins.
     pub fn collect_render_ornaments(
         &self,

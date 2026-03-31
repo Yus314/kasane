@@ -323,8 +323,16 @@ pub(crate) fn render_cached_core(
         apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
     }
 
-    // Apply plugin cell decorations (bracket match, column highlight, etc.)
-    let cell_decorations = registry.collect_cell_decorations(&AppView::new(state));
+    // Apply cell-level emphasis from both legacy cell decorations and the new
+    // render ornament proposal path.
+    let ornament_ctx = crate::plugin::RenderOrnamentContext {
+        screen_cols: state.cols,
+        screen_rows: state.rows,
+        visible_line_start: frame.display_scroll_offset as u32,
+        visible_line_end: frame.display_scroll_offset as u32 + state.rows as u32,
+    };
+    let cell_decorations =
+        registry.collect_emphasis_decorations(&AppView::new(state), &ornament_ctx);
     if !cell_decorations.is_empty() {
         cell_decoration::apply_cell_decorations(
             &cell_decorations,
