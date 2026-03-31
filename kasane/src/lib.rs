@@ -254,13 +254,6 @@ fn build_plugin_manager(
         );
         if lock_provider.should_prefer_locked_runtime() {
             providers.push(Box::new(lock_provider));
-
-            let mut bundled_only = config.plugins.clone();
-            bundled_only.auto_discover = false;
-            providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
-                bundled_only,
-                config.settings.clone(),
-            )));
         } else {
             providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
                 config.plugins.clone(),

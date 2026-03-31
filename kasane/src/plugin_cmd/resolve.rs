@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use kasane_core::config::{Config, PluginSelection};
 use kasane_plugin_package::package::{self, InspectedPackage};
+use kasane_wasm::{BundledPluginArtifact, bundled_plugin_artifacts};
 use semver::Version;
 
 use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
@@ -78,6 +79,8 @@ pub(super) enum ResolveReason {
     Updated,
     PinnedDigest,
     PinnedPackage,
+    BundledDefault,
+    BundledEnabled,
 }
 
 #[derive(Debug, Clone)]
@@ -241,7 +244,7 @@ fn resolve_with_existing_lock(
 
     let mut lock = PluginsLock::new();
     for (plugin_id, entry) in &existing_lock.plugins {
-        if entry.source_kind != "filesystem" {
+        if entry.source_kind != "filesystem" && entry.source_kind != "bundled" {
             lock.plugins.insert(plugin_id.clone(), entry.clone());
         }
     }
@@ -385,6 +388,9 @@ fn resolve_with_existing_lock(
         }
     }
 
+    let issue_ids: BTreeSet<_> = issues.iter().map(|issue| issue.plugin_id.clone()).collect();
+    append_bundled_fallbacks(config, &mut lock, &mut selected, &issue_ids)?;
+
     selected.sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
     invalid_packages.sort_by(|left, right| left.path.cmp(&right.path));
 
@@ -477,6 +483,66 @@ fn select_candidate(
         artifact_digest: stored.artifact_digest,
         reason,
     });
+}
+
+fn append_bundled_fallbacks(
+    config: &Config,
+    lock: &mut PluginsLock,
+    selected: &mut Vec<ResolvedPlugin>,
+    issue_ids: &BTreeSet<String>,
+) -> Result<()> {
+    let mut bundled = bundled_plugin_artifacts()?;
+    bundled.sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
+
+    for artifact in bundled {
+        if !should_enable_bundled(config, &artifact) {
+            continue;
+        }
+        if issue_ids.contains(&artifact.plugin_id) {
+            continue;
+        }
+        if lock.plugins.contains_key(&artifact.plugin_id) {
+            continue;
+        }
+
+        lock.plugins.insert(
+            artifact.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: artifact.plugin_id.clone(),
+                package: Some(artifact.package_name.clone()),
+                version: Some(artifact.package_version.clone()),
+                artifact_digest: artifact.artifact_digest.clone(),
+                code_digest: artifact.code_digest.clone(),
+                source_kind: "bundled".to_string(),
+                abi_version: Some(artifact.abi_version.clone()),
+            },
+        );
+        selected.push(ResolvedPlugin {
+            plugin_id: artifact.plugin_id,
+            package: artifact.package_name,
+            version: artifact.package_version,
+            artifact_digest: artifact.artifact_digest,
+            reason: if artifact.default_enabled {
+                ResolveReason::BundledDefault
+            } else {
+                ResolveReason::BundledEnabled
+            },
+        });
+    }
+
+    Ok(())
+}
+
+fn should_enable_bundled(config: &Config, artifact: &BundledPluginArtifact) -> bool {
+    let disabled = config.plugins.is_disabled(artifact.name)
+        || config.plugins.is_disabled(&artifact.plugin_id);
+    if disabled {
+        return false;
+    }
+
+    artifact.default_enabled
+        || config.plugins.is_bundled_enabled(artifact.name)
+        || config.plugins.is_bundled_enabled(&artifact.plugin_id)
 }
 
 fn find_candidate_by_digest<'a>(
@@ -612,7 +678,7 @@ fn render_resolution_failure(result: &ResolveResult) -> String {
 fn print_saved_resolution(header: &str, saved: &SavedResolveResult) {
     println!("{header}:");
     if saved.result.selected.is_empty() {
-        println!("  (no filesystem packages selected)");
+        println!("  (no plugins selected)");
     } else {
         for plugin in &saved.result.selected {
             println!(
@@ -627,6 +693,8 @@ fn print_saved_resolution(header: &str, saved: &SavedResolveResult) {
                     ResolveReason::Updated => "updated",
                     ResolveReason::PinnedDigest => "pinned-digest",
                     ResolveReason::PinnedPackage => "pinned-package",
+                    ResolveReason::BundledDefault => "bundled-default",
+                    ResolveReason::BundledEnabled => "bundled-enabled",
                 }
             );
         }
@@ -717,9 +785,13 @@ flags = ["contributor"]
         let result =
             resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &lock).unwrap();
         assert!(result.issues.is_empty());
-        assert_eq!(result.selected.len(), 1);
-        assert_eq!(result.selected[0].artifact_digest, old.artifact_digest);
-        assert_eq!(result.selected[0].reason, ResolveReason::ExistingLock);
+        let sel_badge = result
+            .selected
+            .iter()
+            .find(|plugin| plugin.plugin_id == "sel_badge")
+            .unwrap();
+        assert_eq!(sel_badge.artifact_digest, old.artifact_digest);
+        assert_eq!(sel_badge.reason, ResolveReason::ExistingLock);
     }
 
     #[test]
@@ -740,9 +812,9 @@ flags = ["contributor"]
         let result =
             resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
                 .unwrap();
-        assert_eq!(result.selected.len(), 0);
         assert_eq!(result.issues.len(), 1);
         assert_eq!(result.issues[0].plugin_id, "sel_badge");
+        assert!(!result.lock.plugins.contains_key("sel_badge"));
     }
 
     #[test]
@@ -775,9 +847,13 @@ flags = ["contributor"]
         );
         let result = resolve_with_existing_lock(&config, ResolveOptions::update(), &lock).unwrap();
         assert!(result.issues.is_empty());
-        assert_eq!(result.selected.len(), 1);
-        assert_eq!(result.selected[0].artifact_digest, new.artifact_digest);
-        assert_eq!(result.selected[0].reason, ResolveReason::Updated);
+        let sel_badge = result
+            .selected
+            .iter()
+            .find(|plugin| plugin.plugin_id == "sel_badge")
+            .unwrap();
+        assert_eq!(sel_badge.artifact_digest, new.artifact_digest);
+        assert_eq!(sel_badge.reason, ResolveReason::Updated);
     }
 
     #[test]
@@ -806,7 +882,65 @@ flags = ["contributor"]
             resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
                 .unwrap();
         assert!(result.issues.is_empty());
-        assert_eq!(result.selected[0].artifact_digest, old.artifact_digest);
-        assert_eq!(result.selected[0].reason, ResolveReason::PinnedDigest);
+        let sel_badge = result
+            .selected
+            .iter()
+            .find(|plugin| plugin.plugin_id == "sel_badge")
+            .unwrap();
+        assert_eq!(sel_badge.artifact_digest, old.artifact_digest);
+        assert_eq!(sel_badge.reason, ResolveReason::PinnedDigest);
+    }
+
+    #[test]
+    fn reconcile_adds_default_enabled_bundled_plugin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_home = tmp.path().join("data");
+        let config_home = tmp.path().join("config");
+        fs::create_dir_all(&data_home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+
+        let config = config_with_paths(&data_home, &config_home);
+        let result =
+            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
+                .unwrap();
+
+        let pane_manager = result.lock.plugins.get("pane_manager").unwrap();
+        assert_eq!(pane_manager.source_kind, "bundled");
+        assert!(
+            result
+                .selected
+                .iter()
+                .any(|plugin| plugin.plugin_id == "pane_manager"
+                    && plugin.reason == ResolveReason::BundledDefault)
+        );
+    }
+
+    #[test]
+    fn bundled_fallback_does_not_mask_filesystem_conflict() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_home = tmp.path().join("data");
+        let config_home = tmp.path().join("config");
+        fs::create_dir_all(&data_home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+
+        let config = config_with_paths(&data_home, &config_home);
+        let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
+        let one =
+            build_fixture_package(tmp.path(), "pane_manager", "example/pane-manager", "0.1.0");
+        let two =
+            build_fixture_package(tmp.path(), "pane_manager", "example/pane-manager", "0.2.0");
+        store.put_verified_package(&one).unwrap();
+        store.put_verified_package(&two).unwrap();
+
+        let result =
+            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
+                .unwrap();
+        assert!(
+            result
+                .issues
+                .iter()
+                .any(|issue| issue.plugin_id == "pane_manager")
+        );
+        assert!(!result.lock.plugins.contains_key("pane_manager"));
     }
 }
