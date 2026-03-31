@@ -2209,6 +2209,7 @@ dependencies = [
  "anyhow",
  "kasane-core",
  "kasane-gui",
+ "kasane-plugin-package",
  "kasane-tui",
  "kasane-wasm",
  "notify",

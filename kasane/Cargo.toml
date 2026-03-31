@@ -11,6 +11,7 @@ wasm-plugins = ["dep:kasane-wasm", "dep:notify"]
 
 [dependencies]
 kasane-core = { workspace = true }
+kasane-plugin-package = { workspace = true }
 kasane-tui = { workspace = true }
 kasane-gui = { workspace = true, optional = true }
 kasane-wasm = { workspace = true, optional = true }

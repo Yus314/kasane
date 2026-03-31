@@ -1,0 +1,252 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
+use kasane_core::config::Config;
+use kasane_plugin_package::manifest::PluginManifest;
+use kasane_plugin_package::package::{self, BuildInput, InspectedPackage};
+use serde::Deserialize;
+
+use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
+
+use super::build;
+
+#[derive(Debug, Clone)]
+pub struct BuiltPackage {
+    pub path: PathBuf,
+    pub inspected: InspectedPackage,
+}
+
+#[derive(Debug, Clone)]
+pub struct InstalledPackage {
+    pub path: PathBuf,
+    pub inspected: InspectedPackage,
+    pub lock_path: PathBuf,
+}
+
+#[derive(Debug)]
+pub enum DiscoveredPackage {
+    Valid {
+        path: PathBuf,
+        inspected: InspectedPackage,
+    },
+    Invalid {
+        path: PathBuf,
+        error: package::PackageError,
+    },
+}
+
+pub fn build_project_package(project_dir: &str, release: bool) -> Result<BuiltPackage> {
+    let project_path = Path::new(project_dir);
+    let component_path = build::build_component(project_dir, release)?;
+    let manifest = load_plugin_manifest(project_path)?;
+    let cargo_manifest = load_cargo_manifest(project_path)?;
+    let component = fs::read(&component_path)
+        .with_context(|| format!("failed to read {}", component_path.display()))?;
+
+    let output = package::build_package(BuildInput {
+        package_name: cargo_manifest.package.name.clone(),
+        package_version: cargo_manifest.package.version.clone(),
+        component_entry: "plugin.wasm".to_string(),
+        component,
+        manifest,
+        assets: Vec::new(),
+    })
+    .context("failed to build plugin package")?;
+
+    let inspected = package::inspect_package(&output.bytes).context("failed to inspect package")?;
+    let package_dir = project_path.join("target").join("kasane");
+    fs::create_dir_all(&package_dir)
+        .with_context(|| format!("failed to create {}", package_dir.display()))?;
+
+    let package_path = package_dir.join(package_filename(&inspected));
+    package::write_package(&package_path, &output)
+        .with_context(|| format!("failed to write {}", package_path.display()))?;
+
+    Ok(BuiltPackage {
+        path: package_path,
+        inspected,
+    })
+}
+
+pub fn install_package_file(path: &Path) -> Result<InstalledPackage> {
+    let inspected = package::verify_package_file(path)
+        .with_context(|| format!("failed to verify {}", path.display()))?;
+
+    let config = Config::load();
+    let plugins_dir = config.plugins.plugins_dir();
+    fs::create_dir_all(&plugins_dir)
+        .with_context(|| format!("failed to create {}", plugins_dir.display()))?;
+
+    let dest = plugins_dir.join(installed_package_filename(&inspected));
+    if path != dest {
+        fs::copy(path, &dest).with_context(|| format!("failed to copy to {}", dest.display()))?;
+    }
+
+    remove_conflicting_packages(&plugins_dir, &dest, &inspected.header.plugin.id)?;
+    touch_reload_sentinel(&plugins_dir);
+
+    let mut lock = PluginsLock::load()?;
+    lock.plugins.insert(
+        inspected.header.plugin.id.clone(),
+        LockedPluginEntry {
+            plugin_id: inspected.header.plugin.id.clone(),
+            package: Some(inspected.header.package.name.clone()),
+            version: Some(inspected.header.package.version.clone()),
+            artifact_digest: inspected.header.digests.artifact.clone(),
+            code_digest: inspected.header.digests.code.clone(),
+            source_kind: "filesystem".to_string(),
+            abi_version: Some(inspected.header.plugin.abi_version.clone()),
+        },
+    );
+    let lock_path = lock.save()?;
+
+    Ok(InstalledPackage {
+        path: dest,
+        inspected,
+        lock_path,
+    })
+}
+
+pub fn discover_installed_packages(plugins_dir: &Path) -> Result<Vec<DiscoveredPackage>> {
+    let entries = match fs::read_dir(plugins_dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to read {}", plugins_dir.display()));
+        }
+    };
+
+    let mut package_paths: Vec<_> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("kpk") {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+    package_paths.sort();
+
+    let mut discovered = Vec::with_capacity(package_paths.len());
+    for path in package_paths {
+        match package::inspect_package_file(&path) {
+            Ok(inspected) => discovered.push(DiscoveredPackage::Valid { path, inspected }),
+            Err(error) => discovered.push(DiscoveredPackage::Invalid { path, error }),
+        }
+    }
+
+    Ok(discovered)
+}
+
+pub fn package_label(inspected: &InspectedPackage) -> String {
+    format!(
+        "{}@{}",
+        inspected.header.package.name, inspected.header.package.version
+    )
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoManifest {
+    package: CargoPackage,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoPackage {
+    name: String,
+    version: String,
+}
+
+fn load_plugin_manifest(project_path: &Path) -> Result<PluginManifest> {
+    let manifest_path = project_path.join("kasane-plugin.toml");
+    if !manifest_path.exists() {
+        bail!(
+            "no kasane-plugin.toml found in '{}'. Is this a plugin project?",
+            project_path.display()
+        );
+    }
+
+    let contents = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    PluginManifest::parse(&contents)
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))
+}
+
+fn load_cargo_manifest(project_path: &Path) -> Result<CargoManifest> {
+    let cargo_toml = project_path.join("Cargo.toml");
+    let contents = fs::read_to_string(&cargo_toml)
+        .with_context(|| format!("failed to read {}", cargo_toml.display()))?;
+    toml::from_str(&contents).with_context(|| format!("failed to parse {}", cargo_toml.display()))
+}
+
+fn package_filename(inspected: &InspectedPackage) -> String {
+    format!(
+        "{}-{}.kpk",
+        inspected.header.package.name.replace('/', "-"),
+        inspected.header.package.version
+    )
+}
+
+fn installed_package_filename(inspected: &InspectedPackage) -> String {
+    format!("{}.kpk", inspected.header.plugin.id)
+}
+
+fn remove_conflicting_packages(plugins_dir: &Path, dest: &Path, plugin_id: &str) -> Result<()> {
+    for package in discover_installed_packages(plugins_dir)? {
+        let DiscoveredPackage::Valid { path, inspected } = package else {
+            continue;
+        };
+        if path == dest {
+            continue;
+        }
+        if inspected.header.plugin.id != plugin_id {
+            continue;
+        }
+
+        fs::remove_file(&path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn touch_reload_sentinel(plugins_dir: &Path) {
+    let reload_sentinel = plugins_dir.join(".reload");
+    let _ = fs::write(reload_sentinel, "");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_filename_uses_package_name_and_version() {
+        let inspected = package::inspect_package(
+            &package::build_package(BuildInput {
+                package_name: "example/demo-plugin".to_string(),
+                package_version: "0.1.0".to_string(),
+                component_entry: "plugin.wasm".to_string(),
+                component: b"\0asmcomponent".to_vec(),
+                manifest: PluginManifest::parse(
+                    r#"
+[plugin]
+id = "demo_plugin"
+abi_version = "0.25.0"
+"#,
+                )
+                .unwrap(),
+                assets: Vec::new(),
+            })
+            .unwrap()
+            .bytes,
+        )
+        .unwrap();
+
+        assert_eq!(
+            package_filename(&inspected),
+            "example-demo-plugin-0.1.0.kpk"
+        );
+        assert_eq!(installed_package_filename(&inspected), "demo_plugin.kpk");
+    }
+}

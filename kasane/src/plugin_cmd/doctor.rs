@@ -3,6 +3,8 @@ use std::path::Path;
 use anyhow::Result;
 use kasane_core::config::Config;
 
+use crate::plugin_lock::PluginsLock;
+
 pub fn run(fix: bool) -> Result<()> {
     println!("kasane plugin doctor");
     println!();
@@ -12,6 +14,7 @@ pub fn run(fix: bool) -> Result<()> {
     all_ok &= check_wasm_target(fix);
     all_ok &= check_sdk_version();
     all_ok &= check_plugins_directory(fix);
+    all_ok &= check_plugins_lock();
     all_ok &= check_installed_plugins();
 
     println!();
@@ -93,7 +96,7 @@ fn check_sdk_version() -> bool {
 }
 
 fn check_plugins_directory(fix: bool) -> bool {
-    print!("  plugins directory ... ");
+    print!("  package directory ... ");
     let config = Config::load();
     let plugins_dir = config.plugins.plugins_dir();
     if plugins_dir.exists() {
@@ -127,44 +130,57 @@ fn check_plugins_directory(fix: bool) -> bool {
     }
 }
 
-fn check_installed_plugins() -> bool {
-    print!("  installed plugins ... ");
+fn check_plugins_lock() -> bool {
+    print!("  plugins lock ... ");
     let config = Config::load();
     let plugins_dir = config.plugins.plugins_dir();
-
-    let entries = match std::fs::read_dir(&plugins_dir) {
-        Ok(e) => e,
-        Err(_) => {
-            println!("none (directory not found)");
-            return true;
+    let lock = match PluginsLock::load() {
+        Ok(lock) => lock,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
         }
     };
 
-    let wasm_files: Vec<_> = entries
-        .filter_map(|e| {
-            let entry = e.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if wasm_files.is_empty() {
-        println!("none");
+    if lock.plugins.is_empty() {
+        println!("empty");
         return true;
     }
 
-    println!("{} found", wasm_files.len());
+    let packages = match super::package_artifact::discover_installed_packages(&plugins_dir) {
+        Ok(packages) => packages,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
+
+    let mut installed = std::collections::HashMap::new();
+    for package in packages {
+        if let super::package_artifact::DiscoveredPackage::Valid { inspected, .. } = package {
+            installed.insert(
+                inspected.header.plugin.id.clone(),
+                inspected.header.digests.artifact.clone(),
+            );
+        }
+    }
+
     let mut all_ok = true;
-    for path in &wasm_files {
-        let filename = path.file_name().unwrap_or_default().to_string_lossy();
-        match load_plugin_id(path) {
-            Ok(id) => println!("    {filename}: ok ({id})"),
-            Err(e) => {
-                println!("    {filename}: ERROR ({e})");
+    println!("{} entries", lock.plugins.len());
+    for (plugin_id, entry) in &lock.plugins {
+        match installed.get(plugin_id) {
+            Some(digest) if digest == &entry.artifact_digest => {
+                println!("    {plugin_id}: ok");
+            }
+            Some(digest) => {
+                println!(
+                    "    {plugin_id}: STALE (lock={}, installed={digest})",
+                    entry.artifact_digest
+                );
+                all_ok = false;
+            }
+            None => {
+                println!("    {plugin_id}: MISSING ({})", entry.artifact_digest);
                 all_ok = false;
             }
         }
@@ -172,24 +188,42 @@ fn check_installed_plugins() -> bool {
     all_ok
 }
 
-#[cfg(feature = "wasm-plugins")]
-fn load_plugin_id(path: &Path) -> std::result::Result<String, String> {
-    use kasane_core::plugin::PluginBackend;
-    use kasane_wasm::{WasiCapabilityConfig, WasmPluginLoader};
+fn check_installed_plugins() -> bool {
+    print!("  installed packages ... ");
+    let config = Config::load();
+    let plugins_dir = config.plugins.plugins_dir();
 
-    let loader = WasmPluginLoader::new().map_err(|e| e.to_string())?;
-    let wasi_config = WasiCapabilityConfig::default();
-    let plugin = loader.load_file(path, &wasi_config).map_err(|e| {
-        e.to_string()
-            .lines()
-            .next()
-            .unwrap_or("unknown error")
-            .to_string()
-    })?;
-    Ok(plugin.id().0)
-}
+    let packages = match super::package_artifact::discover_installed_packages(&plugins_dir) {
+        Ok(packages) => packages,
+        Err(_) => {
+            println!("none (directory not found)");
+            return true;
+        }
+    };
 
-#[cfg(not(feature = "wasm-plugins"))]
-fn load_plugin_id(_path: &Path) -> std::result::Result<String, String> {
-    Err("wasm-plugins feature not enabled".to_string())
+    if packages.is_empty() {
+        println!("none");
+        return true;
+    }
+
+    println!("{} found", packages.len());
+    let mut all_ok = true;
+    for package in packages {
+        match package {
+            super::package_artifact::DiscoveredPackage::Valid { path, inspected } => {
+                let filename = path.file_name().unwrap_or_default().to_string_lossy();
+                println!(
+                    "    {filename}: ok ({} / {})",
+                    inspected.header.plugin.id,
+                    super::package_artifact::package_label(&inspected)
+                );
+            }
+            super::package_artifact::DiscoveredPackage::Invalid { path, error } => {
+                let filename = path.file_name().unwrap_or_default().to_string_lossy();
+                println!("    {filename}: ERROR ({error})");
+                all_ok = false;
+            }
+        }
+    }
+    all_ok
 }

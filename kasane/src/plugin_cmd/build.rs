@@ -4,18 +4,24 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
+use super::package_artifact;
+
 pub fn run(path: Option<&str>) -> Result<()> {
-    let wasm_path = build_plugin(path.unwrap_or("."), true)?;
-    let size = std::fs::metadata(&wasm_path)?.len();
-    println!("Built {} ({} KiB)", wasm_path.display(), size / 1024);
+    let built = package_artifact::build_project_package(path.unwrap_or("."), true)?;
+    let size = std::fs::metadata(&built.path)?.len();
+    println!(
+        "Built package: {}@{}",
+        built.inspected.header.package.name, built.inspected.header.package.version
+    );
+    println!("File: {} ({} KiB)", built.path.display(), size / 1024);
     Ok(())
 }
 
-/// Build the plugin and return the path to the output .wasm file.
+/// Build the plugin component and return the path to the output `.wasm` file.
 ///
-/// This is public so `install` and `dev` can reuse it.
+/// This stays internal to the package build pipeline.
 /// When `release` is false, builds in debug mode for faster iteration.
-pub fn build_plugin(project_dir: &str, release: bool) -> Result<PathBuf> {
+pub fn build_component(project_dir: &str, release: bool) -> Result<PathBuf> {
     let project_path = Path::new(project_dir);
     if !project_path.join("Cargo.toml").exists() {
         bail!(
