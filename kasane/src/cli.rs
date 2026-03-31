@@ -45,7 +45,9 @@ pub enum PluginSubcommand {
         release: bool,
     },
     Resolve,
-    Rollback,
+    Rollback {
+        list: bool,
+    },
     Pin {
         plugin_id: String,
         digest: Option<String>,
@@ -81,6 +83,7 @@ pub enum CliError {
     PluginPinMissingPluginId,
     PluginPinMissingSelector,
     PluginPinInvalidArgs(String),
+    PluginRollbackInvalidArgs(String),
     PluginUnpinMissingPluginId,
 }
 
@@ -132,6 +135,12 @@ impl std::fmt::Display for CliError {
             }
             CliError::PluginPinInvalidArgs(arg) => {
                 write!(f, "invalid pin argument: {arg}")
+            }
+            CliError::PluginRollbackInvalidArgs(arg) => {
+                write!(
+                    f,
+                    "invalid rollback argument: {arg}. Usage: kasane plugin rollback [--list]"
+                )
             }
             CliError::PluginUnpinMissingPluginId => {
                 write!(
@@ -290,7 +299,16 @@ fn parse_plugin_args<'a>(
             Ok(PluginSubcommand::Dev { path, release })
         }
         "resolve" => Ok(PluginSubcommand::Resolve),
-        "rollback" => Ok(PluginSubcommand::Rollback),
+        "rollback" => {
+            let mut list = false;
+            for arg in iter {
+                match arg.as_str() {
+                    "--list" => list = true,
+                    other => return Err(CliError::PluginRollbackInvalidArgs(other.to_string())),
+                }
+            }
+            Ok(PluginSubcommand::Rollback { list })
+        }
         "pin" => {
             let plugin_id = iter
                 .next()
@@ -435,7 +453,7 @@ Subcommands:
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
   plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
   plugin resolve                    Rebuild plugins.lock from installed packages
-  plugin rollback                   Restore the previous plugins.lock generation
+  plugin rollback [--list]          Restore or inspect plugins.lock history
   plugin pin <id> ...               Pin a plugin to a digest or package/version
   plugin unpin <id>                 Remove explicit selection for a plugin
   plugin update                     Advance auto-selected plugins to newer installed versions
@@ -854,7 +872,17 @@ mod tests {
     fn test_plugin_rollback() {
         assert_eq!(
             parse_cli_args(&args(&["plugin", "rollback"])),
-            Ok(CliAction::Plugin(PluginSubcommand::Rollback))
+            Ok(CliAction::Plugin(PluginSubcommand::Rollback {
+                list: false
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_rollback_list() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "rollback", "--list"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Rollback { list: true }))
         );
     }
 
