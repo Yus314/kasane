@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -19,6 +20,12 @@ pub struct StoredArtifact {
 #[derive(Debug, Clone)]
 pub struct PluginStore {
     root: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GarbageCollectResult {
+    pub removed_paths: Vec<PathBuf>,
+    pub removed_bytes: u64,
 }
 
 impl PluginStore {
@@ -103,6 +110,39 @@ impl PluginStore {
         paths.sort();
         Ok(paths)
     }
+
+    pub fn garbage_collect(
+        &self,
+        lock: &crate::plugin_lock::PluginsLock,
+    ) -> Result<GarbageCollectResult> {
+        let mut referenced = BTreeSet::new();
+        for entry in lock.plugins.values() {
+            if entry.source_kind != "filesystem" {
+                continue;
+            }
+            referenced.insert(self.path_for(&entry.artifact_digest)?);
+        }
+
+        let mut removed_paths = Vec::new();
+        let mut removed_bytes = 0u64;
+        for path in self.discover_package_paths()? {
+            if referenced.contains(&path) {
+                continue;
+            }
+
+            let file_len = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+            fs::remove_file(&path)
+                .with_context(|| format!("failed to remove {}", path.display()))?;
+            removed_bytes += file_len;
+            removed_paths.push(path);
+        }
+
+        removed_paths.sort();
+        Ok(GarbageCollectResult {
+            removed_paths,
+            removed_bytes,
+        })
+    }
 }
 
 impl StoredArtifact {
@@ -186,6 +226,7 @@ fn collect_package_paths(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
     use kasane_plugin_package::manifest::PluginManifest;
     use kasane_plugin_package::package::{AssetInput, BuildInput};
 
@@ -254,5 +295,60 @@ flags = ["contributor"]
         let stored = store.put_verified_package(&source).unwrap();
         let paths = store.discover_package_paths().unwrap();
         assert_eq!(paths, vec![stored.path]);
+    }
+
+    #[test]
+    fn garbage_collect_removes_unreferenced_filesystem_artifacts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source_a = tmp.path().join("demo-a.kpk");
+        let source_b = tmp.path().join("demo-b.kpk");
+        build_test_package(&source_a);
+        build_test_package(&source_b);
+
+        let store = PluginStore::new(tmp.path().join("store"));
+        let stored_a = store.put_verified_package(&source_a).unwrap();
+
+        // Change package identity so the second artifact gets a different digest.
+        let manifest = PluginManifest::parse(
+            r#"
+[plugin]
+id = "demo_plugin_b"
+abi_version = "0.25.0"
+
+[handlers]
+flags = ["contributor"]
+"#,
+        )
+        .unwrap();
+        let output = package::build_package(BuildInput {
+            package_name: "example/demo-plugin-b".to_string(),
+            package_version: "0.1.0".to_string(),
+            component_entry: "plugin.wasm".to_string(),
+            component: b"\0asmcomponent".to_vec(),
+            manifest,
+            assets: Vec::new(),
+        })
+        .unwrap();
+        package::write_package(&source_b, &output).unwrap();
+        let stored_b = store.put_verified_package(&source_b).unwrap();
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            stored_a.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: stored_a.plugin_id.clone(),
+                package: Some(stored_a.package_name.clone()),
+                version: Some(stored_a.package_version.clone()),
+                artifact_digest: stored_a.artifact_digest.clone(),
+                code_digest: stored_a.code_digest.clone(),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(stored_a.abi_version.clone()),
+            },
+        );
+
+        let gc = store.garbage_collect(&lock).unwrap();
+        assert_eq!(gc.removed_paths, vec![stored_b.path.clone()]);
+        assert!(stored_a.path.exists());
+        assert!(!stored_b.path.exists());
     }
 }

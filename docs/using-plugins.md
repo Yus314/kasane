@@ -75,6 +75,12 @@ kasane plugin resolve
 
 to rebuild `plugins.lock`.
 
+To remove old package artifacts that are no longer referenced by `plugins.lock`, run:
+
+```bash
+kasane plugin gc
+```
+
 Current Kasane releases expect WASM plugins built against
 `kasane:plugin@0.25.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
