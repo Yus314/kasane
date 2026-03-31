@@ -36,7 +36,10 @@ pub enum PluginSubcommand {
         path: Option<String>,
     },
     List,
-    Gc,
+    Gc {
+        prune_history: bool,
+        keep_generations: usize,
+    },
     Doctor {
         fix: bool,
     },
@@ -83,6 +86,7 @@ pub enum CliError {
     PluginPinMissingPluginId,
     PluginPinMissingSelector,
     PluginPinInvalidArgs(String),
+    PluginGcInvalidArgs(String),
     PluginRollbackInvalidArgs(String),
     PluginUnpinMissingPluginId,
 }
@@ -135,6 +139,12 @@ impl std::fmt::Display for CliError {
             }
             CliError::PluginPinInvalidArgs(arg) => {
                 write!(f, "invalid pin argument: {arg}")
+            }
+            CliError::PluginGcInvalidArgs(arg) => {
+                write!(
+                    f,
+                    "invalid gc argument: {arg}. Usage: kasane plugin gc [--prune-history] [--keep N]"
+                )
             }
             CliError::PluginRollbackInvalidArgs(arg) => {
                 write!(
@@ -282,7 +292,28 @@ fn parse_plugin_args<'a>(
             path: iter.next().cloned(),
         }),
         "list" => Ok(PluginSubcommand::List),
-        "gc" => Ok(PluginSubcommand::Gc),
+        "gc" => {
+            let mut prune_history = false;
+            let mut keep_generations = 10usize;
+            while let Some(arg) = iter.next() {
+                match arg.as_str() {
+                    "--prune-history" => prune_history = true,
+                    "--keep" => {
+                        let value = iter
+                            .next()
+                            .ok_or_else(|| CliError::PluginGcInvalidArgs("--keep".to_string()))?;
+                        keep_generations = value.parse().map_err(|_| {
+                            CliError::PluginGcInvalidArgs(format!("--keep {}", value))
+                        })?;
+                    }
+                    other => return Err(CliError::PluginGcInvalidArgs(other.to_string())),
+                }
+            }
+            Ok(PluginSubcommand::Gc {
+                prune_history,
+                keep_generations,
+            })
+        }
         "doctor" => {
             let fix = iter.next().is_some_and(|f| f == "--fix");
             Ok(PluginSubcommand::Doctor { fix })
@@ -449,7 +480,8 @@ Subcommands:
   plugin build [<path>]             Build plugin package (.kpk)
   plugin install [<path>]           Build or verify a plugin package and activate it
   plugin list                       Show installed plugin packages
-  plugin gc                         Remove unreferenced package artifacts from the store
+  plugin gc [--prune-history] [--keep N]
+                                   Remove unreferenced package artifacts and optionally prune lock history
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
   plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
   plugin resolve                    Rebuild plugins.lock from installed packages
@@ -764,7 +796,21 @@ mod tests {
     fn test_plugin_gc() {
         assert_eq!(
             parse_cli_args(&args(&["plugin", "gc"])),
-            Ok(CliAction::Plugin(PluginSubcommand::Gc))
+            Ok(CliAction::Plugin(PluginSubcommand::Gc {
+                prune_history: false,
+                keep_generations: 10,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_gc_prune_history() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "gc", "--prune-history", "--keep", "3",])),
+            Ok(CliAction::Plugin(PluginSubcommand::Gc {
+                prune_history: true,
+                keep_generations: 3,
+            }))
         );
     }
 
