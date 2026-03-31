@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 kasane-core = { workspace = true }
 kasane-plugin-model = { workspace = true }
+kasane-plugin-package = { workspace = true }
 wasmtime = "43"
 wasmtime-wasi = "43"
 anyhow = { workspace = true }
