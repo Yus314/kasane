@@ -15,12 +15,12 @@ use std::any::Any;
 use std::io::Write;
 use std::time::Duration;
 
-use crate::input::InputEvent;
+use crate::input::{InputEvent, normalize_text_input_event};
 use crate::layout::Rect;
 use crate::plugin::{PluginDiagnostic, PluginDiagnosticOverlayState, PluginId, PluginRuntime};
 use crate::session::SessionId;
 use crate::state::{AppState, DirtyFlags};
-use crate::surface::{SurfaceEvent, SurfaceRegistry};
+use crate::surface::{SourcedSurfaceCommands, SurfaceEvent, SurfaceRegistry};
 
 // ── Public re-exports — preserves existing import paths ─────────
 
@@ -43,7 +43,6 @@ pub use surface::{
 
 use crate::plugin::extract_redraw_flags;
 use crate::scroll::ScrollPlan;
-use crate::surface::SourcedSurfaceCommands;
 
 /// Structured result from processing a single event.
 pub struct EventResult {
@@ -133,6 +132,9 @@ pub fn notify_workspace_observers(
 pub fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
     match input {
         InputEvent::Key(key) => Some(SurfaceEvent::Key(key.clone())),
+        // TextInput uses dedicated focused-surface dispatch so surfaces can consume
+        // committed text without forcing it through the normal editor pipeline.
+        InputEvent::TextInput(_) => None,
         InputEvent::Mouse(mouse) => Some(SurfaceEvent::Mouse(mouse.clone())),
         InputEvent::Resize(cols, rows) => Some(SurfaceEvent::Resize(Rect {
             x: 0,
@@ -144,6 +146,42 @@ pub fn surface_event_from_input(input: &InputEvent) -> Option<SurfaceEvent> {
         InputEvent::FocusLost => Some(SurfaceEvent::FocusLost),
         InputEvent::Drop(drop) => Some(SurfaceEvent::Drop(drop.clone())),
         InputEvent::Paste(_) => None,
+    }
+}
+
+pub fn normalize_input_for_state(input: InputEvent, state: &AppState) -> InputEvent {
+    normalize_text_input_event(input, state)
+}
+
+/// Route committed text input to the focused surface.
+///
+/// Returns `Some(...)` when the focused surface consumed the text input.
+pub fn route_surface_key_input(
+    input: &InputEvent,
+    surface_registry: &mut SurfaceRegistry,
+    state: &AppState,
+    total: Rect,
+) -> Option<SourcedSurfaceCommands> {
+    match input {
+        InputEvent::Key(key) => surface_registry.dispatch_key_input_with_sources(key, state, total),
+        _ => None,
+    }
+}
+
+/// Route committed text input, including bracketed paste payloads, to the focused surface.
+///
+/// Returns `Some(...)` when the focused surface consumed the text input.
+pub fn route_surface_text_input(
+    input: &InputEvent,
+    surface_registry: &mut SurfaceRegistry,
+    state: &AppState,
+    total: Rect,
+) -> Option<SourcedSurfaceCommands> {
+    match input {
+        InputEvent::TextInput(text) | InputEvent::Paste(text) => {
+            surface_registry.dispatch_text_input_with_sources(text, state, total)
+        }
+        _ => None,
     }
 }
 

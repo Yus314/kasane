@@ -120,8 +120,11 @@ fn convert_command_send_keys() {
 
 #[test]
 fn convert_command_paste() {
-    let wc = wit::Command::Paste;
-    assert!(matches!(wit_command_to_command(&wc), Command::Paste));
+    let wc = wit::Command::PasteClipboard;
+    assert!(matches!(
+        wit_command_to_command(&wc),
+        Command::PasteClipboard
+    ));
 }
 
 #[test]

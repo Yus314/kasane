@@ -13,7 +13,7 @@ use super::{AppView, KeyDispatchResult, PluginId};
 pub enum LifecyclePhase {
     /// Plugin initialization. Only `RequestRedraw` is allowed.
     Bootstrap,
-    /// Active session ready. `SendToKakoune`, `Paste`, `PluginMessage`,
+    /// Active session ready. `SendToKakoune`, `InsertText`, `PasteClipboard`, `PluginMessage`,
     /// `RequestRedraw`, and scroll plans are allowed.
     SessionReady,
     /// Full runtime. All commands allowed.
@@ -69,7 +69,7 @@ impl Effects {
     /// Validate and filter commands for the given lifecycle phase.
     ///
     /// - **Bootstrap**: only `RequestRedraw`; no scroll plans.
-    /// - **SessionReady**: `SendToKakoune`, `Paste`, `PluginMessage`, `RequestRedraw`; scroll plans allowed.
+    /// - **SessionReady**: `SendToKakoune`, `InsertText`, `PasteClipboard`, `PluginMessage`, `RequestRedraw`; scroll plans allowed.
     /// - **Runtime**: all commands and scroll plans allowed.
     ///
     /// Debug builds panic on illegal commands; release builds warn and drop them.
@@ -107,7 +107,8 @@ impl Effects {
                     matches!(
                         cmd,
                         Command::SendToKakoune(_)
-                            | Command::Paste
+                            | Command::InsertText(_)
+                            | Command::PasteClipboard
                             | Command::PluginMessage { .. }
                             | Command::RequestRedraw(_)
                     )
@@ -213,6 +214,15 @@ pub enum MouseHandleResult {
     NotHandled,
 }
 
+/// Result of first-wins text input dispatch across plugins.
+pub enum TextInputHandleResult {
+    Handled {
+        source_plugin: PluginId,
+        commands: Vec<Command>,
+    },
+    NotHandled,
+}
+
 /// Minimal interface for plugin effects consumed by `update()`.
 ///
 /// Parametrizes the TEA update function over the plugin system,
@@ -226,6 +236,16 @@ pub trait PluginEffects {
 
     /// Run the key middleware chain (first-wins dispatch).
     fn dispatch_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyDispatchResult;
+
+    /// Broadcast committed text input observation to all plugins (cannot consume).
+    fn observe_text_input_all(&mut self, text: &str, app: &AppView<'_>);
+
+    /// Run first-wins committed text input dispatch.
+    fn dispatch_text_input_handler(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> TextInputHandleResult;
 
     /// Broadcast mouse observation to all plugins (cannot consume).
     fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>);
@@ -278,6 +298,10 @@ impl PluginEffects for NullEffects {
     fn dispatch_key_middleware(&mut self, key: &KeyEvent, _: &AppView<'_>) -> KeyDispatchResult {
         KeyDispatchResult::Passthrough(key.clone())
     }
+    fn observe_text_input_all(&mut self, _: &str, _: &AppView<'_>) {}
+    fn dispatch_text_input_handler(&mut self, _: &str, _: &AppView<'_>) -> TextInputHandleResult {
+        TextInputHandleResult::NotHandled
+    }
     fn observe_mouse_all(&mut self, _: &MouseEvent, _: &AppView<'_>) {}
     fn dispatch_mouse_handler(
         &mut self,
@@ -315,9 +339,11 @@ impl PluginEffects for NullEffects {
 #[derive(Default)]
 pub struct RecordingEffects {
     pub key_observations: Vec<KeyEvent>,
+    pub text_input_observations: Vec<String>,
     pub mouse_observations: Vec<MouseEvent>,
     pub drop_observations: Vec<DropEvent>,
     pub key_dispatches: Vec<KeyEvent>,
+    pub text_input_dispatches: Vec<String>,
     pub mouse_dispatches: Vec<(MouseEvent, InteractiveId)>,
     pub drop_dispatches: Vec<(DropEvent, InteractiveId)>,
     pub state_notifications: Vec<DirtyFlags>,
@@ -336,6 +362,17 @@ impl PluginEffects for RecordingEffects {
     fn dispatch_key_middleware(&mut self, key: &KeyEvent, _: &AppView<'_>) -> KeyDispatchResult {
         self.key_dispatches.push(key.clone());
         KeyDispatchResult::Passthrough(key.clone())
+    }
+    fn observe_text_input_all(&mut self, text: &str, _: &AppView<'_>) {
+        self.text_input_observations.push(text.to_string());
+    }
+    fn dispatch_text_input_handler(
+        &mut self,
+        text: &str,
+        _: &AppView<'_>,
+    ) -> TextInputHandleResult {
+        self.text_input_dispatches.push(text.to_string());
+        TextInputHandleResult::NotHandled
     }
     fn observe_mouse_all(&mut self, event: &MouseEvent, _: &AppView<'_>) {
         self.mouse_observations.push(event.clone());

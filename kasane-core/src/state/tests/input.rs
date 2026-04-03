@@ -144,12 +144,31 @@ fn test_paste_produces_paste_command() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
 
-    let result = update_in_place(&mut state, Msg::Paste, &mut registry, 3);
+    let result = update_in_place(&mut state, Msg::ClipboardPaste, &mut registry, 3);
     let flags = result.flags;
     let commands = result.commands;
     assert!(flags.is_empty());
     assert_eq!(commands.len(), 1);
-    assert!(matches!(commands[0], Command::Paste));
+    assert!(matches!(commands[0], Command::PasteClipboard));
+}
+
+#[test]
+fn test_input_event_paste_payload_becomes_text_input() {
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+
+    let result = update_in_place(
+        &mut state,
+        Msg::from(crate::input::InputEvent::Paste("hello\nworld".into())),
+        &mut registry,
+        3,
+    );
+
+    assert!(result.flags.is_empty());
+    assert!(matches!(
+        result.commands.as_slice(),
+        [Command::InsertText(text)] if text == "hello\nworld"
+    ));
 }
 
 #[test]

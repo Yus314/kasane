@@ -692,7 +692,7 @@ Hook functions issue side-effect requests through the unified `Effects` struct. 
 | Command | Description |
 |---|---|
 | `SendToKakoune(req)` | Send a request to Kakoune |
-| `Paste` | Paste from clipboard |
+| `PasteClipboard` | Paste from the host system clipboard |
 | `Quit` | Quit the application |
 | `RequestRedraw(flags)` | Request a redraw |
 | `ScheduleTimer { delay, target, payload }` | Send a message to target after a delay |
@@ -935,6 +935,15 @@ let face = face_bg(rgb(40, 40, 50));
 | Helper | Description |
 |---|---|
 | `centered_overlay(cols, rows, w_pct, h_pct, min_w, min_h)` | Compute a centered `AbsoluteAnchor` |
+
+### Command Helpers
+
+| Helper | Description |
+|---|---|
+| `redraw()` | Request a full redraw (`DirtyFlags::ALL`) |
+| `redraw_flags(flags)` | Request a redraw for specific dirty flags |
+| `send_command(cmd)` | Build `Command::SendKeys(<esc>:cmd<ret>)` |
+| `paste_clipboard()` | Build `Command::PasteClipboard` for host system clipboard insertion |
 
 ### Key Escaping (`kasane_plugin_sdk::keys`)
 

@@ -4,6 +4,7 @@ pub(crate) mod backend;
 pub mod colors;
 mod diagnostics_overlay;
 pub mod gpu;
+mod ime;
 pub(crate) mod input;
 
 use std::sync::Arc;

@@ -4,7 +4,7 @@ use syn::parse_macro_input;
 
 /// SDK dirty::ALL value (excludes PLUGIN_STATE bit 7).
 /// Must match `kasane_plugin_sdk::dirty::ALL`.
-const SDK_DIRTY_ALL: u16 = 0x17F;
+const SDK_DIRTY_ALL: u16 = 0x37F;
 
 /// Implementation of the `kasane_generate` proc macro.
 ///
@@ -106,7 +106,7 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
                         redraw: e.redraw,
                         commands: e.commands.into_iter().filter_map(|c| match c {
                             Command::SendKeys(keys) => Some(SessionReadyCommand::SendKeys(keys)),
-                            Command::Paste => Some(SessionReadyCommand::Paste),
+                            Command::PasteClipboard => Some(SessionReadyCommand::PasteClipboard),
                             Command::PluginMessage(msg) => Some(SessionReadyCommand::PluginMessage(msg)),
                             _ => None,
                         }).collect(),
@@ -468,6 +468,14 @@ pub(crate) fn generate_sdk_helpers() -> proc_macro2::TokenStream {
             /// Build a `Command::SendKeys` that runs a Kakoune command.
             pub fn send_command(cmd: &str) -> Command {
                 Command::SendKeys(kasane_plugin_sdk::keys::command(cmd))
+            }
+
+            /// Build a `Command::PasteClipboard` that inserts text from the host system clipboard.
+            ///
+            /// This is distinct from committed text input or bracketed paste payloads,
+            /// which the host routes through the text-input pipeline directly.
+            pub fn paste_clipboard() -> Command {
+                Command::PasteClipboard
             }
 
             /// Build a single-atom InsertAfter display directive.
