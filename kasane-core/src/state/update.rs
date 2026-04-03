@@ -15,9 +15,18 @@ pub enum Msg {
     Key(KeyEvent),
     TextInput(String),
     Mouse(MouseEvent),
+    /// Explicit clipboard paste request (not from bracketed paste payload).
+    ///
+    /// No `InputEvent` variant maps to this — it is constructed directly
+    /// when a keybinding or command explicitly requests a clipboard paste.
+    /// Bracketed paste payloads arrive as `InputEvent::Paste(text)` and
+    /// are mapped to `Msg::TextInput(text)` instead.
     ClipboardPaste,
     Drop(DropEvent),
-    Resize { cols: u16, rows: u16 },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
     FocusGained,
     FocusLost,
 }

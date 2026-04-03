@@ -226,18 +226,13 @@ pub fn resolve_text_input_target(
 
 /// Normalize plain character keys into semantic text input when a text target exists.
 pub fn normalize_text_input_event(input: InputEvent, state: &AppState) -> InputEvent {
-    match input {
-        InputEvent::Key(key)
-            if resolve_text_input_target(state, None).is_some() && key.plain_char().is_some() =>
-        {
-            InputEvent::TextInput(
-                key.plain_char()
-                    .expect("plain_char checked in guard")
-                    .to_string(),
-            )
-        }
-        other => other,
+    if let InputEvent::Key(ref key) = input
+        && resolve_text_input_target(state, None).is_some()
+        && let Some(ch) = key.plain_char()
+    {
+        return InputEvent::TextInput(ch.to_string());
     }
+    input
 }
 
 impl std::hash::Hash for KeyEvent {

@@ -74,6 +74,14 @@ pub(super) fn dispatch_input_event(
     input: crate::input::InputEvent,
     depth: usize,
 ) -> bool {
+    if depth >= MAX_INJECT_DEPTH {
+        tracing::warn!(
+            depth,
+            "dispatch_input_event depth limit reached, dropping event"
+        );
+        return false;
+    }
+
     let input = super::normalize_input_for_state(input, ctx.state);
     let total = Rect {
         x: 0,

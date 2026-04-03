@@ -275,7 +275,7 @@ pub fn execute_commands(
     kak_writer: &mut (impl Write + ?Sized),
     clipboard: &mut crate::clipboard::SystemClipboard,
 ) -> CommandResult {
-    use crate::input::paste_text_to_keys;
+    let _ = clipboard;
 
     for cmd in commands {
         match cmd {
@@ -289,12 +289,13 @@ pub fn execute_commands(
                 }
             }
             Command::PasteClipboard => {
-                if let Some(text) = clipboard.get() {
-                    let keys = paste_text_to_keys(&text);
-                    if !keys.is_empty() {
-                        crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));
-                    }
-                }
+                // PasteClipboard is intercepted by handle_command_batch_inner and
+                // apply_ready_batch before reaching execute_commands. This arm is
+                // kept as a defensive fallback.
+                debug_assert!(
+                    false,
+                    "PasteClipboard should be intercepted before execute_commands"
+                );
             }
             Command::EditBuffer { edits } => {
                 if !edits.is_empty() {

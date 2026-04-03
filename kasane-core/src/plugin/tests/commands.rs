@@ -166,7 +166,7 @@ fn test_partition_mixed_process_commands() {
         Command::PasteClipboard,
     ];
     let (immediate, deferred) = partition_commands(commands);
-    assert_eq!(immediate.len(), 2); // SendToKakoune + Paste
+    assert_eq!(immediate.len(), 2); // SendToKakoune + PasteClipboard
     assert_eq!(deferred.len(), 4); // SpawnProcess + WriteToProcess + CloseProcessStdin + KillProcess
 }
 
