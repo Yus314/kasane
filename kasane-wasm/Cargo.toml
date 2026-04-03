@@ -15,7 +15,7 @@ toml = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 criterion = { workspace = true }
