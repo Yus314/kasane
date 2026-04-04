@@ -18,9 +18,24 @@ use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     EffectsBatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
     PaintHook, PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
-    PluginId, RenderOrnamentContext, SlotId, SourcedContribution, SourcedOrnamentBatch,
-    TransformContext, TransformSubject, TransformTarget,
+    PluginId, RenderOrnamentContext, SlotId, SourcedContribution, TransformContext,
+    TransformSubject, TransformTarget,
 };
+
+/// Pre-decomposed result of a single `collect_ornaments` pass.
+///
+/// Avoids redundant per-frame plugin calls by collecting ornaments once
+/// and splitting the result into emphasis, cursor, and surfaces.
+pub struct CollectedOrnaments {
+    /// Emphasis decorations from all plugins, sorted by priority.
+    pub emphasis: Vec<super::CellDecoration>,
+    /// Winning cursor style hint (modality.rank(), priority winner-takes-all).
+    pub cursor_style: Option<crate::render::CursorStyleHint>,
+    /// Accumulated cursor effects from all plugins.
+    pub cursor_effects: Vec<super::CursorEffectOrn>,
+    /// Surface ornaments from all plugins.
+    pub surfaces: Vec<super::SurfaceOrn>,
+}
 
 pub struct PluginSurfaceSet {
     pub owner: PluginId,
@@ -1556,125 +1571,22 @@ impl<'a> PluginView<'a> {
         current
     }
 
-    /// Query plugins for a cursor style override. Returns the first non-None.
-    pub fn cursor_style_override(
-        &self,
-        state: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyleHint> {
-        for slot in self.slots.iter() {
-            if !slot.capabilities.contains(PluginCapabilities::CURSOR_STYLE) {
-                continue;
-            }
-            if let Some(hint) = slot.backend.cursor_style_override(state) {
-                return Some(hint);
-            }
-        }
-        None
-    }
-
-    /// Resolve the winning cursor ornament proposal for the current frame.
+    /// Collect all render ornaments in a single pass and decompose into
+    /// emphasis, cursor style, cursor effects, and surfaces.
     ///
-    /// Ordering is stable: stronger modality wins, then higher priority, then
-    /// earlier plugin registration order.
-    pub fn resolve_cursor_ornament(
+    /// This avoids redundant per-frame `render_ornaments()` calls (which are
+    /// expensive for WASM plugins).
+    pub fn collect_ornaments(
         &self,
         state: &AppView<'_>,
         ctx: &RenderOrnamentContext,
-    ) -> Option<super::CursorOrn> {
-        fn modality_rank(m: super::OrnamentModality) -> i8 {
-            match m {
-                super::OrnamentModality::Must => 2,
-                super::OrnamentModality::Approximate => 1,
-                super::OrnamentModality::May => 0,
-            }
-        }
+    ) -> CollectedOrnaments {
+        let mut emphasis = Vec::new();
+        let mut cursor_style: Option<(super::CursorStyleOrn, usize)> = None;
+        let mut cursor_effects = Vec::new();
+        let mut surfaces = Vec::new();
 
-        let mut winner: Option<super::CursorOrn> = None;
-        for sourced in self.collect_render_ornaments(state, ctx) {
-            let Some(candidate) = sourced.batch.cursor else {
-                continue;
-            };
-            let replace = match &winner {
-                None => true,
-                Some(current) => {
-                    let lhs = (modality_rank(candidate.modality), candidate.priority);
-                    let rhs = (modality_rank(current.modality), current.priority);
-                    lhs > rhs
-                }
-            };
-            if replace {
-                winner = Some(candidate);
-            }
-        }
-        winner
-    }
-
-    /// Resolve a cursor style hint from render ornaments, falling back to the
-    /// legacy cursor-style override path when no style-bearing cursor ornament wins.
-    pub fn resolve_cursor_style_hint(
-        &self,
-        state: &AppView<'_>,
-        ctx: &RenderOrnamentContext,
-    ) -> Option<crate::render::CursorStyleHint> {
-        match self.resolve_cursor_ornament(state, ctx) {
-            Some(super::CursorOrn {
-                kind: super::CursorOrnKind::Style(hint),
-                ..
-            }) => Some(hint),
-            _ => self.cursor_style_override(state),
-        }
-    }
-
-    /// Collect cell decorations from all participating plugins, sorted by priority.
-    pub fn collect_cell_decorations(&self, state: &AppView<'_>) -> Vec<super::CellDecoration> {
-        let mut all = Vec::new();
-        for slot in self.slots.iter() {
-            if !slot
-                .capabilities
-                .contains(PluginCapabilities::CELL_DECORATION)
-            {
-                continue;
-            }
-            all.extend(slot.backend.decorate_cells(state));
-        }
-        all.sort_by_key(|d| d.priority);
-        all
-    }
-
-    /// Collect all cell-level emphasis decorations, combining legacy cell decorations
-    /// with new render ornament emphasis proposals.
-    pub fn collect_emphasis_decorations(
-        &self,
-        state: &AppView<'_>,
-        ctx: &RenderOrnamentContext,
-    ) -> Vec<super::CellDecoration> {
-        let mut all = self.collect_cell_decorations(state);
-        for sourced in self.collect_render_ornaments(state, ctx) {
-            all.extend(
-                sourced
-                    .batch
-                    .emphasis
-                    .into_iter()
-                    .map(|orn| super::CellDecoration {
-                        target: orn.target,
-                        face: orn.face,
-                        merge: orn.merge,
-                        priority: orn.priority,
-                    }),
-            );
-        }
-        all.sort_by_key(|d| d.priority);
-        all
-    }
-
-    /// Collect backend-independent physical ornament proposals from all participating plugins.
-    pub fn collect_render_ornaments(
-        &self,
-        state: &AppView<'_>,
-        ctx: &RenderOrnamentContext,
-    ) -> Vec<SourcedOrnamentBatch> {
-        let mut all = Vec::new();
-        for slot in self.slots.iter() {
+        for (idx, slot) in self.slots.iter().enumerate() {
             if !slot
                 .capabilities
                 .contains(PluginCapabilities::RENDER_ORNAMENT)
@@ -1685,12 +1597,35 @@ impl<'a> PluginView<'a> {
             if batch.is_empty() {
                 continue;
             }
-            all.push(SourcedOrnamentBatch {
-                plugin_id: slot.backend.id(),
-                batch,
-            });
+
+            emphasis.extend(batch.emphasis);
+
+            if let Some(candidate) = batch.cursor_style {
+                let replace = match &cursor_style {
+                    None => true,
+                    Some((current, _)) => {
+                        let lhs = (candidate.modality.rank(), candidate.priority);
+                        let rhs = (current.modality.rank(), current.priority);
+                        lhs > rhs
+                    }
+                };
+                if replace {
+                    cursor_style = Some((candidate, idx));
+                }
+            }
+
+            cursor_effects.extend(batch.cursor_effects);
+            surfaces.extend(batch.surfaces);
         }
-        all
+
+        emphasis.sort_by_key(|d| d.priority);
+
+        CollectedOrnaments {
+            emphasis,
+            cursor_style: cursor_style.map(|(orn, _)| orn.hint),
+            cursor_effects,
+            surfaces,
+        }
     }
 
     /// Collect paint hooks from all plugins.

@@ -12,7 +12,7 @@ use kasane_core::plugin::{
     PluginCapabilities, PluginId, PluginRuntime, SlotId,
 };
 use kasane_core::protocol::{Color, Coord, Face, Line, MenuStyle, NamedColor};
-use kasane_core::render::{CursorStyle, CursorStyleHint, cursor_style, cursor_style_default};
+use kasane_core::render::{CursorStyle, CursorStyleHint, cursor_style_default};
 use kasane_core::state::{AppState, DirtyFlags, Msg, update_in_place};
 use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
@@ -382,7 +382,7 @@ fn above_and_below_buffer_slots_render() {
 }
 
 // ===========================================================================
-// Test 6: Cursor style override wins over default logic
+// Test 6: Render ornament cursor style wins over default logic
 // ===========================================================================
 
 struct UnderlineCursorPlugin;
@@ -393,16 +393,27 @@ impl PluginBackend for UnderlineCursorPlugin {
     }
 
     fn capabilities(&self) -> kasane_core::plugin::PluginCapabilities {
-        kasane_core::plugin::PluginCapabilities::CURSOR_STYLE
+        kasane_core::plugin::PluginCapabilities::RENDER_ORNAMENT
     }
 
-    fn cursor_style_override(&self, _state: &AppView<'_>) -> Option<CursorStyleHint> {
-        Some(CursorStyle::Underline.into())
+    fn render_ornaments(
+        &self,
+        _state: &AppView<'_>,
+        _ctx: &kasane_core::plugin::RenderOrnamentContext,
+    ) -> kasane_core::plugin::OrnamentBatch {
+        kasane_core::plugin::OrnamentBatch {
+            cursor_style: Some(kasane_core::plugin::CursorStyleOrn {
+                hint: CursorStyle::Underline.into(),
+                priority: 10,
+                modality: kasane_core::plugin::OrnamentModality::Must,
+            }),
+            ..kasane_core::plugin::OrnamentBatch::default()
+        }
     }
 }
 
 #[test]
-fn cursor_style_override_wins_over_default_logic() {
+fn render_ornament_cursor_style_wins_over_default_logic() {
     let mut state = setup_state(vec![make_line("text")]);
     state.focused = false;
 
@@ -412,12 +423,12 @@ fn cursor_style_override_wins_over_default_logic() {
     registry.register_backend(Box::new(UnderlineCursorPlugin));
     let _ = registry.init_all_batch(&AppView::new(&state));
 
+    let ctx = kasane_core::plugin::RenderOrnamentContext::default();
+    let collected = registry
+        .view()
+        .collect_ornaments(&AppView::new(&state), &ctx);
     assert_eq!(
-        registry.view().cursor_style_override(&AppView::new(&state)),
-        Some(CursorStyle::Underline.into())
-    );
-    assert_eq!(
-        cursor_style(&state, &registry.view()),
-        CursorStyle::Underline
+        collected.cursor_style.map(|h| h.shape),
+        Some(CursorStyle::Underline)
     );
 }

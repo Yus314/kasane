@@ -209,17 +209,11 @@ impl From<wit::Rect> for Rect {
 // ---------------------------------------------------------------------------
 
 use kasane_core::plugin::{
-    CellDecoration, CursorOrn, CursorOrnKind, DecorationTarget, EmphasisOrn, FaceMerge,
+    CellDecoration, CursorEffect, CursorEffectOrn, CursorStyleOrn, DecorationTarget, FaceMerge,
     OrnamentBatch as CoreOrnamentBatch, OrnamentModality, RenderOrnamentContext, SurfaceOrn,
     SurfaceOrnAnchor, SurfaceOrnKind,
 };
 use kasane_core::render::{CursorStyle, CursorStyleHint};
-
-pub(crate) fn wit_cell_decorations_to_decorations(
-    wits: &[wit::CellDecoration],
-) -> Vec<CellDecoration> {
-    wits.iter().map(wit_cell_decoration_to_decoration).collect()
-}
 
 fn wit_cell_decoration_to_decoration(w: &wit::CellDecoration) -> CellDecoration {
     CellDecoration {
@@ -267,9 +261,10 @@ pub(crate) fn wit_ornament_batch_to_ornament_batch(w: &wit::OrnamentBatch) -> Co
         emphasis: w
             .emphasis
             .iter()
-            .map(wit_cell_decoration_to_emphasis)
+            .map(wit_cell_decoration_to_decoration)
             .collect(),
-        cursor: w.cursor.as_ref().map(wit_cursor_orn_to_cursor_orn),
+        cursor_style: w.cursor_style.as_ref().map(wit_cursor_style_orn),
+        cursor_effects: w.cursor_effects.iter().map(wit_cursor_effect_orn).collect(),
         surfaces: w
             .surfaces
             .iter()
@@ -278,30 +273,28 @@ pub(crate) fn wit_ornament_batch_to_ornament_batch(w: &wit::OrnamentBatch) -> Co
     }
 }
 
-fn wit_cell_decoration_to_emphasis(w: &wit::CellDecoration) -> EmphasisOrn {
-    EmphasisOrn {
-        target: wit_decoration_target_to_target(&w.target),
-        face: wit_face_to_face(&w.face),
-        merge: wit_face_merge_to_merge(w.merge),
+fn wit_cursor_style_orn(w: &wit::CursorStyleOrn) -> CursorStyleOrn {
+    CursorStyleOrn {
+        hint: wit_u8_to_cursor_style_hint(w.shape),
         priority: w.priority,
+        modality: wit_ornament_modality_to_modality(w.modality),
     }
 }
 
-fn wit_cursor_orn_to_cursor_orn(w: &wit::CursorOrn) -> CursorOrn {
-    CursorOrn {
-        kind: wit_cursor_orn_kind_to_kind(&w.kind),
+fn wit_cursor_effect_orn(w: &wit::CursorEffectOrn) -> CursorEffectOrn {
+    CursorEffectOrn {
+        kind: wit_cursor_effect_to_effect(w.kind),
         face: wit_face_to_face(&w.face),
         priority: w.priority,
         modality: wit_ornament_modality_to_modality(w.modality),
     }
 }
 
-fn wit_cursor_orn_kind_to_kind(w: &wit::CursorOrnKind) -> CursorOrnKind {
+fn wit_cursor_effect_to_effect(w: wit::CursorEffect) -> CursorEffect {
     match w {
-        wit::CursorOrnKind::Halo => CursorOrnKind::Halo,
-        wit::CursorOrnKind::Ring => CursorOrnKind::Ring,
-        wit::CursorOrnKind::Emphasis => CursorOrnKind::Emphasis,
-        wit::CursorOrnKind::Style(code) => CursorOrnKind::Style(wit_u8_to_cursor_style_hint(*code)),
+        wit::CursorEffect::Halo => CursorEffect::Halo,
+        wit::CursorEffect::Ring => CursorEffect::Ring,
+        wit::CursorEffect::Emphasis => CursorEffect::Emphasis,
     }
 }
 

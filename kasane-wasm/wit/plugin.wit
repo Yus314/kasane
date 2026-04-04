@@ -1,4 +1,4 @@
-package kasane:plugin@0.24.0;
+package kasane:plugin@0.25.0;
 
 // When changing this interface, update the following files in sync:
 //   - kasane-wasm/src/host.rs        (host-side implementations)
@@ -841,15 +841,20 @@ interface types {
         approximate,
     }
 
-    variant cursor-orn-kind {
+    record cursor-style-orn {
+        shape: u8,
+        priority: s16,
+        modality: ornament-modality,
+    }
+
+    enum cursor-effect {
         halo,
         ring,
         emphasis,
-        style(u8),
     }
 
-    record cursor-orn {
-        kind: cursor-orn-kind,
+    record cursor-effect-orn {
+        kind: cursor-effect,
         face: face,
         priority: s16,
         modality: ornament-modality,
@@ -875,7 +880,8 @@ interface types {
 
     record ornament-batch {
         emphasis: list<cell-decoration>,
-        cursor: option<cursor-orn>,
+        cursor-style: option<cursor-style-orn>,
+        cursor-effects: list<cursor-effect-orn>,
         surfaces: list<surface-orn>,
     }
 
@@ -1239,12 +1245,6 @@ interface plugin-api {
     /// Priority for decorator ordering (lower = applied first). Default: 0.
     decorator-priority: func() -> u32;
 
-    // --- v0.4.0: Cursor style override ---
-
-    /// Override cursor style. Return None to defer to default logic.
-    /// 0=Block, 1=Bar, 2=Underline, 3=Outline.
-    cursor-style-override: func() -> option<u8>;
-
     // --- v0.4.0: Named slot contributions ---
 
     /// Contribute an element to a custom named slot.
@@ -1280,9 +1280,6 @@ interface plugin-api {
 
     /// Return backend-independent physical ornament proposals for the current frame.
     render-ornaments: func(ctx: ornament-context) -> ornament-batch;
-
-    /// Return cell-level decorations for the current frame.
-    decorate-cells: func() -> list<cell-decoration>;
 
     /// Return display transformation directives (fold, hide, virtual text).
     display-directives: func() -> list<display-directive>;

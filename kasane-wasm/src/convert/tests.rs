@@ -3,7 +3,7 @@ use kasane_core::element::{BorderLineStyle, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::{Rect, SplitDirection, flex::Constraints};
 use kasane_core::plugin::{
-    AppView, Command, ContributeContext, CursorOrnKind, IoEvent, OrnamentModality, ProcessEvent,
+    AppView, Command, ContributeContext, CursorEffect, IoEvent, OrnamentModality, ProcessEvent,
     StdinMode, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 use kasane_core::protocol::{Atom, Face, KasaneRequest};
@@ -428,17 +428,22 @@ fn convert_ornament_batch_from_wit() {
             merge: 2,
             priority: 5,
         }],
-        cursor: Some(wit::CursorOrn {
-            kind: wit::CursorOrnKind::Style(2),
+        cursor_style: Some(wit::CursorStyleOrn {
+            shape: 2,
+            priority: 7,
+            modality: wit::OrnamentModality::Approximate,
+        }),
+        cursor_effects: vec![wit::CursorEffectOrn {
+            kind: wit::CursorEffect::Halo,
             face: wit::Face {
                 fg: wit::Color::Named(wit::NamedColor::Yellow),
                 bg: wit::Color::DefaultColor,
                 underline: wit::Color::DefaultColor,
                 attributes: 0,
             },
-            priority: 7,
-            modality: wit::OrnamentModality::Approximate,
-        }),
+            priority: 3,
+            modality: wit::OrnamentModality::Must,
+        }],
         surfaces: vec![wit::SurfaceOrn {
             anchor: wit::SurfaceOrnAnchor::SurfaceKey("sidebar".into()),
             kind: wit::SurfaceOrnKind::InactiveTint,
@@ -462,13 +467,15 @@ fn convert_ornament_batch_from_wit() {
     ));
     assert_eq!(converted.emphasis[0].priority, 5);
 
-    let cursor = converted.cursor.expect("missing cursor ornament");
-    assert_eq!(cursor.priority, 7);
-    assert_eq!(cursor.modality, OrnamentModality::Approximate);
-    assert!(matches!(
-        cursor.kind,
-        CursorOrnKind::Style(style) if style.shape == CursorStyle::Underline
-    ));
+    let cursor_style = converted.cursor_style.expect("missing cursor style");
+    assert_eq!(cursor_style.priority, 7);
+    assert_eq!(cursor_style.modality, OrnamentModality::Approximate);
+    assert_eq!(cursor_style.hint.shape, CursorStyle::Underline);
+
+    assert_eq!(converted.cursor_effects.len(), 1);
+    assert_eq!(converted.cursor_effects[0].kind, CursorEffect::Halo);
+    assert_eq!(converted.cursor_effects[0].priority, 3);
+    assert_eq!(converted.cursor_effects[0].modality, OrnamentModality::Must);
 
     assert_eq!(converted.surfaces.len(), 1);
     let surface = &converted.surfaces[0];

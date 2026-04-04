@@ -660,22 +660,6 @@ impl PluginBackend for PluginBridge {
         }
     }
 
-    fn cursor_style_override(&self, app: &AppView<'_>) -> Option<crate::render::CursorStyleHint> {
-        if let Some(handler) = &self.table.cursor_style_handler {
-            handler(&*self.state, app)
-        } else {
-            None
-        }
-    }
-
-    fn decorate_cells(&self, app: &AppView<'_>) -> Vec<super::CellDecoration> {
-        if let Some(handler) = &self.table.cell_decoration_handler {
-            handler(&*self.state, app)
-        } else {
-            vec![]
-        }
-    }
-
     fn render_ornaments(
         &self,
         app: &AppView<'_>,
@@ -1375,8 +1359,6 @@ mod tests {
             "virtual_text",
             "overlay",
             "display",
-            "cell_decoration",
-            "cursor_style",
             "menu_transform",
             "publish",
             "subscribe",
@@ -1526,18 +1508,6 @@ mod tests {
                 });
 
                 let inv = self.invoked.clone();
-                r.on_cell_decoration(move |_s, _app| {
-                    inv.lock().unwrap().insert("cell_decoration");
-                    vec![]
-                });
-
-                let inv = self.invoked.clone();
-                r.on_cursor_style(move |_s, _app| {
-                    inv.lock().unwrap().insert("cursor_style");
-                    None
-                });
-
-                let inv = self.invoked.clone();
                 r.on_menu_transform(move |_s, _item, _index, _selected, _app| {
                     inv.lock().unwrap().insert("menu_transform");
                     None
@@ -1654,8 +1624,6 @@ mod tests {
         bridge.annotate_virtual_text(0, &app, &annotate_ctx);
         bridge.contribute_overlay_with_ctx(&app, &overlay_ctx);
         bridge.display_directives(&app);
-        bridge.decorate_cells(&app);
-        bridge.cursor_style_override(&app);
         bridge.transform_menu_item(
             &[crate::protocol::Atom {
                 face: Face::default(),

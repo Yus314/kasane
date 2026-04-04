@@ -161,30 +161,9 @@ pub trait PluginBackend: Any {
         DirtyFlags::ALL
     }
 
-    // --- Cursor style ---
-
-    /// Override the cursor style. Return None to defer to the default logic.
-    /// First non-None result from any plugin is used.
-    fn cursor_style_override(
-        &self,
-        _state: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyleHint> {
-        None
-    }
-
-    // --- Cell decoration ---
-
-    /// Return cell-level decorations for the current frame.
-    fn decorate_cells(&self, _state: &AppView<'_>) -> Vec<super::CellDecoration> {
-        vec![]
-    }
-
     // --- Render ornaments ---
 
     /// Return backend-independent physical ornament proposals for the current frame.
-    ///
-    /// This is additive for now; existing physical extension points remain in place
-    /// until the rendering pipeline is switched over in follow-up changes.
     fn render_ornaments(
         &self,
         _state: &AppView<'_>,

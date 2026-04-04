@@ -1,7 +1,7 @@
 use super::*;
 use crate::plugin::{
-    CursorOrn, CursorOrnKind, EmphasisOrn, OrnamentBatch, OrnamentModality, RenderOrnamentContext,
-    SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
+    CursorEffect, CursorEffectOrn, CursorStyleOrn, OrnamentBatch, OrnamentModality,
+    RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 
 // --- Input observation tests ---
@@ -257,22 +257,27 @@ impl PluginBackend for RenderOrnamentPlugin {
 }
 
 #[test]
-fn test_collect_render_ornaments() {
+fn test_collect_ornaments() {
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(RenderOrnamentPlugin {
         batch: OrnamentBatch {
-            emphasis: vec![EmphasisOrn {
+            emphasis: vec![CellDecoration {
                 target: DecorationTarget::Column { column: 3 },
                 face: Face::default(),
                 merge: FaceMerge::Background,
                 priority: 10,
             }],
-            cursor: Some(CursorOrn {
-                kind: CursorOrnKind::Halo,
-                face: Face::default(),
+            cursor_style: Some(CursorStyleOrn {
+                hint: crate::render::CursorStyle::Bar.into(),
                 priority: 20,
                 modality: OrnamentModality::Approximate,
             }),
+            cursor_effects: vec![CursorEffectOrn {
+                kind: CursorEffect::Halo,
+                face: Face::default(),
+                priority: 15,
+                modality: OrnamentModality::Approximate,
+            }],
             surfaces: vec![SurfaceOrn {
                 anchor: SurfaceOrnAnchor::FocusedSurface,
                 kind: SurfaceOrnKind::FocusFrame,
@@ -284,146 +289,97 @@ fn test_collect_render_ornaments() {
     }));
 
     let state = AppState::default();
-    let batches = registry
+    let collected = registry
         .view()
-        .collect_render_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
 
-    assert_eq!(batches.len(), 1);
-    assert_eq!(
-        batches[0].plugin_id,
-        PluginId("render-ornament-test".into())
-    );
-    assert_eq!(batches[0].batch.emphasis.len(), 1);
-    assert!(batches[0].batch.cursor.is_some());
-    assert_eq!(batches[0].batch.surfaces.len(), 1);
-}
-
-struct LegacyDecorationPlugin;
-
-impl PluginBackend for LegacyDecorationPlugin {
-    fn id(&self) -> PluginId {
-        PluginId("legacy-decoration-test".to_string())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CELL_DECORATION
-    }
-
-    fn decorate_cells(&self, _state: &AppView<'_>) -> Vec<CellDecoration> {
-        vec![CellDecoration {
-            target: DecorationTarget::Column { column: 1 },
-            face: Face::default(),
-            merge: FaceMerge::Background,
-            priority: 5,
-        }]
-    }
+    assert_eq!(collected.emphasis.len(), 1);
+    assert!(collected.cursor_style.is_some());
+    assert_eq!(collected.cursor_effects.len(), 1);
+    assert_eq!(collected.surfaces.len(), 1);
 }
 
 #[test]
-fn test_collect_emphasis_decorations_merges_legacy_and_render_ornaments() {
+fn test_cursor_style_does_not_compete_with_effects() {
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LegacyDecorationPlugin));
     registry.register_backend(Box::new(RenderOrnamentPlugin {
         batch: OrnamentBatch {
-            emphasis: vec![EmphasisOrn {
-                target: DecorationTarget::Column { column: 3 },
-                face: Face::default(),
-                merge: FaceMerge::Background,
+            emphasis: vec![],
+            cursor_style: Some(CursorStyleOrn {
+                hint: crate::render::CursorStyle::Bar.into(),
                 priority: 10,
+                modality: OrnamentModality::Must,
+            }),
+            cursor_effects: vec![CursorEffectOrn {
+                kind: CursorEffect::Halo,
+                face: Face::default(),
+                priority: 20,
+                modality: OrnamentModality::Must,
             }],
-            cursor: None,
             surfaces: vec![],
         },
     }));
 
     let state = AppState::default();
-    let decorations = registry
+    let collected = registry
         .view()
-        .collect_emphasis_decorations(&AppView::new(&state), &RenderOrnamentContext::default());
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
 
-    assert_eq!(decorations.len(), 2);
-    assert_eq!(decorations[0].priority, 5);
-    assert_eq!(decorations[1].priority, 10);
+    // cursor_style and cursor_effects are independent channels
     assert_eq!(
-        decorations[0].target,
-        DecorationTarget::Column { column: 1 }
+        collected.cursor_style.map(|h| h.shape),
+        Some(crate::render::CursorStyle::Bar)
     );
-    assert_eq!(
-        decorations[1].target,
-        DecorationTarget::Column { column: 3 }
-    );
-}
-
-struct LegacyCursorStylePlugin;
-
-impl PluginBackend for LegacyCursorStylePlugin {
-    fn id(&self) -> PluginId {
-        PluginId("legacy-cursor-style-test".to_string())
-    }
-
-    fn capabilities(&self) -> PluginCapabilities {
-        PluginCapabilities::CURSOR_STYLE
-    }
-
-    fn cursor_style_override(
-        &self,
-        _state: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyleHint> {
-        Some(crate::render::CursorStyle::Underline.into())
-    }
+    assert_eq!(collected.cursor_effects.len(), 1);
+    assert_eq!(collected.cursor_effects[0].kind, CursorEffect::Halo);
 }
 
 #[test]
-fn test_resolve_cursor_style_hint_prefers_render_ornament_style() {
+fn test_cursor_effects_accumulate() {
+    struct EffectPlugin {
+        id: &'static str,
+        effect: CursorEffect,
+    }
+    impl PluginBackend for EffectPlugin {
+        fn id(&self) -> PluginId {
+            PluginId(self.id.to_string())
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::RENDER_ORNAMENT
+        }
+        fn render_ornaments(
+            &self,
+            _state: &AppView<'_>,
+            _ctx: &RenderOrnamentContext,
+        ) -> OrnamentBatch {
+            OrnamentBatch {
+                cursor_effects: vec![CursorEffectOrn {
+                    kind: self.effect,
+                    face: Face::default(),
+                    priority: 10,
+                    modality: OrnamentModality::Approximate,
+                }],
+                ..OrnamentBatch::default()
+            }
+        }
+    }
+
     let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LegacyCursorStylePlugin));
-    registry.register_backend(Box::new(RenderOrnamentPlugin {
-        batch: OrnamentBatch {
-            emphasis: vec![],
-            cursor: Some(CursorOrn {
-                kind: CursorOrnKind::Style(crate::render::CursorStyle::Bar.into()),
-                face: Face::default(),
-                priority: 10,
-                modality: OrnamentModality::Must,
-            }),
-            surfaces: vec![],
-        },
+    registry.register_backend(Box::new(EffectPlugin {
+        id: "halo",
+        effect: CursorEffect::Halo,
+    }));
+    registry.register_backend(Box::new(EffectPlugin {
+        id: "ring",
+        effect: CursorEffect::Ring,
     }));
 
     let state = AppState::default();
-    let hint = registry
+    let collected = registry
         .view()
-        .resolve_cursor_style_hint(&AppView::new(&state), &RenderOrnamentContext::default());
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
 
-    assert_eq!(hint.map(|h| h.shape), Some(crate::render::CursorStyle::Bar));
-}
-
-#[test]
-fn test_resolve_cursor_style_hint_falls_back_to_legacy_override() {
-    let mut registry = PluginRuntime::new();
-    registry.register_backend(Box::new(LegacyCursorStylePlugin));
-    registry.register_backend(Box::new(RenderOrnamentPlugin {
-        batch: OrnamentBatch {
-            emphasis: vec![],
-            cursor: Some(CursorOrn {
-                kind: CursorOrnKind::Halo,
-                face: Face::default(),
-                priority: 10,
-                modality: OrnamentModality::Must,
-            }),
-            surfaces: vec![],
-        },
-    }));
-
-    let state = AppState::default();
-    let hint = registry
-        .view()
-        .resolve_cursor_style_hint(&AppView::new(&state), &RenderOrnamentContext::default());
-
-    assert_eq!(
-        hint.map(|h| h.shape),
-        Some(crate::render::CursorStyle::Underline)
-    );
+    assert_eq!(collected.cursor_effects.len(), 2);
 }
 
 #[test]

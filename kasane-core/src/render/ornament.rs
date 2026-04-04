@@ -1,8 +1,6 @@
 use crate::element::BorderLineStyle;
 use crate::layout::Rect;
-use crate::plugin::{
-    FaceMerge, OrnamentModality, SourcedOrnamentBatch, SurfaceOrnAnchor, SurfaceOrnKind,
-};
+use crate::plugin::{FaceMerge, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind};
 use crate::protocol::Face;
 use crate::render::grid::CellGrid;
 use crate::render::scene::{CellSize, DrawCommand, to_pixel_rect};
@@ -20,14 +18,6 @@ pub(crate) struct ResolvedSurfaceOrn {
 struct SurfaceCandidate {
     score: (i8, i16),
     resolved: ResolvedSurfaceOrn,
-}
-
-fn modality_rank(modality: OrnamentModality) -> i8 {
-    match modality {
-        OrnamentModality::Must => 2,
-        OrnamentModality::Approximate => 1,
-        OrnamentModality::May => 0,
-    }
 }
 
 fn kind_order(kind: SurfaceOrnKind) -> u8 {
@@ -51,7 +41,7 @@ fn upsert_surface_candidate(winners: &mut Vec<SurfaceCandidate>, candidate: Surf
 }
 
 pub(crate) fn resolve_surface_ornaments(
-    batches: &[SourcedOrnamentBatch],
+    surfaces: &[SurfaceOrn],
     surface_registry: Option<&SurfaceRegistry>,
     focused_pane_rect: Option<Rect>,
     total: Rect,
@@ -66,53 +56,51 @@ pub(crate) fn resolve_surface_ornaments(
     });
 
     let mut winners = Vec::new();
-    for sourced in batches {
-        for orn in &sourced.batch.surfaces {
-            let score = (modality_rank(orn.modality), orn.priority);
-            let resolved = match &orn.anchor {
-                SurfaceOrnAnchor::FocusedSurface => {
-                    let Some(rect) = focused_surface_rect else {
-                        continue;
-                    };
-                    if orn.kind != SurfaceOrnKind::FocusFrame {
-                        continue;
-                    }
-                    ResolvedSurfaceOrn {
-                        surface_id: focused_surface_id,
-                        rect,
-                        kind: orn.kind,
-                        face: orn.face,
-                    }
+    for orn in surfaces {
+        let score = (orn.modality.rank(), orn.priority);
+        let resolved = match &orn.anchor {
+            SurfaceOrnAnchor::FocusedSurface => {
+                let Some(rect) = focused_surface_rect else {
+                    continue;
+                };
+                if orn.kind != SurfaceOrnKind::FocusFrame {
+                    continue;
                 }
-                SurfaceOrnAnchor::SurfaceKey(surface_key) => {
-                    let Some(registry) = surface_registry else {
-                        continue;
-                    };
-                    let Some(surface_id) = registry.surface_id_by_key(surface_key) else {
-                        continue;
-                    };
-                    let Some(rect) = workspace_rects
-                        .as_ref()
-                        .and_then(|rects| rects.get(&surface_id).copied())
-                    else {
-                        continue;
-                    };
-                    let is_focused = Some(surface_id) == focused_surface_id;
-                    match orn.kind {
-                        SurfaceOrnKind::FocusFrame if !is_focused => continue,
-                        SurfaceOrnKind::InactiveTint if is_focused => continue,
-                        _ => {}
-                    }
-                    ResolvedSurfaceOrn {
-                        surface_id: Some(surface_id),
-                        rect,
-                        kind: orn.kind,
-                        face: orn.face,
-                    }
+                ResolvedSurfaceOrn {
+                    surface_id: focused_surface_id,
+                    rect,
+                    kind: orn.kind,
+                    face: orn.face,
                 }
-            };
-            upsert_surface_candidate(&mut winners, SurfaceCandidate { score, resolved });
-        }
+            }
+            SurfaceOrnAnchor::SurfaceKey(surface_key) => {
+                let Some(registry) = surface_registry else {
+                    continue;
+                };
+                let Some(surface_id) = registry.surface_id_by_key(surface_key) else {
+                    continue;
+                };
+                let Some(rect) = workspace_rects
+                    .as_ref()
+                    .and_then(|rects| rects.get(&surface_id).copied())
+                else {
+                    continue;
+                };
+                let is_focused = Some(surface_id) == focused_surface_id;
+                match orn.kind {
+                    SurfaceOrnKind::FocusFrame if !is_focused => continue,
+                    SurfaceOrnKind::InactiveTint if is_focused => continue,
+                    _ => {}
+                }
+                ResolvedSurfaceOrn {
+                    surface_id: Some(surface_id),
+                    rect,
+                    kind: orn.kind,
+                    face: orn.face,
+                }
+            }
+        };
+        upsert_surface_candidate(&mut winners, SurfaceCandidate { score, resolved });
     }
 
     let mut resolved: Vec<_> = winners.into_iter().map(|winner| winner.resolved).collect();
@@ -197,7 +185,7 @@ fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merg
 mod tests {
     use super::*;
     use crate::layout::SplitDirection;
-    use crate::plugin::{OrnamentBatch, SurfaceOrn};
+    use crate::plugin::{OrnamentModality, SurfaceOrn};
     use crate::protocol::{Color, NamedColor};
     use crate::surface::SurfaceRegistry;
     use crate::surface::buffer::KakouneBufferSurface;
@@ -241,45 +229,31 @@ mod tests {
         );
         registry.workspace_mut().focus(SurfaceId::BUFFER);
 
-        let batches = vec![
-            SourcedOrnamentBatch {
-                plugin_id: crate::plugin::PluginId("low".into()),
-                batch: OrnamentBatch {
-                    surfaces: vec![SurfaceOrn {
-                        anchor: SurfaceOrnAnchor::FocusedSurface,
-                        kind: SurfaceOrnKind::FocusFrame,
-                        face: face(NamedColor::Blue),
-                        priority: 1,
-                        modality: OrnamentModality::Approximate,
-                    }],
-                    ..OrnamentBatch::default()
-                },
+        let surfaces = vec![
+            SurfaceOrn {
+                anchor: SurfaceOrnAnchor::FocusedSurface,
+                kind: SurfaceOrnKind::FocusFrame,
+                face: face(NamedColor::Blue),
+                priority: 1,
+                modality: OrnamentModality::Approximate,
             },
-            SourcedOrnamentBatch {
-                plugin_id: crate::plugin::PluginId("high".into()),
-                batch: OrnamentBatch {
-                    surfaces: vec![
-                        SurfaceOrn {
-                            anchor: SurfaceOrnAnchor::FocusedSurface,
-                            kind: SurfaceOrnKind::FocusFrame,
-                            face: face(NamedColor::Red),
-                            priority: 5,
-                            modality: OrnamentModality::Must,
-                        },
-                        SurfaceOrn {
-                            anchor: SurfaceOrnAnchor::SurfaceKey("test.right".into()),
-                            kind: SurfaceOrnKind::InactiveTint,
-                            face: face(NamedColor::Yellow),
-                            priority: 2,
-                            modality: OrnamentModality::Approximate,
-                        },
-                    ],
-                    ..OrnamentBatch::default()
-                },
+            SurfaceOrn {
+                anchor: SurfaceOrnAnchor::FocusedSurface,
+                kind: SurfaceOrnKind::FocusFrame,
+                face: face(NamedColor::Red),
+                priority: 5,
+                modality: OrnamentModality::Must,
+            },
+            SurfaceOrn {
+                anchor: SurfaceOrnAnchor::SurfaceKey("test.right".into()),
+                kind: SurfaceOrnKind::InactiveTint,
+                face: face(NamedColor::Yellow),
+                priority: 2,
+                modality: OrnamentModality::Approximate,
             },
         ];
 
-        let resolved = resolve_surface_ornaments(&batches, Some(&registry), None, total);
+        let resolved = resolve_surface_ornaments(&surfaces, Some(&registry), None, total);
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[0].kind, SurfaceOrnKind::InactiveTint);
         assert_eq!(resolved[1].kind, SurfaceOrnKind::FocusFrame);
@@ -318,37 +292,31 @@ mod tests {
         );
         registry.workspace_mut().focus(SurfaceId(200));
 
-        let batches = vec![SourcedOrnamentBatch {
-            plugin_id: crate::plugin::PluginId("surface".into()),
-            batch: OrnamentBatch {
-                surfaces: vec![
-                    SurfaceOrn {
-                        anchor: SurfaceOrnAnchor::FocusedSurface,
-                        kind: SurfaceOrnKind::InactiveTint,
-                        face: face(NamedColor::Yellow),
-                        priority: 1,
-                        modality: OrnamentModality::Approximate,
-                    },
-                    SurfaceOrn {
-                        anchor: SurfaceOrnAnchor::SurfaceKey("kasane.buffer".into()),
-                        kind: SurfaceOrnKind::FocusFrame,
-                        face: face(NamedColor::Blue),
-                        priority: 1,
-                        modality: OrnamentModality::Approximate,
-                    },
-                    SurfaceOrn {
-                        anchor: SurfaceOrnAnchor::SurfaceKey("kasane.buffer".into()),
-                        kind: SurfaceOrnKind::InactiveTint,
-                        face: face(NamedColor::Red),
-                        priority: 1,
-                        modality: OrnamentModality::Approximate,
-                    },
-                ],
-                ..OrnamentBatch::default()
+        let surfaces = vec![
+            SurfaceOrn {
+                anchor: SurfaceOrnAnchor::FocusedSurface,
+                kind: SurfaceOrnKind::InactiveTint,
+                face: face(NamedColor::Yellow),
+                priority: 1,
+                modality: OrnamentModality::Approximate,
             },
-        }];
+            SurfaceOrn {
+                anchor: SurfaceOrnAnchor::SurfaceKey("kasane.buffer".into()),
+                kind: SurfaceOrnKind::FocusFrame,
+                face: face(NamedColor::Blue),
+                priority: 1,
+                modality: OrnamentModality::Approximate,
+            },
+            SurfaceOrn {
+                anchor: SurfaceOrnAnchor::SurfaceKey("kasane.buffer".into()),
+                kind: SurfaceOrnKind::InactiveTint,
+                face: face(NamedColor::Red),
+                priority: 1,
+                modality: OrnamentModality::Approximate,
+            },
+        ];
 
-        let resolved = resolve_surface_ornaments(&batches, Some(&registry), None, total);
+        let resolved = resolve_surface_ornaments(&surfaces, Some(&registry), None, total);
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].surface_id, Some(SurfaceId::BUFFER));
         assert_eq!(resolved[0].kind, SurfaceOrnKind::InactiveTint);

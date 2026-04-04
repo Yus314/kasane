@@ -34,7 +34,7 @@ use crate::input::{
     KeyResponse, MouseEvent,
 };
 use crate::protocol::Atom;
-use crate::render::{CursorStyleHint, InlineDecoration};
+use crate::render::InlineDecoration;
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
 use crate::state::DirtyFlags;
 use crate::workspace::WorkspaceQuery;
@@ -51,10 +51,9 @@ use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 use super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
 use super::traits::KeyHandleResult;
 use super::{
-    AnnotateContext, AppView, BackgroundLayer, CellDecoration, Command, ContributeContext,
-    Contribution, DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext,
-    OverlayContribution, PluginState, RenderOrnamentContext, SlotId, TransformContext,
-    TransformTarget, VirtualTextItem,
+    AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
+    DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext, OverlayContribution,
+    PluginState, RenderOrnamentContext, SlotId, TransformContext, TransformTarget, VirtualTextItem,
 };
 
 /// Downcast state, call handler, box the new state and return `(BoxedState, second)`.
@@ -650,22 +649,6 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         handler: impl Fn(&S, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync + 'static,
     ) {
         register_view!(self, display_handler, handler, app);
-    }
-
-    /// Register a cell decoration handler.
-    pub fn on_cell_decoration(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> Vec<CellDecoration> + Send + Sync + 'static,
-    ) {
-        register_view!(self, cell_decoration_handler, handler, app);
-    }
-
-    /// Register a cursor style override handler.
-    pub fn on_cursor_style(
-        &mut self,
-        handler: impl Fn(&S, &AppView<'_>) -> Option<CursorStyleHint> + Send + Sync + 'static,
-    ) {
-        register_view!(self, cursor_style_handler, handler, app);
     }
 
     /// Register backend-independent physical ornament proposals.
@@ -1275,18 +1258,6 @@ mod tests {
             table
                 .capabilities()
                 .contains(PluginCapabilities::DISPLAY_TRANSFORM)
-        );
-    }
-
-    #[test]
-    fn on_cursor_style_sets_capability() {
-        let mut registry = HandlerRegistry::<TestState>::new();
-        registry.on_cursor_style(|_state, _app| None);
-        let table = registry.into_table();
-        assert!(
-            table
-                .capabilities()
-                .contains(PluginCapabilities::CURSOR_STYLE)
         );
     }
 
