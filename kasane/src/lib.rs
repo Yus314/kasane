@@ -292,6 +292,8 @@ mod tests {
     use kasane_core::surface::{Surface, SurfaceId, SurfaceRegistrationError, SurfaceRegistry};
     use kasane_core::test_support::TestSurfaceBuilder;
     use kasane_core::workspace::Placement;
+    use kasane_plugin_package::manifest::PluginManifest;
+    use kasane_plugin_package::package::{BuildInput, build_package, write_package};
 
     struct TempPluginDir {
         path: PathBuf,
@@ -313,27 +315,39 @@ mod tests {
 
         fn copy_fixture(&self, fixture_name: &str) {
             let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../kasane-wasm/fixtures");
-            let src = fixtures.join(fixture_name);
-            let dst = self.path.join(fixture_name);
-            fs::copy(&src, &dst).expect("failed to copy fixture");
-
-            // Also copy sibling .toml manifest if it exists
-            let toml_name = Path::new(fixture_name).with_extension("toml");
-            let toml_src = fixtures.join(&toml_name);
-            if toml_src.exists() {
-                let toml_dst = self.path.join(&toml_name);
-                fs::copy(toml_src, toml_dst).expect("failed to copy fixture manifest");
-            }
+            let manifest_path = fixtures.join(Path::new(fixture_name).with_extension("toml"));
+            let component_path = fixtures.join(fixture_name);
+            let manifest_toml =
+                fs::read_to_string(&manifest_path).expect("failed to read fixture manifest");
+            let manifest =
+                PluginManifest::parse(&manifest_toml).expect("failed to parse fixture manifest");
+            let component = fs::read(&component_path).expect("failed to read fixture component");
+            let package_name = Path::new(fixture_name)
+                .file_stem()
+                .expect("fixture name without stem")
+                .to_string_lossy()
+                .replace('_', "-");
+            let output = build_package(BuildInput {
+                package_name: format!("fixtures/{package_name}"),
+                package_version: "0.1.0".to_string(),
+                component_entry: "plugin.wasm".to_string(),
+                component,
+                manifest,
+                assets: Vec::new(),
+            })
+            .expect("failed to build fixture package");
+            let dst = self.path.join(
+                Path::new(fixture_name)
+                    .with_extension("kpk")
+                    .file_name()
+                    .unwrap(),
+            );
+            write_package(&dst, &output).expect("failed to write fixture package");
         }
 
         fn remove(&self, file_name: &str) {
-            fs::remove_file(self.path.join(file_name)).expect("failed to remove fixture");
-            // Also remove sibling .toml manifest
-            let toml_name = Path::new(file_name).with_extension("toml");
-            let toml_path = self.path.join(&toml_name);
-            if toml_path.exists() {
-                let _ = fs::remove_file(toml_path);
-            }
+            fs::remove_file(self.path.join(Path::new(file_name).with_extension("kpk")))
+                .expect("failed to remove fixture");
         }
 
         fn config(&self) -> PluginsConfig {

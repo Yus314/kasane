@@ -434,24 +434,32 @@ fn up_down_navigation() {
 
 #[test]
 fn discover_loads_with_fixtures() {
-    // When discover scans fixtures/, fuzzy-finder.wasm should load
+    let tmp = tempfile::tempdir().unwrap();
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    let manifest_toml = std::fs::read_to_string(fixtures.join("fuzzy-finder.toml")).unwrap();
+    let manifest = crate::manifest::PluginManifest::parse(&manifest_toml).unwrap();
+    let component = std::fs::read(fixtures.join("fuzzy-finder.wasm")).unwrap();
+    let output =
+        kasane_plugin_package::package::build_package(kasane_plugin_package::package::BuildInput {
+            package_name: "fixtures/fuzzy-finder".to_string(),
+            package_version: "0.1.0".to_string(),
+            component_entry: "plugin.wasm".to_string(),
+            component,
+            manifest,
+            assets: Vec::new(),
+        })
+        .unwrap();
+    kasane_plugin_package::package::write_package(tmp.path().join("fuzzy-finder.kpk"), &output)
+        .unwrap();
+
     let config = PluginsConfig {
-        auto_discover: true,
-        path: Some(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("fixtures")
-                .to_string_lossy()
-                .into_owned(),
-        ),
-        disabled: vec![],
+        path: Some(tmp.path().to_string_lossy().into_owned()),
+        disabled: vec!["pane_manager".to_string()],
         ..Default::default()
     };
     let mut registry = PluginRuntime::new();
     crate::discover_and_register(&config, &mut registry);
 
-    // Should now include fuzzy_finder among loaded plugins
-    assert!(
-        registry.plugin_count() >= 5,
-        "expected at least 5 plugins (including fuzzy_finder)"
-    );
+    assert_eq!(registry.plugin_count(), 1);
+    assert!(registry.contains_plugin(&PluginId("fuzzy_finder".to_string())));
 }
