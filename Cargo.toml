@@ -1,5 +1,5 @@
 [workspace]
-members = ["kasane", "kasane-core", "kasane-tui", "kasane-macros", "kasane-gui", "kasane-wasm-bench", "kasane-wasm"]
+members = ["kasane", "kasane-core", "kasane-plugin-model", "kasane-tui", "kasane-macros", "kasane-gui", "kasane-wasm-bench", "kasane-wasm"]
 exclude = ["examples/image-test", "examples/line-numbers", "examples/virtual-text-demo", "examples/wasm/cursor-line", "examples/wasm/color-preview", "examples/wasm/sel-badge", "examples/wasm/fuzzy-finder", "examples/wasm/pane-manager", "examples/wasm/prompt-highlight", "examples/wasm/smooth-scroll", "tools/wasm-test", "kasane-plugin-sdk", "kasane-plugin-sdk-macros", "kasane-wasm-bench/guests/string-echo", "kasane-wasm-bench/guests/element-builder", "kasane-wasm-bench/guests/state-reader", "kasane-wasm-bench/guests/component-plugin", "kasane-wasm/guests/surface-probe"]
 resolver = "3"
 
@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 kasane-core = { path = "kasane-core" }
+kasane-plugin-model = { path = "kasane-plugin-model" }
 kasane-tui = { path = "kasane-tui" }
 kasane-macros = { path = "kasane-macros" }
 syn = { version = "2", features = ["full", "extra-traits", "visit"] }

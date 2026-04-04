@@ -7,13 +7,9 @@
 use std::collections::HashMap;
 
 use compact_str::CompactString;
-use kasane_core::plugin::SettingValue;
-use kasane_core::plugin::extension_point::ExtensionPointId;
-use kasane_core::plugin::pubsub::TopicId;
-use kasane_core::plugin::{
-    CapabilityDescriptor, PluginAuthorities, PluginCapabilities, TransformTarget,
-};
+use kasane_core::plugin::{CapabilityDescriptor, PluginAuthorities, PluginCapabilities};
 use kasane_core::state::DirtyFlags;
+use kasane_plugin_model::{ExtensionPointId, SettingValue, TopicId, TransformTarget};
 use serde::Deserialize;
 
 /// Parsed plugin manifest from a `.toml` sidecar file.

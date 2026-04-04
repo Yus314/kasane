@@ -43,6 +43,7 @@ pub use effects::{
     Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
     RecordingEffects, TextInputHandleResult,
 };
+pub use kasane_plugin_model::{PluginId, SettingValue};
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{
     CompositePluginProvider, PluginCollect, PluginDescriptor, PluginFactory, PluginProvider,
@@ -104,7 +105,6 @@ pub use render_ornament::{
     CursorEffect, CursorEffectOrn, CursorStyleOrn, OrnamentBatch, OrnamentModality,
     RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
-pub use setting::SettingValue;
 pub use state::{Plugin, PluginState};
 
 bitflags! {
@@ -146,9 +146,6 @@ bitflags! {
         const WORKSPACE       = 1 << 2;
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct PluginId(pub String);
 
 /// Open slot identifier that supports both well-known and custom plugin-defined slots.
 ///
