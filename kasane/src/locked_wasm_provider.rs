@@ -8,7 +8,10 @@ use kasane_core::plugin::{
     plugin_factory,
 };
 use kasane_plugin_package::package;
-use kasane_wasm::{WasiCapabilityConfig, WasmPluginLoader};
+use kasane_wasm::{
+    WasiCapabilityConfig, WasmPluginLoader, bundled_plugin_artifact_by_plugin_id,
+    bundled_plugin_manifest_by_plugin_id, load_bundled_plugin_by_plugin_id,
+};
 
 use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
 use crate::plugin_store::PluginStore;
@@ -125,6 +128,37 @@ fn collect_locked_plugin(
         return;
     }
 
+    match entry.source_kind.as_str() {
+        "filesystem" => collect_locked_filesystem_plugin(
+            key,
+            entry,
+            store,
+            config_settings,
+            wasi_config,
+            resolved,
+        ),
+        "bundled" => {
+            collect_locked_bundled_plugin(key, entry, config_settings, wasi_config, resolved)
+        }
+        other => resolved
+            .diagnostics
+            .push(PluginDiagnostic::provider_artifact_failed(
+                LOCKED_WASM_PROVIDER_NAME,
+                key,
+                ProviderArtifactStage::Manifest,
+                format!("unsupported source_kind `{other}` in plugins.lock"),
+            )),
+    }
+}
+
+fn collect_locked_filesystem_plugin(
+    key: &str,
+    entry: &LockedPluginEntry,
+    store: &PluginStore,
+    config_settings: &HashMap<String, toml::Table>,
+    wasi_config: &WasiCapabilityConfig,
+    resolved: &mut PluginCollect,
+) {
     let package_path = match store.path_for(&entry.artifact_digest) {
         Ok(path) => path,
         Err(err) => {
@@ -252,6 +286,148 @@ fn collect_locked_plugin(
     upsert_resolved_factory(&mut resolved.factories, factory);
 }
 
+fn collect_locked_bundled_plugin(
+    key: &str,
+    entry: &LockedPluginEntry,
+    config_settings: &HashMap<String, toml::Table>,
+    wasi_config: &WasiCapabilityConfig,
+    resolved: &mut PluginCollect,
+) {
+    let artifact = match bundled_plugin_artifact_by_plugin_id(&entry.plugin_id) {
+        Ok(Some(artifact)) => artifact,
+        Ok(None) => {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::provider_artifact_failed(
+                    LOCKED_WASM_PROVIDER_NAME,
+                    key,
+                    ProviderArtifactStage::Manifest,
+                    format!("no bundled plugin found for `{}`", entry.plugin_id),
+                ));
+            return;
+        }
+        Err(err) => {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::provider_artifact_failed(
+                    LOCKED_WASM_PROVIDER_NAME,
+                    key,
+                    ProviderArtifactStage::Manifest,
+                    err.to_string(),
+                ));
+            return;
+        }
+    };
+
+    if artifact.artifact_digest != entry.artifact_digest {
+        resolved
+            .diagnostics
+            .push(PluginDiagnostic::provider_artifact_failed(
+                LOCKED_WASM_PROVIDER_NAME,
+                key,
+                ProviderArtifactStage::Manifest,
+                format!(
+                    "plugins.lock artifact digest `{}` does not match bundled digest `{}`",
+                    entry.artifact_digest, artifact.artifact_digest
+                ),
+            ));
+        return;
+    }
+
+    if artifact.code_digest != entry.code_digest {
+        resolved
+            .diagnostics
+            .push(PluginDiagnostic::provider_artifact_failed(
+                LOCKED_WASM_PROVIDER_NAME,
+                key,
+                ProviderArtifactStage::Manifest,
+                format!(
+                    "plugins.lock code digest `{}` does not match bundled digest `{}`",
+                    entry.code_digest, artifact.code_digest
+                ),
+            ));
+        return;
+    }
+
+    if let Some(abi_version) = &entry.abi_version
+        && abi_version != &artifact.abi_version
+    {
+        resolved
+            .diagnostics
+            .push(PluginDiagnostic::provider_artifact_failed(
+                LOCKED_WASM_PROVIDER_NAME,
+                key,
+                ProviderArtifactStage::Manifest,
+                format!(
+                    "plugins.lock abi_version `{}` does not match bundled abi `{}`",
+                    abi_version, artifact.abi_version
+                ),
+            ));
+        return;
+    }
+
+    let manifest = match bundled_plugin_manifest_by_plugin_id(&entry.plugin_id) {
+        Ok(Some(manifest)) => manifest,
+        Ok(None) => {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::provider_artifact_failed(
+                    LOCKED_WASM_PROVIDER_NAME,
+                    key,
+                    ProviderArtifactStage::Manifest,
+                    format!("no bundled manifest found for `{}`", entry.plugin_id),
+                ));
+            return;
+        }
+        Err(err) => {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::provider_artifact_failed(
+                    LOCKED_WASM_PROVIDER_NAME,
+                    key,
+                    ProviderArtifactStage::Manifest,
+                    err.to_string(),
+                ));
+            return;
+        }
+    };
+
+    if let Err(err) = manifest.validate() {
+        resolved
+            .diagnostics
+            .push(PluginDiagnostic::provider_artifact_failed(
+                LOCKED_WASM_PROVIDER_NAME,
+                key,
+                ProviderArtifactStage::Manifest,
+                err.to_string(),
+            ));
+        return;
+    }
+
+    let plugin_id = PluginId(manifest.plugin.id.clone());
+    let settings = resolve_plugin_settings(&manifest, config_settings);
+    if !settings.is_empty() {
+        resolved
+            .initial_settings
+            .insert(plugin_id.clone(), settings);
+    }
+
+    let descriptor = PluginDescriptor {
+        id: plugin_id.clone(),
+        source: PluginSource::BundledWasm {
+            name: artifact.name.to_string(),
+        },
+        revision: PluginRevision(format!(
+            "{}+{}",
+            artifact.artifact_digest, artifact.code_digest
+        )),
+        rank: PluginRank::BUNDLED_WASM,
+    };
+
+    let factory = locked_bundled_wasm_factory(descriptor, plugin_id.0.clone(), wasi_config.clone());
+    upsert_resolved_factory(&mut resolved.factories, factory);
+}
+
 fn resolve_plugin_settings(
     manifest: &kasane_plugin_package::manifest::PluginManifest,
     config_settings: &HashMap<String, toml::Table>,
@@ -277,6 +453,18 @@ fn locked_wasm_package_factory(
         let plugin = loader
             .load_package_file(&package_path, &wasi_config)
             .map_err(|(_, err)| err)?;
+        Ok(Box::new(plugin) as Box<dyn PluginBackend>)
+    })
+}
+
+fn locked_bundled_wasm_factory(
+    descriptor: PluginDescriptor,
+    plugin_id: String,
+    wasi_config: WasiCapabilityConfig,
+) -> Arc<dyn PluginFactory> {
+    plugin_factory(descriptor, move || {
+        let plugin =
+            load_bundled_plugin_by_plugin_id(&plugin_id, &wasi_config).map_err(|(_, err)| err)?;
         Ok(Box::new(plugin) as Box<dyn PluginBackend>)
     })
 }
@@ -417,5 +605,43 @@ flags = ["contributor"]
         let collected = provider.collect().unwrap();
         assert!(collected.factories.is_empty());
         assert_eq!(collected.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn collect_loads_bundled_plugins_from_lock() {
+        let tmp = tempfile::tempdir().unwrap();
+        let artifact = bundled_plugin_artifact_by_plugin_id("pane_manager")
+            .unwrap()
+            .expect("pane_manager bundled plugin");
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            artifact.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: artifact.plugin_id.clone(),
+                package: Some(artifact.package_name.clone()),
+                version: Some(artifact.package_version.clone()),
+                artifact_digest: artifact.artifact_digest.clone(),
+                code_digest: artifact.code_digest.clone(),
+                source_kind: "bundled".to_string(),
+                abi_version: Some(artifact.abi_version.clone()),
+            },
+        );
+
+        let provider = LockedWasmPluginProvider::new(
+            Ok(lock),
+            kasane_core::config::PluginsConfig {
+                path: Some(tmp.path().join("plugins").to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+            HashMap::new(),
+        );
+        let collected = provider.collect().unwrap();
+        assert_eq!(collected.factories.len(), 1);
+        assert!(collected.diagnostics.is_empty());
+        assert_eq!(
+            collected.factories[0].descriptor().id,
+            PluginId("pane_manager".to_string())
+        );
     }
 }

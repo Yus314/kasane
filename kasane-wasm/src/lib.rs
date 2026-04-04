@@ -28,6 +28,7 @@ use kasane_core::plugin::{
     plugin_factory,
 };
 use kasane_plugin_package::package;
+use sha2::{Digest, Sha256};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine};
 
@@ -580,6 +581,18 @@ struct BundledPluginSpec {
     default_enabled: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct BundledPluginArtifact {
+    pub name: &'static str,
+    pub plugin_id: String,
+    pub package_name: String,
+    pub package_version: String,
+    pub artifact_digest: String,
+    pub code_digest: String,
+    pub abi_version: String,
+    pub default_enabled: bool,
+}
+
 /// Plugins with `default_enabled = true` are loaded unless explicitly disabled.
 /// Plugins with `default_enabled = false` require opt-in via `plugins.enabled`.
 fn bundled_plugin_specs() -> &'static [BundledPluginSpec] {
@@ -615,6 +628,91 @@ fn bundled_plugin_specs() -> &'static [BundledPluginSpec] {
             default_enabled: true,
         },
     ]
+}
+
+pub fn bundled_plugin_artifacts() -> anyhow::Result<Vec<BundledPluginArtifact>> {
+    bundled_plugin_specs()
+        .iter()
+        .map(bundled_plugin_artifact_from_spec)
+        .collect()
+}
+
+pub fn bundled_plugin_artifact_by_plugin_id(
+    plugin_id: &str,
+) -> anyhow::Result<Option<BundledPluginArtifact>> {
+    for spec in bundled_plugin_specs() {
+        let artifact = bundled_plugin_artifact_from_spec(spec)?;
+        if artifact.plugin_id == plugin_id {
+            return Ok(Some(artifact));
+        }
+    }
+    Ok(None)
+}
+
+pub fn bundled_plugin_manifest_by_plugin_id(
+    plugin_id: &str,
+) -> anyhow::Result<Option<manifest::PluginManifest>> {
+    for spec in bundled_plugin_specs() {
+        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)?;
+        if manifest.plugin.id == plugin_id {
+            return Ok(Some(manifest));
+        }
+    }
+    Ok(None)
+}
+
+pub fn load_bundled_plugin_by_plugin_id(
+    plugin_id: &str,
+    wasi_config: &WasiCapabilityConfig,
+) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
+    let loader =
+        WasmPluginLoader::new().map_err(|err| (ProviderArtifactStage::Instantiate, err))?;
+    for spec in bundled_plugin_specs() {
+        let manifest = manifest::PluginManifest::parse(spec.manifest_toml)
+            .map_err(|err| (ProviderArtifactStage::Manifest, anyhow::anyhow!(err)))?;
+        if manifest.plugin.id != plugin_id {
+            continue;
+        }
+        return loader.load_with_manifest(spec.wasm_bytes, &manifest, wasi_config);
+    }
+    Err((
+        ProviderArtifactStage::Manifest,
+        anyhow::anyhow!("unknown bundled plugin `{plugin_id}`"),
+    ))
+}
+
+fn bundled_plugin_artifact_from_spec(
+    spec: &BundledPluginSpec,
+) -> anyhow::Result<BundledPluginArtifact> {
+    let manifest = manifest::PluginManifest::parse(spec.manifest_toml)?;
+    Ok(BundledPluginArtifact {
+        name: spec.name,
+        plugin_id: manifest.plugin.id.clone(),
+        package_name: bundled_package_name(spec.name),
+        package_version: env!("CARGO_PKG_VERSION").to_string(),
+        artifact_digest: bundled_artifact_digest(spec.manifest_toml, spec.wasm_bytes),
+        code_digest: sha256_prefixed(spec.wasm_bytes),
+        abi_version: manifest.plugin.abi_version.clone(),
+        default_enabled: spec.default_enabled,
+    })
+}
+
+fn bundled_package_name(name: &str) -> String {
+    format!("builtin/{}", name.replace('_', "-"))
+}
+
+fn bundled_artifact_digest(manifest_toml: &str, wasm_bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(manifest_toml.as_bytes());
+    hasher.update([0]);
+    hasher.update(wasm_bytes);
+    format!("sha256:{:x}", hasher.finalize())
+}
+
+fn sha256_prefixed(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 /// A discovered plugin artifact from the filesystem (manifest + WASM pair).
