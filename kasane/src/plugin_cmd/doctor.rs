@@ -97,7 +97,13 @@ fn check_sdk_version() -> bool {
 
 fn check_plugins_directory(fix: bool) -> bool {
     print!("  package directory ... ");
-    let config = Config::load();
+    let config = match Config::try_load() {
+        Ok(config) => config,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
     let plugins_dir = config.plugins.plugins_dir();
     if plugins_dir.exists() {
         let writable = std::fs::metadata(&plugins_dir)
@@ -132,8 +138,13 @@ fn check_plugins_directory(fix: bool) -> bool {
 
 fn check_plugins_lock() -> bool {
     print!("  plugins lock ... ");
-    let config = Config::load();
-    let plugins_dir = config.plugins.plugins_dir();
+    let config = match Config::try_load() {
+        Ok(config) => config,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
     let lock = match PluginsLock::load() {
         Ok(lock) => lock,
         Err(e) => {
@@ -147,35 +158,28 @@ fn check_plugins_lock() -> bool {
         return true;
     }
 
-    let packages = match super::package_artifact::discover_installed_packages(&plugins_dir) {
-        Ok(packages) => packages,
+    let resolution = match super::resolve::preview_resolution(
+        &config,
+        super::resolve::ResolveOptions::reconcile(),
+    ) {
+        Ok(resolution) => resolution,
         Err(e) => {
             println!("ERROR ({e:#})");
             return false;
         }
     };
 
-    let mut installed = std::collections::HashMap::new();
-    for package in packages {
-        if let super::package_artifact::DiscoveredPackage::Valid { inspected, .. } = package {
-            installed.insert(
-                inspected.header.plugin.id.clone(),
-                inspected.header.digests.artifact.clone(),
-            );
-        }
-    }
-
     let mut all_ok = true;
     println!("{} entries", lock.plugins.len());
     for (plugin_id, entry) in &lock.plugins {
-        match installed.get(plugin_id) {
-            Some(digest) if digest == &entry.artifact_digest => {
+        match resolution.lock.plugins.get(plugin_id) {
+            Some(resolved) if resolved.artifact_digest == entry.artifact_digest => {
                 println!("    {plugin_id}: ok");
             }
-            Some(digest) => {
+            Some(resolved) => {
                 println!(
-                    "    {plugin_id}: STALE (lock={}, installed={digest})",
-                    entry.artifact_digest
+                    "    {plugin_id}: STALE (lock={}, resolved={})",
+                    entry.artifact_digest, resolved.artifact_digest
                 );
                 all_ok = false;
             }
@@ -190,7 +194,13 @@ fn check_plugins_lock() -> bool {
 
 fn check_installed_plugins() -> bool {
     print!("  installed packages ... ");
-    let config = Config::load();
+    let config = match Config::try_load() {
+        Ok(config) => config,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
     let plugins_dir = config.plugins.plugins_dir();
 
     let packages = match super::package_artifact::discover_installed_packages(&plugins_dir) {
@@ -206,17 +216,41 @@ fn check_installed_plugins() -> bool {
         return true;
     }
 
+    let resolution = match super::resolve::preview_resolution(
+        &config,
+        super::resolve::ResolveOptions::reconcile(),
+    ) {
+        Ok(resolution) => resolution,
+        Err(e) => {
+            println!("ERROR ({e:#})");
+            return false;
+        }
+    };
+
     println!("{} found", packages.len());
     let mut all_ok = true;
     for package in packages {
         match package {
             super::package_artifact::DiscoveredPackage::Valid { path, inspected } => {
                 let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                println!(
-                    "    {filename}: ok ({} / {})",
-                    inspected.header.plugin.id,
-                    super::package_artifact::package_label(&inspected)
-                );
+                if resolution
+                    .issues
+                    .iter()
+                    .any(|issue| issue.plugin_id == inspected.header.plugin.id)
+                {
+                    println!(
+                        "    {filename}: CONFLICT ({} / {})",
+                        inspected.header.plugin.id,
+                        super::package_artifact::package_label(&inspected)
+                    );
+                    all_ok = false;
+                } else {
+                    println!(
+                        "    {filename}: ok ({} / {})",
+                        inspected.header.plugin.id,
+                        super::package_artifact::package_label(&inspected)
+                    );
+                }
             }
             super::package_artifact::DiscoveredPackage::Invalid { path, error } => {
                 let filename = path.file_name().unwrap_or_default().to_string_lossy();
@@ -224,6 +258,11 @@ fn check_installed_plugins() -> bool {
                 all_ok = false;
             }
         }
+    }
+
+    for issue in resolution.issues {
+        println!("    {}: {}", issue.plugin_id, issue.reason);
+        all_ok = false;
     }
     all_ok
 }

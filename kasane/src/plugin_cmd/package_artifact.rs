@@ -7,8 +7,7 @@ use kasane_plugin_package::manifest::PluginManifest;
 use kasane_plugin_package::package::{self, BuildInput, InspectedPackage};
 use serde::Deserialize;
 
-use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
-use crate::plugin_store::{PluginStore, StoredArtifact};
+use crate::plugin_store::PluginStore;
 
 use super::build;
 
@@ -71,7 +70,7 @@ pub fn build_project_package(project_dir: &str, release: bool) -> Result<BuiltPa
 }
 
 pub fn install_package_file(path: &Path) -> Result<InstalledPackage> {
-    let config = Config::load();
+    let config = Config::try_load()?;
     let plugins_dir = config.plugins.plugins_dir();
     let store = PluginStore::from_plugins_dir(&plugins_dir);
     let stored = store.put_verified_package(path)?;
@@ -79,15 +78,16 @@ pub fn install_package_file(path: &Path) -> Result<InstalledPackage> {
         .with_context(|| format!("failed to inspect {}", stored.path.display()))?;
     touch_reload_sentinel(&plugins_dir);
 
-    let mut lock = PluginsLock::load()?;
-    lock.plugins
-        .insert(stored.plugin_id.clone(), lock_entry_from_artifact(&stored));
-    let lock_path = lock.save()?;
+    let saved = super::resolve::resolve_and_save(
+        &config,
+        super::resolve::ResolveOptions::reconcile()
+            .request_artifact(stored.plugin_id.clone(), stored.artifact_digest.clone()),
+    )?;
 
     Ok(InstalledPackage {
         path: stored.path,
         inspected,
-        lock_path,
+        lock_path: saved.lock_path,
     })
 }
 
@@ -152,18 +152,6 @@ fn package_filename(inspected: &InspectedPackage) -> String {
         inspected.header.package.name.replace('/', "-"),
         inspected.header.package.version
     )
-}
-
-fn lock_entry_from_artifact(artifact: &StoredArtifact) -> LockedPluginEntry {
-    LockedPluginEntry {
-        plugin_id: artifact.plugin_id.clone(),
-        package: Some(artifact.package_name.clone()),
-        version: Some(artifact.package_version.clone()),
-        artifact_digest: artifact.artifact_digest.clone(),
-        code_digest: artifact.code_digest.clone(),
-        source_kind: "filesystem".to_string(),
-        abi_version: Some(artifact.abi_version.clone()),
-    }
 }
 
 fn touch_reload_sentinel(plugins_dir: &Path) {

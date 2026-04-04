@@ -327,6 +327,29 @@ Discovered plugins (from the plugins directory) can be disabled individually:
 disabled = ["some_plugin"]
 ```
 
+### `[plugins.selection.<plugin_id>]`
+
+Pin a filesystem package selection for a specific plugin ID.
+
+```toml
+[plugins.selection.sel_badge]
+mode = "pin-digest"
+digest = "sha256:abc123..."
+```
+
+```toml
+[plugins.selection.cursor_line]
+mode = "pin-package"
+package = "builtin/cursor-line"
+version = "0.3.0"
+```
+
+Available modes:
+
+- `auto`: use the current lock entry when valid, otherwise require a single installed candidate
+- `pin-digest`: select an exact installed artifact digest
+- `pin-package`: select an installed package by name, optionally constrained to a specific version
+
 ### `[plugins.deny_capabilities]`
 
 Restrict WASI capabilities for specific WASM plugins. Key: plugin ID. Value: list of denied capability names.

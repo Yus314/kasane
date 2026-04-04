@@ -1,13 +1,12 @@
 use anyhow::Result;
 use kasane_core::config::Config;
 
-use crate::plugin_lock::PluginsLock;
-
 pub fn run() -> Result<()> {
-    let config = Config::load();
+    let config = Config::try_load()?;
     let plugins_dir = config.plugins.plugins_dir();
     let packages = super::package_artifact::discover_installed_packages(&plugins_dir)?;
-    let lock = PluginsLock::load()?;
+    let resolution =
+        super::resolve::preview_resolution(&config, super::resolve::ResolveOptions::reconcile())?;
 
     if packages.is_empty() {
         println!("No plugins installed in {}", plugins_dir.display());
@@ -20,11 +19,23 @@ pub fn run() -> Result<()> {
         match package {
             super::package_artifact::DiscoveredPackage::Valid { path, inspected } => {
                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                let state = lock
+                let state = if resolution
+                    .lock
                     .plugins
                     .get(&inspected.header.plugin.id)
                     .filter(|entry| entry.artifact_digest == inspected.header.digests.artifact)
-                    .map_or("installed", |_| "active");
+                    .is_some()
+                {
+                    "active"
+                } else if resolution
+                    .issues
+                    .iter()
+                    .any(|issue| issue.plugin_id == inspected.header.plugin.id)
+                {
+                    "conflict"
+                } else {
+                    "installed"
+                };
                 println!(
                     "  {:<20} {:<30} {:<10} ({} KiB)",
                     inspected.header.plugin.id,
