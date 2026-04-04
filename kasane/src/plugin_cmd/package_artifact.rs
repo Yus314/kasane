@@ -82,6 +82,7 @@ pub fn install_package_file(path: &Path) -> Result<InstalledPackage> {
         super::resolve::ResolveOptions::reconcile()
             .request_artifact(stored.plugin_id.clone(), stored.artifact_digest.clone()),
     )?;
+    super::resolve::require_resolved(&saved.result, &stored.plugin_id)?;
 
     Ok(InstalledPackage {
         path: stored.path,

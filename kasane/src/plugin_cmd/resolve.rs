@@ -96,7 +96,6 @@ pub(super) struct CandidateSummary {
     pub(super) package: String,
     pub(super) version: String,
     pub(super) artifact_digest: String,
-    pub(super) path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +166,7 @@ pub fn run_pin(
         .insert(plugin_id.to_string(), selection.clone());
     let config_path = config.save()?;
     let saved = resolve_and_save(&config, ResolveOptions::reconcile())?;
+    require_resolved(&saved.result, plugin_id)?;
 
     println!("Pinned plugin: {plugin_id}");
     match selection {
@@ -200,12 +200,22 @@ pub(super) fn resolve_and_save(
 ) -> Result<SavedResolveResult> {
     let _guard = crate::workspace_lock::acquire_workspace_lock(&config.plugins.plugins_dir())?;
     let result = preview_resolution(config, options)?;
-    if !result.issues.is_empty() {
-        bail!(render_resolution_failure(&result));
-    }
+    // Partial resolution: save successfully resolved plugins even when some
+    // plugins have issues. Callers that require specific plugins to succeed
+    // (e.g., pin, install) check for their specific issues after this call.
     let lock_path = result.lock.save()?;
     super::package_artifact::touch_reload_sentinel(&config.plugins.plugins_dir());
     Ok(SavedResolveResult { result, lock_path })
+}
+
+/// Check if a specific plugin has unresolved issues and bail if so.
+pub(super) fn require_resolved(result: &ResolveResult, plugin_id: &str) -> Result<()> {
+    for issue in &result.issues {
+        if issue.plugin_id == plugin_id {
+            bail!("failed to resolve plugin `{plugin_id}`: {}", issue.reason);
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn preview_resolution(
@@ -652,7 +662,6 @@ fn candidate_summaries(candidates: &[PackageCandidate]) -> Vec<CandidateSummary>
             package: candidate.inspected.header.package.name.clone(),
             version: candidate.inspected.header.package.version.clone(),
             artifact_digest: candidate.inspected.header.digests.artifact.clone(),
-            path: candidate.path.clone(),
         })
         .collect()
 }
@@ -664,33 +673,8 @@ fn candidate_summaries_from_refs(candidates: &[&PackageCandidate]) -> Vec<Candid
             package: candidate.inspected.header.package.name.clone(),
             version: candidate.inspected.header.package.version.clone(),
             artifact_digest: candidate.inspected.header.digests.artifact.clone(),
-            path: candidate.path.clone(),
         })
         .collect()
-}
-
-fn render_resolution_failure(result: &ResolveResult) -> String {
-    let mut lines = vec!["plugin resolution failed:".to_string()];
-    for issue in &result.issues {
-        lines.push(format!("  {}: {}", issue.plugin_id, issue.reason));
-        for candidate in &issue.candidates {
-            lines.push(format!(
-                "    - {}@{} ({}) {}",
-                candidate.package,
-                candidate.version,
-                candidate.artifact_digest,
-                candidate.path.display()
-            ));
-        }
-    }
-    for invalid in &result.invalid_packages {
-        lines.push(format!(
-            "  invalid package {}: {}",
-            invalid.path.display(),
-            invalid.error
-        ));
-    }
-    lines.join("\n")
 }
 
 fn print_saved_resolution(header: &str, saved: &SavedResolveResult) {
@@ -715,6 +699,18 @@ fn print_saved_resolution(header: &str, saved: &SavedResolveResult) {
                     ResolveReason::BundledEnabled => "bundled-enabled",
                 }
             );
+        }
+    }
+    if !saved.result.issues.is_empty() {
+        println!("Warnings:");
+        for issue in &saved.result.issues {
+            println!("  {}: {}", issue.plugin_id, issue.reason);
+            for candidate in &issue.candidates {
+                println!(
+                    "    - {}@{} ({})",
+                    candidate.package, candidate.version, candidate.artifact_digest
+                );
+            }
         }
     }
     if !saved.result.invalid_packages.is_empty() {
@@ -1011,6 +1007,49 @@ flags = ["contributor"]
                 .iter()
                 .any(|p| p.error.contains("ABI version"))
         );
+    }
+
+    #[test]
+    fn partial_resolution_saves_resolved_plugins_despite_issues() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_home = tmp.path().join("data");
+        let config_home = tmp.path().join("config");
+        fs::create_dir_all(&data_home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+
+        let config = config_with_paths(&data_home, &config_home);
+        let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
+
+        // sel_badge: single candidate → resolves fine
+        let good = build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge", "0.1.0");
+        store.put_verified_package(&good).unwrap();
+
+        // cursor_line: two candidates, no lock → ambiguity issue
+        let conflict_a =
+            build_fixture_package(tmp.path(), "cursor_line", "example/cursor-line", "0.1.0");
+        let conflict_b =
+            build_fixture_package(tmp.path(), "cursor_line", "example/cursor-line", "0.2.0");
+        store.put_verified_package(&conflict_a).unwrap();
+        store.put_verified_package(&conflict_b).unwrap();
+
+        let result =
+            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
+                .unwrap();
+
+        // cursor_line has an issue
+        assert!(
+            result
+                .issues
+                .iter()
+                .any(|issue| issue.plugin_id == "cursor_line")
+        );
+
+        // sel_badge is still in the lock despite cursor_line's issue
+        assert!(result.lock.plugins.contains_key("sel_badge"));
+        assert!(result.selected.iter().any(|p| p.plugin_id == "sel_badge"));
+
+        // cursor_line is NOT in the lock
+        assert!(!result.lock.plugins.contains_key("cursor_line"));
     }
 
     #[test]
