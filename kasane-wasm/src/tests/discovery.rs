@@ -5,6 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::*;
 use crate::{WasmPluginOrigin, WasmPluginRevision};
 use kasane_core::plugin::{PluginDiagnosticKind, PluginProvider, ProviderArtifactStage};
+use kasane_plugin_package::manifest::PluginManifest;
+use kasane_plugin_package::package::{BuildInput, build_package, write_package};
 
 fn test_provider(plugins_config: PluginsConfig) -> crate::WasmPluginProvider {
     crate::WasmPluginProvider::new(plugins_config, std::collections::HashMap::new())
@@ -41,6 +43,34 @@ impl TempPluginDir {
             let toml_dst = self.path.join(&toml_name);
             fs::copy(toml_src, toml_dst).expect("failed to copy fixture manifest");
         }
+    }
+
+    fn copy_fixture_manifest(&self, manifest_name: &str) {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(manifest_name);
+        let dst = self.path.join(manifest_name);
+        fs::copy(src, dst).expect("failed to copy fixture manifest");
+    }
+
+    fn write_fixture_package_as(&self, manifest_name: &str, wasm_name: &str, package_name: &str) {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        let manifest_toml = fs::read_to_string(fixtures.join(manifest_name))
+            .expect("failed to read fixture manifest");
+        let manifest =
+            PluginManifest::parse(&manifest_toml).expect("failed to parse fixture manifest");
+        let component = fs::read(fixtures.join(wasm_name)).expect("failed to read fixture wasm");
+        let output = build_package(BuildInput {
+            package_name: format!("fixtures/{package_name}"),
+            package_version: "0.1.0".to_string(),
+            component_entry: "plugin.wasm".to_string(),
+            component,
+            manifest,
+            assets: Vec::new(),
+        })
+        .expect("failed to build fixture package");
+        write_package(self.path.join(package_name), &output)
+            .expect("failed to write fixture package");
     }
 
     fn write_invalid_wasm(&self, file_name: &str) {
@@ -178,6 +208,58 @@ fn resolve_wasm_plugins_prefers_filesystem_over_bundled_for_same_id() {
             origin: WasmPluginOrigin::Filesystem(path),
             ..
         }) if path.ends_with("cursor-line.wasm")
+    ));
+}
+
+#[test]
+fn resolve_wasm_plugins_loads_package_artifacts() {
+    let temp = TempPluginDir::new();
+    temp.write_fixture_package_as("cursor-line.toml", "cursor-line.wasm", "cursor-line.kpk");
+
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(temp.path.to_string_lossy().into_owned()),
+        disabled: vec![],
+        ..Default::default()
+    };
+
+    let resolved = crate::resolve_wasm_plugins(&config).unwrap();
+    let snapshot = resolved.snapshot();
+    let cursor_line = PluginId("cursor_line".to_string());
+
+    assert!(snapshot.contains(&cursor_line));
+    assert!(matches!(
+        snapshot.revision(&cursor_line),
+        Some(WasmPluginRevision {
+            origin: WasmPluginOrigin::FilesystemPackage(path),
+            ..
+        }) if path.ends_with("cursor-line.kpk")
+    ));
+}
+
+#[test]
+fn resolve_wasm_plugins_prefers_package_over_legacy_pair_for_same_id() {
+    let temp = TempPluginDir::new();
+    temp.copy_fixture("cursor-line.wasm");
+    temp.write_fixture_package_as("cursor-line.toml", "cursor-line.wasm", "cursor-line.kpk");
+
+    let config = PluginsConfig {
+        auto_discover: true,
+        path: Some(temp.path.to_string_lossy().into_owned()),
+        disabled: vec![],
+        ..Default::default()
+    };
+
+    let resolved = crate::resolve_wasm_plugins(&config).unwrap();
+    let snapshot = resolved.snapshot();
+    let cursor_line = PluginId("cursor_line".to_string());
+
+    assert!(matches!(
+        snapshot.revision(&cursor_line),
+        Some(WasmPluginRevision {
+            origin: WasmPluginOrigin::FilesystemPackage(path),
+            ..
+        }) if path.ends_with("cursor-line.kpk")
     ));
 }
 

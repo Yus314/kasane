@@ -27,6 +27,7 @@ use kasane_core::plugin::{
     PluginProvider, PluginRank, PluginRevision, PluginSource, ProviderArtifactStage,
     plugin_factory,
 };
+use kasane_plugin_package::package;
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Config, Engine};
 
@@ -272,6 +273,29 @@ impl WasmPluginLoader {
         let bytes = std::fs::read(path)?;
         self.load(&bytes, wasi_config)
     }
+
+    pub fn load_package_bytes(
+        &self,
+        package_bytes: &[u8],
+        wasi_config: &WasiCapabilityConfig,
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
+        let inspected = package::verify_package(package_bytes)
+            .map_err(|err| (ProviderArtifactStage::Manifest, err.into()))?;
+        let manifest = inspected.header.to_manifest();
+        let component =
+            package::entry_bytes(package_bytes, &inspected, &inspected.header.plugin.entry)
+                .map_err(|err| (ProviderArtifactStage::Read, err.into()))?;
+        self.load_with_manifest(component, &manifest, wasi_config)
+    }
+
+    pub fn load_package_file(
+        &self,
+        path: &Path,
+        wasi_config: &WasiCapabilityConfig,
+    ) -> Result<WasmPlugin, (ProviderArtifactStage, anyhow::Error)> {
+        let bytes = std::fs::read(path).map_err(|err| (ProviderArtifactStage::Read, err.into()))?;
+        self.load_package_bytes(&bytes, wasi_config)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +318,7 @@ const BUNDLED_PANE_MANAGER_MANIFEST: &str = include_str!("../bundled/pane-manage
 pub enum WasmPluginOrigin {
     Bundled(&'static str),
     Filesystem(PathBuf),
+    FilesystemPackage(PathBuf),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -303,6 +328,10 @@ pub enum WasmPluginFingerprint {
         len: u64,
         modified_ns: Option<u128>,
         manifest_modified_ns: Option<u128>,
+    },
+    Package {
+        artifact_digest: String,
+        code_digest: String,
     },
 }
 
@@ -502,6 +531,10 @@ fn descriptor_from_wasm_revision(id: PluginId, revision: WasmPluginRevision) -> 
             PluginSource::FilesystemWasm { path },
             PluginRank::FILESYSTEM_WASM,
         ),
+        WasmPluginOrigin::FilesystemPackage(path) => (
+            PluginSource::FilesystemWasm { path },
+            PluginRank::FILESYSTEM_WASM,
+        ),
     };
     PluginDescriptor {
         id,
@@ -521,6 +554,20 @@ fn wasm_manifest_factory(
         let loader = WasmPluginLoader::new()?;
         let plugin = loader
             .load_with_manifest(&bytes, &manifest, &wasi_config)
+            .map_err(|(_, err)| err)?;
+        Ok(Box::new(plugin))
+    })
+}
+
+fn wasm_package_factory(
+    descriptor: PluginDescriptor,
+    package_path: PathBuf,
+    wasi_config: WasiCapabilityConfig,
+) -> Arc<dyn PluginFactory> {
+    plugin_factory(descriptor, move || {
+        let loader = WasmPluginLoader::new()?;
+        let plugin = loader
+            .load_package_file(&package_path, &wasi_config)
             .map_err(|(_, err)| err)?;
         Ok(Box::new(plugin))
     })
@@ -621,6 +668,184 @@ fn discover_plugin_artifacts(plugins_dir: &Path) -> Result<Vec<DiscoveredPlugin>
         }
     }
     Ok(plugins)
+}
+
+fn discover_package_artifacts(plugins_dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+    let entries = std::fs::read_dir(plugins_dir)?;
+    let mut package_files: Vec<PathBuf> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("kpk") {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+    package_files.sort();
+    Ok(package_files)
+}
+
+fn resolve_filesystem_package_plugins(
+    plugins_config: &kasane_core::config::PluginsConfig,
+    loader: &WasmPluginLoader,
+    wasi_config: &WasiCapabilityConfig,
+    resolved: &mut Vec<ResolvedWasmPlugin>,
+) {
+    let plugins_dir = plugins_config.plugins_dir();
+    let package_paths = match discover_package_artifacts(&plugins_dir) {
+        Ok(paths) => paths,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "failed to read plugins directory {} for packages: {e}",
+                    plugins_dir.display()
+                );
+            }
+            return;
+        }
+    };
+
+    for package_path in package_paths {
+        let inspected = match package::inspect_package_file(&package_path) {
+            Ok(inspected) => inspected,
+            Err(e) => {
+                tracing::error!("failed to inspect package {}: {e}", package_path.display());
+                continue;
+            }
+        };
+        let manifest = inspected.header.to_manifest();
+        if let Err(e) = manifest.validate() {
+            tracing::error!(
+                "package manifest validation failed for {}: {e}",
+                package_path.display()
+            );
+            continue;
+        }
+        if is_plugin_disabled(plugins_config, &manifest.plugin.id) {
+            continue;
+        }
+
+        match loader.load_package_file(&package_path, wasi_config) {
+            Ok(plugin) => {
+                let id = plugin.id();
+                upsert_resolved_plugin(
+                    resolved,
+                    ResolvedWasmPlugin {
+                        id,
+                        revision: WasmPluginRevision {
+                            origin: WasmPluginOrigin::FilesystemPackage(package_path.clone()),
+                            fingerprint: WasmPluginFingerprint::Package {
+                                artifact_digest: inspected.header.digests.artifact.clone(),
+                                code_digest: inspected.header.digests.code.clone(),
+                            },
+                        },
+                        plugin,
+                    },
+                );
+            }
+            Err((stage, e)) => {
+                tracing::error!(
+                    "failed to load package {} ({stage:?}): {e}",
+                    package_path.display()
+                );
+            }
+        }
+    }
+}
+
+fn resolve_filesystem_package_plugins_with_factories(
+    plugins_config: &kasane_core::config::PluginsConfig,
+    loader: &WasmPluginLoader,
+    wasi_config: &WasiCapabilityConfig,
+    config_settings: &std::collections::HashMap<String, toml::Table>,
+    resolved: &mut PluginCollect,
+) {
+    let plugins_dir = plugins_config.plugins_dir();
+    let package_paths = match discover_package_artifacts(&plugins_dir) {
+        Ok(paths) => paths,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_collect_failed(
+                        WASM_PROVIDER_NAME,
+                        format!(
+                            "failed to read plugins directory {} for packages: {e}",
+                            plugins_dir.display()
+                        ),
+                    ));
+            }
+            return;
+        }
+    };
+
+    for package_path in package_paths {
+        let inspected = match package::inspect_package_file(&package_path) {
+            Ok(inspected) => inspected,
+            Err(e) => {
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_artifact_failed(
+                        WASM_PROVIDER_NAME,
+                        package_path.display().to_string(),
+                        ProviderArtifactStage::Manifest,
+                        e.to_string(),
+                    ));
+                continue;
+            }
+        };
+        let manifest = inspected.header.to_manifest();
+        if let Err(e) = manifest.validate() {
+            resolved
+                .diagnostics
+                .push(PluginDiagnostic::provider_artifact_failed(
+                    WASM_PROVIDER_NAME,
+                    package_path.display().to_string(),
+                    ProviderArtifactStage::Manifest,
+                    e.to_string(),
+                ));
+            continue;
+        }
+        if is_plugin_disabled(plugins_config, &manifest.plugin.id) {
+            continue;
+        }
+
+        match loader.load_package_file(&package_path, wasi_config) {
+            Ok(plugin) => {
+                let id = plugin.id();
+                let settings = resolve_plugin_settings(&manifest, config_settings);
+                if !settings.is_empty() {
+                    resolved.initial_settings.insert(id.clone(), settings);
+                }
+                let descriptor = descriptor_from_wasm_revision(
+                    id,
+                    WasmPluginRevision {
+                        origin: WasmPluginOrigin::FilesystemPackage(package_path.clone()),
+                        fingerprint: WasmPluginFingerprint::Package {
+                            artifact_digest: inspected.header.digests.artifact.clone(),
+                            code_digest: inspected.header.digests.code.clone(),
+                        },
+                    },
+                );
+                upsert_resolved_factory(
+                    &mut resolved.factories,
+                    wasm_package_factory(descriptor, package_path.clone(), wasi_config.clone()),
+                );
+            }
+            Err((stage, err)) => {
+                resolved
+                    .diagnostics
+                    .push(PluginDiagnostic::provider_artifact_failed(
+                        WASM_PROVIDER_NAME,
+                        package_path.display().to_string(),
+                        stage,
+                        err.to_string(),
+                    ));
+            }
+        }
+    }
 }
 
 fn is_plugin_disabled(plugins_config: &kasane_core::config::PluginsConfig, name: &str) -> bool {
@@ -826,6 +1051,8 @@ fn resolve_filesystem_plugins(
             }
         }
     }
+
+    resolve_filesystem_package_plugins(plugins_config, loader, wasi_config, resolved);
 }
 
 fn resolve_filesystem_plugins_with_factories(
@@ -938,6 +1165,14 @@ fn resolve_filesystem_plugins_with_factories(
             }
         }
     }
+
+    resolve_filesystem_package_plugins_with_factories(
+        plugins_config,
+        loader,
+        wasi_config,
+        config_settings,
+        resolved,
+    );
 }
 
 pub fn resolve_wasm_plugins(
