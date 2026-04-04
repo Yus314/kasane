@@ -9,6 +9,7 @@ mod list;
 mod new;
 mod package_artifact;
 mod resolve;
+mod rollback;
 mod templates;
 
 use anyhow::Result;
@@ -25,6 +26,7 @@ pub fn execute(cmd: PluginSubcommand) -> Result<()> {
         PluginSubcommand::Doctor { fix } => doctor::run(fix),
         PluginSubcommand::Dev { path, release } => dev::run(path.as_deref(), release),
         PluginSubcommand::Resolve => resolve::run(),
+        PluginSubcommand::Rollback => rollback::run(),
         PluginSubcommand::Pin {
             plugin_id,
             digest,

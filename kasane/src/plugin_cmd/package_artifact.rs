@@ -76,7 +76,6 @@ pub fn install_package_file(path: &Path) -> Result<InstalledPackage> {
     let stored = store.put_verified_package(path)?;
     let inspected = package::inspect_package_file(&stored.path)
         .with_context(|| format!("failed to inspect {}", stored.path.display()))?;
-    touch_reload_sentinel(&plugins_dir);
 
     let saved = super::resolve::resolve_and_save(
         &config,
@@ -154,7 +153,7 @@ fn package_filename(inspected: &InspectedPackage) -> String {
     )
 }
 
-fn touch_reload_sentinel(plugins_dir: &Path) {
+pub(super) fn touch_reload_sentinel(plugins_dir: &Path) {
     let reload_sentinel = plugins_dir.join(".reload");
     let _ = fs::write(reload_sentinel, "");
 }

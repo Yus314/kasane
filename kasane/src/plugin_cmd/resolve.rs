@@ -202,6 +202,7 @@ pub(super) fn resolve_and_save(
         bail!(render_resolution_failure(&result));
     }
     let lock_path = result.lock.save()?;
+    super::package_artifact::touch_reload_sentinel(&config.plugins.plugins_dir());
     Ok(SavedResolveResult { result, lock_path })
 }
 

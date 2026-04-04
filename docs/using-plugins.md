@@ -53,21 +53,17 @@ installed as external plugins before use.
 
 ### WASM Plugins
 
-Place `.kpk` files in the plugins directory:
+Install `.kpk` files with:
 
-```
-~/.local/share/kasane/plugins/
-```
-
-Or, if `$XDG_DATA_HOME` is set:
-
-```
-$XDG_DATA_HOME/kasane/plugins/
+```bash
+kasane plugin install path/to/my-plugin-0.1.0.kpk
 ```
 
-`kasane plugin install`, `kasane plugin dev`, and `kasane plugin resolve` use this directory as the package source/store location and write the active set into `plugins.lock`. Runtime activation is driven by `plugins.lock`, not by scanning the directory on startup.
+Kasane stores verified packages under `~/.local/share/kasane/plugins/` (or
+`$XDG_DATA_HOME/kasane/plugins/` if `$XDG_DATA_HOME` is set), writes the active
+set into `plugins.lock`, and activates plugins from that lock file on startup.
 
-After manually placing packages in this directory, run:
+If you change `enabled`, `disabled`, or selection policy in `config.toml`, run:
 
 ```bash
 kasane plugin resolve
@@ -79,6 +75,13 @@ To remove old package artifacts that are no longer referenced by `plugins.lock`,
 
 ```bash
 kasane plugin gc
+```
+
+If a recent `resolve`, `pin`, `update`, or install selected the wrong active set, you can
+restore the previous `plugins.lock` generation with:
+
+```bash
+kasane plugin rollback
 ```
 
 Current Kasane releases expect WASM plugins built against

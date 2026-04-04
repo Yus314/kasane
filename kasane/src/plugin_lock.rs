@@ -80,9 +80,23 @@ impl PluginsLock {
         }
 
         let contents = toml::to_string_pretty(self).context("failed to serialize plugins lock")?;
+        let existing_contents = match fs::read_to_string(path) {
+            Ok(contents) => Some(contents),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => {
+                return Err(err).with_context(|| format!("failed to read {}", path.display()));
+            }
+        };
+        if existing_contents.as_deref() == Some(contents.as_str()) {
+            return Ok(());
+        }
+
         let temp_path = temp_lock_path(path);
         fs::write(&temp_path, contents)
             .with_context(|| format!("failed to write {}", temp_path.display()))?;
+        if existing_contents.is_some() {
+            archive_lock_generation(path)?;
+        }
         fs::rename(&temp_path, path).with_context(|| {
             format!(
                 "failed to atomically replace {} with {}",
@@ -134,6 +148,18 @@ pub fn plugins_lock_path() -> PathBuf {
     )
 }
 
+pub fn plugins_lock_history_dir() -> PathBuf {
+    plugins_lock_history_dir_from_path(&plugins_lock_path())
+}
+
+pub fn latest_plugins_lock_history_path() -> Result<Option<PathBuf>> {
+    latest_plugins_lock_history_path_from_path(plugins_lock_path())
+}
+
+pub fn rollback_plugins_lock() -> Result<Option<PathBuf>> {
+    rollback_plugins_lock_from_path(plugins_lock_path())
+}
+
 fn plugins_lock_version() -> u32 {
     PLUGINS_LOCK_VERSION
 }
@@ -148,6 +174,14 @@ fn plugins_lock_path_from_env(xdg_config_home: Option<PathBuf>, home: Option<Pat
     }
 }
 
+fn plugins_lock_history_dir_from_path(path: &Path) -> PathBuf {
+    if let Some(parent) = path.parent() {
+        parent.join("locks")
+    } else {
+        PathBuf::from("locks")
+    }
+}
+
 fn temp_lock_path(path: &Path) -> PathBuf {
     let file_name = path
         .file_name()
@@ -159,6 +193,90 @@ fn temp_lock_path(path: &Path) -> PathBuf {
         .as_nanos();
     let pid = std::process::id();
     path.with_file_name(format!(".{file_name}.{pid}.{stamp}.tmp"))
+}
+
+fn history_lock_path(path: &Path) -> PathBuf {
+    let history_dir = plugins_lock_history_dir_from_path(path);
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id();
+    history_dir.join(format!("plugins-{stamp:020}-{pid}.lock"))
+}
+
+fn archive_lock_generation(path: &Path) -> Result<PathBuf> {
+    let history_path = history_lock_path(path);
+    if let Some(parent) = history_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::copy(path, &history_path).with_context(|| {
+        format!(
+            "failed to archive {} to {}",
+            path.display(),
+            history_path.display()
+        )
+    })?;
+    Ok(history_path)
+}
+
+fn latest_plugins_lock_history_path_from_path(path: impl AsRef<Path>) -> Result<Option<PathBuf>> {
+    let history_dir = plugins_lock_history_dir_from_path(path.as_ref());
+    let entries = match fs::read_dir(&history_dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to read {}", history_dir.display()));
+        }
+    };
+
+    let mut paths = Vec::new();
+    for entry in entries {
+        let entry = entry.with_context(|| format!("failed to read {}", history_dir.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("lock") {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths.pop())
+}
+
+fn rollback_plugins_lock_from_path(path: impl AsRef<Path>) -> Result<Option<PathBuf>> {
+    let path = path.as_ref();
+    let Some(previous) = latest_plugins_lock_history_path_from_path(path)? else {
+        return Ok(None);
+    };
+
+    if path.exists() {
+        archive_lock_generation(path)?;
+    } else if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let temp_path = temp_lock_path(path);
+    fs::copy(&previous, &temp_path).with_context(|| {
+        format!(
+            "failed to copy {} to {}",
+            previous.display(),
+            temp_path.display()
+        )
+    })?;
+    fs::rename(&temp_path, path).with_context(|| {
+        format!(
+            "failed to atomically restore {} from {}",
+            path.display(),
+            previous.display()
+        )
+    })?;
+    Ok(Some(previous))
 }
 
 #[cfg(test)]
@@ -211,5 +329,64 @@ mod tests {
         lock.save_to_path(&path).unwrap();
         let loaded = PluginsLock::load_from_path(&path).unwrap();
         assert_eq!(loaded, lock);
+    }
+
+    fn make_lock(plugin_id: &str, digest: &str) -> PluginsLock {
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            plugin_id.to_string(),
+            LockedPluginEntry {
+                plugin_id: plugin_id.to_string(),
+                package: Some(format!("example/{plugin_id}")),
+                version: Some("0.1.0".to_string()),
+                artifact_digest: digest.to_string(),
+                code_digest: format!("{digest}-code"),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some("0.25.0".to_string()),
+            },
+        );
+        lock
+    }
+
+    #[test]
+    fn save_to_path_archives_previous_generation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("plugins.lock");
+        let lock1 = make_lock("sel_badge", "sha256:one");
+        let lock2 = make_lock("sel_badge", "sha256:two");
+
+        lock1.save_to_path(&path).unwrap();
+        lock2.save_to_path(&path).unwrap();
+
+        let latest = latest_plugins_lock_history_path_from_path(&path)
+            .unwrap()
+            .expect("expected archived lock");
+        let archived = PluginsLock::load_from_path(&latest).unwrap();
+        assert_eq!(archived, lock1);
+        assert_eq!(PluginsLock::load_from_path(&path).unwrap(), lock2);
+    }
+
+    #[test]
+    fn rollback_restores_latest_archived_generation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("plugins.lock");
+        let lock1 = make_lock("sel_badge", "sha256:one");
+        let lock2 = make_lock("sel_badge", "sha256:two");
+
+        lock1.save_to_path(&path).unwrap();
+        lock2.save_to_path(&path).unwrap();
+
+        let restored_from = rollback_plugins_lock_from_path(&path)
+            .unwrap()
+            .expect("expected rollback history");
+        let restored = PluginsLock::load_from_path(&path).unwrap();
+        assert_eq!(restored, lock1);
+        assert_eq!(PluginsLock::load_from_path(&restored_from).unwrap(), lock1);
+
+        let latest = latest_plugins_lock_history_path_from_path(&path)
+            .unwrap()
+            .expect("expected current lock to be archived");
+        let archived_current = PluginsLock::load_from_path(&latest).unwrap();
+        assert_eq!(archived_current, lock2);
     }
 }
