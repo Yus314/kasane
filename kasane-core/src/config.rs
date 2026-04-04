@@ -309,7 +309,7 @@ impl Default for ColorsConfig {
 }
 
 /// Plugin configuration.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct PluginsConfig {
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
@@ -329,19 +329,6 @@ pub struct PluginsConfig {
     pub deny_authorities: HashMap<String, Vec<String>>,
     /// Per-plugin active-set selection policy.
     pub selection: HashMap<String, PluginSelection>,
-}
-
-impl Default for PluginsConfig {
-    fn default() -> Self {
-        PluginsConfig {
-            path: None,
-            enabled: Vec::new(),
-            disabled: Vec::new(),
-            deny_capabilities: HashMap::new(),
-            deny_authorities: HashMap::new(),
-            selection: HashMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]

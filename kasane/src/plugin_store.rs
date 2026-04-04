@@ -35,10 +35,6 @@ impl PluginStore {
         Self { root: root.into() }
     }
 
-    pub fn default() -> Self {
-        Self::new(default_store_root())
-    }
-
     pub fn from_plugins_dir(plugins_dir: impl Into<PathBuf>) -> Self {
         Self::new(plugins_dir.into().join("store"))
     }
@@ -180,24 +176,6 @@ impl StoredArtifact {
             package_version: inspected.header.package.version.clone(),
             abi_version: inspected.header.plugin.abi_version.clone(),
         }
-    }
-}
-
-fn default_store_root() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        PathBuf::from(xdg)
-            .join("kasane")
-            .join("plugins")
-            .join("store")
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("kasane")
-            .join("plugins")
-            .join("store")
-    } else {
-        PathBuf::from("kasane-data").join("plugins").join("store")
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::useless_format)]
+
 use crate::cli::PluginTemplate;
 
 const SDK_VERSION: &str = "0.3.0";

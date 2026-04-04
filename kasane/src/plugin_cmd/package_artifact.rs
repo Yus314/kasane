@@ -28,7 +28,7 @@ pub struct InstalledPackage {
 pub enum DiscoveredPackage {
     Valid {
         path: PathBuf,
-        inspected: InspectedPackage,
+        inspected: Box<InspectedPackage>,
     },
     Invalid {
         path: PathBuf,
@@ -97,7 +97,10 @@ pub fn discover_installed_packages(plugins_dir: &Path) -> Result<Vec<DiscoveredP
     let mut discovered = Vec::with_capacity(package_paths.len());
     for path in package_paths {
         match package::inspect_package_file(&path) {
-            Ok(inspected) => discovered.push(DiscoveredPackage::Valid { path, inspected }),
+            Ok(inspected) => discovered.push(DiscoveredPackage::Valid {
+                path,
+                inspected: Box::new(inspected),
+            }),
             Err(error) => discovered.push(DiscoveredPackage::Invalid { path, error }),
         }
     }
