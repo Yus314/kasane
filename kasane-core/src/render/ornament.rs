@@ -168,15 +168,31 @@ fn apply_rect_perimeter_face(grid: &mut CellGrid, rect: &Rect, face: &Face, merg
         return;
     }
 
-    for y in rect.y..y_end {
+    // Top row
+    for x in rect.x..x_end {
+        if let Some(cell) = grid.get_mut(x, rect.y) {
+            merge.apply(&mut cell.face, face);
+        }
+    }
+    // Bottom row (skip if same as top)
+    let bottom = y_end - 1;
+    if bottom != rect.y {
         for x in rect.x..x_end {
-            let is_perimeter = x == rect.x || x + 1 == x_end || y == rect.y || y + 1 == y_end;
-            if !is_perimeter {
-                continue;
-            }
-            if let Some(cell) = grid.get_mut(x, y) {
+            if let Some(cell) = grid.get_mut(x, bottom) {
                 merge.apply(&mut cell.face, face);
             }
+        }
+    }
+    // Left and right columns (excluding corners already covered)
+    for y in (rect.y + 1)..bottom {
+        if let Some(cell) = grid.get_mut(rect.x, y) {
+            merge.apply(&mut cell.face, face);
+        }
+        let right = x_end - 1;
+        if right != rect.x
+            && let Some(cell) = grid.get_mut(right, y)
+        {
+            merge.apply(&mut cell.face, face);
         }
     }
 }

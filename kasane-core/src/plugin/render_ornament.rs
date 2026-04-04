@@ -65,6 +65,7 @@ pub struct CursorStyleOrn {
     pub modality: OrnamentModality,
 }
 
+/// Reserved for future use. Currently collected but not rendered by the host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorEffect {
     Halo,
@@ -72,6 +73,7 @@ pub enum CursorEffect {
     Emphasis,
 }
 
+/// Reserved for future use. Currently collected but not rendered by the host.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CursorEffectOrn {
     pub kind: CursorEffect,

@@ -263,7 +263,7 @@ pub(crate) fn wit_ornament_batch_to_ornament_batch(w: &wit::OrnamentBatch) -> Co
             .iter()
             .map(wit_cell_decoration_to_decoration)
             .collect(),
-        cursor_style: w.cursor_style.as_ref().map(wit_cursor_style_orn),
+        cursor_style: w.cursor_style.as_ref().and_then(wit_cursor_style_orn),
         cursor_effects: w.cursor_effects.iter().map(wit_cursor_effect_orn).collect(),
         surfaces: w
             .surfaces
@@ -273,12 +273,12 @@ pub(crate) fn wit_ornament_batch_to_ornament_batch(w: &wit::OrnamentBatch) -> Co
     }
 }
 
-fn wit_cursor_style_orn(w: &wit::CursorStyleOrn) -> CursorStyleOrn {
-    CursorStyleOrn {
-        hint: wit_u8_to_cursor_style_hint(w.shape),
+fn wit_cursor_style_orn(w: &wit::CursorStyleOrn) -> Option<CursorStyleOrn> {
+    Some(CursorStyleOrn {
+        hint: wit_u8_to_cursor_style_hint(w.shape)?,
         priority: w.priority,
         modality: wit_ornament_modality_to_modality(w.modality),
-    }
+    })
 }
 
 fn wit_cursor_effect_orn(w: &wit::CursorEffectOrn) -> CursorEffectOrn {
@@ -298,15 +298,15 @@ fn wit_cursor_effect_to_effect(w: wit::CursorEffect) -> CursorEffect {
     }
 }
 
-fn wit_u8_to_cursor_style_hint(code: u8) -> CursorStyleHint {
+fn wit_u8_to_cursor_style_hint(code: u8) -> Option<CursorStyleHint> {
     let shape = match code {
         0 => CursorStyle::Block,
         1 => CursorStyle::Bar,
         2 => CursorStyle::Underline,
         3 => CursorStyle::Outline,
-        _ => CursorStyle::Block,
+        _ => return None,
     };
-    shape.into()
+    Some(shape.into())
 }
 
 fn wit_surface_orn_to_surface_orn(w: &wit::SurfaceOrn) -> SurfaceOrn {

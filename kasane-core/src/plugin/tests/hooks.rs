@@ -383,6 +383,65 @@ fn test_cursor_effects_accumulate() {
 }
 
 #[test]
+fn test_cursor_style_modality_wins_over_priority() {
+    struct CursorStylePlugin {
+        id: &'static str,
+        style: crate::render::CursorStyle,
+        priority: i16,
+        modality: OrnamentModality,
+    }
+    impl PluginBackend for CursorStylePlugin {
+        fn id(&self) -> PluginId {
+            PluginId(self.id.to_string())
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::RENDER_ORNAMENT
+        }
+        fn render_ornaments(
+            &self,
+            _state: &AppView<'_>,
+            _ctx: &RenderOrnamentContext,
+        ) -> OrnamentBatch {
+            OrnamentBatch {
+                cursor_style: Some(CursorStyleOrn {
+                    hint: self.style.into(),
+                    priority: self.priority,
+                    modality: self.modality,
+                }),
+                ..OrnamentBatch::default()
+            }
+        }
+    }
+
+    let mut registry = PluginRuntime::new();
+    // Plugin A: Must modality but low priority
+    registry.register_backend(Box::new(CursorStylePlugin {
+        id: "must-low",
+        style: crate::render::CursorStyle::Bar,
+        priority: 5,
+        modality: OrnamentModality::Must,
+    }));
+    // Plugin B: Approximate modality but high priority
+    registry.register_backend(Box::new(CursorStylePlugin {
+        id: "approx-high",
+        style: crate::render::CursorStyle::Underline,
+        priority: 100,
+        modality: OrnamentModality::Approximate,
+    }));
+
+    let state = AppState::default();
+    let collected = registry
+        .view()
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    // Must modality (rank 2) wins over Approximate (rank 1) regardless of priority
+    assert_eq!(
+        collected.cursor_style.map(|h| h.shape),
+        Some(crate::render::CursorStyle::Bar)
+    );
+}
+
+#[test]
 fn test_paint_hook_applies_to_grid() {
     use crate::layout::Rect;
     use crate::render::CellGrid;

@@ -489,6 +489,26 @@ fn convert_ornament_batch_from_wit() {
 }
 
 #[test]
+fn convert_ornament_batch_invalid_cursor_shape_drops_style() {
+    let batch = wit::OrnamentBatch {
+        emphasis: vec![],
+        cursor_style: Some(wit::CursorStyleOrn {
+            shape: 99,
+            priority: 10,
+            modality: wit::OrnamentModality::Must,
+        }),
+        cursor_effects: vec![],
+        surfaces: vec![],
+    };
+
+    let converted = wit_ornament_batch_to_ornament_batch(&batch);
+    assert!(
+        converted.cursor_style.is_none(),
+        "invalid shape code should produce None, not a default Block"
+    );
+}
+
+#[test]
 fn convert_command_quit() {
     let wc = wit::Command::Quit;
     assert!(matches!(wit_command_to_command(&wc), Command::Quit));

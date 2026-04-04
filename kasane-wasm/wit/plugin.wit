@@ -847,12 +847,14 @@ interface types {
         modality: ornament-modality,
     }
 
+    /// Reserved for future use. Currently collected but not rendered by the host.
     enum cursor-effect {
         halo,
         ring,
         emphasis,
     }
 
+    /// Reserved for future use. Currently collected but not rendered by the host.
     record cursor-effect-orn {
         kind: cursor-effect,
         face: face,
