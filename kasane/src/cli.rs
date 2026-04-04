@@ -330,11 +330,11 @@ Kasane options:
 
 Subcommands:
   plugin new <name> [--template T]  Create a new plugin project (T: hello, contribution, annotation, transform, overlay, process)
-  plugin build [<path>]             Build plugin for wasm32-wasip2
-  plugin install [<path>]           Build, validate, and install plugin
-  plugin list                       Show installed plugins
+  plugin build [<path>]             Build plugin package (.kpk)
+  plugin install [<path>]           Build or verify a plugin package and activate it
+  plugin list                       Show installed plugin packages
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
-  plugin dev [<path>] [--release]   Build and watch for changes (hot-reload)
+  plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.

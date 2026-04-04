@@ -6,6 +6,7 @@ mod doctor;
 mod install;
 mod list;
 mod new;
+mod package_artifact;
 mod templates;
 
 use anyhow::Result;
