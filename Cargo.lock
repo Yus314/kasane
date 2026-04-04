@@ -2289,6 +2289,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "kasane-plugin-package"
+version = "0.1.0"
+dependencies = [
+ "compact_str",
+ "kasane-core",
+ "kasane-plugin-model",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "kasane-tui"
 version = "0.3.0"
 dependencies = [
@@ -2314,6 +2328,7 @@ dependencies = [
  "criterion",
  "kasane-core",
  "kasane-plugin-model",
+ "kasane-plugin-package",
  "parking_lot",
  "serde",
  "sha2 0.11.0",
