@@ -35,10 +35,6 @@ impl PluginStore {
         Self { root: root.into() }
     }
 
-    pub fn default() -> Self {
-        Self::new(default_store_root())
-    }
-
     pub fn from_plugins_dir(plugins_dir: impl Into<PathBuf>) -> Self {
         Self::new(plugins_dir.into().join("store"))
     }
@@ -107,8 +103,7 @@ impl PluginStore {
     }
 
     pub fn discover_package_paths(&self) -> Result<Vec<PathBuf>> {
-        let mut paths = Vec::new();
-        collect_package_paths(self.root(), &mut paths)?;
+        let mut paths = kasane_plugin_package::fs_util::collect_kpk_paths(self.root())?;
         paths.sort();
         Ok(paths)
     }
@@ -127,9 +122,17 @@ impl PluginStore {
         self.collect_referenced_store_paths(lock, &mut referenced)?;
 
         for history_path in history_paths {
-            let history = PluginsLock::load_from_path(history_path).with_context(|| {
-                format!("failed to load lock history {}", history_path.display())
-            })?;
+            let history = match PluginsLock::load_from_path(history_path) {
+                Ok(lock) => lock,
+                Err(err) => {
+                    tracing::warn!(
+                        path = %history_path.display(),
+                        error = %err,
+                        "skipping corrupt lock history file during GC"
+                    );
+                    continue;
+                }
+            };
             self.collect_referenced_store_paths(&history, &mut referenced)?;
         }
 
@@ -183,24 +186,6 @@ impl StoredArtifact {
     }
 }
 
-fn default_store_root() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        PathBuf::from(xdg)
-            .join("kasane")
-            .join("plugins")
-            .join("store")
-    } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("kasane")
-            .join("plugins")
-            .join("store")
-    } else {
-        PathBuf::from("kasane-data").join("plugins").join("store")
-    }
-}
-
 fn split_digest(digest: &str) -> Result<(&str, &str)> {
     let Some((algorithm, hex)) = digest.split_once(':') else {
         bail!("invalid artifact digest format: {digest}");
@@ -222,29 +207,6 @@ fn temp_store_path(path: &Path) -> PathBuf {
         .as_nanos();
     let pid = std::process::id();
     path.with_file_name(format!(".{file_name}.{pid}.{stamp}.tmp"))
-}
-
-fn collect_package_paths(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = match fs::read_dir(root) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err).with_context(|| format!("failed to read {}", root.display())),
-    };
-
-    for entry in entries {
-        let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("failed to inspect {}", path.display()))?;
-        if file_type.is_dir() {
-            collect_package_paths(&path, out)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("kpk") {
-            out.push(path);
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -364,7 +326,7 @@ flags = ["contributor"]
                 package: Some(stored_a.package_name.clone()),
                 version: Some(stored_a.package_version.clone()),
                 artifact_digest: stored_a.artifact_digest.clone(),
-                code_digest: stored_a.code_digest.clone(),
+                code_digest: Some(stored_a.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(stored_a.abi_version.clone()),
             },
@@ -374,6 +336,39 @@ flags = ["contributor"]
         assert_eq!(gc.removed_paths, vec![stored_b.path.clone()]);
         assert!(stored_a.path.exists());
         assert!(!stored_b.path.exists());
+    }
+
+    #[test]
+    fn garbage_collect_skips_corrupt_history_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("demo.kpk");
+        build_test_package(&source);
+
+        let store = PluginStore::new(tmp.path().join("store"));
+        let stored = store.put_verified_package(&source).unwrap();
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            stored.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: stored.plugin_id.clone(),
+                package: Some(stored.package_name.clone()),
+                version: Some(stored.package_version.clone()),
+                artifact_digest: stored.artifact_digest.clone(),
+                code_digest: Some(stored.code_digest.clone()),
+                source_kind: "filesystem".to_string(),
+                abi_version: Some(stored.abi_version.clone()),
+            },
+        );
+
+        let corrupt_path = tmp.path().join("plugins-corrupt.lock");
+        std::fs::write(&corrupt_path, "not valid json").unwrap();
+
+        let gc = store
+            .garbage_collect_with_history(&lock, std::slice::from_ref(&corrupt_path))
+            .unwrap();
+        assert!(gc.removed_paths.is_empty());
+        assert!(stored.path.exists());
     }
 
     #[test]
@@ -417,7 +412,7 @@ flags = ["contributor"]
                 package: Some(stored_a.package_name.clone()),
                 version: Some(stored_a.package_version.clone()),
                 artifact_digest: stored_a.artifact_digest.clone(),
-                code_digest: stored_a.code_digest.clone(),
+                code_digest: Some(stored_a.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(stored_a.abi_version.clone()),
             },
@@ -431,7 +426,7 @@ flags = ["contributor"]
                 package: Some(stored_b.package_name.clone()),
                 version: Some(stored_b.package_version.clone()),
                 artifact_digest: stored_b.artifact_digest.clone(),
-                code_digest: stored_b.code_digest.clone(),
+                code_digest: Some(stored_b.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(stored_b.abi_version.clone()),
             },

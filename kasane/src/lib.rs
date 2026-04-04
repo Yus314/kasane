@@ -7,6 +7,7 @@ pub mod plugin_lock;
 pub mod plugin_store;
 pub mod process;
 pub mod process_manager;
+pub mod workspace_lock;
 
 pub use kasane_core;
 
@@ -373,7 +374,7 @@ mod tests {
                         package: Some(artifact.package_name.clone()),
                         version: Some(artifact.package_version.clone()),
                         artifact_digest: artifact.artifact_digest.clone(),
-                        code_digest: artifact.code_digest.clone(),
+                        code_digest: Some(artifact.code_digest.clone()),
                         source_kind: "filesystem".to_string(),
                         abi_version: Some(artifact.abi_version.clone()),
                     },

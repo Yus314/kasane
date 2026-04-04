@@ -374,7 +374,7 @@ impl PluginManifest {
     }
 }
 
-fn abi_compatible(manifest_version: &str, host_version: &str) -> bool {
+pub fn abi_compatible(manifest_version: &str, host_version: &str) -> bool {
     let manifest_mm = major_minor(manifest_version);
     let host_mm = major_minor(host_version);
     manifest_mm == host_mm

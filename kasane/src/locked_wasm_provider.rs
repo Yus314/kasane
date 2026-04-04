@@ -236,7 +236,9 @@ fn collect_locked_filesystem_plugin(
         return;
     }
 
-    if inspected.header.digests.code != entry.code_digest {
+    if let Some(ref lock_code) = entry.code_digest
+        && lock_code != &inspected.header.digests.code
+    {
         resolved
             .diagnostics
             .push(PluginDiagnostic::provider_artifact_failed(
@@ -244,8 +246,8 @@ fn collect_locked_filesystem_plugin(
                 key,
                 ProviderArtifactStage::Manifest,
                 format!(
-                    "plugins.lock code digest `{}` does not match package digest `{}`",
-                    entry.code_digest, inspected.header.digests.code
+                    "plugins.lock code digest `{lock_code}` does not match package digest `{}`",
+                    inspected.header.digests.code
                 ),
             ));
         return;
@@ -336,7 +338,9 @@ fn collect_locked_bundled_plugin(
         return;
     }
 
-    if artifact.code_digest != entry.code_digest {
+    if let Some(ref lock_code) = entry.code_digest
+        && lock_code != &artifact.code_digest
+    {
         resolved
             .diagnostics
             .push(PluginDiagnostic::provider_artifact_failed(
@@ -344,8 +348,8 @@ fn collect_locked_bundled_plugin(
                 key,
                 ProviderArtifactStage::Manifest,
                 format!(
-                    "plugins.lock code digest `{}` does not match bundled digest `{}`",
-                    entry.code_digest, artifact.code_digest
+                    "plugins.lock code digest `{lock_code}` does not match bundled digest `{}`",
+                    artifact.code_digest
                 ),
             ));
         return;
@@ -550,7 +554,7 @@ flags = ["contributor"]
                 package: Some(selected_artifact.package_name.clone()),
                 version: Some(selected_artifact.package_version.clone()),
                 artifact_digest: selected_artifact.artifact_digest.clone(),
-                code_digest: selected_artifact.code_digest.clone(),
+                code_digest: Some(selected_artifact.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(selected_artifact.abi_version.clone()),
             },
@@ -593,7 +597,7 @@ flags = ["contributor"]
                 package: Some(selected_artifact.package_name.clone()),
                 version: Some(selected_artifact.package_version.clone()),
                 artifact_digest: "sha256:deadbeef".to_string(),
-                code_digest: selected_artifact.code_digest.clone(),
+                code_digest: Some(selected_artifact.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(selected_artifact.abi_version.clone()),
             },
@@ -632,7 +636,7 @@ flags = ["contributor"]
                 package: Some(selected_artifact.package_name.clone()),
                 version: Some(selected_artifact.package_version.clone()),
                 artifact_digest: selected_artifact.artifact_digest.clone(),
-                code_digest: selected_artifact.code_digest.clone(),
+                code_digest: Some(selected_artifact.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(selected_artifact.abi_version.clone()),
             },
@@ -674,7 +678,7 @@ flags = ["contributor"]
                 package: Some(artifact.package_name.clone()),
                 version: Some(artifact.package_version.clone()),
                 artifact_digest: artifact.artifact_digest.clone(),
-                code_digest: artifact.code_digest.clone(),
+                code_digest: Some(artifact.code_digest.clone()),
                 source_kind: "bundled".to_string(),
                 abi_version: Some(artifact.abi_version.clone()),
             },

@@ -438,13 +438,17 @@ fn bundled_artifact_digest(manifest_toml: &str, wasm_bytes: &[u8]) -> String {
     hasher.update(manifest_toml.as_bytes());
     hasher.update([0]);
     hasher.update(wasm_bytes);
-    format!("sha256:{:x}", hasher.finalize())
+    format!("sha256:{}", hex_encode(&hasher.finalize()))
 }
 
 fn sha256_prefixed(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("sha256:{:x}", hasher.finalize())
+    format!("sha256:{}", hex_encode(&hasher.finalize()))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Load a pre-built .wasm file from the fixtures directory (for tests).

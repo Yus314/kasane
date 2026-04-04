@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use kasane_core::config::{Config, PluginSelection};
+use kasane_plugin_package::manifest::{HOST_ABI_VERSION, abi_compatible};
 use kasane_plugin_package::package::{self, InspectedPackage};
 use kasane_wasm::{BundledPluginArtifact, bundled_plugin_artifacts};
 use semver::Version;
@@ -95,7 +96,6 @@ pub(super) struct CandidateSummary {
     pub(super) package: String,
     pub(super) version: String,
     pub(super) artifact_digest: String,
-    pub(super) path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -164,8 +164,9 @@ pub fn run_pin(
         .plugins
         .selection
         .insert(plugin_id.to_string(), selection.clone());
-    let config_path = config.save()?;
     let saved = resolve_and_save(&config, ResolveOptions::reconcile())?;
+    require_resolved(&saved.result, plugin_id)?;
+    let config_path = config.save()?;
 
     println!("Pinned plugin: {plugin_id}");
     match selection {
@@ -184,8 +185,8 @@ pub fn run_pin(
 pub fn run_unpin(plugin_id: &str) -> Result<()> {
     let mut config = Config::try_load()?;
     config.plugins.selection.remove(plugin_id);
-    let config_path = config.save()?;
     let saved = resolve_and_save(&config, ResolveOptions::reconcile())?;
+    let config_path = config.save()?;
 
     println!("Unpinned plugin: {plugin_id}");
     println!("Config: {}", config_path.display());
@@ -197,13 +198,24 @@ pub(super) fn resolve_and_save(
     config: &Config,
     options: ResolveOptions,
 ) -> Result<SavedResolveResult> {
+    let _guard = crate::workspace_lock::acquire_workspace_lock(&config.plugins.plugins_dir())?;
     let result = preview_resolution(config, options)?;
-    if !result.issues.is_empty() {
-        bail!(render_resolution_failure(&result));
-    }
+    // Partial resolution: save successfully resolved plugins even when some
+    // plugins have issues. Callers that require specific plugins to succeed
+    // (e.g., pin, install) check for their specific issues after this call.
     let lock_path = result.lock.save()?;
     super::package_artifact::touch_reload_sentinel(&config.plugins.plugins_dir());
     Ok(SavedResolveResult { result, lock_path })
+}
+
+/// Check if a specific plugin has unresolved issues and bail if so.
+pub(super) fn require_resolved(result: &ResolveResult, plugin_id: &str) -> Result<()> {
+    for issue in &result.issues {
+        if issue.plugin_id == plugin_id {
+            bail!("failed to resolve plugin `{plugin_id}`: {}", issue.reason);
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn preview_resolution(
@@ -240,8 +252,23 @@ fn resolve_with_existing_lock(
     }
 
     for candidates in grouped.values_mut() {
+        candidates.retain(|candidate| {
+            let abi = &candidate.inspected.header.plugin.abi_version;
+            if abi_compatible(abi, HOST_ABI_VERSION) {
+                true
+            } else {
+                invalid_packages.push(InvalidPackage {
+                    path: candidate.path.clone(),
+                    error: format!(
+                        "ABI version {abi} is incompatible with host ABI {HOST_ABI_VERSION}"
+                    ),
+                });
+                false
+            }
+        });
         candidates.sort_by(|left, right| left.path.cmp(&right.path));
     }
+    grouped.retain(|_, candidates| !candidates.is_empty());
 
     let mut lock = PluginsLock::new();
     for (plugin_id, entry) in &existing_lock.plugins {
@@ -472,7 +499,7 @@ fn select_candidate(
             package: Some(stored.package_name.clone()),
             version: Some(stored.package_version.clone()),
             artifact_digest: stored.artifact_digest.clone(),
-            code_digest: stored.code_digest.clone(),
+            code_digest: Some(stored.code_digest.clone()),
             source_kind: "filesystem".to_string(),
             abi_version: Some(stored.abi_version.clone()),
         },
@@ -513,7 +540,7 @@ fn append_bundled_fallbacks(
                 package: Some(artifact.package_name.clone()),
                 version: Some(artifact.package_version.clone()),
                 artifact_digest: artifact.artifact_digest.clone(),
-                code_digest: artifact.code_digest.clone(),
+                code_digest: Some(artifact.code_digest.clone()),
                 source_kind: "bundled".to_string(),
                 abi_version: Some(artifact.abi_version.clone()),
             },
@@ -576,7 +603,7 @@ fn latest_unique_candidate<'a>(
         return Err(ResolutionIssue {
             plugin_id: plugin_id.to_string(),
             reason: format!("cannot choose a unique latest package for {context}"),
-            candidates: candidate_summaries_from_refs(&candidates),
+            candidates: candidate_summaries(candidates.iter().copied()),
         });
     }
 
@@ -628,52 +655,17 @@ fn compare_candidate_versions(left: &PackageCandidate, right: &PackageCandidate)
     }
 }
 
-fn candidate_summaries(candidates: &[PackageCandidate]) -> Vec<CandidateSummary> {
+fn candidate_summaries<'a>(
+    candidates: impl IntoIterator<Item = &'a PackageCandidate>,
+) -> Vec<CandidateSummary> {
     candidates
-        .iter()
+        .into_iter()
         .map(|candidate| CandidateSummary {
             package: candidate.inspected.header.package.name.clone(),
             version: candidate.inspected.header.package.version.clone(),
             artifact_digest: candidate.inspected.header.digests.artifact.clone(),
-            path: candidate.path.clone(),
         })
         .collect()
-}
-
-fn candidate_summaries_from_refs(candidates: &[&PackageCandidate]) -> Vec<CandidateSummary> {
-    candidates
-        .iter()
-        .map(|candidate| CandidateSummary {
-            package: candidate.inspected.header.package.name.clone(),
-            version: candidate.inspected.header.package.version.clone(),
-            artifact_digest: candidate.inspected.header.digests.artifact.clone(),
-            path: candidate.path.clone(),
-        })
-        .collect()
-}
-
-fn render_resolution_failure(result: &ResolveResult) -> String {
-    let mut lines = vec!["plugin resolution failed:".to_string()];
-    for issue in &result.issues {
-        lines.push(format!("  {}: {}", issue.plugin_id, issue.reason));
-        for candidate in &issue.candidates {
-            lines.push(format!(
-                "    - {}@{} ({}) {}",
-                candidate.package,
-                candidate.version,
-                candidate.artifact_digest,
-                candidate.path.display()
-            ));
-        }
-    }
-    for invalid in &result.invalid_packages {
-        lines.push(format!(
-            "  invalid package {}: {}",
-            invalid.path.display(),
-            invalid.error
-        ));
-    }
-    lines.join("\n")
 }
 
 fn print_saved_resolution(header: &str, saved: &SavedResolveResult) {
@@ -700,6 +692,18 @@ fn print_saved_resolution(header: &str, saved: &SavedResolveResult) {
             );
         }
     }
+    if !saved.result.issues.is_empty() {
+        println!("Warnings:");
+        for issue in &saved.result.issues {
+            println!("  {}: {}", issue.plugin_id, issue.reason);
+            for candidate in &issue.candidates {
+                println!(
+                    "    - {}@{} ({})",
+                    candidate.package, candidate.version, candidate.artifact_digest
+                );
+            }
+        }
+    }
     if !saved.result.invalid_packages.is_empty() {
         println!("Invalid packages:");
         for invalid in &saved.result.invalid_packages {
@@ -716,7 +720,7 @@ mod tests {
     use std::path::Path;
 
     use kasane_plugin_package::manifest::PluginManifest;
-    use kasane_plugin_package::package::{BuildInput, write_package};
+    use kasane_plugin_package::package::{BuildInput, build_package_unchecked, write_package};
 
     fn build_fixture_package(
         root: &Path,
@@ -778,7 +782,7 @@ flags = ["contributor"]
                 package: Some("example/sel-badge".to_string()),
                 version: Some("0.1.0".to_string()),
                 artifact_digest: old.artifact_digest.clone(),
-                code_digest: old.code_digest.clone(),
+                code_digest: Some(old.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(old.abi_version.clone()),
             },
@@ -841,7 +845,7 @@ flags = ["contributor"]
                 package: Some("example/sel-badge".to_string()),
                 version: Some("0.1.0".to_string()),
                 artifact_digest: old.artifact_digest.clone(),
-                code_digest: old.code_digest.clone(),
+                code_digest: Some(old.code_digest.clone()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some(old.abi_version.clone()),
             },
@@ -914,6 +918,129 @@ flags = ["contributor"]
                 .any(|plugin| plugin.plugin_id == "pane_manager"
                     && plugin.reason == ResolveReason::BundledDefault)
         );
+    }
+
+    fn build_fixture_package_with_abi(
+        root: &Path,
+        plugin_id: &str,
+        package_name: &str,
+        version: &str,
+        abi_version: &str,
+    ) -> std::path::PathBuf {
+        let source_path = root.join(format!("{plugin_id}-{version}-abi{abi_version}.kpk"));
+        let manifest = PluginManifest::parse(&format!(
+            r#"
+[plugin]
+id = "{plugin_id}"
+abi_version = "{abi_version}"
+
+[handlers]
+flags = ["contributor"]
+"#
+        ))
+        .unwrap();
+        let output = build_package_unchecked(BuildInput {
+            package_name: package_name.to_string(),
+            package_version: version.to_string(),
+            component_entry: "plugin.wasm".to_string(),
+            component: format!("component-{plugin_id}-{version}-{abi_version}").into_bytes(),
+            manifest,
+            assets: Vec::new(),
+        })
+        .unwrap();
+        write_package(&source_path, &output).unwrap();
+        source_path
+    }
+
+    #[test]
+    fn abi_incompatible_candidates_are_filtered_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_home = tmp.path().join("data");
+        let config_home = tmp.path().join("config");
+        fs::create_dir_all(&data_home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+
+        let config = config_with_paths(&data_home, &config_home);
+        let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
+
+        // Install a compatible package
+        let compatible =
+            build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge", "0.1.0");
+        store.put_verified_package(&compatible).unwrap();
+
+        // Install an incompatible ABI package
+        let incompatible = build_fixture_package_with_abi(
+            tmp.path(),
+            "incompat_plugin",
+            "example/incompat",
+            "0.1.0",
+            "0.99.0",
+        );
+        store.put_verified_package(&incompatible).unwrap();
+
+        let result =
+            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
+                .unwrap();
+
+        // Compatible plugin should be resolved
+        assert!(result.selected.iter().any(|p| p.plugin_id == "sel_badge"));
+
+        // Incompatible plugin should NOT be resolved, and should appear in invalid_packages
+        assert!(
+            !result
+                .selected
+                .iter()
+                .any(|p| p.plugin_id == "incompat_plugin")
+        );
+        assert!(
+            result
+                .invalid_packages
+                .iter()
+                .any(|p| p.error.contains("ABI version"))
+        );
+    }
+
+    #[test]
+    fn partial_resolution_saves_resolved_plugins_despite_issues() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_home = tmp.path().join("data");
+        let config_home = tmp.path().join("config");
+        fs::create_dir_all(&data_home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+
+        let config = config_with_paths(&data_home, &config_home);
+        let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
+
+        // sel_badge: single candidate → resolves fine
+        let good = build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge", "0.1.0");
+        store.put_verified_package(&good).unwrap();
+
+        // cursor_line: two candidates, no lock → ambiguity issue
+        let conflict_a =
+            build_fixture_package(tmp.path(), "cursor_line", "example/cursor-line", "0.1.0");
+        let conflict_b =
+            build_fixture_package(tmp.path(), "cursor_line", "example/cursor-line", "0.2.0");
+        store.put_verified_package(&conflict_a).unwrap();
+        store.put_verified_package(&conflict_b).unwrap();
+
+        let result =
+            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
+                .unwrap();
+
+        // cursor_line has an issue
+        assert!(
+            result
+                .issues
+                .iter()
+                .any(|issue| issue.plugin_id == "cursor_line")
+        );
+
+        // sel_badge is still in the lock despite cursor_line's issue
+        assert!(result.lock.plugins.contains_key("sel_badge"));
+        assert!(result.selected.iter().any(|p| p.plugin_id == "sel_badge"));
+
+        // cursor_line is NOT in the lock
+        assert!(!result.lock.plugins.contains_key("cursor_line"));
     }
 
     #[test]

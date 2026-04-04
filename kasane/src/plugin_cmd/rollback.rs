@@ -13,6 +13,9 @@ pub fn run(list: bool) -> Result<()> {
         return run_list();
     }
 
+    let config = kasane_core::config::Config::try_load()?;
+    let _guard = crate::workspace_lock::acquire_workspace_lock(&config.plugins.plugins_dir())?;
+
     let lock_path = plugins_lock_path();
     match rollback_plugins_lock()? {
         Some(restored_from) => {
@@ -54,7 +57,10 @@ fn run_list() -> Result<()> {
         let summary = summarize_generation(path, &current)
             .with_context(|| format!("failed to summarize {}", path.display()))?;
         println!("  {}. {}", index + 1, summary.path.display());
-        println!("     modified: {}", summary.modified_unix_seconds);
+        println!(
+            "     modified: {}",
+            format_unix_timestamp(summary.modified_unix_seconds)
+        );
         println!("     plugins: {}", summary.plugin_count);
         println!("     differs from current: {}", summary.changed_plugins);
     }
@@ -87,6 +93,29 @@ fn summarize_generation(path: &Path, current: &PluginsLock) -> Result<LockGenera
     })
 }
 
+fn format_unix_timestamp(secs: u64) -> String {
+    // Civil date from epoch via pure arithmetic (no external deps).
+    let days = (secs / 86400) as i64;
+    let time_secs = secs % 86400;
+    let hours = time_secs / 3600;
+    let minutes = (time_secs % 3600) / 60;
+    let seconds = time_secs % 60;
+
+    // Convert days since 1970-01-01 to civil date (algorithm from Howard Hinnant).
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02} {hours:02}:{minutes:02}:{seconds:02} UTC")
+}
+
 fn count_changed_plugins(current: &PluginsLock, other: &PluginsLock) -> usize {
     let mut changed = 0;
     for (plugin_id, entry) in &current.plugins {
@@ -117,12 +146,19 @@ mod tests {
                 package: Some(format!("example/{plugin_id}")),
                 version: Some("0.1.0".to_string()),
                 artifact_digest: digest.to_string(),
-                code_digest: format!("{digest}-code"),
+                code_digest: Some(format!("{digest}-code")),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some("0.25.0".to_string()),
             },
         );
         lock
+    }
+
+    #[test]
+    fn format_unix_timestamp_produces_correct_civil_date() {
+        assert_eq!(format_unix_timestamp(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(format_unix_timestamp(1711878134), "2024-03-31 09:42:14 UTC");
+        assert_eq!(format_unix_timestamp(1609459200), "2021-01-01 00:00:00 UTC");
     }
 
     #[test]
@@ -136,7 +172,7 @@ mod tests {
                 package: Some("builtin/cursor-line".to_string()),
                 version: Some("0.3.0".to_string()),
                 artifact_digest: "sha256:cursor".to_string(),
-                code_digest: "sha256:cursor-code".to_string(),
+                code_digest: Some("sha256:cursor-code".to_string()),
                 source_kind: "bundled".to_string(),
                 abi_version: Some("0.25.0".to_string()),
             },
