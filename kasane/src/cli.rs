@@ -36,6 +36,7 @@ pub enum PluginSubcommand {
         path: Option<String>,
     },
     List,
+    Gc,
     Doctor {
         fix: bool,
     },
@@ -98,13 +99,13 @@ impl std::fmt::Display for CliError {
             CliError::PluginMissingSubcommand => {
                 write!(
                     f,
-                    "missing subcommand. Usage: kasane plugin <new|build|install|list|doctor|dev|resolve|pin|unpin|update>"
+                    "missing subcommand. Usage: kasane plugin <new|build|install|list|gc|doctor|dev|resolve|pin|unpin|update>"
                 )
             }
             CliError::PluginUnknownSubcommand(s) => {
                 write!(
                     f,
-                    "unknown plugin subcommand: {s}. Use new, build, install, list, doctor, dev, resolve, pin, unpin, or update."
+                    "unknown plugin subcommand: {s}. Use new, build, install, list, gc, doctor, dev, resolve, pin, unpin, or update."
                 )
             }
             CliError::PluginMissingName => {
@@ -271,6 +272,7 @@ fn parse_plugin_args<'a>(
             path: iter.next().cloned(),
         }),
         "list" => Ok(PluginSubcommand::List),
+        "gc" => Ok(PluginSubcommand::Gc),
         "doctor" => {
             let fix = iter.next().is_some_and(|f| f == "--fix");
             Ok(PluginSubcommand::Doctor { fix })
@@ -427,6 +429,7 @@ Subcommands:
   plugin build [<path>]             Build plugin package (.kpk)
   plugin install [<path>]           Build or verify a plugin package and activate it
   plugin list                       Show installed plugin packages
+  plugin gc                         Remove unreferenced package artifacts from the store
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
   plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
   plugin resolve                    Rebuild plugins.lock from installed packages
@@ -733,6 +736,14 @@ mod tests {
         assert_eq!(
             parse_cli_args(&args(&["plugin", "list"])),
             Ok(CliAction::Plugin(PluginSubcommand::List))
+        );
+    }
+
+    #[test]
+    fn test_plugin_gc() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "gc"])),
+            Ok(CliAction::Plugin(PluginSubcommand::Gc))
         );
     }
 

@@ -248,6 +248,7 @@ To see installed plugins or diagnose environment issues:
 
 ```bash
 kasane plugin list               # List installed plugins
+kasane plugin gc                 # Remove unreferenced package artifacts from the store
 kasane plugin doctor             # Check toolchain, SDK version, and plugin health
 kasane plugin doctor --fix       # Auto-fix missing target and plugins directory
 ```
