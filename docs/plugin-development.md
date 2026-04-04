@@ -127,7 +127,7 @@ kasane_plugin_sdk::define_plugin! {
 
 ### SDK Helpers Reference
 
-Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, `redraw()`, and `send_command()` are available in all plugin code (emitted by `generate!()` / `define_plugin!`). For the full list including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.5](./plugin-api.md#45-sdk-helpers).
+Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex()`, `redraw()`, `send_command()`, and `paste_clipboard()` are available in all plugin code (emitted by `generate!()` / `define_plugin!`). `paste_clipboard()` specifically requests insertion of the host system clipboard contents; committed text input and bracketed paste payloads already flow through the text-input pipeline without using this command. For the full list including face/color construction, overlay layout, key escaping, and attribute constants, see [plugin-api.md §4.5](./plugin-api.md#45-sdk-helpers).
 
 ### Plugin Manifest
 
@@ -227,6 +227,22 @@ kasane plugin dev --release      # Same, but release builds
 WASM plugin ABI note: current Kasane releases expect
 `kasane:plugin@0.25.0`. Rebuild and reinstall any plugin that was built
 against an older version; older binaries will not load.
+
+### Migrating to ABI 0.25.0
+
+If you are upgrading a plugin from the previous ABI, the required changes are:
+
+1. Update the SDK crate to `kasane-plugin-sdk = "0.4"` and set
+   `abi_version = "0.25.0"` in `kasane-plugin.toml`.
+2. Rename clipboard-paste commands from `Command::Paste` to
+   `Command::PasteClipboard`. If you use SDK helpers, prefer
+   `paste_clipboard()` instead of constructing the command directly.
+3. Rebuild and reinstall the `.wasm`. Existing artifacts built against
+   the previous ABI will be rejected by current Kasane releases.
+
+No code change is required for committed text input or bracketed paste
+payloads. Those go through the text-input pipeline and do not use
+`Command::PasteClipboard`.
 
 To see installed plugins or diagnose environment issues:
 

@@ -719,6 +719,47 @@ fn inject_input_dispatches_through_update() {
 }
 
 #[test]
+fn inject_paste_dispatches_through_text_pipeline() {
+    use crate::input::InputEvent;
+
+    let mut state = AppState::default();
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TextInputPlugin));
+    let mut surface_registry = SurfaceRegistry::new();
+
+    let mut dirty = DirtyFlags::empty();
+    let timer = NoopTimer;
+    let mut sessions = NoopSessionRuntime::default();
+    let mut initial_resize_sent = false;
+    let mut dispatcher = RecordingDispatcher::default();
+    let mut workspace_changed = false;
+
+    let quit = handle_deferred_commands(
+        vec![Command::InjectInput(InputEvent::Paste("kana".into()))],
+        &mut DeferredContext {
+            state: &mut state,
+            registry: &mut registry,
+            surface_registry: &mut surface_registry,
+
+            clipboard: &mut crate::clipboard::SystemClipboard::noop(),
+            dirty: &mut dirty,
+            timer: &timer,
+            session_host: &mut sessions,
+            initial_resize_sent: &mut initial_resize_sent,
+            session_ready_gate: None,
+            scroll_plan_sink: &mut |_| {},
+            process_dispatcher: &mut dispatcher,
+            workspace_changed: &mut workspace_changed,
+            scroll_amount: 3,
+        },
+        None,
+    );
+
+    assert!(!quit);
+    assert!(dirty.contains(DirtyFlags::INFO));
+}
+
+#[test]
 fn inject_input_respects_depth_limit() {
     use super::super::context::MAX_INJECT_DEPTH;
     use crate::input::{InputEvent, Key, KeyEvent, Modifiers};

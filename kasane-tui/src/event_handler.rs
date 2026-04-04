@@ -8,9 +8,9 @@ use kasane_core::clipboard::SystemClipboard;
 use kasane_core::event_loop::{
     DeferredContext, EventResult, SessionReadyGate, TimerScheduler, apply_bootstrap_effects,
     apply_ready_batch, handle_command_batch, handle_sourced_surface_commands,
-    handle_workspace_divider_input, maybe_flush_active_session_ready, notify_workspace_observers,
-    reconcile_plugin_surfaces, surface_event_from_input,
-    sync_session_ready_gate as sync_ready_gate,
+    handle_workspace_divider_input, maybe_flush_active_session_ready, normalize_input_for_state,
+    notify_workspace_observers, reconcile_plugin_surfaces, route_surface_key_input,
+    route_surface_text_input, surface_event_from_input, sync_session_ready_gate as sync_ready_gate,
 };
 use kasane_core::input::InputEvent;
 use kasane_core::layout::Rect;
@@ -206,7 +206,7 @@ where
         Event::Input(ref input_event) => {
             tracing::trace!(?input_event, "process_event: Input");
             let input_event = if let Event::Input(ie) = event {
-                ie
+                normalize_input_for_state(ie, ctx.state)
             } else {
                 unreachable!()
             };
@@ -226,6 +226,28 @@ where
                     surface_commands: vec![],
                     command_source: None,
                     workspace_changed: !divider_dirty.is_empty(),
+                }
+            } else if let Some(surface_commands) =
+                route_surface_key_input(&input_event, ctx.surface_registry, ctx.state, total)
+            {
+                EventResult {
+                    flags: DirtyFlags::empty(),
+                    commands: vec![],
+                    scroll_plans: vec![],
+                    surface_commands: vec![surface_commands],
+                    command_source: None,
+                    workspace_changed: false,
+                }
+            } else if let Some(surface_commands) =
+                route_surface_text_input(&input_event, ctx.surface_registry, ctx.state, total)
+            {
+                EventResult {
+                    flags: DirtyFlags::empty(),
+                    commands: vec![],
+                    scroll_plans: vec![],
+                    surface_commands: vec![surface_commands],
+                    command_source: None,
+                    workspace_changed: false,
                 }
             } else {
                 let surface_event = surface_event_from_input(&input_event);

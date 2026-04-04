@@ -65,6 +65,22 @@ impl PluginBackend for RuntimeMessagePlugin {
     }
 }
 
+pub(super) struct TextInputPlugin;
+
+impl PluginBackend for TextInputPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("text-input-plugin".to_string())
+    }
+
+    fn capabilities(&self) -> crate::plugin::PluginCapabilities {
+        crate::plugin::PluginCapabilities::INPUT_HANDLER
+    }
+
+    fn handle_text_input(&mut self, text: &str, _state: &AppView<'_>) -> Option<Vec<Command>> {
+        (text == "kana").then_some(vec![Command::RequestRedraw(DirtyFlags::INFO)])
+    }
+}
+
 pub(super) struct NoopTimer;
 
 impl TimerScheduler for NoopTimer {

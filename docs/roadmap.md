@@ -30,9 +30,14 @@ for the current specification from a plugin's perspective, see
 | Workstream | Next deliverable |
 |---|---|
 | Native escape hatch redesign | Higher-level `PaintHook` redesign |
-| Core event / degraded behavior | Minimal queuing for D-001 |
 
-### 2.2 Backlog
+### 2.2 Next
+
+| Workstream | Next deliverable |
+|---|---|
+| Display transformation | Initial enforcement of P-032 observed/policy separation |
+
+### 2.3 Backlog
 
 | Workstream | Notes |
 |---|---|
@@ -44,6 +49,8 @@ for the current specification from a plugin's perspective, see
 ### 3.1 Display transformation — remaining work
 
 - P-032: Formal observed/policy separation (theory organized, not yet enforced)
+
+Next deliverable: Define the initial enforcement boundary for observed state vs. display policy and land the minimal enforcement skeleton in transform paths
 
 ### 3.2 WASM runtime operations
 
@@ -68,18 +75,6 @@ Remaining work:
 
 Next deliverable: Finalize the redesign direction for `PaintHook` and land the minimal skeleton of the migration target API
 
-### 3.4 Core event / degraded behavior
-
-Completed:
-
-- P-023: `DropEvent` in `InputEvent` / `Msg` / `SurfaceEvent` / plugin API / WIT (ABI 0.24.0)
-
-Remaining work:
-
-- D-001: Minimal queuing based on `update()`
-
-Next deliverable: D-001 minimal queuing
-
 ## 4. Phase Status Summary
 
 | Phase | Primary objective | Status | Notes |
@@ -89,7 +84,7 @@ Next deliverable: D-001 minimal queuing
 | Phase 2 | Enhanced floating windows + plugin foundation | ✓ Complete | Some items moved to subsequent workstreams |
 | Phase 3 | Input, clipboard, and scroll enhancements | ✓ Complete | Basic input features on the TUI side are complete |
 | Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete. Image element GPU pipeline + texture cache landed |
-| Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Remaining operational issues consolidated into `WASM runtime operations` |
+| Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Operational follow-ups were consolidated into `WASM runtime operations`; that workstream is now complete |
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
 | Phase 5 | Surface / Workspace / multi-pane foundation | ✓ Complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish (pane layout persistence) complete |
 | Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
@@ -99,6 +94,7 @@ Next deliverable: D-001 minimal queuing
 
 The following items are not tracked in this roadmap; [upstream-dependencies.md](./upstream-dependencies.md) is the source of truth.
 
+- D-001: Startup info retention
 - D-002: Auxiliary display for off-screen cursors / selections
 - P-001: Overlay composition (full version)
 - P-010 / P-011: Supplemental area contributions (full version)

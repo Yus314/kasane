@@ -88,8 +88,15 @@ pub(crate) type ErasedKeyMiddlewareHandler = Box<
 >;
 pub(crate) type ErasedObserveKeyHandler =
     Box<dyn Fn(&dyn PluginState, &KeyEvent, &AppView<'_>) -> Box<dyn PluginState> + Send + Sync>;
+pub(crate) type ErasedObserveTextInputHandler =
+    Box<dyn Fn(&dyn PluginState, &str, &AppView<'_>) -> Box<dyn PluginState> + Send + Sync>;
 pub(crate) type ErasedObserveMouseHandler =
     Box<dyn Fn(&dyn PluginState, &MouseEvent, &AppView<'_>) -> Box<dyn PluginState> + Send + Sync>;
+pub(crate) type ErasedTextInputHandler = Box<
+    dyn Fn(&dyn PluginState, &str, &AppView<'_>) -> Option<(Box<dyn PluginState>, Vec<Command>)>
+        + Send
+        + Sync,
+>;
 pub(crate) type ErasedHandleMouseHandler = Box<
     dyn Fn(
             &dyn PluginState,
@@ -237,6 +244,8 @@ pub(crate) struct HandlerTable {
     pub(crate) key_handler: Option<ErasedKeyHandler>,
     pub(crate) key_middleware_handler: Option<ErasedKeyMiddlewareHandler>,
     pub(crate) observe_key_handler: Option<ErasedObserveKeyHandler>,
+    pub(crate) observe_text_input_handler: Option<ErasedObserveTextInputHandler>,
+    pub(crate) text_input_handler: Option<ErasedTextInputHandler>,
     pub(crate) observe_mouse_handler: Option<ErasedObserveMouseHandler>,
     pub(crate) handle_mouse_handler: Option<ErasedHandleMouseHandler>,
     pub(crate) observe_drop_handler: Option<ErasedObserveDropHandler>,
@@ -295,6 +304,8 @@ impl HandlerTable {
             key_handler: None,
             key_middleware_handler: None,
             observe_key_handler: None,
+            observe_text_input_handler: None,
+            text_input_handler: None,
             observe_mouse_handler: None,
             handle_mouse_handler: None,
             observe_drop_handler: None,
@@ -339,6 +350,8 @@ impl HandlerTable {
         }
         if self.key_handler.is_some()
             || self.key_middleware_handler.is_some()
+            || self.text_input_handler.is_some()
+            || self.observe_text_input_handler.is_some()
             || self.handle_mouse_handler.is_some()
             || self.key_map.is_some()
         {

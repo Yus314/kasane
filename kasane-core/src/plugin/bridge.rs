@@ -351,6 +351,14 @@ impl PluginBackend for PluginBridge {
         }
     }
 
+    fn observe_text_input(&mut self, text: &str, app: &AppView<'_>) {
+        if let Some(handler) = &self.table.observe_text_input_handler {
+            let new_state = handler(&*self.state, text, app);
+            self.state = new_state;
+            self.check_state_change();
+        }
+    }
+
     fn observe_mouse(&mut self, event: &MouseEvent, app: &AppView<'_>) {
         if let Some(handler) = &self.table.observe_mouse_handler {
             let new_state = handler(&*self.state, event, app);
@@ -370,6 +378,18 @@ impl PluginBackend for PluginBridge {
     fn handle_key(&mut self, key: &KeyEvent, app: &AppView<'_>) -> Option<Vec<Command>> {
         if let Some(handler) = &self.table.key_handler {
             handler(&*self.state, key, app).map(|(new_state, cmds)| {
+                self.state = new_state;
+                self.check_state_change();
+                cmds
+            })
+        } else {
+            None
+        }
+    }
+
+    fn handle_text_input(&mut self, text: &str, app: &AppView<'_>) -> Option<Vec<Command>> {
+        if let Some(handler) = &self.table.text_input_handler {
+            handler(&*self.state, text, app).map(|(new_state, cmds)| {
                 self.state = new_state;
                 self.check_state_change();
                 cmds
@@ -1348,6 +1368,8 @@ mod tests {
             "key",
             "key_middleware",
             "observe_key",
+            "text_input",
+            "observe_text_input",
             "observe_mouse",
             "handle_mouse",
             "default_scroll",
@@ -1435,6 +1457,18 @@ mod tests {
                 let inv = self.invoked.clone();
                 r.on_observe_key(move |s, _key, _app| {
                     inv.lock().unwrap().insert("observe_key");
+                    *s
+                });
+
+                let inv = self.invoked.clone();
+                r.on_text_input(move |s, _text, _app| {
+                    inv.lock().unwrap().insert("text_input");
+                    Some((*s, vec![]))
+                });
+
+                let inv = self.invoked.clone();
+                r.on_observe_text_input(move |s, _text, _app| {
+                    inv.lock().unwrap().insert("observe_text_input");
                     *s
                 });
 
@@ -1603,6 +1637,8 @@ mod tests {
         bridge.handle_key(&key, &app);
         bridge.handle_key_middleware(&key, &app);
         bridge.observe_key(&key, &app);
+        bridge.handle_text_input("text", &app);
+        bridge.observe_text_input("text", &app);
         bridge.observe_mouse(&mouse, &app);
         bridge.handle_mouse(&mouse, InteractiveId::framework(0), &app);
         let candidate = DefaultScrollCandidate::new(

@@ -41,7 +41,7 @@ Items where local implementation is possible, but are not treated as authoritati
 
 | ID | Item | Current Status | Why Not Adopted | Upstream | Next Step |
 |----|------|----------------|-----------------|----------|-----------|
-| D-001 | Startup info retention | Possibly avoidable with a local queue | Still isolating upstream startup behavior | [#5294](https://github.com/mawww/kakoune/issues/5294) | Reintegrate after confirming upstream behavior |
+| D-001 | Startup info retention | No verified local retention point | 2026-03-31 reproduction: `KakBegin` / `EnterDirectory` hooks fired, but Kakoune JSON UI emitted no startup `info_show`; a local queue would not recover a missing protocol message | [#5294](https://github.com/mawww/kakoune/issues/5294) | Reintegrate after upstream behavior is clarified or fixed |
 | P-010 / P-011 | Full auxiliary region contribution | `widget_columns` is available. Partial proof-of-concept completed | No semantic type for atoms; cannot strictly distinguish line numbers / virtual text / code | [PR #4707](https://github.com/mawww/kakoune/pull/4707), [#4687](https://github.com/mawww/kakoune/issues/4687) | Reintegrate after semantic type is added |
 | P-001 | Overlay composition (full version) | Overlay itself is partially proven. `widget_columns` is also available | Semantic position within the buffer depends on atom ambiguity | [PR #4707](https://github.com/mawww/kakoune/pull/4707), [#4687](https://github.com/mawww/kakoune/issues/4687) | Reintegrate after semantic type is added |
 

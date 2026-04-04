@@ -75,7 +75,9 @@ auto_discover = false
 Current Kasane releases expect WASM plugins built against
 `kasane:plugin@0.25.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
-will not load.
+will not load. Plugin authors upgrading from ABI 0.24.0 should also
+update `Command::Paste` to `Command::PasteClipboard`; see
+[plugin-development.md §Migrating to ABI 0.25.0](./plugin-development.md#migrating-to-abi-0250).
 
 For example, `smooth_scroll` is not embedded in the binary. Build and install
 the WASM from [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/)

@@ -12,7 +12,7 @@ use crate::workspace::WorkspaceQuery;
 use super::AppView;
 use super::bridge::PluginBridge;
 use super::context::TransformScope;
-use super::effects::{MouseHandleResult, PluginEffects};
+use super::effects::{MouseHandleResult, PluginEffects, TextInputHandleResult};
 use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
@@ -559,6 +559,29 @@ impl PluginRuntime {
         KeyDispatchResult::Passthrough(current_key)
     }
 
+    pub fn dispatch_text_input_handler(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> TextInputHandleResult {
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                continue;
+            }
+            if let Some(commands) = slot.backend.handle_text_input(text, app) {
+                return TextInputHandleResult::Handled {
+                    source_plugin: slot.backend.id(),
+                    commands,
+                };
+            }
+        }
+
+        TextInputHandleResult::NotHandled
+    }
+
     /// Key map dispatch for a single plugin slot.
     ///
     /// Returns `Some(result)` if the key was consumed or a chord was started,
@@ -747,6 +770,19 @@ impl PluginRuntime {
         }
     }
 
+    /// Broadcast committed text input observation to all plugins with INPUT_HANDLER capability.
+    pub fn observe_text_input_all(&mut self, text: &str, app: &AppView<'_>) {
+        for slot in &mut self.slots {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::INPUT_HANDLER)
+            {
+                continue;
+            }
+            slot.backend.observe_text_input(text, app);
+        }
+    }
+
     /// Broadcast mouse observation to all plugins with INPUT_HANDLER capability.
     pub fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {
         for slot in &mut self.slots {
@@ -856,6 +892,18 @@ impl PluginEffects for PluginRuntime {
 
     fn dispatch_key_middleware(&mut self, key: &KeyEvent, app: &AppView<'_>) -> KeyDispatchResult {
         PluginRuntime::dispatch_key_middleware(self, key, app)
+    }
+
+    fn observe_text_input_all(&mut self, text: &str, app: &AppView<'_>) {
+        PluginRuntime::observe_text_input_all(self, text, app)
+    }
+
+    fn dispatch_text_input_handler(
+        &mut self,
+        text: &str,
+        app: &AppView<'_>,
+    ) -> TextInputHandleResult {
+        PluginRuntime::dispatch_text_input_handler(self, text, app)
     }
 
     fn observe_mouse_all(&mut self, event: &MouseEvent, app: &AppView<'_>) {

@@ -3,12 +3,13 @@
 //! Routes deferred commands to domain-specific handlers and cascades
 //! runtime effects back through the plugin system.
 
+use crate::layout::Rect;
 use crate::plugin::{
     AppView, Command, CommandResult, Effects, EffectsBatch, PluginAuthorities, PluginId, StdinMode,
     execute_commands, extract_redraw_flags, partition_commands,
 };
 use crate::session::SessionSpec;
-use crate::state::{AppState, DirtyFlags};
+use crate::state::{AppState, DirtyFlags, Msg, update};
 use crate::surface::SourcedSurfaceCommands;
 
 use super::context::{
@@ -46,15 +47,110 @@ fn handle_command_batch_inner(
 ) -> bool {
     let (immediate, deferred) = partition_commands(commands);
 
-    // Route commands to the focused pane's Kakoune client when in multi-pane mode.
-    let writer = focused_writer!(ctx);
-    if matches!(
-        execute_commands(immediate, writer, ctx.clipboard),
-        CommandResult::Quit
-    ) {
-        return true;
+    for command in immediate {
+        match command {
+            Command::PasteClipboard => {
+                if let Some(text) = ctx.clipboard.get()
+                    && dispatch_input_event(ctx, crate::input::InputEvent::Paste(text), depth)
+                {
+                    return true;
+                }
+            }
+            other => {
+                if matches!(
+                    execute_commands(vec![other], focused_writer!(ctx), ctx.clipboard),
+                    CommandResult::Quit
+                ) {
+                    return true;
+                }
+            }
+        }
     }
     handle_deferred_commands_inner(deferred, ctx, command_source_plugin, depth)
+}
+
+pub(super) fn dispatch_input_event(
+    ctx: &mut DeferredContext<'_>,
+    input: crate::input::InputEvent,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_INJECT_DEPTH {
+        tracing::warn!(
+            depth,
+            "dispatch_input_event depth limit reached, dropping event"
+        );
+        return false;
+    }
+
+    let input = super::normalize_input_for_state(input, ctx.state);
+    let total = Rect {
+        x: 0,
+        y: 0,
+        w: ctx.state.cols,
+        h: ctx.state.rows,
+    };
+
+    if let Some(divider_dirty) =
+        super::handle_workspace_divider_input(&input, ctx.surface_registry, total)
+    {
+        *ctx.dirty |= divider_dirty;
+        if !divider_dirty.is_empty() {
+            *ctx.workspace_changed = true;
+            super::notify_workspace_observers(ctx.registry, ctx.surface_registry, ctx.state);
+        }
+        return false;
+    }
+
+    if let Some(surface_commands) =
+        super::route_surface_key_input(&input, ctx.surface_registry, ctx.state, total)
+    {
+        return handle_sourced_surface_commands(vec![surface_commands], ctx);
+    }
+
+    if let Some(surface_commands) =
+        super::route_surface_text_input(&input, ctx.surface_registry, ctx.state, total)
+    {
+        return handle_sourced_surface_commands(vec![surface_commands], ctx);
+    }
+
+    let surface_event = super::surface_event_from_input(&input);
+    let state = std::mem::take(ctx.state);
+    let (returned_state, result) = update(
+        Box::new(state),
+        Msg::from(input),
+        ctx.registry,
+        ctx.scroll_amount,
+    );
+    *ctx.state = *returned_state;
+    *ctx.dirty |= result.flags;
+
+    for plan in result.scroll_plans {
+        (ctx.scroll_plan_sink)(plan);
+    }
+
+    if !result.commands.is_empty()
+        && handle_command_batch_inner(
+            result.commands,
+            ctx,
+            result.source_plugin.as_ref(),
+            depth + 1,
+        )
+    {
+        return true;
+    }
+
+    let surface_commands = surface_event
+        .map(|event| {
+            ctx.surface_registry
+                .route_event_with_sources(event, ctx.state, total)
+        })
+        .unwrap_or_default();
+
+    if !surface_commands.is_empty() && handle_sourced_surface_commands(surface_commands, ctx) {
+        return true;
+    }
+
+    false
 }
 
 pub(super) fn handle_deferred_commands_inner(
@@ -613,28 +709,8 @@ fn handle_session_pane_command(
                     depth,
                     "inject input depth limit reached, dropping injected event"
                 );
-            } else {
-                use crate::state::{Msg, update};
-
-                let msg = Msg::from(input_event);
-                let state = std::mem::take(ctx.state);
-                let (returned_state, result) =
-                    update(Box::new(state), msg, ctx.registry, ctx.scroll_amount);
-                *ctx.state = *returned_state;
-                *ctx.dirty |= result.flags;
-                for plan in result.scroll_plans {
-                    (ctx.scroll_plan_sink)(plan);
-                }
-                if !result.commands.is_empty()
-                    && handle_command_batch_inner(
-                        result.commands,
-                        ctx,
-                        result.source_plugin.as_ref(),
-                        depth + 1,
-                    )
-                {
-                    return Some(true);
-                }
+            } else if dispatch_input_event(ctx, input_event, depth) {
+                return Some(true);
             }
         }
         _ => unreachable!(),

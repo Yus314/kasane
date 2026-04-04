@@ -75,7 +75,8 @@ pub trait PaintHook: Send {
 
 pub enum Command {
     SendToKakoune(KasaneRequest),
-    Paste,
+    InsertText(String),
+    PasteClipboard,
     Quit,
     RequestRedraw(DirtyFlags),
     /// Schedule a timer that fires after `delay`, delivering `payload` to `target` plugin.
@@ -219,6 +220,11 @@ impl Command {
         Command::SendToKakoune(KasaneRequest::Keys(keys))
     }
 
+    /// Convenience: insert literal text into Kakoune.
+    pub fn insert_text(text: impl Into<String>) -> Self {
+        Command::InsertText(text.into())
+    }
+
     /// Returns true if this command commutes with other commands of the same kind.
     ///
     /// Commutative commands can be deduplicated or reordered without affecting
@@ -239,7 +245,8 @@ impl Command {
         !matches!(
             self,
             Command::SendToKakoune(_)
-                | Command::Paste
+                | Command::InsertText(_)
+                | Command::PasteClipboard
                 | Command::Quit
                 | Command::RequestRedraw(_)
                 | Command::EditBuffer { .. }
@@ -268,20 +275,27 @@ pub fn execute_commands(
     kak_writer: &mut (impl Write + ?Sized),
     clipboard: &mut crate::clipboard::SystemClipboard,
 ) -> CommandResult {
-    use crate::input::paste_text_to_keys;
+    let _ = clipboard;
 
     for cmd in commands {
         match cmd {
             Command::SendToKakoune(req) => {
                 crate::io::send_request(kak_writer, &req);
             }
-            Command::Paste => {
-                if let Some(text) = clipboard.get() {
-                    let keys = paste_text_to_keys(&text);
-                    if !keys.is_empty() {
-                        crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));
-                    }
+            Command::InsertText(text) => {
+                let keys = escape_kakoune_insert_text(&text);
+                if !keys.is_empty() {
+                    crate::io::send_request(kak_writer, &KasaneRequest::Keys(keys));
                 }
+            }
+            Command::PasteClipboard => {
+                // PasteClipboard is intercepted by handle_command_batch_inner and
+                // apply_ready_batch before reaching execute_commands. This arm is
+                // kept as a defensive fallback.
+                debug_assert!(
+                    false,
+                    "PasteClipboard should be intercepted before execute_commands"
+                );
             }
             Command::EditBuffer { edits } => {
                 if !edits.is_empty() {

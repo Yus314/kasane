@@ -14,7 +14,7 @@ pub fn convert_event(event: Event) -> Option<InputEvent> {
     match event {
         Event::Key(key_event) => convert_key(key_event),
         Event::Mouse(mouse_event) => convert_mouse(mouse_event),
-        Event::Paste(_) => Some(InputEvent::Paste(String::new())),
+        Event::Paste(text) => Some(InputEvent::Paste(text)),
         Event::Resize(cols, rows) => Some(InputEvent::Resize(cols, rows)),
         Event::FocusGained => Some(InputEvent::FocusGained),
         Event::FocusLost => Some(InputEvent::FocusLost),
@@ -228,7 +228,7 @@ mod tests {
     fn test_convert_paste() {
         let ct_event = Event::Paste("hello world".to_string());
         let result = convert_event(ct_event).unwrap();
-        assert_eq!(result, InputEvent::Paste(String::new()));
+        assert_eq!(result, InputEvent::Paste("hello world".to_string()));
     }
 
     #[test]

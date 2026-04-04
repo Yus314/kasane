@@ -67,7 +67,8 @@ interface types {
         send-keys(list<string>),
         /// Execute a Kakoune command string (convenience for `send-keys(<esc>:cmd<ret>)`).
         eval-command(string),
-        paste,
+        /// Paste text from the host system clipboard.
+        paste-clipboard,
         quit,
         request-redraw(u16),
         set-config(config-entry),
@@ -251,7 +252,8 @@ interface types {
 
     variant session-ready-command {
         send-keys(list<string>),
-        paste,
+        /// Paste text from the host system clipboard.
+        paste-clipboard,
         plugin-message(message-config),
     }
 

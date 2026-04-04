@@ -40,6 +40,44 @@ fn test_update_key_forwards_to_kakoune() {
 }
 
 #[test]
+fn test_update_text_input_forwards_committed_text_to_kakoune() {
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+
+    let text = "a<b>\n日本語";
+    let result = update_in_place(
+        &mut state,
+        Msg::TextInput(text.to_string()),
+        &mut registry,
+        3,
+    );
+
+    assert!(result.flags.is_empty());
+    assert_eq!(result.commands.len(), 1);
+    assert!(matches!(
+        &result.commands[0],
+        Command::InsertText(committed) if committed == text
+    ));
+}
+
+#[test]
+fn test_text_input_observation_and_dispatch_are_recorded() {
+    let mut state = Box::new(AppState::default());
+    let mut effects = RecordingEffects::default();
+    let text = "かな";
+
+    let result = update_in_place(&mut state, Msg::TextInput(text.into()), &mut effects, 3);
+
+    assert!(result.flags.is_empty());
+    assert_eq!(effects.text_input_observations, vec![text.to_string()]);
+    assert_eq!(effects.text_input_dispatches, vec![text.to_string()]);
+    assert!(matches!(
+        &result.commands[0],
+        Command::InsertText(committed) if committed == text
+    ));
+}
+
+#[test]
 fn test_update_kakoune_draw() {
     let mut state = Box::new(AppState::default());
     let mut registry = PluginRuntime::new();
@@ -385,6 +423,55 @@ fn test_observe_key_called_even_when_plugin_handles() {
     };
     let _ = update_in_place(&mut state, Msg::Key(key), &mut registry, 3);
     assert!(observed.load(Ordering::Relaxed));
+}
+
+#[test]
+fn test_observe_text_input_called_for_all_plugins() {
+    let observed = Arc::new(AtomicBool::new(false));
+
+    struct ObserverPlugin(Arc<AtomicBool>);
+    impl PluginBackend for ObserverPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("observer".into())
+        }
+        fn observe_text_input(&mut self, _text: &str, _state: &AppView<'_>) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(ObserverPlugin(observed.clone())));
+
+    let _ = update_in_place(&mut state, Msg::TextInput("text".into()), &mut registry, 3);
+    assert!(observed.load(Ordering::Relaxed));
+}
+
+#[test]
+fn test_plugin_can_handle_text_input() {
+    struct TextPlugin;
+    impl PluginBackend for TextPlugin {
+        fn id(&self) -> PluginId {
+            PluginId("text_plugin".into())
+        }
+        fn handle_text_input(&mut self, text: &str, _state: &AppView<'_>) -> Option<Vec<Command>> {
+            Some(vec![Command::InsertText(text.to_uppercase())])
+        }
+    }
+
+    let mut state = Box::new(AppState::default());
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(TextPlugin));
+
+    let result = update_in_place(&mut state, Msg::TextInput("abc".into()), &mut registry, 3);
+
+    assert!(result.flags.is_empty());
+    assert_eq!(result.source_plugin, Some(PluginId("text_plugin".into())));
+    assert_eq!(result.commands.len(), 1);
+    assert!(matches!(
+        &result.commands[0],
+        Command::InsertText(committed) if committed == "ABC"
+    ));
 }
 
 #[test]

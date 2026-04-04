@@ -41,7 +41,7 @@ pub use diagnostics::{
 };
 pub use effects::{
     Effects, EffectsBatch, LifecyclePhase, MouseHandleResult, NullEffects, PluginEffects,
-    RecordingEffects,
+    RecordingEffects, TextInputHandleResult,
 };
 pub use manager::{AppliedWinnerDelta, PluginApplyResult, PluginManager, ResolvedPluginSnapshot};
 pub use provider::{

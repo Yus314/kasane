@@ -777,6 +777,84 @@ help: this trait has no implementations, consider adding one
    |
  1 | kasane_plugin_sdk::generate!();
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `_export_handle_drop_cabi`
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `_export_handle_drop_cabi`
+   = note: this error originates in the macro `export` which comes from the expansion of the macro `wit_bindgen::generate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Bad: Guest` is not satisfied
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+...
+19 | export!(Bad);
+   | ------------ in this macro invocation
+   |
+help: the trait `Guest` is not implemented for `Bad`
+  --> tests/fail/plugin_unknown_method.rs:5:1
+   |
+ 5 | struct Bad;
+   | ^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `__post_return_handle_drop`
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `__post_return_handle_drop`
+   = note: this error originates in the macro `export` which comes from the expansion of the macro `wit_bindgen::generate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Bad: Guest` is not satisfied
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+...
+19 | export!(Bad);
+   | ------------ in this macro invocation
+   |
+help: the trait `Guest` is not implemented for `Bad`
+  --> tests/fail/plugin_unknown_method.rs:5:1
+   |
+ 5 | struct Bad;
+   | ^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `_export_observe_drop_cabi`
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `_export_observe_drop_cabi`
+   = note: this error originates in the macro `export` which comes from the expansion of the macro `wit_bindgen::generate` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Bad: Guest` is not satisfied
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+...
+19 | export!(Bad);
+   | ------------ in this macro invocation
+   |
+help: the trait `Guest` is not implemented for `Bad`
+  --> tests/fail/plugin_unknown_method.rs:5:1
+   |
+ 5 | struct Bad;
+   | ^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/fail/plugin_unknown_method.rs:1:1
+   |
+ 1 | kasane_plugin_sdk::generate!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `_export_declare_key_map_cabi`
   --> tests/fail/plugin_unknown_method.rs:1:1
    |

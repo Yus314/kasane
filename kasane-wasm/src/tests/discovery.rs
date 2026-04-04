@@ -43,14 +43,6 @@ impl TempPluginDir {
         }
     }
 
-    fn copy_fixture_manifest(&self, manifest_name: &str) {
-        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("fixtures")
-            .join(manifest_name);
-        let dst = self.path.join(manifest_name);
-        fs::copy(src, dst).expect("failed to copy fixture manifest");
-    }
-
     fn write_invalid_wasm(&self, file_name: &str) {
         fs::write(self.path.join(file_name), b"not a wasm component")
             .expect("failed to write invalid wasm");

@@ -19,7 +19,8 @@
 //! `define_plugin!` combines WIT bindings, state declaration, `#[plugin]`,
 //! and `export!()` into a single macro. It auto-imports `dirty`, `modifiers`,
 //! `keys`, and `attributes` modules, plus SDK helpers like `plain()`,
-//! `colored()`, `is_ctrl()`, `status_badge()`, `redraw()`, and `hex()`.
+//! `colored()`, `is_ctrl()`, `status_badge()`, `redraw()`, `paste_clipboard()`,
+//! and `hex()`.
 //!
 //! ## With State
 //!
@@ -1281,6 +1282,7 @@ mod tests {
                 | dirty::INFO
                 | dirty::OPTIONS
                 | dirty::SESSION
+                | dirty::SETTINGS
         );
     }
 
@@ -1291,8 +1293,8 @@ mod tests {
 
     #[test]
     fn dirty_all_matches_bitflags() {
-        // SDK's ALL intentionally excludes PLUGIN_STATE (bit 7). Core ALL = 0x1FF, SDK ALL = 0x17F.
-        assert_eq!(dirty::ALL, 0x17F);
+        // SDK's ALL intentionally excludes PLUGIN_STATE (bit 7). Core ALL = 0x3FF, SDK ALL = 0x37F.
+        assert_eq!(dirty::ALL, 0x37F);
     }
 
     #[test]

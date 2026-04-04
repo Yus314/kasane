@@ -111,6 +111,17 @@ fn load_fuzzy_finder_with_manifest() -> crate::WasmPlugin {
         .expect("failed to load plugin with manifest")
 }
 
+fn load_pane_manager_with_manifest() -> crate::WasmPlugin {
+    let loader = WasmPluginLoader::new().expect("failed to create loader");
+    let bytes = crate::BUNDLED_PANE_MANAGER;
+    let manifest = crate::manifest::PluginManifest::parse(crate::BUNDLED_PANE_MANAGER_MANIFEST)
+        .expect("failed to parse bundled manifest");
+    loader
+        .load_with_manifest(bytes, &manifest, &crate::WasiCapabilityConfig::default())
+        .map_err(|(_, e)| e)
+        .expect("failed to load plugin with manifest")
+}
+
 fn default_annotate_ctx() -> AnnotateContext {
     AnnotateContext {
         line_width: 80,
@@ -213,6 +224,12 @@ fn fuzzy_finder_with_manifest_id() {
 }
 
 #[test]
+fn pane_manager_with_manifest_id() {
+    let plugin = load_pane_manager_with_manifest();
+    assert_eq!(plugin.id().0, "pane_manager");
+}
+
+#[test]
 fn manifest_wasm_id_mismatch_detected() {
     let loader = WasmPluginLoader::new().expect("failed to create loader");
     let bytes = crate::load_wasm_fixture("cursor-line.wasm").expect("failed to load fixture");
@@ -220,7 +237,7 @@ fn manifest_wasm_id_mismatch_detected() {
     let toml = r#"
 [plugin]
 id = "wrong_id"
-abi_version = "0.23.0"
+abi_version = "0.25.0"
 
 [handlers]
 flags = ["annotator"]

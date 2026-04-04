@@ -13,7 +13,7 @@ pub(crate) fn wit_command_to_command(wc: &wit::Command) -> Command {
     match wc {
         wit::Command::SendKeys(keys) => Command::SendToKakoune(KasaneRequest::Keys(keys.clone())),
         wit::Command::EvalCommand(cmd) => Command::kakoune_command(cmd),
-        wit::Command::Paste => Command::Paste,
+        wit::Command::PasteClipboard => Command::PasteClipboard,
         wit::Command::Quit => Command::Quit,
         wit::Command::RequestRedraw(bits) => {
             Command::RequestRedraw(DirtyFlags::from_bits_truncate(*bits))
@@ -184,7 +184,7 @@ pub(crate) fn wit_session_ready_effects_to_effects(effects: &wit::SessionReadyEf
                 wit::SessionReadyCommand::SendKeys(keys) => {
                     Command::SendToKakoune(KasaneRequest::Keys(keys.clone()))
                 }
-                wit::SessionReadyCommand::Paste => Command::Paste,
+                wit::SessionReadyCommand::PasteClipboard => Command::PasteClipboard,
                 wit::SessionReadyCommand::PluginMessage(message) => Command::PluginMessage {
                     target: PluginId(message.target_plugin.clone()),
                     payload: Box::new(message.payload.clone()),

@@ -313,6 +313,35 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }));
     }
 
+    /// Register a committed text input handler (consumes text, returns commands).
+    pub fn on_text_input(
+        &mut self,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<Command>)> + Send + Sync + 'static,
+    ) {
+        self.table.text_input_handler = Some(Box::new(move |state, text, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, text, app)
+                .map(|(new_state, cmds)| (Box::new(new_state) as Box<dyn PluginState>, cmds))
+        }));
+    }
+
+    /// Register a committed text input observer (notification only, cannot consume).
+    pub fn on_observe_text_input(
+        &mut self,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> S + Send + Sync + 'static,
+    ) {
+        self.table.observe_text_input_handler = Some(Box::new(move |state, text, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            Box::new(handler(s, text, app)) as Box<dyn PluginState>
+        }));
+    }
+
     /// Register a mouse observer (notification only, cannot consume).
     pub fn on_observe_mouse(
         &mut self,
@@ -1233,6 +1262,18 @@ mod tests {
     fn on_key_sets_input_handler_capability() {
         let mut registry = HandlerRegistry::<TestState>::new();
         registry.on_key(|_state, _key, _app| None);
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::INPUT_HANDLER)
+        );
+    }
+
+    #[test]
+    fn on_text_input_sets_input_handler_capability() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_text_input(|_state, _text, _app| None);
         let table = registry.into_table();
         assert!(
             table
