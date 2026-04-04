@@ -2,7 +2,7 @@ use crate::cli::PluginTemplate;
 
 const SDK_VERSION: &str = "0.3.0";
 const WIT_BINDGEN_VERSION: &str = "0.53";
-const HOST_ABI_VERSION: &str = "0.23.0";
+const HOST_ABI_VERSION: &str = "0.25.0";
 
 /// Convert a kebab-case plugin name to a snake_case plugin ID.
 ///

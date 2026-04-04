@@ -106,6 +106,12 @@ impl PluginsLock {
             if entry.plugin_id.is_empty() {
                 bail!("plugin entry `{key}` has an empty plugin_id");
             }
+            if key != &entry.plugin_id {
+                bail!(
+                    "plugin entry `{key}` does not match nested plugin_id `{}`",
+                    entry.plugin_id
+                );
+            }
             if entry.artifact_digest.is_empty() {
                 bail!("plugin entry `{key}` has an empty artifact_digest");
             }

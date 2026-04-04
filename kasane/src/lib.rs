@@ -1,8 +1,10 @@
 //! Kasane library: `kasane::run()` entry point, plugin registration, backend selection.
 
 pub mod cli;
+mod locked_wasm_provider;
 pub mod plugin_cmd;
 pub mod plugin_lock;
+pub mod plugin_store;
 pub mod process;
 pub mod process_manager;
 
@@ -245,10 +247,26 @@ fn build_plugin_manager(
     let mut providers: Vec<Box<dyn PluginProvider>> = Vec::new();
     #[cfg(feature = "wasm-plugins")]
     {
-        providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
+        let lock_provider = locked_wasm_provider::LockedWasmPluginProvider::new(
+            crate::plugin_lock::PluginsLock::load(),
             config.plugins.clone(),
             config.settings.clone(),
-        )));
+        );
+        if lock_provider.should_prefer_locked_runtime() {
+            providers.push(Box::new(lock_provider));
+
+            let mut bundled_only = config.plugins.clone();
+            bundled_only.auto_discover = false;
+            providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
+                bundled_only,
+                config.settings.clone(),
+            )));
+        } else {
+            providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
+                config.plugins.clone(),
+                config.settings.clone(),
+            )));
+        }
     }
     #[cfg(not(feature = "wasm-plugins"))]
     {
@@ -367,11 +385,16 @@ mod tests {
         config: &PluginsConfig,
         provider: impl PluginProvider + 'static,
     ) -> PluginManager {
-        let full_config = kasane_core::config::Config {
-            plugins: config.clone(),
-            ..Default::default()
-        };
-        build_plugin_manager(&full_config, provider)
+        let mut providers: Vec<Box<dyn PluginProvider>> = vec![Box::new(
+            kasane_wasm::WasmPluginProvider::new(config.clone(), std::collections::HashMap::new()),
+        )];
+        providers.push(Box::new(provider));
+        providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
+            "builtin-input",
+            "kasane.builtin.input",
+            || kasane_core::input::BuiltinInputPlugin,
+        )])));
+        PluginManager::new(providers)
     }
 
     #[derive(Clone, Copy)]
