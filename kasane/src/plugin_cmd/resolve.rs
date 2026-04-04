@@ -164,9 +164,9 @@ pub fn run_pin(
         .plugins
         .selection
         .insert(plugin_id.to_string(), selection.clone());
-    let config_path = config.save()?;
     let saved = resolve_and_save(&config, ResolveOptions::reconcile())?;
     require_resolved(&saved.result, plugin_id)?;
+    let config_path = config.save()?;
 
     println!("Pinned plugin: {plugin_id}");
     match selection {
@@ -185,8 +185,8 @@ pub fn run_pin(
 pub fn run_unpin(plugin_id: &str) -> Result<()> {
     let mut config = Config::try_load()?;
     config.plugins.selection.remove(plugin_id);
-    let config_path = config.save()?;
     let saved = resolve_and_save(&config, ResolveOptions::reconcile())?;
+    let config_path = config.save()?;
 
     println!("Unpinned plugin: {plugin_id}");
     println!("Config: {}", config_path.display());
@@ -603,7 +603,7 @@ fn latest_unique_candidate<'a>(
         return Err(ResolutionIssue {
             plugin_id: plugin_id.to_string(),
             reason: format!("cannot choose a unique latest package for {context}"),
-            candidates: candidate_summaries_from_refs(&candidates),
+            candidates: candidate_summaries(candidates.iter().copied()),
         });
     }
 
@@ -655,20 +655,11 @@ fn compare_candidate_versions(left: &PackageCandidate, right: &PackageCandidate)
     }
 }
 
-fn candidate_summaries(candidates: &[PackageCandidate]) -> Vec<CandidateSummary> {
+fn candidate_summaries<'a>(
+    candidates: impl IntoIterator<Item = &'a PackageCandidate>,
+) -> Vec<CandidateSummary> {
     candidates
-        .iter()
-        .map(|candidate| CandidateSummary {
-            package: candidate.inspected.header.package.name.clone(),
-            version: candidate.inspected.header.package.version.clone(),
-            artifact_digest: candidate.inspected.header.digests.artifact.clone(),
-        })
-        .collect()
-}
-
-fn candidate_summaries_from_refs(candidates: &[&PackageCandidate]) -> Vec<CandidateSummary> {
-    candidates
-        .iter()
+        .into_iter()
         .map(|candidate| CandidateSummary {
             package: candidate.inspected.header.package.name.clone(),
             version: candidate.inspected.header.package.version.clone(),

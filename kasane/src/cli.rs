@@ -309,6 +309,10 @@ fn parse_plugin_args<'a>(
                     other => return Err(CliError::PluginGcInvalidArgs(other.to_string())),
                 }
             }
+            // --keep without explicit --prune-history implies --prune-history
+            if keep_generations != 10 && !prune_history {
+                prune_history = true;
+            }
             Ok(PluginSubcommand::Gc {
                 prune_history,
                 keep_generations,
@@ -481,7 +485,7 @@ Subcommands:
   plugin install [<path>]           Build or verify a plugin package and activate it
   plugin list                       Show installed plugin packages
   plugin gc [--prune-history] [--keep N]
-                                   Remove unreferenced package artifacts and optionally prune lock history
+                                   Remove unreferenced package artifacts; --keep N implies --prune-history
   plugin doctor [--fix]              Diagnose plugin development environment (--fix to auto-repair)
   plugin dev [<path>] [--release]   Build, install, and watch for changes (hot-reload)
   plugin resolve                    Rebuild plugins.lock from installed packages
@@ -807,6 +811,17 @@ mod tests {
     fn test_plugin_gc_prune_history() {
         assert_eq!(
             parse_cli_args(&args(&["plugin", "gc", "--prune-history", "--keep", "3",])),
+            Ok(CliAction::Plugin(PluginSubcommand::Gc {
+                prune_history: true,
+                keep_generations: 3,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_plugin_gc_keep_implies_prune_history() {
+        assert_eq!(
+            parse_cli_args(&args(&["plugin", "gc", "--keep", "3"])),
             Ok(CliAction::Plugin(PluginSubcommand::Gc {
                 prune_history: true,
                 keep_generations: 3,

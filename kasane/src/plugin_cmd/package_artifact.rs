@@ -46,7 +46,7 @@ pub fn build_project_package(project_dir: &str, release: bool) -> Result<BuiltPa
 
     let output = package::build_package(BuildInput {
         package_name: cargo_manifest.package.name.clone(),
-        package_version: cargo_manifest.package.version.clone(),
+        package_version: cargo_manifest.package.version_string()?,
         component_entry: "plugin.wasm".to_string(),
         component,
         manifest,
@@ -124,7 +124,19 @@ struct CargoManifest {
 #[derive(Debug, Deserialize)]
 struct CargoPackage {
     name: String,
-    version: String,
+    version: toml::Value,
+}
+
+impl CargoPackage {
+    fn version_string(&self) -> Result<String> {
+        match &self.version {
+            toml::Value::String(s) => Ok(s.clone()),
+            _ => bail!(
+                "Cargo.toml [package] version must be a string literal, not `version.workspace = true`. \
+                 Plugin packages require an explicit version."
+            ),
+        }
+    }
 }
 
 fn load_plugin_manifest(project_path: &Path) -> Result<PluginManifest> {
@@ -163,32 +175,7 @@ pub(super) fn touch_reload_sentinel(plugins_dir: &Path) {
 }
 
 fn discover_package_paths(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    collect_package_paths(root, &mut paths)?;
-    Ok(paths)
-}
-
-fn collect_package_paths(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = match fs::read_dir(root) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err).with_context(|| format!("failed to read {}", root.display())),
-    };
-
-    for entry in entries {
-        let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("failed to inspect {}", path.display()))?;
-        if file_type.is_dir() {
-            collect_package_paths(&path, out)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("kpk") {
-            out.push(path);
-        }
-    }
-
-    Ok(())
+    kasane_plugin_package::fs_util::collect_kpk_paths(root)
 }
 
 #[cfg(test)]

@@ -54,6 +54,7 @@ pollster = "0.4"
 base64 = "0.22"
 parking_lot = "0.12"
 rmp-serde = "1"
+sha2 = "0.11"
 
 [profile.release]
 lto = "thin"

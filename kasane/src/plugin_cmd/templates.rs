@@ -1,5 +1,3 @@
-#![allow(clippy::useless_format)]
-
 use crate::cli::PluginTemplate;
 
 const SDK_VERSION: &str = "0.3.0";
@@ -145,6 +143,7 @@ fn hello_template(id: &str) -> String {
     )
 }
 
+#[allow(clippy::useless_format)]
 fn contribution_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
@@ -167,6 +166,7 @@ fn contribution_template(_id: &str) -> String {
     )
 }
 
+#[allow(clippy::useless_format)]
 fn annotation_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
@@ -185,6 +185,7 @@ fn annotation_template(_id: &str) -> String {
     )
 }
 
+#[allow(clippy::useless_format)]
 fn transform_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
@@ -221,6 +222,7 @@ fn transform_template(_id: &str) -> String {
     )
 }
 
+#[allow(clippy::useless_format)]
 fn overlay_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
@@ -292,6 +294,7 @@ fn overlay_template(_id: &str) -> String {
     )
 }
 
+#[allow(clippy::useless_format)]
 fn process_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
