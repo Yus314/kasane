@@ -458,7 +458,6 @@ pub fn handler_flag_bit(name: &str) -> Option<u32> {
     match name {
         "overlay" => Some(1 << 2),
         "menu-transform" => Some(1 << 5),
-        "cursor-style" => Some(1 << 6),
         "input-handler" => Some(1 << 7),
         "surface-provider" => Some(1 << 11),
         "workspace-observer" => Some(1 << 12),
@@ -469,7 +468,6 @@ pub fn handler_flag_bit(name: &str) -> Option<u32> {
         "io-handler" => Some(1 << 17),
         "display-transform" => Some(1 << 18),
         "scroll-policy" => Some(1 << 19),
-        "cell-decoration" => Some(1 << 20),
         "navigation-policy" => Some(1 << 21),
         "navigation-action" => Some(1 << 22),
         _ => None,
@@ -909,10 +907,6 @@ abi_version = "0.25.0"
             Some(PluginCapabilities::MENU_TRANSFORM.bits())
         );
         assert_eq!(
-            handler_flag_bit("cursor-style"),
-            Some(PluginCapabilities::CURSOR_STYLE.bits())
-        );
-        assert_eq!(
             handler_flag_bit("input-handler"),
             Some(PluginCapabilities::INPUT_HANDLER.bits())
         );
@@ -951,10 +945,6 @@ abi_version = "0.25.0"
         assert_eq!(
             handler_flag_bit("scroll-policy"),
             Some(PluginCapabilities::SCROLL_POLICY.bits())
-        );
-        assert_eq!(
-            handler_flag_bit("cell-decoration"),
-            Some(PluginCapabilities::CELL_DECORATION.bits())
         );
         assert_eq!(
             handler_flag_bit("navigation-policy"),

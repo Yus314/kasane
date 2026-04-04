@@ -12,9 +12,9 @@ use kasane_core::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, Mouse
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, IoEvent, KeyHandleResult, LineAnnotation,
-    OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginDiagnostic, PluginId, SlotId, TransformContext, TransformSubject, TransformTarget,
-    VirtualTextItem,
+    OrnamentBatch, OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend,
+    PluginCapabilities, PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId,
+    TransformContext, TransformSubject, TransformTarget, VirtualTextItem,
 };
 use kasane_core::protocol::Atom;
 use kasane_core::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -809,33 +809,12 @@ impl PluginBackend for WasmPlugin {
         })
     }
 
-    fn cursor_style_override(
-        &self,
-        state: &AppView<'_>,
-    ) -> Option<kasane_core::render::CursorStyleHint> {
-        self.shared
-            .call_synced(state, "cursor_style_override", |rt| {
-                let api = rt.instance.kasane_plugin_plugin_api();
-                Ok(api
-                    .call_cursor_style_override(&mut rt.store)?
-                    .and_then(|code| {
-                        let shape = match code {
-                            0 => kasane_core::render::CursorStyle::Block,
-                            1 => kasane_core::render::CursorStyle::Bar,
-                            2 => kasane_core::render::CursorStyle::Underline,
-                            3 => kasane_core::render::CursorStyle::Outline,
-                            _ => return None,
-                        };
-                        Some(kasane_core::render::CursorStyleHint::from(shape))
-                    }))
-            })
-    }
-
-    fn decorate_cells(&self, state: &AppView<'_>) -> Vec<kasane_core::plugin::CellDecoration> {
-        self.shared.call_synced(state, "decorate_cells", |rt| {
+    fn render_ornaments(&self, state: &AppView<'_>, ctx: &RenderOrnamentContext) -> OrnamentBatch {
+        self.shared.call_synced(state, "render_ornaments", |rt| {
             let api = rt.instance.kasane_plugin_plugin_api();
-            Ok(convert::wit_cell_decorations_to_decorations(
-                &api.call_decorate_cells(&mut rt.store)?,
+            let wit_ctx = convert::render_ornament_context_to_wit(ctx);
+            Ok(convert::wit_ornament_batch_to_ornament_batch(
+                &api.call_render_ornaments(&mut rt.store, wit_ctx)?,
             ))
         })
     }

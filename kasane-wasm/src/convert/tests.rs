@@ -2,8 +2,12 @@ use super::*;
 use kasane_core::element::{BorderLineStyle, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::{Rect, SplitDirection, flex::Constraints};
-use kasane_core::plugin::{AppView, Command, ContributeContext, IoEvent, ProcessEvent, StdinMode};
+use kasane_core::plugin::{
+    AppView, Command, ContributeContext, CursorEffect, IoEvent, OrnamentModality, ProcessEvent,
+    StdinMode, SurfaceOrnAnchor, SurfaceOrnKind,
+};
 use kasane_core::protocol::{Atom, Face, KasaneRequest};
+use kasane_core::render::CursorStyle;
 use kasane_core::scroll::{
     DefaultScrollCandidate, ResolvedScroll, ScrollAccumulationMode, ScrollCurve, ScrollGranularity,
     ScrollPlan, ScrollPolicyResult,
@@ -393,6 +397,117 @@ fn convert_session_ready_effects_from_wit() {
             ScrollCurve::Linear,
             ScrollAccumulationMode::Add,
         )]
+    );
+}
+
+#[test]
+fn convert_render_ornament_context_to_wit() {
+    let ctx = RenderOrnamentContext {
+        screen_cols: 120,
+        screen_rows: 40,
+        visible_line_start: 10,
+        visible_line_end: 20,
+    };
+
+    let wit_ctx = render_ornament_context_to_wit(&ctx);
+
+    assert_eq!(wit_ctx.screen_cols, 120);
+    assert_eq!(wit_ctx.screen_rows, 40);
+    assert_eq!(wit_ctx.visible_line_start, 10);
+    assert_eq!(wit_ctx.visible_line_end, 20);
+}
+
+#[test]
+fn convert_ornament_batch_from_wit() {
+    let batch = wit::OrnamentBatch {
+        emphasis: vec![wit::CellDecoration {
+            target: wit::DecorationTarget::Column(3),
+            face: wit::Face {
+                fg: wit::Color::DefaultColor,
+                bg: wit::Color::Named(wit::NamedColor::Blue),
+                underline: wit::Color::DefaultColor,
+                attributes: 0,
+            },
+            merge: 2,
+            priority: 5,
+        }],
+        cursor_style: Some(wit::CursorStyleOrn {
+            shape: 2,
+            priority: 7,
+            modality: wit::OrnamentModality::Approximate,
+        }),
+        cursor_effects: vec![wit::CursorEffectOrn {
+            kind: wit::CursorEffect::Halo,
+            face: wit::Face {
+                fg: wit::Color::Named(wit::NamedColor::Yellow),
+                bg: wit::Color::DefaultColor,
+                underline: wit::Color::DefaultColor,
+                attributes: 0,
+            },
+            priority: 3,
+            modality: wit::OrnamentModality::Must,
+        }],
+        surfaces: vec![wit::SurfaceOrn {
+            anchor: wit::SurfaceOrnAnchor::SurfaceKey("sidebar".into()),
+            kind: wit::SurfaceOrnKind::InactiveTint,
+            face: wit::Face {
+                fg: wit::Color::DefaultColor,
+                bg: wit::Color::Named(wit::NamedColor::BrightBlack),
+                underline: wit::Color::DefaultColor,
+                attributes: 0,
+            },
+            priority: 9,
+            modality: wit::OrnamentModality::May,
+        }],
+    };
+
+    let converted = wit_ornament_batch_to_ornament_batch(&batch);
+
+    assert_eq!(converted.emphasis.len(), 1);
+    assert!(matches!(
+        converted.emphasis[0].target,
+        kasane_core::plugin::DecorationTarget::Column { column: 3 }
+    ));
+    assert_eq!(converted.emphasis[0].priority, 5);
+
+    let cursor_style = converted.cursor_style.expect("missing cursor style");
+    assert_eq!(cursor_style.priority, 7);
+    assert_eq!(cursor_style.modality, OrnamentModality::Approximate);
+    assert_eq!(cursor_style.hint.shape, CursorStyle::Underline);
+
+    assert_eq!(converted.cursor_effects.len(), 1);
+    assert_eq!(converted.cursor_effects[0].kind, CursorEffect::Halo);
+    assert_eq!(converted.cursor_effects[0].priority, 3);
+    assert_eq!(converted.cursor_effects[0].modality, OrnamentModality::Must);
+
+    assert_eq!(converted.surfaces.len(), 1);
+    let surface = &converted.surfaces[0];
+    assert_eq!(surface.priority, 9);
+    assert_eq!(surface.modality, OrnamentModality::May);
+    assert_eq!(surface.kind, SurfaceOrnKind::InactiveTint);
+    assert!(matches!(
+        &surface.anchor,
+        SurfaceOrnAnchor::SurfaceKey(key) if key == "sidebar"
+    ));
+}
+
+#[test]
+fn convert_ornament_batch_invalid_cursor_shape_drops_style() {
+    let batch = wit::OrnamentBatch {
+        emphasis: vec![],
+        cursor_style: Some(wit::CursorStyleOrn {
+            shape: 99,
+            priority: 10,
+            modality: wit::OrnamentModality::Must,
+        }),
+        cursor_effects: vec![],
+        surfaces: vec![],
+    };
+
+    let converted = wit_ornament_batch_to_ornament_batch(&batch);
+    assert!(
+        converted.cursor_style.is_none(),
+        "invalid shape code should produce None, not a default Block"
     );
 }
 

@@ -98,8 +98,7 @@ fn known_guest_methods() -> std::collections::HashSet<&'static str> {
         "observe_mouse",
         "observe_drop",
         "state_hash",
-        "cursor_style_override",
-        "decorate_cells",
+        "render_ornaments",
         "update_effects",
         "requested_capabilities",
         "requested_authorities",
@@ -497,16 +496,20 @@ pub(crate) fn generate_defaults(
 
     add_default!("state_hash", quote! { fn state_hash() -> u64 { 0 } });
 
-    // --- Cursor ---
+    // --- Render ornaments ---
 
     add_default!(
-        "cursor_style_override",
-        quote! { fn cursor_style_override() -> Option<u8> { None } }
-    );
-
-    add_default!(
-        "decorate_cells",
-        quote! { fn decorate_cells() -> Vec<CellDecoration> { Vec::new() } }
+        "render_ornaments",
+        quote! {
+            fn render_ornaments(_ctx: OrnamentContext) -> OrnamentBatch {
+                OrnamentBatch {
+                    emphasis: vec![],
+                    cursor_style: None,
+                    cursor_effects: vec![],
+                    surfaces: vec![],
+                }
+            }
+        }
     );
 
     // --- Inter-plugin messaging ---
@@ -597,10 +600,6 @@ pub(crate) fn generate_defaults(
         if existing.contains("transform_menu_item") {
             caps |= 1 << 5;
         }
-        // CURSOR_STYLE = 1 << 6
-        if existing.contains("cursor_style_override") {
-            caps |= 1 << 6;
-        }
         // INPUT_HANDLER = 1 << 7
         if existing.contains("handle_key")
             || existing.contains("handle_key_middleware")
@@ -647,10 +646,6 @@ pub(crate) fn generate_defaults(
         if existing.contains("handle_default_scroll") {
             caps |= 1 << 19;
         }
-        // CELL_DECORATION = 1 << 20
-        if existing.contains("decorate_cells") {
-            caps |= 1 << 20;
-        }
         // NAVIGATION_POLICY = 1 << 21
         if existing.contains("navigation_policy") {
             caps |= 1 << 21;
@@ -662,6 +657,10 @@ pub(crate) fn generate_defaults(
         // DROP_HANDLER = 1 << 23
         if existing.contains("handle_drop") {
             caps |= 1 << 23;
+        }
+        // RENDER_ORNAMENT = 1 << 24
+        if existing.contains("render_ornaments") {
+            caps |= 1 << 24;
         }
 
         let caps_literal = caps;

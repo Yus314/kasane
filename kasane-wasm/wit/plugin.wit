@@ -828,6 +828,67 @@ interface types {
         priority: s16,
     }
 
+    // --- v0.25.0: Render ornament types ---
+
+    record ornament-context {
+        screen-cols: u16,
+        screen-rows: u16,
+        visible-line-start: u32,
+        visible-line-end: u32,
+    }
+
+    enum ornament-modality {
+        must,
+        may,
+        approximate,
+    }
+
+    record cursor-style-orn {
+        shape: u8,
+        priority: s16,
+        modality: ornament-modality,
+    }
+
+    /// Reserved for future use. Currently collected but not rendered by the host.
+    enum cursor-effect {
+        halo,
+        ring,
+        emphasis,
+    }
+
+    /// Reserved for future use. Currently collected but not rendered by the host.
+    record cursor-effect-orn {
+        kind: cursor-effect,
+        face: face,
+        priority: s16,
+        modality: ornament-modality,
+    }
+
+    variant surface-orn-anchor {
+        focused-surface,
+        surface-key(string),
+    }
+
+    enum surface-orn-kind {
+        focus-frame,
+        inactive-tint,
+    }
+
+    record surface-orn {
+        anchor: surface-orn-anchor,
+        kind: surface-orn-kind,
+        face: face,
+        priority: s16,
+        modality: ornament-modality,
+    }
+
+    record ornament-batch {
+        emphasis: list<cell-decoration>,
+        cursor-style: option<cursor-style-orn>,
+        cursor-effects: list<cursor-effect-orn>,
+        surfaces: list<surface-orn>,
+    }
+
     // --- v0.19.0: Selection types ---
 
     record selection {
@@ -1065,7 +1126,7 @@ interface plugin-api {
                surface-event-context, surface-event, surface-descriptor,
                default-scroll-candidate, scroll-policy-result,
                bootstrap-effects, session-ready-effects, runtime-effects,
-               cell-decoration,
+               cell-decoration, ornament-context, ornament-batch,
                key-group-decl, key-response,
                display-unit-info, navigation-policy-kind, navigation-action-result,
                channel-value};
@@ -1188,12 +1249,6 @@ interface plugin-api {
     /// Priority for decorator ordering (lower = applied first). Default: 0.
     decorator-priority: func() -> u32;
 
-    // --- v0.4.0: Cursor style override ---
-
-    /// Override cursor style. Return None to defer to default logic.
-    /// 0=Block, 1=Bar, 2=Underline, 3=Outline.
-    cursor-style-override: func() -> option<u8>;
-
     // --- v0.4.0: Named slot contributions ---
 
     /// Contribute an element to a custom named slot.
@@ -1227,8 +1282,8 @@ interface plugin-api {
     /// Annotate a buffer line (replaces contribute-line).
     annotate-line: func(line: u32, ctx: annotate-context) -> option<line-annotation>;
 
-    /// Return cell-level decorations for the current frame.
-    decorate-cells: func() -> list<cell-decoration>;
+    /// Return backend-independent physical ornament proposals for the current frame.
+    render-ornaments: func(ctx: ornament-context) -> ornament-batch;
 
     /// Return display transformation directives (fold, hide, virtual text).
     display-directives: func() -> list<display-directive>;

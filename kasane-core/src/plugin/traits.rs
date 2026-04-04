@@ -12,10 +12,10 @@ use crate::display::unit::DisplayUnit;
 
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OverlayContext,
-    OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
-    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
-    VirtualTextItem,
+    DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OrnamentBatch,
+    OverlayContext, OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities,
+    PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId, TransformContext,
+    TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
 };
 
 /// Result of key middleware dispatch.
@@ -166,22 +166,15 @@ pub trait PluginBackend: Any {
         DirtyFlags::ALL
     }
 
-    // --- Cursor style ---
+    // --- Render ornaments ---
 
-    /// Override the cursor style. Return None to defer to the default logic.
-    /// First non-None result from any plugin is used.
-    fn cursor_style_override(
+    /// Return backend-independent physical ornament proposals for the current frame.
+    fn render_ornaments(
         &self,
         _state: &AppView<'_>,
-    ) -> Option<crate::render::CursorStyleHint> {
-        None
-    }
-
-    // --- Cell decoration ---
-
-    /// Return cell-level decorations for the current frame.
-    fn decorate_cells(&self, _state: &AppView<'_>) -> Vec<super::CellDecoration> {
-        vec![]
+        _ctx: &RenderOrnamentContext,
+    ) -> OrnamentBatch {
+        OrnamentBatch::default()
     }
 
     // --- Menu item transformation ---

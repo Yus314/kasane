@@ -1,9 +1,13 @@
+use super::CursorStyleHint;
 use super::cell_decoration;
 use super::cursor::{
-    apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style_hint,
+    apply_secondary_cursor_faces, clear_block_cursor_face, cursor_position, cursor_style_default,
     find_buffer_origin_in_rect, find_buffer_x_offset, neutralize_unfocused_cursors,
 };
 use super::grid::CellGrid;
+use super::ornament::{
+    apply_surface_ornaments_tui, lower_surface_ornaments_gui, resolve_surface_ornaments,
+};
 use super::scene::{self, DrawCommand, SceneCache};
 use super::walk;
 use super::{RenderResult, view};
@@ -15,6 +19,7 @@ use crate::plugin::PluginView;
 use crate::plugin::{AppView, PaintHook};
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
+use crate::surface::SurfaceRegistry;
 
 // ---------------------------------------------------------------------------
 // ViewSource: abstracts where view sections come from
@@ -31,6 +36,11 @@ pub(crate) trait ViewSource {
 
     /// Build the decomposed view sections.
     fn view_sections(&mut self, state: &AppState, registry: &PluginView<'_>) -> view::ViewSections;
+
+    /// Expose the surface registry when the source is backed by multi-pane composition.
+    fn surface_registry(&self) -> Option<&SurfaceRegistry> {
+        None
+    }
 }
 
 /// Builds view sections directly from PluginRuntime without any memoization.
@@ -99,14 +109,13 @@ fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
 /// Compute the RenderResult (cursor position + style) from AppState.
 fn compute_render_result(
     state: &AppState,
-    registry: &PluginView<'_>,
+    hint: CursorStyleHint,
     buffer_x_offset: u16,
     display_map: Option<&DisplayMap>,
     buffer_y_offset: u16,
     display_scroll_offset: u16,
     focused_pane_rect: Option<&Rect>,
 ) -> RenderResult {
-    let hint = cursor_style_hint(state, registry);
     let (cx, cy) = match state.cursor_mode {
         CursorMode::Buffer => {
             let cx = state.cursor_pos.column as u16 + buffer_x_offset;
@@ -323,17 +332,33 @@ pub(crate) fn render_cached_core(
         apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
     }
 
-    // Apply plugin cell decorations (bracket match, column highlight, etc.)
-    let cell_decorations = registry.collect_cell_decorations(&AppView::new(state));
-    if !cell_decorations.is_empty() {
+    // Collect all render ornaments in a single pass and decompose.
+    let ornament_ctx = crate::plugin::RenderOrnamentContext::from_screen(
+        state.cols,
+        state.rows,
+        frame.display_scroll_offset,
+    );
+    let ornaments = registry.collect_ornaments(&AppView::new(state), &ornament_ctx);
+
+    if !ornaments.emphasis.is_empty() {
         cell_decoration::apply_cell_decorations(
-            &cell_decorations,
+            &ornaments.emphasis,
             grid,
             frame.buffer_x_offset,
             dm,
             frame.buffer_y_offset,
             dso,
         );
+    }
+
+    let surface_ornaments = resolve_surface_ornaments(
+        &ornaments.surfaces,
+        source.surface_registry(),
+        frame.focused_pane_rect,
+        root_area,
+    );
+    if !surface_ornaments.is_empty() {
+        apply_surface_ornaments_tui(grid, &surface_ornaments);
     }
 
     // Use focused pane state for cursor operations in multi-pane mode
@@ -362,7 +387,10 @@ pub(crate) fn render_cached_core(
         dso,
     );
 
-    let hint = cursor_style_hint(cursor_state, registry);
+    // Resolve cursor style: ornament Style > default
+    let hint = ornaments
+        .cursor_style
+        .unwrap_or_else(|| cursor_style_default(cursor_state).into());
     clear_block_cursor_face(
         cursor_state,
         grid,
@@ -417,11 +445,22 @@ pub(crate) fn scene_render_core<'a>(
     let dso = frame.display_scroll_offset as u16;
     let root_area = frame.root_area;
 
+    // Collect all render ornaments in a single pass.
+    let ornament_ctx = crate::plugin::RenderOrnamentContext::from_screen(
+        state.cols,
+        state.rows,
+        frame.display_scroll_offset,
+    );
+    let ornaments = registry.collect_ornaments(&AppView::new(state), &ornament_ctx);
+
     // Use focused pane state for cursor computation in multi-pane mode
     let cursor_state = frame.focused_pane_state.as_deref().unwrap_or(state);
+    let cursor_hint = ornaments
+        .cursor_style
+        .unwrap_or_else(|| cursor_style_default(cursor_state).into());
     let result = compute_render_result(
         cursor_state,
-        registry,
+        cursor_hint,
         frame.buffer_x_offset,
         dm,
         frame.buffer_y_offset,
@@ -439,7 +478,7 @@ pub(crate) fn scene_render_core<'a>(
 
     // Base section
     if scene_cache.base_commands.is_none() {
-        let cmds = walk::walk_paint_scene_section(
+        let mut cmds = walk::walk_paint_scene_section(
             &frame.sections.base,
             &frame.base_layout,
             state,
@@ -447,6 +486,15 @@ pub(crate) fn scene_render_core<'a>(
             cell_size,
             result.cursor_style,
         );
+        let surface_ornaments = resolve_surface_ornaments(
+            &ornaments.surfaces,
+            source.surface_registry(),
+            frame.focused_pane_rect,
+            root_area,
+        );
+        if !surface_ornaments.is_empty() {
+            cmds.extend(lower_surface_ornaments_gui(&surface_ornaments, cell_size));
+        }
         scene_cache.base_commands = Some(cmds);
     }
 

@@ -1,4 +1,8 @@
 use super::*;
+use crate::plugin::{
+    CursorEffect, CursorEffectOrn, CursorStyleOrn, OrnamentBatch, OrnamentModality,
+    RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
+};
 
 // --- Input observation tests ---
 
@@ -228,6 +232,213 @@ fn test_collect_paint_hooks_for_owner() {
     assert_eq!(hooks.len(), 2);
     assert_eq!(hooks[0].id(), "hook-a");
     assert_eq!(hooks[1].id(), "hook-b");
+}
+
+struct RenderOrnamentPlugin {
+    batch: OrnamentBatch,
+}
+
+impl PluginBackend for RenderOrnamentPlugin {
+    fn id(&self) -> PluginId {
+        PluginId("render-ornament-test".to_string())
+    }
+
+    fn capabilities(&self) -> PluginCapabilities {
+        PluginCapabilities::RENDER_ORNAMENT
+    }
+
+    fn render_ornaments(
+        &self,
+        _state: &AppView<'_>,
+        _ctx: &RenderOrnamentContext,
+    ) -> OrnamentBatch {
+        self.batch.clone()
+    }
+}
+
+#[test]
+fn test_collect_ornaments() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(RenderOrnamentPlugin {
+        batch: OrnamentBatch {
+            emphasis: vec![CellDecoration {
+                target: DecorationTarget::Column { column: 3 },
+                face: Face::default(),
+                merge: FaceMerge::Background,
+                priority: 10,
+            }],
+            cursor_style: Some(CursorStyleOrn {
+                hint: crate::render::CursorStyle::Bar.into(),
+                priority: 20,
+                modality: OrnamentModality::Approximate,
+            }),
+            cursor_effects: vec![CursorEffectOrn {
+                kind: CursorEffect::Halo,
+                face: Face::default(),
+                priority: 15,
+                modality: OrnamentModality::Approximate,
+            }],
+            surfaces: vec![SurfaceOrn {
+                anchor: SurfaceOrnAnchor::FocusedSurface,
+                kind: SurfaceOrnKind::FocusFrame,
+                face: Face::default(),
+                priority: 30,
+                modality: OrnamentModality::Must,
+            }],
+        },
+    }));
+
+    let state = AppState::default();
+    let collected = registry
+        .view()
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    assert_eq!(collected.emphasis.len(), 1);
+    assert!(collected.cursor_style.is_some());
+    assert_eq!(collected.cursor_effects.len(), 1);
+    assert_eq!(collected.surfaces.len(), 1);
+}
+
+#[test]
+fn test_cursor_style_does_not_compete_with_effects() {
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(RenderOrnamentPlugin {
+        batch: OrnamentBatch {
+            emphasis: vec![],
+            cursor_style: Some(CursorStyleOrn {
+                hint: crate::render::CursorStyle::Bar.into(),
+                priority: 10,
+                modality: OrnamentModality::Must,
+            }),
+            cursor_effects: vec![CursorEffectOrn {
+                kind: CursorEffect::Halo,
+                face: Face::default(),
+                priority: 20,
+                modality: OrnamentModality::Must,
+            }],
+            surfaces: vec![],
+        },
+    }));
+
+    let state = AppState::default();
+    let collected = registry
+        .view()
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    // cursor_style and cursor_effects are independent channels
+    assert_eq!(
+        collected.cursor_style.map(|h| h.shape),
+        Some(crate::render::CursorStyle::Bar)
+    );
+    assert_eq!(collected.cursor_effects.len(), 1);
+    assert_eq!(collected.cursor_effects[0].kind, CursorEffect::Halo);
+}
+
+#[test]
+fn test_cursor_effects_accumulate() {
+    struct EffectPlugin {
+        id: &'static str,
+        effect: CursorEffect,
+    }
+    impl PluginBackend for EffectPlugin {
+        fn id(&self) -> PluginId {
+            PluginId(self.id.to_string())
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::RENDER_ORNAMENT
+        }
+        fn render_ornaments(
+            &self,
+            _state: &AppView<'_>,
+            _ctx: &RenderOrnamentContext,
+        ) -> OrnamentBatch {
+            OrnamentBatch {
+                cursor_effects: vec![CursorEffectOrn {
+                    kind: self.effect,
+                    face: Face::default(),
+                    priority: 10,
+                    modality: OrnamentModality::Approximate,
+                }],
+                ..OrnamentBatch::default()
+            }
+        }
+    }
+
+    let mut registry = PluginRuntime::new();
+    registry.register_backend(Box::new(EffectPlugin {
+        id: "halo",
+        effect: CursorEffect::Halo,
+    }));
+    registry.register_backend(Box::new(EffectPlugin {
+        id: "ring",
+        effect: CursorEffect::Ring,
+    }));
+
+    let state = AppState::default();
+    let collected = registry
+        .view()
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    assert_eq!(collected.cursor_effects.len(), 2);
+}
+
+#[test]
+fn test_cursor_style_modality_wins_over_priority() {
+    struct CursorStylePlugin {
+        id: &'static str,
+        style: crate::render::CursorStyle,
+        priority: i16,
+        modality: OrnamentModality,
+    }
+    impl PluginBackend for CursorStylePlugin {
+        fn id(&self) -> PluginId {
+            PluginId(self.id.to_string())
+        }
+        fn capabilities(&self) -> PluginCapabilities {
+            PluginCapabilities::RENDER_ORNAMENT
+        }
+        fn render_ornaments(
+            &self,
+            _state: &AppView<'_>,
+            _ctx: &RenderOrnamentContext,
+        ) -> OrnamentBatch {
+            OrnamentBatch {
+                cursor_style: Some(CursorStyleOrn {
+                    hint: self.style.into(),
+                    priority: self.priority,
+                    modality: self.modality,
+                }),
+                ..OrnamentBatch::default()
+            }
+        }
+    }
+
+    let mut registry = PluginRuntime::new();
+    // Plugin A: Must modality but low priority
+    registry.register_backend(Box::new(CursorStylePlugin {
+        id: "must-low",
+        style: crate::render::CursorStyle::Bar,
+        priority: 5,
+        modality: OrnamentModality::Must,
+    }));
+    // Plugin B: Approximate modality but high priority
+    registry.register_backend(Box::new(CursorStylePlugin {
+        id: "approx-high",
+        style: crate::render::CursorStyle::Underline,
+        priority: 100,
+        modality: OrnamentModality::Approximate,
+    }));
+
+    let state = AppState::default();
+    let collected = registry
+        .view()
+        .collect_ornaments(&AppView::new(&state), &RenderOrnamentContext::default());
+
+    // Must modality (rank 2) wins over Approximate (rank 1) regardless of priority
+    assert_eq!(
+        collected.cursor_style.map(|h| h.shape),
+        Some(crate::render::CursorStyle::Bar)
+    );
 }
 
 #[test]

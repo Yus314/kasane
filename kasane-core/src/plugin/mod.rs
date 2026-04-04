@@ -18,6 +18,7 @@ pub mod process_task;
 mod provider;
 pub mod pubsub;
 mod registry;
+pub mod render_ornament;
 pub mod setting;
 pub mod state;
 mod traits;
@@ -64,7 +65,8 @@ pub use context::{
 
 // Re-export registry module
 pub use registry::{
-    ContributionCache, KeyDispatchResult, PluginRuntime, PluginSurfaceSet, PluginView,
+    CollectedOrnaments, ContributionCache, KeyDispatchResult, PluginRuntime, PluginSurfaceSet,
+    PluginView,
 };
 
 /// Deprecated alias — use [`PluginRuntime`] instead.
@@ -98,6 +100,10 @@ pub use handler_registry::HandlerRegistry;
 pub use handler_table::GutterSide;
 pub use process_task::{ProcessTaskResult, ProcessTaskSpec};
 pub use pubsub::{OscillationKind, Topic, TopicBus, TopicId};
+pub use render_ornament::{
+    CursorEffect, CursorEffectOrn, CursorStyleOrn, OrnamentBatch, OrnamentModality,
+    RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
+};
 pub use setting::SettingValue;
 pub use state::{Plugin, PluginState};
 
@@ -108,7 +114,6 @@ bitflags! {
     pub struct PluginCapabilities: u32 {
         const OVERLAY            = 1 << 2;
         const MENU_TRANSFORM     = 1 << 5;
-        const CURSOR_STYLE       = 1 << 6;
         const INPUT_HANDLER      = 1 << 7;
         /// NOTE: SURFACE_PROVIDER is declarative metadata only. It is not used
         /// for dispatch gating in PluginRuntime — surface lifecycle is managed
@@ -122,10 +127,10 @@ bitflags! {
         const IO_HANDLER         = 1 << 17;
         const DISPLAY_TRANSFORM  = 1 << 18;
         const SCROLL_POLICY      = 1 << 19;
-        const CELL_DECORATION    = 1 << 20;
         const NAVIGATION_POLICY  = 1 << 21;
         const NAVIGATION_ACTION  = 1 << 22;
         const DROP_HANDLER       = 1 << 23;
+        const RENDER_ORNAMENT    = 1 << 24;
     }
 }
 

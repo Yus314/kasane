@@ -611,10 +611,8 @@ struct PluginDefV2 {
     contributes: Vec<ContributeBinding>,
     transforms: Vec<TransformBinding>,
     transform_menu_item: bool,
-    cursor_style: bool,
     overlay: bool,
     display_directives: bool,
-    cell_decoration: bool,
     default_scroll: bool,
 }
 
@@ -659,10 +657,8 @@ pub fn expand_kasane_plugin_v2(input: TokenStream) -> syn::Result<TokenStream> {
         contributes: Vec::new(),
         transforms: Vec::new(),
         transform_menu_item: false,
-        cursor_style: false,
         overlay: false,
         display_directives: false,
-        cell_decoration: false,
         default_scroll: false,
     };
 
@@ -696,10 +692,8 @@ pub fn expand_kasane_plugin_v2(input: TokenStream) -> syn::Result<TokenStream> {
                     "annotate_inline" => def.annotate_inline = true,
                     "virtual_text" => def.virtual_text = true,
                     "transform_menu_item" => def.transform_menu_item = true,
-                    "cursor_style_override" => def.cursor_style = true,
                     "contribute_overlay" => def.overlay = true,
                     "display_directives" => def.display_directives = true,
-                    "decorate_cells" => def.cell_decoration = true,
                     "handle_default_scroll" => def.default_scroll = true,
                     _ => {}
                 }
@@ -893,20 +887,6 @@ fn generate_v2_plugin(def: &PluginDefV2, module: &ItemMod) -> syn::Result<TokenS
     if def.display_directives {
         register_body.push(quote! {
             r.on_display(|state, app| #mod_ident::display_directives(state, app));
-        });
-    }
-
-    // Cell decoration
-    if def.cell_decoration {
-        register_body.push(quote! {
-            r.on_cell_decoration(|state, app| #mod_ident::decorate_cells(state, app));
-        });
-    }
-
-    // Cursor style
-    if def.cursor_style {
-        register_body.push(quote! {
-            r.on_cursor_style(|state, app| #mod_ident::cursor_style_override(state, app));
         });
     }
 
