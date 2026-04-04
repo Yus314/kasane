@@ -82,12 +82,19 @@ Bundled plugins require explicit opt-in. Add them to your config:
 enabled = ["cursor_line", "color_preview"]
 ```
 
+Then rebuild the active set:
+
+```bash
+kasane plugin resolve
+```
+
 ### External plugin not loading
 
-1. Check the file is in the plugins directory: `~/.local/share/kasane/plugins/`
-2. Check auto-discovery is enabled (default): `auto_discover = true`
+1. Check the package was installed through `kasane plugin install` or `kasane plugin dev`
+2. Rebuild `plugins.lock`: `kasane plugin resolve`
 3. Check the plugin is not in the `disabled` list
-4. Check the log for loading errors: `KASANE_LOG=info kasane file.txt`
+4. Run `kasane plugin doctor`
+5. Check the log for loading errors: `KASANE_LOG=info kasane file.txt`
 
 ## Reporting Bugs
 

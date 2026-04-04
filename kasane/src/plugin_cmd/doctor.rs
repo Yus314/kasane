@@ -153,11 +153,6 @@ fn check_plugins_lock() -> bool {
         }
     };
 
-    if lock.plugins.is_empty() {
-        println!("empty");
-        return true;
-    }
-
     let resolution = match super::resolve::preview_resolution(
         &config,
         super::resolve::ResolveOptions::reconcile(),
@@ -168,6 +163,21 @@ fn check_plugins_lock() -> bool {
             return false;
         }
     };
+
+    if lock.plugins.is_empty() {
+        if resolution.lock.plugins.is_empty() {
+            println!("empty");
+            return true;
+        }
+
+        println!("EMPTY");
+        println!(
+            "    resolved active set has {} plugin(s)",
+            resolution.lock.plugins.len()
+        );
+        println!("    fix: kasane plugin resolve");
+        return false;
+    }
 
     let mut all_ok = true;
     println!("{} entries", lock.plugins.len());

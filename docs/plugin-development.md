@@ -220,7 +220,7 @@ kasane plugin dev [path]         # Build (debug), install, and watch for changes
 kasane plugin dev --release      # Same, but release builds
 ```
 
-`kasane plugin install` installs a `.kpk` package into `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`) and updates `plugins.lock`.
+`kasane plugin install` installs a `.kpk` package into the package store under `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`) and updates `plugins.lock`.
 
 `kasane plugin dev` does the same as `install`, then watches `src/`, `Cargo.toml`, and `kasane-plugin.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
@@ -253,12 +253,12 @@ kasane plugin doctor --fix       # Auto-fix missing target and plugins directory
 ```
 
 <details>
-<summary>Manual build &amp; deploy (without <code>kasane plugin</code>)</summary>
+<summary>Manual build &amp; deploy</summary>
 
 ```bash
 cargo build --target wasm32-wasip2 --release
 kasane plugin build
-cp target/kasane/sel-badge-0.1.0.kpk ~/.local/share/kasane/plugins/sel_badge.kpk
+kasane plugin install target/kasane/sel-badge-0.1.0.kpk
 ```
 
 </details>

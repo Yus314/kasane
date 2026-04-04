@@ -252,14 +252,7 @@ fn build_plugin_manager(
             config.plugins.clone(),
             config.settings.clone(),
         );
-        if lock_provider.should_prefer_locked_runtime() {
-            providers.push(Box::new(lock_provider));
-        } else {
-            providers.push(Box::new(kasane_wasm::WasmPluginProvider::new(
-                config.plugins.clone(),
-                config.settings.clone(),
-            )));
-        }
+        providers.push(Box::new(lock_provider));
     }
     #[cfg(not(feature = "wasm-plugins"))]
     {
