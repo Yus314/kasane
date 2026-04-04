@@ -87,6 +87,12 @@ restore the previous `plugins.lock` generation with:
 kasane plugin rollback
 ```
 
+To inspect the archived generations before rolling back, run:
+
+```bash
+kasane plugin rollback --list
+```
+
 Current Kasane releases expect WASM plugins built against
 `kasane:plugin@0.25.0`. If you are upgrading from an older build,
 rebuild and reinstall those plugins before startup; older artifacts
