@@ -6,6 +6,7 @@ use crate::plugin_store::PluginStore;
 
 pub fn run(prune_history: bool, keep_generations: usize) -> Result<()> {
     let config = Config::try_load()?;
+    let _guard = crate::workspace_lock::acquire_workspace_lock(&config.plugins.plugins_dir())?;
     let removed_history = if prune_history {
         prune_plugins_lock_history(keep_generations)?
     } else {

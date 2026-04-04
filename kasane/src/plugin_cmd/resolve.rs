@@ -198,6 +198,7 @@ pub(super) fn resolve_and_save(
     config: &Config,
     options: ResolveOptions,
 ) -> Result<SavedResolveResult> {
+    let _guard = crate::workspace_lock::acquire_workspace_lock(&config.plugins.plugins_dir())?;
     let result = preview_resolution(config, options)?;
     if !result.issues.is_empty() {
         bail!(render_resolution_failure(&result));

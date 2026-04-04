@@ -24,6 +24,7 @@ crossbeam-channel = "0.5"
 thiserror = "2"
 arboard = "3"
 anyhow = "1"
+fs2 = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"

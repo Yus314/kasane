@@ -7,6 +7,7 @@ pub mod plugin_lock;
 pub mod plugin_store;
 pub mod process;
 pub mod process_manager;
+pub mod workspace_lock;
 
 pub use kasane_core;
 

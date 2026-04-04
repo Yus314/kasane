@@ -13,6 +13,11 @@ pub fn run(list: bool) -> Result<()> {
         return run_list();
     }
 
+    let plugins_dir = kasane_core::config::Config::try_load()
+        .map(|config| config.plugins.plugins_dir())
+        .unwrap_or_default();
+    let _guard = crate::workspace_lock::acquire_workspace_lock(&plugins_dir)?;
+
     let lock_path = plugins_lock_path();
     match rollback_plugins_lock()? {
         Some(restored_from) => {
