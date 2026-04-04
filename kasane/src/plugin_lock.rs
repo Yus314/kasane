@@ -25,11 +25,15 @@ impl Default for PluginsLock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockedPluginEntry {
     pub plugin_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     pub artifact_digest: String,
-    pub code_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_digest: Option<String>,
     pub source_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub abi_version: Option<String>,
 }
 
@@ -79,7 +83,9 @@ impl PluginsLock {
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
 
-        let contents = toml::to_string_pretty(self).context("failed to serialize plugins lock")?;
+        let normalized = self.normalized();
+        let contents =
+            toml::to_string_pretty(&normalized).context("failed to serialize plugins lock")?;
         let existing_contents = match fs::read_to_string(path) {
             Ok(contents) => Some(contents),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
@@ -129,15 +135,41 @@ impl PluginsLock {
             if entry.artifact_digest.is_empty() {
                 bail!("plugin entry `{key}` has an empty artifact_digest");
             }
-            if entry.code_digest.is_empty() {
-                bail!("plugin entry `{key}` has an empty code_digest");
-            }
             if entry.source_kind.is_empty() {
                 bail!("plugin entry `{key}` has an empty source_kind");
             }
         }
 
         Ok(())
+    }
+
+    /// Return a copy with derived fields stripped from each entry.
+    /// Only independent fields (plugin_id, artifact_digest, source_kind)
+    /// are preserved. Derived fields (package, version, code_digest,
+    /// abi_version) are set to None.
+    fn normalized(&self) -> Self {
+        let plugins = self
+            .plugins
+            .iter()
+            .map(|(key, entry)| {
+                (
+                    key.clone(),
+                    LockedPluginEntry {
+                        plugin_id: entry.plugin_id.clone(),
+                        package: None,
+                        version: None,
+                        artifact_digest: entry.artifact_digest.clone(),
+                        code_digest: None,
+                        source_kind: entry.source_kind.clone(),
+                        abi_version: None,
+                    },
+                )
+            })
+            .collect();
+        Self {
+            version: self.version,
+            plugins,
+        }
     }
 }
 
@@ -350,7 +382,7 @@ mod tests {
                 package: Some("yus314/sel-badge".to_string()),
                 version: Some("0.1.0".to_string()),
                 artifact_digest: "sha256:artifact".to_string(),
-                code_digest: "sha256:code".to_string(),
+                code_digest: Some("sha256:code".to_string()),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some("0.25.0".to_string()),
             },
@@ -358,7 +390,8 @@ mod tests {
 
         lock.save_to_path(&path).unwrap();
         let loaded = PluginsLock::load_from_path(&path).unwrap();
-        assert_eq!(loaded, lock);
+        // Normalized on save: derived fields are stripped
+        assert_eq!(loaded, lock.normalized());
     }
 
     fn make_lock(plugin_id: &str, digest: &str) -> PluginsLock {
@@ -370,7 +403,7 @@ mod tests {
                 package: Some(format!("example/{plugin_id}")),
                 version: Some("0.1.0".to_string()),
                 artifact_digest: digest.to_string(),
-                code_digest: format!("{digest}-code"),
+                code_digest: Some(format!("{digest}-code")),
                 source_kind: "filesystem".to_string(),
                 abi_version: Some("0.25.0".to_string()),
             },
@@ -392,8 +425,11 @@ mod tests {
             .unwrap()
             .expect("expected archived lock");
         let archived = PluginsLock::load_from_path(&latest).unwrap();
-        assert_eq!(archived, lock1);
-        assert_eq!(PluginsLock::load_from_path(&path).unwrap(), lock2);
+        assert_eq!(archived, lock1.normalized());
+        assert_eq!(
+            PluginsLock::load_from_path(&path).unwrap(),
+            lock2.normalized()
+        );
     }
 
     #[test]
@@ -410,14 +446,17 @@ mod tests {
             .unwrap()
             .expect("expected rollback history");
         let restored = PluginsLock::load_from_path(&path).unwrap();
-        assert_eq!(restored, lock1);
-        assert_eq!(PluginsLock::load_from_path(&restored_from).unwrap(), lock1);
+        assert_eq!(restored, lock1.normalized());
+        assert_eq!(
+            PluginsLock::load_from_path(&restored_from).unwrap(),
+            lock1.normalized()
+        );
 
         let latest = latest_plugins_lock_history_path_from_path(&path)
             .unwrap()
             .expect("expected current lock to be archived");
         let archived_current = PluginsLock::load_from_path(&latest).unwrap();
-        assert_eq!(archived_current, lock2);
+        assert_eq!(archived_current, lock2.normalized());
     }
 
     #[test]
@@ -438,6 +477,31 @@ mod tests {
         let remaining = plugins_lock_history_paths_from_path(&path).unwrap();
         assert_eq!(remaining.len(), 1);
         let remaining_lock = PluginsLock::load_from_path(&remaining[0]).unwrap();
-        assert_eq!(remaining_lock, lock2);
+        assert_eq!(remaining_lock, lock2.normalized());
+    }
+
+    #[test]
+    fn load_tolerates_old_format_with_derived_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("plugins.lock");
+        // Old format includes derived fields — load should accept them
+        let contents = r#"
+version = 1
+
+[plugins.sel_badge]
+plugin_id = "sel_badge"
+package = "example/sel-badge"
+version = "0.1.0"
+artifact_digest = "sha256:artifact"
+code_digest = "sha256:code"
+source_kind = "filesystem"
+abi_version = "0.25.0"
+"#;
+        fs::write(&path, contents).unwrap();
+        let lock = PluginsLock::load_from_path(&path).unwrap();
+        assert_eq!(lock.plugins.len(), 1);
+        let entry = lock.plugins.get("sel_badge").unwrap();
+        assert_eq!(entry.code_digest.as_deref(), Some("sha256:code"));
+        assert_eq!(entry.package.as_deref(), Some("example/sel-badge"));
     }
 }
