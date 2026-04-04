@@ -77,6 +77,9 @@ To remove old package artifacts that are no longer referenced by `plugins.lock`,
 kasane plugin gc
 ```
 
+`plugin gc` keeps artifacts referenced by the current `plugins.lock` and archived
+lock generations, so recent `kasane plugin rollback` targets remain restorable.
+
 If a recent `resolve`, `pin`, `update`, or install selected the wrong active set, you can
 restore the previous `plugins.lock` generation with:
 
