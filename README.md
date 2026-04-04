@@ -75,8 +75,8 @@ try today:
 | [smooth-scroll](examples/wasm/smooth-scroll/) | Animated scrolling |
 | [prompt-highlight](examples/wasm/prompt-highlight/) | Visual feedback when entering prompt mode |
 
-Each plugin ships as a single `.wasm` file — sandboxed, composable,
-auto-cached. A complete plugin in 15 lines — here is sel-badge in its
+Each plugin builds into a single `.kpk` package — sandboxed, composable,
+and ready to install. A complete plugin in 15 lines — here is sel-badge in its
 entirety:
 
 ```rust
@@ -101,7 +101,7 @@ kasane_plugin_sdk::define_plugin! {
 Start writing your own:
 
 ```bash
-kasane plugin new my-plugin    # scaffold from 5 templates
+kasane plugin new my-plugin    # scaffold from 6 templates
 kasane plugin dev              # hot-reload while you edit
 ```
 

@@ -1,8 +1,8 @@
 # Kasane Plugin Development Guide
 
-Kasane plugins are WASM components distributed as single `.wasm` files.
-Place one in `~/.local/share/kasane/plugins/` and it loads at startup
-— sandboxed, composable, and automatically cached.
+Kasane plugins are WASM components packaged as single `.kpk` artifacts.
+Build one with `kasane plugin build`, install it with `kasane plugin install`,
+and Kasane loads it from the plugins directory at startup.
 
 Plugins describe *what* to display. The framework handles rendering,
 layout, and cache invalidation.
@@ -38,7 +38,7 @@ This creates a minimal plugin:
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
-    id: "my_hello",
+    manifest: "kasane-plugin.toml",
     slots {
         STATUS_RIGHT => plain(" Hello from my_hello! "),
     },
@@ -68,7 +68,7 @@ kasane plugin new my-overlay --template overlay            # Interactive overlay
 kasane plugin new my-runner --template process             # Process launcher template
 ```
 
-This generates a ready-to-build project with `Cargo.toml`, `src/lib.rs`, and `.gitignore`. You also need the `wasm32-wasip2` target:
+This generates a ready-to-build project with `Cargo.toml`, `kasane-plugin.toml`, `src/lib.rs`, and `.gitignore`. You also need the `wasm32-wasip2` target:
 
 ```bash
 rustup target add wasm32-wasip2
@@ -89,7 +89,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-kasane-plugin-sdk = "0.1"
+kasane-plugin-sdk = "0.3.0"
 wit-bindgen = "0.53"
 ```
 
@@ -131,7 +131,7 @@ Common helpers like `plain()`, `colored()`, `is_ctrl()`, `status_badge()`, `hex(
 
 ### Plugin Manifest
 
-Every plugin ships with a `kasane-plugin.toml` manifest file alongside its `.wasm` binary. The manifest declares static metadata that the host reads **before** compiling or instantiating WASM — the plugin never participates in its own permission decisions.
+Every plugin project ships with a `kasane-plugin.toml` manifest file. The build step embeds that manifest into the generated `.kpk` package, and the host reads its static metadata **before** compiling or instantiating WASM — the plugin never participates in its own permission decisions.
 
 ```toml
 [plugin]
@@ -195,7 +195,7 @@ kasane_plugin_sdk::define_plugin! {
 
 The macro reads the TOML at compile time and generates `get_id()`, `requested_capabilities()`, `requested_authorities()`, and `view_deps()` from its contents. `manifest:` is mutually exclusive with `id:`, `capabilities:`, and `authorities:`.
 
-For filesystem plugins, the host discovers `.toml` manifests and loads their sibling `.wasm` files. A `.wasm` without a `.toml` manifest is ignored.
+At build time, Kasane packages the manifest and compiled WASM component into a single `.kpk` artifact. The plugins directory contains `.kpk` files, not loose `.wasm` binaries.
 
 ### Plugin Profiles
 
@@ -214,15 +214,15 @@ Available `define_plugin!` sections: `manifest` or `id`, `state` (with optional 
 ### Build & Deploy
 
 ```bash
-kasane plugin build              # Build for wasm32-wasip2 (release)
-kasane plugin install            # Build, validate, and install to plugins directory
-kasane plugin dev [path]         # Build (debug) and watch for changes (hot-reload)
+kasane plugin build              # Build a .kpk package (release)
+kasane plugin install            # Build or verify a .kpk package, then activate it
+kasane plugin dev [path]         # Build (debug), install, and watch for changes
 kasane plugin dev --release      # Same, but release builds
 ```
 
-`kasane plugin install` copies the `.wasm` to `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`). The plugin loads automatically on the next `kasane` launch.
+`kasane plugin install` installs a `.kpk` package into `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`) and updates `plugins.lock`.
 
-`kasane plugin dev` does the same as `install`, then watches `src/` and `Cargo.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
+`kasane plugin dev` does the same as `install`, then watches `src/`, `Cargo.toml`, and `kasane-plugin.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
 WASM plugin ABI note: current Kasane releases expect
 `kasane:plugin@0.25.0`. Rebuild and reinstall any plugin that was built
@@ -257,7 +257,8 @@ kasane plugin doctor --fix       # Auto-fix missing target and plugins directory
 
 ```bash
 cargo build --target wasm32-wasip2 --release
-cp target/wasm32-wasip2/release/sel_badge.wasm ~/.local/share/kasane/plugins/
+kasane plugin build
+cp target/kasane/sel-badge-0.1.0.kpk ~/.local/share/kasane/plugins/sel_badge.kpk
 ```
 
 </details>
@@ -405,14 +406,14 @@ For detailed WASM instantiation errors, use `debug`.
 Kasane registers plugins in the following order:
 
 1. Example WASM (embedded in the binary)
-2. FS-discovered WASM (`~/.local/share/kasane/plugins/*.wasm`)
+2. FS-discovered packages (`~/.local/share/kasane/plugins/*.kpk`)
 3. Native plugins supplied via `kasane::run_with_factories(...)` or a custom `PluginProvider`
 
 An FS-discovered WASM plugin with the same ID can override an example plugin.
 
 ### Distribution Methods
 
-- WASM: Place `.wasm` files in `~/.local/share/kasane/plugins/`
+- WASM: Place `.kpk` files in `~/.local/share/kasane/plugins/`
 - Native: Distribute as a custom binary using `kasane::run_with_factories(...)` or `kasane::run(provider)`
 
 ### Control via config.toml

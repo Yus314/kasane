@@ -1,7 +1,8 @@
 use crate::cli::PluginTemplate;
 
 const SDK_VERSION: &str = "0.3.0";
-const WIT_BINDGEN_VERSION: &str = "0.41";
+const WIT_BINDGEN_VERSION: &str = "0.53";
+const HOST_ABI_VERSION: &str = "0.23.0";
 
 /// Convert a kebab-case plugin name to a snake_case plugin ID.
 ///
@@ -35,7 +36,7 @@ pub fn struct_name_from_name(name: &str) -> String {
 pub fn cargo_toml(name: &str) -> String {
     format!(
         r#"[package]
-name = "kasane-wasm-{name}"
+name = "{name}"
 version = "0.1.0"
 edition = "2024"
 
@@ -55,6 +56,67 @@ lto = true
     )
 }
 
+/// Generate a kasane-plugin.toml for a new plugin project.
+pub fn plugin_manifest_toml(name: &str, template: PluginTemplate) -> String {
+    let id = plugin_id_from_name(name);
+    let (handlers, view_deps, wasi_capabilities) = match template {
+        PluginTemplate::Hello => (&["contributor"][..], &[][..], &[][..]),
+        PluginTemplate::Contribution => (
+            &["contributor"][..],
+            &["buffer-content", "buffer-cursor"][..],
+            &[][..],
+        ),
+        PluginTemplate::Annotation => (
+            &["annotator"][..],
+            &["buffer-content", "buffer-cursor"][..],
+            &[][..],
+        ),
+        PluginTemplate::Transform => (&["transformer"][..], &["status"][..], &[][..]),
+        PluginTemplate::Overlay => (&["overlay", "input-handler"][..], &[][..], &[][..]),
+        PluginTemplate::Process => (
+            &["overlay", "input-handler", "io-handler"][..],
+            &[][..],
+            &["process"][..],
+        ),
+    };
+
+    let mut out = format!(
+        r#"[plugin]
+id = "{id}"
+abi_version = "{HOST_ABI_VERSION}"
+"#
+    );
+
+    if !wasi_capabilities.is_empty() {
+        let values = wasi_capabilities
+            .iter()
+            .map(|value| format!(r#""{value}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("\n[capabilities]\nwasi = [{values}]\n"));
+    }
+
+    if !handlers.is_empty() {
+        let values = handlers
+            .iter()
+            .map(|value| format!(r#""{value}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("\n[handlers]\nflags = [{values}]\n"));
+    }
+
+    if !view_deps.is_empty() {
+        let values = view_deps
+            .iter()
+            .map(|value| format!(r#""{value}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("\n[view]\ndeps = [{values}]\n"));
+    }
+
+    out
+}
+
 /// Generate a lib.rs for a new plugin project.
 pub fn lib_rs(name: &str, template: PluginTemplate) -> String {
     let id = plugin_id_from_name(name);
@@ -72,7 +134,7 @@ pub fn lib_rs(name: &str, template: PluginTemplate) -> String {
 fn hello_template(id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
-    id: "{id}",
+    manifest: "kasane-plugin.toml",
     slots {{
         STATUS_RIGHT => plain(" Hello from {id}! "),
     }},
@@ -81,10 +143,10 @@ fn hello_template(id: &str) -> String {
     )
 }
 
-fn contribution_template(id: &str) -> String {
+fn contribution_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
-    id: "{id}",
+    manifest: "kasane-plugin.toml",
 
     state {{
         #[bind(host_state::get_cursor_count(), on: dirty::BUFFER)]
@@ -103,10 +165,10 @@ fn contribution_template(id: &str) -> String {
     )
 }
 
-fn annotation_template(id: &str) -> String {
+fn annotation_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
-    id: "{id}",
+    manifest: "kasane-plugin.toml",
 
     state {{
         #[bind(host_state::get_cursor_line(), on: dirty::BUFFER)]
@@ -121,10 +183,10 @@ fn annotation_template(id: &str) -> String {
     )
 }
 
-fn transform_template(id: &str) -> String {
+fn transform_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
-    id: "{id}",
+    manifest: "kasane-plugin.toml",
 
     state {{
         #[bind(host_state::get_cursor_mode(), on: dirty::STATUS)]
@@ -157,10 +219,10 @@ fn transform_template(id: &str) -> String {
     )
 }
 
-fn overlay_template(id: &str) -> String {
+fn overlay_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
-    id: "{id}",
+    manifest: "kasane-plugin.toml",
 
     state {{
         open: bool = false,
@@ -228,17 +290,15 @@ fn overlay_template(id: &str) -> String {
     )
 }
 
-fn process_template(id: &str) -> String {
+fn process_template(_id: &str) -> String {
     format!(
         r#"kasane_plugin_sdk::define_plugin! {{
-    id: "{id}",
+    manifest: "kasane-plugin.toml",
 
     state {{
         active: bool = false,
         output: Vec<String> = Vec::new(),
     }},
-
-    capabilities: [Capability::Process],
 
     handle_key(event) {{
         if !state.active {{
@@ -367,6 +427,11 @@ mod tests {
             &local_sdk_dependency_line(),
         );
         fs::write(project_dir.join("Cargo.toml"), manifest).expect("Cargo.toml should be written");
+        fs::write(
+            project_dir.join("kasane-plugin.toml"),
+            plugin_manifest_toml(name, template),
+        )
+        .expect("kasane-plugin.toml should be written");
         fs::write(src_dir.join("lib.rs"), lib_rs(name, template))
             .expect("lib.rs should be written");
 
@@ -411,33 +476,56 @@ mod tests {
         assert!(toml.contains("cdylib"));
         assert!(toml.contains(&format!("kasane-plugin-sdk = \"{SDK_VERSION}\"")));
         assert!(toml.contains(&format!("wit-bindgen = \"{WIT_BINDGEN_VERSION}\"")));
-        assert!(toml.contains("kasane-wasm-my-widget"));
+        assert!(toml.contains("name = \"my-widget\""));
+    }
+
+    #[test]
+    fn test_plugin_manifest_toml_contents() {
+        let manifest = plugin_manifest_toml("my-widget", PluginTemplate::Process);
+        assert!(manifest.contains("id = \"my_widget\""));
+        assert!(manifest.contains(&format!("abi_version = \"{HOST_ABI_VERSION}\"")));
+        assert!(manifest.contains("flags = [\"overlay\", \"input-handler\", \"io-handler\"]"));
+        assert!(manifest.contains("wasi = [\"process\"]"));
     }
 
     #[test]
     fn test_lib_rs_template_markers() {
         let cases: &[(PluginTemplate, &[&str])] = &[
-            (PluginTemplate::Hello, &["STATUS_RIGHT", "plain("]),
+            (
+                PluginTemplate::Hello,
+                &["manifest:", "STATUS_RIGHT", "plain("],
+            ),
             (
                 PluginTemplate::Contribution,
-                &["#[bind(", "cursor_count", "slots"],
+                &["manifest:", "#[bind(", "cursor_count", "slots"],
             ),
             (
                 PluginTemplate::Annotation,
-                &["annotate", "bg_annotation", "active_line"],
+                &["manifest:", "annotate", "bg_annotation", "active_line"],
             ),
             (
                 PluginTemplate::Transform,
-                &["transform", "transform_priority", "cursor_mode"],
+                &[
+                    "manifest:",
+                    "transform",
+                    "transform_priority",
+                    "cursor_mode",
+                ],
             ),
             (
                 PluginTemplate::Overlay,
-                &["overlay", "handle_key", "is_ctrl", "OverlayContribution"],
+                &[
+                    "manifest:",
+                    "overlay",
+                    "handle_key",
+                    "is_ctrl",
+                    "OverlayContribution",
+                ],
             ),
             (
                 PluginTemplate::Process,
                 &[
-                    "capabilities",
+                    "manifest:",
                     "on_io_event_effects",
                     "just_redraw",
                     "SpawnProcess",
