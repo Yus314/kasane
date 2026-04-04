@@ -164,6 +164,10 @@ pub fn rollback_plugins_lock() -> Result<Option<PathBuf>> {
     rollback_plugins_lock_from_path(plugins_lock_path())
 }
 
+pub fn prune_plugins_lock_history(keep: usize) -> Result<Vec<PathBuf>> {
+    prune_plugins_lock_history_from_path(plugins_lock_path(), keep)
+}
+
 fn plugins_lock_version() -> u32 {
     PLUGINS_LOCK_VERSION
 }
@@ -288,6 +292,23 @@ fn rollback_plugins_lock_from_path(path: impl AsRef<Path>) -> Result<Option<Path
     Ok(Some(previous))
 }
 
+fn prune_plugins_lock_history_from_path(
+    path: impl AsRef<Path>,
+    keep: usize,
+) -> Result<Vec<PathBuf>> {
+    let mut history_paths = plugins_lock_history_paths_from_path(path)?;
+    if history_paths.len() <= keep {
+        return Ok(Vec::new());
+    }
+
+    let remove_count = history_paths.len() - keep;
+    let removed: Vec<_> = history_paths.drain(..remove_count).collect();
+    for path in &removed {
+        fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +418,26 @@ mod tests {
             .expect("expected current lock to be archived");
         let archived_current = PluginsLock::load_from_path(&latest).unwrap();
         assert_eq!(archived_current, lock2);
+    }
+
+    #[test]
+    fn prune_history_keeps_latest_generations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("plugins.lock");
+        let lock1 = make_lock("sel_badge", "sha256:one");
+        let lock2 = make_lock("sel_badge", "sha256:two");
+        let lock3 = make_lock("sel_badge", "sha256:three");
+
+        lock1.save_to_path(&path).unwrap();
+        lock2.save_to_path(&path).unwrap();
+        lock3.save_to_path(&path).unwrap();
+
+        let removed = prune_plugins_lock_history_from_path(&path, 1).unwrap();
+        assert_eq!(removed.len(), 1);
+
+        let remaining = plugins_lock_history_paths_from_path(&path).unwrap();
+        assert_eq!(remaining.len(), 1);
+        let remaining_lock = PluginsLock::load_from_path(&remaining[0]).unwrap();
+        assert_eq!(remaining_lock, lock2);
     }
 }

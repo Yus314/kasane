@@ -80,6 +80,13 @@ kasane plugin gc
 `plugin gc` keeps artifacts referenced by the current `plugins.lock` and archived
 lock generations, so recent `kasane plugin rollback` targets remain restorable.
 
+To prune older rollback generations and let GC reclaim packages that are no longer
+needed by those generations, run:
+
+```bash
+kasane plugin gc --prune-history --keep 10
+```
+
 If a recent `resolve`, `pin`, `update`, or install selected the wrong active set, you can
 restore the previous `plugins.lock` generation with:
 
