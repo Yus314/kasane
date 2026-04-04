@@ -58,7 +58,7 @@ impl TempPluginDir {
 
     /// Write a minimal valid manifest TOML for a fixture that doesn't have one.
     fn write_manifest(&self, toml_name: &str, plugin_id: &str) {
-        let content = format!("[plugin]\nid = \"{plugin_id}\"\nabi_version = \"0.23.0\"\n");
+        let content = format!("[plugin]\nid = \"{plugin_id}\"\nabi_version = \"0.24.0\"\n");
         fs::write(self.path.join(toml_name), content).expect("failed to write manifest");
     }
 

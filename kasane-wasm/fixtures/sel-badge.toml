@@ -1,6 +1,6 @@
 [plugin]
 id = "sel_badge"
-abi_version = "0.23.0"
+abi_version = "0.24.0"
 
 [handlers]
 flags = ["contributor"]

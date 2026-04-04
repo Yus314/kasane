@@ -1,6 +1,6 @@
 [plugin]
 id = "surface_probe"
-abi_version = "0.23.0"
+abi_version = "0.24.0"
 
 [authorities]
 host = ["dynamic-surface"]

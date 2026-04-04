@@ -38,7 +38,7 @@ See the [Plugin Development Guide](https://github.com/Yus314/kasane/blob/master/
 
 | SDK version | Minimum host version | WIT ABI |
 |---|---|---|
-| 0.3.x | kasane >= 0.3.0 | `kasane:plugin@0.22.0` |
+| 0.3.x | kasane >= 0.3.0 | `kasane:plugin@0.24.0` |
 | 0.2.x | kasane >= 0.2.0 | `kasane:plugin@0.14.0` |
 
 Plugins built with SDK 0.3.x are not compatible with kasane 0.2.x due to WIT
