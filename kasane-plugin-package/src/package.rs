@@ -212,7 +212,17 @@ impl PackageHeader {
 
 pub fn build_package(input: BuildInput) -> Result<BuildOutput, PackageError> {
     input.manifest.validate()?;
+    build_package_inner(input)
+}
 
+/// Build a package without manifest validation. Used only in tests that need
+/// ABI-incompatible packages for testing the resolver's ABI filter.
+#[doc(hidden)]
+pub fn build_package_unchecked(input: BuildInput) -> Result<BuildOutput, PackageError> {
+    build_package_inner(input)
+}
+
+fn build_package_inner(input: BuildInput) -> Result<BuildOutput, PackageError> {
     let mut assets = input.assets;
     assets.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
 

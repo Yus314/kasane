@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use kasane_core::config::{Config, PluginSelection};
+use kasane_plugin_package::manifest::{HOST_ABI_VERSION, abi_compatible};
 use kasane_plugin_package::package::{self, InspectedPackage};
 use kasane_wasm::{BundledPluginArtifact, bundled_plugin_artifacts};
 use semver::Version;
@@ -240,8 +241,23 @@ fn resolve_with_existing_lock(
     }
 
     for candidates in grouped.values_mut() {
+        candidates.retain(|candidate| {
+            let abi = &candidate.inspected.header.plugin.abi_version;
+            if abi_compatible(abi, HOST_ABI_VERSION) {
+                true
+            } else {
+                invalid_packages.push(InvalidPackage {
+                    path: candidate.path.clone(),
+                    error: format!(
+                        "ABI version {abi} is incompatible with host ABI {HOST_ABI_VERSION}"
+                    ),
+                });
+                false
+            }
+        });
         candidates.sort_by(|left, right| left.path.cmp(&right.path));
     }
+    grouped.retain(|_, candidates| !candidates.is_empty());
 
     let mut lock = PluginsLock::new();
     for (plugin_id, entry) in &existing_lock.plugins {
@@ -716,7 +732,7 @@ mod tests {
     use std::path::Path;
 
     use kasane_plugin_package::manifest::PluginManifest;
-    use kasane_plugin_package::package::{BuildInput, write_package};
+    use kasane_plugin_package::package::{BuildInput, build_package_unchecked, write_package};
 
     fn build_fixture_package(
         root: &Path,
@@ -913,6 +929,86 @@ flags = ["contributor"]
                 .iter()
                 .any(|plugin| plugin.plugin_id == "pane_manager"
                     && plugin.reason == ResolveReason::BundledDefault)
+        );
+    }
+
+    fn build_fixture_package_with_abi(
+        root: &Path,
+        plugin_id: &str,
+        package_name: &str,
+        version: &str,
+        abi_version: &str,
+    ) -> std::path::PathBuf {
+        let source_path = root.join(format!("{plugin_id}-{version}-abi{abi_version}.kpk"));
+        let manifest = PluginManifest::parse(&format!(
+            r#"
+[plugin]
+id = "{plugin_id}"
+abi_version = "{abi_version}"
+
+[handlers]
+flags = ["contributor"]
+"#
+        ))
+        .unwrap();
+        let output = build_package_unchecked(BuildInput {
+            package_name: package_name.to_string(),
+            package_version: version.to_string(),
+            component_entry: "plugin.wasm".to_string(),
+            component: format!("component-{plugin_id}-{version}-{abi_version}").into_bytes(),
+            manifest,
+            assets: Vec::new(),
+        })
+        .unwrap();
+        write_package(&source_path, &output).unwrap();
+        source_path
+    }
+
+    #[test]
+    fn abi_incompatible_candidates_are_filtered_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_home = tmp.path().join("data");
+        let config_home = tmp.path().join("config");
+        fs::create_dir_all(&data_home).unwrap();
+        fs::create_dir_all(&config_home).unwrap();
+
+        let config = config_with_paths(&data_home, &config_home);
+        let store = PluginStore::from_plugins_dir(config.plugins.plugins_dir());
+
+        // Install a compatible package
+        let compatible =
+            build_fixture_package(tmp.path(), "sel_badge", "example/sel-badge", "0.1.0");
+        store.put_verified_package(&compatible).unwrap();
+
+        // Install an incompatible ABI package
+        let incompatible = build_fixture_package_with_abi(
+            tmp.path(),
+            "incompat_plugin",
+            "example/incompat",
+            "0.1.0",
+            "0.99.0",
+        );
+        store.put_verified_package(&incompatible).unwrap();
+
+        let result =
+            resolve_with_existing_lock(&config, ResolveOptions::reconcile(), &PluginsLock::new())
+                .unwrap();
+
+        // Compatible plugin should be resolved
+        assert!(result.selected.iter().any(|p| p.plugin_id == "sel_badge"));
+
+        // Incompatible plugin should NOT be resolved, and should appear in invalid_packages
+        assert!(
+            !result
+                .selected
+                .iter()
+                .any(|p| p.plugin_id == "incompat_plugin")
+        );
+        assert!(
+            result
+                .invalid_packages
+                .iter()
+                .any(|p| p.error.contains("ABI version"))
         );
     }
 
