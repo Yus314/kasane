@@ -1,4 +1,3 @@
-use kasane_core::config::PluginsConfig;
 use kasane_core::element::{Direction, Element, OverlayAnchor};
 use kasane_core::input::{Key, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use kasane_core::layout::Rect;
@@ -253,36 +252,6 @@ flags = ["annotator"]
         err_msg.contains("mismatch"),
         "expected mismatch error, got: {err_msg}"
     );
-}
-
-#[test]
-fn fingerprint_includes_manifest_mtime() {
-    let fp1 = crate::WasmPluginFingerprint::Filesystem {
-        len: 100,
-        modified_ns: Some(1000),
-        manifest_modified_ns: Some(2000),
-    };
-    let fp2 = crate::WasmPluginFingerprint::Filesystem {
-        len: 100,
-        modified_ns: Some(1000),
-        manifest_modified_ns: Some(3000),
-    };
-    assert_ne!(fp1, fp2);
-}
-
-#[test]
-fn fingerprint_same_when_all_fields_match() {
-    let fp1 = crate::WasmPluginFingerprint::Filesystem {
-        len: 100,
-        modified_ns: Some(1000),
-        manifest_modified_ns: Some(2000),
-    };
-    let fp2 = crate::WasmPluginFingerprint::Filesystem {
-        len: 100,
-        modified_ns: Some(1000),
-        manifest_modified_ns: Some(2000),
-    };
-    assert_eq!(fp1, fp2);
 }
 
 #[test]

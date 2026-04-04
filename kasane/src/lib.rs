@@ -247,8 +247,7 @@ fn build_plugin_manager(
     let mut providers: Vec<Box<dyn PluginProvider>> = Vec::new();
     #[cfg(feature = "wasm-plugins")]
     {
-        let lock_provider = locked_wasm_provider::LockedWasmPluginProvider::new(
-            crate::plugin_lock::PluginsLock::load(),
+        let lock_provider = locked_wasm_provider::LockedWasmPluginProvider::from_default_lock_path(
             config.plugins.clone(),
             config.settings.clone(),
         );
@@ -295,8 +294,14 @@ mod tests {
     use kasane_plugin_package::manifest::PluginManifest;
     use kasane_plugin_package::package::{BuildInput, build_package, write_package};
 
+    use crate::locked_wasm_provider::LockedWasmPluginProvider;
+    use crate::plugin_lock::{LockedPluginEntry, PluginsLock};
+    use crate::plugin_store::{PluginStore, StoredArtifact};
+
     struct TempPluginDir {
-        path: PathBuf,
+        root: PathBuf,
+        plugins_dir: PathBuf,
+        lock_path: PathBuf,
     }
 
     impl TempPluginDir {
@@ -309,11 +314,17 @@ mod tests {
                 "kasane-plugin-reload-{}-{unique}",
                 std::process::id()
             ));
-            fs::create_dir_all(&path).expect("failed to create temp plugin dir");
-            Self { path }
+            let plugins_dir = path.join("plugins");
+            fs::create_dir_all(&plugins_dir).expect("failed to create temp plugin dir");
+            let lock_path = path.join("config").join("plugins.lock");
+            Self {
+                root: path,
+                plugins_dir,
+                lock_path,
+            }
         }
 
-        fn copy_fixture(&self, fixture_name: &str) {
+        fn store_fixture(&self, fixture_name: &str) -> StoredArtifact {
             let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../kasane-wasm/fixtures");
             let manifest_path = fixtures.join(Path::new(fixture_name).with_extension("toml"));
             let component_path = fixtures.join(fixture_name);
@@ -336,24 +347,46 @@ mod tests {
                 assets: Vec::new(),
             })
             .expect("failed to build fixture package");
-            let dst = self.path.join(
+            let source_path = self.root.join(
                 Path::new(fixture_name)
                     .with_extension("kpk")
                     .file_name()
                     .unwrap(),
             );
-            write_package(&dst, &output).expect("failed to write fixture package");
+            write_package(&source_path, &output).expect("failed to write fixture package");
+            self.store()
+                .put_verified_package(&source_path)
+                .expect("failed to store fixture package")
         }
 
-        fn remove(&self, file_name: &str) {
-            fs::remove_file(self.path.join(Path::new(file_name).with_extension("kpk")))
-                .expect("failed to remove fixture");
+        fn store(&self) -> PluginStore {
+            PluginStore::from_plugins_dir(&self.plugins_dir)
+        }
+
+        fn write_lock<'a>(&self, artifacts: impl IntoIterator<Item = &'a StoredArtifact>) {
+            let mut lock = PluginsLock::new();
+            for artifact in artifacts {
+                lock.plugins.insert(
+                    artifact.plugin_id.clone(),
+                    LockedPluginEntry {
+                        plugin_id: artifact.plugin_id.clone(),
+                        package: Some(artifact.package_name.clone()),
+                        version: Some(artifact.package_version.clone()),
+                        artifact_digest: artifact.artifact_digest.clone(),
+                        code_digest: artifact.code_digest.clone(),
+                        source_kind: "filesystem".to_string(),
+                        abi_version: Some(artifact.abi_version.clone()),
+                    },
+                );
+            }
+            lock.save_to_path(&self.lock_path)
+                .expect("failed to save test plugins lock");
         }
 
         fn config(&self) -> PluginsConfig {
             PluginsConfig {
                 auto_discover: true,
-                path: Some(self.path.to_string_lossy().into_owned()),
+                path: Some(self.plugins_dir.to_string_lossy().into_owned()),
                 disabled: vec![],
                 ..Default::default()
             }
@@ -362,13 +395,14 @@ mod tests {
 
     impl Drop for TempPluginDir {
         fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
+            let _ = fs::remove_dir_all(&self.root);
         }
     }
 
-    fn wasm_manager(config: &PluginsConfig) -> PluginManager {
-        PluginManager::new(vec![Box::new(kasane_wasm::WasmPluginProvider::new(
-            config.clone(),
+    fn wasm_manager(dir: &TempPluginDir) -> PluginManager {
+        PluginManager::new(vec![Box::new(LockedWasmPluginProvider::new(
+            dir.lock_path.clone(),
+            dir.config(),
             std::collections::HashMap::new(),
         ))])
     }
@@ -381,13 +415,13 @@ mod tests {
         }
     }
 
-    fn full_manager(
-        config: &PluginsConfig,
-        provider: impl PluginProvider + 'static,
-    ) -> PluginManager {
-        let mut providers: Vec<Box<dyn PluginProvider>> = vec![Box::new(
-            kasane_wasm::WasmPluginProvider::new(config.clone(), std::collections::HashMap::new()),
-        )];
+    fn full_manager(dir: &TempPluginDir, provider: impl PluginProvider + 'static) -> PluginManager {
+        let mut providers: Vec<Box<dyn PluginProvider>> =
+            vec![Box::new(LockedWasmPluginProvider::new(
+                dir.lock_path.clone(),
+                dir.config(),
+                std::collections::HashMap::new(),
+            ))];
         providers.push(Box::new(provider));
         providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
             "builtin-input",
@@ -606,11 +640,11 @@ mod tests {
     #[test]
     fn plugin_manager_reload_skips_unchanged_plugins() {
         let dir = TempPluginDir::new();
-        dir.copy_fixture("cursor-line.wasm");
+        let cursor_line = dir.store_fixture("cursor-line.wasm");
+        dir.write_lock([&cursor_line]);
 
-        let config = dir.config();
         let mut registry = PluginRuntime::new();
-        let mut manager = wasm_manager(&config);
+        let mut manager = wasm_manager(&dir);
         commit_initial_winners(&mut manager, &mut registry);
 
         let state = AppState::default();
@@ -618,21 +652,20 @@ mod tests {
             .reload(&mut registry, &AppView::new(&state), |_, _| vec![])
             .unwrap();
         assert!(result.deltas.is_empty());
-        // cursor-line (FS) + pane_manager (bundled default-enabled)
-        assert_eq!(registry.plugin_count(), 2);
+        assert_eq!(registry.plugin_count(), 1);
     }
 
     #[test]
     fn plugin_manager_reload_unloads_removed_plugins() {
         let dir = TempPluginDir::new();
-        dir.copy_fixture("cursor-line.wasm");
+        let cursor_line = dir.store_fixture("cursor-line.wasm");
+        dir.write_lock([&cursor_line]);
 
-        let config = dir.config();
         let mut registry = PluginRuntime::new();
-        let mut manager = wasm_manager(&config);
+        let mut manager = wasm_manager(&dir);
         commit_initial_winners(&mut manager, &mut registry);
 
-        dir.remove("cursor-line.wasm");
+        dir.write_lock(std::iter::empty::<&StoredArtifact>());
 
         let state = AppState::default();
         let result = manager
@@ -641,22 +674,22 @@ mod tests {
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_removed());
         assert_eq!(result.ready_targets().count(), 0);
-        // pane_manager (bundled default-enabled) remains
-        assert_eq!(registry.plugin_count(), 1);
+        assert_eq!(registry.plugin_count(), 0);
         assert!(!registry.contains_plugin(&PluginId("cursor_line".to_string())));
     }
 
     #[test]
     fn plugin_manager_reload_applies_added_plugins_only() {
         let dir = TempPluginDir::new();
-        dir.copy_fixture("cursor-line.wasm");
+        let cursor_line = dir.store_fixture("cursor-line.wasm");
+        dir.write_lock([&cursor_line]);
 
-        let config = dir.config();
         let mut registry = PluginRuntime::new();
-        let mut manager = wasm_manager(&config);
+        let mut manager = wasm_manager(&dir);
         commit_initial_winners(&mut manager, &mut registry);
 
-        dir.copy_fixture("smooth-scroll.wasm");
+        let smooth_scroll = dir.store_fixture("smooth-scroll.wasm");
+        dir.write_lock([&cursor_line, &smooth_scroll]);
 
         let state = AppState::default();
         let result = manager
@@ -665,20 +698,19 @@ mod tests {
         assert_eq!(result.deltas.len(), 1);
         assert!(result.deltas[0].is_added());
         assert_eq!(result.deltas[0].id, PluginId("smooth_scroll".to_string()));
-        // cursor-line (FS) + smooth-scroll (FS) + pane_manager (bundled default-enabled)
-        assert_eq!(registry.plugin_count(), 3);
+        assert_eq!(registry.plugin_count(), 2);
         assert!(registry.contains_plugin(&PluginId("smooth_scroll".to_string())));
     }
 
     #[test]
     fn host_override_survives_wasm_removal() {
         let dir = TempPluginDir::new();
-        dir.copy_fixture("cursor-line.wasm");
+        let cursor_line = dir.store_fixture("cursor-line.wasm");
+        dir.write_lock([&cursor_line]);
 
-        let config = dir.config();
         let mut registry = PluginRuntime::new();
         let mut manager = full_manager(
-            &config,
+            &dir,
             StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
         );
         commit_initial_winners(&mut manager, &mut registry);
@@ -690,7 +722,7 @@ mod tests {
             Some(PluginSource::Host { .. })
         ));
 
-        dir.remove("cursor-line.wasm");
+        dir.write_lock(std::iter::empty::<&StoredArtifact>());
 
         let state = AppState::default();
         let result = manager
@@ -714,15 +746,16 @@ mod tests {
     #[test]
     fn host_override_blocks_later_wasm_addition() {
         let dir = TempPluginDir::new();
-        let config = dir.config();
+        dir.write_lock(std::iter::empty::<&StoredArtifact>());
         let mut registry = PluginRuntime::new();
         let mut manager = full_manager(
-            &config,
+            &dir,
             StaticPluginProvider::new([host_plugin("cursor_line", || CursorLineOverridePlugin)]),
         );
         commit_initial_winners(&mut manager, &mut registry);
 
-        dir.copy_fixture("cursor-line.wasm");
+        let cursor_line = dir.store_fixture("cursor-line.wasm");
+        dir.write_lock([&cursor_line]);
 
         let state = AppState::default();
         let result = manager
