@@ -75,11 +75,13 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # Vulkan, Wayland, and libxkbcommon are loaded via dlopen at runtime.
   # Add their paths after shrink-rpath so they are preserved.
   postFixup = lib.optionalString (withGui && stdenv.hostPlatform.isLinux) ''
-    patchelf --add-rpath ${lib.makeLibraryPath [
-      vulkan-loader
-      wayland
-      libxkbcommon
-    ]} $out/bin/.kasane-wrapped
+    patchelf --add-rpath ${
+      lib.makeLibraryPath [
+        vulkan-loader
+        wayland
+        libxkbcommon
+      ]
+    } $out/bin/.kasane-wrapped
   '';
 
   nativeInstallCheckInputs = [ versionCheckHook ];
