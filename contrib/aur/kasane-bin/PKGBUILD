@@ -1,6 +1,6 @@
 # Maintainer: Yus314 <https://github.com/Yus314>
 pkgname=kasane-bin
-pkgver=0.1.1
+pkgver=0.3.0
 pkgrel=1
 pkgdesc='Alternative frontend for the Kakoune text editor (prebuilt binary)'
 arch=('x86_64' 'aarch64')
@@ -16,10 +16,10 @@ sha256sums=('7df959e3ed3c0ceeec7e83bfebd6fa4f81b62d36618f2aacdd97331c2c38369a'
             '1263c7c3105ecd7de4af8c5535c4c563d0973e5f6d175d353bceba720b31ebf1')
 
 source_x86_64=("kasane-v${pkgver}-x86_64-linux-gnu.tar.gz::https://github.com/Yus314/kasane/releases/download/v${pkgver}/kasane-v${pkgver}-x86_64-linux-gnu.tar.gz")
-sha256sums_x86_64=('f66d4bf00cb6285293be73abc305e0392595e89bbf8fde942b4d3c3eb86a8990')
+sha256sums_x86_64=('a37872ddb2e6734089c5ec6478fc8a0552af884c846099d7c143b7e28c43b3cd')
 
 source_aarch64=("kasane-v${pkgver}-aarch64-linux-gnu.tar.gz::https://github.com/Yus314/kasane/releases/download/v${pkgver}/kasane-v${pkgver}-aarch64-linux-gnu.tar.gz")
-sha256sums_aarch64=('df27267c123b613d655f564378c37ecbfd892408825407637c3dd5a1dbd7620a')
+sha256sums_aarch64=('ddf64d783b4cdf7957dd32f29258b6d34e9fe9c779d8fe447c17975540602a78')
 
 package() {
     install -Dm755 kasane "${pkgdir}/usr/bin/kasane"
