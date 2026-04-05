@@ -25,7 +25,7 @@ pkgdesc='Alternative frontend for the Kakoune text editor (prebuilt binary)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Yus314/kasane'
 license=('MIT' 'Apache-2.0')
-depends=('kakoune>=2024.12.09')
+depends=('kakoune>=2024.12.09' 'vulkan-icd-loader' 'wayland' 'libxkbcommon')
 provides=('kasane')
 conflicts=('kasane')
 
@@ -67,6 +67,9 @@ pkgbase = kasane-bin
 	license = MIT
 	license = Apache-2.0
 	depends = kakoune>=2024.12.09
+	depends = vulkan-icd-loader
+	depends = wayland
+	depends = libxkbcommon
 	provides = kasane
 	conflicts = kasane
 	source = LICENSE-MIT::https://raw.githubusercontent.com/Yus314/kasane/v${VERSION}/LICENSE-MIT

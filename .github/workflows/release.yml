@@ -50,16 +50,30 @@ jobs:
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      - name: Install GUI dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libvulkan-dev libwayland-dev wayland-protocols \
+            libxkbcommon-dev libx11-dev libxcursor-dev \
+            libxrandr-dev libxi-dev libfontconfig-dev libfreetype-dev
+
       - name: Install cross
         if: matrix.use-cross
         run: cargo install cross --locked
 
       - name: Build
         run: |
+          FEATURES=""
+          # Enable GUI for targets where GPU deps are available
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-gnu|*-apple-darwin) FEATURES="--features gui" ;;
+          esac
           if [ "${{ matrix.use-cross }}" = "true" ]; then
-            cross build --release -p kasane --target ${{ matrix.target }}
+            cross build --release -p kasane $FEATURES --target ${{ matrix.target }}
           else
-            cargo build --release -p kasane --target ${{ matrix.target }}
+            cargo build --release -p kasane $FEATURES --target ${{ matrix.target }}
           fi
 
       - name: Package
