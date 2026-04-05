@@ -462,7 +462,7 @@ For the full list of bundled and source example plugins, see [using-plugins.md](
 
 ## Appendix A: Alternative: Native Plugin {#appendix-a-alternative-native-plugin}
 
-For use cases that require features not yet available via WASM (such as `Surface` or `PaintHook`), you can write a native plugin. Native plugins are distributed as custom binaries.
+For use cases that require features not yet available via WASM (such as `Surface`), you can write a native plugin. Native plugins are distributed as custom binaries.
 
 The `Plugin` trait uses `HandlerRegistry`-based registration: 3 methods (`id()`, `State` type, `register()`). The framework owns the state; handlers are pure functions. Capabilities are auto-inferred from which handlers are registered.
 
@@ -522,7 +522,7 @@ For a comparison of WASM vs Native plugin models, see [Appendix C](#appendix-c-w
 
 ## Appendix B: PluginBackend (Internal) {#appendix-b-pluginbackend-internal}
 
-`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface`, `PaintHook`, and workspace observation. Use this only when `Plugin` cannot express what you need.
+`PluginBackend` is the internal mutable-state plugin model (`&mut self`). It provides access to all extension points including `Surface` and workspace observation. Use this only when `Plugin` cannot express what you need.
 
 ```rust
 use kasane::kasane_core::plugin_prelude::*;

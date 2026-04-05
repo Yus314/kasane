@@ -43,36 +43,6 @@ pub struct BufferEdit {
     pub replacement: String,
 }
 
-/// A post-paint hook that can modify the CellGrid after the standard paint pass.
-///
-/// PaintHooks enable plugins to apply custom rendering effects (e.g., highlights,
-/// overlays, visual indicators) directly on the cell grid without needing to
-/// participate in the Element tree.
-pub trait PaintHook: Send {
-    /// Unique identifier for this hook (typically `"plugin_id.hook_name"`).
-    fn id(&self) -> &str;
-
-    /// DirtyFlags that trigger this hook. The hook is skipped when none of these
-    /// flags are set.
-    fn deps(&self) -> DirtyFlags;
-
-    /// Optional surface filter. When `Some(id)`, only apply when that surface
-    /// was rendered. When `None`, apply on every paint pass.
-    fn surface_filter(&self) -> Option<crate::surface::SurfaceId> {
-        None
-    }
-
-    /// Apply the hook to the cell grid.
-    ///
-    /// `region` is the rectangular area that was painted (typically the full screen).
-    fn apply(
-        &self,
-        grid: &mut crate::render::CellGrid,
-        region: &crate::layout::Rect,
-        state: &crate::state::AppState,
-    );
-}
-
 pub enum Command {
     SendToKakoune(KasaneRequest),
     InsertText(String),

@@ -65,8 +65,6 @@ The core UI is structured around surfaces. The extension points available to plu
 | Display floating UI | `contribute_overlay_with_ctx()` |
 | Modify or replace existing UI appearance | `transform()` |
 | Transform individual menu items | `transform_menu_item()` |
-| Draw directly without going through the Element tree | `PaintHook` |
-
 As a principle, prefer the least flexible mechanism that suffices. Do not use `transform()` if `contribute_to()` can achieve the goal.
 
 ### 1.2.1 Display Transformations and Display Units
@@ -118,7 +116,7 @@ Native plugins can be implemented using one of two traits:
 | Capabilities | Auto-inferred from registered handlers | Manual `capabilities()` method |
 | Cache invalidation | Automatic via `PartialEq` comparison (generation counter) | Manual `state_hash()` |
 | Salsa compatibility | State transitions are pure functions; future Salsa integration path | Not directly memoizable (mutable state) |
-| Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, `PaintHook`, workspace observation, or complex host integration |
+| Use when | UI decoration/transformation with deterministic state (most plugins) | You need `Surface`, workspace observation, or complex host integration |
 
 `Plugin` is recommended for new native plugins. In unit tests, register via `PluginRuntime::register()`. In a host binary, wrap it with `PluginBridge::new(...)` and pass it to `kasane::run_with_factories(...)`.
 
@@ -774,13 +772,12 @@ WASM plugins are sandboxed by default. The host constructs the WASI context from
 | `PANE_RENDERER` | `render_pane()` |
 | `SURFACE_PROVIDER` | `surfaces()` |
 | `WORKSPACE_OBSERVER` | `on_workspace_changed()` |
-| `PAINT_HOOK` | `paint_hooks()` |
 | `IO_HANDLER` | `on_io_event_effects()` |
 | `DISPLAY_TRANSFORM` | `display_directives()` |
 
 For native plugins the default is `all()`. For WASM plugins, the authoritative source is the plugin manifest (`kasane-plugin.toml` → `[handlers].flags`); the WASM adapter receives pre-computed flags from the manifest without querying guest code.
 
-`PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, `PAINT_HOOK`, and `DISPLAY_TRANSFORM` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
+`PANE_LIFECYCLE`, `PANE_RENDERER`, `WORKSPACE_OBSERVER`, and `DISPLAY_TRANSFORM` are currently native-only, but `SURFACE_PROVIDER` has also been introduced on the WIT side as hosted surface descriptors / `render-surface`. It is not assumed that the same trait signatures will be directly mapped to WIT.
 
 ### 4.2 State hash and caching
 
@@ -901,26 +898,7 @@ Decorations from multiple plugins are collected, sorted by `priority` (ascending
 | `2` | Underline |
 | `3` | Outline (hollow block) |
 
-### 4.4 PaintHook
-
-`PaintHook` is a native-only hook that directly manipulates the `CellGrid` after paint, bypassing the `Element` tree. This is a **provisional escape hatch** and not intended as a long-term public API. It should be treated with the assumption that it will be redesigned into a higher-level render hook accessible from WASM, rather than direct `CellGrid` manipulation.
-
-```rust
-fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
-    vec![Box::new(MyHighlightHook)]
-}
-
-impl PaintHook for MyHighlightHook {
-    fn id(&self) -> &str { "myplugin.highlight" }
-    fn deps(&self) -> DirtyFlags { DirtyFlags::BUFFER }
-    fn surface_filter(&self) -> Option<SurfaceId> { Some(SurfaceId::BUFFER) }
-    fn apply(&self, grid: &mut CellGrid, region: &Rect, state: &AppState) {
-        // mutate grid directly
-    }
-}
-```
-
-## 4.5 SDK Helpers
+## 4.4 SDK Helpers
 
 The `kasane_plugin_sdk::generate!()` macro emits the following helper functions alongside WIT bindings, reducing boilerplate for common operations.
 

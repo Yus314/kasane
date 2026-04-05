@@ -28,7 +28,6 @@ WASM plugins cover the primary UI extension surface: slot contributions, line an
 | Inter-plugin messaging | `Box<dyn Any>` | `Vec<u8>` | Serialization required |
 | Static surfaces | Full | Full | — |
 | Dynamic surfaces | Full | Static only | Cannot add/remove/move post-init |
-| PaintHook (cell grid) | Full | None | No low-level rendering |
 | Pane lifecycle | Full | None | No create/close/focus hooks |
 | Pane rendering | Full | None | Cannot own custom panes |
 | Pane commands | Full | None | No split/close/focus commands |
@@ -41,14 +40,6 @@ WASM plugins cover the primary UI extension surface: slot contributions, line an
 | Fuel / timeout | N/A | None | No runaway protection |
 
 ## Extension Point Gaps
-
-### PaintHook \[Not Yet Implemented\]
-
-Native plugins can return `PaintHook` implementations that directly mutate the `CellGrid` after painting. This enables effects like custom cursor rendering, background gradients, or post-processing.
-
-WASM plugins have no access to the cell grid. Roadmap §3.5 plans to redesign `PaintHook` into a high-level render hook that does not depend on direct `CellGrid` manipulation, enabling WASM parity.
-
-> Workaround: Use a native `PluginBackend` for low-level rendering effects.
 
 ### Pane Lifecycle and Rendering \[Not Yet Implemented\]
 
@@ -203,7 +194,7 @@ The WIT interface is language-neutral by design — any language compiling to th
 
 **Sandbox isolation** (By Design constraints): The WASM sandbox is a core safety guarantee. Plugins cannot crash or corrupt the editor. Direct `AppState` access is withheld to prevent coupling to internal data structures and to maintain the host's ability to evolve its state representation. Synchronous execution, no threading, and no network access follow from the WASI capability model and the security-first design principle.
 
-**Phased implementation** (Not Yet Implemented constraints): The WASM plugin system was built bottom-up, starting with UI decoration (Phase W), then I/O (Phase P), then surfaces (Phase 5). Pane lifecycle, workspace management, and PaintHook parity require foundational work in the native API before WASM exposure. Roadmap §3.5 tracks the native escape hatch redesign that will enable WASM parity for these features.
+**Phased implementation** (Not Yet Implemented constraints): The WASM plugin system was built bottom-up, starting with UI decoration (Phase W), then I/O (Phase P), then surfaces (Phase 5). Pane lifecycle and workspace management require foundational work in the native API before WASM exposure.
 
 **API ergonomics** (Improvement constraints): The current API works but carries friction inherited from the Component Model boundary (serialized state, opaque handles, manual ID encoding). These are addressable through SDK improvements without WIT changes in most cases.
 
@@ -211,8 +202,7 @@ The WIT interface is language-neutral by design — any language compiling to th
 
 | Constraint | Resolution path | Roadmap reference |
 |---|---|---|
-| PaintHook | Redesign into high-level render hook | §3.5 |
-| Pane lifecycle/rendering | Define parity model, then expose via WIT | §3.5 |
+| Pane lifecycle/rendering | Define parity model, then expose via WIT | — |
 | Missing host state | Add getters as needed per use case | — |
 | Theme tokens | `register-theme-tokens` in WIT | — resolved |
 | Workspace commands | `workspace-command` + `on-workspace-changed` in WIT | — resolved |

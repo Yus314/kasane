@@ -13,9 +13,9 @@ use crate::display::unit::DisplayUnit;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, LineAnnotation, OrnamentBatch,
-    OverlayContext, OverlayContribution, PaintHook, PluginAuthorities, PluginCapabilities,
-    PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId, TransformContext,
-    TransformDescriptor, TransformSubject, TransformTarget, VirtualTextItem,
+    OverlayContext, OverlayContribution, PluginAuthorities, PluginCapabilities, PluginDiagnostic,
+    PluginId, RenderOrnamentContext, SlotId, TransformContext, TransformDescriptor,
+    TransformSubject, TransformTarget, VirtualTextItem,
 };
 
 /// Result of key middleware dispatch.
@@ -234,15 +234,6 @@ pub trait PluginBackend: Any {
 
     /// Notification that the workspace layout has changed.
     fn on_workspace_changed(&mut self, _query: &crate::workspace::WorkspaceQuery<'_>) {}
-
-    // --- Paint hooks (Phase 5) ---
-
-    /// Return paint hooks owned by this plugin.
-    /// Called once during initialization; returned hooks are registered for use
-    /// in the rendering pipeline (applied after the standard paint pass).
-    fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
-        vec![]
-    }
 
     // === Contribute ===
 

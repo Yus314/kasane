@@ -29,15 +29,9 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| Native escape hatch redesign | Higher-level `PaintHook` redesign |
-
-### 2.2 Next
-
-| Workstream | Next deliverable |
-|---|---|
 | Display transformation | Initial enforcement of P-032 observed/policy separation |
 
-### 2.3 Backlog
+### 2.2 Backlog
 
 | Workstream | Notes |
 |---|---|
@@ -61,19 +55,6 @@ Completed:
 - Precompiled component cache — disk-cached cranelift compilation artifacts (`$XDG_CACHE_HOME/kasane/wasm/`). Eliminates redundant `Component::new()` on second startup and in the factory pattern's double-compilation path.
 
 This workstream is complete.
-
-### 3.3 Native escape hatch redesign
-
-Completed:
-
-- `Pane` / `Workspace` parity model — `Workspace` split tree, `PaneMap`, workspace observation on `PluginBackend` (landed in Phase 5)
-- Plugin transforms integrated into Salsa rendering path — info overlays return `Vec<(InfoStyle, Overlay)>` for style-specific transform targets; menu path falls back to non-Salsa builder when `MENU_TRANSFORM` plugins are present
-
-Remaining work:
-
-- Redesign `PaintHook` into a high-level render hook that does not depend on direct `CellGrid` manipulation
-
-Next deliverable: Finalize the redesign direction for `PaintHook` and land the minimal skeleton of the migration target API
 
 ## 4. Phase Status Summary
 

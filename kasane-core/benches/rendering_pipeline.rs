@@ -1100,7 +1100,6 @@ mod salsa_benches {
     /// Bench: Salsa full pipeline vs legacy pipeline (direct comparison).
     pub fn bench_salsa_vs_legacy(c: &mut Criterion) {
         let mut group = c.benchmark_group("salsa_vs_legacy");
-        let paint_hooks: Vec<Box<dyn kasane_core::plugin::PaintHook>> = vec![];
 
         // Full frame cold (ALL dirty)
         {
@@ -1122,10 +1121,7 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
-                            RenderPipelineOptions {
-                                paint_hooks: &paint_hooks,
-                                ..Default::default()
-                            },
+                            Default::default(),
                         );
                     },
                     BatchSize::SmallInput,
@@ -1163,10 +1159,7 @@ mod salsa_benches {
                     &registry.view(),
                     &mut grid,
                     DirtyFlags::ALL,
-                    RenderPipelineOptions {
-                        paint_hooks: &paint_hooks,
-                        ..Default::default()
-                    },
+                    Default::default(),
                 );
                 grid.swap_with_dirty();
 
@@ -1178,10 +1171,7 @@ mod salsa_benches {
                         &registry.view(),
                         &mut grid,
                         DirtyFlags::MENU_SELECTION,
-                        RenderPipelineOptions {
-                            paint_hooks: &paint_hooks,
-                            ..Default::default()
-                        },
+                        Default::default(),
                     );
                 });
             });
@@ -1225,10 +1215,7 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
-                            RenderPipelineOptions {
-                                paint_hooks: &paint_hooks,
-                                ..Default::default()
-                            },
+                            Default::default(),
                         );
                         grid.swap_with_dirty();
                         sync_inputs_from_state(&mut db, &edited, &handles);
@@ -1242,10 +1229,7 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::BUFFER,
-                            RenderPipelineOptions {
-                                paint_hooks: &paint_hooks,
-                                ..Default::default()
-                            },
+                            Default::default(),
                         );
                     },
                     BatchSize::SmallInput,
@@ -1354,7 +1338,6 @@ mod salsa_benches {
     pub fn bench_salsa_scaling(c: &mut Criterion) {
         let mut group = c.benchmark_group("salsa_scaling");
         group.sample_size(50);
-        let paint_hooks: Vec<Box<dyn kasane_core::plugin::PaintHook>> = vec![];
 
         for (cols, rows, label) in [(80, 24, "80x24"), (200, 60, "200x60"), (300, 80, "300x80")] {
             let mut state = typical_state(rows as usize - 1);
@@ -1377,10 +1360,7 @@ mod salsa_benches {
                             &registry.view(),
                             &mut grid,
                             DirtyFlags::ALL,
-                            RenderPipelineOptions {
-                                paint_hooks: &paint_hooks,
-                                ..Default::default()
-                            },
+                            Default::default(),
                         );
                     },
                     BatchSize::SmallInput,

@@ -27,7 +27,6 @@ use kasane_core::state::{AppState, DirtyFlags, Msg, UpdateResult, update};
 use kasane_core::surface::SurfaceRegistry;
 
 use crate::backend::TuiBackend;
-use crate::paint_hooks::PaintHookState;
 use kasane_core::event_loop::schedule_diagnostic_overlay;
 
 pub(crate) enum Event {
@@ -101,7 +100,6 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub session_ready_gate: &'a mut SessionReadyGate,
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_manager: &'a mut PluginManager,
-    pub paint_hooks: &'a mut PaintHookState,
     pub diagnostic_overlay: &'a mut PluginDiagnosticOverlayState,
 }
 
@@ -417,7 +415,6 @@ where
                 registry,
                 ctx.surface_registry,
                 ctx.state,
-                ctx.paint_hooks,
                 result.deltas.as_slice(),
             )
         },
@@ -447,16 +444,13 @@ fn reconcile_reloaded_plugin_resources(
     registry: &mut PluginRuntime,
     surface_registry: &mut SurfaceRegistry,
     state: &AppState,
-    paint_hooks: &mut PaintHookState,
     deltas: &[kasane_core::plugin::AppliedWinnerDelta],
 ) -> Vec<PluginDiagnostic> {
     if deltas.is_empty() {
         return vec![];
     }
 
-    let diagnostics = reconcile_plugin_surfaces(registry, surface_registry, state, deltas);
-    paint_hooks.reconcile(registry, deltas, &diagnostics);
-    diagnostics
+    reconcile_plugin_surfaces(registry, surface_registry, state, deltas)
 }
 
 fn event_result_from_runtime_batch(
@@ -641,38 +635,15 @@ mod tests {
     use kasane_core::event_loop::{register_builtin_surfaces, setup_plugin_surfaces};
     use kasane_core::layout::SplitDirection;
     use kasane_core::plugin::{
-        AppView, PaintHook, PluginBackend, PluginCapabilities, PluginDescriptor, PluginRank,
-        PluginRevision, PluginSource,
+        AppView, PluginBackend, PluginCapabilities, PluginDescriptor, PluginRank, PluginRevision,
+        PluginSource,
     };
     use kasane_core::surface::{Surface, SurfaceId};
     use kasane_core::test_support::TestSurfaceBuilder;
     use kasane_core::workspace::Placement;
 
-    struct TestPaintHook {
-        id: &'static str,
-    }
-
-    impl PaintHook for TestPaintHook {
-        fn id(&self) -> &str {
-            self.id
-        }
-
-        fn deps(&self) -> DirtyFlags {
-            DirtyFlags::ALL
-        }
-
-        fn apply(
-            &self,
-            _grid: &mut kasane_core::render::CellGrid,
-            _region: &kasane_core::layout::Rect,
-            _state: &AppState,
-        ) {
-        }
-    }
-
     struct ReloadResourcePlugin {
         surface_id: SurfaceId,
-        hook_id: &'static str,
     }
 
     impl PluginBackend for ReloadResourcePlugin {
@@ -681,7 +652,7 @@ mod tests {
         }
 
         fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::PAINT_HOOK
+            PluginCapabilities::SURFACE_PROVIDER
         }
 
         fn surfaces(&mut self) -> Vec<Box<dyn Surface>> {
@@ -693,10 +664,6 @@ mod tests {
                 direction: SplitDirection::Vertical,
                 ratio: 0.4,
             })
-        }
-
-        fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
-            vec![Box::new(TestPaintHook { id: self.hook_id })]
         }
     }
 
@@ -723,12 +690,11 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_reloaded_plugin_resources_replaces_owner_surfaces_and_hooks() {
+    fn reconcile_reloaded_plugin_resources_replaces_owner_surfaces() {
         let state = AppState::default();
         let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(ReloadResourcePlugin {
             surface_id: SurfaceId(200),
-            hook_id: "hook-a",
         }));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -736,14 +702,9 @@ mod tests {
         let disabled = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
         assert!(disabled.is_empty());
 
-        let mut paint_hooks = PaintHookState::from_registry(&registry);
-        assert_eq!(paint_hooks.hooks().len(), 1);
-        assert_eq!(paint_hooks.hooks()[0].id(), "hook-a");
-
         let _ = registry.reload_plugin_batch(
             Box::new(ReloadResourcePlugin {
                 surface_id: SurfaceId(200),
-                hook_id: "hook-b",
             }),
             &AppView::new(&state),
         );
@@ -752,7 +713,6 @@ mod tests {
             &mut registry,
             &mut surface_registry,
             &state,
-            &mut paint_hooks,
             &[owner_delta(Some("r1"), Some("r2"))],
         );
 
@@ -768,17 +728,14 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(paint_hooks.hooks().len(), 1);
-        assert_eq!(paint_hooks.hooks()[0].id(), "hook-b");
     }
 
     #[test]
-    fn reconcile_reloaded_plugin_resources_removes_owner_surfaces_and_hooks() {
+    fn reconcile_reloaded_plugin_resources_removes_owner_surfaces() {
         let state = AppState::default();
         let mut registry = PluginRuntime::new();
         registry.register_backend(Box::new(ReloadResourcePlugin {
             surface_id: SurfaceId(200),
-            hook_id: "hook-a",
         }));
 
         let mut surface_registry = SurfaceRegistry::new();
@@ -786,21 +743,17 @@ mod tests {
         let disabled = setup_plugin_surfaces(&mut registry, &mut surface_registry, &state);
         assert!(disabled.is_empty());
 
-        let mut paint_hooks = PaintHookState::from_registry(&registry);
-        assert_eq!(paint_hooks.hooks().len(), 1);
         assert!(registry.unload_plugin(&PluginId("reload-owner".to_string())));
 
         let disabled = reconcile_reloaded_plugin_resources(
             &mut registry,
             &mut surface_registry,
             &state,
-            &mut paint_hooks,
             &[owner_delta(Some("r1"), None)],
         );
 
         assert!(disabled.is_empty());
         assert!(surface_registry.get(SurfaceId(200)).is_none());
         assert!(!surface_registry.workspace_contains(SurfaceId(200)));
-        assert!(paint_hooks.hooks().is_empty());
     }
 }

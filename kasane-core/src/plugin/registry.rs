@@ -17,9 +17,9 @@ use super::state::Plugin;
 use super::{
     AnnotateContext, AnnotationResult, BackgroundLayer, Command, ContributeContext, Contribution,
     EffectsBatch, GutterSide, IoEvent, KeyHandleResult, OverlayContext, OverlayContribution,
-    PaintHook, PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic,
-    PluginId, RenderOrnamentContext, SlotId, SourcedContribution, TransformContext,
-    TransformSubject, TransformTarget,
+    PaneContext, PluginAuthorities, PluginBackend, PluginCapabilities, PluginDiagnostic, PluginId,
+    RenderOrnamentContext, SlotId, SourcedContribution, TransformContext, TransformSubject,
+    TransformTarget,
 };
 
 /// Pre-decomposed result of a single `collect_ornaments` pass.
@@ -73,7 +73,7 @@ pub struct PluginRuntime {
 ///
 /// Borrows the plugin list and capabilities from [`PluginRuntime`] without
 /// requiring `&mut` access. All read-only view queries (contribute, transform,
-/// annotate, overlay, display map, paint hooks, etc.) live here.
+/// annotate, overlay, display map, etc.) live here.
 pub struct PluginView<'a> {
     slots: &'a [PluginSlot],
 }
@@ -1674,40 +1674,6 @@ impl<'a> PluginView<'a> {
             cursor_effects,
             surfaces,
         }
-    }
-
-    /// Collect paint hooks from all plugins.
-    pub fn collect_paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
-        let mut hooks = Vec::new();
-        for slot in self.slots.iter() {
-            if slot.capabilities.contains(PluginCapabilities::PAINT_HOOK) {
-                hooks.extend(slot.backend.paint_hooks());
-            }
-        }
-        hooks
-    }
-
-    /// Collect paint hooks for a single owner in plugin registration order.
-    pub fn collect_paint_hooks_for_owner(&self, target: &PluginId) -> Vec<Box<dyn PaintHook>> {
-        for slot in self.slots.iter() {
-            if slot.backend.id() != *target {
-                continue;
-            }
-            if !slot.capabilities.contains(PluginCapabilities::PAINT_HOOK) {
-                return vec![];
-            }
-            return slot.backend.paint_hooks();
-        }
-        vec![]
-    }
-
-    /// Plugin IDs that currently contribute paint hooks, in registry order.
-    pub fn paint_hook_owners_in_order(&self) -> Vec<PluginId> {
-        self.slots
-            .iter()
-            .filter(|s| s.capabilities.contains(PluginCapabilities::PAINT_HOOK))
-            .map(|s| s.backend.id())
-            .collect()
     }
 
     /// Check if any plugin has TRANSFORMER capability for a given target.

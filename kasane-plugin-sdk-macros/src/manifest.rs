@@ -106,7 +106,6 @@ pub(crate) fn compile_time_handler_flag_bit(name: &str) -> Option<u32> {
         "input-handler" => Some(1 << 7),
         "surface-provider" => Some(1 << 11),
         "workspace-observer" => Some(1 << 12),
-        "paint-hook" => Some(1 << 13),
         "contributor" => Some(1 << 14),
         "transformer" => Some(1 << 15),
         "annotator" => Some(1 << 16),

@@ -305,7 +305,7 @@ mod tests {
         reconcile_plugin_surfaces, register_builtin_surfaces, setup_plugin_surfaces,
     };
     use kasane_core::layout::SplitDirection;
-    use kasane_core::plugin::{AppView, Effects, PaintHook, PluginBackend, PluginCapabilities};
+    use kasane_core::plugin::{AppView, Effects, PluginBackend, PluginCapabilities};
     use kasane_core::plugin::{
         PluginCollect, PluginDescriptor, PluginDiagnosticKind, PluginId, PluginManager,
         PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource,
@@ -468,13 +468,6 @@ mod tests {
             }
         }
 
-        fn hook_id(self) -> &'static str {
-            match self {
-                Self::V1 => "hook-a",
-                Self::V2 => "hook-b",
-            }
-        }
-
         fn ready_redraw(self) -> DirtyFlags {
             match self {
                 Self::V1 => DirtyFlags::STATUS,
@@ -490,28 +483,6 @@ mod tests {
         }
     }
 
-    struct ReloadHook {
-        id: &'static str,
-    }
-
-    impl PaintHook for ReloadHook {
-        fn id(&self) -> &str {
-            self.id
-        }
-
-        fn deps(&self) -> DirtyFlags {
-            DirtyFlags::ALL
-        }
-
-        fn apply(
-            &self,
-            _grid: &mut kasane_core::render::CellGrid,
-            _region: &kasane_core::layout::Rect,
-            _state: &AppState,
-        ) {
-        }
-    }
-
     struct ReloadChainPlugin {
         variant: ReloadVariant,
     }
@@ -522,7 +493,7 @@ mod tests {
         }
 
         fn capabilities(&self) -> PluginCapabilities {
-            PluginCapabilities::PAINT_HOOK
+            PluginCapabilities::SURFACE_PROVIDER
         }
 
         fn on_init_effects(&mut self, _state: &AppView<'_>) -> Effects {
@@ -542,12 +513,6 @@ mod tests {
                 direction: SplitDirection::Vertical,
                 ratio: 0.4,
             })
-        }
-
-        fn paint_hooks(&self) -> Vec<Box<dyn PaintHook>> {
-            vec![Box::new(ReloadHook {
-                id: self.variant.hook_id(),
-            })]
         }
     }
 
@@ -800,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn reload_reconciles_surface_paint_hook_and_ready_chain() {
+    fn reload_reconciles_surface_and_ready_chain() {
         let state = AppState::default();
         let provider = ReloadChainProvider::new(ReloadVariant::V1);
         let mut manager = PluginManager::new(vec![Box::new(provider.clone())]);
@@ -817,11 +782,6 @@ mod tests {
             .unwrap();
 
         assert!(surface_registry.get(SurfaceId(200)).is_some());
-        let hooks = registry
-            .view()
-            .collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
-        assert_eq!(hooks.len(), 1);
-        assert_eq!(hooks[0].id(), "hook-a");
 
         provider.set_variant(ReloadVariant::V2);
 
@@ -858,12 +818,6 @@ mod tests {
                 .count(),
             1
         );
-
-        let hooks = registry
-            .view()
-            .collect_paint_hooks_for_owner(&PluginId("reload_owner".to_string()));
-        assert_eq!(hooks.len(), 1);
-        assert_eq!(hooks[0].id(), "hook-b");
 
         let ready_batch = registry.notify_plugin_active_session_ready_batch(
             &PluginId("reload_owner".to_string()),

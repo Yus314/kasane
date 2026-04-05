@@ -3,7 +3,6 @@ mod diagnostics_overlay;
 mod event_handler;
 mod input;
 pub mod kitty;
-mod paint_hooks;
 pub mod sgr;
 
 use std::io::Write;
@@ -42,8 +41,6 @@ use event_handler::{
     Event, EventProcessingContext, TuiEventSink, TuiProcessEventSink, process_event,
 };
 use input::convert_event;
-use paint_hooks::PaintHookState;
-
 /// Install a panic hook that restores the terminal and shows reconnect info.
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
@@ -244,9 +241,6 @@ where
         );
     }
 
-    // Collect paint hooks from plugins
-    let mut paint_hooks = PaintHookState::from_registry(&registry);
-
     // Salsa database
     let (mut salsa_db, mut salsa_handles) = {
         let mut db = KasaneDatabase::default();
@@ -339,7 +333,6 @@ where
                 session_ready_gate: &mut session_ready_gate,
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_manager: &mut plugin_manager,
-                paint_hooks: &mut paint_hooks,
                 diagnostic_overlay: &mut diagnostic_overlay,
             };
 
@@ -462,7 +455,6 @@ where
                 &mut grid,
                 dirty,
                 RenderPipelineOptions {
-                    paint_hooks: paint_hooks.hooks(),
                     surface_registry: Some(&surface_registry),
                     pane_states: pane_states_opt,
                     halfblock_cache: Some(&mut halfblock_cache),

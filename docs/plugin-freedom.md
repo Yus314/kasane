@@ -205,7 +205,6 @@ inexpressible:
 | No commands during view phase | Eliminate rendering side effects |
 | No access to other plugins' state | Plugin isolation, testability |
 | No WASM network I/O | Sandbox security |
-| No WASM PaintHook | CellGrid direct manipulation is incompatible with sandboxing |
 
 ### Gaps That May Be Relaxed
 
@@ -247,7 +246,7 @@ inexpressible:
 │  · Side effects during view phase                       │
 │  · Full context-dependent composition                   │
 │  · Synchronous inter-plugin RPC                         │
-│  · WASM PaintHook / network I/O                         │
+│  · WASM network I/O                                     │
 │  · Rendering pipeline intermediate access               │
 └─────────────────────────────────────────────────────────┘
 ```

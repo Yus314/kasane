@@ -20,9 +20,7 @@ use super::scene::{self, DrawCommand, SceneCache};
 use super::view;
 use crate::element::{Element, FlexChild, Style};
 use crate::layout::Rect;
-use crate::plugin::{
-    AppView, PaintHook, PluginCapabilities, PluginView, TransformSubject, TransformTarget,
-};
+use crate::plugin::{AppView, PluginCapabilities, PluginView, TransformSubject, TransformTarget};
 use crate::protocol::MenuStyle;
 use crate::salsa_db::KasaneDatabase;
 use crate::salsa_sync::SalsaInputHandles;
@@ -408,7 +406,6 @@ fn compose_base_from_salsa(
 /// use `Default::default()` instead of listing a dozen `None` arguments.
 #[derive(Default)]
 pub struct RenderPipelineOptions<'a> {
-    pub paint_hooks: &'a [Box<dyn PaintHook>],
     pub surface_registry: Option<&'a SurfaceRegistry>,
     pub pane_states: Option<&'a PaneStates<'a>>,
     pub halfblock_cache: Option<&'a mut super::halfblock::HalfblockCache>,
@@ -434,7 +431,6 @@ pub fn render_pipeline_cached(
         registry,
         grid,
         dirty,
-        options.paint_hooks,
         options.halfblock_cache,
         options.image_protocol,
         options.image_requests,

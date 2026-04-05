@@ -273,7 +273,7 @@ See [plugin-development.md](./plugin-development.md) for detailed design.
 
 **Subsequent updates:**
 - [ADR-013](#adr-013-wasm-plugin-runtime--component-model-adoption) added the WASM Component Model, and the recommended distribution path is now WASM
-- The native path continues for registration via `kasane::run()`, full access to `&AppState`, and escape hatches such as `Surface` / `PaintHook`
+- The native path continues for registration via `kasane::run()`, full access to `&AppState`, and features such as `Surface`
 - Hook parity of the `#[kasane_plugin]` macro is being expanded incrementally; currently some hooks still require direct trait implementation
 - [ADR-022](#adr-022-plugin-trait-rename--pureplugin--plugin-plugin--pluginbackend) renamed the traits: the `Plugin` trait referenced above is now called `PluginBackend` (internal), and the primary user-facing trait is the new `Plugin` (state-externalized, formerly `PurePlugin`)
 
@@ -771,7 +771,7 @@ Determined by "whether policy divergence exists."
 
 ### 12-3: API Parity
 
-WASM plugins use a subset of the Plugin trait API via WIT interface. `contribute_to`, `transform`, `annotate_line_with_ctx`, `contribute_overlay_with_ctx`, `transform_menu_item`, and `render_ornaments` are available in WASM (WIT v0.4.0+). `Surface`, `PaintHook`, and `Pane` APIs are available only in native plugins.
+WASM plugins use a subset of the Plugin trait API via WIT interface. `contribute_to`, `transform`, `annotate_line_with_ctx`, `contribute_overlay_with_ctx`, `transform_menu_item`, and `render_ornaments` are available in WASM (WIT v0.4.0+). `Surface` and `Pane` APIs are available only in native plugins.
 
 ### 12-4: Upstream Criteria
 
@@ -1091,7 +1091,7 @@ The current `DirtyFlags` are global: Draw messages from Kakoune invalidate all S
 
 ### Compatibility with Existing Mechanisms
 
-- `PaintHook::surface_filter()` (existing) — per-surface hook filter. Consistent with the design
+- RenderOrnaments surface anchor — per-surface ornament targeting. Consistent with the design
 - `EffectiveSectionDeps` — extendable to per-surface deps
 - `PluginSlotCache` — independent cache entries per surface
 
@@ -1460,7 +1460,7 @@ Introduce `PurePlugin` as an alternative to `Plugin` where the framework owns th
 | For | Against |
 |-----|---------|
 | Automatic, collision-free state change detection | State clone cost on every transition (negligible for small states) |
-| Pure functions enable future Salsa memoization of Stage 2 | `Plugin` cannot use `Surface`, `PaintHook`, or workspace observation |
+| Pure functions enable future Salsa memoization of Stage 2 | `Plugin` cannot use `Surface` or workspace observation |
 | Framework-owned state enables snapshotting and diffing | Blanket `PluginState` impl causes method resolution ambiguity with `Box<dyn PluginState>` (mitigated by using `&mut dyn PluginState` in erased interface) |
 | Zero boilerplate for state types (blanket impl) | WASM plugins cannot externalize state to host without serialization overhead |
 | Opt-in migration — existing plugins unchanged | Two plugin models to maintain during transition |

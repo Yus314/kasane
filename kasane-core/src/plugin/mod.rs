@@ -32,8 +32,8 @@ use compact_str::CompactString;
 
 // Re-export command module
 pub use command::{
-    BufferEdit, BufferPosition, Command, CommandResult, PaintHook, edits_to_keys,
-    escape_kakoune_insert_text, execute_commands, extract_redraw_flags, partition_commands,
+    BufferEdit, BufferPosition, Command, CommandResult, edits_to_keys, escape_kakoune_insert_text,
+    execute_commands, extract_redraw_flags, partition_commands,
 };
 pub use diagnostics::{
     PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticOverlayState, PluginDiagnosticSeverity,
@@ -120,7 +120,6 @@ bitflags! {
         /// separately via the SurfaceRegistry.
         const SURFACE_PROVIDER   = 1 << 11;
         const WORKSPACE_OBSERVER = 1 << 12;
-        const PAINT_HOOK         = 1 << 13;
         const CONTRIBUTOR        = 1 << 14;
         const TRANSFORMER        = 1 << 15;
         const ANNOTATOR          = 1 << 16;

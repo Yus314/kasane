@@ -15,8 +15,8 @@ use crate::display::{DisplayMap, DisplayMapRef};
 use crate::layout::Rect;
 use crate::layout::flex;
 use crate::layout::line_display_width;
+use crate::plugin::AppView;
 use crate::plugin::PluginView;
-use crate::plugin::{AppView, PaintHook};
 use crate::protocol::CursorMode;
 use crate::state::{AppState, DirtyFlags};
 use crate::surface::SurfaceRegistry;
@@ -59,21 +59,6 @@ impl ViewSource for DirectViewSource {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/// Apply paint hooks that match the current dirty flags.
-pub(crate) fn apply_paint_hooks(
-    hooks: &[Box<dyn PaintHook>],
-    grid: &mut CellGrid,
-    region: &Rect,
-    state: &AppState,
-    dirty: DirtyFlags,
-) {
-    for hook in hooks {
-        if dirty.intersects(hook.deps()) {
-            hook.apply(grid, region, state);
-        }
-    }
-}
 
 /// Selective clear: when BUFFER is dirty and line-level dirty info is available,
 /// skip clearing buffer rows (paint_buffer_ref will skip clean lines) and only
@@ -294,7 +279,6 @@ pub(crate) fn render_cached_core(
     registry: &PluginView<'_>,
     grid: &mut CellGrid,
     dirty: DirtyFlags,
-    paint_hooks: &[Box<dyn PaintHook>],
     halfblock_cache: Option<&mut super::halfblock::HalfblockCache>,
     image_protocol: super::ImageProtocol,
     image_requests: Option<&mut Vec<super::ImageRequest>>,
@@ -326,11 +310,6 @@ pub(crate) fn render_cached_core(
         image_protocol,
         image_requests,
     );
-
-    // Apply plugin paint hooks after standard paint
-    if !paint_hooks.is_empty() {
-        apply_paint_hooks(paint_hooks, grid, &root_area, state, dirty);
-    }
 
     // Collect all render ornaments in a single pass and decompose.
     let ornament_ctx = crate::plugin::RenderOrnamentContext::from_screen(
@@ -580,7 +559,6 @@ pub fn render_pipeline(
         registry,
         grid,
         DirtyFlags::ALL,
-        &[],
         None,
         super::ImageProtocol::Off,
         None,
@@ -602,7 +580,6 @@ pub fn render_pipeline_direct(
         registry,
         grid,
         dirty,
-        &[],
         None,
         super::ImageProtocol::Off,
         None,

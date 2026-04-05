@@ -523,11 +523,10 @@ Kasane's UI extensions are primarily composed of the following mechanisms.
 - Menu Item Transform (`transform_menu_item`)
 - Display Directive (`display_directives`)
 - Scroll Policy Override (`handle_default_scroll`)
-- PaintHook
 
 These are not at the same level of abstraction; they differ in degrees of freedom and responsibilities.
 
-These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface), with one exception: PaintHook is available only to native `PluginBackend` plugins and is not exposed to WASM. The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §9.11, §9.12).
+These extension points are available to both native plugins (`Plugin` / `PluginBackend` traits) and WASM plugins (via WIT interface). The semantic contract is identical regardless of the plugin runtime; differences exist only in state access mechanisms and dependency declaration (see §9.11, §9.12).
 
 The following table classifies each extension point by what it affects in the projection model and how outputs compose:
 
@@ -664,13 +663,13 @@ Both tiers are necessary. The generation counter provides the coarse "did anythi
 Kasane provides two plugin trait models with different levels of abstraction.
 
 - **`Plugin` trait** (recommended, primary API): 3-method trait with `HandlerRegistry`-based registration. The framework owns plugin state; handlers are pure functions. Plugins register only the handlers they need via `register(&self, r: &mut HandlerRegistry<Self::State>)`. Capabilities are auto-inferred from registered handlers. Automatic cache invalidation via `PartialEq`. Suitable for most plugins.
-- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface`, `PaintHook`, and workspace observation. Intended for framework-internal use, WASM adapter, and advanced scenarios.
+- **`PluginBackend` trait** (internal, advanced): Mutable state model with `&mut self`. Full access to all extension points including `Surface` and workspace observation. Intended for framework-internal use, WASM adapter, and advanced scenarios.
 
-The following extension points are available only via `PluginBackend` (not `Plugin` trait): `surfaces()`, `workspace_request()`, `paint_hooks()`. PaintHook is further restricted to native plugins only (not available to WASM).
+The following extension points are available only via `PluginBackend` (not `Plugin` trait): `surfaces()`, `workspace_request()`.
 
 `PluginBridge` adapts `Plugin` to `PluginBackend` via `HandlerTable` — a type-erased dispatch table produced by `HandlerRegistry`. This enables both models to coexist in `PluginRuntime`. The semantic guarantees (extension point contracts, composition ordering, input dispatch) are identical for both models.
 
-WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer. WASM plugins declare capabilities via `register-capabilities()` WIT export. WASM plugins have access to surfaces but not to PaintHook.
+WASM plugins implement the equivalent of `PluginBackend` via WIT interface, with the host providing the adaptation layer. WASM plugins declare capabilities via `register-capabilities()` WIT export.
 
 ### 9.12 WASM Plugin Semantics
 
