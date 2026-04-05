@@ -1,6 +1,6 @@
 pkgbase = kasane-bin
 	pkgdesc = Alternative frontend for the Kakoune text editor (prebuilt binary)
-	pkgver = 0.3.0
+	pkgver = 0.4.0
 	pkgrel = 1
 	url = https://github.com/Yus314/kasane
 	arch = x86_64
@@ -8,15 +8,18 @@ pkgbase = kasane-bin
 	license = MIT
 	license = Apache-2.0
 	depends = kakoune>=2024.12.09
+	depends = vulkan-icd-loader
+	depends = wayland
+	depends = libxkbcommon
 	provides = kasane
 	conflicts = kasane
-	source = LICENSE-MIT::https://raw.githubusercontent.com/Yus314/kasane/v0.3.0/LICENSE-MIT
-	source = LICENSE-APACHE::https://raw.githubusercontent.com/Yus314/kasane/v0.3.0/LICENSE-APACHE
+	source = LICENSE-MIT::https://raw.githubusercontent.com/Yus314/kasane/v0.4.0/LICENSE-MIT
+	source = LICENSE-APACHE::https://raw.githubusercontent.com/Yus314/kasane/v0.4.0/LICENSE-APACHE
 	sha256sums = 7df959e3ed3c0ceeec7e83bfebd6fa4f81b62d36618f2aacdd97331c2c38369a
 	sha256sums = 1263c7c3105ecd7de4af8c5535c4c563d0973e5f6d175d353bceba720b31ebf1
-	source_x86_64 = kasane-v0.3.0-x86_64-linux-gnu.tar.gz::https://github.com/Yus314/kasane/releases/download/v0.3.0/kasane-v0.3.0-x86_64-linux-gnu.tar.gz
-	sha256sums_x86_64 = a37872ddb2e6734089c5ec6478fc8a0552af884c846099d7c143b7e28c43b3cd
-	source_aarch64 = kasane-v0.3.0-aarch64-linux-gnu.tar.gz::https://github.com/Yus314/kasane/releases/download/v0.3.0/kasane-v0.3.0-aarch64-linux-gnu.tar.gz
-	sha256sums_aarch64 = ddf64d783b4cdf7957dd32f29258b6d34e9fe9c779d8fe447c17975540602a78
+	source_x86_64 = kasane-v0.4.0-x86_64-linux-gnu.tar.gz::https://github.com/Yus314/kasane/releases/download/v0.4.0/kasane-v0.4.0-x86_64-linux-gnu.tar.gz
+	sha256sums_x86_64 = cc6a86db3ec6b51ed755efd046032ca48a7fbd179c75e5a4573692a67d59923d
+	source_aarch64 = kasane-v0.4.0-aarch64-linux-gnu.tar.gz::https://github.com/Yus314/kasane/releases/download/v0.4.0/kasane-v0.4.0-aarch64-linux-gnu.tar.gz
+	sha256sums_aarch64 = 75110dd6f1c275c52daf3904832e3690484fa590f32b1507c1a1b804a7e2b4d9
 
 pkgname = kasane-bin
