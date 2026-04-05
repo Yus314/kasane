@@ -1,37 +1,32 @@
 # Kasane
 
-Drop-in Kakoune frontend with independent rendering, GPU backend, and WASM plugins.
+Kakoune handles editing. Kasane rebuilds the rendering pipeline — terminal or GPU — and opens the full UI to extension: splits, image display, workspace persistence, and beyond. Extend it yourself with sandboxed WASM plugins — a complete one fits in 15 lines of Rust. Your kakrc works unchanged.
 
 <p align="center">
   <img src="docs/assets/demo.gif" alt="Kasane demo — fuzzy finder, pane splits, and color preview running as WASM plugins" width="800"><br>
-  <sub>Fuzzy finder, pane splits, and color preview are WASM plugins — no code in Kasane itself</sub>
+  <sub>GPU backend (<code>--ui gui</code>) — fuzzy finder, pane splits, and color preview are all WASM plugins</sub>
 </p>
 
 [![CI](https://github.com/Yus314/kasane/actions/workflows/ci.yml/badge.svg)](https://github.com/Yus314/kasane/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-MIT)
 [![Rust: 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org)
 
-[Getting Started](docs/getting-started.md) · [What's Different](docs/whats-different.md) · [Configuration](docs/config.md) · [Using Plugins](docs/using-plugins.md) · [Plugin Development](docs/plugin-development.md) · [Plugin API](docs/plugin-api.md) · [Vision](docs/vision.md)
+[Getting Started](docs/getting-started.md) · [What's Different](docs/whats-different.md) · [Plugin Development](docs/plugin-development.md) · [Vision](docs/vision.md)
 
 ## What You Get
 
-Kakoune's `-ui json` protocol was designed to let external processes
-drive the UI, but its built-in terminal renderer leaves that potential
-untapped. Kasane rebuilds the rendering pipeline from scratch and opens
-it to plugins.
+`alias kak=kasane` and these improvements apply automatically:
 
-Your kakrc works unchanged. `alias kak=kasane` and these improvements
-apply automatically:
-
-- **Flicker-free rendering** — independent pipeline at ~59 μs per frame
+- **Flicker-free rendering** — no more tearing on redraws
 - **Multi-pane without tmux** — native splits with per-pane status bars
-- **Clipboard that just works** — Wayland, X11, macOS, SSH forwarding
-- **Correct Unicode** — independent width calculation, CJK and emoji handled
+- **Clipboard that just works** — Wayland, X11, macOS, SSH — no xclip needed
+- **Correct Unicode** — CJK and emoji display correctly regardless of terminal
 
-Opt in to smooth scrolling, GPU backend (`--ui gui`), themes, border
-styles, and search dropdown. Existing Kakoune plugins (kak-lsp, …)
-work as before. See [What's Different](docs/whats-different.md) for
-the full list.
+Add `--ui gui` for a GPU backend with system font rendering,
+smooth animations, and inline image display.
+
+Existing Kakoune plugins (kak-lsp, …) work as before. See
+[What's Different](docs/whats-different.md) for the full list.
 
 ## Quick Start
 
@@ -56,13 +51,9 @@ See [Getting Started](docs/getting-started.md) for detailed setup.
 
 ## Plugins
 
-Kakoune's `-ui json` protocol decouples editor from renderer. Kasane
-builds on this with a plugin system that opens the full UI to extension —
-floating overlays, line annotations, virtual text, code folding, gutter
-decorations, input handling, scroll policies, and session management.
-
-The repository includes [example plugins](examples/wasm/) you can
-try today:
+Plugins can add floating overlays, line annotations, virtual text, code
+folding, gutter decorations, input handling, scroll policies, and more.
+Bundled [example plugins](examples/wasm/) you can try today:
 
 | Plugin | What it does |
 |---|---|
@@ -110,12 +101,8 @@ See [Plugin Development](docs/plugin-development.md) and
 
 ## Status
 
-Kasane is stable as a Kakoune frontend — `alias kak=kasane` and use it
-daily. The plugin API is still evolving; expect breaking changes if
-you write plugins. The current WASM plugin ABI is `kasane:plugin@0.25.0`;
-plugins built against an older ABI must be rebuilt before they will load.
-If you are upgrading a plugin from ABI 0.24.0, see
-[Plugin Development: Migrating to ABI 0.25.0](docs/plugin-development.md#migrating-to-abi-0250).
+Kasane is stable as a Kakoune frontend — ready for daily use. The plugin API is evolving; see [Plugin Development](docs/plugin-development.md)
+for the current ABI version and migration guides.
 
 ## Usage
 
@@ -133,20 +120,7 @@ kasane --ui gui file.txt     # GPU backend
 kasane -l                    # List sessions (delegates to kak)
 ```
 
-Configuration lives in `~/.config/kasane/config.toml`:
-
-```toml
-[ui]
-border_style = "rounded"   # single | rounded | double | heavy | ascii
-
-[scroll]
-smooth = true              # enable smooth scrolling (via plugin)
-
-[search]
-dropdown = true            # vertical dropdown instead of inline
-```
-
-See [docs/config.md](docs/config.md) for the full reference.
+See [docs/config.md](docs/config.md) for configuration.
 
 ## Contributing
 
