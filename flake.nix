@@ -43,7 +43,7 @@
           pkgs.libxkbcommon
         ];
 
-        mkKasane = { withGui ? false }: pkgs.rustPlatform.buildRustPackage {
+        mkKasane = { withGui ? true }: pkgs.rustPlatform.buildRustPackage {
           pname = "kasane";
           version = "0.4.0";
 
@@ -126,7 +126,7 @@
         packages = {
           default = mkKasane { };
           kasane = mkKasane { };
-          kasane-gui = mkKasane { withGui = true; };
+          kasane-tui = mkKasane { withGui = false; };
         };
 
         checks = { inherit pre-commit-check; };
