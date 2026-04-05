@@ -92,6 +92,8 @@ impl PluginProvider for LockedWasmPluginProvider {
         };
         let wasi_config = WasiCapabilityConfig::from_plugins_config(&self.plugins_config);
 
+        let mut lock_updates: Vec<(String, LockedPluginEntry)> = Vec::new();
+
         for (key, entry) in &lock.plugins {
             collect_locked_plugin(
                 key,
@@ -100,7 +102,19 @@ impl PluginProvider for LockedWasmPluginProvider {
                 &self.config_settings,
                 &wasi_config,
                 &mut resolved,
+                &mut lock_updates,
             );
+        }
+
+        // Auto-save lock file when bundled plugins were updated to match the current binary.
+        if !lock_updates.is_empty() {
+            let mut updated_lock = lock;
+            for (key, updated_entry) in lock_updates {
+                updated_lock.plugins.insert(key, updated_entry);
+            }
+            if let Err(e) = updated_lock.save_to_path(&self.lock_path) {
+                tracing::warn!("failed to save auto-updated plugins.lock: {e}");
+            }
         }
 
         Ok(resolved)
@@ -114,6 +128,7 @@ fn collect_locked_plugin(
     config_settings: &HashMap<String, toml::Table>,
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
+    lock_updates: &mut Vec<(String, LockedPluginEntry)>,
 ) {
     if key != entry.plugin_id {
         resolved
@@ -139,9 +154,14 @@ fn collect_locked_plugin(
             wasi_config,
             resolved,
         ),
-        "bundled" => {
-            collect_locked_bundled_plugin(key, entry, config_settings, wasi_config, resolved)
-        }
+        "bundled" => collect_locked_bundled_plugin(
+            key,
+            entry,
+            config_settings,
+            wasi_config,
+            resolved,
+            lock_updates,
+        ),
         other => resolved
             .diagnostics
             .push(PluginDiagnostic::provider_artifact_failed(
@@ -296,6 +316,7 @@ fn collect_locked_bundled_plugin(
     config_settings: &HashMap<String, toml::Table>,
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
+    lock_updates: &mut Vec<(String, LockedPluginEntry)>,
 ) {
     let artifact = match bundled_plugin_artifact_by_plugin_id(&entry.plugin_id) {
         Ok(Some(artifact)) => artifact,
@@ -323,53 +344,37 @@ fn collect_locked_bundled_plugin(
         }
     };
 
-    if artifact.artifact_digest != entry.artifact_digest {
-        resolved
-            .diagnostics
-            .push(PluginDiagnostic::provider_artifact_failed(
-                LOCKED_WASM_PROVIDER_NAME,
-                key,
-                ProviderArtifactStage::Manifest,
-                format!(
-                    "plugins.lock artifact digest `{}` does not match bundled digest `{}`",
-                    entry.artifact_digest, artifact.artifact_digest
-                ),
-            ));
-        return;
-    }
+    // For bundled plugins, digest/abi mismatches mean the binary was updated.
+    // Auto-update the lock entry instead of failing.
+    let needs_lock_update = artifact.artifact_digest != entry.artifact_digest
+        || entry
+            .code_digest
+            .as_ref()
+            .is_some_and(|cd| cd != &artifact.code_digest)
+        || entry
+            .abi_version
+            .as_ref()
+            .is_some_and(|av| av != &artifact.abi_version);
 
-    if let Some(ref lock_code) = entry.code_digest
-        && lock_code != &artifact.code_digest
-    {
-        resolved
-            .diagnostics
-            .push(PluginDiagnostic::provider_artifact_failed(
-                LOCKED_WASM_PROVIDER_NAME,
-                key,
-                ProviderArtifactStage::Manifest,
-                format!(
-                    "plugins.lock code digest `{lock_code}` does not match bundled digest `{}`",
-                    artifact.code_digest
-                ),
-            ));
-        return;
-    }
-
-    if let Some(abi_version) = &entry.abi_version
-        && abi_version != &artifact.abi_version
-    {
-        resolved
-            .diagnostics
-            .push(PluginDiagnostic::provider_artifact_failed(
-                LOCKED_WASM_PROVIDER_NAME,
-                key,
-                ProviderArtifactStage::Manifest,
-                format!(
-                    "plugins.lock abi_version `{}` does not match bundled abi `{}`",
-                    abi_version, artifact.abi_version
-                ),
-            ));
-        return;
+    if needs_lock_update {
+        tracing::info!(
+            "bundled plugin `{}` updated: digest {} → {}",
+            entry.plugin_id,
+            entry.artifact_digest,
+            artifact.artifact_digest
+        );
+        lock_updates.push((
+            key.to_string(),
+            LockedPluginEntry {
+                plugin_id: entry.plugin_id.clone(),
+                package: entry.package.clone(),
+                version: entry.version.clone(),
+                artifact_digest: artifact.artifact_digest.clone(),
+                code_digest: Some(artifact.code_digest.clone()),
+                source_kind: "bundled".to_string(),
+                abi_version: Some(artifact.abi_version.clone()),
+            },
+        ));
     }
 
     let manifest = match bundled_plugin_manifest_by_plugin_id(&entry.plugin_id) {
@@ -702,5 +707,64 @@ flags = ["contributor"]
             collected.factories[0].descriptor().id,
             PluginId("pane_manager".to_string())
         );
+    }
+
+    #[test]
+    fn collect_auto_updates_bundled_plugin_on_digest_mismatch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let artifact = bundled_plugin_artifact_by_plugin_id("pane_manager")
+            .unwrap()
+            .expect("pane_manager bundled plugin");
+
+        let stale_digest =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+        let mut lock = PluginsLock::new();
+        lock.plugins.insert(
+            artifact.plugin_id.clone(),
+            LockedPluginEntry {
+                plugin_id: artifact.plugin_id.clone(),
+                package: Some(artifact.package_name.clone()),
+                version: Some(artifact.package_version.clone()),
+                artifact_digest: stale_digest.to_string(),
+                code_digest: Some("sha256:stale".to_string()),
+                source_kind: "bundled".to_string(),
+                abi_version: Some(artifact.abi_version.clone()),
+            },
+        );
+
+        let lock_path = tmp.path().join("plugins.lock");
+        lock.save_to_path(&lock_path).unwrap();
+
+        let provider = LockedWasmPluginProvider::new(
+            lock_path.clone(),
+            kasane_core::config::PluginsConfig {
+                path: Some(tmp.path().join("plugins").to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+            HashMap::new(),
+        );
+
+        // collect should succeed despite stale digests
+        let collected = provider.collect().unwrap();
+        assert_eq!(collected.factories.len(), 1);
+        assert!(
+            collected.diagnostics.is_empty(),
+            "expected no error diagnostics, got: {:?}",
+            collected.diagnostics
+        );
+        assert_eq!(
+            collected.factories[0].descriptor().id,
+            PluginId("pane_manager".to_string())
+        );
+
+        // lock file should have been updated with current artifact digest
+        // (code_digest/abi_version are stripped by normalized() on save)
+        let updated_lock = PluginsLock::load_from_path(&lock_path).unwrap();
+        let updated_entry = updated_lock
+            .plugins
+            .get(&artifact.plugin_id)
+            .expect("entry should still exist");
+        assert_eq!(updated_entry.artifact_digest, artifact.artifact_digest);
     }
 }
