@@ -385,9 +385,26 @@ fn dirs_data_path() -> PathBuf {
 impl Config {
     pub fn load() -> Self {
         let config_path = config_path();
-        match fs::read_to_string(&config_path) {
-            Ok(contents) => toml::from_str(&contents).unwrap_or_default(),
-            Err(_) => Config::default(),
+        let contents = match fs::read_to_string(&config_path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Config::default(),
+            Err(e) => {
+                eprintln!(
+                    "warning: cannot read {}: {e}; using defaults",
+                    config_path.display()
+                );
+                return Config::default();
+            }
+        };
+        match toml::from_str(&contents) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!(
+                    "warning: config parse error in {}: {e}; using defaults",
+                    config_path.display()
+                );
+                Config::default()
+            }
         }
     }
 

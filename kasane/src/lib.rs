@@ -72,7 +72,8 @@ pub fn run(provider: impl PluginProvider + 'static) {
 
     match action {
         cli::CliAction::ShowVersion => {
-            println!("kasane {}", env!("CARGO_PKG_VERSION"));
+            let gui_tag = if cfg!(feature = "gui") { "+gui" } else { "" };
+            println!("kasane {}{gui_tag}", env!("CARGO_PKG_VERSION"));
             println!("{}", process::get_kak_version());
         }
         cli::CliAction::ShowHelp => {
@@ -187,18 +188,40 @@ fn run_inner(
             plugin_manager,
         ),
         #[cfg(feature = "gui")]
-        UiMode::Gui => kasane_gui::run_gui(
-            config,
-            session_manager,
-            process::spawn_kakoune_for_spec,
-            make_dispatcher,
-            plugin_manager,
-        ),
+        UiMode::Gui => {
+            // Pre-flight check for display server on Linux
+            #[cfg(target_os = "linux")]
+            if std::env::var("SSH_CONNECTION").is_ok()
+                && std::env::var("DISPLAY").is_err()
+                && std::env::var("WAYLAND_DISPLAY").is_err()
+            {
+                eprintln!("GUI backend requires a display server.");
+                eprintln!("You appear to be in an SSH session without display forwarding.");
+                eprintln!();
+                eprintln!("Options:");
+                eprintln!("  kasane --ui tui              Use the terminal backend");
+                eprintln!("  ssh -X host kasane --ui gui   Forward X11 display");
+                std::process::exit(1);
+            }
+            kasane_gui::run_gui(
+                config,
+                session_manager,
+                process::spawn_kakoune_for_spec,
+                make_dispatcher,
+                plugin_manager,
+            )
+        }
         #[cfg(not(feature = "gui"))]
         UiMode::Gui => {
             let _ = make_dispatcher;
             let _ = plugin_manager;
-            eprintln!("GUI support not compiled. Rebuild with: cargo build --features gui");
+            eprintln!("GUI support is not included in this binary.");
+            eprintln!();
+            eprintln!("This is a minimal (TUI-only) build. Download a GUI-enabled binary from:");
+            eprintln!("  https://github.com/Yus314/kasane/releases/latest");
+            eprintln!();
+            eprintln!("Platforms with GUI support: macOS (all), Linux x86_64 (glibc).");
+            eprintln!("Or build from source: cargo install --path kasane --features gui");
             std::process::exit(1);
         }
     };

@@ -309,6 +309,8 @@ where
             Err(e) => {
                 tracing::error!("GPU initialization failed: {e}");
                 eprintln!("GPU initialization failed: {e}");
+                eprintln!();
+                print_gpu_troubleshooting();
                 event_loop.exit();
                 return;
             }
@@ -1299,4 +1301,22 @@ where
             None => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
+}
+
+fn print_gpu_troubleshooting() {
+    #[cfg(target_os = "linux")]
+    {
+        eprintln!("Troubleshooting:");
+        eprintln!("  Install a Vulkan driver:");
+        eprintln!("    Arch:   pacman -S vulkan-icd-loader mesa-vulkan-drivers");
+        eprintln!("    Debian: apt install mesa-vulkan-drivers");
+        eprintln!("    Fedora: dnf install mesa-vulkan-drivers");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        eprintln!("Troubleshooting:");
+        eprintln!("  Metal should be available on macOS. Try updating macOS.");
+    }
+    eprintln!();
+    eprintln!("To use the terminal backend instead: kasane --ui tui");
 }

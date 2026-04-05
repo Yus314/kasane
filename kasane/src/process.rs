@@ -84,7 +84,22 @@ fn start_kakoune(mut cmd: Command) -> Result<(KakouneReader, KakouneWriter, Kako
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
 
-    let mut child = cmd.spawn().context("failed to spawn kak")?;
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!(
+                "kak binary not found. Kasane requires Kakoune.\n\
+                 \n\
+                 Install Kakoune: https://kakoune.org\n\
+                 \n\
+                 Arch:   pacman -S kakoune\n\
+                 Debian: apt install kakoune\n\
+                 macOS:  brew install kakoune\n\
+                 Nix:    nix-env -i kakoune"
+            )
+        } else {
+            anyhow::anyhow!("failed to spawn kak: {e}")
+        }
+    })?;
 
     let stdin = child.stdin.take().context("failed to get kak stdin")?;
     let stdout = child.stdout.take().context("failed to get kak stdout")?;
