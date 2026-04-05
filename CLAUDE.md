@@ -14,7 +14,7 @@ cargo build                              # TUI only
 cargo build --features gui               # Include GPU backend
 
 # Test
-cargo test                               # All tests (~1100)
+cargo test                               # All tests (~1800)
 cargo test -p kasane-core                # Single crate
 cargo test -p kasane-core -- test_name   # Single test by name
 
@@ -44,11 +44,13 @@ cargo test -p kasane-core --test latency_budget -- --ignored  # Latency budget r
 | `kasane-wasm/` | WASM plugin runtime — wasmtime Component Model host, pre-built example plugins (`bundled/`) |
 | `kasane-plugin-model/` | Shared plugin model types — `PluginId`, `SettingValue`, serialization formats |
 | `kasane-plugin-package/` | Plugin package format — `.kpk` build/inspect/verify, manifest parsing, filesystem utilities |
-| `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros |
-| `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro |
+| `kasane-plugin-sdk/` | SDK for WASM guest plugins — WIT bindings, constants, helper macros (excluded from workspace, independent crate) |
+| `kasane-plugin-sdk-macros/` | Proc macros for WASM SDK — `define_plugin!` all-in-one macro (excluded from workspace, independent crate) |
 | `kasane-wasm-bench/` | WASM benchmarks — wasmtime Component Model overhead measurement (Phase W0) |
 | `examples/wasm/` | WASM plugin examples — cursor-line, color-preview, sel-badge, fuzzy-finder, pane-manager, prompt-highlight, session-ui, smooth-scroll, image-preview |
 | `examples/line-numbers/` | Native plugin example — `Plugin` trait with `kasane::run()` |
+| `examples/virtual-text-demo/` | Display transformation proof artifact — `DisplayDirective` (InsertAfter, Fold, Hide) |
+| `examples/image-test/` | GPU image pipeline test — inline RGBA / file-based async image overlay |
 | `tools/wasm-test/` | WASM integration test binary |
 
 ## Architecture

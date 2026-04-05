@@ -517,12 +517,11 @@ Kasane's UI extensions are primarily composed of the following mechanisms.
 
 - Contribution (`contribute_to`)
 - Line Annotation (`annotate_line_with_ctx`)
-- Cell Decoration (`decorate_cells`)
+- Render Ornaments (`render_ornaments` — cell decoration + cursor style)
 - Overlay (`contribute_overlay_with_ctx`)
 - Transform (`transform`)
 - Menu Item Transform (`transform_menu_item`)
 - Display Directive (`display_directives`)
-- Cursor Style Override (`cursor_style_override`)
 - Scroll Policy Override (`handle_default_scroll`)
 - PaintHook
 
@@ -539,8 +538,8 @@ The following table classifies each extension point by what it affects in the pr
 | `annotate_line_with_ctx` | Ω_L | Accumulated |
 | `contribute_overlay_with_ctx` | Ω_L | CommutativeComposable |
 | `transform` | Ω_L | TransformChain (non-commutative) |
-| `cursor_style_override` | Ω_L | FirstWins |
-| `decorate_cells` | Ω_P (Physical presentation) | Priority-merged |
+| `render_ornaments` (emphasis) | Ω_P (Physical presentation) | Priority-merged |
+| `render_ornaments` (cursor_style) | Ω_P | Modality+Priority FirstWins |
 | `handle_key_middleware` | ρ (Input routing) | FirstWins (3-variant) |
 | `handle_mouse` | ρ | FirstWins |
 | `handle_default_scroll` | ρ | FirstWins |
@@ -555,13 +554,17 @@ The following table classifies each extension point by what it affects in the pr
 
 **Inline decoration uniqueness**: At most one plugin may provide an inline decoration per buffer line. This constraint is enforced in both debug and release builds with first-wins semantics: the first plugin (by registration order) that provides an inline decoration for a given line wins, and subsequent providers are dropped with a `tracing::warn!` diagnostic.
 
-### 9.3.1 Cell Decoration
+### 9.3.1 Render Ornaments (Cell Decoration & Cursor Style)
 
-`decorate_cells()` applies face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line-level gutter/background, cell decorations target arbitrary screen coordinates (e.g., bracket match highlights, column guides).
+`render_ornaments()` is a unified extension point returning `OrnamentBatch`, which contains cell-level face overrides (`emphasis`) and cursor style proposals (`cursor_style`). These operate on the rendered grid (Ω_P) rather than the Element tree.
+
+**Cell decorations** (`OrnamentBatch.emphasis`) apply face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line-level gutter/background, cell decorations target arbitrary screen coordinates (e.g., bracket match highlights, column guides).
 
 Decorations from multiple plugins are collected, sorted by `priority` (ascending), and applied in order. The `FaceMerge` mode determines how each decoration interacts with the existing cell face: `Replace` overwrites entirely, `Overlay` merges non-default fields, `Background` applies only the background color.
 
-Cell decorations are available to both native plugins (`Plugin::decorate_cells`, `PluginBackend::decorate_cells`) and WASM plugins (`decorate-cells()` in WIT v0.19.0).
+**Cursor style** (`OrnamentBatch.cursor_style`) allows a plugin to override the cursor shape. When multiple plugins provide a value, resolution uses `OrnamentModality` rank (Must > Approximate > May), then `priority` (lower wins) as tiebreaker.
+
+Render ornaments are available to both native plugins (via `HandlerRegistry::on_render_ornaments()`) and WASM plugins (`render-ornaments()` in WIT v0.25.0). See `plugin/render_ornament.rs` for type definitions.
 
 ### 9.4 Overlay
 

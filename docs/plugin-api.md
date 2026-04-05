@@ -61,7 +61,7 @@ The core UI is structured around surfaces. The extension points available to plu
 |---|---|
 | Add UI at a predefined location | `contribute_to()` |
 | Decorate individual buffer lines | `annotate_line_with_ctx()` |
-| Apply face to individual cells, ranges, or columns | `decorate_cells()` |
+| Apply face to individual cells, ranges, or columns; override cursor style | `render_ornaments()` (via `OrnamentBatch`) |
 | Display floating UI | `contribute_overlay_with_ctx()` |
 | Modify or replace existing UI appearance | `transform()` |
 | Transform individual menu items | `transform_menu_item()` |
@@ -767,7 +767,7 @@ WASM plugins are sandboxed by default. The host constructs the WASI context from
 | `ANNOTATOR` | `annotate_line_with_ctx()` |
 | `OVERLAY` | `contribute_overlay_with_ctx()` |
 | `MENU_TRANSFORM` | `transform_menu_item()` |
-| `CURSOR_STYLE` | `cursor_style_override()` |
+| `RENDER_ORNAMENT` | `render_ornaments()` |
 | `INPUT_HANDLER` | `handle_key()` / `handle_mouse()` |
 | `SCROLL_POLICY` | `handle_default_scroll()` |
 | `PANE_LIFECYCLE` | Pane lifecycle hooks |
@@ -813,11 +813,47 @@ Default: `DirtyFlags::ALL` (always re-collect — safe fallback for backward com
 
 The correctness invariant is: declared deps must be a superset of actual deps. If `view_deps()` omits a flag that a view method actually depends on, stale contributions may persist until the next matching dirty event.
 
-### 4.3 Cell Decorations (WIT v0.19.0)
+### 4.3 Render Ornaments
 
-`decorate_cells()` applies face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line level, cell decorations target arbitrary screen coordinates and are composable across plugins.
+`render_ornaments()` returns an `OrnamentBatch` containing backend-independent physical ornament proposals for the current frame. This is a unified extension point covering cell-level face overrides and cursor style changes — operations that act on the rendered grid rather than the Element tree.
 
-**`CellDecoration` fields:**
+Register via `HandlerRegistry::on_render_ornaments()`. Capability flag: `RENDER_ORNAMENT`.
+
+**`OrnamentBatch` fields** (see `plugin/render_ornament.rs`):
+
+| Field | Type | Description |
+|---|---|---|
+| `emphasis` | `Vec<CellDecoration>` | Cell-level face overrides (see §4.3.1) |
+| `cursor_style` | `Option<CursorStyleOrn>` | Cursor shape override (see §4.3.2) |
+| `cursor_effects` | `Vec<CursorEffectOrn>` | Reserved for future use |
+| `surfaces` | `Vec<SurfaceOrn>` | Reserved for future use |
+
+**Native (HandlerRegistry):**
+
+```rust
+registry.on_render_ornaments(|state, app, ctx| {
+    OrnamentBatch {
+        emphasis: vec![CellDecoration {
+            target: DecorationTarget::Cell(Coord { line: app.cursor_line() as u32, column: 0 }),
+            face: Face { bg: Some(Color::Rgb(40, 40, 40)), ..Default::default() },
+            merge: FaceMerge::Background,
+            priority: 0,
+        }],
+        cursor_style: None,
+        ..Default::default()
+    }
+});
+```
+
+**WASM:** Implement `render-ornaments(ctx: ornament-context) -> ornament-batch` in the guest.
+
+The `RenderOrnamentContext` provides viewport information (`screen_cols`, `screen_rows`, `visible_line_start`, `visible_line_end`) so plugins can limit work to visible cells.
+
+#### 4.3.1 Cell Decorations
+
+Cell decorations (`OrnamentBatch.emphasis`) apply face overrides to individual cells, cell ranges, or entire columns after paint. Unlike `annotate_line_with_ctx()` which operates at the line level, cell decorations target arbitrary screen coordinates and are composable across plugins.
+
+**`CellDecoration` fields** (see `plugin/context.rs`):
 
 | Field | Type | Description |
 |---|---|---|
@@ -842,26 +878,21 @@ The correctness invariant is: declared deps must be a superset of actual deps. I
 | `Overlay` | `1` | Overlay non-default fields onto the existing face |
 | `Background` | `2` | Only apply the background color |
 
-**Native (Plugin trait):**
+Decorations from multiple plugins are collected, sorted by `priority` (ascending), and applied in order.
 
-```rust
-fn decorate_cells(&self, state: &Self::State, app: &AppView<'_>) -> Vec<CellDecoration> {
-    vec![CellDecoration {
-        target: DecorationTarget::Cell(Coord { line: app.cursor_line() as u32, column: 0 }),
-        face: Face { bg: Some(Color::Rgb(40, 40, 40)), ..Default::default() },
-        merge: FaceMerge::Background,
-        priority: 0,
-    }]
-}
-```
+#### 4.3.2 Cursor Style Override
 
-**WASM:** Implement `decorate-cells()` in the guest, returning `list<cell-decoration>`.
+`OrnamentBatch.cursor_style` allows a plugin to change the cursor shape. When multiple plugins provide a value, resolution uses priority and `OrnamentModality` (Must > Approximate > May).
 
-### 4.3.1 Cursor Style Override (WIT v0.19.0)
+**`CursorStyleOrn` fields** (see `plugin/render_ornament.rs`):
 
-`cursor_style_override()` allows a plugin to change the cursor shape. If multiple plugins return a value, the first non-`None` result wins (by registration order).
+| Field | Type | Description |
+|---|---|---|
+| `hint` | `CursorStyleHint` | Cursor shape (Block, Bar, Underline, Outline) |
+| `priority` | `i16` | Lower wins among same modality |
+| `modality` | `OrnamentModality` | Must / Approximate / May |
 
-**Return values (WASM `option<u8>`):**
+**Cursor shapes (WASM `option<u8>`):**
 
 | Value | Shape |
 |---|---|
@@ -869,18 +900,6 @@ fn decorate_cells(&self, state: &Self::State, app: &AppView<'_>) -> Vec<CellDeco
 | `1` | Bar |
 | `2` | Underline |
 | `3` | Outline (hollow block) |
-
-**Native (Plugin trait):**
-
-```rust
-fn cursor_style_override(
-    &self, state: &Self::State, app: &AppView<'_>,
-) -> Option<CursorStyleHint> {
-    Some(CursorStyleHint::Bar)
-}
-```
-
-**WASM:** Implement `cursor-style-override()` returning `option<u8>`.
 
 ### 4.4 PaintHook
 

@@ -22,6 +22,7 @@ Kasane embeds a small set of WASM plugins in the binary. Their source is in
 | Selection Badge | `sel_badge` | Off | Slot contribution (`contribute_to`) |
 | Fuzzy Finder | `fuzzy_finder` | Off | Overlay + key input + external process I/O |
 | Pane Manager | `pane_manager` | **On** | Workspace authority + pane split/focus commands |
+| Smooth Scroll | `smooth_scroll` | Off | Default wheel scroll policy (`handle_default_scroll`) |
 
 A native plugin example is also available at [`examples/line-numbers/`](../examples/line-numbers/).
 
@@ -46,7 +47,6 @@ installed as external plugins before use.
 |---|---|---|---|
 | Prompt Highlight | `prompt_highlight` | Element transform (`transform`) | [`examples/wasm/prompt-highlight/`](../examples/wasm/prompt-highlight/) |
 | Session UI | `session_ui` | Slot contribution + overlay + session commands | [`examples/wasm/session-ui/`](../examples/wasm/session-ui/) |
-| Smooth Scroll | `smooth_scroll` | Default wheel scroll policy (`handle_default_scroll`) | [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/) |
 | Image Preview | `image_preview` | Image element display (GPU backend) | [`examples/wasm/image-preview/`](../examples/wasm/image-preview/) |
 
 ## Installing External Plugins
@@ -107,8 +107,8 @@ will not load. Plugin authors upgrading from ABI 0.24.0 should also
 update `Command::Paste` to `Command::PasteClipboard`; see
 [plugin-development.md §Migrating to ABI 0.25.0](./plugin-development.md#migrating-to-abi-0250).
 
-For example, `smooth_scroll` is not embedded in the binary. Build and install
-the WASM from [`examples/wasm/smooth-scroll/`](../examples/wasm/smooth-scroll/)
+For example, `prompt_highlight` is not embedded in the binary. Build and install
+the WASM from [`examples/wasm/prompt-highlight/`](../examples/wasm/prompt-highlight/)
 if you want to enable it.
 
 ### Disabling Plugins

@@ -1,0 +1,14 @@
+[plugin]
+id = "smooth_scroll"
+abi_version = "0.25.0"
+
+[handlers]
+flags = ["scroll-policy"]
+
+[view]
+deps = ["settings"]
+
+[settings.enabled]
+type = "bool"
+default = false
+description = "Enable smooth scrolling animation"

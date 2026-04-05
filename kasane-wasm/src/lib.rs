@@ -299,12 +299,14 @@ const BUNDLED_COLOR_PREVIEW: &[u8] = include_bytes!("../bundled/color-preview.wa
 const BUNDLED_SEL_BADGE: &[u8] = include_bytes!("../bundled/sel-badge.wasm");
 const BUNDLED_FUZZY_FINDER: &[u8] = include_bytes!("../bundled/fuzzy-finder.wasm");
 const BUNDLED_PANE_MANAGER: &[u8] = include_bytes!("../bundled/pane-manager.wasm");
+const BUNDLED_SMOOTH_SCROLL: &[u8] = include_bytes!("../bundled/smooth-scroll.wasm");
 
 const BUNDLED_CURSOR_LINE_MANIFEST: &str = include_str!("../bundled/cursor-line.toml");
 const BUNDLED_COLOR_PREVIEW_MANIFEST: &str = include_str!("../bundled/color-preview.toml");
 const BUNDLED_SEL_BADGE_MANIFEST: &str = include_str!("../bundled/sel-badge.toml");
 const BUNDLED_FUZZY_FINDER_MANIFEST: &str = include_str!("../bundled/fuzzy-finder.toml");
 const BUNDLED_PANE_MANAGER_MANIFEST: &str = include_str!("../bundled/pane-manager.toml");
+const BUNDLED_SMOOTH_SCROLL_MANIFEST: &str = include_str!("../bundled/smooth-scroll.toml");
 
 struct BundledPluginSpec {
     name: &'static str,
@@ -358,6 +360,12 @@ fn bundled_plugin_specs() -> &'static [BundledPluginSpec] {
             wasm_bytes: BUNDLED_PANE_MANAGER,
             manifest_toml: BUNDLED_PANE_MANAGER_MANIFEST,
             default_enabled: true,
+        },
+        BundledPluginSpec {
+            name: "smooth_scroll",
+            wasm_bytes: BUNDLED_SMOOTH_SCROLL,
+            manifest_toml: BUNDLED_SMOOTH_SCROLL_MANIFEST,
+            default_enabled: false,
         },
     ]
 }

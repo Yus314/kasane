@@ -388,9 +388,9 @@ Key points:
 - `publish_value()` returns `None` to skip publishing for a given frame
 - `on_subscription()` receives all published values for the subscribed topic
 
-## Cell Decoration
+## Cell Decoration (Render Ornaments)
 
-Apply per-cell face styling (highlights, markers).
+Apply per-cell face styling (highlights, markers) via `render_ornaments()`.
 
 ```rust
 kasane_plugin_sdk::define_plugin! {
@@ -401,16 +401,19 @@ kasane_plugin_sdk::define_plugin! {
         cols: u16 = 80,
     },
 
-    decorate_cells() {
-        vec![CellDecoration {
-            target: DecorationTarget::Column(80),
-            face: Face {
-                bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 40 }),
-                ..Default::default()
-            },
-            merge: 1, // Overlay
-            priority: 0,
-        }]
+    render_ornaments(ctx) {
+        OrnamentBatch {
+            emphasis: vec![CellDecoration {
+                target: DecorationTarget::Column(80),
+                face: Face {
+                    bg: Color::Rgb(RgbColor { r: 40, g: 40, b: 40 }),
+                    ..Default::default()
+                },
+                merge: 1, // Overlay
+                priority: 0,
+            }],
+            ..Default::default()
+        }
     },
 }
 ```

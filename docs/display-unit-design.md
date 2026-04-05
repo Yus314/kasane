@@ -137,7 +137,7 @@ Phase 1 (Collection): NavigationPolicySet — Composable
 
 Phase 2 (Resolution): resolve_navigation() — Non-compositional
   For each unit, selects the highest-priority policy.
-  FirstWins semantics (same pattern as cursor_style_override).
+  FirstWins semantics (same pattern as render_ornaments cursor_style).
 ```
 
 This mirrors the DirectiveSet/resolve() separation: collection is algebraically well-behaved, resolution is priority-based conflict resolution.
@@ -428,7 +428,7 @@ When no plugin registers a policy for a unit, the core applies:
 | Navigation policy | Yes | No | `FirstWins<NavigationPolicy>` |
 | Navigation action | Yes | No | `FirstWins<ActionResult>` |
 
-These follow established patterns (same structure as cursor_style_override and handle_key).
+These follow established patterns (same structure as render_ornaments and handle_key).
 
 ## 6. Extensibility
 
