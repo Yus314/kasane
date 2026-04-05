@@ -36,6 +36,8 @@ install -Dm755 kasane ~/.local/bin/kasane
 
 Other targets: `aarch64-linux-gnu`, `x86_64-linux-musl`, `x86_64-macos`, `aarch64-macos`. See the [releases page](https://github.com/Yus314/kasane/releases/latest) for all available archives.
 
+> macOS and Linux x86_64 (glibc) builds include the GPU backend. Use `kasane --ui gui` to launch the GUI, or set `backend = "gui"` in config.toml. Other targets (musl, aarch64-linux) are TUI-only.
+
 ### From Source
 
 ```bash

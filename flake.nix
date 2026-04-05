@@ -45,7 +45,7 @@
 
         mkKasane = { withGui ? false }: pkgs.rustPlatform.buildRustPackage {
           pname = "kasane";
-          version = "0.3.0";
+          version = "0.4.0";
 
           src = lib.cleanSourceWith {
             src = ./.;

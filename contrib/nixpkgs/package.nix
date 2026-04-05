@@ -21,16 +21,16 @@
 
 rustPlatform.buildRustPackage rec {
   pname = "kasane";
-  version = "0.3.0";
+  version = "0.4.0";
 
   src = fetchFromGitHub {
     owner = "Yus314";
     repo = "kasane";
     rev = "v${version}";
-    hash = "sha256-Vc7gG9xHaKujv7jb2Gn+NDpRaQPDpNLa4e7dr79LbFI=";
+    hash = lib.fakeHash;
   };
 
-  cargoHash = "sha256-GLl/7PHmsN3cqqTbkN/wFgccQsuV8vqg4iSxh3ihXw4=";
+  cargoHash = lib.fakeHash;
 
   cargoBuildFlags = [
     "-p" "kasane"

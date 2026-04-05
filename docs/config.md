@@ -340,7 +340,7 @@ digest = "sha256:abc123..."
 [plugins.selection.cursor_line]
 mode = "pin-package"
 package = "builtin/cursor-line"
-version = "0.3.0"
+version = "0.4.0"
 ```
 
 Available modes:
