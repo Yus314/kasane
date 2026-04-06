@@ -46,16 +46,6 @@ for the current specification from a plugin's perspective, see
 
 Next deliverable: Define the initial enforcement boundary for observed state vs. display policy and land the minimal enforcement skeleton in transform paths
 
-### 3.2 WASM runtime operations
-
-Completed:
-
-- Plugin manifest — static TOML sidecar (`kasane-plugin.toml`) as authoritative source for plugin identity, sandbox capabilities, handler flags, and view deps. Manifest-first loading eliminates untrusted code from permission decisions and enables pre-instantiation metadata queries. `define_plugin!` supports `manifest:` syntax for compile-time validation.
-- Plugin settings API — typed per-plugin settings with `SettingValue` enum (bool/integer/float/string), manifest-declared schemas (`[settings.*]`), config.toml overrides (`[settings.<plugin_id>]`), WIT host functions (`get-setting-bool/integer/float/string`), `set-setting` command, and `define_plugin!` `settings {}` block with compile-time validation. ABI 0.23.0.
-- Precompiled component cache — disk-cached cranelift compilation artifacts (`$XDG_CACHE_HOME/kasane/wasm/`). Eliminates redundant `Component::new()` on second startup and in the factory pattern's double-compilation path.
-
-This workstream is complete.
-
 ## 4. Phase Status Summary
 
 | Phase | Primary objective | Status | Notes |
@@ -65,7 +55,7 @@ This workstream is complete.
 | Phase 2 | Enhanced floating windows + plugin foundation | ✓ Complete | Some items moved to subsequent workstreams |
 | Phase 3 | Input, clipboard, and scroll enhancements | ✓ Complete | Basic input features on the TUI side are complete |
 | Phase G | GUI backend | ✓ Complete | Foundation complete. R-053 text decoration rendering (DecorationPipeline) complete. Image element GPU pipeline + texture cache landed |
-| Phase W | WASM plugin runtime foundation | ✓ Foundation complete | Operational follow-ups were consolidated into `WASM runtime operations`; that workstream is now complete |
+| Phase W | WASM plugin runtime foundation | ✓ Complete | Foundation + operational follow-ups (plugin manifest, settings API, precompiled cache) |
 | Phase 4 | Shared Plugin API validation | ✓ Complete | Proof artifacts for public extension points are sufficient |
 | Phase 5 | Surface / Workspace / multi-pane foundation | ✓ Complete | Session/surface + multi-session UI complete; multi-pane split/focus/routing landed (5b/5c); UI polish (pane layout persistence) complete |
 | Phase P | Plugin I/O foundation | ✓ Complete | P-1 / P-2 / P-3 complete |
