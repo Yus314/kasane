@@ -11,9 +11,9 @@ use kasane_core::element::{Element, InteractiveId, PluginTag};
 use kasane_core::input::{CompiledKeyMap, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use kasane_core::plugin::{
     AnnotateContext, AppView, BackgroundLayer, BlendMode, Command, ContributeContext, Contribution,
-    DisplayDirective, Effects, ElementPatch, IoEvent, KeyHandleResult, LineAnnotation,
-    OrnamentBatch, OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend,
-    PluginCapabilities, PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId,
+    DisplayDirective, Effects, ElementPatch, FrameworkAccess, IoEvent, KeyHandleResult,
+    LineAnnotation, OrnamentBatch, OverlayContext, OverlayContribution, PluginAuthorities,
+    PluginBackend, PluginCapabilities, PluginDiagnostic, PluginId, RenderOrnamentContext, SlotId,
     TransformContext, TransformSubject, TransformTarget, VirtualTextItem,
 };
 use kasane_core::protocol::Atom;

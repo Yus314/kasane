@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use crate::display::FoldToggleState;
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
@@ -27,16 +28,6 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn new(state: &'a AppState) -> Self {
         Self { state }
-    }
-
-    /// Access the underlying `AppState` directly.
-    ///
-    /// **Framework-internal.** Plugin authors should use `AppView` accessors
-    /// instead. This method exists for framework layers (e.g. WASM host sync)
-    /// that need raw `AppState` field access for serialization.
-    #[inline]
-    pub fn as_app_state(&self) -> &AppState {
-        self.state
     }
 
     // =========================================================================
@@ -337,6 +328,42 @@ impl<'a> AppView<'a> {
     pub fn is_prompt_mode(&self) -> bool {
         self.state.is_prompt_mode()
     }
+
+    // =========================================================================
+    // Tier 10: Display transform state
+    // =========================================================================
+
+    /// Fold toggle state for display transform filtering.
+    #[inline]
+    pub fn fold_toggle_state(&self) -> &FoldToggleState {
+        &self.state.fold_toggle_state
+    }
+}
+
+/// Raw `AppState` access for framework layers (WASM host sync, serialization).
+///
+/// **Not for plugin authors.** Use [`AppView`] accessors instead.
+/// This trait exists so that framework-level code in separate crates
+/// (e.g. `kasane-wasm`) can access the underlying state for serialization,
+/// without exposing `as_app_state()` as an inherent method on `AppView`.
+///
+/// Importing this trait is an explicit opt-in to the escape hatch.
+/// The trait is sealed — only types inside `kasane-core` can implement it.
+pub trait FrameworkAccess: sealed::Sealed {
+    /// Access the underlying `AppState` directly.
+    fn as_app_state(&self) -> &AppState;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::AppView<'_> {}
+}
+
+impl FrameworkAccess for AppView<'_> {
+    #[inline]
+    fn as_app_state(&self) -> &AppState {
+        self.state
+    }
 }
 
 #[cfg(test)]
@@ -400,6 +427,7 @@ mod tests {
 
     #[test]
     fn escape_hatch() {
+        use super::FrameworkAccess;
         let state = AppState::default();
         let view = AppView::new(&state);
         assert_eq!(view.as_app_state().cols, 80);

@@ -92,7 +92,7 @@ pub use compose::{
 };
 
 // Re-export app_view, state, and bridge modules
-pub use app_view::AppView;
+pub use app_view::{AppView, FrameworkAccess};
 pub use bridge::{IsBridgedPlugin, PluginBridge};
 pub use channel::ChannelValue;
 pub use element_patch::ElementPatch;

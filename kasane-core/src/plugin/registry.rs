@@ -1,7 +1,8 @@
 use std::any::Any;
+use std::cell::RefCell;
 use std::sync::Arc;
 
-use crate::display::{DisplayMap, DisplayMapRef};
+use crate::display::{DirectiveStabilityMonitor, DisplayMap, DisplayMapRef};
 use crate::element::{Element, FlexChild, InteractiveId, PluginTag};
 use crate::input::{ChordState, DropEvent, KeyEvent, KeyResponse, MouseEvent};
 use crate::scroll::{DefaultScrollCandidate, ScrollPolicyResult};
@@ -67,6 +68,7 @@ pub struct PluginRuntime {
     slots: Vec<PluginSlot>,
     any_plugin_state_changed: bool,
     next_tag: u16,
+    directive_stability: RefCell<DirectiveStabilityMonitor>,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -76,6 +78,7 @@ pub struct PluginRuntime {
 /// annotate, overlay, display map, etc.) live here.
 pub struct PluginView<'a> {
     slots: &'a [PluginSlot],
+    directive_stability: &'a RefCell<DirectiveStabilityMonitor>,
 }
 
 pub enum KeyDispatchResult {
@@ -92,6 +95,7 @@ impl PluginRuntime {
             slots: Vec::new(),
             any_plugin_state_changed: false,
             next_tag: 1,
+            directive_stability: RefCell::new(DirectiveStabilityMonitor::new()),
         }
     }
 
@@ -109,7 +113,10 @@ impl PluginRuntime {
 
     /// Borrow an immutable view for the render phase.
     pub fn view(&self) -> PluginView<'_> {
-        PluginView { slots: &self.slots }
+        PluginView {
+            slots: &self.slots,
+            directive_stability: &self.directive_stability,
+        }
     }
 
     /// Returns true if any plugin's state_hash changed during the last
@@ -1508,13 +1515,12 @@ impl<'a> PluginView<'a> {
         }
         let mut directives = crate::display::resolve(&set, line_count);
         // Filter out fold ranges that have been toggled open by the user.
-        state
-            .as_app_state()
-            .fold_toggle_state
-            .filter_directives(&mut directives);
+        state.fold_toggle_state().filter_directives(&mut directives);
         if directives.is_empty() {
             return Arc::new(DisplayMap::identity(line_count));
         }
+        // Record directives for oscillation detection (P-032 §temporal).
+        self.directive_stability.borrow_mut().record(&directives);
         let dm = DisplayMap::build(line_count, &directives);
         Arc::new(dm)
     }

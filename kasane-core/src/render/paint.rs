@@ -150,12 +150,12 @@ pub(crate) fn analyze_buffer_line<'a>(
     let (buffer_line_idx, synthetic): (Option<usize>, Option<&SyntheticContent>) =
         if let Some(dm) = display_map {
             if let Some(entry) = dm.entry(DisplayLine(display_line)) {
-                let buf_line = match &entry.source {
+                let buf_line = match entry.source() {
                     SourceMapping::BufferLine(l) => Some(l.0),
                     SourceMapping::LineRange(r) => Some(r.start),
                     SourceMapping::None => None,
                 };
-                (buf_line, entry.synthetic.as_ref())
+                (buf_line, entry.synthetic())
             } else {
                 // Beyond display map range
                 (None, None)

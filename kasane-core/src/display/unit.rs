@@ -129,7 +129,7 @@ impl DisplayUnitMap {
                 .entry(DisplayLine(dl))
                 .expect("display line in range during build");
 
-            let (source, role) = match &entry.source {
+            let (source, role) = match entry.source() {
                 SourceMapping::BufferLine(line) => {
                     (UnitSource::Line(line.0), SemanticRole::BufferContent)
                 }
@@ -148,7 +148,7 @@ impl DisplayUnitMap {
                 display_line: dl,
                 role,
                 source,
-                interaction: entry.interaction,
+                interaction: entry.interaction(),
             });
             line_to_unit.push(unit_idx);
         }

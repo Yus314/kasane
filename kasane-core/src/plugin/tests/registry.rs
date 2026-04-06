@@ -444,7 +444,7 @@ fn test_collect_display_map_composes_multi_plugin() {
     // display line 2 is the virtual text
     assert_eq!(
         display_map.display_to_buffer(crate::display::DisplayLine(2)),
-        None
+        crate::display::InverseResult::Virtual
     );
 }
 

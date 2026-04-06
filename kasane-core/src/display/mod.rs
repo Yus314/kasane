@@ -7,6 +7,7 @@
 pub mod fold_state;
 pub mod navigation;
 pub mod resolve;
+pub mod stability;
 #[cfg(test)]
 mod tests;
 pub mod unit;
@@ -28,10 +29,12 @@ pub struct DisplayLine(pub usize);
 
 pub use fold_state::FoldToggleState;
 pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};
+// InverseResult is defined in this module (not a submodule re-export).
 pub use resolve::{
     DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective, partition_directives, resolve,
     resolve_incremental,
 };
+pub use stability::DirectiveStabilityMonitor;
 pub use unit::{
     DisplayUnit, DisplayUnitId, DisplayUnitMap, SemanticRole, SourceStrength, UnitSource,
 };
@@ -63,6 +66,48 @@ pub enum SourceMapping {
     None,
 }
 
+/// Result of inverse projection: display line → buffer origin.
+///
+/// Encodes [`SourceStrength`] at the type level so that callers must handle
+/// weak and absent mappings explicitly.  Only [`Actionable`](InverseResult::Actionable)
+/// carries a buffer position safe for generating Kakoune actions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InverseResult {
+    /// Strong source (1:1 `BufferLine`). Safe for action generation.
+    Actionable(BufferLine),
+    /// Weak source (fold summary). The representative line is the fold range
+    /// start — informational only, not a precise action target.
+    Informational {
+        representative: BufferLine,
+        range: Range<usize>,
+    },
+    /// No buffer origin (virtual text). Inverse projection is undefined.
+    Virtual,
+    /// Display line index out of range.
+    OutOfRange,
+}
+
+impl InverseResult {
+    /// Extract the buffer line if this is an actionable (strong) inverse.
+    pub fn actionable(self) -> Option<BufferLine> {
+        match self {
+            Self::Actionable(bl) => Some(bl),
+            _ => None,
+        }
+    }
+
+    /// Extract any buffer representative (actionable or informational).
+    pub fn any_representative(self) -> Option<BufferLine> {
+        match self {
+            Self::Actionable(bl)
+            | Self::Informational {
+                representative: bl, ..
+            } => Some(bl),
+            _ => None,
+        }
+    }
+}
+
 /// How interactions (clicks, cursor) behave on a display line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InteractionPolicy {
@@ -88,11 +133,69 @@ impl SyntheticContent {
 }
 
 /// A single entry in the DisplayMap, representing one display line.
+///
+/// Constructed exclusively through smart constructors ([`buffer_line`],
+/// [`fold_summary`], [`virtual_text`]) which enforce INV-6
+/// (SourceMapping ↔ synthetic consistency) at construction time.
+///
+/// [`buffer_line`]: DisplayEntry::buffer_line
+/// [`fold_summary`]: DisplayEntry::fold_summary
+/// [`virtual_text`]: DisplayEntry::virtual_text
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayEntry {
-    pub source: SourceMapping,
-    pub interaction: InteractionPolicy,
-    pub synthetic: Option<SyntheticContent>,
+    source: SourceMapping,
+    interaction: InteractionPolicy,
+    synthetic: Option<SyntheticContent>,
+}
+
+impl DisplayEntry {
+    /// Buffer line entry: Strong source, Normal interaction, no synthetic.
+    ///
+    /// INV-6 guaranteed by construction: `BufferLine` ↔ `synthetic: None`.
+    pub fn buffer_line(line: BufferLine) -> Self {
+        Self {
+            source: SourceMapping::BufferLine(line),
+            interaction: InteractionPolicy::Normal,
+            synthetic: None,
+        }
+    }
+
+    /// Fold summary entry: Weak source, ReadOnly interaction, synthetic summary.
+    ///
+    /// INV-6 guaranteed by construction: `LineRange` ↔ `synthetic: Some`.
+    pub fn fold_summary(range: Range<usize>, atoms: Vec<Atom>) -> Self {
+        Self {
+            source: SourceMapping::LineRange(range),
+            interaction: InteractionPolicy::ReadOnly,
+            synthetic: Some(SyntheticContent { atoms }),
+        }
+    }
+
+    /// Virtual text entry: Absent source, ReadOnly interaction, synthetic content.
+    ///
+    /// INV-6 guaranteed by construction: `None` ↔ `synthetic: Some`.
+    pub fn virtual_text(atoms: Vec<Atom>) -> Self {
+        Self {
+            source: SourceMapping::None,
+            interaction: InteractionPolicy::ReadOnly,
+            synthetic: Some(SyntheticContent { atoms }),
+        }
+    }
+
+    /// Source mapping for this display line.
+    pub fn source(&self) -> &SourceMapping {
+        &self.source
+    }
+
+    /// Interaction policy for this display line.
+    pub fn interaction(&self) -> InteractionPolicy {
+        self.interaction
+    }
+
+    /// Synthetic content (fold summary or virtual text), if any.
+    pub fn synthetic(&self) -> Option<&SyntheticContent> {
+        self.synthetic.as_ref()
+    }
 }
 
 /// Bidirectional mapping between display lines and buffer lines.
@@ -128,11 +231,7 @@ impl DisplayMap {
     /// Every display line maps 1:1 to the corresponding buffer line.
     pub fn identity(n: usize) -> Self {
         let entries: Vec<DisplayEntry> = (0..n)
-            .map(|i| DisplayEntry {
-                source: SourceMapping::BufferLine(BufferLine(i)),
-                interaction: InteractionPolicy::Normal,
-                synthetic: None,
-            })
+            .map(|i| DisplayEntry::buffer_line(BufferLine(i)))
             .collect();
         let buffer_to_display: Vec<Option<usize>> = (0..n).map(Some).collect();
         let dm = DisplayMap {
@@ -239,13 +338,7 @@ impl DisplayMap {
                 if !fold_emitted[range.start] {
                     // Emit the fold summary line (once per fold range)
                     let display_idx = entries.len();
-                    entries.push(DisplayEntry {
-                        source: SourceMapping::LineRange(range.clone()),
-                        interaction: InteractionPolicy::ReadOnly,
-                        synthetic: Some(SyntheticContent {
-                            atoms: summary.clone(),
-                        }),
-                    });
+                    entries.push(DisplayEntry::fold_summary(range.clone(), summary.clone()));
                     // Map all lines in the fold range to the summary display line
                     let end = range.end.min(line_count);
                     for i in range.start..end {
@@ -259,33 +352,17 @@ impl DisplayMap {
 
             // InsertBefore: add virtual lines before this buffer line
             for atoms in &insert_before[line] {
-                entries.push(DisplayEntry {
-                    source: SourceMapping::None,
-                    interaction: InteractionPolicy::ReadOnly,
-                    synthetic: Some(SyntheticContent {
-                        atoms: atoms.clone(),
-                    }),
-                });
+                entries.push(DisplayEntry::virtual_text(atoms.clone()));
             }
 
             // Normal buffer line
             let display_idx = entries.len();
-            entries.push(DisplayEntry {
-                source: SourceMapping::BufferLine(BufferLine(line)),
-                interaction: InteractionPolicy::Normal,
-                synthetic: None,
-            });
+            entries.push(DisplayEntry::buffer_line(BufferLine(line)));
             buffer_to_display[line] = Some(display_idx);
 
             // InsertAfter: add virtual lines after this buffer line
             for atoms in &insert_after[line] {
-                entries.push(DisplayEntry {
-                    source: SourceMapping::None,
-                    interaction: InteractionPolicy::ReadOnly,
-                    synthetic: Some(SyntheticContent {
-                        atoms: atoms.clone(),
-                    }),
-                });
+                entries.push(DisplayEntry::virtual_text(atoms.clone()));
             }
         }
 
@@ -308,17 +385,25 @@ impl DisplayMap {
         self.entries.len()
     }
 
-    /// Map a display line index to the corresponding buffer line (O(1)).
+    /// Inverse projection: map a display line to its buffer origin (O(1)).
     ///
-    /// Returns `None` for virtual text lines.
-    pub fn display_to_buffer(&self, display_y: DisplayLine) -> Option<BufferLine> {
-        self.entries
-            .get(display_y.0)
-            .and_then(|entry| match &entry.source {
-                SourceMapping::BufferLine(line) => Some(*line),
-                SourceMapping::LineRange(range) => Some(BufferLine(range.start)),
-                SourceMapping::None => None,
-            })
+    /// Returns an [`InverseResult`] encoding the source strength:
+    /// - `Actionable` for 1:1 buffer lines (safe for action generation)
+    /// - `Informational` for fold summaries (range start, not a precise target)
+    /// - `Virtual` for virtual text lines (no buffer origin)
+    /// - `OutOfRange` if the display line index is beyond the map
+    pub fn display_to_buffer(&self, display_y: DisplayLine) -> InverseResult {
+        let Some(entry) = self.entries.get(display_y.0) else {
+            return InverseResult::OutOfRange;
+        };
+        match &entry.source {
+            SourceMapping::BufferLine(line) => InverseResult::Actionable(*line),
+            SourceMapping::LineRange(range) => InverseResult::Informational {
+                representative: BufferLine(range.start),
+                range: range.clone(),
+            },
+            SourceMapping::None => InverseResult::Virtual,
+        }
     }
 
     /// Map a buffer line to its display line (O(1)).
