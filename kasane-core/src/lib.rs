@@ -24,6 +24,7 @@ pub mod surface;
 pub mod test_support;
 #[cfg(test)]
 pub(crate) mod test_utils;
+pub mod widget;
 pub mod workspace;
 
 pub use kasane_macros::DirtyTracked;

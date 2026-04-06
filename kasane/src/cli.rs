@@ -21,6 +21,12 @@ pub enum CliAction {
         kak_args: Vec<String>,
     },
     Plugin(PluginSubcommand),
+    Widget(WidgetSubcommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WidgetSubcommand {
+    Check { path: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +95,8 @@ pub enum CliError {
     PluginGcInvalidArgs(String),
     PluginRollbackInvalidArgs(String),
     PluginUnpinMissingPluginId,
+    WidgetMissingSubcommand,
+    WidgetUnknownSubcommand(String),
 }
 
 impl std::fmt::Display for CliError {
@@ -158,6 +166,12 @@ impl std::fmt::Display for CliError {
                     "missing plugin id. Usage: kasane plugin unpin <plugin-id>"
                 )
             }
+            CliError::WidgetMissingSubcommand => {
+                write!(f, "missing subcommand. Usage: kasane widget <check>")
+            }
+            CliError::WidgetUnknownSubcommand(s) => {
+                write!(f, "unknown widget subcommand: {s}. Use check.")
+            }
         }
     }
 }
@@ -201,6 +215,10 @@ pub fn parse_cli_args(args: &[String]) -> Result<CliAction, CliError> {
             "plugin" if kak_args.is_empty() && !has_kasane_flags && !has_non_ui_flags => {
                 let subcmd = parse_plugin_args(&mut iter)?;
                 return Ok(CliAction::Plugin(subcmd));
+            }
+            "widget" if kak_args.is_empty() && !has_kasane_flags && !has_non_ui_flags => {
+                let subcmd = parse_widget_args(&mut iter)?;
+                return Ok(CliAction::Widget(subcmd));
             }
             "--" => {
                 pass_through = true;
@@ -405,6 +423,18 @@ fn parse_plugin_args<'a>(
     }
 }
 
+fn parse_widget_args<'a>(
+    iter: &mut impl Iterator<Item = &'a String>,
+) -> Result<WidgetSubcommand, CliError> {
+    let sub = iter.next().ok_or(CliError::WidgetMissingSubcommand)?;
+    match sub.as_str() {
+        "check" => Ok(WidgetSubcommand::Check {
+            path: iter.next().cloned(),
+        }),
+        other => Err(CliError::WidgetUnknownSubcommand(other.to_string())),
+    }
+}
+
 /// Check if kak_args contains `-c` (connect to existing session).
 pub fn is_connect_mode(kak_args: &[String]) -> bool {
     let mut iter = kak_args.iter();
@@ -493,6 +523,7 @@ Subcommands:
   plugin pin <id> ...               Pin a plugin to a digest or package/version
   plugin unpin <id>                 Remove explicit selection for a plugin
   plugin update                     Advance auto-selected plugins to newer installed versions
+  widget check [<path>]             Validate a widgets.kdl file
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.

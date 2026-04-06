@@ -152,6 +152,19 @@ where
 
     let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
+    // Load declarative widgets
+    {
+        let widget_path = kasane_core::config::config_path()
+            .parent()
+            .expect("config path must have parent")
+            .join("widgets.kdl");
+        let widget_backend = match std::fs::read_to_string(&widget_path) {
+            Ok(source) => kasane_core::widget::WidgetBackend::from_source(&source),
+            Err(_) => kasane_core::widget::WidgetBackend::empty(),
+        };
+        registry.register_backend(Box::new(widget_backend));
+    }
+
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
     // do not get a chance to produce side effects.
     let initial_plugins = plugin_manager.initialize(&mut registry, |_, registry| {
@@ -196,6 +209,28 @@ where
                 if current != last_modified && current.is_some() {
                     last_modified = current;
                     if reload_tx.send(Event::PluginReload).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    // Widget hot-reload watcher thread
+    {
+        let widget_path = kasane_core::config::config_path()
+            .parent()
+            .expect("config path must have parent")
+            .join("widgets.kdl");
+        let widget_tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut last_modified = widget_path.metadata().and_then(|m| m.modified()).ok();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let current = widget_path.metadata().and_then(|m| m.modified()).ok();
+                if current != last_modified {
+                    last_modified = current;
+                    if widget_tx.send(Event::WidgetReload).is_err() {
                         return;
                     }
                 }

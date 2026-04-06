@@ -7,6 +7,7 @@ pub mod plugin_lock;
 pub mod plugin_store;
 pub mod process;
 pub mod process_manager;
+mod widget_cmd;
 pub mod workspace_lock;
 
 pub use kasane_core;
@@ -84,6 +85,12 @@ pub fn run(provider: impl PluginProvider + 'static) {
         }
         cli::CliAction::Plugin(subcmd) => {
             if let Err(e) = plugin_cmd::execute(subcmd) {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        cli::CliAction::Widget(subcmd) => {
+            if let Err(e) = widget_cmd::execute(subcmd) {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }

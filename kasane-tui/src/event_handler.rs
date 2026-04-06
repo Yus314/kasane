@@ -36,6 +36,7 @@ pub(crate) enum Event {
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
     ProcessOutput(PluginId, IoEvent),
     PluginReload,
+    WidgetReload,
     DiagnosticOverlayExpire(u64),
 }
 
@@ -351,6 +352,20 @@ where
                 command_source: None,
                 workspace_changed: false,
             }
+        }
+        Event::WidgetReload => {
+            let widget_path = kasane_core::config::config_path()
+                .parent()
+                .expect("config path must have parent")
+                .join("widgets.kdl");
+            let backend = match std::fs::read_to_string(&widget_path) {
+                Ok(source) => kasane_core::widget::WidgetBackend::from_source(&source),
+                Err(_) => kasane_core::widget::WidgetBackend::empty(),
+            };
+            let batch = ctx
+                .registry
+                .reload_plugin_batch(Box::new(backend), &AppView::new(ctx.state));
+            return process_event_result(event_result_from_runtime_batch(batch, None), false, ctx);
         }
         Event::KakouneDied(session_id) => {
             let mut session_ctx = kasane_core::event_loop::SessionMutContext {
