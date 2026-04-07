@@ -358,14 +358,39 @@ where
                 .parent()
                 .expect("config path must have parent")
                 .join("widgets.kdl");
-            let backend = match std::fs::read_to_string(&widget_path) {
-                Ok(source) => kasane_core::widget::WidgetBackend::from_source(&source),
-                Err(_) => kasane_core::widget::WidgetBackend::empty(),
-            };
-            let batch = ctx
-                .registry
-                .reload_plugin_batch(Box::new(backend), &AppView::new(ctx.state));
-            return process_event_result(event_result_from_runtime_batch(batch, None), false, ctx);
+            match std::fs::read_to_string(&widget_path) {
+                Ok(source) => {
+                    let widget_id = kasane_core::plugin::PluginId("kasane.widgets".to_string());
+                    if let Some(backend) = ctx.registry.backend_mut_by_id(&widget_id)
+                        && let Some(wb) = (backend as &mut dyn std::any::Any)
+                            .downcast_mut::<kasane_core::widget::WidgetBackend>()
+                    {
+                        wb.reload_from_source(&source);
+                    }
+                    ctx.registry.refresh_slot_metadata(&widget_id);
+                    *ctx.dirty |= DirtyFlags::all();
+                }
+                Err(_) => {
+                    // File deleted or unreadable: deliberate reset to empty
+                    let backend = kasane_core::widget::WidgetBackend::empty();
+                    let batch = ctx
+                        .registry
+                        .reload_plugin_batch(Box::new(backend), &AppView::new(ctx.state));
+                    return process_event_result(
+                        event_result_from_runtime_batch(batch, None),
+                        false,
+                        ctx,
+                    );
+                }
+            }
+            EventResult {
+                flags: DirtyFlags::all(),
+                commands: vec![],
+                scroll_plans: vec![],
+                surface_commands: vec![],
+                command_source: None,
+                workspace_changed: false,
+            }
         }
         Event::KakouneDied(session_id) => {
             let mut session_ctx = kasane_core::event_loop::SessionMutContext {

@@ -669,14 +669,14 @@ proptest! {
             let entry = dm.entry(DisplayLine(dl)).unwrap();
             match (&result, entry.source()) {
                 (InverseResult::Actionable(bl), SourceMapping::BufferLine(src_bl)) => {
-                    prop_assert_eq!(bl, src_bl, "C2: Actionable line mismatch at dl={dl}");
+                    prop_assert_eq!(bl, src_bl, "C2: Actionable line mismatch at dl={}", dl);
                 }
                 (InverseResult::Informational { range, .. }, SourceMapping::LineRange(src_range)) => {
-                    prop_assert_eq!(range, src_range, "C2: Informational range mismatch at dl={dl}");
+                    prop_assert_eq!(range, src_range, "C2: Informational range mismatch at dl={}", dl);
                 }
                 (InverseResult::Virtual, SourceMapping::None) => {}
                 (result, source) => {
-                    prop_assert!(false, "C2 violated at dl={dl}: result={result:?}, source={source:?}");
+                    prop_assert!(false, "C2 violated at dl={}: result={:?}, source={:?}", dl, result, source);
                 }
             }
         }
@@ -707,10 +707,10 @@ proptest! {
             let actionable = result.clone().actionable();
             match entry.source() {
                 SourceMapping::BufferLine(bl) => {
-                    prop_assert_eq!(actionable, Some(*bl), "C3: Strong source must be actionable at dl={dl}");
+                    prop_assert_eq!(actionable, Some(*bl), "C3: Strong source must be actionable at dl={}", dl);
                 }
                 _ => {
-                    prop_assert!(actionable.is_none(), "C3: Non-strong source must not be actionable at dl={dl}");
+                    prop_assert!(actionable.is_none(), "C3: Non-strong source must not be actionable at dl={}", dl);
                 }
             }
         }

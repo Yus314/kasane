@@ -2,7 +2,7 @@
 
 use compact_str::CompactString;
 
-use crate::plugin::SlotId;
+use crate::plugin::{ContribSizeHint, GutterSide, SlotId};
 use crate::protocol::Face;
 use crate::state::DirtyFlags;
 
@@ -28,6 +28,7 @@ pub enum WidgetKind {
     Contribution(ContributionWidget),
     Background(BackgroundWidget),
     Transform(TransformWidget),
+    Gutter(GutterWidget),
 }
 
 /// A widget that contributes an element to a slot.
@@ -35,6 +36,7 @@ pub struct ContributionWidget {
     pub slot: SlotId,
     pub parts: Vec<WidgetPart>,
     pub when: Option<CondExpr>,
+    pub size_hint: ContribSizeHint,
 }
 
 /// A single part of a contribution widget (text segment with optional face/condition).
@@ -54,6 +56,7 @@ pub struct BackgroundWidget {
 /// Expression determining which line a background widget applies to.
 pub enum LineExpr {
     CursorLine,
+    Selection,
 }
 
 /// A widget that applies a transform patch.
@@ -66,6 +69,16 @@ pub struct TransformWidget {
 /// Declarative transform operations available in widgets.
 pub enum WidgetPatch {
     ModifyFace(Face),
+    WrapContainer(Face),
+}
+
+/// A widget that provides gutter annotations per line.
+pub struct GutterWidget {
+    pub side: GutterSide,
+    pub template: Template,
+    pub face: Option<Face>,
+    pub when: Option<CondExpr>,
+    pub line_when: Option<CondExpr>,
 }
 
 /// A template string with literal and variable segments.

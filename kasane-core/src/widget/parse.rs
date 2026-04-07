@@ -9,9 +9,11 @@ use crate::state::DirtyFlags;
 use kasane_plugin_model::TransformTarget;
 
 use super::condition::parse_condition;
+use crate::plugin::{ContribSizeHint, GutterSide};
+
 use super::types::{
-    BackgroundWidget, ContributionWidget, LineExpr, Template, TransformWidget, WidgetDef,
-    WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
+    BackgroundWidget, ContributionWidget, GutterWidget, LineExpr, Template, TransformWidget,
+    WidgetDef, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
 };
 use super::variables::variable_dirty_flag;
 
@@ -112,8 +114,11 @@ fn compute_deps(widgets: &[WidgetDef]) -> DirtyFlags {
                 }
             }
             WidgetKind::Background(b) => {
-                // CursorLine always depends on cursor position
-                flags |= DirtyFlags::BUFFER_CURSOR;
+                match b.line_expr {
+                    LineExpr::CursorLine => flags |= DirtyFlags::BUFFER_CURSOR,
+                    // Selection depends on both content (face analysis) and cursor
+                    LineExpr::Selection => flags |= DirtyFlags::BUFFER,
+                }
                 if let Some(ref cond) = b.when {
                     for var in cond.referenced_variables() {
                         flags |= variable_dirty_flag(var);
@@ -122,6 +127,23 @@ fn compute_deps(widgets: &[WidgetDef]) -> DirtyFlags {
             }
             WidgetKind::Transform(t) => {
                 if let Some(ref cond) = t.when {
+                    for var in cond.referenced_variables() {
+                        flags |= variable_dirty_flag(var);
+                    }
+                }
+            }
+            WidgetKind::Gutter(g) => {
+                // Gutter always depends on cursor position (for relative_line, is_cursor_line)
+                flags |= DirtyFlags::BUFFER_CURSOR;
+                for var in g.template.referenced_variables() {
+                    flags |= variable_dirty_flag(var);
+                }
+                if let Some(ref cond) = g.when {
+                    for var in cond.referenced_variables() {
+                        flags |= variable_dirty_flag(var);
+                    }
+                }
+                if let Some(ref cond) = g.line_when {
                     for var in cond.referenced_variables() {
                         flags |= variable_dirty_flag(var);
                     }
@@ -140,6 +162,7 @@ fn parse_widget_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         "contribution" => parse_contribution_node(node),
         "background" => parse_background_node(node),
         "transform" => parse_transform_node(node),
+        "gutter" => parse_gutter_node(node),
         other => Err(format!("unknown widget kind: '{other}'")),
     }
 }
@@ -147,6 +170,7 @@ fn parse_widget_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
 fn parse_contribution_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
     let slot = parse_slot(node)?;
     let when = parse_when(node)?;
+    let size_hint = parse_size_hint(node)?;
 
     let mut parts = Vec::new();
 
@@ -180,6 +204,7 @@ fn parse_contribution_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         slot,
         parts,
         when,
+        size_hint,
     }))
 }
 
@@ -202,6 +227,7 @@ fn parse_background_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
     let line_str = get_string_entry(node, "line").unwrap_or("cursor");
     let line_expr = match line_str {
         "cursor" => LineExpr::CursorLine,
+        "selection" => LineExpr::Selection,
         other => return Err(format!("unknown line expression: '{other}'")),
     };
 
@@ -229,9 +255,16 @@ fn parse_transform_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
 
     let when = parse_when(node)?;
 
+    let patch_str = get_string_entry(node, "patch").unwrap_or("modify-face");
+    let patch = match patch_str {
+        "modify-face" => WidgetPatch::ModifyFace(face),
+        "wrap" => WidgetPatch::WrapContainer(face),
+        other => return Err(format!("unknown patch kind: '{other}'")),
+    };
+
     Ok(WidgetKind::Transform(TransformWidget {
         target,
-        patch: WidgetPatch::ModifyFace(face),
+        patch,
         when,
     }))
 }
@@ -256,7 +289,12 @@ fn parse_transform_target(s: &str) -> Result<TransformTarget, String> {
         "status" | "status-bar" => Ok(TransformTarget::STATUS_BAR),
         "buffer" => Ok(TransformTarget::BUFFER),
         "menu" => Ok(TransformTarget::MENU),
+        "menu-prompt" => Ok(TransformTarget::MENU_PROMPT),
+        "menu-inline" => Ok(TransformTarget::MENU_INLINE),
+        "menu-search" => Ok(TransformTarget::MENU_SEARCH),
         "info" => Ok(TransformTarget::INFO),
+        "info-prompt" => Ok(TransformTarget::INFO_PROMPT),
+        "info-modal" => Ok(TransformTarget::INFO_MODAL),
         other => Err(format!("unknown transform target: '{other}'")),
     }
 }
@@ -269,6 +307,62 @@ fn parse_when(node: &kdl::KdlNode) -> Result<Option<super::types::CondExpr>, Str
         }
         None => Ok(None),
     }
+}
+
+fn parse_size_hint(node: &kdl::KdlNode) -> Result<ContribSizeHint, String> {
+    match get_string_entry(node, "size") {
+        None | Some("auto") => Ok(ContribSizeHint::Auto),
+        Some(s) => {
+            if let Some(n) = s.strip_suffix("col") {
+                let val: u16 = n
+                    .parse()
+                    .map_err(|_| format!("invalid size value: '{s}'"))?;
+                Ok(ContribSizeHint::Fixed(val))
+            } else if let Some(n) = s.strip_suffix("fr") {
+                let val: f32 = n
+                    .parse()
+                    .map_err(|_| format!("invalid size value: '{s}'"))?;
+                Ok(ContribSizeHint::Flex(val))
+            } else {
+                Err(format!(
+                    "invalid size format: '{s}' (expected 'auto', 'Ncol', or 'Nfr')"
+                ))
+            }
+        }
+    }
+}
+
+fn parse_gutter_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
+    let side_str = get_string_entry(node, "side").unwrap_or("left");
+    let side = match side_str {
+        "left" => GutterSide::Left,
+        "right" => GutterSide::Right,
+        other => return Err(format!("unknown gutter side: '{other}'")),
+    };
+
+    let text = get_string_entry(node, "text").ok_or("gutter widget missing 'text' attribute")?;
+    let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
+
+    let face = get_string_entry(node, "face")
+        .map(|s| parse_face_spec(s).ok_or_else(|| format!("invalid face: '{s}'")))
+        .transpose()?;
+
+    let when = parse_when(node)?;
+    let line_when = match get_string_entry(node, "line-when") {
+        Some(expr) => {
+            let parsed = parse_condition(expr).map_err(|e| format!("line-when condition: {e}"))?;
+            Some(parsed)
+        }
+        None => None,
+    };
+
+    Ok(WidgetKind::Gutter(GutterWidget {
+        side,
+        template,
+        face,
+        when,
+        line_when,
+    }))
 }
 
 /// Get a string value from a KDL node's named entry (attribute).

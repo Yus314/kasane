@@ -13,3 +13,4 @@ mod tests;
 pub use backend::WidgetBackend;
 pub use parse::parse_widgets;
 pub use types::{WidgetFile, WidgetKind};
+pub use variables::LineContextResolver;

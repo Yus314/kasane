@@ -416,6 +416,23 @@ impl PluginRuntime {
         self.slots.iter_mut().map(|s| &mut s.backend)
     }
 
+    /// Get a mutable reference to a plugin backend by its ID.
+    pub fn backend_mut_by_id(&mut self, id: &PluginId) -> Option<&mut Box<dyn PluginBackend>> {
+        self.slots
+            .iter_mut()
+            .find(|s| s.backend.id() == *id)
+            .map(|s| &mut s.backend)
+    }
+
+    /// Refresh a slot's cached capabilities and descriptor after in-place mutation.
+    pub fn refresh_slot_metadata(&mut self, id: &PluginId) {
+        if let Some(slot) = self.slots.iter_mut().find(|s| s.backend.id() == *id) {
+            slot.capabilities = slot.backend.capabilities();
+            slot.descriptor = slot.backend.capability_descriptor();
+            slot.needs_recollect = true;
+        }
+    }
+
     /// Collect plugin-owned surfaces during the bootstrap preflight stage.
     pub fn collect_plugin_surfaces(&mut self) -> Vec<PluginSurfaceSet> {
         let mut surfaces = Vec::new();
