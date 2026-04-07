@@ -152,14 +152,22 @@ where
 
     let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
-    // Load declarative widgets
+    // Load widgets from unified kasane.kdl
     {
-        let widget_path = kasane_core::config::config_path()
-            .parent()
-            .expect("config path must have parent")
-            .join("widgets.kdl");
-        let widget_backend = match std::fs::read_to_string(&widget_path) {
-            Ok(source) => kasane_core::widget::WidgetBackend::from_source(&source),
+        let config_path = kasane_core::config::config_path();
+        let widget_backend = match std::fs::read_to_string(&config_path) {
+            Ok(source) => match kasane_core::config::unified::parse_unified(&source) {
+                Ok((_config, widget_file, errors)) => {
+                    for err in &errors {
+                        tracing::warn!("widget `{}`: {}", err.name, err.message);
+                    }
+                    kasane_core::widget::WidgetBackend::from_widgets(widget_file)
+                }
+                Err(e) => {
+                    tracing::warn!("kasane.kdl widget parse failed: {e}");
+                    kasane_core::widget::WidgetBackend::empty()
+                }
+            },
             Err(_) => kasane_core::widget::WidgetBackend::empty(),
         };
         registry.register_backend(Box::new(widget_backend));
@@ -216,32 +224,10 @@ where
         });
     }
 
-    // Widget hot-reload watcher thread
-    {
-        let widget_path = kasane_core::config::config_path()
-            .parent()
-            .expect("config path must have parent")
-            .join("widgets.kdl");
-        let widget_tx = tx.clone();
-        std::thread::spawn(move || {
-            let mut last_modified = widget_path.metadata().and_then(|m| m.modified()).ok();
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                let current = widget_path.metadata().and_then(|m| m.modified()).ok();
-                if current != last_modified {
-                    last_modified = current;
-                    if widget_tx.send(Event::WidgetReload).is_err() {
-                        return;
-                    }
-                }
-            }
-        });
-    }
-
-    // Config hot-reload watcher thread
+    // Unified kasane.kdl hot-reload watcher thread
     {
         let config_path = kasane_core::config::config_path();
-        let config_tx = tx.clone();
+        let file_tx = tx.clone();
         std::thread::spawn(move || {
             let mut last_modified = config_path.metadata().and_then(|m| m.modified()).ok();
             loop {
@@ -249,7 +235,7 @@ where
                 let current = config_path.metadata().and_then(|m| m.modified()).ok();
                 if current != last_modified {
                     last_modified = current;
-                    if config_tx.send(Event::ConfigReload).is_err() {
+                    if file_tx.send(Event::FileReload).is_err() {
                         return;
                     }
                 }

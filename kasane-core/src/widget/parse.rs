@@ -55,11 +55,24 @@ pub fn parse_widgets(source: &str) -> Result<(WidgetFile, Vec<WidgetNodeError>),
         .parse()
         .map_err(|e: kdl::KdlError| WidgetParseError::Syntax(e.to_string()))?;
 
+    parse_widget_nodes(doc.nodes())
+}
+
+/// Parse a slice of KDL nodes into a WidgetFile.
+///
+/// Performs semantic validation per node: invalid nodes are skipped and
+/// reported as `WidgetNodeError`s, valid nodes are collected into the file.
+///
+/// This is the lower-level entry point; use [`parse_widgets`] when starting
+/// from a KDL source string.
+pub fn parse_widget_nodes(
+    nodes: &[kdl::KdlNode],
+) -> Result<(WidgetFile, Vec<WidgetNodeError>), WidgetParseError> {
     let mut widgets = Vec::new();
     let mut errors = Vec::new();
     let mut index: u16 = 0;
 
-    for node in doc.nodes() {
+    for node in nodes {
         if widgets.len() >= MAX_WIDGETS {
             return Err(WidgetParseError::TooManyWidgets);
         }

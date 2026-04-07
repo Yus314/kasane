@@ -16,7 +16,7 @@ Legend: `Current` = still in effect, `Proposed` = future design. The Notes colum
 | Rendering approach | Current | **TUI + GUI hybrid** | TUI for SSH/tmux, GUI for native window |
 | TUI library | Current | **crossterm direct** | Full rendering control |
 | GUI toolkit | Current | **winit + wgpu + glyphon** | Details in [ADR-014](#adr-014-gui-technology-stack--winit--wgpu--glyphon) |
-| Configuration format | Current | **TOML + ui_options combined** | Static config + Kakoune integration |
+| Configuration format | Current | **Unified KDL + ui_options** | Single `kasane.kdl` for config + widgets. Supersedes ADR-003 (TOML + separate widgets.kdl) |
 | Crate structure | Current | **Cargo workspace** | `kasane-core` / `kasane-tui` / `kasane-gui` / `kasane` / `kasane-macros` / `kasane-wasm` / `kasane-wasm-bench` |
 | Kakoune version | Current | **Latest stable only** | Leverages new protocol features |
 | kak-lsp integration | Current | **Pure JSON UI frontend** | No special handling for kak-lsp |
@@ -109,7 +109,7 @@ Three options were evaluated as the TUI backend library: ratatui + crossterm, cr
 
 ## ADR-003: Configuration Format — TOML + ui_options Combined
 
-**Status:** Decided
+**Status:** Superseded — migrated to unified KDL (`kasane.kdl`) for both config and widgets. The ui_options dynamic channel remains.
 
 **Context:**
 Three formats plus a combination were evaluated for configuration: TOML, KDL, Kakoune commands only (ui_options only), and TOML + ui_options combined.
@@ -120,6 +120,8 @@ Three formats plus a combination were evaluated for configuration: TOML, KDL, Ka
 - **TOML (static config):** `~/.config/kasane/config.toml` — theme, font, GUI settings, default behavior. Type-safe deserialization via `serde`
 - **ui_options (dynamic config):** Kakoune `set-option global ui_options kasane_*=*` — UI behavior that can be changed at runtime. Can be combined with Kakoune hooks and conditionals
 - Achieves both type-safe static configuration and dynamic configuration integrated with Kakoune
+
+**Update:** Configuration and widget definitions are now unified in a single `~/.config/kasane/kasane.kdl` file using KDL v2 syntax. The dual-file system (`config.toml` + `widgets.kdl`) has been retired. The ui_options dynamic channel is unchanged.
 
 ## ADR-004: kak-lsp Integration — Pure JSON UI Frontend
 
@@ -652,9 +654,9 @@ kasane is a Kakoune UI frontend, not "a different editor." The goal is to minimi
 - Future session-specific config (`~/.config/kasane/sessions/project.toml`) extension
 - Extremely small additional cost (a few lines of change)
 
-### 11-5: Default UI Mode — Configurable via config.toml
+### 11-5: Default UI Mode — Configurable via kasane.kdl
 
-**Decision:** Make the default UI mode (TUI/GUI) configurable via `[ui] default` in `config.toml`. The `--ui` flag serves as a one-shot override.
+**Decision:** Make the default UI mode (TUI/GUI) configurable via `ui { backend }` in `kasane.kdl`. The `--ui` flag serves as a one-shot override.
 
 **Rationale:**
 - Users who want GUI as default no longer need to include `--ui gui` in their alias
@@ -684,7 +686,7 @@ kasane --ui gui -l
 
 **Rationale:**
 - Backend selection is meaningless for non-UI operations; early detection of user mistakes
-- Making the default UI configurable via config.toml removes the motivation to include `--ui` in aliases, so this error practically never occurs
+- Making the default UI configurable via `kasane.kdl` removes the motivation to include `--ui` in aliases, so this error practically never occurs
 - Explicit errors over silent ignoring follows Rust ecosystem conventions
 
 ### 11-8: Native kak UI Fallback — Not Provided

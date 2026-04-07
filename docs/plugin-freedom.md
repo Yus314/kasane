@@ -157,7 +157,7 @@ For the WASI capability table and usage examples, see [plugin-development.md §W
 
 For the authority table (DynamicSurface, PtyProcess, WorkspaceManagement), see [plugin-api.md §6](./plugin-api.md#6-advanced-api).
 
-**Design principle**: Capabilities are declared by the plugin and resolved against user configuration (`deny_capabilities`, `deny_authorities` in `config.toml`). Least-privilege by default.
+**Design principle**: Capabilities are declared by the plugin and resolved against user configuration (`deny_capabilities`, `deny_authorities` in `kasane.kdl`). Least-privilege by default.
 
 ---
 

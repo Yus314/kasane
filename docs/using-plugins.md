@@ -32,10 +32,11 @@ Most bundled WASM plugins are not loaded by default. Add plugin IDs to the `enab
 list in your configuration. `pane_manager` is the exception — it loads automatically
 unless explicitly disabled.
 
-```toml
-# ~/.config/kasane/config.toml
-[plugins]
-enabled = ["cursor_line", "color_preview"]
+```kdl
+// ~/.config/kasane/kasane.kdl
+plugins {
+    enabled "cursor_line" "color_preview"
+}
 ```
 
 ## Additional Source Examples
@@ -63,7 +64,7 @@ Kasane stores verified packages under `~/.local/share/kasane/plugins/` (or
 `$XDG_DATA_HOME/kasane/plugins/` if `$XDG_DATA_HOME` is set), writes the active
 set into `plugins.lock`, and activates plugins from that lock file on startup.
 
-If you change `enabled`, `disabled`, or selection policy in `config.toml`, run:
+If you change `enabled`, `disabled`, or selection policy in `kasane.kdl`, run:
 
 ```bash
 kasane plugin resolve
@@ -115,18 +116,22 @@ if you want to enable it.
 
 Installed packages and bundled plugins can be disabled by ID:
 
-```toml
-[plugins]
-disabled = ["some_plugin"]
+```kdl
+plugins {
+    disabled "some_plugin"
+}
 ```
 
 ### Restricting Plugin Capabilities
 
 WASM plugins run in a sandbox. You can further restrict their capabilities:
 
-```toml
-[plugins.deny_capabilities]
-untrusted_plugin = ["filesystem", "environment"]
+```kdl
+plugins {
+    deny_capabilities {
+        untrusted_plugin "filesystem" "environment"
+    }
+}
 ```
 
 ## Writing Your Own

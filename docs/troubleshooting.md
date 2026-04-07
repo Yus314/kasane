@@ -58,9 +58,10 @@ KASANE_LOG=debug kasane file.txt
 
 Or set in configuration:
 
-```toml
-[log]
-level = "debug"
+```kdl
+log {
+    level "debug"
+}
 ```
 
 Log files are written to:
@@ -77,9 +78,10 @@ Or `$XDG_STATE_HOME/kasane/kasane.log` if `$XDG_STATE_HOME` is set.
 
 Bundled plugins require explicit opt-in. Add them to your config:
 
-```toml
-[plugins]
-enabled = ["cursor_line", "color_preview"]
+```kdl
+plugins {
+    enabled "cursor_line" "color_preview"
+}
 ```
 
 Then rebuild the active set:

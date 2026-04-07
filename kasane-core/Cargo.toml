@@ -18,7 +18,6 @@ unicode-segmentation = { workspace = true }
 bitflags = { workspace = true }
 compact_str = { workspace = true }
 dyn-clone = { workspace = true }
-toml = { workspace = true }
 tracing = { workspace = true }
 rmp-serde = { workspace = true }
 kdl = { workspace = true }

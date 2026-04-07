@@ -750,7 +750,7 @@ Plugins can observe session state and control session switching:
 
 See [ADR-023](./decisions.md#adr-023-session-management-boundaries--mechanism--policy-split) for the boundary rationale and decision record.
 
-WASM plugins are sandboxed by default. The host constructs the WASI context from the plugin manifest (`kasane-plugin.toml` → `[capabilities].wasi`) **before** instantiating the WASM component — plugins never participate in their own permission decisions. Without a manifest capability declaration, access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on manifest capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `process` in the manifest's `[capabilities].wasi`, which can be denied via `deny_capabilities` in `config.toml`.
+WASM plugins are sandboxed by default. The host constructs the WASI context from the plugin manifest (`kasane-plugin.toml` → `[capabilities].wasi`) **before** instantiating the WASM component — plugins never participate in their own permission decisions. Without a manifest capability declaration, access to host resources such as file system and network is unavailable. The host functions available to WASM plugins are limited to the two WIT interfaces: `host-state` (state reading) and `element-builder` (element construction). Per Phase P ([ADR-019](./decisions.md#adr-019-plugin-io-infrastructure--hybrid-model)), `preopened_dir` / `env` are unlocked based on manifest capability declarations (P-1), and process execution is provided via host mediation (`Command::SpawnProcess` + `IoEvent`) (P-2). Process execution requires declaring `process` in the manifest's `[capabilities].wasi`, which can be denied via `deny_capabilities` in `kasane.kdl`.
 
 ## 4. Capabilities and Caching
 
@@ -1047,12 +1047,13 @@ fn on_init_effects(&mut self, _app: &AppView<'_>) -> Effects {
 }
 ```
 
-### 5.2 config.toml integration
+### 5.2 kasane.kdl integration
 
-```toml
-[theme]
-"menu.selected" = { fg = "black", bg = "blue" }
-"myplugin.highlight" = { fg = "yellow" }
+```kdl
+theme {
+    "menu.selected" fg="black" bg="blue"
+    "myplugin.highlight" fg="yellow"
+}
 ```
 
 ## 6. Advanced API

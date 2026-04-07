@@ -23,14 +23,14 @@ pub struct LockedWasmPluginProvider {
     lock_path: PathBuf,
     store: PluginStore,
     plugins_config: kasane_core::config::PluginsConfig,
-    config_settings: HashMap<String, toml::Table>,
+    config_settings: HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
 }
 
 impl LockedWasmPluginProvider {
     pub fn new(
         lock_path: impl Into<PathBuf>,
         plugins_config: kasane_core::config::PluginsConfig,
-        config_settings: HashMap<String, toml::Table>,
+        config_settings: HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
     ) -> Self {
         let store = PluginStore::from_plugins_dir(plugins_config.plugins_dir());
         Self {
@@ -43,7 +43,7 @@ impl LockedWasmPluginProvider {
 
     pub fn from_default_lock_path(
         plugins_config: kasane_core::config::PluginsConfig,
-        config_settings: HashMap<String, toml::Table>,
+        config_settings: HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
     ) -> Self {
         Self::new(
             crate::plugin_lock::plugins_lock_path(),
@@ -125,7 +125,7 @@ fn collect_locked_plugin(
     key: &str,
     entry: &LockedPluginEntry,
     store: &PluginStore,
-    config_settings: &HashMap<String, toml::Table>,
+    config_settings: &HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
     lock_updates: &mut Vec<(String, LockedPluginEntry)>,
@@ -177,7 +177,7 @@ fn collect_locked_filesystem_plugin(
     key: &str,
     entry: &LockedPluginEntry,
     store: &PluginStore,
-    config_settings: &HashMap<String, toml::Table>,
+    config_settings: &HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
 ) {
@@ -313,7 +313,7 @@ fn collect_locked_filesystem_plugin(
 fn collect_locked_bundled_plugin(
     key: &str,
     entry: &LockedPluginEntry,
-    config_settings: &HashMap<String, toml::Table>,
+    config_settings: &HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
     wasi_config: &WasiCapabilityConfig,
     resolved: &mut PluginCollect,
     lock_updates: &mut Vec<(String, LockedPluginEntry)>,
@@ -441,11 +441,11 @@ fn collect_locked_bundled_plugin(
 
 fn resolve_plugin_settings(
     manifest: &kasane_plugin_package::manifest::PluginManifest,
-    config_settings: &HashMap<String, toml::Table>,
+    config_settings: &HashMap<String, HashMap<String, kasane_core::plugin::SettingValue>>,
 ) -> HashMap<String, kasane_core::plugin::setting::SettingValue> {
     let mut settings = manifest.resolve_setting_defaults();
-    if let Some(config_table) = config_settings.get(&manifest.plugin.id) {
-        let (overrides, warnings) = manifest.validate_config_settings(config_table);
+    if let Some(plugin_settings) = config_settings.get(&manifest.plugin.id) {
+        let (overrides, warnings) = manifest.validate_config_settings(plugin_settings);
         for warning in warnings {
             tracing::warn!("{}", warning);
         }

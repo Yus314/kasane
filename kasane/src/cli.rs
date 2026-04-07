@@ -505,7 +505,7 @@ kasane {} - Kakoune frontend
 Usage: kasane [kasane-options] [kak-options] [file]... [+<line>[:<col>]|+:]
 
 Kasane options:
-  --ui <tui|gui>   Select UI backend (default: config.toml [ui] backend)
+  --ui <tui|gui>   Select UI backend (default: kasane.kdl [ui] backend)
   --version        Show kasane and kak versions
   --help           Show this help message
 
@@ -523,7 +523,7 @@ Subcommands:
   plugin pin <id> ...               Pin a plugin to a digest or package/version
   plugin unpin <id>                 Remove explicit selection for a plugin
   plugin update                     Advance auto-selected plugins to newer installed versions
-  widget check [<path>]             Validate a widgets.kdl file
+  widget check [<path>]             Validate a kasane.kdl file
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.

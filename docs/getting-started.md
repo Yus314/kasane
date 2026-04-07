@@ -36,7 +36,7 @@ install -Dm755 kasane ~/.local/bin/kasane
 
 Other targets: `aarch64-linux-gnu`, `x86_64-linux-musl`, `x86_64-macos`, `aarch64-macos`. See the [releases page](https://github.com/Yus314/kasane/releases/latest) for all available archives.
 
-> macOS and Linux x86_64 (glibc) builds include the GPU backend. Use `kasane --ui gui` to launch the GUI, or set `backend = "gui"` in config.toml. Other targets (musl, aarch64-linux) are TUI-only.
+> macOS and Linux x86_64 (glibc) builds include the GPU backend. Use `kasane --ui gui` to launch the GUI, or set `backend "gui"` in the `ui` section of `kasane.kdl`. Other targets (musl, aarch64-linux) are TUI-only.
 
 ### From Source
 
@@ -86,23 +86,25 @@ kak -l                    # List sessions (delegates to kak)
 
 ## Configuration
 
-Kasane reads configuration from:
+Kasane reads configuration and widget definitions from a single file:
 
 ```
-~/.config/kasane/config.toml
+~/.config/kasane/kasane.kdl
 ```
 
 No config file is needed — all defaults match Kakoune's standard behavior. Create a config file only when you want to change something.
 
 Example:
 
-```toml
-[ui]
-shadow = false
-border_style = "double"
+```kdl
+ui {
+    shadow #false
+    border_style "double"
+}
 
-[scroll]
-smooth = true
+scroll {
+    smooth #true
+}
 ```
 
 See [config.md](config.md) for the full configuration reference.
@@ -110,6 +112,6 @@ See [config.md](config.md) for the full configuration reference.
 ## Next Steps
 
 - [What's Different](whats-different.md) — discover improvements available in Kasane
-- [Customize the UI](widgets.md) — status bar, gutters, and transforms
+- [Customize the UI](widgets.md) — status bar, gutters, and transforms (in the same `kasane.kdl` file)
 - [Using Plugins](using-plugins.md) — extend Kasane with plugins
 - [Troubleshooting](troubleshooting.md) — common issues and solutions

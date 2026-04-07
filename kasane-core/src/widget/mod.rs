@@ -11,6 +11,6 @@ pub mod variables;
 mod tests;
 
 pub use backend::WidgetBackend;
-pub use parse::parse_widgets;
+pub use parse::{parse_widget_nodes, parse_widgets};
 pub use types::{FaceOrToken, WidgetFile, WidgetKind};
 pub use variables::LineContextResolver;

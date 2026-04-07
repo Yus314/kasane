@@ -36,8 +36,8 @@ pub(crate) enum Event {
     PluginTimer(PluginId, Box<dyn std::any::Any + Send>),
     ProcessOutput(PluginId, IoEvent),
     PluginReload,
-    WidgetReload,
-    ConfigReload,
+    /// Unified kasane.kdl file changed — reload both config and widgets.
+    FileReload,
     DiagnosticOverlayExpire(u64),
 }
 
@@ -354,25 +354,41 @@ where
                 workspace_changed: false,
             }
         }
-        Event::WidgetReload => {
-            let widget_path = kasane_core::config::config_path()
-                .parent()
-                .expect("config path must have parent")
-                .join("widgets.kdl");
-            match std::fs::read_to_string(&widget_path) {
+        Event::FileReload => {
+            let config_path = kasane_core::config::config_path();
+            match std::fs::read_to_string(&config_path) {
                 Ok(source) => {
-                    let widget_id = kasane_core::plugin::PluginId("kasane.widgets".to_string());
-                    if let Some(backend) = ctx.registry.backend_mut_by_id(&widget_id)
-                        && let Some(wb) = (backend as &mut dyn std::any::Any)
-                            .downcast_mut::<kasane_core::widget::WidgetBackend>()
-                    {
-                        wb.reload_from_source(&source);
+                    match kasane_core::config::unified::parse_unified(&source) {
+                        Ok((new_config, widget_file, widget_errors)) => {
+                            // Apply config changes
+                            ctx.state.apply_config(&new_config);
+
+                            // Reload widgets
+                            let widget_id =
+                                kasane_core::plugin::PluginId("kasane.widgets".to_string());
+                            if let Some(backend) = ctx.registry.backend_mut_by_id(&widget_id)
+                                && let Some(wb) = (backend as &mut dyn std::any::Any)
+                                    .downcast_mut::<kasane_core::widget::WidgetBackend>(
+                                )
+                            {
+                                wb.reload_from_widgets(widget_file);
+                            }
+                            ctx.registry.refresh_slot_metadata(&widget_id);
+
+                            for err in &widget_errors {
+                                tracing::warn!("widget `{}`: {}", err.name, err.message);
+                            }
+                            tracing::info!("kasane.kdl hot-reloaded");
+                        }
+                        Err(err) => {
+                            tracing::warn!("kasane.kdl reload failed (keeping previous): {err}");
+                        }
                     }
-                    ctx.registry.refresh_slot_metadata(&widget_id);
-                    *ctx.dirty |= DirtyFlags::all();
                 }
-                Err(_) => {
-                    // File deleted or unreadable: deliberate reset to empty
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    // File deleted: reset widgets to empty, config to defaults
+                    ctx.state
+                        .apply_config(&kasane_core::config::Config::default());
                     let backend = kasane_core::widget::WidgetBackend::empty();
                     let batch = ctx
                         .registry
@@ -383,24 +399,8 @@ where
                         ctx,
                     );
                 }
-            }
-            EventResult {
-                flags: DirtyFlags::all(),
-                commands: vec![],
-                scroll_plans: vec![],
-                surface_commands: vec![],
-                command_source: None,
-                workspace_changed: false,
-            }
-        }
-        Event::ConfigReload => {
-            match kasane_core::config::Config::try_load() {
-                Ok(new_config) => {
-                    ctx.state.apply_config(&new_config);
-                    tracing::info!("config hot-reloaded");
-                }
-                Err(err) => {
-                    tracing::warn!("config reload failed (keeping previous): {err}");
+                Err(e) => {
+                    tracing::warn!("cannot read {}: {e}", config_path.display());
                 }
             }
             EventResult {

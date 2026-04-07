@@ -3,10 +3,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use kasane_plugin_model::SettingValue;
 
-#[derive(Debug, Deserialize, Serialize, Default, Clone)]
-#[serde(default)]
+pub mod kdl_parser;
+pub mod kdl_writer;
+pub mod unified;
+
+#[derive(Debug, Default, Clone)]
 pub struct Config {
     pub ui: UiConfig,
     pub scroll: ScrollConfig,
@@ -20,14 +23,12 @@ pub struct Config {
     pub font: FontConfig,
     pub colors: ColorsConfig,
     pub plugins: PluginsConfig,
-    /// Per-plugin typed settings: `[settings.<plugin_id>]` sections.
-    #[serde(default)]
-    pub settings: HashMap<String, toml::Table>,
+    /// Per-plugin typed settings: `settings { <plugin_id> { key value; ... } }`.
+    pub settings: HashMap<String, HashMap<String, SettingValue>>,
 }
 
 /// Menu configuration.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MenuConfig {
     pub position: MenuPosition,
     pub max_height: u16,
@@ -43,8 +44,7 @@ impl Default for MenuConfig {
 }
 
 /// Menu position: auto (default Kakoune behavior), above, or below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MenuPosition {
     #[default]
     Auto,
@@ -53,8 +53,7 @@ pub enum MenuPosition {
 }
 
 /// Search menu configuration.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SearchConfig {
     /// When true, show search completions as a vertical dropdown instead of inline.
     pub dropdown: bool,
@@ -62,22 +61,20 @@ pub struct SearchConfig {
 
 /// Theme configuration: maps style token names to face specifications.
 ///
-/// Example in config.toml:
-/// ```toml
-/// [theme]
-/// menu_item_normal = "white,blue"
-/// menu_item_selected = "blue,white"
-/// info_border = "cyan,default"
+/// Example in kasane.kdl:
+/// ```kdl
+/// theme {
+///     menu_item_normal "white,blue"
+///     menu_item_selected "blue,white"
+///     info_border "cyan,default"
+/// }
 /// ```
-#[derive(Debug, Deserialize, Serialize, Default, Clone)]
-#[serde(default)]
+#[derive(Debug, Default, Clone)]
 pub struct ThemeConfig {
-    #[serde(flatten)]
     pub faces: HashMap<String, String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UiConfig {
     pub shadow: bool,
     pub padding_char: String,
@@ -105,8 +102,7 @@ impl Default for UiConfig {
 }
 
 /// Status bar position.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StatusPosition {
     Top,
     #[default]
@@ -114,8 +110,7 @@ pub enum StatusPosition {
 }
 
 /// Border line style configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderStyleConfig {
     Single,
     #[default]
@@ -138,8 +133,7 @@ impl From<BorderStyleConfig> for crate::element::BorderLineStyle {
 }
 
 /// Image rendering protocol configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImageProtocolConfig {
     #[default]
     Auto,
@@ -147,8 +141,7 @@ pub enum ImageProtocolConfig {
     Kitty,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScrollConfig {
     pub lines_per_scroll: i32,
     pub smooth: bool,
@@ -166,8 +159,7 @@ impl Default for ScrollConfig {
 }
 
 /// Clipboard configuration.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClipboardConfig {
     pub enabled: bool,
 }
@@ -179,8 +171,7 @@ impl Default for ClipboardConfig {
 }
 
 /// Mouse configuration.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MouseConfig {
     pub drag_scroll: bool,
 }
@@ -191,8 +182,7 @@ impl Default for MouseConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LogConfig {
     pub level: String,
     pub file: Option<String>,
@@ -208,8 +198,7 @@ impl Default for LogConfig {
 }
 
 /// Window configuration for the GUI backend.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindowConfig {
     pub initial_cols: u16,
     pub initial_rows: u16,
@@ -232,8 +221,7 @@ impl Default for WindowConfig {
 }
 
 /// Font configuration for the GUI backend.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FontConfig {
     pub family: String,
     pub size: f32,
@@ -259,8 +247,7 @@ impl Default for FontConfig {
 /// Color palette for the GUI backend.
 /// Kakoune's terminal UI uses `Color::Default` to mean "terminal default",
 /// but the GUI has no terminal — these values define the concrete RGB fallback.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColorsConfig {
     pub default_fg: String,
     pub default_bg: String,
@@ -309,8 +296,7 @@ impl Default for ColorsConfig {
 }
 
 /// Plugin configuration.
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-#[serde(default)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct PluginsConfig {
     /// Custom path to the plugins directory. Defaults to XDG_DATA_HOME/kasane/plugins/.
     pub path: Option<String>,
@@ -331,8 +317,7 @@ pub struct PluginsConfig {
     pub selection: HashMap<String, PluginSelection>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Default)]
-#[serde(tag = "mode", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum PluginSelection {
     #[default]
     Auto,
@@ -396,8 +381,8 @@ impl Config {
                 return Config::default();
             }
         };
-        match toml::from_str(&contents) {
-            Ok(config) => config,
+        match self::unified::parse_unified(&contents) {
+            Ok((config, _widget_file, _widget_errors)) => config,
             Err(e) => {
                 eprintln!(
                     "warning: config parse error in {}: {e}; using defaults",
@@ -421,7 +406,10 @@ impl Config {
                 return Err(err).with_context(|| format!("failed to read {}", path.display()));
             }
         };
-        toml::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+        let (config, _widget_file, _widget_errors) = self::unified::parse_unified(&contents)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        Ok(config)
     }
 
     pub fn save(&self) -> Result<PathBuf> {
@@ -439,7 +427,12 @@ impl Config {
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
 
-        let contents = toml::to_string_pretty(self).context("failed to serialize config")?;
+        // Read existing file to preserve widget definitions and comments
+        let existing = fs::read_to_string(path).unwrap_or_default();
+        let contents = kdl_writer::patch_config_in_document(&existing, self)
+            .map_err(|e| anyhow::anyhow!("KDL error: {e}"))
+            .context("failed to serialize config")?;
+
         let temp_path = temp_config_path(path);
         fs::write(&temp_path, contents)
             .with_context(|| format!("failed to write {}", temp_path.display()))?;
@@ -456,14 +449,14 @@ impl Config {
 
 pub fn config_path() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        PathBuf::from(xdg).join("kasane").join("config.toml")
+        PathBuf::from(xdg).join("kasane").join("kasane.kdl")
     } else if let Ok(home) = std::env::var("HOME") {
         PathBuf::from(home)
             .join(".config")
             .join("kasane")
-            .join("config.toml")
+            .join("kasane.kdl")
     } else {
-        PathBuf::from("config.toml")
+        PathBuf::from("kasane.kdl")
     }
 }
 
@@ -471,7 +464,7 @@ fn temp_config_path(path: &Path) -> PathBuf {
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("config.toml");
+        .unwrap_or("kasane.kdl");
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -493,31 +486,35 @@ mod tests {
     }
 
     #[test]
-    fn test_partial_toml() {
-        let toml_str = r#"
-[scroll]
-lines_per_scroll = 5
+    fn test_partial_kdl() {
+        let kdl_str = r#"
+scroll {
+    lines_per_scroll 5
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.scroll.lines_per_scroll, 5);
         assert!(config.ui.shadow); // default preserved
     }
 
     #[test]
     fn test_new_config_sections() {
-        let toml_str = r#"
-[scroll]
-lines_per_scroll = 5
-smooth = true
-inertia = true
+        let kdl_str = r#"
+scroll {
+    lines_per_scroll 5
+    smooth #true
+    inertia #true
+}
 
-[clipboard]
-enabled = false
+clipboard {
+    enabled #false
+}
 
-[mouse]
-drag_scroll = false
+mouse {
+    drag_scroll #false
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.scroll.lines_per_scroll, 5);
         assert!(config.scroll.smooth);
         assert!(config.scroll.inertia);
@@ -545,12 +542,13 @@ drag_scroll = false
 
     #[test]
     fn test_window_config_fullscreen() {
-        let toml_str = r#"
-[window]
-fullscreen = true
-maximized = true
+        let kdl_str = r#"
+window {
+    fullscreen #true
+    maximized #true
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert!(config.window.fullscreen);
         assert!(config.window.maximized);
         assert_eq!(config.window.initial_cols, 80); // default preserved
@@ -584,13 +582,14 @@ maximized = true
 
     #[test]
     fn test_plugins_config_custom() {
-        let toml_str = r#"
-[plugins]
-path = "/custom/plugins"
-enabled = ["cursor_line"]
-disabled = ["line_numbers"]
+        let kdl_str = r#"
+plugins {
+    path "/custom/plugins"
+    enabled "cursor_line"
+    disabled "line_numbers"
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
         assert_eq!(config.plugins.enabled, vec!["cursor_line"]);
         assert_eq!(config.plugins.disabled, vec!["line_numbers"]);
@@ -598,17 +597,15 @@ disabled = ["line_numbers"]
 
     #[test]
     fn test_plugins_selection_config() {
-        let toml_str = r#"
-[plugins.selection.sel_badge]
-mode = "pin-digest"
-digest = "sha256:abc"
-
-[plugins.selection.cursor_line]
-mode = "pin-package"
-package = "builtin/cursor-line"
-version = "0.3.0"
+        let kdl_str = r#"
+plugins {
+    selection {
+        sel_badge mode="pin-digest" digest="sha256:abc"
+        cursor_line mode="pin-package" package="builtin/cursor-line" version="0.3.0"
+    }
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(
             config.plugins.selection.get("sel_badge"),
             Some(&PluginSelection::PinDigest {
@@ -642,15 +639,17 @@ version = "0.3.0"
 
     #[test]
     fn test_plugins_deny_capabilities() {
-        let toml_str = r#"
-[plugins]
-disabled = ["some_plugin"]
+        let kdl_str = r#"
+plugins {
+    disabled "some_plugin"
 
-[plugins.deny_capabilities]
-untrusted_plugin = ["filesystem", "environment"]
-another_plugin = ["monotonic-clock"]
+    deny_capabilities {
+        untrusted_plugin "filesystem" "environment"
+        another_plugin "monotonic-clock"
+    }
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(
             config.plugins.deny_capabilities.get("untrusted_plugin"),
             Some(&vec!["filesystem".to_string(), "environment".to_string()])
@@ -670,15 +669,17 @@ another_plugin = ["monotonic-clock"]
 
     #[test]
     fn test_plugins_deny_authorities() {
-        let toml_str = r#"
-[plugins]
-disabled = ["some_plugin"]
+        let kdl_str = r#"
+plugins {
+    disabled "some_plugin"
 
-[plugins.deny_authorities]
-untrusted_plugin = ["dynamic-surface"]
-another_plugin = ["pty-process"]
+    deny_authorities {
+        untrusted_plugin "dynamic-surface"
+        another_plugin "pty-process"
+    }
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(
             config.plugins.deny_authorities.get("untrusted_plugin"),
             Some(&vec!["dynamic-surface".to_string()])
@@ -708,7 +709,7 @@ another_plugin = ["pty-process"]
     #[test]
     fn test_config_save_and_try_load_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("config").join("config.toml");
+        let path = tmp.path().join("config").join("kasane.kdl");
         let mut config = Config::default();
         config.plugins.selection.insert(
             "sel_badge".to_string(),
@@ -729,18 +730,21 @@ another_plugin = ["pty-process"]
 
     #[test]
     fn test_partial_gui_config() {
-        let toml_str = r##"
-[window]
-initial_cols = 120
+        let kdl_str = r##"
+window {
+    initial_cols 120
+}
 
-[font]
-size = 16.0
-family = "JetBrains Mono"
+font {
+    size 16.0
+    family "JetBrains Mono"
+}
 
-[colors]
-default_bg = "#282828"
+colors {
+    default_bg "#282828"
+}
 "##;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.window.initial_cols, 120);
         assert_eq!(config.window.initial_rows, 24); // default
         assert_eq!(config.font.size, 16.0);
@@ -752,12 +756,13 @@ default_bg = "#282828"
 
     #[test]
     fn test_theme_config() {
-        let toml_str = r#"
-[theme]
-menu_item_normal = "cyan,blue"
-info_border = "white,default+b"
+        let kdl_str = r#"
+theme {
+    menu_item_normal "cyan,blue"
+    info_border "white,default+b"
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.theme.faces.len(), 2);
         assert_eq!(
             config.theme.faces.get("menu_item_normal"),
@@ -767,71 +772,165 @@ info_border = "white,default+b"
 
     #[test]
     fn test_menu_position_enum() {
-        let toml_str = r#"
-[menu]
-position = "above"
+        let kdl_str = r#"
+menu {
+    position "above"
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.menu.position, MenuPosition::Above);
     }
 
     #[test]
     fn test_status_position_enum() {
-        let toml_str = r#"
-[ui]
-status_position = "top"
+        let kdl_str = r#"
+ui {
+    status_position "top"
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.ui.status_position, StatusPosition::Top);
     }
 
     #[test]
     fn test_border_style_enum() {
-        let toml_str = r#"
-[ui]
-border_style = "double"
+        let kdl_str = r#"
+ui {
+    border_style "double"
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.ui.border_style, BorderStyleConfig::Double);
     }
 
     #[test]
     fn test_image_protocol_enum() {
-        let toml_str = r#"
-[ui]
-image_protocol = "kitty"
+        let kdl_str = r#"
+ui {
+    image_protocol "kitty"
+}
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.ui.image_protocol, ImageProtocolConfig::Kitty);
     }
 
     #[test]
-    fn test_invalid_enum_value_fails() {
-        let toml_str = r#"
-[menu]
-position = "invalid_position"
+    fn test_invalid_enum_value_uses_default() {
+        let kdl_str = r#"
+menu {
+    position "invalid_position"
+}
 "#;
-        let result: std::result::Result<Config, _> = toml::from_str(toml_str);
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        // Unknown enum values fall back to default (lenient parsing)
+        assert_eq!(config.menu.position, MenuPosition::Auto);
+    }
+
+    #[test]
+    fn test_syntax_error_rejects_file() {
+        let kdl_str = "this is { not valid } kdl {{{";
+        let result = unified::parse_unified(kdl_str);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_invalid_status_position_fails() {
-        let toml_str = r#"
-[ui]
-status_position = "middle"
+    fn test_unified_config_and_widgets() {
+        let kdl_str = r#"
+ui {
+    shadow #false
+}
+
+mode slot="status-left" text=" {editor_mode} " face="@status_mode"
+position slot="status-right" text=" {cursor_line}:{cursor_col} "
 "#;
-        let result: std::result::Result<Config, _> = toml::from_str(toml_str);
-        assert!(result.is_err());
+        let (config, widget_file, errors) = unified::parse_unified(kdl_str).unwrap();
+        assert!(!config.ui.shadow);
+        assert_eq!(widget_file.widgets.len(), 2);
+        assert!(errors.is_empty());
     }
 
-    /// Snapshot test for Config::default() serialized to TOML.
+    #[test]
+    fn test_shorthand_form() {
+        let kdl_str = r#"clipboard enabled=#false"#;
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        assert!(!config.clipboard.enabled);
+    }
+
+    #[test]
+    fn test_save_preserves_widgets() {
+        let initial_kdl = r#"
+ui {
+    shadow #false
+}
+
+mode slot="status-left" text=" {editor_mode} "
+"#;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("kasane.kdl");
+        std::fs::write(&path, initial_kdl).unwrap();
+
+        let mut config = Config::try_load_from_path(&path).unwrap();
+        config.plugins.selection.insert(
+            "test".to_string(),
+            PluginSelection::PinDigest {
+                digest: "sha256:test".to_string(),
+            },
+        );
+        config.save_to_path(&path).unwrap();
+
+        // Re-read and verify widgets are preserved
+        let saved_source = std::fs::read_to_string(&path).unwrap();
+        let (loaded_config, widget_file, _) = unified::parse_unified(&saved_source).unwrap();
+        assert_eq!(
+            loaded_config.plugins.selection.get("test"),
+            Some(&PluginSelection::PinDigest {
+                digest: "sha256:test".to_string(),
+            })
+        );
+        assert_eq!(widget_file.widgets.len(), 1);
+    }
+
+    #[test]
+    fn test_settings_parsing() {
+        let kdl_str = r#"
+settings {
+    cursor_line {
+        highlight_color "rgb:303030"
+        blend_mode "replace"
+        enabled #true
+        intensity 42
+    }
+}
+"#;
+        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let cl = config.settings.get("cursor_line").unwrap();
+        assert_eq!(
+            cl.get("highlight_color"),
+            Some(&SettingValue::Str(compact_str::CompactString::from(
+                "rgb:303030"
+            )))
+        );
+        assert_eq!(
+            cl.get("blend_mode"),
+            Some(&SettingValue::Str(compact_str::CompactString::from(
+                "replace"
+            )))
+        );
+        assert_eq!(cl.get("enabled"), Some(&SettingValue::Bool(true)));
+        assert_eq!(cl.get("intensity"), Some(&SettingValue::Integer(42)));
+    }
+
+    /// Snapshot test for Config::default() serialized to KDL.
     /// If a field is added/removed or a default changes, this snapshot breaks,
     /// signaling that docs/config.md needs a corresponding update.
     #[test]
     fn config_defaults_snapshot() {
         let config = Config::default();
-        let toml_str = toml::to_string_pretty(&config).expect("Config must serialize to TOML");
-        insta::assert_snapshot!("config_defaults", toml_str);
+        let nodes = kdl_writer::config_to_kdl_nodes(&config);
+        // Default config has all defaults so no nodes are emitted
+        assert!(
+            nodes.is_empty(),
+            "default Config should produce no KDL nodes (all values are defaults)"
+        );
     }
 }

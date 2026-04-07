@@ -15,22 +15,24 @@ These improvements are active without any configuration:
 
 ## Opt-in via Configuration
 
-These features are available but disabled by default. Enable them in `~/.config/kasane/config.toml`:
+These features are available but disabled by default. Enable them in `~/.config/kasane/kasane.kdl`:
 
 ### Smooth scrolling
 
-```toml
-[scroll]
-smooth = true
+```kdl
+scroll {
+    smooth #true
+}
 ```
 
 Animated scrolling instead of instant jumps. Configurable scroll speed via `lines_per_scroll`.
 
 ### Search dropdown
 
-```toml
-[search]
-dropdown = true
+```kdl
+search {
+    dropdown #true
+}
 ```
 
 Show search completions as a vertical dropdown instead of inline.
@@ -39,34 +41,38 @@ Show search completions as a vertical dropdown instead of inline.
 
 Enabled by default. Disable with:
 
-```toml
-[ui]
-shadow = false
+```kdl
+ui {
+    shadow #false
+}
 ```
 
 ### Status bar position
 
-```toml
-[ui]
-status_position = "top"  # default: "bottom"
+```kdl
+ui {
+    status_position "top"  // default: "bottom"
+}
 ```
 
 ### Border styles
 
-```toml
-[ui]
-border_style = "double"  # "single", "rounded", "double", "heavy", "ascii"
+```kdl
+ui {
+    border_style "double"  // "single", "rounded", "double", "heavy", "ascii"
+}
 ```
 
 ### Theme customization
 
 Override colors for any UI element:
 
-```toml
-[theme]
-menu_item_normal = "cyan,black"
-menu_item_selected = "black,cyan+b"
-info_border = "bright-blue,default"
+```kdl
+theme {
+    menu_item_normal "cyan,black"
+    menu_item_selected "black,cyan+b"
+    info_border "bright-blue,default"
+}
 ```
 
 See [config.md](config.md) for the full configuration reference.
@@ -76,7 +82,7 @@ See [config.md](config.md) for the full configuration reference.
 Customize the status bar, add line number gutters, apply mode-dependent color transforms, and highlight the cursor line — all from a single KDL file:
 
 ```kdl
-// ~/.config/kasane/widgets.kdl
+// ~/.config/kasane/kasane.kdl — widget definitions alongside config sections
 mode slot="status-left" text=" {editor_mode} " face="@status_mode"
 position slot="status-right" text=" {cursor_line}:{cursor_col} "
 cursorline kind="background" line="cursor" face="default,rgb:303030"
@@ -104,11 +110,12 @@ The pane layout (split structure, ratios, and focus) is automatically saved and 
 
 Kasane has a WASM plugin system for UI extensions. Plugins can add visual elements, decorations, overlays, and input handling that Kakoune's shell-based plugins cannot — for example, line highlights, gutter annotations, floating pickers, and status bar widgets.
 
-Several example plugins are bundled in the binary. Enable them in `~/.config/kasane/config.toml`:
+Several example plugins are bundled in the binary. Enable them in `~/.config/kasane/kasane.kdl`:
 
-```toml
-[plugins]
-enabled = ["cursor_line", "color_preview"]
+```kdl
+plugins {
+    enabled "cursor_line" "color_preview"
+}
 ```
 
 See [Using Plugins](using-plugins.md) for the full list of bundled plugins and details, and [Plugin Development](plugin-development.md) to write your own.

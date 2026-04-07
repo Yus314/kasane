@@ -220,7 +220,7 @@ kasane plugin dev [path]         # Build (debug), install, and watch for changes
 kasane plugin dev --release      # Same, but release builds
 ```
 
-`kasane plugin install` installs a `.kpk` package into the package store under `~/.local/share/kasane/plugins/` (or the path configured in `config.toml`) and updates `plugins.lock`.
+`kasane plugin install` installs a `.kpk` package into the package store under `~/.local/share/kasane/plugins/` (or the path configured in `kasane.kdl`) and updates `plugins.lock`.
 
 `kasane plugin dev` does the same as `install`, then watches `src/`, `Cargo.toml`, and `kasane-plugin.toml` for changes and automatically rebuilds and reinstalls. By default it uses debug builds for faster iteration; add `--release` for optimized builds. A running Kasane instance picks up the updated plugin via the `.reload` sentinel file without restart.
 
@@ -392,7 +392,7 @@ For detailed WASM instantiation errors, use `debug`.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `plugin X failed to load: ABI mismatch` | Plugin built against an older WIT version | Rebuild with the current `kasane-plugin-sdk` |
-| `plugin X skipped: disabled` | Plugin ID is in `[plugins].disabled` | Remove from the disabled list in config.toml |
+| `plugin X skipped: disabled` | Plugin ID is in `plugins { disabled }` | Remove from the disabled list in `kasane.kdl` |
 | Plugin loads but contributes nothing | `state_hash()` returns a constant, or dirty flags don't cover the relevant state | Verify `#[bind]` flags or manual `state_hash()` implementation |
 | `wasm trap: unreachable` in logs | Guest code panicked | Run `KASANE_LOG=debug` and check the backtrace |
 
@@ -418,16 +418,18 @@ An FS-discovered WASM plugin with the same ID can override an example plugin.
 - WASM: Place `.kpk` files in `~/.local/share/kasane/plugins/`
 - Native: Distribute as a custom binary using `kasane::run_with_factories(...)` or `kasane::run(provider)`
 
-### Control via config.toml
+### Control via kasane.kdl
 
-```toml
-[plugins]
-enabled = ["cursor_line", "color_preview"]
-disabled = ["some_plugin"]
+```kdl
+plugins {
+    enabled "cursor_line" "color_preview"
+    disabled "some_plugin"
 
-# Per-plugin WASI capability denial
-[plugins.deny_capabilities]
-untrusted_plugin = ["filesystem", "environment"]
+    // Per-plugin WASI capability denial
+    deny_capabilities {
+        untrusted_plugin "filesystem" "environment"
+    }
+}
 ```
 
 ### WASI Capabilities
@@ -448,7 +450,7 @@ fn requested_capabilities() -> Vec<Capability> {
 }
 ```
 
-Capabilities are granted upon declaration. Users can deny them via `deny_capabilities` in `config.toml`.
+Capabilities are granted upon declaration. Users can deny them via `deny_capabilities` in `kasane.kdl`.
 
 Constraint: WASI capabilities are available from `on_init_effects()` onward. They are not available during component initialization (`_initialize`).
 

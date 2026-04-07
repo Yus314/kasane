@@ -86,6 +86,16 @@ impl WidgetBackend {
         }
     }
 
+    /// Create from a pre-parsed [`WidgetFile`] (used by unified kasane.kdl startup).
+    pub fn from_widgets(file: WidgetFile) -> Self {
+        Self {
+            widgets: file,
+            diagnostics: Vec::new(),
+            generation: 1,
+            plugin_tag: PluginTag::UNASSIGNED,
+        }
+    }
+
     /// Reload widgets from new source, keeping previous state on parse failure.
     ///
     /// Returns `true` if the new source was accepted, `false` if it was rejected
@@ -123,7 +133,14 @@ impl WidgetBackend {
         }
     }
 
-    /// Empty backend (no widgets, no capabilities). Used when widgets.kdl doesn't exist.
+    /// Reload from a pre-parsed [`WidgetFile`] (used by unified kasane.kdl hot-reload).
+    pub fn reload_from_widgets(&mut self, file: WidgetFile) {
+        self.widgets = file;
+        self.diagnostics.clear();
+        self.generation += 1;
+    }
+
+    /// Empty backend (no widgets, no capabilities). Used when kasane.kdl doesn't exist.
     pub fn empty() -> Self {
         Self {
             widgets: WidgetFile {

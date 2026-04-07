@@ -5,7 +5,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 ## By Reader
 
 **Use Kasane:**
-[Getting Started](getting-started.md) → [Configuration](config.md) → [Widgets](widgets.md)
+[Getting Started](getting-started.md) → [Configuration](config.md) → [Widgets](widgets.md) (config and widgets share a single `kasane.kdl` file)
 
 **What's different from Kakoune?**
 [What's Different](whats-different.md)

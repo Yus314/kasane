@@ -4,11 +4,13 @@ Declarative UI widgets defined in KDL. Widgets customize the status bar, add gut
 
 ## File Location
 
+Widget definitions live in the same file as configuration:
+
 ```
-~/.config/kasane/widgets.kdl
+~/.config/kasane/kasane.kdl
 ```
 
-Or `$XDG_CONFIG_HOME/kasane/widgets.kdl` if the variable is set. This is the same directory as `config.toml`.
+Or `$XDG_CONFIG_HOME/kasane/kasane.kdl` if the variable is set. Top-level nodes whose names match a known config section (e.g., `ui`, `scroll`, `theme`, `plugins`) are parsed as configuration. Everything else is treated as a widget definition.
 
 Kasane watches this file and applies changes within 2 seconds of saving. If the file has a KDL syntax error, the previous widgets remain active (last-known-good). Per-node semantic errors skip the invalid node but keep the rest.
 
@@ -20,7 +22,7 @@ Show cursor position in the status bar:
 position slot="status-right" text=" {cursor_line}:{cursor_col} "
 ```
 
-Save this as `~/.config/kasane/widgets.kdl`. The status bar updates live as you move the cursor.
+Add this to `~/.config/kasane/kasane.kdl`. The status bar updates live as you move the cursor.
 
 ## Widget Kinds
 
@@ -248,7 +250,7 @@ Faces follow the same `"fg,bg+attrs"` format used in [config.md § Face specific
 
 ### Theme Token References
 
-Instead of specifying colors directly, you can reference a theme token from `config.toml [theme]`:
+Instead of specifying colors directly, you can reference a theme token from the `theme` section in `kasane.kdl`:
 
 ```kdl
 // Direct face
@@ -258,7 +260,7 @@ mode slot="status-left" face="white,blue+b" text=" {editor_mode} "
 mode slot="status-left" face="@status_line" text=" {editor_mode} "
 ```
 
-The `@` prefix indicates a theme token reference. The token name uses underscore notation matching `config.toml` keys (e.g., `@menu_item_normal` maps to the `menu_item_normal` key in `[theme]`).
+The `@` prefix indicates a theme token reference. The token name uses underscore notation matching the `theme` section keys (e.g., `@menu_item_normal` maps to the `menu_item_normal` key in the `theme` block).
 
 When the theme changes (via config hot-reload), widgets using `@token` references automatically pick up the new colors.
 
@@ -276,7 +278,7 @@ Size hints control how contribution widgets share space within a slot.
 
 ## Hot-Reload
 
-Kasane polls `widgets.kdl` every 2 seconds. On change:
+Kasane polls `kasane.kdl` every 2 seconds. On change:
 
 - **Valid KDL, all nodes valid**: all widgets replaced immediately.
 - **Valid KDL, some nodes invalid**: valid nodes load, invalid nodes are skipped. Warnings are logged.
@@ -286,7 +288,7 @@ Use `kasane widget check` to validate a file without starting Kasane:
 
 ```
 kasane widget check                              # checks default path
-kasane widget check path/to/widgets.kdl          # checks specific file
+kasane widget check path/to/kasane.kdl           # checks specific file
 ```
 
 ## Constraints

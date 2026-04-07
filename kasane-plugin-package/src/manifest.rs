@@ -307,7 +307,7 @@ impl PluginManifest {
 
     pub fn validate_config_settings(
         &self,
-        config: &toml::Table,
+        config: &HashMap<String, SettingValue>,
     ) -> (HashMap<String, SettingValue>, Vec<String>) {
         let mut valid = HashMap::new();
         let mut warnings = Vec::new();
@@ -317,15 +317,14 @@ impl PluginManifest {
                 warnings.push(format!("unknown setting key `{key}`"));
                 continue;
             };
-            match toml_value_to_setting(&schema.setting_type, value) {
-                Some(sv) => {
-                    valid.insert(key.clone(), sv);
-                }
-                None => warnings.push(format!(
+            if setting_type_matches(&schema.setting_type, value) {
+                valid.insert(key.clone(), value.clone());
+            } else {
+                warnings.push(format!(
                     "setting `{key}`: expected {}, got {}",
                     schema.setting_type,
-                    toml_type_name(value)
-                )),
+                    setting_value_type_name(value)
+                ));
             }
         }
 
@@ -439,15 +438,22 @@ fn toml_value_to_setting(setting_type: &str, value: &toml::Value) -> Option<Sett
     }
 }
 
-fn toml_type_name(value: &toml::Value) -> &'static str {
+fn setting_type_matches(expected_type: &str, value: &SettingValue) -> bool {
+    matches!(
+        (expected_type, value),
+        ("bool", SettingValue::Bool(_))
+            | ("integer", SettingValue::Integer(_))
+            | ("float", SettingValue::Float(_))
+            | ("string", SettingValue::Str(_))
+    )
+}
+
+fn setting_value_type_name(value: &SettingValue) -> &'static str {
     match value {
-        toml::Value::Boolean(_) => "bool",
-        toml::Value::Integer(_) => "integer",
-        toml::Value::Float(_) => "float",
-        toml::Value::String(_) => "string",
-        toml::Value::Array(_) => "array",
-        toml::Value::Table(_) => "table",
-        toml::Value::Datetime(_) => "datetime",
+        SettingValue::Bool(_) => "bool",
+        SettingValue::Integer(_) => "integer",
+        SettingValue::Float(_) => "float",
+        SettingValue::Str(_) => "string",
     }
 }
 

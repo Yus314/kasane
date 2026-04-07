@@ -3,77 +3,84 @@
 This document is the reference for user-facing configuration keys and defaults.
 For semantics behind these settings, see [semantics.md](./semantics.md).
 
-Kasane reads its configuration from a TOML file at:
+Kasane reads its configuration from a KDL file at:
 
 ```
-~/.config/kasane/config.toml
+~/.config/kasane/kasane.kdl
 ```
 
 Or, if `$XDG_CONFIG_HOME` is set:
 
 ```
-$XDG_CONFIG_HOME/kasane/config.toml
+$XDG_CONFIG_HOME/kasane/kasane.kdl
 ```
 
-Partial configs are fine — any omitted field uses its default value. If no config file exists, all defaults apply. Most settings take effect within 2 seconds when the file is saved. The following require a restart: `ui.backend`, `ui.border_style`, `ui.image_protocol`, `scroll.lines_per_scroll`, `[window]`, `[font]`, `[log]`, `[plugins]`.
+Partial configs are fine — any omitted field uses its default value. If no config file exists, all defaults apply. Most settings take effect within 2 seconds when the file is saved. The following require a restart: `ui.backend`, `ui.border_style`, `ui.image_protocol`, `scroll.lines_per_scroll`, `window`, `font`, `log`, `plugins`.
 
-## `[ui]`
+Configuration and widget definitions live in the same file. Top-level nodes whose names match a known config section (`ui`, `scroll`, `log`, `theme`, `menu`, `search`, `clipboard`, `mouse`, `window`, `font`, `colors`, `plugins`, `settings`) are parsed as configuration. Everything else is treated as a [widget definition](widgets.md).
+
+## `ui`
 
 General UI settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `backend` | string | `"tui"` | UI backend: `"tui"` or `"gui"`. CLI `--ui` overrides this. |
-| `shadow` | bool | `true` | Shadow effect on floating windows (menus, info popups) |
+| `shadow` | bool | `#true` | Shadow effect on floating windows (menus, info popups) |
 | `padding_char` | string | `"~"` | Character shown on empty lines below buffer content |
 | `border_style` | string | `"rounded"` | Border style: `"single"`, `"rounded"`, `"double"`, `"heavy"`, `"ascii"` |
 | `status_position` | string | `"bottom"` | Status bar position: `"top"` or `"bottom"` |
-| `scene_renderer` | bool or null | `null` | Enable the scene-based GPU renderer (bypasses CellGrid). `null` = auto (`true` for GUI, `false` for TUI). |
+| `scene_renderer` | bool or null | `#null` | Enable the scene-based GPU renderer (bypasses CellGrid). `#null` = auto (`#true` for GUI, `#false` for TUI). |
 | `image_protocol` | string | `"auto"` | Image rendering protocol: `"auto"` (detect terminal), `"halfblock"`, `"kitty"` |
 
-```toml
-[ui]
-backend = "tui"
-shadow = false
-padding_char = " "
-border_style = "double"
-status_position = "top"
+```kdl
+ui {
+    backend "tui"
+    shadow #false
+    padding_char " "
+    border_style "double"
+    status_position "top"
+}
 ```
 
-## `[scroll]`
+## `scroll`
 
 Scroll behavior settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `lines_per_scroll` | integer | `3` | Lines per mouse wheel / scroll event |
-| `smooth` | bool | `false` | *Deprecated.* Use `[settings.smooth_scroll] enabled = true` instead. Kept for backward compatibility; seeds the plugin setting at startup. |
-| `inertia` | bool | `false` | Momentum/inertia scrolling (reserved, not yet implemented) |
+| `smooth` | bool | `#false` | *Deprecated.* Use `settings { smooth_scroll { enabled #true } }` instead. Kept for backward compatibility; seeds the plugin setting at startup. |
+| `inertia` | bool | `#false` | Momentum/inertia scrolling (reserved, not yet implemented) |
 
-```toml
-[scroll]
-lines_per_scroll = 5
-smooth = true
+```kdl
+scroll {
+    lines_per_scroll 5
+    smooth #true
+}
 ```
 
-## `[settings.<plugin_id>]`
+## `settings`
 
 Per-plugin typed settings. Each plugin declares its settings schema in its `kasane-plugin.toml` manifest (type, default, description). You can override defaults here.
 
-```toml
-[settings.smooth_scroll]
-enabled = true
-
-[settings.my_custom_plugin]
-threshold = 42
-label = "custom"
+```kdl
+settings {
+    smooth_scroll {
+        enabled #true
+    }
+    my_custom_plugin {
+        threshold 42
+        label "custom"
+    }
+}
 ```
 
 Values must match the type declared in the plugin's manifest (`bool`, `integer`, `float`, `string`). Unknown keys or type mismatches produce a warning at startup and fall back to the manifest default.
 
 Plugins read settings via `get_setting_bool`, `get_setting_integer`, `get_setting_float`, or `get_setting_string` host functions.
 
-## `[log]`
+## `log`
 
 Logging configuration. Log files are written as daily-rotating files named `kasane.log` in the log directory.
 
@@ -84,13 +91,14 @@ Logging configuration. Log files are written as daily-rotating files named `kasa
 
 The `KASANE_LOG` environment variable overrides the configured `level`.
 
-```toml
-[log]
-level = "info"
-file = "/tmp/kasane-logs"
+```kdl
+log {
+    level "info"
+    file "/tmp/kasane-logs"
+}
 ```
 
-## `[menu]`
+## `menu`
 
 Completion menu settings.
 
@@ -99,52 +107,56 @@ Completion menu settings.
 | `position` | string | `"auto"` | Menu placement: `"auto"`, `"above"`, `"below"` |
 | `max_height` | integer | `10` | Maximum menu height in rows |
 
-```toml
-[menu]
-position = "below"
-max_height = 15
+```kdl
+menu {
+    position "below"
+    max_height 15
+}
 ```
 
-## `[search]`
+## `search`
 
 Search prompt settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `dropdown` | bool | `false` | Show search completions as a vertical dropdown instead of inline |
+| `dropdown` | bool | `#false` | Show search completions as a vertical dropdown instead of inline |
 
-```toml
-[search]
-dropdown = true
+```kdl
+search {
+    dropdown #true
+}
 ```
 
-## `[clipboard]`
+## `clipboard`
 
 System clipboard integration.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | bool | `true` | Enable system clipboard integration |
+| `enabled` | bool | `#true` | Enable system clipboard integration |
 
-```toml
-[clipboard]
-enabled = false
+```kdl
+clipboard {
+    enabled #false
+}
 ```
 
-## `[mouse]`
+## `mouse`
 
 Mouse behavior settings.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `drag_scroll` | bool | `true` | Enable mouse drag scrolling |
+| `drag_scroll` | bool | `#true` | Enable mouse drag scrolling |
 
-```toml
-[mouse]
-drag_scroll = false
+```kdl
+mouse {
+    drag_scroll #false
+}
 ```
 
-## `[theme]`
+## `theme`
 
 Override the default face (color + attributes) for UI elements. Each key is a style token name and the value is a face specification string.
 
@@ -163,13 +175,14 @@ Override the default face (color + attributes) for UI elements. Each key is a st
 | `border` | Container borders | *(inherits)* |
 | `shadow` | Floating window shadow | `default,default+d` |
 
-```toml
-[theme]
-menu_item_normal = "cyan,black"
-menu_item_selected = "black,cyan+b"
-info_border = "bright-blue,default"
-status_mode = "white,red+b"
-shadow = "default,default+d"
+```kdl
+theme {
+    menu_item_normal "cyan,black"
+    menu_item_selected "black,cyan+b"
+    info_border "bright-blue,default"
+    status_mode "white,red+b"
+    shadow "default,default+d"
+}
 ```
 
 ### Face specification format
@@ -207,9 +220,9 @@ Attributes are specified after `+`. Multiple attributes can be combined (e.g., `
 
 ## GUI Backend
 
-The following sections only apply when using `--ui gui` or `backend = "gui"`. They are ignored by the TUI backend. Requires building with `--features gui` and GPU drivers supporting Vulkan, Metal, or DX12 (handled automatically by wgpu).
+The following sections only apply when using `--ui gui` or `backend "gui"`. They are ignored by the TUI backend. Requires building with `--features gui` and GPU drivers supporting Vulkan, Metal, or DX12 (handled automatically by wgpu).
 
-### `[window]`
+### `window`
 
 Window settings.
 
@@ -217,21 +230,22 @@ Window settings.
 |-----|------|---------|-------------|
 | `initial_cols` | integer | `80` | Initial window width in columns |
 | `initial_rows` | integer | `24` | Initial window height in rows |
-| `fullscreen` | bool | `false` | Start in borderless fullscreen mode |
-| `maximized` | bool | `false` | Start with window maximized |
-| `present_mode` | string or null | `null` | Override GPU present mode: `"Fifo"`, `"Mailbox"`, `"AutoVsync"`, `"AutoNoVsync"`. `null` = wgpu default. |
+| `fullscreen` | bool | `#false` | Start in borderless fullscreen mode |
+| `maximized` | bool | `#false` | Start with window maximized |
+| `present_mode` | string or null | `#null` | Override GPU present mode: `"Fifo"`, `"Mailbox"`, `"AutoVsync"`, `"AutoNoVsync"`. `#null` = wgpu default. |
 
-When `fullscreen` is `true`, `initial_cols` and `initial_rows` are ignored (the window fills the entire monitor). Fullscreen can be toggled at runtime with F11.
+When `fullscreen` is `#true`, `initial_cols` and `initial_rows` are ignored (the window fills the entire monitor). Fullscreen can be toggled at runtime with F11.
 
-```toml
-[window]
-initial_cols = 120
-initial_rows = 36
-fullscreen = false
-maximized = true
+```kdl
+window {
+    initial_cols 120
+    initial_rows 36
+    fullscreen #false
+    maximized #true
+}
 ```
 
-### `[font]`
+### `font`
 
 Font settings for the GUI renderer.
 
@@ -244,15 +258,16 @@ Font settings for the GUI renderer.
 | `line_height` | float | `1.2` | Line height multiplier |
 | `letter_spacing` | float | `0.0` | Extra letter spacing in points |
 
-```toml
-[font]
-family = "JetBrains Mono"
-size = 15.0
-fallback_list = ["Noto Sans CJK JP", "Noto Color Emoji"]
-line_height = 1.3
+```kdl
+font {
+    family "JetBrains Mono"
+    size 15.0
+    fallback_list "Noto Sans CJK JP" "Noto Color Emoji"
+    line_height 1.3
+}
 ```
 
-### `[colors]`
+### `colors`
 
 Defines concrete RGB values for named colors in the GUI backend. The TUI backend uses the terminal's own palette, but the GUI needs explicit values. All values are `#rrggbb` hex strings.
 
@@ -279,30 +294,31 @@ Default palette (VS Code Dark+ inspired):
 | `bright_cyan` | `#29b8db` | Bright cyan |
 | `bright_white` | `#e5e5e5` | Bright white |
 
-```toml
-# Gruvbox-inspired palette
-[colors]
-default_fg = "#ebdbb2"
-default_bg = "#282828"
-black = "#282828"
-red = "#cc241d"
-green = "#98971a"
-yellow = "#d79921"
-blue = "#458588"
-magenta = "#b16286"
-cyan = "#689d6a"
-white = "#a89984"
-bright_black = "#928374"
-bright_red = "#fb4934"
-bright_green = "#b8bb26"
-bright_yellow = "#fabd2f"
-bright_blue = "#83a598"
-bright_magenta = "#d3869b"
-bright_cyan = "#8ec07c"
-bright_white = "#ebdbb2"
+```kdl
+// Gruvbox-inspired palette
+colors {
+    default_fg "#ebdbb2"
+    default_bg "#282828"
+    black "#282828"
+    red "#cc241d"
+    green "#98971a"
+    yellow "#d79921"
+    blue "#458588"
+    magenta "#b16286"
+    cyan "#689d6a"
+    white "#a89984"
+    bright_black "#928374"
+    bright_red "#fb4934"
+    bright_green "#b8bb26"
+    bright_yellow "#fabd2f"
+    bright_blue "#83a598"
+    bright_magenta "#d3869b"
+    bright_cyan "#8ec07c"
+    bright_white "#ebdbb2"
+}
 ```
 
-## `[plugins]`
+## `plugins`
 
 Plugin discovery and loading settings.
 
@@ -314,33 +330,45 @@ Plugin discovery and loading settings.
 
 Example plugins are embedded in the Kasane binary but are **not loaded by default**. Add their IDs to `enabled`, then run `kasane plugin resolve` (or `install` / `dev`) to write them into `plugins.lock`:
 
-```toml
-[plugins]
-enabled = ["cursor_line", "color_preview"]
+```kdl
+plugins {
+    enabled "cursor_line" "color_preview"
+}
 ```
 
 Installed packages and bundled plugins can be disabled individually:
 
-```toml
-[plugins]
-disabled = ["some_plugin"]
+```kdl
+plugins {
+    disabled "some_plugin"
+}
 ```
 
-### `[plugins.selection.<plugin_id>]`
+### `plugins` / `selection`
 
 Pin a filesystem package selection for a specific plugin ID.
 
-```toml
-[plugins.selection.sel_badge]
-mode = "pin-digest"
-digest = "sha256:abc123..."
+```kdl
+plugins {
+    selection {
+        sel_badge {
+            mode "pin-digest"
+            digest "sha256:abc123..."
+        }
+    }
+}
 ```
 
-```toml
-[plugins.selection.cursor_line]
-mode = "pin-package"
-package = "builtin/cursor-line"
-version = "0.4.0"
+```kdl
+plugins {
+    selection {
+        cursor_line {
+            mode "pin-package"
+            package "builtin/cursor-line"
+            version "0.4.0"
+        }
+    }
+}
 ```
 
 Available modes:
@@ -349,34 +377,40 @@ Available modes:
 - `pin-digest`: select an exact installed artifact digest
 - `pin-package`: select an installed package by name, optionally constrained to a specific version
 
-### `[plugins.deny_capabilities]`
+### `plugins` / `deny_capabilities`
 
 Restrict WASI capabilities for specific WASM plugins. Key: plugin ID. Value: list of denied capability names.
 
 Valid capability names: `"filesystem"`, `"environment"`, `"monotonic-clock"`, `"process"`.
 
-```toml
-[plugins.deny_capabilities]
-untrusted_plugin = ["filesystem", "environment"]
+```kdl
+plugins {
+    deny_capabilities {
+        untrusted_plugin "filesystem" "environment"
+    }
+}
 ```
 
 See [Using Plugins](using-plugins.md) for more details.
 
-### `[plugins.deny_authorities]`
+### `plugins` / `deny_authorities`
 
 Restrict workspace authorities for specific WASM plugins. Key: plugin ID. Value: list of denied authority names.
 
 Valid authority names: `"dynamic-surface"`, `"pty-process"`.
 
-```toml
-[plugins.deny_authorities]
-untrusted_plugin = ["dynamic-surface"]
-another_plugin = ["pty-process"]
+```kdl
+plugins {
+    deny_authorities {
+        untrusted_plugin "dynamic-surface"
+        another_plugin "pty-process"
+    }
+}
 ```
 
 ## See also
 
 - [README.md](../README.md) — installation and basic usage
 - [semantics.md](./semantics.md) — runtime semantics affected by config and ui_options
-- [widgets.md](./widgets.md) — declarative widget system
+- [widgets.md](./widgets.md) — declarative widget definitions (in the same `kasane.kdl` file)
 - [index.md](./index.md) — docs entry point
