@@ -2,11 +2,18 @@
 
 use compact_str::CompactString;
 
+use crate::element::StyleToken;
 use crate::plugin::{ContribSizeHint, GutterSide, SlotId};
 use crate::protocol::Face;
 use crate::state::DirtyFlags;
 
 use kasane_plugin_model::TransformTarget;
+
+/// A face that is either a direct Face value or a reference to a theme token.
+pub enum FaceOrToken {
+    Direct(Face),
+    Token(StyleToken),
+}
 
 /// A parsed widget file containing all widget definitions.
 pub struct WidgetFile {
@@ -42,14 +49,14 @@ pub struct ContributionWidget {
 /// A single part of a contribution widget (text segment with optional face/condition).
 pub struct WidgetPart {
     pub template: Template,
-    pub face: Option<Face>,
+    pub face: Option<FaceOrToken>,
     pub when: Option<CondExpr>,
 }
 
 /// A widget that provides a background layer for a line.
 pub struct BackgroundWidget {
     pub line_expr: LineExpr,
-    pub face: Face,
+    pub face: FaceOrToken,
     pub when: Option<CondExpr>,
 }
 
@@ -68,15 +75,15 @@ pub struct TransformWidget {
 
 /// Declarative transform operations available in widgets.
 pub enum WidgetPatch {
-    ModifyFace(Face),
-    WrapContainer(Face),
+    ModifyFace(FaceOrToken),
+    WrapContainer(FaceOrToken),
 }
 
 /// A widget that provides gutter annotations per line.
 pub struct GutterWidget {
     pub side: GutterSide,
     pub template: Template,
-    pub face: Option<Face>,
+    pub face: Option<FaceOrToken>,
     pub when: Option<CondExpr>,
     pub line_when: Option<CondExpr>,
 }

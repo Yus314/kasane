@@ -5,7 +5,7 @@ Start here: [Getting Started](getting-started.md) · [What's Different](whats-di
 ## By Reader
 
 **Use Kasane:**
-[Getting Started](getting-started.md) → [Configuration](config.md)
+[Getting Started](getting-started.md) → [Configuration](config.md) → [Widgets](widgets.md)
 
 **What's different from Kakoune?**
 [What's Different](whats-different.md)
@@ -86,6 +86,7 @@ Guides for users and plugin authors.
 - [getting-started.md](getting-started.md) — installation and first run
 - [whats-different.md](whats-different.md) — features and improvements
 - [using-plugins.md](using-plugins.md) — enabling and managing plugins
+- [widgets.md](widgets.md) — declarative widget reference
 - [troubleshooting.md](troubleshooting.md) — common issues and solutions
 - [vision.md](vision.md) — project goals and direction
 

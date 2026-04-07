@@ -238,6 +238,25 @@ where
         });
     }
 
+    // Config hot-reload watcher thread
+    {
+        let config_path = kasane_core::config::config_path();
+        let config_tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut last_modified = config_path.metadata().and_then(|m| m.modified()).ok();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let current = config_path.metadata().and_then(|m| m.modified()).ok();
+                if current != last_modified {
+                    last_modified = current;
+                    if config_tx.send(Event::ConfigReload).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
     // Timer scheduler for plugin timer events
     let timer = kasane_core::event_loop::GenericTimerScheduler(tui_sink.clone());
     let mut scroll_runtime = ScrollRuntime::default();

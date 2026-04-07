@@ -7,12 +7,30 @@ use crate::plugin::{
     PluginCapabilities, PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget, PluginId,
     SlotId, TransformContext, TransformTarget,
 };
-use crate::protocol::Atom;
+use crate::protocol::{Atom, Face};
 use crate::state::DirtyFlags;
 
 use super::parse::{WidgetNodeError, parse_widgets};
-use super::types::{ContributionWidget, LineExpr, WidgetFile, WidgetKind, WidgetPatch};
+use super::types::{
+    ContributionWidget, FaceOrToken, LineExpr, WidgetFile, WidgetKind, WidgetPatch,
+};
 use super::variables::{AppViewResolver, LineContextResolver, VariableResolver};
+
+/// Resolve a `FaceOrToken` to a concrete `Face` using the current theme.
+pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> Face {
+    match face_or_token {
+        FaceOrToken::Direct(face) => *face,
+        FaceOrToken::Token(token) => state.theme_face(token).unwrap_or_default(),
+    }
+}
+
+/// Resolve an `Option<FaceOrToken>` to a `Face`, defaulting to `Face::default()`.
+fn resolve_face_opt(face_or_token: Option<&FaceOrToken>, state: &AppView<'_>) -> Face {
+    match face_or_token {
+        Some(fot) => resolve_face(fot, state),
+        None => Face::default(),
+    }
+}
 
 const PLUGIN_ID: &str = "kasane.widgets";
 
@@ -207,7 +225,7 @@ impl PluginBackend for WidgetBackend {
                 continue;
             }
 
-            if let Some(element) = build_contribution_element(contrib, &resolver) {
+            if let Some(element) = build_contribution_element(contrib, &resolver, state) {
                 matching.push((widget.index, contrib.size_hint, element));
             }
         }
@@ -263,7 +281,7 @@ impl PluginBackend for WidgetBackend {
                     let cursor_line = state.cursor_line();
                     if cursor_line >= 0 && line == cursor_line as usize {
                         return Some(BackgroundLayer {
-                            face: bg.face,
+                            face: resolve_face(&bg.face, state),
                             z_order: widget.index as i16,
                             blend: BlendMode::Opaque,
                         });
@@ -275,7 +293,7 @@ impl PluginBackend for WidgetBackend {
                         let hi = sel.anchor.line.max(sel.cursor.line) as usize;
                         if line >= lo && line <= hi {
                             return Some(BackgroundLayer {
-                                face: bg.face,
+                                face: resolve_face(&bg.face, state),
                                 z_order: widget.index as i16,
                                 blend: BlendMode::Opaque,
                             });
@@ -312,11 +330,15 @@ impl PluginBackend for WidgetBackend {
             }
 
             match &transform.patch {
-                WidgetPatch::ModifyFace(face) => {
-                    return Some(ElementPatch::ModifyFace { overlay: *face });
+                WidgetPatch::ModifyFace(fot) => {
+                    return Some(ElementPatch::ModifyFace {
+                        overlay: resolve_face(fot, state),
+                    });
                 }
-                WidgetPatch::WrapContainer(face) => {
-                    return Some(ElementPatch::WrapContainer { face: *face });
+                WidgetPatch::WrapContainer(fot) => {
+                    return Some(ElementPatch::WrapContainer {
+                        face: resolve_face(fot, state),
+                    });
                 }
             }
         }
@@ -358,7 +380,7 @@ impl PluginBackend for WidgetBackend {
             }
 
             let text = gutter.template.expand(&line_resolver);
-            let face = gutter.face.unwrap_or_default();
+            let face = resolve_face_opt(gutter.face.as_ref(), state);
             let element = Element::styled_line(vec![crate::protocol::Atom {
                 face,
                 contents: text,
@@ -421,6 +443,7 @@ impl PluginBackend for WidgetBackend {
 fn build_contribution_element(
     contrib: &ContributionWidget,
     resolver: &dyn VariableResolver,
+    state: &AppView<'_>,
 ) -> Option<Element> {
     let mut atoms: Vec<Atom> = Vec::new();
 
@@ -433,7 +456,7 @@ fn build_contribution_element(
         }
 
         let text = part.template.expand(resolver);
-        let face = part.face.unwrap_or_default();
+        let face = resolve_face_opt(part.face.as_ref(), state);
         atoms.push(Atom {
             face,
             contents: text,

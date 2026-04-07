@@ -71,6 +71,19 @@ info_border = "bright-blue,default"
 
 See [config.md](config.md) for the full configuration reference.
 
+## Opt-in: Declarative Widgets
+
+Customize the status bar, add line number gutters, apply mode-dependent color transforms, and highlight the cursor line — all from a single KDL file:
+
+```kdl
+// ~/.config/kasane/widgets.kdl
+mode slot="status-left" text=" {editor_mode} " face="@status_mode"
+position slot="status-right" text=" {cursor_line}:{cursor_col} "
+cursorline kind="background" line="cursor" face="default,rgb:303030"
+```
+
+Changes are picked up within 2 seconds. See [widgets.md](widgets.md) for the full reference.
+
 ## Opt-in: Multi-Pane
 
 Split the editor into multiple panes, each connected to an independent Kakoune session. Each pane displays its own status bar showing its own mode, file name, and status. Works in both TUI and GUI backends.

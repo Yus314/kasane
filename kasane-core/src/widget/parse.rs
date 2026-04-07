@@ -12,8 +12,8 @@ use super::condition::parse_condition;
 use crate::plugin::{ContribSizeHint, GutterSide};
 
 use super::types::{
-    BackgroundWidget, ContributionWidget, GutterWidget, LineExpr, Template, TransformWidget,
-    WidgetDef, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
+    BackgroundWidget, ContributionWidget, FaceOrToken, GutterWidget, LineExpr, Template,
+    TransformWidget, WidgetDef, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
 };
 use super::variables::variable_dirty_flag;
 
@@ -178,7 +178,7 @@ fn parse_contribution_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
     if let Some(text) = get_string_entry(node, "text") {
         let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
         let face = get_string_entry(node, "face")
-            .map(|s| parse_face_spec(s).ok_or_else(|| format!("invalid face: '{s}'")))
+            .map(parse_face_or_token)
             .transpose()?;
         parts.push(WidgetPart {
             template,
@@ -212,7 +212,7 @@ fn parse_widget_part(node: &kdl::KdlNode) -> Result<WidgetPart, String> {
     let text = get_string_entry(node, "text").ok_or("part missing 'text' attribute")?;
     let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
     let face = get_string_entry(node, "face")
-        .map(|s| parse_face_spec(s).ok_or_else(|| format!("invalid face: '{s}'")))
+        .map(parse_face_or_token)
         .transpose()?;
     let when = parse_when(node)?;
 
@@ -233,7 +233,7 @@ fn parse_background_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
 
     let face_str =
         get_string_entry(node, "face").ok_or("background widget missing 'face' attribute")?;
-    let face = parse_face_spec(face_str).ok_or_else(|| format!("invalid face: '{face_str}'"))?;
+    let face = parse_face_or_token(face_str)?;
 
     let when = parse_when(node)?;
 
@@ -251,7 +251,7 @@ fn parse_transform_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
 
     let face_str =
         get_string_entry(node, "face").ok_or("transform widget missing 'face' attribute")?;
-    let face = parse_face_spec(face_str).ok_or_else(|| format!("invalid face: '{face_str}'"))?;
+    let face = parse_face_or_token(face_str)?;
 
     let when = parse_when(node)?;
 
@@ -344,7 +344,7 @@ fn parse_gutter_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
     let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
 
     let face = get_string_entry(node, "face")
-        .map(|s| parse_face_spec(s).ok_or_else(|| format!("invalid face: '{s}'")))
+        .map(parse_face_or_token)
         .transpose()?;
 
     let when = parse_when(node)?;
@@ -363,6 +363,22 @@ fn parse_gutter_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         when,
         line_when,
     }))
+}
+
+/// Parse a face spec that may be a direct face or a `@token` theme reference.
+fn parse_face_or_token(spec: &str) -> Result<FaceOrToken, String> {
+    if let Some(name) = spec.strip_prefix('@') {
+        if name.is_empty() {
+            return Err("empty theme token name after '@'".to_string());
+        }
+        Ok(FaceOrToken::Token(crate::element::StyleToken::new(
+            name.replace('_', "."),
+        )))
+    } else {
+        parse_face_spec(spec)
+            .map(FaceOrToken::Direct)
+            .ok_or_else(|| format!("invalid face: '{spec}'"))
+    }
 }
 
 /// Get a string value from a KDL node's named entry (attribute).

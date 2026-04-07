@@ -110,5 +110,6 @@ See [config.md](config.md) for the full configuration reference.
 ## Next Steps
 
 - [What's Different](whats-different.md) — discover improvements available in Kasane
+- [Customize the UI](widgets.md) — status bar, gutters, and transforms
 - [Using Plugins](using-plugins.md) — extend Kasane with plugins
 - [Troubleshooting](troubleshooting.md) — common issues and solutions

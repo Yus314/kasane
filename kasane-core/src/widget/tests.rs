@@ -1182,6 +1182,137 @@ fn parse_transform_target_info_modal() {
 }
 
 // =============================================================================
+// Theme token reference (@token syntax)
+// =============================================================================
+
+#[test]
+fn parse_face_token_reference() {
+    let source = r#"mode slot="status-left" text=" {editor_mode} " face="@status_line""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+        assert!(matches!(
+            c.parts[0].face,
+            Some(super::types::FaceOrToken::Token(_))
+        ));
+    } else {
+        panic!("expected contribution widget");
+    }
+}
+
+#[test]
+fn parse_face_direct_backward_compat() {
+    let source = r#"mode slot="status-left" text=" test " face="red,blue+b""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty());
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+        assert!(matches!(
+            c.parts[0].face,
+            Some(super::types::FaceOrToken::Direct(_))
+        ));
+    } else {
+        panic!("expected contribution widget");
+    }
+}
+
+#[test]
+fn parse_face_token_in_background() {
+    let source = r#"hl kind="background" line="cursor" face="@menu_item_selected""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty());
+    if let super::types::WidgetKind::Background(ref b) = file.widgets[0].kind {
+        assert!(matches!(b.face, super::types::FaceOrToken::Token(_)));
+    } else {
+        panic!("expected background widget");
+    }
+}
+
+#[test]
+fn parse_face_token_in_transform() {
+    let source = r#"t kind="transform" target="status" face="@status_line""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty());
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+        assert!(matches!(
+            t.patch,
+            super::types::WidgetPatch::ModifyFace(super::types::FaceOrToken::Token(_))
+        ));
+    } else {
+        panic!("expected transform widget");
+    }
+}
+
+#[test]
+fn parse_face_token_in_gutter() {
+    let source = r#"nums kind="gutter" side="left" text="{line_number}" face="@status_line""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty());
+    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
+        assert!(matches!(g.face, Some(super::types::FaceOrToken::Token(_))));
+    } else {
+        panic!("expected gutter widget");
+    }
+}
+
+#[test]
+fn parse_face_token_empty_name_error() {
+    let source = r#"mode slot="status-left" text="test" face="@""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert_eq!(file.widgets.len(), 0);
+    assert_eq!(errors.len(), 1);
+}
+
+#[test]
+fn resolve_face_token_from_theme() {
+    use crate::element::StyleToken;
+    use crate::protocol::Face;
+
+    let mut state = AppState::default();
+    // Set a theme face for "status.line"
+    let token = StyleToken::new("status.line");
+    let expected_face = Face {
+        fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Red),
+        bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
+        ..Face::default()
+    };
+    state.theme.set(token.clone(), expected_face);
+    let view = AppView::new(&state);
+
+    let fot = super::types::FaceOrToken::Token(token);
+    let resolved = super::backend::resolve_face(&fot, &view);
+    assert_eq!(resolved, expected_face);
+}
+
+#[test]
+fn resolve_face_token_missing_returns_default() {
+    use crate::element::StyleToken;
+    use crate::protocol::Face;
+
+    let state = AppState::default();
+    let view = AppView::new(&state);
+
+    let fot = super::types::FaceOrToken::Token(StyleToken::new("nonexistent.token"));
+    let resolved = super::backend::resolve_face(&fot, &view);
+    assert_eq!(resolved, Face::default());
+}
+
+#[test]
+fn resolve_face_direct_passthrough() {
+    use crate::protocol::Face;
+
+    let state = AppState::default();
+    let view = AppView::new(&state);
+
+    let expected = Face {
+        fg: crate::protocol::Color::Named(crate::protocol::NamedColor::Green),
+        ..Face::default()
+    };
+    let fot = super::types::FaceOrToken::Direct(expected);
+    let resolved = super::backend::resolve_face(&fot, &view);
+    assert_eq!(resolved, expected);
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 

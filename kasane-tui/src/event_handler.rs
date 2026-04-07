@@ -37,6 +37,7 @@ pub(crate) enum Event {
     ProcessOutput(PluginId, IoEvent),
     PluginReload,
     WidgetReload,
+    ConfigReload,
     DiagnosticOverlayExpire(u64),
 }
 
@@ -381,6 +382,25 @@ where
                         false,
                         ctx,
                     );
+                }
+            }
+            EventResult {
+                flags: DirtyFlags::all(),
+                commands: vec![],
+                scroll_plans: vec![],
+                surface_commands: vec![],
+                command_source: None,
+                workspace_changed: false,
+            }
+        }
+        Event::ConfigReload => {
+            match kasane_core::config::Config::try_load() {
+                Ok(new_config) => {
+                    ctx.state.apply_config(&new_config);
+                    tracing::info!("config hot-reloaded");
+                }
+                Err(err) => {
+                    tracing::warn!("config reload failed (keeping previous): {err}");
                 }
             }
             EventResult {

@@ -15,7 +15,7 @@ Or, if `$XDG_CONFIG_HOME` is set:
 $XDG_CONFIG_HOME/kasane/config.toml
 ```
 
-Partial configs are fine — any omitted field uses its default value. If no config file exists, all defaults apply. Changes require restarting Kasane (no hot reload).
+Partial configs are fine — any omitted field uses its default value. If no config file exists, all defaults apply. Most settings take effect within 2 seconds when the file is saved. The following require a restart: `ui.backend`, `ui.border_style`, `ui.image_protocol`, `scroll.lines_per_scroll`, `[window]`, `[font]`, `[log]`, `[plugins]`.
 
 ## `[ui]`
 
@@ -378,4 +378,5 @@ another_plugin = ["pty-process"]
 
 - [README.md](../README.md) — installation and basic usage
 - [semantics.md](./semantics.md) — runtime semantics affected by config and ui_options
+- [widgets.md](./widgets.md) — declarative widget system
 - [index.md](./index.md) — docs entry point
