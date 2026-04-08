@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::config::ThemeConfig;
+use crate::config::{ThemeConfig, ThemeValue};
 use crate::element::{Style, StyleToken};
 use crate::protocol::{Attributes, Color, Face, NamedColor};
 
@@ -129,14 +129,63 @@ impl Theme {
     /// Config keys use underscore notation (e.g., "menu_item_normal") which is
     /// normalized to dot notation (e.g., "menu.item.normal") for StyleToken lookup.
     /// Unknown keys are accepted as custom plugin tokens.
+    ///
+    /// If `variant` is `Some`, the named variant overlay is applied after base
+    /// faces, and then token references are re-resolved.
     pub fn from_config(config: &ThemeConfig) -> Self {
+        Self::from_config_with_variant(config, None)
+    }
+
+    /// Build theme with optional variant selection.
+    pub fn from_config_with_variant(config: &ThemeConfig, variant: Option<&str>) -> Self {
         let mut theme = Self::default_theme();
-        for (name, face_spec) in &config.faces {
-            if let Some(face) = parse_face_spec(face_spec) {
-                let token = normalize_config_key(name);
-                theme.set(token, face);
+
+        // Merge base faces: direct specs are resolved immediately, refs are deferred
+        let mut pending_refs: Vec<(String, String)> = Vec::new();
+
+        for (name, value) in &config.faces {
+            match value {
+                ThemeValue::FaceSpec(spec) => {
+                    if let Some(face) = parse_face_spec(spec) {
+                        let token = normalize_config_key(name);
+                        theme.set(token, face);
+                    }
+                }
+                ThemeValue::TokenRef(ref_name) => {
+                    pending_refs.push((name.clone(), ref_name.clone()));
+                }
             }
         }
+
+        // Apply variant overlay if specified
+        if let Some(variant_name) = variant
+            && let Some(variant_faces) = config.variants.get(variant_name)
+        {
+            for (name, value) in variant_faces {
+                match value {
+                    ThemeValue::FaceSpec(spec) => {
+                        if let Some(face) = parse_face_spec(spec) {
+                            let token = normalize_config_key(name);
+                            theme.set(token, face);
+                        }
+                        // Remove any pending ref for this key (variant overrides base)
+                        pending_refs.retain(|(n, _)| n != name);
+                    }
+                    ThemeValue::TokenRef(ref_name) => {
+                        // Replace or add pending ref
+                        if let Some(existing) = pending_refs.iter_mut().find(|(n, _)| n == name) {
+                            existing.1 = ref_name.clone();
+                        } else {
+                            pending_refs.push((name.clone(), ref_name.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Resolve token references iteratively (max 10 iterations for chains)
+        resolve_token_refs(&mut theme, &pending_refs, config, variant);
+
         theme
     }
 
@@ -213,6 +262,73 @@ impl Theme {
 /// to dot notation (e.g., "menu.item.normal") to match the canonical token names.
 fn normalize_config_key(name: &str) -> StyleToken {
     StyleToken::new(name.replace('_', "."))
+}
+
+/// Resolve `@token` references iteratively.
+///
+/// Follows reference chains (A→B→C) up to 10 iterations.
+/// Circular references are detected and fall back to default face.
+fn resolve_token_refs(
+    theme: &mut Theme,
+    pending: &[(String, String)],
+    config: &ThemeConfig,
+    variant: Option<&str>,
+) {
+    use std::collections::HashSet;
+    const MAX_ITER: usize = 10;
+
+    for (name, target_name) in pending {
+        let token = normalize_config_key(name);
+        let mut current_ref = target_name.clone();
+        let mut visited = HashSet::new();
+        visited.insert(name.clone());
+        let mut resolved = false;
+
+        for _ in 0..MAX_ITER {
+            if visited.contains(&current_ref) {
+                // Circular reference detected
+                tracing::warn!(
+                    "theme: circular reference detected for token '{name}' → '@{current_ref}'"
+                );
+                break;
+            }
+            visited.insert(current_ref.clone());
+
+            // Look up the target: first check variant, then base config, then existing theme
+            let target_value = variant
+                .and_then(|v| config.variants.get(v))
+                .and_then(|vf| vf.get(&current_ref))
+                .or_else(|| config.faces.get(&current_ref));
+
+            match target_value {
+                Some(ThemeValue::FaceSpec(spec)) => {
+                    if let Some(face) = parse_face_spec(spec) {
+                        theme.set(token.clone(), face);
+                        resolved = true;
+                    }
+                    break;
+                }
+                Some(ThemeValue::TokenRef(next_ref)) => {
+                    current_ref = next_ref.clone();
+                    // Continue chain resolution
+                }
+                None => {
+                    // Not in config; check if it's already in theme map
+                    let ref_token = normalize_config_key(&current_ref);
+                    if let Some(&face) = theme.get(&ref_token) {
+                        theme.set(token.clone(), face);
+                        resolved = true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !resolved {
+            // Fallback to default face
+            theme.set(token, Face::default());
+        }
+    }
 }
 
 /// Parse a simple face spec like "red,blue+bi" into a Face.
@@ -360,9 +476,10 @@ mod tests {
     #[test]
     fn test_theme_from_config() {
         let mut config = ThemeConfig::default();
-        config
-            .faces
-            .insert("menu_item_normal".into(), "cyan,black".into());
+        config.faces.insert(
+            "menu_item_normal".into(),
+            ThemeValue::FaceSpec("cyan,black".into()),
+        );
         let theme = Theme::from_config(&config);
         let face = theme.get(&StyleToken::MENU_ITEM_NORMAL).unwrap();
         assert_eq!(face.fg, Color::Named(NamedColor::Cyan));
@@ -409,9 +526,10 @@ mod tests {
     #[test]
     fn test_config_unknown_key_accepted() {
         let mut config = ThemeConfig::default();
-        config
-            .faces
-            .insert("my_plugin_highlight".into(), "green,default".into());
+        config.faces.insert(
+            "my_plugin_highlight".into(),
+            ThemeValue::FaceSpec("green,default".into()),
+        );
         let theme = Theme::from_config(&config);
         // Unknown keys are normalized and stored
         let token = StyleToken::new("my.plugin.highlight");
@@ -454,7 +572,9 @@ mod tests {
     fn test_apply_color_context_preserves_user_config() {
         use crate::render::color_context::{ChromePalette, ColorContext, ColorKnowledge};
         let mut config = ThemeConfig::default();
-        config.faces.insert("shadow".into(), "cyan,default".into());
+        config
+            .faces
+            .insert("shadow".into(), ThemeValue::FaceSpec("cyan,default".into()));
         let mut theme = Theme::from_config(&config);
 
         let ctx = ColorContext {
@@ -491,5 +611,100 @@ mod tests {
         };
         theme.apply_color_context(&ctx);
         assert_eq!(*theme.get(&StyleToken::SHADOW).unwrap(), original_shadow);
+    }
+
+    // ── Token reference tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_theme_token_ref_simple() {
+        let mut config = ThemeConfig::default();
+        config.faces.insert(
+            "accent".into(),
+            ThemeValue::FaceSpec("green,default".into()),
+        );
+        config
+            .faces
+            .insert("status_mode".into(), ThemeValue::TokenRef("accent".into()));
+        let theme = Theme::from_config(&config);
+        let face = theme.get(&StyleToken::new("status.mode")).unwrap();
+        assert_eq!(face.fg, Color::Named(NamedColor::Green));
+    }
+
+    #[test]
+    fn test_theme_token_ref_chain() {
+        let mut config = ThemeConfig::default();
+        config
+            .faces
+            .insert("a".into(), ThemeValue::FaceSpec("cyan,default".into()));
+        config
+            .faces
+            .insert("b".into(), ThemeValue::TokenRef("a".into()));
+        config
+            .faces
+            .insert("c".into(), ThemeValue::TokenRef("b".into()));
+        let theme = Theme::from_config(&config);
+        let face = theme.get(&StyleToken::new("c")).unwrap();
+        assert_eq!(face.fg, Color::Named(NamedColor::Cyan));
+    }
+
+    #[test]
+    fn test_theme_token_ref_cycle_falls_back() {
+        let mut config = ThemeConfig::default();
+        config
+            .faces
+            .insert("a".into(), ThemeValue::TokenRef("b".into()));
+        config
+            .faces
+            .insert("b".into(), ThemeValue::TokenRef("a".into()));
+        let theme = Theme::from_config(&config);
+        // Cycle → falls back to default face
+        let face = theme.get(&StyleToken::new("a")).unwrap();
+        assert_eq!(face.fg, Color::Default);
+    }
+
+    #[test]
+    fn test_theme_variant_overlay() {
+        let mut config = ThemeConfig::default();
+        config.faces.insert(
+            "accent".into(),
+            ThemeValue::FaceSpec("green,default".into()),
+        );
+        let mut dark_variant = std::collections::HashMap::new();
+        dark_variant.insert("accent".into(), ThemeValue::FaceSpec("cyan,default".into()));
+        config.variants.insert("dark".into(), dark_variant);
+
+        // Without variant
+        let theme = Theme::from_config(&config);
+        assert_eq!(
+            theme.get(&StyleToken::new("accent")).unwrap().fg,
+            Color::Named(NamedColor::Green)
+        );
+
+        // With dark variant
+        let theme_dark = Theme::from_config_with_variant(&config, Some("dark"));
+        assert_eq!(
+            theme_dark.get(&StyleToken::new("accent")).unwrap().fg,
+            Color::Named(NamedColor::Cyan)
+        );
+    }
+
+    #[test]
+    fn test_theme_variant_ref_resolves_with_variant_override() {
+        let mut config = ThemeConfig::default();
+        config.faces.insert(
+            "accent".into(),
+            ThemeValue::FaceSpec("green,default".into()),
+        );
+        config
+            .faces
+            .insert("status_mode".into(), ThemeValue::TokenRef("accent".into()));
+        let mut dark = std::collections::HashMap::new();
+        dark.insert("accent".into(), ThemeValue::FaceSpec("cyan,default".into()));
+        config.variants.insert("dark".into(), dark);
+
+        let theme = Theme::from_config_with_variant(&config, Some("dark"));
+        // status_mode → @accent → "cyan,default" (from dark variant)
+        let face = theme.get(&StyleToken::new("status.mode")).unwrap();
+        assert_eq!(face.fg, Color::Named(NamedColor::Cyan));
     }
 }

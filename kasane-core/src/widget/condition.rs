@@ -2,7 +2,7 @@
 
 use compact_str::CompactString;
 
-use super::types::{CmpOp, CondExpr};
+use super::types::{CmpOp, CondExpr, Value};
 use super::variables::VariableResolver;
 
 /// Error from parsing a condition expression.
@@ -184,11 +184,7 @@ impl<'a> Parser<'a> {
             let _ = op_token;
 
             let value_token = self.consume().ok_or(CondParseError::UnexpectedEnd)?;
-            let value = if value_token.starts_with('\'') && value_token.ends_with('\'') {
-                CompactString::from(&value_token[1..value_token.len() - 1])
-            } else {
-                CompactString::from(value_token)
-            };
+            let value = parse_literal_value(value_token);
 
             Ok(CondExpr::Compare {
                 variable,
@@ -206,6 +202,21 @@ fn is_operator(s: &str) -> bool {
         s,
         "==" | "!=" | ">" | "<" | ">=" | "<=" | "||" | "&&" | "!" | "(" | ")"
     )
+}
+
+/// Parse a literal token into a typed `Value`.
+///
+/// - Quoted strings (`'insert'`) → `Value::Str`
+/// - Integer literals (`1`, `-42`) → `Value::Int`
+/// - Bare words (`insert`) → `Value::Str`
+fn parse_literal_value(token: &str) -> Value {
+    if token.starts_with('\'') && token.ends_with('\'') && token.len() >= 2 {
+        return Value::Str(CompactString::from(&token[1..token.len() - 1]));
+    }
+    if let Ok(n) = token.parse::<i64>() {
+        return Value::Int(n);
+    }
+    Value::Str(CompactString::from(token))
 }
 
 /// Parse a condition expression string.
@@ -230,18 +241,12 @@ impl CondExpr {
     /// Evaluate this condition against a variable resolver.
     pub fn evaluate(&self, resolver: &dyn VariableResolver) -> bool {
         match self {
-            Self::Truthy(name) => {
-                let val = resolver.resolve(name);
-                is_truthy(&val)
-            }
+            Self::Truthy(name) => resolver.resolve(name).is_truthy(),
             Self::Compare {
                 variable,
                 op,
                 value,
-            } => {
-                let resolved = resolver.resolve(variable);
-                compare(&resolved, *op, value)
-            }
+            } => resolver.resolve(variable).compare(*op, value),
             Self::And(a, b) => a.evaluate(resolver) && b.evaluate(resolver),
             Self::Or(a, b) => a.evaluate(resolver) || b.evaluate(resolver),
             Self::Not(inner) => !inner.evaluate(resolver),
@@ -265,34 +270,5 @@ fn collect_variables<'a>(expr: &'a CondExpr, out: &mut Vec<&'a str>) {
             collect_variables(b, out);
         }
         CondExpr::Not(inner) => collect_variables(inner, out),
-    }
-}
-
-/// Truthiness: empty string and "0" are falsy; everything else is truthy.
-fn is_truthy(val: &str) -> bool {
-    !val.is_empty() && val != "0"
-}
-
-/// Compare two values. Attempt numeric parse first; otherwise lexicographic.
-fn compare(left: &str, op: CmpOp, right: &str) -> bool {
-    // Try numeric comparison
-    if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-        return match op {
-            CmpOp::Eq => (l - r).abs() < f64::EPSILON,
-            CmpOp::Ne => (l - r).abs() >= f64::EPSILON,
-            CmpOp::Gt => l > r,
-            CmpOp::Lt => l < r,
-            CmpOp::Ge => l >= r,
-            CmpOp::Le => l <= r,
-        };
-    }
-    // Lexicographic fallback
-    match op {
-        CmpOp::Eq => left == right,
-        CmpOp::Ne => left != right,
-        CmpOp::Gt => left > right,
-        CmpOp::Lt => left < right,
-        CmpOp::Ge => left >= right,
-        CmpOp::Le => left <= right,
     }
 }

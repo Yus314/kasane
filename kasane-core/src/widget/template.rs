@@ -84,7 +84,7 @@ impl Template {
             match seg {
                 TemplateSegment::Literal(s) => result.push_str(s),
                 TemplateSegment::Variable { name, format } => {
-                    let value = resolver.resolve(name);
+                    let value = resolver.resolve(name).to_display();
                     if let Some(fmt) = format {
                         // Apply truncation first (operates on char count)
                         let truncated;

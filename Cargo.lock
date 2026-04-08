@@ -2250,6 +2250,7 @@ dependencies = [
  "iai-callgrind",
  "image",
  "insta",
+ "itoa",
  "kasane-macros",
  "kasane-plugin-model",
  "kdl",

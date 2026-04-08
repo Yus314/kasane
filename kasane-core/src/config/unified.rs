@@ -34,8 +34,8 @@ pub fn is_config_section(name: &str) -> bool {
 ///
 /// Stage 1: KDL syntax parsing (failure = entire file rejected).
 /// Stage 2: Nodes are split by name: reserved names → config, rest → widgets.
-/// Stage 3: Widget definitions come from `widgets { }` children and/or
-///           flat top-level non-config nodes (deprecated, emits a warning per node).
+/// Stage 3: Widget definitions come from `widgets { }` children only.
+///           Top-level non-config nodes are rejected as an error.
 pub fn parse_unified(
     source: &str,
 ) -> Result<(Config, WidgetFile, Vec<WidgetNodeError>), UnifiedParseError> {
@@ -43,47 +43,35 @@ pub fn parse_unified(
         .parse()
         .map_err(|e: kdl::KdlError| UnifiedParseError::Syntax(e.to_string()))?;
 
-    let (config_nodes, flat_widget_nodes): (Vec<&kdl::KdlNode>, Vec<&kdl::KdlNode>) = doc
+    // Reject any top-level nodes that are not recognized config sections.
+    let unknown_names: Vec<String> = doc
         .nodes()
         .iter()
-        .partition(|n| is_config_section(n.name().value()));
+        .filter(|n| !is_config_section(n.name().value()))
+        .map(|n| n.name().value().to_string())
+        .collect();
+    if !unknown_names.is_empty() {
+        return Err(UnifiedParseError::UnknownTopLevel(unknown_names));
+    }
 
     // Extract children of the `widgets` block as widget definitions.
     let mut widget_owned: Vec<kdl::KdlNode> = Vec::new();
-    let mut deprecation_names: Vec<String> = Vec::new();
 
     // Config nodes that are NOT the `widgets` block.
     let mut config_owned: Vec<kdl::KdlNode> = Vec::new();
-    for node in &config_nodes {
+    for node in doc.nodes() {
         if node.name().value() == "widgets" {
-            // Extract children as widget definitions
             if let Some(children) = node.children() {
                 widget_owned.extend(children.nodes().iter().cloned());
             }
         } else {
-            config_owned.push((*node).clone());
+            config_owned.push(node.clone());
         }
     }
 
-    // Flat top-level non-config nodes are the deprecated form.
-    for node in &flat_widget_nodes {
-        deprecation_names.push(node.name().value().to_string());
-        widget_owned.push((*node).clone());
-    }
-
     let config = parse_config_from_nodes(&config_owned);
-    let (widget_file, mut widget_errors) =
+    let (widget_file, widget_errors) =
         parse_widget_nodes(&widget_owned).map_err(UnifiedParseError::Widget)?;
-
-    // Emit deprecation warnings for flat-form widgets.
-    for name in deprecation_names {
-        widget_errors.push(WidgetNodeError {
-            name: name.clone(),
-            message: format!(
-                "top-level widget '{name}' is deprecated; move it inside a `widgets {{ }}` block"
-            ),
-        });
-    }
 
     Ok((config, widget_file, widget_errors))
 }
@@ -92,6 +80,8 @@ pub fn parse_unified(
 pub enum UnifiedParseError {
     Syntax(String),
     Widget(WidgetParseError),
+    /// Top-level nodes that are not recognized config sections.
+    UnknownTopLevel(Vec<String>),
 }
 
 impl std::fmt::Display for UnifiedParseError {
@@ -99,6 +89,13 @@ impl std::fmt::Display for UnifiedParseError {
         match self {
             Self::Syntax(msg) => write!(f, "KDL syntax error: {msg}"),
             Self::Widget(e) => write!(f, "widget error: {e}"),
+            Self::UnknownTopLevel(names) => {
+                write!(
+                    f,
+                    "unknown top-level node(s): {}; widgets must be inside a `widgets {{ }}` block",
+                    names.join(", ")
+                )
+            }
         }
     }
 }

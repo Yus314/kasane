@@ -12,8 +12,9 @@ use super::condition::parse_condition;
 use crate::plugin::{ContribSizeHint, GutterSide};
 
 use super::types::{
-    BackgroundWidget, ContributionWidget, FaceOrToken, GutterWidget, LineExpr, Template,
-    TransformWidget, WidgetDef, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
+    BackgroundWidget, ContributionWidget, FaceOrToken, FaceRule, GutterBranch, GutterWidget,
+    LineExpr, Template, TransformWidget, WidgetDef, WidgetFile, WidgetKind, WidgetPart,
+    WidgetPatch,
 };
 use super::variables::{validate_variable, variable_dirty_flag};
 
@@ -115,66 +116,104 @@ pub fn parse_widget_nodes(
     ))
 }
 
+/// Collect dirty flags from a slice of face rules.
+fn face_rules_deps(rules: &[FaceRule], flags: &mut DirtyFlags) {
+    for rule in rules {
+        if let Some(ref cond) = rule.when {
+            for var in cond.referenced_variables() {
+                *flags |= variable_dirty_flag(var);
+            }
+        }
+    }
+}
+
+/// Compute dirty flags for a single widget definition.
+pub fn compute_widget_deps(widget: &WidgetDef) -> DirtyFlags {
+    let mut flags = DirtyFlags::empty();
+    compute_widget_deps_inner(&widget.kind, &mut flags);
+    flags
+}
+
 fn compute_deps(widgets: &[WidgetDef]) -> DirtyFlags {
     let mut flags = DirtyFlags::empty();
     for widget in widgets {
-        match &widget.kind {
-            WidgetKind::Contribution(c) => {
-                for part in &c.parts {
-                    for var in part.template.referenced_variables() {
-                        flags |= variable_dirty_flag(var);
-                    }
-                    if let Some(ref cond) = part.when {
-                        for var in cond.referenced_variables() {
-                            flags |= variable_dirty_flag(var);
-                        }
+        compute_widget_deps_inner(&widget.kind, &mut flags);
+    }
+    flags
+}
+
+fn compute_widget_deps_inner(kind: &WidgetKind, flags: &mut DirtyFlags) {
+    match kind {
+        WidgetKind::Contribution(c) => {
+            for part in &c.parts {
+                for var in part.template.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+                if let Some(ref cond) = part.when {
+                    for var in cond.referenced_variables() {
+                        *flags |= variable_dirty_flag(var);
                     }
                 }
-                if let Some(ref cond) = c.when {
+                face_rules_deps(&part.face_rules, flags);
+            }
+            if let Some(ref cond) = c.when {
+                for var in cond.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+            }
+        }
+        WidgetKind::Background(b) => {
+            match b.line_expr {
+                LineExpr::CursorLine => *flags |= DirtyFlags::BUFFER_CURSOR,
+                LineExpr::Selection => *flags |= DirtyFlags::BUFFER,
+            }
+            if let Some(ref cond) = b.when {
+                for var in cond.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+            }
+        }
+        WidgetKind::Transform(t) => {
+            if let Some(ref cond) = t.when {
+                for var in cond.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+            }
+            match &t.patch {
+                WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
+                    face_rules_deps(rules, flags);
+                }
+            }
+        }
+        WidgetKind::Gutter(g) => {
+            *flags |= DirtyFlags::BUFFER_CURSOR;
+            for branch in &g.branches {
+                for var in branch.template.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+                face_rules_deps(&branch.face_rules, flags);
+                if let Some(ref cond) = branch.line_when {
                     for var in cond.referenced_variables() {
-                        flags |= variable_dirty_flag(var);
+                        *flags |= variable_dirty_flag(var);
                     }
                 }
             }
-            WidgetKind::Background(b) => {
-                match b.line_expr {
-                    LineExpr::CursorLine => flags |= DirtyFlags::BUFFER_CURSOR,
-                    // Selection depends on both content (face analysis) and cursor
-                    LineExpr::Selection => flags |= DirtyFlags::BUFFER,
-                }
-                if let Some(ref cond) = b.when {
-                    for var in cond.referenced_variables() {
-                        flags |= variable_dirty_flag(var);
-                    }
-                }
-            }
-            WidgetKind::Transform(t) => {
-                if let Some(ref cond) = t.when {
-                    for var in cond.referenced_variables() {
-                        flags |= variable_dirty_flag(var);
-                    }
-                }
-            }
-            WidgetKind::Gutter(g) => {
-                // Gutter always depends on cursor position (for relative_line, is_cursor_line)
-                flags |= DirtyFlags::BUFFER_CURSOR;
-                for var in g.template.referenced_variables() {
-                    flags |= variable_dirty_flag(var);
-                }
-                if let Some(ref cond) = g.when {
-                    for var in cond.referenced_variables() {
-                        flags |= variable_dirty_flag(var);
-                    }
-                }
-                if let Some(ref cond) = g.line_when {
-                    for var in cond.referenced_variables() {
-                        flags |= variable_dirty_flag(var);
-                    }
+            if let Some(ref cond) = g.when {
+                for var in cond.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
                 }
             }
         }
     }
-    flags
+}
+
+/// Collect variable names from face rules.
+fn collect_face_rules_variables(rules: &[FaceRule], vars: &mut Vec<String>) {
+    for rule in rules {
+        if let Some(ref cond) = rule.when {
+            vars.extend(cond.referenced_variables().into_iter().map(String::from));
+        }
+    }
 }
 
 /// Collect all variable names referenced by a widget for validation.
@@ -187,6 +226,7 @@ fn collect_widget_variables(kind: &WidgetKind) -> Vec<String> {
                 if let Some(ref cond) = part.when {
                     vars.extend(cond.referenced_variables().into_iter().map(String::from));
                 }
+                collect_face_rules_variables(&part.face_rules, &mut vars);
             }
             if let Some(ref cond) = c.when {
                 vars.extend(cond.referenced_variables().into_iter().map(String::from));
@@ -201,18 +241,25 @@ fn collect_widget_variables(kind: &WidgetKind) -> Vec<String> {
             if let Some(ref cond) = t.when {
                 vars.extend(cond.referenced_variables().into_iter().map(String::from));
             }
+            match &t.patch {
+                WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
+                    collect_face_rules_variables(rules, &mut vars);
+                }
+            }
         }
         WidgetKind::Gutter(g) => {
-            vars.extend(g.template.referenced_variables().map(String::from));
-            if let Some(ref cond) = g.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            for branch in &g.branches {
+                vars.extend(branch.template.referenced_variables().map(String::from));
+                collect_face_rules_variables(&branch.face_rules, &mut vars);
+                if let Some(ref cond) = branch.line_when {
+                    vars.extend(cond.referenced_variables().into_iter().map(String::from));
+                }
             }
-            if let Some(ref cond) = g.line_when {
+            if let Some(ref cond) = g.when {
                 vars.extend(cond.referenced_variables().into_iter().map(String::from));
             }
         }
     }
-    // Deduplicate
     vars.sort();
     vars.dedup();
     vars
@@ -241,12 +288,16 @@ fn parse_contribution_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
     // Shorthand: `text=` on node creates single-part widget
     if let Some(text) = get_string_entry(node, "text") {
         let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
-        let face = get_string_entry(node, "face")
-            .map(parse_face_or_token)
-            .transpose()?;
+        let face_rules = match get_string_entry(node, "face") {
+            Some(spec) => vec![FaceRule {
+                face: parse_face_or_token(spec)?,
+                when: None,
+            }],
+            None => Vec::new(),
+        };
         parts.push(WidgetPart {
             template,
-            face,
+            face_rules,
             when: None,
         });
     }
@@ -275,16 +326,48 @@ fn parse_contribution_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
 fn parse_widget_part(node: &kdl::KdlNode) -> Result<WidgetPart, String> {
     let text = get_string_entry(node, "text").ok_or("part missing 'text' attribute")?;
     let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
-    let face = get_string_entry(node, "face")
-        .map(parse_face_or_token)
-        .transpose()?;
     let when = parse_when(node)?;
+
+    // Collect face rules: either from `face=` shorthand or `face` child nodes
+    let mut face_rules = Vec::new();
+
+    if let Some(spec) = get_string_entry(node, "face") {
+        // Shorthand: single unconditional face rule
+        face_rules.push(FaceRule {
+            face: parse_face_or_token(spec)?,
+            when: None,
+        });
+    }
+
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            if child.name().value() == "face" {
+                face_rules.push(parse_face_rule(child)?);
+            }
+        }
+    }
 
     Ok(WidgetPart {
         template,
-        face,
+        face_rules,
         when,
     })
+}
+
+/// Parse a `face` child node into a `FaceRule`.
+///
+/// ```kdl
+/// face "@mode_insert" when="editor_mode == 'insert'"
+/// face "default,yellow"
+/// ```
+fn parse_face_rule(node: &kdl::KdlNode) -> Result<FaceRule, String> {
+    let spec = node
+        .entry(0)
+        .and_then(|e| e.value().as_string())
+        .ok_or("face rule missing face spec (first positional argument)")?;
+    let face = parse_face_or_token(spec)?;
+    let when = parse_when(node)?;
+    Ok(FaceRule { face, when })
 }
 
 fn parse_background_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
@@ -313,16 +396,34 @@ fn parse_transform_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         get_string_entry(node, "target").ok_or("transform widget missing 'target' attribute")?;
     let target = parse_transform_target(target_str)?;
 
-    let face_str =
-        get_string_entry(node, "face").ok_or("transform widget missing 'face' attribute")?;
-    let face = parse_face_or_token(face_str)?;
-
     let when = parse_when(node)?;
-
     let patch_str = get_string_entry(node, "patch").unwrap_or("modify-face");
+
+    // Collect face rules: `face=` shorthand or `face` child nodes
+    let mut face_rules = Vec::new();
+
+    if let Some(face_str) = get_string_entry(node, "face") {
+        face_rules.push(FaceRule {
+            face: parse_face_or_token(face_str)?,
+            when: None,
+        });
+    }
+
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            if child.name().value() == "face" {
+                face_rules.push(parse_face_rule(child)?);
+            }
+        }
+    }
+
+    if face_rules.is_empty() {
+        return Err("transform widget missing face (use face= or face children)".to_string());
+    }
+
     let patch = match patch_str {
-        "modify-face" => WidgetPatch::ModifyFace(face),
-        "wrap" => WidgetPatch::WrapContainer(face),
+        "modify-face" => WidgetPatch::ModifyFace(face_rules),
+        "wrap" => WidgetPatch::WrapContainer(face_rules),
         other => return Err(format!("unknown patch kind: '{other}'")),
     };
 
@@ -404,14 +505,74 @@ fn parse_gutter_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         other => return Err(format!("unknown gutter side: '{other}'")),
     };
 
-    let text = get_string_entry(node, "text").ok_or("gutter widget missing 'text' attribute")?;
+    let when = parse_when(node)?;
+    let mut branches = Vec::new();
+
+    // Shorthand: `text=`/`face=`/`line-when=` on node creates single branch
+    if let Some(text) = get_string_entry(node, "text") {
+        let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
+        let face_rules = match get_string_entry(node, "face") {
+            Some(spec) => vec![FaceRule {
+                face: parse_face_or_token(spec)?,
+                when: None,
+            }],
+            None => Vec::new(),
+        };
+        let line_when = match get_string_entry(node, "line-when") {
+            Some(expr) => {
+                let parsed =
+                    parse_condition(expr).map_err(|e| format!("line-when condition: {e}"))?;
+                Some(parsed)
+            }
+            None => None,
+        };
+        branches.push(GutterBranch {
+            template,
+            face_rules,
+            line_when,
+        });
+    }
+
+    // Children: `branch` nodes
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            if child.name().value() == "branch" {
+                branches.push(parse_gutter_branch(child)?);
+            }
+        }
+    }
+
+    if branches.is_empty() {
+        return Err("gutter widget has no branches (use text= or branch children)".to_string());
+    }
+
+    Ok(WidgetKind::Gutter(GutterWidget {
+        side,
+        branches,
+        when,
+    }))
+}
+
+/// Parse a `branch` child node into a `GutterBranch`.
+fn parse_gutter_branch(node: &kdl::KdlNode) -> Result<GutterBranch, String> {
+    let text = get_string_entry(node, "text").ok_or("branch missing 'text' attribute")?;
     let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
 
-    let face = get_string_entry(node, "face")
-        .map(parse_face_or_token)
-        .transpose()?;
+    let mut face_rules = Vec::new();
+    if let Some(spec) = get_string_entry(node, "face") {
+        face_rules.push(FaceRule {
+            face: parse_face_or_token(spec)?,
+            when: None,
+        });
+    }
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            if child.name().value() == "face" {
+                face_rules.push(parse_face_rule(child)?);
+            }
+        }
+    }
 
-    let when = parse_when(node)?;
     let line_when = match get_string_entry(node, "line-when") {
         Some(expr) => {
             let parsed = parse_condition(expr).map_err(|e| format!("line-when condition: {e}"))?;
@@ -420,13 +581,11 @@ fn parse_gutter_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         None => None,
     };
 
-    Ok(WidgetKind::Gutter(GutterWidget {
-        side,
+    Ok(GutterBranch {
         template,
-        face,
-        when,
+        face_rules,
         line_when,
-    }))
+    })
 }
 
 /// Parse a face spec that may be a direct face or a `@token` theme reference.

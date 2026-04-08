@@ -103,6 +103,8 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub process_dispatcher: &'a mut dyn ProcessDispatcher,
     pub plugin_manager: &'a mut PluginManager,
     pub diagnostic_overlay: &'a mut PluginDiagnosticOverlayState,
+    /// Names of currently registered per-widget plugins (for hot-reload diffing).
+    pub widget_names: &'a mut Vec<String>,
 }
 
 struct PluginReloadOutcome {
@@ -363,17 +365,13 @@ where
                             // Apply config changes
                             ctx.state.apply_config(&new_config);
 
-                            // Reload widgets
-                            let widget_id =
-                                kasane_core::plugin::PluginId("kasane.widgets".to_string());
-                            if let Some(backend) = ctx.registry.backend_mut_by_id(&widget_id)
-                                && let Some(wb) = (backend as &mut dyn std::any::Any)
-                                    .downcast_mut::<kasane_core::widget::WidgetBackend>(
-                                )
-                            {
-                                wb.reload_from_widgets(widget_file);
-                            }
-                            ctx.registry.refresh_slot_metadata(&widget_id);
+                            // Hot-reload per-widget plugins (diff-based)
+                            *ctx.widget_names = kasane_core::widget::hot_reload_widgets(
+                                ctx.widget_names,
+                                widget_file,
+                                &widget_errors,
+                                ctx.registry,
+                            );
 
                             // Route widget parse errors to the diagnostic overlay
                             if !widget_errors.is_empty() {
@@ -398,7 +396,9 @@ where
                             tracing::warn!("kasane.kdl reload failed (keeping previous): {err}");
                             let diagnostic = PluginDiagnostic {
                                 target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                    kasane_core::plugin::PluginId("kasane.widgets".to_string()),
+                                    kasane_core::plugin::PluginId(
+                                        "kasane.widget.reload".to_string(),
+                                    ),
                                 ),
                                 kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
                                     method: "reload".to_string(),
@@ -420,18 +420,13 @@ where
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    // File deleted: reset widgets to empty, config to defaults
+                    // File deleted: unload all widget plugins, reset config to defaults
                     ctx.state
                         .apply_config(&kasane_core::config::Config::default());
-                    let backend = kasane_core::widget::WidgetBackend::empty();
-                    let batch = ctx
-                        .registry
-                        .reload_plugin_batch(Box::new(backend), &AppView::new(ctx.state));
-                    return process_event_result(
-                        event_result_from_runtime_batch(batch, None),
-                        false,
-                        ctx,
-                    );
+                    for name in ctx.widget_names.drain(..) {
+                        let id = kasane_core::widget::SingleWidgetBackend::plugin_id_for(&name);
+                        ctx.registry.remove_plugin(&id);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("cannot read {}: {e}", config_path.display());

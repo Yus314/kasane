@@ -59,19 +59,38 @@ pub struct SearchConfig {
     pub dropdown: bool,
 }
 
-/// Theme configuration: maps style token names to face specifications.
+/// A theme value: either a direct face spec or a reference to another token.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThemeValue {
+    /// A direct face specification (e.g., `"cyan,blue+b"`).
+    FaceSpec(String),
+    /// A reference to another theme token (the `@` prefix is stripped).
+    TokenRef(String),
+}
+
+/// Theme configuration: maps style token names to face specs or token references.
+///
+/// Supports `@token_name` references and dark/light variants.
 ///
 /// Example in kasane.kdl:
 /// ```kdl
 /// theme {
-///     menu_item_normal "white,blue"
-///     menu_item_selected "blue,white"
-///     info_border "cyan,default"
+///     accent "green"
+///     status_line "white,rgb:303030"
+///     status_mode "@accent"
+///
+///     variant "dark" {
+///         accent "cyan"
+///     }
+///     variant "light" {
+///         accent "blue"
+///     }
 /// }
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct ThemeConfig {
-    pub faces: HashMap<String, String>,
+    pub faces: HashMap<String, ThemeValue>,
+    pub variants: HashMap<String, HashMap<String, ThemeValue>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -766,7 +785,7 @@ theme {
         assert_eq!(config.theme.faces.len(), 2);
         assert_eq!(
             config.theme.faces.get("menu_item_normal"),
-            Some(&"cyan,blue".to_string())
+            Some(&ThemeValue::FaceSpec("cyan,blue".to_string()))
         );
     }
 
@@ -865,7 +884,9 @@ ui {
     shadow #false
 }
 
-mode slot="status-left" text=" {editor_mode} "
+widgets {
+    mode slot="status-left" text=" {editor_mode} "
+}
 "#;
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("kasane.kdl");

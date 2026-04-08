@@ -152,25 +152,27 @@ where
 
     let mut diagnostic_overlay = PluginDiagnosticOverlayState::default();
 
-    // Load widgets from unified kasane.kdl
+    // Load widgets from unified kasane.kdl (each widget becomes its own plugin)
+    let mut widget_names: Vec<String> = Vec::new();
     {
         let config_path = kasane_core::config::config_path();
-        let widget_backend = match std::fs::read_to_string(&config_path) {
-            Ok(source) => match kasane_core::config::unified::parse_unified(&source) {
+        if let Ok(source) = std::fs::read_to_string(&config_path) {
+            match kasane_core::config::unified::parse_unified(&source) {
                 Ok((_config, widget_file, errors)) => {
                     for err in &errors {
                         tracing::warn!("widget `{}`: {}", err.name, err.message);
                     }
-                    kasane_core::widget::WidgetBackend::from_widgets(widget_file)
+                    widget_names = kasane_core::widget::register_all_widgets(
+                        widget_file,
+                        &errors,
+                        &mut registry,
+                    );
                 }
                 Err(e) => {
                     tracing::warn!("kasane.kdl widget parse failed: {e}");
-                    kasane_core::widget::WidgetBackend::empty()
                 }
-            },
-            Err(_) => kasane_core::widget::WidgetBackend::empty(),
-        };
-        registry.register_backend(Box::new(widget_backend));
+            }
+        }
     }
 
     // Collect plugin-owned surfaces before plugin init so invalid surface contracts
@@ -374,6 +376,7 @@ where
                 process_dispatcher: &mut *process_dispatcher,
                 plugin_manager: &mut plugin_manager,
                 diagnostic_overlay: &mut diagnostic_overlay,
+                widget_names: &mut widget_names,
             };
 
             // Process first event

@@ -12,7 +12,7 @@ use crate::state::DirtyFlags;
 
 use super::parse::{WidgetNodeError, parse_widgets};
 use super::types::{
-    ContributionWidget, FaceOrToken, LineExpr, WidgetFile, WidgetKind, WidgetPatch,
+    ContributionWidget, FaceOrToken, FaceRule, LineExpr, WidgetFile, WidgetKind, WidgetPatch,
 };
 use super::variables::{AppViewResolver, LineContextResolver, VariableResolver};
 
@@ -24,12 +24,18 @@ pub(super) fn resolve_face(face_or_token: &FaceOrToken, state: &AppView<'_>) -> 
     }
 }
 
-/// Resolve an `Option<FaceOrToken>` to a `Face`, defaulting to `Face::default()`.
-fn resolve_face_opt(face_or_token: Option<&FaceOrToken>, state: &AppView<'_>) -> Face {
-    match face_or_token {
-        Some(fot) => resolve_face(fot, state),
-        None => Face::default(),
+/// Evaluate face rules and return the face for the first matching rule.
+pub(super) fn resolve_face_rules(
+    rules: &[FaceRule],
+    resolver: &dyn VariableResolver,
+    state: &AppView<'_>,
+) -> Face {
+    for rule in rules {
+        if rule.when.as_ref().is_none_or(|c| c.evaluate(resolver)) {
+            return resolve_face(&rule.face, state);
+        }
     }
+    Face::default()
 }
 
 const PLUGIN_ID: &str = "kasane.widgets";
@@ -347,14 +353,14 @@ impl PluginBackend for WidgetBackend {
             }
 
             match &transform.patch {
-                WidgetPatch::ModifyFace(fot) => {
+                WidgetPatch::ModifyFace(rules) => {
                     return Some(ElementPatch::ModifyFace {
-                        overlay: resolve_face(fot, state),
+                        overlay: resolve_face_rules(rules, &resolver, state),
                     });
                 }
-                WidgetPatch::WrapContainer(fot) => {
+                WidgetPatch::WrapContainer(rules) => {
                     return Some(ElementPatch::WrapContainer {
-                        face: resolve_face(fot, state),
+                        face: resolve_face_rules(rules, &resolver, state),
                     });
                 }
             }
@@ -388,21 +394,23 @@ impl PluginBackend for WidgetBackend {
                 continue;
             }
 
-            // Evaluate per-line when condition
+            // Evaluate branches in order; first matching line_when wins
             let line_resolver = LineContextResolver::new(state, line, cursor_line);
-            if let Some(ref cond) = gutter.line_when
-                && !cond.evaluate(&line_resolver)
-            {
-                continue;
-            }
+            for branch in &gutter.branches {
+                if let Some(ref cond) = branch.line_when
+                    && !cond.evaluate(&line_resolver)
+                {
+                    continue;
+                }
 
-            let text = gutter.template.expand(&line_resolver);
-            let face = resolve_face_opt(gutter.face.as_ref(), state);
-            let element = Element::styled_line(vec![crate::protocol::Atom {
-                face,
-                contents: text,
-            }]);
-            return Some((widget.index as i16, element));
+                let text = branch.template.expand(&line_resolver);
+                let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
+                let element = Element::styled_line(vec![crate::protocol::Atom {
+                    face,
+                    contents: text,
+                }]);
+                return Some((widget.index as i16, element));
+            }
         }
 
         None
@@ -457,7 +465,7 @@ impl PluginBackend for WidgetBackend {
 }
 
 /// Build an Element from a contribution widget's parts.
-fn build_contribution_element(
+pub(super) fn build_contribution_element(
     contrib: &ContributionWidget,
     resolver: &dyn VariableResolver,
     state: &AppView<'_>,
@@ -473,7 +481,7 @@ fn build_contribution_element(
         }
 
         let text = part.template.expand(resolver);
-        let face = resolve_face_opt(part.face.as_ref(), state);
+        let face = resolve_face_rules(&part.face_rules, resolver, state);
         atoms.push(Atom {
             face,
             contents: text,

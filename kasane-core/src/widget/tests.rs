@@ -221,8 +221,8 @@ status-info slot="status-right" {
     assert_eq!(file.widgets.len(), 1);
     if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
         assert_eq!(c.parts.len(), 2);
-        assert!(c.parts[0].face.is_some());
-        assert!(c.parts[1].face.is_none());
+        assert!(!c.parts[0].face_rules.is_empty());
+        assert!(c.parts[1].face_rules.is_empty());
     } else {
         panic!("expected contribution widget");
     }
@@ -479,40 +479,44 @@ mode slot="status-left" text=" {editor_mode} "
 
 #[test]
 fn variable_resolver_cursor() {
+    use super::types::Value;
     let mut state = AppState::default();
     state.cursor_pos = crate::protocol::Coord { line: 9, column: 4 };
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("cursor_line"), "10"); // 1-indexed
-    assert_eq!(resolver.resolve("cursor_col"), "5"); // 1-indexed
+    assert_eq!(resolver.resolve("cursor_line"), Value::Int(10)); // 1-indexed
+    assert_eq!(resolver.resolve("cursor_col"), Value::Int(5)); // 1-indexed
 }
 
 #[test]
 fn variable_resolver_editor_mode() {
+    use super::types::Value;
     let mut state = AppState::default();
     state.editor_mode = crate::state::derived::EditorMode::Insert;
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("editor_mode"), "insert");
+    assert_eq!(resolver.resolve("editor_mode"), Value::Str("insert".into()));
 }
 
 #[test]
 fn variable_resolver_unknown() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("nonexistent"), "");
+    assert_eq!(resolver.resolve("nonexistent"), Value::Empty);
 }
 
 #[test]
 fn variable_resolver_opt() {
+    use super::types::Value;
     let mut state = AppState::default();
     state
         .ui_options
         .insert("filetype".to_string(), "rust".to_string());
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("opt.filetype"), "rust");
+    assert_eq!(resolver.resolve("opt.filetype"), Value::Str("rust".into()));
 }
 
 #[test]
@@ -757,67 +761,78 @@ fn backend_size_hint_used_in_contribution() {
 
 #[test]
 fn variable_resolver_has_menu() {
+    use super::types::Value;
     let state = AppState::default(); // no menu
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("has_menu"), "");
+    assert_eq!(resolver.resolve("has_menu"), Value::Bool(false));
 }
 
 #[test]
 fn variable_resolver_has_info() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("has_info"), "");
+    assert_eq!(resolver.resolve("has_info"), Value::Bool(false));
 }
 
 #[test]
 fn variable_resolver_is_prompt() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("is_prompt"), "");
+    assert_eq!(resolver.resolve("is_prompt"), Value::Bool(false));
 }
 
 #[test]
 fn variable_resolver_status_style() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("status_style"), "status");
+    assert_eq!(
+        resolver.resolve("status_style"),
+        Value::Str("status".into())
+    );
 }
 
 #[test]
 fn variable_resolver_cursor_mode() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("cursor_mode"), "buffer");
+    assert_eq!(resolver.resolve("cursor_mode"), Value::Str("buffer".into()));
 }
 
 #[test]
 fn variable_resolver_is_dark() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
     // Default color_context.is_dark is true
-    assert_eq!(resolver.resolve("is_dark"), "true");
+    assert_eq!(resolver.resolve("is_dark"), Value::Bool(true));
 }
 
 #[test]
 fn variable_resolver_session_count() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("session_count"), "0");
+    assert_eq!(resolver.resolve("session_count"), Value::Int(0));
 }
 
 #[test]
 fn variable_resolver_active_session() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("active_session"), "");
+    assert_eq!(resolver.resolve("active_session"), Value::Empty);
 }
 
 #[test]
@@ -841,24 +856,26 @@ fn variable_dirty_flag_new_variables() {
 
 #[test]
 fn variable_alias_filetype() {
+    use super::types::Value;
     let mut state = AppState::default();
     state
         .ui_options
         .insert("filetype".to_string(), "rust".to_string());
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("filetype"), "rust");
+    assert_eq!(resolver.resolve("filetype"), Value::Str("rust".into()));
 }
 
 #[test]
 fn variable_alias_bufname() {
+    use super::types::Value;
     let mut state = AppState::default();
     state
         .ui_options
         .insert("bufname".to_string(), "main.rs".to_string());
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
-    assert_eq!(resolver.resolve("bufname"), "main.rs");
+    assert_eq!(resolver.resolve("bufname"), Value::Str("main.rs".into()));
 }
 
 #[test]
@@ -879,9 +896,10 @@ fn parse_gutter_widget() {
     assert_eq!(file.widgets.len(), 1);
     if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
         assert_eq!(g.side, GutterSide::Left);
-        assert!(g.face.is_some());
+        assert_eq!(g.branches.len(), 1);
+        assert!(!g.branches[0].face_rules.is_empty());
         assert!(g.when.is_none());
-        assert!(g.line_when.is_none());
+        assert!(g.branches[0].line_when.is_none());
     } else {
         panic!("expected gutter widget");
     }
@@ -894,7 +912,8 @@ fn parse_gutter_minimal() {
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
         assert_eq!(g.side, GutterSide::Left); // default
-        assert!(g.face.is_none());
+        assert_eq!(g.branches.len(), 1);
+        assert!(g.branches[0].face_rules.is_empty());
     } else {
         panic!("expected gutter widget");
     }
@@ -915,8 +934,9 @@ fn parse_gutter_with_line_when() {
         r#"abs kind="gutter" side="left" text="{line_number:3} " line-when="is_cursor_line""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
-        assert!(g.line_when.is_some());
+    if let super::types::WidgetKind::Gutter(g) = &file.widgets[0].kind {
+        assert_eq!(g.branches.len(), 1);
+        assert!(g.branches[0].line_when.is_some());
     } else {
         panic!("expected gutter widget");
     }
@@ -1027,17 +1047,18 @@ fn backend_gutter_global_when_disabled() {
 
 #[test]
 fn line_context_resolver_variables() {
+    use super::types::Value;
     let state = AppState::default();
     let view = AppView::new(&state);
     let resolver = super::variables::LineContextResolver::new(&view, 9, 5);
 
-    assert_eq!(resolver.resolve("line_number"), "10"); // 1-indexed
-    assert_eq!(resolver.resolve("relative_line"), "4"); // |9 - 5|
-    assert_eq!(resolver.resolve("is_cursor_line"), ""); // 9 != 5
+    assert_eq!(resolver.resolve("line_number"), Value::Int(10)); // 1-indexed
+    assert_eq!(resolver.resolve("relative_line"), Value::Int(4)); // |9 - 5|
+    assert_eq!(resolver.resolve("is_cursor_line"), Value::Bool(false)); // 9 != 5
 
     let resolver_cursor = super::variables::LineContextResolver::new(&view, 5, 5);
-    assert_eq!(resolver_cursor.resolve("is_cursor_line"), "true");
-    assert_eq!(resolver_cursor.resolve("relative_line"), "0");
+    assert_eq!(resolver_cursor.resolve("is_cursor_line"), Value::Bool(true));
+    assert_eq!(resolver_cursor.resolve("relative_line"), Value::Int(0));
 }
 
 #[test]
@@ -1191,9 +1212,10 @@ fn parse_face_token_reference() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty(), "errors: {errors:?}");
     if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+        assert_eq!(c.parts[0].face_rules.len(), 1);
         assert!(matches!(
-            c.parts[0].face,
-            Some(super::types::FaceOrToken::Token(_))
+            c.parts[0].face_rules[0].face,
+            super::types::FaceOrToken::Token(_)
         ));
     } else {
         panic!("expected contribution widget");
@@ -1206,9 +1228,10 @@ fn parse_face_direct_backward_compat() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+        assert_eq!(c.parts[0].face_rules.len(), 1);
         assert!(matches!(
-            c.parts[0].face,
-            Some(super::types::FaceOrToken::Direct(_))
+            c.parts[0].face_rules[0].face,
+            super::types::FaceOrToken::Direct(_)
         ));
     } else {
         panic!("expected contribution widget");
@@ -1233,10 +1256,12 @@ fn parse_face_token_in_transform() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
-        assert!(matches!(
-            t.patch,
-            super::types::WidgetPatch::ModifyFace(super::types::FaceOrToken::Token(_))
-        ));
+        if let super::types::WidgetPatch::ModifyFace(ref rules) = t.patch {
+            assert_eq!(rules.len(), 1);
+            assert!(matches!(rules[0].face, super::types::FaceOrToken::Token(_)));
+        } else {
+            panic!("expected ModifyFace patch");
+        }
     } else {
         panic!("expected transform widget");
     }
@@ -1247,8 +1272,15 @@ fn parse_face_token_in_gutter() {
     let source = r#"nums kind="gutter" side="left" text="{line_number}" face="@status_line""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
-        assert!(matches!(g.face, Some(super::types::FaceOrToken::Token(_))));
+    if let super::types::WidgetKind::Gutter(g) = &file.widgets[0].kind {
+        assert_eq!(g.branches.len(), 1);
+        assert!(matches!(
+            g.branches[0].face_rules.first(),
+            Some(super::types::FaceRule {
+                face: super::types::FaceOrToken::Token(_),
+                ..
+            })
+        ));
     } else {
         panic!("expected gutter widget");
     }
@@ -1468,43 +1500,44 @@ widgets {
     let (config, file, errors) = crate::config::unified::parse_unified(source).unwrap();
     assert!(!config.ui.shadow);
     assert_eq!(file.widgets.len(), 2);
-    // No deprecation warnings — widgets are inside the block
-    let deprecation_warnings: Vec<_> = errors
-        .iter()
-        .filter(|e| e.message.contains("deprecated"))
-        .collect();
-    assert!(deprecation_warnings.is_empty());
+    // No errors — widgets are inside the block
+    assert!(errors.is_empty());
 }
 
 #[test]
-fn unified_flat_widgets_deprecated() {
+fn unified_flat_widgets_rejected() {
     let source = r#"
 ui { shadow #false }
 mode slot="status-left" text=" {editor_mode} "
 "#;
-    let (_, file, errors) = crate::config::unified::parse_unified(source).unwrap();
-    assert_eq!(file.widgets.len(), 1);
-    // Should have a deprecation warning
-    assert!(errors.iter().any(|e| e.message.contains("deprecated")));
+    let result = crate::config::unified::parse_unified(source);
+    let err = match result {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("flat top-level widgets should be rejected"),
+    };
+    assert!(
+        err.contains("mode"),
+        "error should mention the offending node name"
+    );
 }
 
 #[test]
-fn unified_mixed_widgets_block_and_flat() {
+fn unified_mixed_widgets_block_and_flat_rejected() {
     let source = r#"
 widgets {
     a slot="status-left" text="A"
 }
 b slot="status-right" text="B"
 "#;
-    let (_, file, errors) = crate::config::unified::parse_unified(source).unwrap();
-    assert_eq!(file.widgets.len(), 2);
-    // Only the flat widget should have a deprecation warning
-    let deprecation_warnings: Vec<_> = errors
-        .iter()
-        .filter(|e| e.message.contains("deprecated"))
-        .collect();
-    assert_eq!(deprecation_warnings.len(), 1);
-    assert!(deprecation_warnings[0].name == "b");
+    let result = crate::config::unified::parse_unified(source);
+    let err = match result {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("flat top-level widgets mixed with block should be rejected"),
+    };
+    assert!(
+        err.contains("b"),
+        "error should mention the offending node name"
+    );
 }
 
 // =============================================================================
@@ -1522,12 +1555,23 @@ impl<'a> StaticResolver<'a> {
 }
 
 impl VariableResolver for StaticResolver<'_> {
-    fn resolve(&self, name: &str) -> CompactString {
+    fn resolve(&self, name: &str) -> super::types::Value {
         for (k, v) in self.vars {
             if *k == name {
-                return CompactString::from(*v);
+                // Try to interpret as typed value for richer testing:
+                // integers are returned as Value::Int, "true"/"" as Bool, rest as Str
+                if let Ok(n) = v.parse::<i64>() {
+                    return super::types::Value::Int(n);
+                }
+                if *v == "true" {
+                    return super::types::Value::Bool(true);
+                }
+                if v.is_empty() {
+                    return super::types::Value::Empty;
+                }
+                return super::types::Value::Str(CompactString::from(*v));
             }
         }
-        CompactString::default()
+        super::types::Value::Empty
     }
 }

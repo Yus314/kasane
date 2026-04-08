@@ -6,7 +6,7 @@ use super::unified::CONFIG_SECTIONS;
 use super::{
     BorderStyleConfig, ColorsConfig, Config, FontConfig, ImageProtocolConfig, LogConfig,
     MenuConfig, MenuPosition, MouseConfig, PluginSelection, PluginsConfig, ScrollConfig,
-    SearchConfig, StatusPosition, ThemeConfig, UiConfig, WindowConfig,
+    SearchConfig, StatusPosition, ThemeConfig, ThemeValue, UiConfig, WindowConfig,
 };
 
 /// Generate KDL nodes for the config sections of a [`Config`] value.
@@ -26,7 +26,7 @@ pub fn config_to_kdl_nodes(config: &Config) -> Vec<kdl::KdlNode> {
     if config.log != LogConfig::default() {
         nodes.push(log_to_kdl(&config.log));
     }
-    if !config.theme.faces.is_empty() {
+    if !config.theme.faces.is_empty() || !config.theme.variants.is_empty() {
         nodes.push(theme_to_kdl(&config.theme));
     }
     if config.menu != MenuConfig::default() {
@@ -191,13 +191,39 @@ fn log_to_kdl(l: &LogConfig) -> kdl::KdlNode {
     section_with_children("log", children)
 }
 
+fn theme_value_to_kdl_string(tv: &ThemeValue) -> String {
+    match tv {
+        ThemeValue::FaceSpec(s) => s.clone(),
+        ThemeValue::TokenRef(name) => format!("@{name}"),
+    }
+}
+
 fn theme_to_kdl(t: &ThemeConfig) -> kdl::KdlNode {
     let mut children: Vec<kdl::KdlNode> = t
         .faces
         .iter()
-        .map(|(name, spec)| str_child(name, spec))
+        .map(|(name, tv)| str_child(name, &theme_value_to_kdl_string(tv)))
         .collect();
     children.sort_by(|a, b| a.name().value().cmp(b.name().value()));
+
+    // Serialize variants
+    let mut variant_names: Vec<&String> = t.variants.keys().collect();
+    variant_names.sort();
+    for vname in variant_names {
+        let vfaces = &t.variants[vname];
+        let mut vchildren: Vec<kdl::KdlNode> = vfaces
+            .iter()
+            .map(|(name, tv)| str_child(name, &theme_value_to_kdl_string(tv)))
+            .collect();
+        vchildren.sort_by(|a, b| a.name().value().cmp(b.name().value()));
+        let mut vnode = make_node("variant");
+        vnode.push(kdl::KdlEntry::new(vname.as_str()));
+        let mut vdoc = kdl::KdlDocument::new();
+        *vdoc.nodes_mut() = vchildren;
+        vnode.set_children(vdoc);
+        children.push(vnode);
+    }
+
     section_with_children("theme", children)
 }
 

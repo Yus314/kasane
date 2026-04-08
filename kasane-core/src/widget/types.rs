@@ -46,10 +46,17 @@ pub struct ContributionWidget {
     pub size_hint: ContribSizeHint,
 }
 
-/// A single part of a contribution widget (text segment with optional face/condition).
+/// A face rule: a face with an optional condition. First matching rule wins.
+pub struct FaceRule {
+    pub face: FaceOrToken,
+    pub when: Option<CondExpr>,
+}
+
+/// A single part of a contribution widget (text segment with face rules and condition).
 pub struct WidgetPart {
     pub template: Template,
-    pub face: Option<FaceOrToken>,
+    /// Face rules evaluated in order; first match wins. Empty = default face.
+    pub face_rules: Vec<FaceRule>,
     pub when: Option<CondExpr>,
 }
 
@@ -75,17 +82,25 @@ pub struct TransformWidget {
 
 /// Declarative transform operations available in widgets.
 pub enum WidgetPatch {
-    ModifyFace(FaceOrToken),
-    WrapContainer(FaceOrToken),
+    ModifyFace(Vec<FaceRule>),
+    WrapContainer(Vec<FaceRule>),
+}
+
+/// A branch in a gutter widget: template + face rules with a per-line condition.
+pub struct GutterBranch {
+    pub template: Template,
+    pub face_rules: Vec<FaceRule>,
+    /// Per-line condition (evaluated per line).
+    pub line_when: Option<CondExpr>,
 }
 
 /// A widget that provides gutter annotations per line.
 pub struct GutterWidget {
     pub side: GutterSide,
-    pub template: Template,
-    pub face: Option<FaceOrToken>,
+    /// Branches evaluated in order; first matching (line_when) branch wins.
+    pub branches: Vec<GutterBranch>,
+    /// Global on/off condition.
     pub when: Option<CondExpr>,
-    pub line_when: Option<CondExpr>,
 }
 
 /// A template string with literal and variable segments.
@@ -121,15 +136,80 @@ pub struct TemplateFmt {
     pub truncate: Option<usize>,
 }
 
+/// A typed value for variable resolution and comparison.
+///
+/// Eliminates per-frame string→number parsing by carrying type information
+/// through the variable resolution → condition evaluation → template expansion pipeline.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Int(i64),
+    Str(CompactString),
+    Bool(bool),
+    Empty,
+}
+
+impl Value {
+    /// Truthiness: `Int(0)`, `Bool(false)`, `Empty`, `Str("")` → false; everything else → true.
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Self::Int(n) => *n != 0,
+            Self::Str(s) => !s.is_empty(),
+            Self::Bool(b) => *b,
+            Self::Empty => false,
+        }
+    }
+
+    /// Convert to a display string for template expansion.
+    pub fn to_display(&self) -> CompactString {
+        match self {
+            Self::Int(n) => {
+                let mut buf = itoa::Buffer::new();
+                CompactString::from(buf.format(*n))
+            }
+            Self::Str(s) => s.clone(),
+            Self::Bool(true) => CompactString::from("true"),
+            Self::Bool(false) => CompactString::default(),
+            Self::Empty => CompactString::default(),
+        }
+    }
+
+    /// Compare two values. Int×Int → numeric; Str×Str → lexicographic;
+    /// Bool×Bool → ordinal; mixed types → coerce both to string.
+    pub fn compare(&self, op: CmpOp, rhs: &Value) -> bool {
+        match (self, rhs) {
+            (Self::Int(l), Self::Int(r)) => cmp_ord(l.cmp(r), op),
+            (Self::Str(l), Self::Str(r)) => cmp_ord(l.cmp(r), op),
+            (Self::Bool(l), Self::Bool(r)) => cmp_ord(l.cmp(r), op),
+            // Mixed types: coerce to string for comparison
+            _ => {
+                let l = self.to_display();
+                let r = rhs.to_display();
+                cmp_ord(l.cmp(&r), op)
+            }
+        }
+    }
+}
+
+fn cmp_ord(ord: std::cmp::Ordering, op: CmpOp) -> bool {
+    match op {
+        CmpOp::Eq => ord.is_eq(),
+        CmpOp::Ne => ord.is_ne(),
+        CmpOp::Gt => ord.is_gt(),
+        CmpOp::Lt => ord.is_lt(),
+        CmpOp::Ge => ord.is_ge(),
+        CmpOp::Le => ord.is_le(),
+    }
+}
+
 /// Condition expression for `when=` attributes.
 pub enum CondExpr {
     /// Variable is truthy (non-empty, non-"0").
     Truthy(CompactString),
-    /// Variable compared to a value.
+    /// Variable compared to a typed value.
     Compare {
         variable: CompactString,
         op: CmpOp,
-        value: CompactString,
+        value: Value,
     },
     And(Box<CondExpr>, Box<CondExpr>),
     Or(Box<CondExpr>, Box<CondExpr>),

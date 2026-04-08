@@ -7,9 +7,11 @@ use crate::protocol::{CursorMode, StatusStyle};
 use crate::state::DirtyFlags;
 use crate::state::derived::EditorMode;
 
-/// Trait for resolving variable names to string values.
+use super::types::Value;
+
+/// Trait for resolving variable names to typed values.
 pub trait VariableResolver {
-    fn resolve(&self, name: &str) -> CompactString;
+    fn resolve(&self, name: &str) -> Value;
 }
 
 /// Resolves variables from the current application state.
@@ -24,50 +26,45 @@ impl<'a> AppViewResolver<'a> {
 }
 
 impl VariableResolver for AppViewResolver<'_> {
-    fn resolve(&self, name: &str) -> CompactString {
+    fn resolve(&self, name: &str) -> Value {
         match name {
-            "cursor_line" => CompactString::from(format!("{}", self.app.cursor_line() + 1)),
-            "cursor_col" => CompactString::from(format!("{}", self.app.cursor_col() + 1)),
-            "cursor_count" => CompactString::from(format!("{}", self.app.cursor_count())),
-            "editor_mode" => CompactString::from(editor_mode_str(self.app.editor_mode())),
-            "line_count" => CompactString::from(format!("{}", self.app.line_count())),
-            "is_focused" => bool_str(self.app.focused()),
-            "cols" => CompactString::from(format!("{}", self.app.cols())),
-            "rows" => CompactString::from(format!("{}", self.app.rows())),
-            // Phase 1D: protocol-derived variables
-            "has_menu" => bool_str(self.app.has_menu()),
-            "has_info" => bool_str(self.app.has_info()),
-            "is_prompt" => bool_str(self.app.is_prompt_mode()),
-            "status_style" => CompactString::from(status_style_str(self.app.status_style())),
-            "cursor_mode" => CompactString::from(cursor_mode_str(self.app.cursor_mode())),
-            "is_dark" => bool_str(self.app.is_dark_background()),
-            "session_count" => {
-                CompactString::from(format!("{}", self.app.session_descriptors().len()))
+            "cursor_line" => Value::Int(self.app.cursor_line() as i64 + 1),
+            "cursor_col" => Value::Int(self.app.cursor_col() as i64 + 1),
+            "cursor_count" => Value::Int(self.app.cursor_count() as i64),
+            "editor_mode" => {
+                Value::Str(CompactString::from(editor_mode_str(self.app.editor_mode())))
             }
+            "line_count" => Value::Int(self.app.line_count() as i64),
+            "is_focused" => Value::Bool(self.app.focused()),
+            "cols" => Value::Int(self.app.cols() as i64),
+            "rows" => Value::Int(self.app.rows() as i64),
+            "has_menu" => Value::Bool(self.app.has_menu()),
+            "has_info" => Value::Bool(self.app.has_info()),
+            "is_prompt" => Value::Bool(self.app.is_prompt_mode()),
+            "status_style" => Value::Str(CompactString::from(status_style_str(
+                self.app.status_style(),
+            ))),
+            "cursor_mode" => {
+                Value::Str(CompactString::from(cursor_mode_str(self.app.cursor_mode())))
+            }
+            "is_dark" => Value::Bool(self.app.is_dark_background()),
+            "session_count" => Value::Int(self.app.session_descriptors().len() as i64),
             "active_session" => self
                 .app
                 .active_session_key()
-                .map(CompactString::from)
-                .unwrap_or_default(),
-            // Phase 1E: aliases
+                .map(|s| Value::Str(CompactString::from(s)))
+                .unwrap_or(Value::Empty),
+            // Aliases
             "filetype" => self.resolve("opt.filetype"),
             "bufname" => self.resolve("opt.bufname"),
             name if name.starts_with("opt.") => self
                 .app
                 .ui_options()
                 .get(&name[4..])
-                .map(|v| CompactString::from(v.as_str()))
-                .unwrap_or_default(),
-            _ => CompactString::default(),
+                .map(|v| Value::Str(CompactString::from(v.as_str())))
+                .unwrap_or(Value::Empty),
+            _ => Value::Empty,
         }
-    }
-}
-
-fn bool_str(b: bool) -> CompactString {
-    if b {
-        CompactString::from("true")
-    } else {
-        CompactString::default()
     }
 }
 
@@ -238,13 +235,11 @@ impl<'a> LineContextResolver<'a> {
 }
 
 impl VariableResolver for LineContextResolver<'_> {
-    fn resolve(&self, name: &str) -> CompactString {
+    fn resolve(&self, name: &str) -> Value {
         match name {
-            "line_number" => CompactString::from(format!("{}", self.line + 1)),
-            "relative_line" => {
-                CompactString::from(format!("{}", self.line.abs_diff(self.cursor_line)))
-            }
-            "is_cursor_line" => bool_str(self.line == self.cursor_line),
+            "line_number" => Value::Int(self.line as i64 + 1),
+            "relative_line" => Value::Int(self.line.abs_diff(self.cursor_line) as i64),
+            "is_cursor_line" => Value::Bool(self.line == self.cursor_line),
             _ => self.app_resolver.resolve(name),
         }
     }

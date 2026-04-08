@@ -8,7 +8,7 @@ use kasane_plugin_model::SettingValue;
 use super::{
     BorderStyleConfig, ClipboardConfig, ColorsConfig, Config, FontConfig, ImageProtocolConfig,
     LogConfig, MenuConfig, MenuPosition, MouseConfig, PluginSelection, PluginsConfig, ScrollConfig,
-    SearchConfig, StatusPosition, ThemeConfig, UiConfig, WindowConfig,
+    SearchConfig, StatusPosition, ThemeConfig, ThemeValue, UiConfig, WindowConfig,
 };
 
 /// Parse config sections from pre-filtered KDL nodes.
@@ -206,13 +206,36 @@ fn parse_log(node: &kdl::KdlNode) -> LogConfig {
     l
 }
 
+fn parse_theme_value(spec: &str) -> ThemeValue {
+    if let Some(name) = spec.strip_prefix('@') {
+        ThemeValue::TokenRef(name.to_string())
+    } else {
+        ThemeValue::FaceSpec(spec.to_string())
+    }
+}
+
 fn parse_theme(node: &kdl::KdlNode) -> ThemeConfig {
     let mut t = ThemeConfig::default();
     if let Some(doc) = node.children() {
         for child in doc.nodes() {
-            let name = child.name().value().to_string();
-            if let Some(spec) = first_string(child) {
-                t.faces.insert(name, spec.to_string());
+            let name = child.name().value();
+
+            if name == "variant" {
+                // variant "dark" { accent "cyan" }
+                if let Some(variant_name) = first_string(child) {
+                    let mut faces = HashMap::new();
+                    if let Some(inner) = child.children() {
+                        for entry in inner.nodes() {
+                            let key = entry.name().value().to_string();
+                            if let Some(spec) = first_string(entry) {
+                                faces.insert(key, parse_theme_value(spec));
+                            }
+                        }
+                    }
+                    t.variants.insert(variant_name.to_string(), faces);
+                }
+            } else if let Some(spec) = first_string(child) {
+                t.faces.insert(name.to_string(), parse_theme_value(spec));
             }
         }
     }

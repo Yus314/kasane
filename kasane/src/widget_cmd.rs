@@ -89,8 +89,8 @@ fn collect_face_tokens(widget: &kasane_core::widget::types::WidgetDef) -> Vec<St
     match &widget.kind {
         WidgetKind::Contribution(c) => {
             for part in &c.parts {
-                if let Some(ref fot) = part.face {
-                    check_fot(fot, &mut tokens);
+                for rule in &part.face_rules {
+                    check_fot(&rule.face, &mut tokens);
                 }
             }
         }
@@ -98,13 +98,17 @@ fn collect_face_tokens(widget: &kasane_core::widget::types::WidgetDef) -> Vec<St
             check_fot(&b.face, &mut tokens);
         }
         WidgetKind::Transform(t) => match &t.patch {
-            WidgetPatch::ModifyFace(fot) | WidgetPatch::WrapContainer(fot) => {
-                check_fot(fot, &mut tokens);
+            WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
+                for rule in rules {
+                    check_fot(&rule.face, &mut tokens);
+                }
             }
         },
         WidgetKind::Gutter(g) => {
-            if let Some(ref fot) = g.face {
-                check_fot(fot, &mut tokens);
+            for branch in &g.branches {
+                for rule in &branch.face_rules {
+                    check_fot(&rule.face, &mut tokens);
+                }
             }
         }
     }
