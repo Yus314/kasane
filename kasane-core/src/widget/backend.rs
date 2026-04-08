@@ -487,7 +487,7 @@ fn build_contribution_element(
     Some(Element::styled_line(atoms))
 }
 
-fn node_error_to_diagnostic(error: &WidgetNodeError) -> PluginDiagnostic {
+pub fn node_error_to_diagnostic(error: &WidgetNodeError) -> PluginDiagnostic {
     PluginDiagnostic {
         target: PluginDiagnosticTarget::Plugin(PluginId(PLUGIN_ID.to_string())),
         kind: PluginDiagnosticKind::RuntimeError {

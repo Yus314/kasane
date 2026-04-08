@@ -160,6 +160,14 @@ mouse {
 
 Override the default face (color + attributes) for UI elements. Each key is a style token name and the value is a face specification string.
 
+Any key in the `theme` block becomes a theme token that can be referenced by widgets with the `@token` prefix (see [widgets.md § Theme Token References](widgets.md#theme-token-references)). The built-in tokens below have default values; custom keys are accepted and start as `Face::default()`.
+
+### Token name normalization
+
+Theme token names use **dot notation** internally (e.g., `menu.item.normal`). In the config file, underscores and dots are interchangeable — `menu_item_normal` and `menu.item.normal` both resolve to the same token. The underscore form is conventional.
+
+### Built-in tokens
+
 | Token | Description | Default face |
 |-------|-------------|--------------|
 | `buffer_text` | Main editor text | *(inherits)* |
@@ -174,6 +182,21 @@ Override the default face (color + attributes) for UI elements. Each key is a st
 | `info_border` | Info popup border | `default,default` |
 | `border` | Container borders | *(inherits)* |
 | `shadow` | Floating window shadow | `default,default+d` |
+
+### Custom tokens
+
+Any additional key you add becomes a custom theme token:
+
+```kdl
+theme {
+    my_accent "cyan,default+b"
+    git_status "green,default"
+}
+```
+
+Widgets can then reference these as `face="@my_accent"` or `face="@git_status"`. When the theme changes via hot-reload, widgets using `@token` references automatically pick up the new values. If a referenced token does not exist, the default face is used.
+
+Source: `kasane-core/src/render/theme.rs:132-141`, `kasane-core/src/render/theme.rs:214-216`
 
 ```kdl
 theme {

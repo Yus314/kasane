@@ -69,9 +69,9 @@ pub fn patch_config_in_document(
 ) -> Result<String, kdl::KdlError> {
     let mut doc: kdl::KdlDocument = existing_source.parse()?;
 
-    // Remove existing config section nodes
+    // Remove existing config section nodes, preserving `widgets` block
     doc.nodes_mut()
-        .retain(|n| !CONFIG_SECTIONS.contains(&n.name().value()));
+        .retain(|n| !CONFIG_SECTIONS.contains(&n.name().value()) || n.name().value() == "widgets");
 
     // Generate fresh config nodes
     let config_nodes = config_to_kdl_nodes(config);

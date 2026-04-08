@@ -97,6 +97,112 @@ fn cursor_mode_str(mode: CursorMode) -> &'static str {
     }
 }
 
+/// Known global variable names (from `AppViewResolver::resolve`).
+pub const KNOWN_VARIABLES: &[&str] = &[
+    "cursor_line",
+    "cursor_col",
+    "cursor_count",
+    "editor_mode",
+    "line_count",
+    "is_focused",
+    "cols",
+    "rows",
+    "has_menu",
+    "has_info",
+    "is_prompt",
+    "status_style",
+    "cursor_mode",
+    "is_dark",
+    "session_count",
+    "active_session",
+    "filetype",
+    "bufname",
+];
+
+/// Known per-line variable names (from `LineContextResolver::resolve`).
+pub const LINE_VARIABLES: &[&str] = &["line_number", "relative_line", "is_cursor_line"];
+
+/// Validate a variable name and return a warning message if it's unknown.
+///
+/// `line_context` should be `true` for gutter widgets where per-line variables
+/// are valid.
+pub fn validate_variable(name: &str, line_context: bool) -> Option<String> {
+    // opt.* variables are always valid (bridged from Kakoune)
+    if name.starts_with("opt.") {
+        return None;
+    }
+
+    if KNOWN_VARIABLES.contains(&name) {
+        return None;
+    }
+
+    if line_context && LINE_VARIABLES.contains(&name) {
+        return None;
+    }
+
+    // Check if it's a line variable used outside of gutter context
+    if !line_context && LINE_VARIABLES.contains(&name) {
+        return Some(format!(
+            "variable '{name}' is only available in gutter widgets (kind=\"gutter\")"
+        ));
+    }
+
+    // Look for fuzzy match
+    let all_vars: Vec<&str> = if line_context {
+        KNOWN_VARIABLES
+            .iter()
+            .chain(LINE_VARIABLES.iter())
+            .copied()
+            .collect()
+    } else {
+        KNOWN_VARIABLES.to_vec()
+    };
+
+    let mut best: Option<(&str, usize)> = None;
+    for &known in &all_vars {
+        let dist = edit_distance(name, known);
+        if dist <= 3 && (best.is_none() || dist < best.unwrap().1) {
+            best = Some((known, dist));
+        }
+    }
+
+    if let Some((suggestion, _)) = best {
+        Some(format!(
+            "unknown variable '{name}', did you mean '{suggestion}'?"
+        ))
+    } else {
+        Some(format!(
+            "unknown variable '{name}' (use opt.<name> for Kakoune options)"
+        ))
+    }
+}
+
+/// Simple Levenshtein edit distance.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    let m = a_bytes.len();
+    let n = b_bytes.len();
+
+    let mut prev = (0..=n).collect::<Vec<_>>();
+    let mut curr = vec![0; n + 1];
+
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a_bytes[i - 1] == b_bytes[j - 1] {
+                0
+            } else {
+                1
+            };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
+}
+
 /// Map a variable name to the DirtyFlags it depends on.
 pub fn variable_dirty_flag(name: &str) -> DirtyFlags {
     match name {

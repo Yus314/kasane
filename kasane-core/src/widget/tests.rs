@@ -1313,6 +1313,201 @@ fn resolve_face_direct_passthrough() {
 }
 
 // =============================================================================
+// Condition parentheses tests
+// =============================================================================
+
+#[test]
+fn cond_paren_simple_group() {
+    // (a || b) && c — without parens, would be a || (b && c)
+    let expr = parse_condition("(a || b) && c").unwrap();
+    let resolver = StaticResolver::new(&[("a", ""), ("b", "true"), ("c", "true")]);
+    assert!(expr.evaluate(&resolver));
+    // With c false, should be false
+    let resolver = StaticResolver::new(&[("a", ""), ("b", "true"), ("c", "")]);
+    assert!(!expr.evaluate(&resolver));
+}
+
+#[test]
+fn cond_paren_nested() {
+    let expr = parse_condition("((a || b) && (c || d))").unwrap();
+    let resolver = StaticResolver::new(&[("a", "true"), ("b", ""), ("c", ""), ("d", "true")]);
+    assert!(expr.evaluate(&resolver));
+}
+
+#[test]
+fn cond_paren_not_group() {
+    let expr = parse_condition("!(a || b)").unwrap();
+    let resolver = StaticResolver::new(&[("a", ""), ("b", "")]);
+    assert!(expr.evaluate(&resolver));
+    let resolver = StaticResolver::new(&[("a", "true"), ("b", "")]);
+    assert!(!expr.evaluate(&resolver));
+}
+
+#[test]
+fn cond_paren_unclosed() {
+    let result = parse_condition("(a || b");
+    assert!(result.is_err());
+    assert!(matches!(
+        result,
+        Err(super::condition::CondParseError::UnclosedParen)
+    ));
+}
+
+// =============================================================================
+// Template format extension tests
+// =============================================================================
+
+#[test]
+fn template_left_align() {
+    let t = Template::parse("{x:<10}").unwrap();
+    let resolver = StaticResolver::new(&[("x", "hi")]);
+    assert_eq!(t.expand(&resolver), "hi        ");
+}
+
+#[test]
+fn template_truncation() {
+    let t = Template::parse("{x:.5}").unwrap();
+    let resolver = StaticResolver::new(&[("x", "hello world")]);
+    assert_eq!(t.expand(&resolver), "hell\u{2026}");
+}
+
+#[test]
+fn template_truncation_no_op_short() {
+    let t = Template::parse("{x:.10}").unwrap();
+    let resolver = StaticResolver::new(&[("x", "hi")]);
+    assert_eq!(t.expand(&resolver), "hi");
+}
+
+#[test]
+fn template_left_align_with_truncation() {
+    let t = Template::parse("{x:<10.5}").unwrap();
+    let resolver = StaticResolver::new(&[("x", "hello world")]);
+    // Truncated to 5 chars (4 + ellipsis), then left-aligned to 10
+    let result = t.expand(&resolver);
+    assert_eq!(result, "hell\u{2026}     ");
+}
+
+#[test]
+fn template_right_align_backward_compat() {
+    // Existing format: {name:width} = right-align
+    let t = Template::parse("{x:6}").unwrap();
+    let resolver = StaticResolver::new(&[("x", "hi")]);
+    assert_eq!(t.expand(&resolver), "    hi");
+}
+
+// =============================================================================
+// Unknown variable detection tests
+// =============================================================================
+
+#[test]
+fn validate_known_variable() {
+    use super::variables::validate_variable;
+    assert!(validate_variable("cursor_line", false).is_none());
+    assert!(validate_variable("editor_mode", false).is_none());
+    assert!(validate_variable("is_focused", false).is_none());
+}
+
+#[test]
+fn validate_unknown_with_suggestion() {
+    use super::variables::validate_variable;
+    let result = validate_variable("cursor_lint", false);
+    assert!(result.is_some());
+    let msg = result.unwrap();
+    assert!(msg.contains("did you mean"));
+    assert!(msg.contains("cursor_line"));
+}
+
+#[test]
+fn validate_opt_prefix_always_valid() {
+    use super::variables::validate_variable;
+    assert!(validate_variable("opt.filetype", false).is_none());
+    assert!(validate_variable("opt.some_custom_thing", false).is_none());
+}
+
+#[test]
+fn validate_line_var_in_gutter_context() {
+    use super::variables::validate_variable;
+    assert!(validate_variable("line_number", true).is_none());
+    assert!(validate_variable("relative_line", true).is_none());
+    assert!(validate_variable("is_cursor_line", true).is_none());
+}
+
+#[test]
+fn validate_line_var_outside_gutter_context() {
+    use super::variables::validate_variable;
+    let result = validate_variable("line_number", false);
+    assert!(result.is_some());
+    assert!(result.unwrap().contains("only available in gutter"));
+}
+
+#[test]
+fn parse_unknown_variable_warning() {
+    let source = r#"mode slot="status-left" text=" {cursor_lint} ""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert_eq!(file.widgets.len(), 1);
+    assert!(
+        !errors.is_empty(),
+        "expected variable warning for cursor_lint"
+    );
+    assert!(errors[0].message.contains("cursor_lin"));
+}
+
+// =============================================================================
+// widgets {} block tests
+// =============================================================================
+
+#[test]
+fn unified_widgets_block() {
+    let source = r#"
+ui { shadow #false }
+widgets {
+    mode slot="status-left" text=" {editor_mode} "
+    cursorline kind="background" line="cursor" face="default,rgb:303030"
+}
+"#;
+    let (config, file, errors) = crate::config::unified::parse_unified(source).unwrap();
+    assert!(!config.ui.shadow);
+    assert_eq!(file.widgets.len(), 2);
+    // No deprecation warnings — widgets are inside the block
+    let deprecation_warnings: Vec<_> = errors
+        .iter()
+        .filter(|e| e.message.contains("deprecated"))
+        .collect();
+    assert!(deprecation_warnings.is_empty());
+}
+
+#[test]
+fn unified_flat_widgets_deprecated() {
+    let source = r#"
+ui { shadow #false }
+mode slot="status-left" text=" {editor_mode} "
+"#;
+    let (_, file, errors) = crate::config::unified::parse_unified(source).unwrap();
+    assert_eq!(file.widgets.len(), 1);
+    // Should have a deprecation warning
+    assert!(errors.iter().any(|e| e.message.contains("deprecated")));
+}
+
+#[test]
+fn unified_mixed_widgets_block_and_flat() {
+    let source = r#"
+widgets {
+    a slot="status-left" text="A"
+}
+b slot="status-right" text="B"
+"#;
+    let (_, file, errors) = crate::config::unified::parse_unified(source).unwrap();
+    assert_eq!(file.widgets.len(), 2);
+    // Only the flat widget should have a deprecation warning
+    let deprecation_warnings: Vec<_> = errors
+        .iter()
+        .filter(|e| e.message.contains("deprecated"))
+        .collect();
+    assert_eq!(deprecation_warnings.len(), 1);
+    assert!(deprecation_warnings[0].name == "b");
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 

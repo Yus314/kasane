@@ -840,8 +840,10 @@ ui {
     shadow #false
 }
 
-mode slot="status-left" text=" {editor_mode} " face="@status_mode"
-position slot="status-right" text=" {cursor_line}:{cursor_col} "
+widgets {
+    mode slot="status-left" text=" {editor_mode} " face="@status_mode"
+    position slot="status-right" text=" {cursor_line}:{cursor_col} "
+}
 "#;
         let (config, widget_file, errors) = unified::parse_unified(kdl_str).unwrap();
         assert!(!config.ui.shadow);

@@ -15,7 +15,7 @@ use super::types::{
     BackgroundWidget, ContributionWidget, FaceOrToken, GutterWidget, LineExpr, Template,
     TransformWidget, WidgetDef, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
 };
-use super::variables::variable_dirty_flag;
+use super::variables::{validate_variable, variable_dirty_flag};
 
 /// Errors during widget file parsing.
 #[derive(Debug)]
@@ -81,6 +81,16 @@ pub fn parse_widget_nodes(
 
         match parse_widget_node(node) {
             Ok(kind) => {
+                // Validate referenced variables
+                let line_context = matches!(kind, WidgetKind::Gutter(_));
+                for var in collect_widget_variables(&kind) {
+                    if let Some(warning) = validate_variable(&var, line_context) {
+                        errors.push(WidgetNodeError {
+                            name: name.to_string(),
+                            message: warning,
+                        });
+                    }
+                }
                 widgets.push(WidgetDef { name, kind, index });
                 index = index.saturating_add(1);
             }
@@ -165,6 +175,47 @@ fn compute_deps(widgets: &[WidgetDef]) -> DirtyFlags {
         }
     }
     flags
+}
+
+/// Collect all variable names referenced by a widget for validation.
+fn collect_widget_variables(kind: &WidgetKind) -> Vec<String> {
+    let mut vars = Vec::new();
+    match kind {
+        WidgetKind::Contribution(c) => {
+            for part in &c.parts {
+                vars.extend(part.template.referenced_variables().map(String::from));
+                if let Some(ref cond) = part.when {
+                    vars.extend(cond.referenced_variables().into_iter().map(String::from));
+                }
+            }
+            if let Some(ref cond) = c.when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+        }
+        WidgetKind::Background(b) => {
+            if let Some(ref cond) = b.when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+        }
+        WidgetKind::Transform(t) => {
+            if let Some(ref cond) = t.when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+        }
+        WidgetKind::Gutter(g) => {
+            vars.extend(g.template.referenced_variables().map(String::from));
+            if let Some(ref cond) = g.when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+            if let Some(ref cond) = g.line_when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+        }
+    }
+    // Deduplicate
+    vars.sort();
+    vars.dedup();
+    vars
 }
 
 /// Parse a single KDL node into a WidgetKind.

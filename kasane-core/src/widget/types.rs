@@ -104,10 +104,21 @@ pub enum TemplateSegment {
     },
 }
 
+/// Alignment direction for formatted template variables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateAlign {
+    Right,
+    Left,
+}
+
 /// Formatting options for template variables.
 pub struct TemplateFmt {
-    /// Right-align to this width.
-    pub width: usize,
+    /// Pad to this width.
+    pub width: Option<usize>,
+    /// Alignment direction (default: right).
+    pub align: TemplateAlign,
+    /// Truncate to this many characters (with `…` suffix).
+    pub truncate: Option<usize>,
 }
 
 /// Condition expression for `when=` attributes.

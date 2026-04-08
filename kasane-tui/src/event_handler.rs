@@ -375,13 +375,47 @@ where
                             }
                             ctx.registry.refresh_slot_metadata(&widget_id);
 
-                            for err in &widget_errors {
-                                tracing::warn!("widget `{}`: {}", err.name, err.message);
+                            // Route widget parse errors to the diagnostic overlay
+                            if !widget_errors.is_empty() {
+                                let diagnostics: Vec<PluginDiagnostic> = widget_errors
+                                    .iter()
+                                    .map(kasane_core::widget::node_error_to_diagnostic)
+                                    .collect();
+                                for err in &widget_errors {
+                                    tracing::warn!("widget `{}`: {}", err.name, err.message);
+                                }
+                                schedule_diagnostic_overlay(
+                                    &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                        TuiEventSink(ctx.session_tx.clone()),
+                                    ),
+                                    ctx.diagnostic_overlay,
+                                    &diagnostics,
+                                );
                             }
                             tracing::info!("kasane.kdl hot-reloaded");
                         }
                         Err(err) => {
                             tracing::warn!("kasane.kdl reload failed (keeping previous): {err}");
+                            let diagnostic = PluginDiagnostic {
+                                target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                    kasane_core::plugin::PluginId("kasane.widgets".to_string()),
+                                ),
+                                kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                    method: "reload".to_string(),
+                                },
+                                message: format!(
+                                    "kasane.kdl reload failed (keeping previous): {err}"
+                                ),
+                                previous: None,
+                                attempted: None,
+                            };
+                            schedule_diagnostic_overlay(
+                                &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(
+                                    ctx.session_tx.clone(),
+                                )),
+                                ctx.diagnostic_overlay,
+                                &[diagnostic],
+                            );
                         }
                     }
                 }

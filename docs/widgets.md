@@ -10,7 +10,7 @@ Widget definitions live in the same file as configuration:
 ~/.config/kasane/kasane.kdl
 ```
 
-Or `$XDG_CONFIG_HOME/kasane/kasane.kdl` if the variable is set. Top-level nodes whose names match a known config section (e.g., `ui`, `scroll`, `theme`, `plugins`) are parsed as configuration. Everything else is treated as a widget definition.
+Or `$XDG_CONFIG_HOME/kasane/kasane.kdl` if the variable is set. Widget definitions go inside a `widgets { }` block. Top-level nodes whose names match a known config section (e.g., `ui`, `scroll`, `theme`, `plugins`) are parsed as configuration.
 
 Kasane watches this file and applies changes within 2 seconds of saving. If the file has a KDL syntax error, the previous widgets remain active (last-known-good). Per-node semantic errors skip the invalid node but keep the rest.
 
@@ -19,21 +19,27 @@ Kasane watches this file and applies changes within 2 seconds of saving. If the 
 Show cursor position in the status bar:
 
 ```kdl
-position slot="status-right" text=" {cursor_line}:{cursor_col} "
+widgets {
+    position slot="status-right" text=" {cursor_line}:{cursor_col} "
+}
 ```
 
 Add this to `~/.config/kasane/kasane.kdl`. The status bar updates live as you move the cursor.
 
+> **Note:** Widget definitions must be placed inside a `widgets { }` block. Top-level widget definitions outside the block still work but emit deprecation warnings.
+
 ## Widget Kinds
 
-Every top-level KDL node defines one widget. The node name is an identifier (used in diagnostics). The `kind=` attribute selects the widget type; it defaults to `"contribution"`.
+Each node inside `widgets { }` defines one widget. The node name is an identifier (used in diagnostics). The `kind=` attribute selects the widget type; it defaults to `"contribution"`.
 
 ### Contribution
 
 Adds content to a slot in the UI layout.
 
 ```kdl
-mode slot="status-left" text=" {editor_mode} " face="white,blue+b"
+widgets {
+    mode slot="status-left" text=" {editor_mode} " face="white,blue+b"
+}
 ```
 
 | Attribute | Required | Description |
@@ -47,10 +53,12 @@ mode slot="status-left" text=" {editor_mode} " face="white,blue+b"
 *`text` is required for the shorthand form. For multi-part widgets, use `part` children instead:
 
 ```kdl
-status-info slot="status-right" {
-    part text=" {editor_mode} " face="default,blue+b"
-    part text=" {cursor_line}:{cursor_col} "
-    part text=" multi:{cursor_count} " when="cursor_count > 1"
+widgets {
+    status-info slot="status-right" {
+        part text=" {editor_mode} " face="default,blue+b"
+        part text=" {cursor_line}:{cursor_col} "
+        part text=" multi:{cursor_count} " when="cursor_count > 1"
+    }
 }
 ```
 
@@ -61,7 +69,9 @@ Each `part` node accepts `text=`, `face=`, and `when=`. Multiple contributions t
 Applies a background face to specific lines.
 
 ```kdl
-cursorline kind="background" line="cursor" face="default,rgb:303030"
+widgets {
+    cursorline kind="background" line="cursor" face="default,rgb:303030"
+}
 ```
 
 | Attribute | Required | Description |
@@ -75,7 +85,9 @@ cursorline kind="background" line="cursor" face="default,rgb:303030"
 Modifies the face of an existing UI element.
 
 ```kdl
-insert-status kind="transform" target="status" face="default,blue" when="editor_mode == 'insert'"
+widgets {
+    insert-status kind="transform" target="status" face="default,blue" when="editor_mode == 'insert'"
+}
 ```
 
 | Attribute | Required | Description |
@@ -92,7 +104,9 @@ insert-status kind="transform" target="status" face="default,blue" when="editor_
 Adds per-line annotations in the gutter area.
 
 ```kdl
-line-numbers kind="gutter" side="left" text="{line_number:4} " face="rgb:888888"
+widgets {
+    line-numbers kind="gutter" side="left" text="{line_number:4} " face="rgb:888888"
+}
 ```
 
 | Attribute | Required | Description |
@@ -120,6 +134,20 @@ Slots are regions in the UI layout where contribution widgets can place content.
 | `above-status` | Between the buffer and the status bar |
 
 Source: `kasane-core/src/widget/parse.rs:275-284`
+
+### Widget Ordering
+
+Widgets appear in each slot in the order they are defined in the file. To reorder widgets in the status bar, reorder them in `kasane.kdl`.
+
+### Status Bar Composition
+
+```
+┌─────────────┬──────────────────────────────┬──────────────────┐
+│ status-left │   Kakoune status (flex fill)  │   status-right   │
+└─────────────┴──────────────────────────────┴──────────────────┘
+```
+
+The status bar has three regions. `status-left` and `status-right` are sized to their content (or explicit `size=`). The center area is Kakoune's native status line, which flex-fills the remaining space.
 
 ## Transform Targets
 
@@ -200,6 +228,9 @@ insert-bg kind="transform" target="status" face="default,blue" when="editor_mode
 
 // Logical operators
 prompt-info slot="status-right" text=" prompt " when="is_prompt && has_info"
+
+// Parentheses for grouping
+special slot="status-right" text=" ! " when="(is_prompt || has_menu) && cursor_count > 1"
 ```
 
 ### Operators
@@ -215,6 +246,9 @@ prompt-info slot="status-right" text=" prompt " when="is_prompt && has_info"
 | `&&` | Logical AND |
 | `\|\|` | Logical OR |
 | `!` | Logical NOT |
+| `(` `)` | Grouping (controls precedence) |
+
+Precedence (lowest to highest): `||`, `&&`, `!`. Use parentheses to override: `(a || b) && c`.
 
 Numeric values are compared numerically; otherwise lexicographic comparison is used. String values in comparisons can be quoted with single quotes: `editor_mode == 'insert'`.
 
@@ -227,9 +261,12 @@ Source: `kasane-core/src/widget/condition.rs`
 Templates expand variables inline within text content.
 
 ```
-{variable_name}          → expanded value
-{variable_name:width}    → right-aligned to width
-literal text             → passed through as-is
+{variable_name}            → expanded value
+{variable_name:N}          → right-aligned, padded to N columns
+{variable_name:<N}         → left-aligned, padded to N columns
+{variable_name:.N}         → truncated to N characters (with trailing …)
+{variable_name:<N.M}       → left-aligned to N columns, truncated to M chars
+literal text               → passed through as-is
 ```
 
 Examples:
@@ -238,9 +275,20 @@ Examples:
 // Simple expansion
 pos slot="status-right" text=" {cursor_line}:{cursor_col} "
 
-// Right-aligned with padding
+// Right-aligned with padding (default)
 line-numbers kind="gutter" side="left" text="{line_number:4} "
+
+// Left-aligned
+filename slot="status-left" text=" {bufname:<20} "
+
+// Truncate long values (adds … when exceeded)
+path slot="status-left" text=" {bufname:.30} "
+
+// Combined: left-align to 20 columns, truncate at 30 characters
+info slot="status-left" text=" {bufname:<20.30} "
 ```
+
+Unknown variables expand to an empty string and produce a warning with a fuzzy suggestion (e.g., `unknown variable 'cursor_lint', did you mean 'cursor_line'?`).
 
 Source: `kasane-core/src/widget/template.rs`
 
@@ -258,9 +306,14 @@ mode slot="status-left" face="white,blue+b" text=" {editor_mode} "
 
 // Theme token reference (uses @ prefix)
 mode slot="status-left" face="@status_line" text=" {editor_mode} "
+
+// Custom token defined in theme { }
+mode slot="status-left" face="@my_accent" text=" {editor_mode} "
 ```
 
-The `@` prefix indicates a theme token reference. The token name uses underscore notation matching the `theme` section keys (e.g., `@menu_item_normal` maps to the `menu_item_normal` key in the `theme` block).
+The `@` prefix indicates a theme token reference. Both underscores and dots are accepted — `@menu_item_normal` and `@menu.item.normal` resolve to the same token. The underscore form is conventional.
+
+Any key in the `theme { }` block becomes a valid token — both built-in and custom. See [config.md § Custom tokens](config.md#custom-tokens) for details.
 
 When the theme changes (via config hot-reload), widgets using `@token` references automatically pick up the new colors.
 
@@ -289,13 +342,90 @@ Use `kasane widget check` to validate a file without starting Kasane:
 ```
 kasane widget check                              # checks default path
 kasane widget check path/to/kasane.kdl           # checks specific file
+kasane widget check --watch                      # re-check on every save
 ```
+
+The `--watch` flag monitors the file for changes and re-validates automatically, useful during widget development.
+
+## Recipes
+
+### Bridging Kakoune options via `opt.*`
+
+Kakoune can expose arbitrary data to widgets through `ui_options`. Set an option in your `kakrc` with `set-option`, then read it in widget templates as `{opt.<key>}`:
+
+**Example: show the current git branch**
+
+In your `kakrc`:
+
+```kak
+hook global WinDisplay .* %{
+    try %{
+        set-option -add window ui_options \
+            "git_branch=%sh{ git branch --show-current 2>/dev/null }"
+    }
+}
+```
+
+In `kasane.kdl`:
+
+```kdl
+theme {
+    git_face "green,default"
+}
+
+widgets {
+    git-branch slot="status-right" text=" {opt.git_branch} " face="@git_face" when="opt.git_branch"
+}
+```
+
+The `when="opt.git_branch"` condition hides the widget when the value is empty (i.e., not in a git repo). The `opt.*` namespace is open-ended — any key in Kakoune's `ui_options` map is accessible as `opt.<key>`. Variable names with `opt.` prefix are always valid and never produce unknown-variable warnings.
+
+### Mode-dependent status bar color
+
+```kdl
+widgets {
+    insert-bg kind="transform" target="status" face="default,blue" when="editor_mode == 'insert'"
+    normal-bg kind="transform" target="status" face="default,rgb:303030" when="editor_mode == 'normal'"
+}
+```
+
+### Relative line numbers
+
+```kdl
+widgets {
+    relnum kind="gutter" side="left" text="{relative_line:3} " face="rgb:666666"
+}
+```
+
+## How do I...?
+
+| Goal | Widget kind | Key attributes |
+|------|-------------|----------------|
+| Show text in the status bar | contribution | `slot="status-left"` or `status-right`, `text=` |
+| Add line numbers | gutter | `kind="gutter"`, `text="{line_number:4} "` |
+| Highlight the cursor line | background | `kind="background"`, `line="cursor"` |
+| Change status bar color per mode | transform | `kind="transform"`, `target="status"`, `when=` |
+| Show/hide a widget conditionally | any | `when=` attribute |
+| Show a Kakoune option value | contribution | `text="{opt.my_option}"` (see [Recipes](#bridging-kakoune-options-via-opt)) |
+| Display content beside the buffer | contribution | `slot="buffer-left"` or `buffer-right` |
 
 ## Constraints
 
 - Maximum 64 widget definitions per file.
 
+## Limitations
+
+Widgets are intentionally simple — they combine templates, conditions, and faces. For anything beyond this, write a plugin:
+
+- **Dynamic content** — widgets can only display variable values; they cannot compute derived values, call external commands, or maintain state.
+- **Syntax highlighting** — widgets cannot modify per-token faces within the buffer. Use a Kakoune highlighter or a transform plugin.
+- **Interactive elements** — widgets are display-only. Clickable actions, input fields, and focus management require the Plugin trait.
+- **Cross-widget communication** — widgets are independent. If you need one widget to react to another, use plugins with the pub/sub system.
+- **Custom overlays** — floating panels, popups, and modals require the overlay extension point (plugin-only).
+
+See [Plugin Development](plugin-development.md) for the full Plugin trait and WASM SDK.
+
 ## Next Steps
 
 - [Configuration](config.md) — theme colors, UI settings
-- [Plugin Development](plugin-development.md) — write plugins with the full Plugin trait or WASM SDK for capabilities beyond what widgets offer
+- [Plugin Development](plugin-development.md) — write plugins for capabilities beyond what widgets offer

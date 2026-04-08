@@ -26,7 +26,7 @@ pub enum CliAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WidgetSubcommand {
-    Check { path: Option<String> },
+    Check { path: Option<String>, watch: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,9 +428,17 @@ fn parse_widget_args<'a>(
 ) -> Result<WidgetSubcommand, CliError> {
     let sub = iter.next().ok_or(CliError::WidgetMissingSubcommand)?;
     match sub.as_str() {
-        "check" => Ok(WidgetSubcommand::Check {
-            path: iter.next().cloned(),
-        }),
+        "check" => {
+            let mut path = None;
+            let mut watch = false;
+            for arg in iter {
+                match arg.as_str() {
+                    "--watch" => watch = true,
+                    _ => path = Some(arg.clone()),
+                }
+            }
+            Ok(WidgetSubcommand::Check { path, watch })
+        }
         other => Err(CliError::WidgetUnknownSubcommand(other.to_string())),
     }
 }
@@ -523,7 +531,7 @@ Subcommands:
   plugin pin <id> ...               Pin a plugin to a digest or package/version
   plugin unpin <id>                 Remove explicit selection for a plugin
   plugin update                     Advance auto-selected plugins to newer installed versions
-  widget check [<path>]             Validate a kasane.kdl file
+  widget check [<path>] [--watch]   Validate a kasane.kdl file (--watch: re-check on change)
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.

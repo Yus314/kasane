@@ -11,6 +11,7 @@ pub enum CondParseError {
     UnexpectedEnd,
     UnexpectedToken(String),
     TooManyNodes,
+    UnclosedParen,
 }
 
 impl std::fmt::Display for CondParseError {
@@ -19,6 +20,7 @@ impl std::fmt::Display for CondParseError {
             Self::UnexpectedEnd => write!(f, "unexpected end of condition expression"),
             Self::UnexpectedToken(t) => write!(f, "unexpected token in condition: '{t}'"),
             Self::TooManyNodes => write!(f, "condition expression too complex (max 16 nodes)"),
+            Self::UnclosedParen => write!(f, "unclosed '(' in condition expression"),
         }
     }
 }
@@ -60,7 +62,7 @@ impl<'a> Parser<'a> {
             }
         }
         // Single-char operators
-        for op in &["!", ">", "<"] {
+        for op in &["!", ">", "<", "(", ")"] {
             if rest.starts_with(op) {
                 return Some(&rest[..1]);
             }
@@ -76,7 +78,7 @@ impl<'a> Parser<'a> {
 
         // Bare word/number
         let end = rest
-            .find(|c: char| c.is_ascii_whitespace() || "!=<>&|'".contains(c))
+            .find(|c: char| c.is_ascii_whitespace() || "!=<>&|'()".contains(c))
             .unwrap_or(rest.len());
         if end > 0 { Some(&rest[..end]) } else { None }
     }
@@ -128,13 +130,27 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// `not_expr := "!" atom | atom`
+    /// `not_expr := "!" primary | primary`
     fn parse_not(&mut self) -> Result<CondExpr, CondParseError> {
         if self.peek() == Some("!") {
             self.advance(1);
             self.bump_node()?;
-            let inner = self.parse_atom()?;
+            let inner = self.parse_primary()?;
             return Ok(CondExpr::Not(Box::new(inner)));
+        }
+        self.parse_primary()
+    }
+
+    /// `primary := "(" expr ")" | atom`
+    fn parse_primary(&mut self) -> Result<CondExpr, CondParseError> {
+        if self.peek() == Some("(") {
+            self.advance(1);
+            let inner = self.parse_expr()?;
+            if self.peek() != Some(")") {
+                return Err(CondParseError::UnclosedParen);
+            }
+            self.advance(1);
+            return Ok(inner);
         }
         self.parse_atom()
     }
@@ -186,7 +202,10 @@ impl<'a> Parser<'a> {
 }
 
 fn is_operator(s: &str) -> bool {
-    matches!(s, "==" | "!=" | ">" | "<" | ">=" | "<=" | "||" | "&&" | "!")
+    matches!(
+        s,
+        "==" | "!=" | ">" | "<" | ">=" | "<=" | "||" | "&&" | "!" | "(" | ")"
+    )
 }
 
 /// Parse a condition expression string.

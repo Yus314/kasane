@@ -10,7 +10,7 @@ pub mod variables;
 #[cfg(test)]
 mod tests;
 
-pub use backend::WidgetBackend;
-pub use parse::{parse_widget_nodes, parse_widgets};
+pub use backend::{WidgetBackend, node_error_to_diagnostic};
+pub use parse::{WidgetNodeError, parse_widget_nodes, parse_widgets};
 pub use types::{FaceOrToken, WidgetFile, WidgetKind};
 pub use variables::LineContextResolver;
