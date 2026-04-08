@@ -12,6 +12,10 @@ pub enum CondParseError {
     UnexpectedToken(String),
     TooManyNodes,
     UnclosedParen,
+    /// Invalid regex pattern in `=~` operator.
+    InvalidRegex(String),
+    /// Missing parenthesized value list after `in`.
+    InvalidInSyntax(String),
 }
 
 impl std::fmt::Display for CondParseError {
@@ -21,6 +25,8 @@ impl std::fmt::Display for CondParseError {
             Self::UnexpectedToken(t) => write!(f, "unexpected token in condition: '{t}'"),
             Self::TooManyNodes => write!(f, "condition expression too complex (max 16 nodes)"),
             Self::UnclosedParen => write!(f, "unclosed '(' in condition expression"),
+            Self::InvalidRegex(e) => write!(f, "invalid regex in '=~': {e}"),
+            Self::InvalidInSyntax(e) => write!(f, "invalid 'in' syntax: {e}"),
         }
     }
 }
@@ -56,7 +62,7 @@ impl<'a> Parser<'a> {
         let rest = &self.input[self.pos..];
 
         // Two-char operators
-        for op in &["==", "!=", ">=", "<=", "||", "&&"] {
+        for op in &["==", "!=", ">=", "<=", "||", "&&", "=~"] {
             if rest.starts_with(op) {
                 return Some(&rest[..2]);
             }
@@ -155,7 +161,7 @@ impl<'a> Parser<'a> {
         self.parse_atom()
     }
 
-    /// `atom := variable op value | variable`
+    /// `atom := variable op value | variable "in" "(" values ")" | variable`
     fn parse_atom(&mut self) -> Result<Predicate, CondParseError> {
         self.bump_node()?;
         let token = self.consume().ok_or(CondParseError::UnexpectedEnd)?;
@@ -175,13 +181,25 @@ impl<'a> Parser<'a> {
             Some("<") => Some(CmpOp::Lt),
             Some(">=") => Some(CmpOp::Ge),
             Some("<=") => Some(CmpOp::Le),
+            Some("=~") => Some(CmpOp::Matches),
             _ => None,
         };
 
         if let Some(op) = op {
             let op_token = self.consume().unwrap();
-            self.advance(0); // just to consume whitespace via peek
             let _ = op_token;
+
+            if op == CmpOp::Matches {
+                // Regex match: compile RHS as regex at parse time.
+                let pattern_token = self.consume().ok_or(CondParseError::UnexpectedEnd)?;
+                let pattern_str = unquote(pattern_token);
+                let regex = regex_lite::Regex::new(&pattern_str)
+                    .map_err(|e| CondParseError::InvalidRegex(e.to_string()))?;
+                return Ok(Predicate::VariableMatches {
+                    variable,
+                    pattern: std::sync::Arc::new(regex),
+                });
+            }
 
             let value_token = self.consume().ok_or(CondParseError::UnexpectedEnd)?;
             let value = parse_literal_value(value_token);
@@ -191,17 +209,76 @@ impl<'a> Parser<'a> {
                 op,
                 value,
             })
+        } else if next == Some("in") {
+            // Set membership: variable in ('a', 'b', 'c')
+            self.consume(); // consume "in"
+            self.parse_in_values(variable)
         } else {
             Ok(Predicate::VariableTruthy(variable))
         }
+    }
+
+    /// Parse the `('value1', 'value2', ...)` part of a `variable in (...)` expression.
+    fn parse_in_values(&mut self, variable: CompactString) -> Result<Predicate, CondParseError> {
+        self.skip_whitespace();
+        if self.pos >= self.input.len() || self.input.as_bytes()[self.pos] != b'(' {
+            return Err(CondParseError::InvalidInSyntax(
+                "expected '(' after 'in'".to_string(),
+            ));
+        }
+        self.pos += 1; // consume '('
+
+        // Find matching ')' and extract the content between parens.
+        let start = self.pos;
+        let mut depth = 1u32;
+        while self.pos < self.input.len() {
+            match self.input.as_bytes()[self.pos] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            self.pos += 1;
+        }
+        if depth != 0 {
+            return Err(CondParseError::InvalidInSyntax(
+                "unclosed '(' in 'in' value list".to_string(),
+            ));
+        }
+        let content = &self.input[start..self.pos];
+        self.pos += 1; // consume ')'
+
+        // Split by commas and parse each value.
+        let mut values = Vec::new();
+        for item in content.split(',') {
+            let trimmed = item.trim();
+            if !trimmed.is_empty() {
+                values.push(parse_literal_value(trimmed));
+            }
+        }
+
+        Ok(Predicate::VariableIn { variable, values })
     }
 }
 
 fn is_operator(s: &str) -> bool {
     matches!(
         s,
-        "==" | "!=" | ">" | "<" | ">=" | "<=" | "||" | "&&" | "!" | "(" | ")"
+        "==" | "!=" | ">" | "<" | ">=" | "<=" | "||" | "&&" | "!" | "(" | ")" | "=~"
     )
+}
+
+/// Strip surrounding single quotes from a token, if present.
+fn unquote(token: &str) -> String {
+    if token.starts_with('\'') && token.ends_with('\'') && token.len() >= 2 {
+        token[1..token.len() - 1].to_string()
+    } else {
+        token.to_string()
+    }
 }
 
 /// Parse a literal token into a typed `Value`.

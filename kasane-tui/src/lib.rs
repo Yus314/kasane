@@ -154,9 +154,18 @@ where
 
     // Load widgets from unified kasane.kdl (each widget becomes its own plugin)
     let mut widget_names: Vec<String> = Vec::new();
+    let mut widget_included_paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut last_config_hash: u64 = 0;
     {
         let config_path = kasane_core::config::config_path();
         if let Ok(source) = std::fs::read_to_string(&config_path) {
+            // Compute initial content hash for skip-if-unchanged hot-reload.
+            {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                source.hash(&mut hasher);
+                last_config_hash = hasher.finish();
+            }
             match kasane_core::config::unified::parse_unified(&source) {
                 Ok((_config, config_errors, widget_file, errors)) => {
                     for err in &config_errors {
@@ -165,6 +174,7 @@ where
                     for err in &errors {
                         tracing::warn!("widget `{}`: {}", err.name, err.message);
                     }
+                    widget_included_paths = widget_file.included_paths.clone();
                     widget_names = kasane_core::widget::register_all_widgets(
                         widget_file,
                         &errors,
@@ -229,24 +239,93 @@ where
         });
     }
 
-    // Unified kasane.kdl hot-reload watcher thread
-    {
-        let config_path = kasane_core::config::config_path();
+    // Unified kasane.kdl hot-reload watcher (notify-based, replaces 2s polling)
+    //
+    // Watches the config directory and any included widget file directories.
+    // A 100ms debounce window collapses rapid-fire editor save events.
+    let _config_watcher = {
+        use notify::Watcher;
+
         let file_tx = tx.clone();
-        std::thread::spawn(move || {
-            let mut last_modified = config_path.metadata().and_then(|m| m.modified()).ok();
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                let current = config_path.metadata().and_then(|m| m.modified()).ok();
-                if current != last_modified {
-                    last_modified = current;
-                    if file_tx.send(Event::FileReload).is_err() {
-                        return;
-                    }
-                }
+        let config_path = kasane_core::config::config_path();
+
+        let (debounce_tx, debounce_rx) = std::sync::mpsc::channel::<()>();
+        let watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(event) = res
+                && (event.kind.is_modify() || event.kind.is_create())
+            {
+                let _ = debounce_tx.send(());
             }
         });
-    }
+
+        match watcher {
+            Ok(mut watcher) => {
+                // Watch config file's parent directory.
+                if let Some(parent) = config_path.parent() {
+                    let _ = watcher.watch(parent, notify::RecursiveMode::NonRecursive);
+                }
+
+                // Also watch directories containing included widget files.
+                let mut watched_dirs = std::collections::HashSet::new();
+                for inc_path in &widget_included_paths {
+                    if let Some(parent) = inc_path.parent()
+                        && watched_dirs.insert(parent.to_path_buf())
+                    {
+                        let _ = watcher.watch(parent, notify::RecursiveMode::NonRecursive);
+                    }
+                }
+
+                // Debounce thread: wait 100ms after last event before firing FileReload.
+                std::thread::spawn(move || {
+                    while debounce_rx.recv().is_ok() {
+                        // Drain pending events within the debounce window.
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        while debounce_rx.try_recv().is_ok() {}
+                        if file_tx.send(Event::FileReload).is_err() {
+                            return;
+                        }
+                    }
+                });
+
+                Some(watcher)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "failed to create config file watcher, falling back to polling: {e}"
+                );
+                // Fallback: 2-second polling thread.
+                let file_tx2 = tx.clone();
+                let included_paths = widget_included_paths.clone();
+                std::thread::spawn(move || {
+                    let mut last_modified = config_path.metadata().and_then(|m| m.modified()).ok();
+                    let mut included_mtimes: Vec<Option<std::time::SystemTime>> = included_paths
+                        .iter()
+                        .map(|p| p.metadata().and_then(|m| m.modified()).ok())
+                        .collect();
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        let mut changed = false;
+                        let current = config_path.metadata().and_then(|m| m.modified()).ok();
+                        if current != last_modified {
+                            last_modified = current;
+                            changed = true;
+                        }
+                        for (i, path) in included_paths.iter().enumerate() {
+                            let current = path.metadata().and_then(|m| m.modified()).ok();
+                            if current != included_mtimes[i] {
+                                included_mtimes[i] = current;
+                                changed = true;
+                            }
+                        }
+                        if changed && file_tx2.send(Event::FileReload).is_err() {
+                            return;
+                        }
+                    }
+                });
+                None
+            }
+        }
+    };
 
     // Timer scheduler for plugin timer events
     let timer = kasane_core::event_loop::GenericTimerScheduler(tui_sink.clone());
@@ -380,6 +459,7 @@ where
                 plugin_manager: &mut plugin_manager,
                 diagnostic_overlay: &mut diagnostic_overlay,
                 widget_names: &mut widget_names,
+                last_config_hash: &mut last_config_hash,
             };
 
             // Process first event

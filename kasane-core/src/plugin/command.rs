@@ -166,6 +166,15 @@ pub enum Command {
     StartProcessTask {
         task_name: String,
     },
+    /// Expose a variable to the widget system.
+    ///
+    /// Widget templates can reference it as `{plugin.<name>}`.
+    /// The variable persists in the `PluginVariableStore` until overwritten
+    /// or cleared by the owning plugin.
+    ExposeVariable {
+        name: String,
+        value: crate::widget::types::Value,
+    },
 }
 
 impl Command {
@@ -299,7 +308,8 @@ pub fn execute_commands(
             | Command::ClosePaneClient { .. }
             | Command::BindSurfaceSession { .. }
             | Command::UnbindSurfaceSession { .. }
-            | Command::StartProcessTask { .. } => {}
+            | Command::StartProcessTask { .. }
+            | Command::ExposeVariable { .. } => {}
         }
     }
     CommandResult::Continue

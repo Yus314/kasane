@@ -22,6 +22,7 @@ pub mod render_ornament;
 pub mod setting;
 pub mod state;
 mod traits;
+pub mod variable_store;
 
 #[cfg(test)]
 mod tests;
@@ -106,6 +107,7 @@ pub use render_ornament::{
     RenderOrnamentContext, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind,
 };
 pub use state::{Plugin, PluginState};
+pub use variable_store::PluginVariableStore;
 
 bitflags! {
     /// Declares which Plugin trait methods a plugin actually implements.

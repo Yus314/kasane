@@ -12,29 +12,45 @@ use kasane_plugin_model::TransformTarget;
 use super::predicate::Predicate;
 
 /// A face that is either a direct Face value or a reference to a theme token.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum FaceOrToken {
     Direct(Face),
     Token(StyleToken),
 }
 
 /// A parsed widget file containing all widget definitions.
+#[derive(PartialEq)]
 pub struct WidgetFile {
     pub widgets: Vec<WidgetDef>,
     /// Union of all referenced variables' dirty flags.
     pub computed_deps: DirtyFlags,
+    /// Paths of included widget files (for file watcher).
+    pub included_paths: Vec<std::path::PathBuf>,
 }
 
 /// A single widget definition.
+///
+/// A widget can have one or more effects. Single-effect widgets (the common case)
+/// hold a single entry in `effects`. Multi-effect widgets can combine e.g.
+/// a contribution and a background in one definition block.
+#[derive(PartialEq)]
 pub struct WidgetDef {
     pub name: CompactString,
-    pub kind: WidgetKind,
+    pub effects: Vec<WidgetEffect>,
+    /// Shared global condition — applies to all effects.
+    pub when: Option<Predicate>,
     /// File order index → implicit priority.
     pub index: u16,
 }
 
+/// A single effect within a widget definition.
+#[derive(Clone, PartialEq)]
+pub struct WidgetEffect {
+    pub kind: WidgetKind,
+}
+
 /// The kind of widget.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum WidgetKind {
     Contribution(ContributionWidget),
     Background(BackgroundWidget),
@@ -45,7 +61,7 @@ pub enum WidgetKind {
 }
 
 /// A widget that contributes an element to a slot.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ContributionWidget {
     pub slot: SlotId,
     pub parts: Vec<WidgetPart>,
@@ -54,14 +70,14 @@ pub struct ContributionWidget {
 }
 
 /// A face rule: a face with an optional condition. First matching rule wins.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct FaceRule {
     pub face: FaceOrToken,
     pub when: Option<Predicate>,
 }
 
 /// A single part of a contribution widget (text segment with face rules and condition).
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct WidgetPart {
     pub template: Template,
     /// Face rules evaluated in order; first match wins. Empty = default face.
@@ -70,7 +86,7 @@ pub struct WidgetPart {
 }
 
 /// A widget that provides a background layer for a line.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct BackgroundWidget {
     pub line_expr: LineExpr,
     pub face: FaceOrToken,
@@ -78,14 +94,14 @@ pub struct BackgroundWidget {
 }
 
 /// Expression determining which line a background widget applies to.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum LineExpr {
     CursorLine,
     Selection,
 }
 
 /// A widget that applies a transform patch.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TransformWidget {
     pub target: TransformTarget,
     pub patch: WidgetPatch,
@@ -93,14 +109,14 @@ pub struct TransformWidget {
 }
 
 /// Declarative transform operations available in widgets.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum WidgetPatch {
     ModifyFace(Vec<FaceRule>),
     WrapContainer(Vec<FaceRule>),
 }
 
 /// A branch in a gutter widget: template + face rules with a per-line condition.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct GutterBranch {
     pub template: Template,
     pub face_rules: Vec<FaceRule>,
@@ -109,7 +125,7 @@ pub struct GutterBranch {
 }
 
 /// A widget that provides gutter annotations per line.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct GutterWidget {
     pub side: GutterSide,
     /// Branches evaluated in order; first matching (line_when) branch wins.
@@ -118,14 +134,33 @@ pub struct GutterWidget {
     pub when: Option<Predicate>,
 }
 
+/// A pattern for inline widget matching — either a literal substring or a regex.
+#[derive(Clone)]
+pub enum InlinePattern {
+    /// Simple substring match.
+    Substring(CompactString),
+    /// Regex match (compiled at parse time).
+    Regex(std::sync::Arc<regex_lite::Regex>),
+}
+
+impl PartialEq for InlinePattern {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Substring(a), Self::Substring(b)) => a == b,
+            (Self::Regex(a), Self::Regex(b)) => a.as_str() == b.as_str(),
+            _ => false,
+        }
+    }
+}
+
 /// A widget that inserts inline decorations based on pattern matching.
 ///
-/// Matches a substring pattern against each visible line and applies a face
-/// to the matched range.
-#[derive(Clone)]
+/// Matches a substring or regex pattern against each visible line and applies
+/// a face to the matched range.
+#[derive(Clone, PartialEq)]
 pub struct InlineWidget {
-    /// Substring pattern to match in line content.
-    pub pattern: CompactString,
+    /// Pattern to match in line content.
+    pub pattern: InlinePattern,
     /// Face to apply to matched ranges.
     pub face: FaceOrToken,
     /// Global on/off condition.
@@ -133,7 +168,7 @@ pub struct InlineWidget {
 }
 
 /// A widget that appends virtual text at the end of lines.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct VirtualTextWidget {
     /// Template for the virtual text content.
     pub template: Template,
@@ -146,13 +181,13 @@ pub struct VirtualTextWidget {
 /// A template string with literal and variable segments.
 ///
 /// Example: `" {cursor_line}:{cursor_col} "`
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Template {
     pub segments: Vec<TemplateSegment>,
 }
 
 /// A segment of a template.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum TemplateSegment {
     Literal(CompactString),
     Variable {
@@ -175,7 +210,7 @@ pub enum TemplateAlign {
 }
 
 /// Formatting options for template variables.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TemplateFmt {
     /// Pad to this width.
     pub width: Option<usize>,
@@ -247,6 +282,8 @@ fn cmp_ord(ord: std::cmp::Ordering, op: CmpOp) -> bool {
         CmpOp::Lt => ord.is_lt(),
         CmpOp::Ge => ord.is_ge(),
         CmpOp::Le => ord.is_le(),
+        // Matches is handled at the Predicate level, never reaches here.
+        CmpOp::Matches => false,
     }
 }
 
@@ -265,4 +302,6 @@ pub enum CmpOp {
     Lt,
     Ge,
     Le,
+    /// Regex match operator (`=~`).
+    Matches,
 }

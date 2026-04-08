@@ -8,6 +8,7 @@ pub mod predicate;
 pub mod template;
 pub mod types;
 pub mod variables;
+pub mod visitor;
 
 #[cfg(test)]
 mod tests;

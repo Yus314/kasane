@@ -201,6 +201,10 @@ pub(super) fn handle_deferred_commands_inner(
             Command::StartProcessTask { .. } => {
                 handle_start_process_task(cmd, ctx, command_source_plugin, depth)
             }
+            Command::ExposeVariable { .. } => {
+                handle_expose_variable(cmd, ctx);
+                Some(false)
+            }
             // Immediate commands should not reach the deferred handler
             _ => unreachable!("immediate commands filtered by partition_commands"),
         };
@@ -248,6 +252,13 @@ fn handle_inter_plugin_command(
         _ => unreachable!(),
     }
     Some(false)
+}
+
+/// Handle `ExposeVariable` by storing the value in the plugin variable store.
+fn handle_expose_variable(cmd: Command, ctx: &mut DeferredContext<'_>) {
+    if let Command::ExposeVariable { name, value } = cmd {
+        ctx.registry.variable_store_mut().set(&name, value);
+    }
 }
 
 /// Register a plugin-owned surface and dispatch layout addition on success.

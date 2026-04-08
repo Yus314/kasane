@@ -15,7 +15,7 @@ kasane-plugin-package = { workspace = true }
 kasane-tui = { workspace = true }
 kasane-gui = { workspace = true, optional = true }
 kasane-wasm = { workspace = true, optional = true }
-notify = { version = "7", optional = true }
+notify = { workspace = true, optional = true }
 anyhow = { workspace = true }
 fs2 = { workspace = true }
 serde = { workspace = true }

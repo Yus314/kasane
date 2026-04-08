@@ -11,12 +11,14 @@ use kasane_plugin_model::TransformTarget;
 use super::condition::parse_condition;
 use crate::plugin::{ContribSizeHint, GutterSide};
 
+use super::predicate::Predicate;
 use super::types::{
     BackgroundWidget, ContributionWidget, FaceOrToken, FaceRule, GutterBranch, GutterWidget,
-    InlineWidget, LineExpr, Template, TransformWidget, VirtualTextWidget, WidgetDef, WidgetFile,
-    WidgetKind, WidgetPart, WidgetPatch,
+    InlinePattern, InlineWidget, LineExpr, Template, TransformWidget, VirtualTextWidget, WidgetDef,
+    WidgetEffect, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
 };
 use super::variables::{validate_variable, variable_dirty_flag};
+use super::visitor::{WidgetVisitor, walk_widget_kind};
 
 /// Errors during widget file parsing.
 #[derive(Debug)]
@@ -80,19 +82,37 @@ pub fn parse_widget_nodes(
 
         let name = CompactString::from(node.name().value());
 
-        match parse_widget_node(node) {
-            Ok(kind) => {
-                // Validate referenced variables
-                let line_context = matches!(kind, WidgetKind::Gutter(_));
-                for var in collect_widget_variables(&kind) {
-                    if let Some(warning) = validate_variable(&var, line_context) {
-                        errors.push(WidgetNodeError {
-                            name: name.to_string(),
-                            message: warning,
-                        });
+        match parse_widget_def(node) {
+            Ok((effects, when)) => {
+                // Validate referenced variables for each effect
+                for effect in &effects {
+                    let line_context = matches!(effect.kind, WidgetKind::Gutter(_));
+                    for var in collect_widget_variables(&effect.kind) {
+                        if let Some(warning) = validate_variable(&var, line_context) {
+                            errors.push(WidgetNodeError {
+                                name: name.to_string(),
+                                message: warning,
+                            });
+                        }
                     }
                 }
-                widgets.push(WidgetDef { name, kind, index });
+                // Also validate the shared when condition variables
+                if let Some(ref cond) = when {
+                    for var in cond.referenced_variables() {
+                        if let Some(warning) = validate_variable(var, false) {
+                            errors.push(WidgetNodeError {
+                                name: name.to_string(),
+                                message: warning,
+                            });
+                        }
+                    }
+                }
+                widgets.push(WidgetDef {
+                    name,
+                    effects,
+                    when,
+                    index,
+                });
                 index = index.saturating_add(1);
             }
             Err(msg) => {
@@ -111,215 +131,189 @@ pub fn parse_widget_nodes(
         WidgetFile {
             widgets,
             computed_deps,
+            included_paths: Vec::new(),
         },
         errors,
     ))
 }
 
-/// Collect dirty flags from a slice of face rules.
-fn face_rules_deps(rules: &[FaceRule], flags: &mut DirtyFlags) {
-    for rule in rules {
-        if let Some(ref cond) = rule.when {
-            for var in cond.referenced_variables() {
-                *flags |= variable_dirty_flag(var);
+// ---------------------------------------------------------------------------
+// Visitor-based dependency and variable collection
+// ---------------------------------------------------------------------------
+
+/// Visitor that collects dirty flags from templates, predicates, and face rules.
+struct DepsVisitor<'a> {
+    flags: &'a mut DirtyFlags,
+}
+
+impl WidgetVisitor for DepsVisitor<'_> {
+    fn visit_template(&mut self, template: &Template) {
+        for var in template.referenced_variables() {
+            *self.flags |= variable_dirty_flag(var);
+        }
+    }
+    fn visit_predicate(&mut self, predicate: &Predicate) {
+        for var in predicate.referenced_variables() {
+            *self.flags |= variable_dirty_flag(var);
+        }
+    }
+    fn visit_face_rules(&mut self, rules: &[FaceRule]) {
+        for rule in rules {
+            if let Some(ref cond) = rule.when {
+                for var in cond.referenced_variables() {
+                    *self.flags |= variable_dirty_flag(var);
+                }
+            }
+        }
+    }
+    fn visit_line_expr(&mut self, expr: &LineExpr) {
+        match expr {
+            LineExpr::CursorLine => *self.flags |= DirtyFlags::BUFFER_CURSOR,
+            LineExpr::Selection => *self.flags |= DirtyFlags::BUFFER,
+        }
+    }
+}
+
+/// Visitor that collects all variable names for validation.
+struct VarCollector {
+    vars: Vec<String>,
+}
+
+impl WidgetVisitor for VarCollector {
+    fn visit_template(&mut self, template: &Template) {
+        self.vars.extend(
+            template
+                .referenced_variables()
+                .into_iter()
+                .map(String::from),
+        );
+    }
+    fn visit_predicate(&mut self, predicate: &Predicate) {
+        self.vars.extend(
+            predicate
+                .referenced_variables()
+                .into_iter()
+                .map(String::from),
+        );
+    }
+    fn visit_face_rules(&mut self, rules: &[FaceRule]) {
+        for rule in rules {
+            if let Some(ref cond) = rule.when {
+                self.vars
+                    .extend(cond.referenced_variables().into_iter().map(String::from));
             }
         }
     }
 }
 
-/// Compute dirty flags for a single widget definition.
+/// Compute dirty flags for a single widget definition (all effects).
 pub fn compute_widget_deps(widget: &WidgetDef) -> DirtyFlags {
     let mut flags = DirtyFlags::empty();
-    compute_widget_deps_inner(&widget.kind, &mut flags);
+    for effect in &widget.effects {
+        compute_widget_deps_inner(&effect.kind, &mut flags);
+    }
+    // Include shared when condition deps.
+    if let Some(ref cond) = widget.when {
+        for var in cond.referenced_variables() {
+            flags |= variable_dirty_flag(var);
+        }
+    }
     flags
 }
 
 fn compute_deps(widgets: &[WidgetDef]) -> DirtyFlags {
     let mut flags = DirtyFlags::empty();
     for widget in widgets {
-        compute_widget_deps_inner(&widget.kind, &mut flags);
+        for effect in &widget.effects {
+            compute_widget_deps_inner(&effect.kind, &mut flags);
+        }
+        if let Some(ref cond) = widget.when {
+            for var in cond.referenced_variables() {
+                flags |= variable_dirty_flag(var);
+            }
+        }
     }
     flags
 }
 
 fn compute_widget_deps_inner(kind: &WidgetKind, flags: &mut DirtyFlags) {
+    // Base flags that are always needed for certain kinds.
     match kind {
-        WidgetKind::Contribution(c) => {
-            for part in &c.parts {
-                for var in part.template.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-                if let Some(ref cond) = part.when {
-                    for var in cond.referenced_variables() {
-                        *flags |= variable_dirty_flag(var);
-                    }
-                }
-                face_rules_deps(&part.face_rules, flags);
-            }
-            if let Some(ref cond) = c.when {
-                for var in cond.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-            }
-        }
-        WidgetKind::Background(b) => {
-            match b.line_expr {
-                LineExpr::CursorLine => *flags |= DirtyFlags::BUFFER_CURSOR,
-                LineExpr::Selection => *flags |= DirtyFlags::BUFFER,
-            }
-            if let Some(ref cond) = b.when {
-                for var in cond.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-            }
-        }
-        WidgetKind::Transform(t) => {
-            if let Some(ref cond) = t.when {
-                for var in cond.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-            }
-            match &t.patch {
-                WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
-                    face_rules_deps(rules, flags);
-                }
-            }
-        }
-        WidgetKind::Gutter(g) => {
-            *flags |= DirtyFlags::BUFFER_CURSOR;
-            for branch in &g.branches {
-                for var in branch.template.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-                face_rules_deps(&branch.face_rules, flags);
-                if let Some(ref cond) = branch.line_when {
-                    for var in cond.referenced_variables() {
-                        *flags |= variable_dirty_flag(var);
-                    }
-                }
-            }
-            if let Some(ref cond) = g.when {
-                for var in cond.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-            }
-        }
-        WidgetKind::Inline(i) => {
-            // Inline widgets scan buffer lines, so depend on buffer changes.
-            *flags |= DirtyFlags::BUFFER;
-            if let Some(ref cond) = i.when {
-                for var in cond.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-            }
-        }
-        WidgetKind::VirtualText(vt) => {
-            // Virtual text is per-line, depends on buffer content.
-            *flags |= DirtyFlags::BUFFER;
-            for var in vt.template.referenced_variables() {
-                *flags |= variable_dirty_flag(var);
-            }
-            face_rules_deps(&vt.face_rules, flags);
-            if let Some(ref cond) = vt.when {
-                for var in cond.referenced_variables() {
-                    *flags |= variable_dirty_flag(var);
-                }
-            }
-        }
+        WidgetKind::Gutter(_) => *flags |= DirtyFlags::BUFFER_CURSOR,
+        WidgetKind::Inline(_) | WidgetKind::VirtualText(_) => *flags |= DirtyFlags::BUFFER,
+        _ => {}
     }
-}
-
-/// Collect variable names from face rules.
-fn collect_face_rules_variables(rules: &[FaceRule], vars: &mut Vec<String>) {
-    for rule in rules {
-        if let Some(ref cond) = rule.when {
-            vars.extend(cond.referenced_variables().into_iter().map(String::from));
-        }
-    }
+    let mut visitor = DepsVisitor { flags };
+    walk_widget_kind(kind, &mut visitor);
 }
 
 /// Collect all variable names referenced by a widget for validation.
 fn collect_widget_variables(kind: &WidgetKind) -> Vec<String> {
-    let mut vars = Vec::new();
-    match kind {
-        WidgetKind::Contribution(c) => {
-            for part in &c.parts {
-                vars.extend(
-                    part.template
-                        .referenced_variables()
-                        .into_iter()
-                        .map(String::from),
-                );
-                if let Some(ref cond) = part.when {
-                    vars.extend(cond.referenced_variables().into_iter().map(String::from));
-                }
-                collect_face_rules_variables(&part.face_rules, &mut vars);
-            }
-            if let Some(ref cond) = c.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
-            }
-        }
-        WidgetKind::Background(b) => {
-            if let Some(ref cond) = b.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
-            }
-        }
-        WidgetKind::Transform(t) => {
-            if let Some(ref cond) = t.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
-            }
-            match &t.patch {
-                WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
-                    collect_face_rules_variables(rules, &mut vars);
-                }
-            }
-        }
-        WidgetKind::Gutter(g) => {
-            for branch in &g.branches {
-                vars.extend(
-                    branch
-                        .template
-                        .referenced_variables()
-                        .into_iter()
-                        .map(String::from),
-                );
-                collect_face_rules_variables(&branch.face_rules, &mut vars);
-                if let Some(ref cond) = branch.line_when {
-                    vars.extend(cond.referenced_variables().into_iter().map(String::from));
-                }
-            }
-            if let Some(ref cond) = g.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
-            }
-        }
-        WidgetKind::Inline(i) => {
-            if let Some(ref cond) = i.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
-            }
-        }
-        WidgetKind::VirtualText(vt) => {
-            vars.extend(
-                vt.template
-                    .referenced_variables()
-                    .into_iter()
-                    .map(String::from),
-            );
-            collect_face_rules_variables(&vt.face_rules, &mut vars);
-            if let Some(ref cond) = vt.when {
-                vars.extend(cond.referenced_variables().into_iter().map(String::from));
-            }
-        }
-    }
-    vars.sort();
-    vars.dedup();
-    vars
+    let mut visitor = VarCollector { vars: Vec::new() };
+    walk_widget_kind(kind, &mut visitor);
+    visitor.vars.sort();
+    visitor.vars.dedup();
+    visitor.vars
 }
 
-/// Parse a single KDL node into a WidgetKind.
-fn parse_widget_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
-    let kind_str = get_string_entry(node, "kind").unwrap_or("contribution");
+/// Widget effect kind names that can appear as child nodes in a multi-effect widget.
+const EFFECT_KINDS: &[&str] = &[
+    "contribution",
+    "background",
+    "transform",
+    "gutter",
+    "inline",
+    "virtual-text",
+];
 
-    match kind_str {
+/// Parse a KDL node into a widget definition (single or multi-effect).
+///
+/// Single-effect (traditional): `kind=` attribute selects the type.
+/// Multi-effect: child nodes whose names are effect kinds define multiple effects.
+fn parse_widget_def(node: &kdl::KdlNode) -> Result<(Vec<WidgetEffect>, Option<Predicate>), String> {
+    // Check if this is a multi-effect widget: children include effect-kind nodes.
+    let has_effect_children = node.children().is_some_and(|children| {
+        children
+            .nodes()
+            .iter()
+            .any(|child| EFFECT_KINDS.contains(&child.name().value()))
+    });
+
+    if has_effect_children && get_string_entry(node, "kind").is_none() {
+        // Multi-effect widget: shared when + multiple effect children.
+        let when = parse_when(node)?;
+        let mut effects = Vec::new();
+        if let Some(children) = node.children() {
+            for child in children.nodes() {
+                let child_name = child.name().value();
+                if EFFECT_KINDS.contains(&child_name) {
+                    let kind = parse_effect_node(child, child_name)?;
+                    effects.push(WidgetEffect { kind });
+                }
+                // Non-effect children (e.g. "part", "branch", "face") are
+                // handled within the individual effect parsers, not here.
+            }
+        }
+        if effects.is_empty() {
+            return Err("multi-effect widget has no effect children".to_string());
+        }
+        Ok((effects, when))
+    } else {
+        // Single-effect widget (traditional).
+        let kind = parse_single_effect(node)?;
+        Ok((vec![WidgetEffect { kind }], None))
+    }
+}
+
+/// Parse a single-effect widget node using the `kind=` attribute.
+fn parse_single_effect(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
+    let kind_str = get_string_entry(node, "kind").unwrap_or("contribution");
+    parse_effect_node(node, kind_str)
+}
+
+/// Parse an effect node by kind name.
+fn parse_effect_node(node: &kdl::KdlNode, kind: &str) -> Result<WidgetKind, String> {
+    match kind {
         "contribution" => parse_contribution_node(node),
         "background" => parse_background_node(node),
         "transform" => parse_transform_node(node),
@@ -517,15 +511,26 @@ fn parse_transform_target(s: &str) -> Result<TransformTarget, String> {
 }
 
 fn parse_inline_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
-    let pattern = get_string_entry(node, "pattern")
+    let pattern_str = get_string_entry(node, "pattern")
         .ok_or_else(|| "inline widget requires 'pattern' attribute".to_string())?;
     let face_spec = get_string_entry(node, "face")
         .ok_or_else(|| "inline widget requires 'face' attribute".to_string())?;
     let face = parse_face_or_token(face_spec)?;
     let when = parse_when(node)?;
 
+    // Detect regex patterns: `/pattern/`.
+    let pattern =
+        if pattern_str.starts_with('/') && pattern_str.ends_with('/') && pattern_str.len() >= 2 {
+            let regex_str = &pattern_str[1..pattern_str.len() - 1];
+            let regex = regex_lite::Regex::new(regex_str)
+                .map_err(|e| format!("invalid regex pattern: {e}"))?;
+            InlinePattern::Regex(std::sync::Arc::new(regex))
+        } else {
+            InlinePattern::Substring(CompactString::from(pattern_str))
+        };
+
     Ok(WidgetKind::Inline(InlineWidget {
-        pattern: CompactString::from(pattern),
+        pattern,
         face,
         when,
     }))

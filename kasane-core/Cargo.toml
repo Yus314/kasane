@@ -22,6 +22,8 @@ tracing = { workspace = true }
 rmp-serde = { workspace = true }
 itoa = { workspace = true }
 kdl = { workspace = true }
+regex-lite = { workspace = true }
+glob = { workspace = true }
 image = { workspace = true, optional = true }
 resvg = { workspace = true, optional = true }
 

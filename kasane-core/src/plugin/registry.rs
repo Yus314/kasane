@@ -69,6 +69,7 @@ pub struct PluginRuntime {
     any_plugin_state_changed: bool,
     next_tag: u16,
     directive_stability: RefCell<DirectiveStabilityMonitor>,
+    variable_store: super::variable_store::PluginVariableStore,
 }
 
 /// Immutable view over plugins for the render phase.
@@ -96,11 +97,22 @@ impl PluginRuntime {
             any_plugin_state_changed: false,
             next_tag: 1,
             directive_stability: RefCell::new(DirectiveStabilityMonitor::new()),
+            variable_store: super::variable_store::PluginVariableStore::default(),
         }
     }
 
     pub fn plugin_count(&self) -> usize {
         self.slots.len()
+    }
+
+    /// Access the plugin variable store.
+    pub fn variable_store(&self) -> &super::variable_store::PluginVariableStore {
+        &self.variable_store
+    }
+
+    /// Mutably access the plugin variable store.
+    pub fn variable_store_mut(&mut self) -> &mut super::variable_store::PluginVariableStore {
+        &mut self.variable_store
     }
 
     /// Drain pending runtime diagnostics from all plugins.

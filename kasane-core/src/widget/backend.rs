@@ -194,6 +194,7 @@ mod legacy {
                         widgets: WidgetFile {
                             widgets: Vec::new(),
                             computed_deps: DirtyFlags::empty(),
+                            included_paths: Vec::new(),
                         },
                         diagnostics: vec![diagnostic],
                         generation: 1,
@@ -263,6 +264,7 @@ mod legacy {
                 widgets: WidgetFile {
                     widgets: Vec::new(),
                     computed_deps: DirtyFlags::empty(),
+                    included_paths: Vec::new(),
                 },
                 diagnostics: Vec::new(),
                 generation: 0,
@@ -270,32 +272,28 @@ mod legacy {
             }
         }
 
-        fn has_contribution(&self) -> bool {
+        fn has_kind(&self, pred: impl Fn(&WidgetKind) -> bool) -> bool {
             self.widgets
                 .widgets
                 .iter()
-                .any(|w| matches!(w.kind, WidgetKind::Contribution(_)))
+                .flat_map(|w| &w.effects)
+                .any(|e| pred(&e.kind))
+        }
+
+        fn has_contribution(&self) -> bool {
+            self.has_kind(|k| matches!(k, WidgetKind::Contribution(_)))
         }
 
         fn has_background(&self) -> bool {
-            self.widgets
-                .widgets
-                .iter()
-                .any(|w| matches!(w.kind, WidgetKind::Background(_)))
+            self.has_kind(|k| matches!(k, WidgetKind::Background(_)))
         }
 
         fn has_transform(&self) -> bool {
-            self.widgets
-                .widgets
-                .iter()
-                .any(|w| matches!(w.kind, WidgetKind::Transform(_)))
+            self.has_kind(|k| matches!(k, WidgetKind::Transform(_)))
         }
 
         fn has_gutter(&self) -> bool {
-            self.widgets
-                .widgets
-                .iter()
-                .any(|w| matches!(w.kind, WidgetKind::Gutter(_)))
+            self.has_kind(|k| matches!(k, WidgetKind::Gutter(_)))
         }
     }
 
@@ -346,21 +344,27 @@ mod legacy {
             let mut matching: Vec<(u16, ContribSizeHint, Element)> = Vec::new();
 
             for widget in &self.widgets.widgets {
-                let WidgetKind::Contribution(ref contrib) = widget.kind else {
-                    continue;
-                };
-                if contrib.slot != *region {
-                    continue;
-                }
-                // Evaluate top-level when condition
-                if let Some(ref cond) = contrib.when
+                if let Some(ref cond) = widget.when
                     && !cond.evaluate_with_resolver(&resolver)
                 {
                     continue;
                 }
+                for effect in &widget.effects {
+                    let WidgetKind::Contribution(ref contrib) = effect.kind else {
+                        continue;
+                    };
+                    if contrib.slot != *region {
+                        continue;
+                    }
+                    if let Some(ref cond) = contrib.when
+                        && !cond.evaluate_with_resolver(&resolver)
+                    {
+                        continue;
+                    }
 
-                if let Some(element) = build_contribution_element(contrib, &resolver, state) {
-                    matching.push((widget.index, contrib.size_hint, element));
+                    if let Some(element) = build_contribution_element(contrib, &resolver, state) {
+                        matching.push((widget.index, contrib.size_hint, element));
+                    }
                 }
             }
 
@@ -398,39 +402,44 @@ mod legacy {
             let resolver = AppViewResolver::new(state);
 
             for widget in &self.widgets.widgets {
-                let WidgetKind::Background(ref bg) = widget.kind else {
-                    continue;
-                };
-
-                // Check when condition
-                if let Some(ref cond) = bg.when
+                if let Some(ref cond) = widget.when
                     && !cond.evaluate_with_resolver(&resolver)
                 {
                     continue;
                 }
+                for effect in &widget.effects {
+                    let WidgetKind::Background(ref bg) = effect.kind else {
+                        continue;
+                    };
 
-                // Check line expression
-                match bg.line_expr {
-                    LineExpr::CursorLine => {
-                        let cursor_line = state.cursor_line();
-                        if cursor_line >= 0 && line == cursor_line as usize {
-                            return Some(BackgroundLayer {
-                                face: resolve_face(&bg.face, state),
-                                z_order: widget.index as i16,
-                                blend: BlendMode::Opaque,
-                            });
-                        }
+                    if let Some(ref cond) = bg.when
+                        && !cond.evaluate_with_resolver(&resolver)
+                    {
+                        continue;
                     }
-                    LineExpr::Selection => {
-                        for sel in state.selections() {
-                            let lo = sel.anchor.line.min(sel.cursor.line) as usize;
-                            let hi = sel.anchor.line.max(sel.cursor.line) as usize;
-                            if line >= lo && line <= hi {
+
+                    match bg.line_expr {
+                        LineExpr::CursorLine => {
+                            let cursor_line = state.cursor_line();
+                            if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
                                     face: resolve_face(&bg.face, state),
                                     z_order: widget.index as i16,
                                     blend: BlendMode::Opaque,
                                 });
+                            }
+                        }
+                        LineExpr::Selection => {
+                            for sel in state.selections() {
+                                let lo = sel.anchor.line.min(sel.cursor.line) as usize;
+                                let hi = sel.anchor.line.max(sel.cursor.line) as usize;
+                                if line >= lo && line <= hi {
+                                    return Some(BackgroundLayer {
+                                        face: resolve_face(&bg.face, state),
+                                        z_order: widget.index as i16,
+                                        blend: BlendMode::Opaque,
+                                    });
+                                }
                             }
                         }
                     }
@@ -449,30 +458,36 @@ mod legacy {
             let resolver = AppViewResolver::new(state);
 
             for widget in &self.widgets.widgets {
-                let WidgetKind::Transform(ref transform) = widget.kind else {
-                    continue;
-                };
-                if transform.target != *target {
-                    continue;
-                }
-
-                // Check when condition
-                if let Some(ref cond) = transform.when
+                if let Some(ref cond) = widget.when
                     && !cond.evaluate_with_resolver(&resolver)
                 {
                     continue;
                 }
-
-                match &transform.patch {
-                    WidgetPatch::ModifyFace(rules) => {
-                        return Some(ElementPatch::ModifyFace {
-                            overlay: resolve_face_rules(rules, &resolver, state),
-                        });
+                for effect in &widget.effects {
+                    let WidgetKind::Transform(ref transform) = effect.kind else {
+                        continue;
+                    };
+                    if transform.target != *target {
+                        continue;
                     }
-                    WidgetPatch::WrapContainer(rules) => {
-                        return Some(ElementPatch::WrapContainer {
-                            face: resolve_face_rules(rules, &resolver, state),
-                        });
+
+                    if let Some(ref cond) = transform.when
+                        && !cond.evaluate_with_resolver(&resolver)
+                    {
+                        continue;
+                    }
+
+                    match &transform.patch {
+                        WidgetPatch::ModifyFace(rules) => {
+                            return Some(ElementPatch::ModifyFace {
+                                overlay: resolve_face_rules(rules, &resolver, state),
+                            });
+                        }
+                        WidgetPatch::WrapContainer(rules) => {
+                            return Some(ElementPatch::WrapContainer {
+                                face: resolve_face_rules(rules, &resolver, state),
+                            });
+                        }
                     }
                 }
             }
@@ -491,36 +506,41 @@ mod legacy {
             let cursor_line = state.cursor_line().max(0) as usize;
 
             for widget in &self.widgets.widgets {
-                let WidgetKind::Gutter(ref gutter) = widget.kind else {
-                    continue;
-                };
-                if gutter.side != side {
-                    continue;
-                }
-
-                // Evaluate global when condition
-                if let Some(ref cond) = gutter.when
+                if let Some(ref cond) = widget.when
                     && !cond.evaluate_with_resolver(&app_resolver)
                 {
                     continue;
                 }
+                for effect in &widget.effects {
+                    let WidgetKind::Gutter(ref gutter) = effect.kind else {
+                        continue;
+                    };
+                    if gutter.side != side {
+                        continue;
+                    }
 
-                // Evaluate branches in order; first matching line_when wins
-                let line_resolver = LineContextResolver::new(state, line, cursor_line);
-                for branch in &gutter.branches {
-                    if let Some(ref cond) = branch.line_when
-                        && !cond.evaluate_with_resolver(&line_resolver)
+                    if let Some(ref cond) = gutter.when
+                        && !cond.evaluate_with_resolver(&app_resolver)
                     {
                         continue;
                     }
 
-                    let text = branch.template.expand(&line_resolver);
-                    let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
-                    let element = Element::styled_line(vec![crate::protocol::Atom {
-                        face,
-                        contents: text,
-                    }]);
-                    return Some((widget.index as i16, element));
+                    let line_resolver = LineContextResolver::new(state, line, cursor_line);
+                    for branch in &gutter.branches {
+                        if let Some(ref cond) = branch.line_when
+                            && !cond.evaluate_with_resolver(&line_resolver)
+                        {
+                            continue;
+                        }
+
+                        let text = branch.template.expand(&line_resolver);
+                        let face = resolve_face_rules(&branch.face_rules, &line_resolver, state);
+                        let element = Element::styled_line(vec![crate::protocol::Atom {
+                            face,
+                            contents: text,
+                        }]);
+                        return Some((widget.index as i16, element));
+                    }
                 }
             }
 
@@ -537,35 +557,37 @@ mod legacy {
             let mut annotation_scopes = Vec::new();
 
             for widget in &self.widgets.widgets {
-                match &widget.kind {
-                    WidgetKind::Contribution(c) => {
-                        if !slots.contains(&c.slot) {
-                            slots.push(c.slot.clone());
+                for effect in &widget.effects {
+                    match &effect.kind {
+                        WidgetKind::Contribution(c) => {
+                            if !slots.contains(&c.slot) {
+                                slots.push(c.slot.clone());
+                            }
                         }
-                    }
-                    WidgetKind::Background(_) => {
-                        let scope = AnnotationScope::Background;
-                        if !annotation_scopes.contains(&scope) {
-                            annotation_scopes.push(scope);
+                        WidgetKind::Background(_) => {
+                            let scope = AnnotationScope::Background;
+                            if !annotation_scopes.contains(&scope) {
+                                annotation_scopes.push(scope);
+                            }
                         }
-                    }
-                    WidgetKind::Transform(t) => {
-                        if !targets.contains(&t.target) {
-                            targets.push(t.target.clone());
+                        WidgetKind::Transform(t) => {
+                            if !targets.contains(&t.target) {
+                                targets.push(t.target.clone());
+                            }
                         }
-                    }
-                    WidgetKind::Gutter(g) => {
-                        let scope = match g.side {
-                            GutterSide::Left => AnnotationScope::LeftGutter,
-                            GutterSide::Right => AnnotationScope::RightGutter,
-                        };
-                        if !annotation_scopes.contains(&scope) {
-                            annotation_scopes.push(scope);
+                        WidgetKind::Gutter(g) => {
+                            let scope = match g.side {
+                                GutterSide::Left => AnnotationScope::LeftGutter,
+                                GutterSide::Right => AnnotationScope::RightGutter,
+                            };
+                            if !annotation_scopes.contains(&scope) {
+                                annotation_scopes.push(scope);
+                            }
                         }
-                    }
-                    WidgetKind::Inline(_) | WidgetKind::VirtualText(_) => {
-                        // Legacy backend doesn't implement inline/virtual-text;
-                        // these are handled by WidgetPlugin only.
+                        WidgetKind::Inline(_) | WidgetKind::VirtualText(_) => {
+                            // Legacy backend doesn't implement inline/virtual-text;
+                            // these are handled by WidgetPlugin only.
+                        }
                     }
                 }
             }

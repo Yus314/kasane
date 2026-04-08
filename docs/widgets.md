@@ -12,7 +12,30 @@ Widget definitions live in the same file as configuration:
 
 Or `$XDG_CONFIG_HOME/kasane/kasane.kdl` if the variable is set. Widget definitions go inside a `widgets { }` block. Top-level nodes whose names match a known config section (e.g., `ui`, `scroll`, `theme`, `plugins`) are parsed as configuration.
 
-Kasane watches this file and applies changes within 2 seconds of saving. If the file has a KDL syntax error, the previous widgets remain active (last-known-good). Per-node semantic errors skip the invalid node but keep the rest.
+Kasane watches this file using filesystem notifications and applies changes within ~100ms of saving. If the file has a KDL syntax error, the previous widgets remain active (last-known-good). Per-node semantic errors skip the invalid node but keep the rest.
+
+### Widget Includes
+
+You can split widget definitions across multiple files using `include` directives inside the `widgets {}` block:
+
+```kdl
+widgets {
+    include "~/.config/kasane/widgets/*.kdl"
+    include "./my-statusline.kdl"
+
+    // Inline widgets still work alongside includes
+    position slot="status-right" text=" {cursor_line}:{cursor_col} "
+}
+```
+
+Included files contain bare widget definitions (no `widgets {}` wrapper):
+
+```kdl
+// ~/.config/kasane/widgets/mode.kdl
+mode slot="status-left" text=" {editor_mode} " face="white,blue+b"
+```
+
+Paths are relative to the config file directory. Glob patterns and `~` expansion are supported. Circular includes are detected and skipped. Included files are also watched for hot-reload.
 
 ## Quick Start
 
@@ -31,6 +54,22 @@ Add this to `~/.config/kasane/kasane.kdl`. The status bar updates live as you mo
 ## Widget Kinds
 
 Each node inside `widgets { }` defines one widget. The node name is an identifier (used in diagnostics). The `kind=` attribute selects the widget type; it defaults to `"contribution"`.
+
+### Multi-Effect Widgets
+
+A single widget block can combine multiple effects. Each effect child becomes a separate plugin instance sharing the widget's `when` condition:
+
+```kdl
+widgets {
+    insert-mode when="editor_mode == 'insert'" {
+        contribution slot="status-left" text=" INSERT "
+        background line="cursor" face="default,rgb:202040"
+        transform target="status" face="default,blue"
+    }
+}
+```
+
+This is equivalent to three separate widgets but shares the `when` condition and groups related effects under one name.
 
 ### Contribution
 
@@ -119,6 +158,44 @@ widgets {
 
 Gutter templates can use [per-line variables](#per-line-variables) in addition to the global variables.
 
+### Inline
+
+Applies a face to pattern matches within visible lines.
+
+```kdl
+widgets {
+    // Substring match
+    todo-highlight kind="inline" pattern="TODO" face="yellow+b"
+
+    // Regex match (delimited by /)
+    url-highlight kind="inline" pattern="/https?://[^ ]+/" face="cyan+u"
+}
+```
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `pattern` | yes | Substring or `/regex/` pattern to match |
+| `face` | yes | Face applied to matched ranges |
+| `when` | no | Condition |
+
+Patterns delimited by `/` are compiled as regular expressions at parse time. Invalid regex syntax produces a parse error.
+
+### Virtual Text
+
+Appends virtual text at the end of lines.
+
+```kdl
+widgets {
+    eol-marker kind="virtual-text" text=" ⏎" face="rgb:555555"
+}
+```
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `text` | yes | Template string for the virtual text content |
+| `face` | no | Face for the virtual text |
+| `when` | no | Condition |
+
 ## Slots
 
 Slots are regions in the UI layout where contribution widgets can place content.
@@ -196,8 +273,11 @@ Variables are referenced in templates as `{name}` and in conditions as bare name
 | `filetype` | string | Alias for `opt.filetype` |
 | `bufname` | string | Alias for `opt.bufname` |
 | `opt.<name>` | string | Any Kakoune `ui_option` value |
+| `plugin.<name>` | any | Variable exposed by a plugin via `Command::ExposeVariable` |
 
-Source: `kasane-core/src/widget/variables.rs:28-63`
+The `opt.*` and `plugin.*` namespaces are open-ended — they never produce unknown-variable warnings.
+
+Source: `kasane-core/src/widget/variables.rs:28-85`
 
 ### Per-line Variables
 
@@ -243,6 +323,8 @@ special slot="status-right" text=" ! " when="(is_prompt || has_menu) && cursor_c
 | `<` | Less than |
 | `>=` | Greater than or equal |
 | `<=` | Less than or equal |
+| `=~` | Regex match |
+| `in` | Set membership |
 | `&&` | Logical AND |
 | `\|\|` | Logical OR |
 | `!` | Logical NOT |
@@ -251,6 +333,30 @@ special slot="status-right" text=" ! " when="(is_prompt || has_menu) && cursor_c
 Precedence (lowest to highest): `||`, `&&`, `!`. Use parentheses to override: `(a || b) && c`.
 
 Numeric values are compared numerically; otherwise lexicographic comparison is used. String values in comparisons can be quoted with single quotes: `editor_mode == 'insert'`.
+
+#### Regex Match (`=~`)
+
+Tests a variable's value against a regular expression:
+
+```kdl
+widgets {
+    rust-badge slot="status-right" text=" RS " when="filetype =~ 'rs|rust'"
+}
+```
+
+The regex is compiled at parse time; invalid patterns produce a parse error.
+
+#### Set Membership (`in`)
+
+Tests whether a variable's value is in a set of values:
+
+```kdl
+widgets {
+    lang-badge slot="status-right" text=" {filetype} " when="filetype in ('rust', 'go', 'python')"
+}
+```
+
+Values are comma-separated inside parentheses. Both strings and numbers are supported.
 
 Conditions are limited to 16 nodes and 256 characters.
 
@@ -286,6 +392,28 @@ path slot="status-left" text=" {bufname:.30} "
 
 // Combined: left-align to 20 columns, truncate at 30 characters
 info slot="status-left" text=" {bufname:<20.30} "
+```
+
+### Conditional Expansion
+
+Templates support inline conditionals with `{?condition:then:else}`:
+
+```
+{?is_focused:active:inactive}
+{?cursor_count > 1:multi:single}
+```
+
+Branches can contain variables and formatting:
+
+```
+{?is_focused:{cursor_line}:N/A}
+{?is_focused:{cursor_line:4}:---}
+```
+
+Conditionals can be nested:
+
+```
+{?is_focused:active:{?has_menu:menu:buffer}}
 ```
 
 Unknown variables expand to an empty string and produce a warning with a fuzzy suggestion (e.g., `unknown variable 'cursor_lint', did you mean 'cursor_line'?`).
@@ -331,7 +459,11 @@ Size hints control how contribution widgets share space within a slot.
 
 ## Hot-Reload
 
-Kasane polls `kasane.kdl` every 2 seconds. On change:
+Kasane uses filesystem notifications (`notify` crate) to detect changes to `kasane.kdl` and any included widget files. Changes are applied within ~100ms of saving, with a debounce window to coalesce rapid-fire editor writes. If filesystem watching is unavailable, it falls back to 2-second polling.
+
+A content hash check skips re-parsing when the file content hasn't actually changed (e.g., touch without modification).
+
+On change:
 
 - **Valid KDL, all nodes valid**: all widgets replaced immediately.
 - **Valid KDL, some nodes invalid**: valid nodes load, invalid nodes are skipped. Warnings are logged.

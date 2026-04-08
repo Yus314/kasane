@@ -2246,6 +2246,7 @@ dependencies = [
  "compact_str",
  "criterion",
  "dyn-clone",
+ "glob",
  "hdrhistogram",
  "iai-callgrind",
  "image",
@@ -2255,6 +2256,7 @@ dependencies = [
  "kasane-plugin-model",
  "kdl",
  "proptest",
+ "regex-lite",
  "resvg",
  "rmp-serde",
  "salsa",
@@ -2333,6 +2335,7 @@ dependencies = [
  "iai-callgrind",
  "image",
  "kasane-core",
+ "notify",
  "serde",
  "serde_json",
  "tracing",
@@ -3804,6 +3807,12 @@ dependencies = [
  "memchr",
  "regex-syntax",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
 
 [[package]]
 name = "regex-syntax"

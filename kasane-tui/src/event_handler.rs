@@ -105,6 +105,8 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub diagnostic_overlay: &'a mut PluginDiagnosticOverlayState,
     /// Names of currently registered per-widget plugins (for hot-reload diffing).
     pub widget_names: &'a mut Vec<String>,
+    /// Hash of the last successfully loaded config file source (for skip-if-unchanged).
+    pub last_config_hash: &'a mut u64,
 }
 
 struct PluginReloadOutcome {
@@ -358,16 +360,27 @@ where
         }
         Event::FileReload => {
             let config_path = kasane_core::config::config_path();
+            let mut reload_flags = DirtyFlags::all();
             match std::fs::read_to_string(&config_path) {
                 Ok(source) => {
-                    match kasane_core::config::unified::parse_unified(&source) {
-                        Ok((new_config, config_errors, widget_file, widget_errors)) => {
-                            // Log config field-level errors
-                            for err in &config_errors {
-                                tracing::warn!("config: {err}");
-                            }
-                            if !config_errors.is_empty() {
-                                let diagnostics: Vec<PluginDiagnostic> = config_errors
+                    // Skip re-parse if content is unchanged (hash comparison).
+                    let hash = {
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        source.hash(&mut hasher);
+                        hasher.finish()
+                    };
+                    if hash == *ctx.last_config_hash {
+                        reload_flags = DirtyFlags::empty();
+                    } else {
+                        match kasane_core::config::unified::parse_unified(&source) {
+                            Ok((new_config, config_errors, widget_file, widget_errors)) => {
+                                // Log config field-level errors
+                                for err in &config_errors {
+                                    tracing::warn!("config: {err}");
+                                }
+                                if !config_errors.is_empty() {
+                                    let diagnostics: Vec<PluginDiagnostic> = config_errors
                                     .iter()
                                     .map(|e| PluginDiagnostic {
                                         target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
@@ -384,71 +397,75 @@ where
                                         attempted: None,
                                     })
                                     .collect();
-                                schedule_diagnostic_overlay(
-                                    &kasane_core::event_loop::GenericDiagnosticScheduler(
-                                        TuiEventSink(ctx.session_tx.clone()),
-                                    ),
-                                    ctx.diagnostic_overlay,
-                                    &diagnostics,
-                                );
-                            }
-
-                            // Apply config changes
-                            ctx.state.apply_config(&new_config);
-
-                            // Hot-reload per-widget plugins (diff-based)
-                            *ctx.widget_names = kasane_core::widget::hot_reload_widgets(
-                                ctx.widget_names,
-                                widget_file,
-                                &widget_errors,
-                                ctx.registry,
-                            );
-
-                            // Route widget parse errors to the diagnostic overlay
-                            if !widget_errors.is_empty() {
-                                let diagnostics: Vec<PluginDiagnostic> = widget_errors
-                                    .iter()
-                                    .map(kasane_core::widget::node_error_to_diagnostic)
-                                    .collect();
-                                for err in &widget_errors {
-                                    tracing::warn!("widget `{}`: {}", err.name, err.message);
+                                    schedule_diagnostic_overlay(
+                                        &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                            TuiEventSink(ctx.session_tx.clone()),
+                                        ),
+                                        ctx.diagnostic_overlay,
+                                        &diagnostics,
+                                    );
                                 }
+
+                                // Apply config changes
+                                ctx.state.apply_config(&new_config);
+
+                                // Hot-reload per-widget plugins (diff-based)
+                                *ctx.widget_names = kasane_core::widget::hot_reload_widgets(
+                                    ctx.widget_names,
+                                    widget_file,
+                                    &widget_errors,
+                                    ctx.registry,
+                                );
+
+                                // Route widget parse errors to the diagnostic overlay
+                                if !widget_errors.is_empty() {
+                                    let diagnostics: Vec<PluginDiagnostic> = widget_errors
+                                        .iter()
+                                        .map(kasane_core::widget::node_error_to_diagnostic)
+                                        .collect();
+                                    for err in &widget_errors {
+                                        tracing::warn!("widget `{}`: {}", err.name, err.message);
+                                    }
+                                    schedule_diagnostic_overlay(
+                                        &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                            TuiEventSink(ctx.session_tx.clone()),
+                                        ),
+                                        ctx.diagnostic_overlay,
+                                        &diagnostics,
+                                    );
+                                }
+                                *ctx.last_config_hash = hash;
+                                tracing::info!("kasane.kdl hot-reloaded");
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    "kasane.kdl reload failed (keeping previous): {err}"
+                                );
+                                let diagnostic = PluginDiagnostic {
+                                    target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                        kasane_core::plugin::PluginId(
+                                            "kasane.widget.reload".to_string(),
+                                        ),
+                                    ),
+                                    kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                        method: "reload".to_string(),
+                                    },
+                                    message: format!(
+                                        "kasane.kdl reload failed (keeping previous): {err}"
+                                    ),
+                                    previous: None,
+                                    attempted: None,
+                                };
                                 schedule_diagnostic_overlay(
                                     &kasane_core::event_loop::GenericDiagnosticScheduler(
                                         TuiEventSink(ctx.session_tx.clone()),
                                     ),
                                     ctx.diagnostic_overlay,
-                                    &diagnostics,
+                                    &[diagnostic],
                                 );
                             }
-                            tracing::info!("kasane.kdl hot-reloaded");
                         }
-                        Err(err) => {
-                            tracing::warn!("kasane.kdl reload failed (keeping previous): {err}");
-                            let diagnostic = PluginDiagnostic {
-                                target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
-                                    kasane_core::plugin::PluginId(
-                                        "kasane.widget.reload".to_string(),
-                                    ),
-                                ),
-                                kind: kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
-                                    method: "reload".to_string(),
-                                },
-                                message: format!(
-                                    "kasane.kdl reload failed (keeping previous): {err}"
-                                ),
-                                previous: None,
-                                attempted: None,
-                            };
-                            schedule_diagnostic_overlay(
-                                &kasane_core::event_loop::GenericDiagnosticScheduler(TuiEventSink(
-                                    ctx.session_tx.clone(),
-                                )),
-                                ctx.diagnostic_overlay,
-                                &[diagnostic],
-                            );
-                        }
-                    }
+                    } // else (hash changed)
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     // File deleted: unload all widget plugins, reset config to defaults
@@ -464,7 +481,7 @@ where
                 }
             }
             EventResult {
-                flags: DirtyFlags::all(),
+                flags: reload_flags,
                 commands: vec![],
                 scroll_plans: vec![],
                 surface_commands: vec![],

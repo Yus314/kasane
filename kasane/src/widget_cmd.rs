@@ -89,39 +89,45 @@ fn collect_face_tokens(widget: &kasane_core::widget::types::WidgetDef) -> Vec<St
         }
     }
 
-    match &widget.kind {
-        WidgetKind::Contribution(c) => {
-            for part in &c.parts {
-                for rule in &part.face_rules {
-                    check_fot(&rule.face, &mut tokens);
+    fn collect_kind_tokens(kind: &WidgetKind, tokens: &mut Vec<String>) {
+        match kind {
+            WidgetKind::Contribution(c) => {
+                for part in &c.parts {
+                    for rule in &part.face_rules {
+                        check_fot(&rule.face, tokens);
+                    }
+                }
+            }
+            WidgetKind::Background(b) => {
+                check_fot(&b.face, tokens);
+            }
+            WidgetKind::Transform(t) => match &t.patch {
+                WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
+                    for rule in rules {
+                        check_fot(&rule.face, tokens);
+                    }
+                }
+            },
+            WidgetKind::Gutter(g) => {
+                for branch in &g.branches {
+                    for rule in &branch.face_rules {
+                        check_fot(&rule.face, tokens);
+                    }
+                }
+            }
+            WidgetKind::Inline(i) => {
+                check_fot(&i.face, tokens);
+            }
+            WidgetKind::VirtualText(vt) => {
+                for rule in &vt.face_rules {
+                    check_fot(&rule.face, tokens);
                 }
             }
         }
-        WidgetKind::Background(b) => {
-            check_fot(&b.face, &mut tokens);
-        }
-        WidgetKind::Transform(t) => match &t.patch {
-            WidgetPatch::ModifyFace(rules) | WidgetPatch::WrapContainer(rules) => {
-                for rule in rules {
-                    check_fot(&rule.face, &mut tokens);
-                }
-            }
-        },
-        WidgetKind::Gutter(g) => {
-            for branch in &g.branches {
-                for rule in &branch.face_rules {
-                    check_fot(&rule.face, &mut tokens);
-                }
-            }
-        }
-        WidgetKind::Inline(i) => {
-            check_fot(&i.face, &mut tokens);
-        }
-        WidgetKind::VirtualText(vt) => {
-            for rule in &vt.face_rules {
-                check_fot(&rule.face, &mut tokens);
-            }
-        }
+    }
+
+    for effect in &widget.effects {
+        collect_kind_tokens(&effect.kind, &mut tokens);
     }
 
     tokens

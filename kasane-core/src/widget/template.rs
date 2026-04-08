@@ -34,64 +34,10 @@ impl Template {
     /// Parse a template string like `" {cursor_line}:{cursor_col} "`.
     ///
     /// Supports inline conditionals: `{?editor_mode == 'insert':INS}` or
-    /// `{?condition:then:else}`.
+    /// `{?condition:then:else}`. Branches can contain nested variables and
+    /// conditionals: `{?is_focused:{cursor_line}:N/A}`.
     pub fn parse(input: &str) -> Result<Self, TemplateParseError> {
-        let mut segments = Vec::new();
-        let mut literal = String::new();
-        let mut chars = input.chars().peekable();
-
-        while let Some(ch) = chars.next() {
-            if ch == '{' {
-                // Collect the brace content
-                if !literal.is_empty() {
-                    segments.push(TemplateSegment::Literal(CompactString::from(&literal)));
-                    literal.clear();
-                }
-                let mut var = String::new();
-                let mut found_close = false;
-                for ch in chars.by_ref() {
-                    if ch == '}' {
-                        found_close = true;
-                        break;
-                    }
-                    var.push(ch);
-                }
-                if !found_close {
-                    return Err(TemplateParseError::UnclosedBrace);
-                }
-                if var.is_empty() {
-                    return Err(TemplateParseError::EmptyVariable);
-                }
-
-                if let Some(rest) = var.strip_prefix('?') {
-                    // Inline conditional: {?condition:then} or {?condition:then:else}
-                    let seg = parse_conditional(rest)?;
-                    segments.push(seg);
-                } else {
-                    // Check for format spec: {name:[<]width[.truncate]}
-                    let (name, format) = if let Some(colon_pos) = var.find(':') {
-                        let name_part = &var[..colon_pos];
-                        let fmt_part = &var[colon_pos + 1..];
-                        let fmt = parse_format_spec(fmt_part);
-                        (name_part.to_string(), fmt)
-                    } else {
-                        (var, None)
-                    };
-
-                    segments.push(TemplateSegment::Variable {
-                        name: CompactString::from(name),
-                        format,
-                    });
-                }
-            } else {
-                literal.push(ch);
-            }
-        }
-
-        if !literal.is_empty() {
-            segments.push(TemplateSegment::Literal(CompactString::from(literal)));
-        }
-
+        let segments = parse_segments(input)?;
         Ok(Template { segments })
     }
 
@@ -149,9 +95,101 @@ fn parse_format_spec(spec: &str) -> Option<TemplateFmt> {
     })
 }
 
+/// Scan content inside braces, tracking nested brace depth.
+///
+/// Assumes the opening `{` has already been consumed. Returns the content
+/// between the opening `{` and the matching closing `}`.
+fn scan_braced_content(
+    chars: &mut impl Iterator<Item = char>,
+) -> Result<String, TemplateParseError> {
+    let mut content = String::new();
+    let mut depth = 0u32;
+    for ch in chars {
+        match ch {
+            '{' => {
+                depth += 1;
+                content.push(ch);
+            }
+            '}' => {
+                if depth > 0 {
+                    depth -= 1;
+                    content.push(ch);
+                } else {
+                    return Ok(content);
+                }
+            }
+            _ => content.push(ch),
+        }
+    }
+    Err(TemplateParseError::UnclosedBrace)
+}
+
+/// Find the byte position of the last `:` at brace-depth 0 in the given string.
+fn find_last_depth0_colon(s: &str) -> Option<usize> {
+    let mut last = None;
+    let mut depth = 0u32;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' if depth > 0 => depth -= 1,
+            ':' if depth == 0 => last = Some(i),
+            _ => {}
+        }
+    }
+    last
+}
+
+/// Parse a string into template segments (supports variables and nested conditionals).
+fn parse_segments(input: &str) -> Result<Vec<TemplateSegment>, TemplateParseError> {
+    let mut segments = Vec::new();
+    let mut literal = String::new();
+    let mut chars = input.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            if !literal.is_empty() {
+                segments.push(TemplateSegment::Literal(CompactString::from(&literal)));
+                literal.clear();
+            }
+            let var = scan_braced_content(&mut chars)?;
+            if var.is_empty() {
+                return Err(TemplateParseError::EmptyVariable);
+            }
+
+            if let Some(rest) = var.strip_prefix('?') {
+                let seg = parse_conditional(rest)?;
+                segments.push(seg);
+            } else {
+                let (name, format) = if let Some(colon_pos) = var.find(':') {
+                    let name_part = &var[..colon_pos];
+                    let fmt_part = &var[colon_pos + 1..];
+                    let fmt = parse_format_spec(fmt_part);
+                    (name_part.to_string(), fmt)
+                } else {
+                    (var, None)
+                };
+
+                segments.push(TemplateSegment::Variable {
+                    name: CompactString::from(name),
+                    format,
+                });
+            }
+        } else {
+            literal.push(ch);
+        }
+    }
+
+    if !literal.is_empty() {
+        segments.push(TemplateSegment::Literal(CompactString::from(literal)));
+    }
+
+    Ok(segments)
+}
+
 /// Parse an inline conditional: the content after `?` inside `{?...}`.
 ///
-/// Format: `condition:then_text` or `condition:then_text:else_text`.
+/// Format: `condition:then_branch` or `condition:then_branch:else_branch`.
+/// Branches can contain nested `{variable}` and `{?conditional}` expressions.
 fn parse_conditional(input: &str) -> Result<TemplateSegment, TemplateParseError> {
     // Find the first `:` that separates the condition from the then branch.
     // Condition expressions don't use `:`, so the first one is always the separator.
@@ -164,19 +202,20 @@ fn parse_conditional(input: &str) -> Result<TemplateSegment, TemplateParseError>
 
     let predicate = parse_condition(cond_str).map_err(TemplateParseError::ConditionalError)?;
 
-    // Split then/else on the last `:` in the rest.
-    // Using rfind so that the then-part can contain `:` (e.g. format specs in variables).
-    let (then_str, else_str) = if let Some(colon2) = rest.rfind(':') {
+    // Split then/else on the last depth-0 `:` in the rest.
+    // Depth-aware scan ensures braces in branches (e.g. `{var:fmt}`) don't
+    // interfere with the then/else separator.
+    let (then_str, else_str) = if let Some(colon2) = find_last_depth0_colon(rest) {
         (&rest[..colon2], &rest[colon2 + 1..])
     } else {
         (rest, "")
     };
 
-    let then_segments = parse_literal_segments(then_str);
+    let then_segments = parse_segments(then_str)?;
     let else_segments = if else_str.is_empty() {
         Vec::new()
     } else {
-        parse_literal_segments(else_str)
+        parse_segments(else_str)?
     };
 
     Ok(TemplateSegment::Conditional {
@@ -184,15 +223,6 @@ fn parse_conditional(input: &str) -> Result<TemplateSegment, TemplateParseError>
         then_segments,
         else_segments,
     })
-}
-
-/// Parse a simple string into template segments (Literal only, no nested `{}`).
-fn parse_literal_segments(s: &str) -> Vec<TemplateSegment> {
-    if s.is_empty() {
-        Vec::new()
-    } else {
-        vec![TemplateSegment::Literal(CompactString::from(s))]
-    }
 }
 
 /// Expand a list of segments into a string buffer.

@@ -3,6 +3,7 @@
 use compact_str::CompactString;
 
 use crate::plugin::AppView;
+use crate::plugin::variable_store::PluginVariableStore;
 use crate::protocol::{CursorMode, StatusStyle};
 use crate::state::DirtyFlags;
 use crate::state::derived::EditorMode;
@@ -17,11 +18,22 @@ pub trait VariableResolver {
 /// Resolves variables from the current application state.
 pub struct AppViewResolver<'a> {
     app: &'a AppView<'a>,
+    plugin_store: Option<&'a PluginVariableStore>,
 }
 
 impl<'a> AppViewResolver<'a> {
     pub fn new(app: &'a AppView<'a>) -> Self {
-        Self { app }
+        Self {
+            app,
+            plugin_store: None,
+        }
+    }
+
+    pub fn with_plugin_store(app: &'a AppView<'a>, store: &'a PluginVariableStore) -> Self {
+        Self {
+            app,
+            plugin_store: Some(store),
+        }
     }
 }
 
@@ -62,6 +74,11 @@ impl VariableResolver for AppViewResolver<'_> {
                 .ui_options()
                 .get(&name[4..])
                 .map(|v| Value::Str(CompactString::from(v.as_str())))
+                .unwrap_or(Value::Empty),
+            name if name.starts_with("plugin.") => self
+                .plugin_store
+                .and_then(|store| store.get(&name[7..]))
+                .cloned()
                 .unwrap_or(Value::Empty),
             _ => Value::Empty,
         }
@@ -242,6 +259,10 @@ impl VariableRegistry {
         if name.starts_with("opt.") {
             return DirtyFlags::OPTIONS;
         }
+        if name.starts_with("plugin.") {
+            // Plugin variables can change on any state update, so use a broad flag.
+            return DirtyFlags::BUFFER_CONTENT;
+        }
         DirtyFlags::BUFFER_CONTENT
     }
 
@@ -250,7 +271,7 @@ impl VariableRegistry {
     /// Returns `None` if the variable is valid, or `Some(warning_message)` if unknown.
     /// `line_context` should be `true` for gutter widgets where per-line variables are valid.
     pub fn validate(&self, name: &str, line_context: bool) -> Option<String> {
-        if name.starts_with("opt.") {
+        if name.starts_with("opt.") || name.starts_with("plugin.") {
             return None;
         }
 

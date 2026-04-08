@@ -79,6 +79,71 @@ fn template_no_variables() {
 }
 
 // =============================================================================
+// Template: nested conditionals (Phase 1 — depth-aware brace parser)
+// =============================================================================
+
+#[test]
+fn template_conditional_with_variable_in_then() {
+    // {?is_focused:{cursor_line}:N/A}
+    let t = Template::parse("{?is_focused:{cursor_line}:N/A}").unwrap();
+    let resolver = StaticResolver::new(&[("is_focused", "true"), ("cursor_line", "42")]);
+    assert_eq!(t.expand(&resolver), "42");
+    let resolver2 = StaticResolver::new(&[("cursor_line", "42")]);
+    assert_eq!(t.expand(&resolver2), "N/A");
+}
+
+#[test]
+fn template_conditional_with_formatted_variable_in_then() {
+    // {?is_focused:{cursor_line:4}:---}
+    let t = Template::parse("{?is_focused:{cursor_line:4}:---}").unwrap();
+    let resolver = StaticResolver::new(&[("is_focused", "true"), ("cursor_line", "42")]);
+    assert_eq!(t.expand(&resolver), "  42");
+    let resolver2 = StaticResolver::new(&[("cursor_line", "42")]);
+    assert_eq!(t.expand(&resolver2), "---");
+}
+
+#[test]
+fn template_nested_conditional() {
+    // {?is_focused:active:{?has_menu:menu:buffer}}
+    let t = Template::parse("{?is_focused:active:{?has_menu:menu:buffer}}").unwrap();
+    // is_focused=true → "active"
+    let r1 = StaticResolver::new(&[("is_focused", "true")]);
+    assert_eq!(t.expand(&r1), "active");
+    // is_focused=false, has_menu=true → "menu"
+    let r2 = StaticResolver::new(&[("has_menu", "true")]);
+    assert_eq!(t.expand(&r2), "menu");
+    // is_focused=false, has_menu=false → "buffer"
+    let r3 = StaticResolver::new(&[]);
+    assert_eq!(t.expand(&r3), "buffer");
+}
+
+#[test]
+fn template_conditional_comparison_with_variable_branches() {
+    // {?editor_mode == 'insert':{cursor_col}:{cursor_line}}
+    let t = Template::parse("{?editor_mode == 'insert':{cursor_col}:{cursor_line}}").unwrap();
+    let r1 = StaticResolver::new(&[
+        ("editor_mode", "insert"),
+        ("cursor_col", "5"),
+        ("cursor_line", "10"),
+    ]);
+    assert_eq!(t.expand(&r1), "5");
+    let r2 = StaticResolver::new(&[
+        ("editor_mode", "normal"),
+        ("cursor_col", "5"),
+        ("cursor_line", "10"),
+    ]);
+    assert_eq!(t.expand(&r2), "10");
+}
+
+#[test]
+fn template_nested_conditional_referenced_variables() {
+    let t = Template::parse("{?is_focused:{cursor_line}:N/A}").unwrap();
+    let mut vars = t.referenced_variables();
+    vars.sort();
+    assert_eq!(vars, &["cursor_line", "is_focused"]);
+}
+
+// =============================================================================
 // Condition tests
 // =============================================================================
 
@@ -193,6 +258,71 @@ fn cond_le() {
 }
 
 // =============================================================================
+// Condition: =~ and in operators (Phase 3b)
+// =============================================================================
+
+#[test]
+fn cond_regex_match() {
+    let expr = parse_condition("filetype =~ 'rs|go|py'").unwrap();
+    let resolver = StaticResolver::new(&[("filetype", "rs")]);
+    assert!(expr.evaluate_with_resolver(&resolver));
+    let resolver2 = StaticResolver::new(&[("filetype", "java")]);
+    assert!(!expr.evaluate_with_resolver(&resolver2));
+}
+
+#[test]
+fn cond_regex_no_match() {
+    let expr = parse_condition("filetype =~ '^rust$'").unwrap();
+    let resolver = StaticResolver::new(&[("filetype", "rs")]);
+    assert!(!expr.evaluate_with_resolver(&resolver));
+}
+
+#[test]
+fn cond_regex_invalid() {
+    let result = parse_condition("filetype =~ '(invalid['");
+    assert!(result.is_err());
+}
+
+#[test]
+fn cond_in_set() {
+    let expr = parse_condition("filetype in ('rust', 'go', 'python')").unwrap();
+    let resolver = StaticResolver::new(&[("filetype", "rust")]);
+    assert!(expr.evaluate_with_resolver(&resolver));
+    let resolver2 = StaticResolver::new(&[("filetype", "java")]);
+    assert!(!expr.evaluate_with_resolver(&resolver2));
+}
+
+#[test]
+fn cond_in_empty_set() {
+    let expr = parse_condition("filetype in ()").unwrap();
+    let resolver = StaticResolver::new(&[("filetype", "rust")]);
+    assert!(!expr.evaluate_with_resolver(&resolver));
+}
+
+#[test]
+fn cond_in_numeric() {
+    let expr = parse_condition("cursor_count in (1, 2, 3)").unwrap();
+    let resolver = StaticResolver::new(&[("cursor_count", "2")]);
+    assert!(expr.evaluate_with_resolver(&resolver));
+    let resolver2 = StaticResolver::new(&[("cursor_count", "5")]);
+    assert!(!expr.evaluate_with_resolver(&resolver2));
+}
+
+#[test]
+fn cond_regex_referenced_variables() {
+    let expr = parse_condition("filetype =~ 'rs|go'").unwrap();
+    let vars = expr.referenced_variables();
+    assert_eq!(vars, &["filetype"]);
+}
+
+#[test]
+fn cond_in_referenced_variables() {
+    let expr = parse_condition("filetype in ('rust', 'go')").unwrap();
+    let vars = expr.referenced_variables();
+    assert_eq!(vars, &["filetype"]);
+}
+
+// =============================================================================
 // KDL parse tests
 // =============================================================================
 
@@ -203,7 +333,7 @@ fn parse_simple_contribution() {
     assert!(errors.is_empty());
     assert_eq!(file.widgets.len(), 1);
     assert!(matches!(
-        file.widgets[0].kind,
+        file.widgets[0].effects[0].kind,
         super::types::WidgetKind::Contribution(_)
     ));
 }
@@ -219,7 +349,7 @@ status-info slot="status-right" {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty(), "errors: {errors:?}");
     assert_eq!(file.widgets.len(), 1);
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.parts.len(), 2);
         assert!(!c.parts[0].face_rules.is_empty());
         assert!(c.parts[1].face_rules.is_empty());
@@ -235,7 +365,7 @@ fn parse_background_widget() {
     assert!(errors.is_empty());
     assert_eq!(file.widgets.len(), 1);
     assert!(matches!(
-        file.widgets[0].kind,
+        file.widgets[0].effects[0].kind,
         super::types::WidgetKind::Background(_)
     ));
 }
@@ -246,7 +376,7 @@ fn parse_transform_widget() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     assert_eq!(file.widgets.len(), 1);
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert!(t.when.is_some());
     } else {
         panic!("expected transform widget");
@@ -614,7 +744,7 @@ fn parse_selection_background() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
     assert_eq!(file.widgets.len(), 1);
-    if let super::types::WidgetKind::Background(ref b) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Background(ref b) = file.widgets[0].effects[0].kind {
         assert!(matches!(b.line_expr, super::types::LineExpr::Selection));
     } else {
         panic!("expected background widget");
@@ -690,7 +820,7 @@ fn parse_size_hint_auto() {
     let source = r#"a slot="status-left" text="x" size="auto""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.size_hint, ContribSizeHint::Auto);
     } else {
         panic!("expected contribution");
@@ -702,7 +832,7 @@ fn parse_size_hint_absent_defaults_to_auto() {
     let source = r#"a slot="status-left" text="x""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.size_hint, ContribSizeHint::Auto);
     } else {
         panic!("expected contribution");
@@ -714,7 +844,7 @@ fn parse_size_hint_fixed() {
     let source = r#"a slot="status-left" text="x" size="20col""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.size_hint, ContribSizeHint::Fixed(20));
     } else {
         panic!("expected contribution");
@@ -726,7 +856,7 @@ fn parse_size_hint_flex() {
     let source = r#"a slot="status-left" text="x" size="1.5fr""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.size_hint, ContribSizeHint::Flex(1.5));
     } else {
         panic!("expected contribution");
@@ -894,7 +1024,7 @@ fn parse_gutter_widget() {
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty(), "errors: {errors:?}");
     assert_eq!(file.widgets.len(), 1);
-    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].effects[0].kind {
         assert_eq!(g.side, GutterSide::Left);
         assert_eq!(g.branches.len(), 1);
         assert!(!g.branches[0].face_rules.is_empty());
@@ -910,7 +1040,7 @@ fn parse_gutter_minimal() {
     let source = r#"nums kind="gutter" text="{line_number} ""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Gutter(ref g) = file.widgets[0].effects[0].kind {
         assert_eq!(g.side, GutterSide::Left); // default
         assert_eq!(g.branches.len(), 1);
         assert!(g.branches[0].face_rules.is_empty());
@@ -934,7 +1064,7 @@ fn parse_gutter_with_line_when() {
         r#"abs kind="gutter" side="left" text="{line_number:3} " line-when="is_cursor_line""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Gutter(g) = &file.widgets[0].kind {
+    if let super::types::WidgetKind::Gutter(g) = &file.widgets[0].effects[0].kind {
         assert_eq!(g.branches.len(), 1);
         assert!(g.branches[0].line_when.is_some());
     } else {
@@ -1077,7 +1207,7 @@ fn parse_transform_default_patch() {
     let source = r#"t kind="transform" target="status" face="default,blue""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert!(matches!(t.patch, super::types::WidgetPatch::ModifyFace(_)));
     } else {
         panic!("expected transform");
@@ -1089,7 +1219,7 @@ fn parse_transform_explicit_modify_face() {
     let source = r#"t kind="transform" target="status" face="default,blue" patch="modify-face""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert!(matches!(t.patch, super::types::WidgetPatch::ModifyFace(_)));
     } else {
         panic!("expected transform");
@@ -1101,7 +1231,7 @@ fn parse_transform_wrap_container() {
     let source = r#"wrap kind="transform" target="status" face="default,rgb:1a1a1a" patch="wrap""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert!(matches!(
             t.patch,
             super::types::WidgetPatch::WrapContainer(_)
@@ -1147,7 +1277,7 @@ fn parse_transform_target_menu_prompt() {
     let source = r#"t kind="transform" target="menu-prompt" face="default,blue""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert_eq!(t.target, kasane_plugin_model::TransformTarget::MENU_PROMPT);
     } else {
         panic!("expected transform");
@@ -1159,7 +1289,7 @@ fn parse_transform_target_menu_inline() {
     let source = r#"t kind="transform" target="menu-inline" face="default,blue""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert_eq!(t.target, kasane_plugin_model::TransformTarget::MENU_INLINE);
     } else {
         panic!("expected transform");
@@ -1171,7 +1301,7 @@ fn parse_transform_target_menu_search() {
     let source = r#"t kind="transform" target="menu-search" face="default,blue""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert_eq!(t.target, kasane_plugin_model::TransformTarget::MENU_SEARCH);
     } else {
         panic!("expected transform");
@@ -1183,7 +1313,7 @@ fn parse_transform_target_info_prompt() {
     let source = r#"t kind="transform" target="info-prompt" face="default,blue""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert_eq!(t.target, kasane_plugin_model::TransformTarget::INFO_PROMPT);
     } else {
         panic!("expected transform");
@@ -1195,7 +1325,7 @@ fn parse_transform_target_info_modal() {
     let source = r#"t kind="transform" target="info-modal" face="default,blue""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         assert_eq!(t.target, kasane_plugin_model::TransformTarget::INFO_MODAL);
     } else {
         panic!("expected transform");
@@ -1211,7 +1341,7 @@ fn parse_face_token_reference() {
     let source = r#"mode slot="status-left" text=" {editor_mode} " face="@status_line""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty(), "errors: {errors:?}");
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.parts[0].face_rules.len(), 1);
         assert!(matches!(
             c.parts[0].face_rules[0].face,
@@ -1227,7 +1357,7 @@ fn parse_face_direct_backward_compat() {
     let source = r#"mode slot="status-left" text=" test " face="red,blue+b""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
         assert_eq!(c.parts[0].face_rules.len(), 1);
         assert!(matches!(
             c.parts[0].face_rules[0].face,
@@ -1243,7 +1373,7 @@ fn parse_face_token_in_background() {
     let source = r#"hl kind="background" line="cursor" face="@menu_item_selected""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Background(ref b) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Background(ref b) = file.widgets[0].effects[0].kind {
         assert!(matches!(b.face, super::types::FaceOrToken::Token(_)));
     } else {
         panic!("expected background widget");
@@ -1255,7 +1385,7 @@ fn parse_face_token_in_transform() {
     let source = r#"t kind="transform" target="status" face="@status_line""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].kind {
+    if let super::types::WidgetKind::Transform(ref t) = file.widgets[0].effects[0].kind {
         if let super::types::WidgetPatch::ModifyFace(ref rules) = t.patch {
             assert_eq!(rules.len(), 1);
             assert!(matches!(rules[0].face, super::types::FaceOrToken::Token(_)));
@@ -1272,7 +1402,7 @@ fn parse_face_token_in_gutter() {
     let source = r#"nums kind="gutter" side="left" text="{line_number}" face="@status_line""#;
     let (file, errors) = parse_widgets(source).unwrap();
     assert!(errors.is_empty());
-    if let super::types::WidgetKind::Gutter(g) = &file.widgets[0].kind {
+    if let super::types::WidgetKind::Gutter(g) = &file.widgets[0].effects[0].kind {
         assert_eq!(g.branches.len(), 1);
         assert!(matches!(
             g.branches[0].face_rules.first(),
