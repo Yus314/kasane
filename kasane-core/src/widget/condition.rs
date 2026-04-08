@@ -2,8 +2,8 @@
 
 use compact_str::CompactString;
 
-use super::types::{CmpOp, CondExpr, Value};
-use super::variables::VariableResolver;
+use super::predicate::Predicate;
+use super::types::{CmpOp, Value};
 
 /// Error from parsing a condition expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,47 +102,47 @@ impl<'a> Parser<'a> {
     }
 
     /// `expr := or_expr`
-    fn parse_expr(&mut self) -> Result<CondExpr, CondParseError> {
+    fn parse_expr(&mut self) -> Result<Predicate, CondParseError> {
         self.parse_or()
     }
 
     /// `or_expr := and_expr ("||" and_expr)*`
-    fn parse_or(&mut self) -> Result<CondExpr, CondParseError> {
+    fn parse_or(&mut self) -> Result<Predicate, CondParseError> {
         let mut left = self.parse_and()?;
         while self.peek() == Some("||") {
             self.advance(2);
             self.bump_node()?;
             let right = self.parse_and()?;
-            left = CondExpr::Or(Box::new(left), Box::new(right));
+            left = Predicate::Or(Box::new(left), Box::new(right));
         }
         Ok(left)
     }
 
     /// `and_expr := not_expr ("&&" not_expr)*`
-    fn parse_and(&mut self) -> Result<CondExpr, CondParseError> {
+    fn parse_and(&mut self) -> Result<Predicate, CondParseError> {
         let mut left = self.parse_not()?;
         while self.peek() == Some("&&") {
             self.advance(2);
             self.bump_node()?;
             let right = self.parse_not()?;
-            left = CondExpr::And(Box::new(left), Box::new(right));
+            left = Predicate::And(Box::new(left), Box::new(right));
         }
         Ok(left)
     }
 
     /// `not_expr := "!" primary | primary`
-    fn parse_not(&mut self) -> Result<CondExpr, CondParseError> {
+    fn parse_not(&mut self) -> Result<Predicate, CondParseError> {
         if self.peek() == Some("!") {
             self.advance(1);
             self.bump_node()?;
             let inner = self.parse_primary()?;
-            return Ok(CondExpr::Not(Box::new(inner)));
+            return Ok(Predicate::Not(Box::new(inner)));
         }
         self.parse_primary()
     }
 
     /// `primary := "(" expr ")" | atom`
-    fn parse_primary(&mut self) -> Result<CondExpr, CondParseError> {
+    fn parse_primary(&mut self) -> Result<Predicate, CondParseError> {
         if self.peek() == Some("(") {
             self.advance(1);
             let inner = self.parse_expr()?;
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `atom := variable op value | variable`
-    fn parse_atom(&mut self) -> Result<CondExpr, CondParseError> {
+    fn parse_atom(&mut self) -> Result<Predicate, CondParseError> {
         self.bump_node()?;
         let token = self.consume().ok_or(CondParseError::UnexpectedEnd)?;
 
@@ -186,13 +186,13 @@ impl<'a> Parser<'a> {
             let value_token = self.consume().ok_or(CondParseError::UnexpectedEnd)?;
             let value = parse_literal_value(value_token);
 
-            Ok(CondExpr::Compare {
+            Ok(Predicate::VariableCompare {
                 variable,
                 op,
                 value,
             })
         } else {
-            Ok(CondExpr::Truthy(variable))
+            Ok(Predicate::VariableTruthy(variable))
         }
     }
 }
@@ -220,7 +220,7 @@ fn parse_literal_value(token: &str) -> Value {
 }
 
 /// Parse a condition expression string.
-pub fn parse_condition(expr: &str) -> Result<CondExpr, CondParseError> {
+pub fn parse_condition(expr: &str) -> Result<Predicate, CondParseError> {
     if expr.len() > 256 {
         return Err(CondParseError::TooManyNodes);
     }
@@ -237,38 +237,4 @@ pub fn parse_condition(expr: &str) -> Result<CondExpr, CondParseError> {
     Ok(result)
 }
 
-impl CondExpr {
-    /// Evaluate this condition against a variable resolver.
-    pub fn evaluate(&self, resolver: &dyn VariableResolver) -> bool {
-        match self {
-            Self::Truthy(name) => resolver.resolve(name).is_truthy(),
-            Self::Compare {
-                variable,
-                op,
-                value,
-            } => resolver.resolve(variable).compare(*op, value),
-            Self::And(a, b) => a.evaluate(resolver) && b.evaluate(resolver),
-            Self::Or(a, b) => a.evaluate(resolver) || b.evaluate(resolver),
-            Self::Not(inner) => !inner.evaluate(resolver),
-        }
-    }
-
-    /// Iterate over all variable names referenced in this expression.
-    pub fn referenced_variables(&self) -> Vec<&str> {
-        let mut vars = Vec::new();
-        collect_variables(self, &mut vars);
-        vars
-    }
-}
-
-fn collect_variables<'a>(expr: &'a CondExpr, out: &mut Vec<&'a str>) {
-    match expr {
-        CondExpr::Truthy(name) => out.push(name),
-        CondExpr::Compare { variable, .. } => out.push(variable),
-        CondExpr::And(a, b) | CondExpr::Or(a, b) => {
-            collect_variables(a, out);
-            collect_variables(b, out);
-        }
-        CondExpr::Not(inner) => collect_variables(inner, out),
-    }
-}
+// evaluate() and referenced_variables() are now on Predicate in predicate.rs

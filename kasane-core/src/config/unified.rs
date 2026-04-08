@@ -4,7 +4,7 @@ use crate::widget::parse::{WidgetNodeError, WidgetParseError, parse_widget_nodes
 use crate::widget::types::WidgetFile;
 
 use super::Config;
-use super::kdl_parser::parse_config_from_nodes;
+use super::kdl_parser::{ConfigError, parse_config_from_nodes};
 
 /// Reserved top-level node names that are config sections (or structural blocks).
 /// All other top-level nodes are widget definitions (deprecated flat form).
@@ -38,7 +38,7 @@ pub fn is_config_section(name: &str) -> bool {
 ///           Top-level non-config nodes are rejected as an error.
 pub fn parse_unified(
     source: &str,
-) -> Result<(Config, WidgetFile, Vec<WidgetNodeError>), UnifiedParseError> {
+) -> Result<(Config, Vec<ConfigError>, WidgetFile, Vec<WidgetNodeError>), UnifiedParseError> {
     let doc: kdl::KdlDocument = source
         .parse()
         .map_err(|e: kdl::KdlError| UnifiedParseError::Syntax(e.to_string()))?;
@@ -69,11 +69,11 @@ pub fn parse_unified(
         }
     }
 
-    let config = parse_config_from_nodes(&config_owned);
+    let (config, config_errors) = parse_config_from_nodes(&config_owned);
     let (widget_file, widget_errors) =
         parse_widget_nodes(&widget_owned).map_err(UnifiedParseError::Widget)?;
 
-    Ok((config, widget_file, widget_errors))
+    Ok((config, config_errors, widget_file, widget_errors))
 }
 
 #[derive(Debug)]

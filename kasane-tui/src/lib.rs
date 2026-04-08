@@ -158,7 +158,10 @@ where
         let config_path = kasane_core::config::config_path();
         if let Ok(source) = std::fs::read_to_string(&config_path) {
             match kasane_core::config::unified::parse_unified(&source) {
-                Ok((_config, widget_file, errors)) => {
+                Ok((_config, config_errors, widget_file, errors)) => {
+                    for err in &config_errors {
+                        tracing::warn!("config: {err}");
+                    }
                     for err in &errors {
                         tracing::warn!("widget `{}`: {}", err.name, err.message);
                     }

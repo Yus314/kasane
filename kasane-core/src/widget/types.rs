@@ -9,7 +9,10 @@ use crate::state::DirtyFlags;
 
 use kasane_plugin_model::TransformTarget;
 
+use super::predicate::Predicate;
+
 /// A face that is either a direct Face value or a reference to a theme token.
+#[derive(Clone)]
 pub enum FaceOrToken {
     Direct(Face),
     Token(StyleToken),
@@ -31,91 +34,136 @@ pub struct WidgetDef {
 }
 
 /// The kind of widget.
+#[derive(Clone)]
 pub enum WidgetKind {
     Contribution(ContributionWidget),
     Background(BackgroundWidget),
     Transform(TransformWidget),
     Gutter(GutterWidget),
+    Inline(InlineWidget),
+    VirtualText(VirtualTextWidget),
 }
 
 /// A widget that contributes an element to a slot.
+#[derive(Clone)]
 pub struct ContributionWidget {
     pub slot: SlotId,
     pub parts: Vec<WidgetPart>,
-    pub when: Option<CondExpr>,
+    pub when: Option<Predicate>,
     pub size_hint: ContribSizeHint,
 }
 
 /// A face rule: a face with an optional condition. First matching rule wins.
+#[derive(Clone)]
 pub struct FaceRule {
     pub face: FaceOrToken,
-    pub when: Option<CondExpr>,
+    pub when: Option<Predicate>,
 }
 
 /// A single part of a contribution widget (text segment with face rules and condition).
+#[derive(Clone)]
 pub struct WidgetPart {
     pub template: Template,
     /// Face rules evaluated in order; first match wins. Empty = default face.
     pub face_rules: Vec<FaceRule>,
-    pub when: Option<CondExpr>,
+    pub when: Option<Predicate>,
 }
 
 /// A widget that provides a background layer for a line.
+#[derive(Clone)]
 pub struct BackgroundWidget {
     pub line_expr: LineExpr,
     pub face: FaceOrToken,
-    pub when: Option<CondExpr>,
+    pub when: Option<Predicate>,
 }
 
 /// Expression determining which line a background widget applies to.
+#[derive(Clone)]
 pub enum LineExpr {
     CursorLine,
     Selection,
 }
 
 /// A widget that applies a transform patch.
+#[derive(Clone)]
 pub struct TransformWidget {
     pub target: TransformTarget,
     pub patch: WidgetPatch,
-    pub when: Option<CondExpr>,
+    pub when: Option<Predicate>,
 }
 
 /// Declarative transform operations available in widgets.
+#[derive(Clone)]
 pub enum WidgetPatch {
     ModifyFace(Vec<FaceRule>),
     WrapContainer(Vec<FaceRule>),
 }
 
 /// A branch in a gutter widget: template + face rules with a per-line condition.
+#[derive(Clone)]
 pub struct GutterBranch {
     pub template: Template,
     pub face_rules: Vec<FaceRule>,
     /// Per-line condition (evaluated per line).
-    pub line_when: Option<CondExpr>,
+    pub line_when: Option<Predicate>,
 }
 
 /// A widget that provides gutter annotations per line.
+#[derive(Clone)]
 pub struct GutterWidget {
     pub side: GutterSide,
     /// Branches evaluated in order; first matching (line_when) branch wins.
     pub branches: Vec<GutterBranch>,
     /// Global on/off condition.
-    pub when: Option<CondExpr>,
+    pub when: Option<Predicate>,
+}
+
+/// A widget that inserts inline decorations based on pattern matching.
+///
+/// Matches a substring pattern against each visible line and applies a face
+/// to the matched range.
+#[derive(Clone)]
+pub struct InlineWidget {
+    /// Substring pattern to match in line content.
+    pub pattern: CompactString,
+    /// Face to apply to matched ranges.
+    pub face: FaceOrToken,
+    /// Global on/off condition.
+    pub when: Option<Predicate>,
+}
+
+/// A widget that appends virtual text at the end of lines.
+#[derive(Clone)]
+pub struct VirtualTextWidget {
+    /// Template for the virtual text content.
+    pub template: Template,
+    /// Face rules for the virtual text.
+    pub face_rules: Vec<FaceRule>,
+    /// Global on/off condition.
+    pub when: Option<Predicate>,
 }
 
 /// A template string with literal and variable segments.
 ///
 /// Example: `" {cursor_line}:{cursor_col} "`
+#[derive(Clone)]
 pub struct Template {
     pub segments: Vec<TemplateSegment>,
 }
 
 /// A segment of a template.
+#[derive(Clone)]
 pub enum TemplateSegment {
     Literal(CompactString),
     Variable {
         name: CompactString,
         format: Option<TemplateFmt>,
+    },
+    /// Inline conditional: `{?condition:then_text}` or `{?condition:then_text:else_text}`.
+    Conditional {
+        predicate: super::predicate::Predicate,
+        then_segments: Vec<TemplateSegment>,
+        else_segments: Vec<TemplateSegment>,
     },
 }
 
@@ -127,6 +175,7 @@ pub enum TemplateAlign {
 }
 
 /// Formatting options for template variables.
+#[derive(Clone)]
 pub struct TemplateFmt {
     /// Pad to this width.
     pub width: Option<usize>,
@@ -202,19 +251,10 @@ fn cmp_ord(ord: std::cmp::Ordering, op: CmpOp) -> bool {
 }
 
 /// Condition expression for `when=` attributes.
-pub enum CondExpr {
-    /// Variable is truthy (non-empty, non-"0").
-    Truthy(CompactString),
-    /// Variable compared to a typed value.
-    Compare {
-        variable: CompactString,
-        op: CmpOp,
-        value: Value,
-    },
-    And(Box<CondExpr>, Box<CondExpr>),
-    Or(Box<CondExpr>, Box<CondExpr>),
-    Not(Box<CondExpr>),
-}
+///
+/// This is a type alias for the unified `Predicate` type.
+/// Widget conditions use the variable-based subset of `Predicate`.
+pub type CondExpr = Predicate;
 
 /// Comparison operators for condition expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

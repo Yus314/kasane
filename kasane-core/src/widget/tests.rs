@@ -67,14 +67,14 @@ fn template_empty_variable() {
 #[test]
 fn template_referenced_variables() {
     let t = Template::parse("a {x} b {y} c").unwrap();
-    let vars: Vec<&str> = t.referenced_variables().collect();
+    let vars = t.referenced_variables();
     assert_eq!(vars, &["x", "y"]);
 }
 
 #[test]
 fn template_no_variables() {
     let t = Template::parse("just text").unwrap();
-    let vars: Vec<&str> = t.referenced_variables().collect();
+    let vars = t.referenced_variables();
     assert!(vars.is_empty());
 }
 
@@ -86,84 +86,84 @@ fn template_no_variables() {
 fn cond_truthy() {
     let expr = parse_condition("is_focused").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "true")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_falsy_empty() {
     let expr = parse_condition("is_focused").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_falsy_zero() {
     let expr = parse_condition("is_focused").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "0")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_eq() {
     let expr = parse_condition("editor_mode == 'insert'").unwrap();
     let resolver = StaticResolver::new(&[("editor_mode", "insert")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_ne() {
     let expr = parse_condition("editor_mode != 'insert'").unwrap();
     let resolver = StaticResolver::new(&[("editor_mode", "normal")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_gt_numeric() {
     let expr = parse_condition("cursor_count > 1").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "3")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_lt_numeric() {
     let expr = parse_condition("cursor_count < 2").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "1")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_and() {
     let expr = parse_condition("cursor_count > 1 && editor_mode == 'insert'").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "3"), ("editor_mode", "insert")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_and_false() {
     let expr = parse_condition("cursor_count > 1 && editor_mode == 'insert'").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "1"), ("editor_mode", "insert")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_or() {
     let expr = parse_condition("cursor_count > 1 || editor_mode == 'insert'").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "1"), ("editor_mode", "insert")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_not() {
     let expr = parse_condition("!is_focused").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_not_truthy() {
     let expr = parse_condition("!is_focused").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "true")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
@@ -182,14 +182,14 @@ fn cond_unexpected_end() {
 fn cond_ge() {
     let expr = parse_condition("cursor_count >= 2").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "2")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_le() {
     let expr = parse_condition("cursor_count <= 2").unwrap();
     let resolver = StaticResolver::new(&[("cursor_count", "3")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 // =============================================================================
@@ -1353,26 +1353,26 @@ fn cond_paren_simple_group() {
     // (a || b) && c — without parens, would be a || (b && c)
     let expr = parse_condition("(a || b) && c").unwrap();
     let resolver = StaticResolver::new(&[("a", ""), ("b", "true"), ("c", "true")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
     // With c false, should be false
     let resolver = StaticResolver::new(&[("a", ""), ("b", "true"), ("c", "")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_paren_nested() {
     let expr = parse_condition("((a || b) && (c || d))").unwrap();
     let resolver = StaticResolver::new(&[("a", "true"), ("b", ""), ("c", ""), ("d", "true")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
 fn cond_paren_not_group() {
     let expr = parse_condition("!(a || b)").unwrap();
     let resolver = StaticResolver::new(&[("a", ""), ("b", "")]);
-    assert!(expr.evaluate(&resolver));
+    assert!(expr.evaluate_with_resolver(&resolver));
     let resolver = StaticResolver::new(&[("a", "true"), ("b", "")]);
-    assert!(!expr.evaluate(&resolver));
+    assert!(!expr.evaluate_with_resolver(&resolver));
 }
 
 #[test]
@@ -1497,7 +1497,7 @@ widgets {
     cursorline kind="background" line="cursor" face="default,rgb:303030"
 }
 "#;
-    let (config, file, errors) = crate::config::unified::parse_unified(source).unwrap();
+    let (config, _, file, errors) = crate::config::unified::parse_unified(source).unwrap();
     assert!(!config.ui.shadow);
     assert_eq!(file.widgets.len(), 2);
     // No errors — widgets are inside the block

@@ -25,8 +25,8 @@ use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, ElementPatch, GutterSide, IoEvent, KeyHandleResult, LineAnnotation,
     OverlayContext, OverlayContribution, PluginAuthorities, PluginBackend, PluginCapabilities,
-    PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject, TransformTarget,
-    VirtualTextItem,
+    PluginDiagnostic, PluginId, SlotId, TransformContext, TransformDescriptor, TransformSubject,
+    TransformTarget, VirtualTextItem,
 };
 
 /// Adapts a [`Plugin`] to the internal [`PluginBackend`] trait via data-driven dispatch.
@@ -45,6 +45,8 @@ pub struct PluginBridge {
     active_process_tasks: Vec<ProcessTaskHandle>,
     /// Job ID counter for process tasks (framework-managed, avoids collisions).
     next_task_job_id: u64,
+    /// Pending diagnostics to be drained on the next `drain_diagnostics()` call.
+    pending_diagnostics: Vec<PluginDiagnostic>,
 }
 
 impl PluginBridge {
@@ -66,7 +68,14 @@ impl PluginBridge {
             active_process_tasks: Vec::new(),
             // Start at a high offset to avoid collisions with manually managed job IDs.
             next_task_job_id: 0x8000_0000_0000_0000,
+            pending_diagnostics: Vec::new(),
         }
+    }
+
+    /// Attach initial diagnostics to be drained on the next `drain_diagnostics()` call.
+    pub fn with_diagnostics(mut self, diagnostics: Vec<PluginDiagnostic>) -> Self {
+        self.pending_diagnostics = diagnostics;
+        self
     }
 
     /// Compare current state with previous snapshot; bump generation if changed.
@@ -797,6 +806,10 @@ impl PluginBackend for PluginBridge {
             }
         }
         outputs
+    }
+
+    fn drain_diagnostics(&mut self) -> Vec<PluginDiagnostic> {
+        std::mem::take(&mut self.pending_diagnostics)
     }
 }
 

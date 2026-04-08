@@ -94,83 +94,215 @@ fn cursor_mode_str(mode: CursorMode) -> &'static str {
     }
 }
 
-/// Known global variable names (from `AppViewResolver::resolve`).
-pub const KNOWN_VARIABLES: &[&str] = &[
-    "cursor_line",
-    "cursor_col",
-    "cursor_count",
-    "editor_mode",
-    "line_count",
-    "is_focused",
-    "cols",
-    "rows",
-    "has_menu",
-    "has_info",
-    "is_prompt",
-    "status_style",
-    "cursor_mode",
-    "is_dark",
-    "session_count",
-    "active_session",
-    "filetype",
-    "bufname",
-];
+/// Scope of a variable (where it can be resolved).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VariableScope {
+    /// Available in all widget contexts.
+    Global,
+    /// Only available in per-line contexts (gutter widgets).
+    PerLine,
+}
 
-/// Known per-line variable names (from `LineContextResolver::resolve`).
-pub const LINE_VARIABLES: &[&str] = &["line_number", "relative_line", "is_cursor_line"];
+/// Metadata for a single built-in variable.
+#[derive(Debug, Clone)]
+pub struct VariableDefinition {
+    pub name: &'static str,
+    pub dirty_flag: DirtyFlags,
+    pub scope: VariableScope,
+}
 
-/// Validate a variable name and return a warning message if it's unknown.
+/// Registry of known variable names, their dirty flags, and scopes.
 ///
-/// `line_context` should be `true` for gutter widgets where per-line variables
-/// are valid.
-pub fn validate_variable(name: &str, line_context: bool) -> Option<String> {
-    // opt.* variables are always valid (bridged from Kakoune)
-    if name.starts_with("opt.") {
-        return None;
-    }
+/// Centralizes variable metadata that was previously spread across
+/// `KNOWN_VARIABLES`, `LINE_VARIABLES`, and `variable_dirty_flag()`.
+pub struct VariableRegistry {
+    builtins: Vec<VariableDefinition>,
+}
 
-    if KNOWN_VARIABLES.contains(&name) {
-        return None;
-    }
-
-    if line_context && LINE_VARIABLES.contains(&name) {
-        return None;
-    }
-
-    // Check if it's a line variable used outside of gutter context
-    if !line_context && LINE_VARIABLES.contains(&name) {
-        return Some(format!(
-            "variable '{name}' is only available in gutter widgets (kind=\"gutter\")"
-        ));
-    }
-
-    // Look for fuzzy match
-    let all_vars: Vec<&str> = if line_context {
-        KNOWN_VARIABLES
-            .iter()
-            .chain(LINE_VARIABLES.iter())
-            .copied()
-            .collect()
-    } else {
-        KNOWN_VARIABLES.to_vec()
-    };
-
-    let mut best: Option<(&str, usize)> = None;
-    for &known in &all_vars {
-        let dist = edit_distance(name, known);
-        if dist <= 3 && (best.is_none() || dist < best.unwrap().1) {
-            best = Some((known, dist));
+impl VariableRegistry {
+    /// Create a registry with all built-in variables.
+    pub fn new() -> Self {
+        Self {
+            builtins: vec![
+                VariableDefinition {
+                    name: "cursor_line",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "cursor_col",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "cursor_count",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "editor_mode",
+                    dirty_flag: DirtyFlags::STATUS,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "line_count",
+                    dirty_flag: DirtyFlags::BUFFER_CONTENT,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "is_focused",
+                    dirty_flag: DirtyFlags::BUFFER_CONTENT,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "cols",
+                    dirty_flag: DirtyFlags::BUFFER_CONTENT,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "rows",
+                    dirty_flag: DirtyFlags::BUFFER_CONTENT,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "has_menu",
+                    dirty_flag: DirtyFlags::MENU_STRUCTURE,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "has_info",
+                    dirty_flag: DirtyFlags::INFO,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "is_prompt",
+                    dirty_flag: DirtyFlags::STATUS,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "status_style",
+                    dirty_flag: DirtyFlags::STATUS,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "cursor_mode",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "is_dark",
+                    dirty_flag: DirtyFlags::OPTIONS,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "session_count",
+                    dirty_flag: DirtyFlags::SESSION,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "active_session",
+                    dirty_flag: DirtyFlags::SESSION,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "filetype",
+                    dirty_flag: DirtyFlags::OPTIONS,
+                    scope: VariableScope::Global,
+                },
+                VariableDefinition {
+                    name: "bufname",
+                    dirty_flag: DirtyFlags::OPTIONS,
+                    scope: VariableScope::Global,
+                },
+                // Per-line variables
+                VariableDefinition {
+                    name: "line_number",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::PerLine,
+                },
+                VariableDefinition {
+                    name: "relative_line",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::PerLine,
+                },
+                VariableDefinition {
+                    name: "is_cursor_line",
+                    dirty_flag: DirtyFlags::BUFFER_CURSOR,
+                    scope: VariableScope::PerLine,
+                },
+            ],
         }
     }
 
-    if let Some((suggestion, _)) = best {
-        Some(format!(
-            "unknown variable '{name}', did you mean '{suggestion}'?"
-        ))
-    } else {
-        Some(format!(
-            "unknown variable '{name}' (use opt.<name> for Kakoune options)"
-        ))
+    /// Look up the dirty flag for a variable name.
+    pub fn dirty_flag(&self, name: &str) -> DirtyFlags {
+        if let Some(def) = self.builtins.iter().find(|d| d.name == name) {
+            return def.dirty_flag;
+        }
+        if name.starts_with("opt.") {
+            return DirtyFlags::OPTIONS;
+        }
+        DirtyFlags::BUFFER_CONTENT
+    }
+
+    /// Validate a variable name.
+    ///
+    /// Returns `None` if the variable is valid, or `Some(warning_message)` if unknown.
+    /// `line_context` should be `true` for gutter widgets where per-line variables are valid.
+    pub fn validate(&self, name: &str, line_context: bool) -> Option<String> {
+        if name.starts_with("opt.") {
+            return None;
+        }
+
+        if let Some(def) = self.builtins.iter().find(|d| d.name == name) {
+            if def.scope == VariableScope::PerLine && !line_context {
+                return Some(format!(
+                    "variable '{name}' is only available in gutter widgets (kind=\"gutter\")"
+                ));
+            }
+            return None;
+        }
+
+        // Fuzzy match
+        let candidates: Vec<&str> = self
+            .builtins
+            .iter()
+            .filter(|d| line_context || d.scope == VariableScope::Global)
+            .map(|d| d.name)
+            .collect();
+
+        let mut best: Option<(&str, usize)> = None;
+        for &known in &candidates {
+            let dist = edit_distance(name, known);
+            if dist <= 3 && (best.is_none() || dist < best.unwrap().1) {
+                best = Some((known, dist));
+            }
+        }
+
+        if let Some((suggestion, _)) = best {
+            Some(format!(
+                "unknown variable '{name}', did you mean '{suggestion}'?"
+            ))
+        } else {
+            Some(format!(
+                "unknown variable '{name}' (use opt.<name> for Kakoune options)"
+            ))
+        }
+    }
+
+    /// Return known variable names visible in the given context.
+    pub fn known_names(&self, line_context: bool) -> Vec<&str> {
+        self.builtins
+            .iter()
+            .filter(|d| line_context || d.scope == VariableScope::Global)
+            .map(|d| d.name)
+            .collect()
+    }
+}
+
+impl Default for VariableRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -200,20 +332,36 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[n]
 }
 
+/// Singleton registry instance.
+///
+/// Thread-safe because `VariableRegistry` is immutable after construction.
+fn global_registry() -> &'static VariableRegistry {
+    use std::sync::LazyLock;
+    static REGISTRY: LazyLock<VariableRegistry> = LazyLock::new(VariableRegistry::new);
+    &REGISTRY
+}
+
 /// Map a variable name to the DirtyFlags it depends on.
 pub fn variable_dirty_flag(name: &str) -> DirtyFlags {
-    match name {
-        "cursor_line" | "cursor_col" | "cursor_count" => DirtyFlags::BUFFER_CURSOR,
-        "editor_mode" | "is_prompt" | "status_style" => DirtyFlags::STATUS,
-        "line_count" | "is_focused" | "cols" | "rows" => DirtyFlags::BUFFER_CONTENT,
-        "has_menu" => DirtyFlags::MENU_STRUCTURE,
-        "has_info" => DirtyFlags::INFO,
-        "cursor_mode" => DirtyFlags::BUFFER_CURSOR,
-        "is_dark" => DirtyFlags::OPTIONS,
-        "session_count" | "active_session" => DirtyFlags::SESSION,
-        "filetype" | "bufname" => DirtyFlags::OPTIONS,
-        name if name.starts_with("opt.") => DirtyFlags::OPTIONS,
-        _ => DirtyFlags::BUFFER_CONTENT,
+    global_registry().dirty_flag(name)
+}
+
+/// Validate a variable name and return a warning message if it's unknown.
+///
+/// Delegates to the global `VariableRegistry`.
+pub fn validate_variable(name: &str, line_context: bool) -> Option<String> {
+    global_registry().validate(name, line_context)
+}
+
+/// A resolver that returns `Value::Empty` for all variables.
+///
+/// Used when evaluating predicates in a transform context where no
+/// variable resolver is available.
+pub struct NullResolver;
+
+impl VariableResolver for NullResolver {
+    fn resolve(&self, _name: &str) -> Value {
+        Value::Empty
     }
 }
 

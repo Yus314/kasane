@@ -18,46 +18,31 @@
 //! - `Identity` is eliminated during normalization
 //! - Nested `Compose` is flattened
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use crate::element::{Align, Direction, Element, FlexChild, OverlayAnchor, Style};
 use crate::protocol::Face;
-use crate::surface::SurfaceId;
+use crate::widget::predicate::Predicate;
 
 use super::context::{FaceMerge, TransformContext, TransformScope, TransformSubject};
 
-/// A pure, inspectable predicate for conditional patch application.
-///
-/// Unlike closures, predicates are data — they implement `Clone`, `PartialEq`,
-/// and `Debug`, and are always considered pure for Salsa memoization purposes.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PatchPredicate {
-    /// True when the pane is focused.
-    HasFocus,
-    /// True when the pane's surface ID matches.
-    SurfaceIs(SurfaceId),
-    /// True when the target line falls within the given range.
-    LineRange(Range<usize>),
-    /// Logical negation.
-    Not(Box<PatchPredicate>),
-    /// Logical conjunction.
-    And(Box<PatchPredicate>, Box<PatchPredicate>),
-    /// Logical disjunction.
-    Or(Box<PatchPredicate>, Box<PatchPredicate>),
-}
+/// Backward-compatible alias for the unified `Predicate` type.
+pub type PatchPredicate = Predicate;
 
-impl PatchPredicate {
-    /// Evaluate this predicate against a transform context.
-    pub fn evaluate(&self, ctx: &TransformContext) -> bool {
-        match self {
-            Self::HasFocus => ctx.pane_focused,
-            Self::SurfaceIs(id) => ctx.pane_surface_id == Some(*id),
-            Self::LineRange(range) => ctx.target_line.is_some_and(|l| range.contains(&l)),
-            Self::Not(p) => !p.evaluate(ctx),
-            Self::And(a, b) => a.evaluate(ctx) && b.evaluate(ctx),
-            Self::Or(a, b) => a.evaluate(ctx) || b.evaluate(ctx),
-        }
+impl Predicate {
+    /// Evaluate this predicate against a transform context (pane-context only).
+    ///
+    /// Variable-based predicates (`VariableTruthy`, `VariableCompare`) always
+    /// return `false` when evaluated without a resolver.
+    pub fn evaluate_in_transform_context(&self, ctx: &TransformContext) -> bool {
+        use crate::widget::variables::NullResolver;
+        let pred_ctx = crate::widget::predicate::PredicateContext {
+            resolver: &NullResolver,
+            pane_focused: ctx.pane_focused,
+            pane_surface_id: ctx.pane_surface_id,
+            target_line: ctx.target_line,
+        };
+        self.evaluate(&pred_ctx)
     }
 }
 
@@ -329,7 +314,7 @@ impl ElementPatch {
                 then,
                 otherwise,
             } => {
-                if predicate.evaluate(ctx) {
+                if predicate.evaluate_in_transform_context(ctx) {
                     then.apply_with_context(subject, ctx)
                 } else {
                     otherwise.apply_with_context(subject, ctx)

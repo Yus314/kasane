@@ -11,31 +11,92 @@ use super::{
     SearchConfig, StatusPosition, ThemeConfig, ThemeValue, UiConfig, WindowConfig,
 };
 
+/// A recoverable config parse error (field-level, not fatal).
+#[derive(Debug, Clone)]
+pub struct ConfigError {
+    /// Config section name (e.g. "ui", "scroll").
+    pub section: String,
+    /// Field name that caused the error.
+    pub field: String,
+    /// Human-readable error message.
+    pub message: String,
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}: {}", self.section, self.field, self.message)
+    }
+}
+
 /// Parse config sections from pre-filtered KDL nodes.
 ///
 /// Nodes whose names are not recognised config sections are silently ignored
 /// (the caller is expected to route those to the widget parser).
-pub fn parse_config_from_nodes(nodes: &[kdl::KdlNode]) -> Config {
+///
+/// Returns the parsed config and any field-level errors encountered.
+pub fn parse_config_from_nodes(nodes: &[kdl::KdlNode]) -> (Config, Vec<ConfigError>) {
     let mut config = Config::default();
+    let mut errors = Vec::new();
     for node in nodes {
         match node.name().value() {
-            "ui" => config.ui = parse_ui(node),
-            "scroll" => config.scroll = parse_scroll(node),
-            "log" => config.log = parse_log(node),
+            "ui" => config.ui = parse_ui(node, &mut errors),
+            "scroll" => config.scroll = parse_scroll(node, &mut errors),
+            "log" => config.log = parse_log(node, &mut errors),
             "theme" => config.theme = parse_theme(node),
-            "menu" => config.menu = parse_menu(node),
-            "search" => config.search = parse_search(node),
-            "clipboard" => config.clipboard = parse_clipboard(node),
-            "mouse" => config.mouse = parse_mouse(node),
-            "window" => config.window = parse_window(node),
-            "font" => config.font = parse_font(node),
-            "colors" => config.colors = parse_colors(node),
-            "plugins" => config.plugins = parse_plugins(node),
+            "menu" => config.menu = parse_menu(node, &mut errors),
+            "search" => config.search = parse_search(node, &mut errors),
+            "clipboard" => config.clipboard = parse_clipboard(node, &mut errors),
+            "mouse" => config.mouse = parse_mouse(node, &mut errors),
+            "window" => config.window = parse_window(node, &mut errors),
+            "font" => config.font = parse_font(node, &mut errors),
+            "colors" => config.colors = parse_colors(node, &mut errors),
+            "plugins" => config.plugins = parse_plugins(node, &mut errors),
             "settings" => config.settings = parse_settings(node),
             _ => {}
         }
     }
-    config
+    (config, errors)
+}
+
+/// Report an unknown enum value.
+fn enum_error(
+    errors: &mut Vec<ConfigError>,
+    section: &str,
+    field: &str,
+    value: &str,
+    valid: &[&str],
+) {
+    errors.push(ConfigError {
+        section: section.to_string(),
+        field: field.to_string(),
+        message: format!("unknown value '{value}' (valid: {})", valid.join(", ")),
+    });
+}
+
+/// Report an unknown field name in a config section.
+fn unknown_field_error(errors: &mut Vec<ConfigError>, section: &str, field: &str) {
+    errors.push(ConfigError {
+        section: section.to_string(),
+        field: field.to_string(),
+        message: format!("unknown field '{field}'"),
+    });
+}
+
+/// Check child nodes for unknown field names and report errors.
+fn validate_children(
+    node: &kdl::KdlNode,
+    section: &str,
+    known: &[&str],
+    errors: &mut Vec<ConfigError>,
+) {
+    if let Some(doc) = node.children() {
+        for child in doc.nodes() {
+            let name = child.name().value();
+            if !known.contains(&name) {
+                unknown_field_error(errors, section, name);
+            }
+        }
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -133,7 +194,18 @@ fn child_or_prop_f64(
 
 // ── Per-section parsers ──────────────────────────────────────────────
 
-fn parse_ui(node: &kdl::KdlNode) -> UiConfig {
+fn parse_ui(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> UiConfig {
+    const KNOWN: &[&str] = &[
+        "shadow",
+        "padding_char",
+        "border_style",
+        "status_position",
+        "backend",
+        "scene_renderer",
+        "image_protocol",
+    ];
+    validate_children(node, "ui", KNOWN, errors);
+
     let mut ui = UiConfig::default();
     let children = node.children();
 
@@ -150,14 +222,26 @@ fn parse_ui(node: &kdl::KdlNode) -> UiConfig {
             "double" => BorderStyleConfig::Double,
             "heavy" => BorderStyleConfig::Heavy,
             "ascii" => BorderStyleConfig::Ascii,
-            _ => ui.border_style,
+            _ => {
+                enum_error(
+                    errors,
+                    "ui",
+                    "border_style",
+                    v,
+                    &["single", "rounded", "double", "heavy", "ascii"],
+                );
+                ui.border_style
+            }
         };
     }
     if let Some(v) = child_or_prop_string(node, children, "status_position") {
         ui.status_position = match v {
             "top" => StatusPosition::Top,
             "bottom" => StatusPosition::Bottom,
-            _ => ui.status_position,
+            _ => {
+                enum_error(errors, "ui", "status_position", v, &["top", "bottom"]);
+                ui.status_position
+            }
         };
     }
     if let Some(v) = child_or_prop_string(node, children, "backend") {
@@ -171,13 +255,25 @@ fn parse_ui(node: &kdl::KdlNode) -> UiConfig {
             "auto" => ImageProtocolConfig::Auto,
             "halfblock" => ImageProtocolConfig::Halfblock,
             "kitty" => ImageProtocolConfig::Kitty,
-            _ => ui.image_protocol,
+            _ => {
+                enum_error(
+                    errors,
+                    "ui",
+                    "image_protocol",
+                    v,
+                    &["auto", "halfblock", "kitty"],
+                );
+                ui.image_protocol
+            }
         };
     }
     ui
 }
 
-fn parse_scroll(node: &kdl::KdlNode) -> ScrollConfig {
+fn parse_scroll(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> ScrollConfig {
+    const KNOWN: &[&str] = &["lines_per_scroll", "smooth", "inertia"];
+    validate_children(node, "scroll", KNOWN, errors);
+
     let mut s = ScrollConfig::default();
     let children = node.children();
 
@@ -193,7 +289,10 @@ fn parse_scroll(node: &kdl::KdlNode) -> ScrollConfig {
     s
 }
 
-fn parse_log(node: &kdl::KdlNode) -> LogConfig {
+fn parse_log(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> LogConfig {
+    const KNOWN: &[&str] = &["level", "file"];
+    validate_children(node, "log", KNOWN, errors);
+
     let mut l = LogConfig::default();
     let children = node.children();
 
@@ -242,7 +341,10 @@ fn parse_theme(node: &kdl::KdlNode) -> ThemeConfig {
     t
 }
 
-fn parse_menu(node: &kdl::KdlNode) -> MenuConfig {
+fn parse_menu(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> MenuConfig {
+    const KNOWN: &[&str] = &["position", "max_height"];
+    validate_children(node, "menu", KNOWN, errors);
+
     let mut m = MenuConfig::default();
     let children = node.children();
 
@@ -251,7 +353,10 @@ fn parse_menu(node: &kdl::KdlNode) -> MenuConfig {
             "auto" => MenuPosition::Auto,
             "above" => MenuPosition::Above,
             "below" => MenuPosition::Below,
-            _ => m.position,
+            _ => {
+                enum_error(errors, "menu", "position", v, &["auto", "above", "below"]);
+                m.position
+            }
         };
     }
     if let Some(v) = child_or_prop_i64(node, children, "max_height") {
@@ -260,7 +365,10 @@ fn parse_menu(node: &kdl::KdlNode) -> MenuConfig {
     m
 }
 
-fn parse_search(node: &kdl::KdlNode) -> SearchConfig {
+fn parse_search(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> SearchConfig {
+    const KNOWN: &[&str] = &["dropdown"];
+    validate_children(node, "search", KNOWN, errors);
+
     let mut s = SearchConfig::default();
     let children = node.children();
     if let Some(v) = child_or_prop_bool(node, children, "dropdown") {
@@ -269,7 +377,10 @@ fn parse_search(node: &kdl::KdlNode) -> SearchConfig {
     s
 }
 
-fn parse_clipboard(node: &kdl::KdlNode) -> ClipboardConfig {
+fn parse_clipboard(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> ClipboardConfig {
+    const KNOWN: &[&str] = &["enabled"];
+    validate_children(node, "clipboard", KNOWN, errors);
+
     let mut c = ClipboardConfig::default();
     let children = node.children();
     if let Some(v) = child_or_prop_bool(node, children, "enabled") {
@@ -278,7 +389,10 @@ fn parse_clipboard(node: &kdl::KdlNode) -> ClipboardConfig {
     c
 }
 
-fn parse_mouse(node: &kdl::KdlNode) -> MouseConfig {
+fn parse_mouse(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> MouseConfig {
+    const KNOWN: &[&str] = &["drag_scroll"];
+    validate_children(node, "mouse", KNOWN, errors);
+
     let mut m = MouseConfig::default();
     let children = node.children();
     if let Some(v) = child_or_prop_bool(node, children, "drag_scroll") {
@@ -287,7 +401,16 @@ fn parse_mouse(node: &kdl::KdlNode) -> MouseConfig {
     m
 }
 
-fn parse_window(node: &kdl::KdlNode) -> WindowConfig {
+fn parse_window(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> WindowConfig {
+    const KNOWN: &[&str] = &[
+        "initial_cols",
+        "initial_rows",
+        "fullscreen",
+        "maximized",
+        "present_mode",
+    ];
+    validate_children(node, "window", KNOWN, errors);
+
     let mut w = WindowConfig::default();
     let children = node.children();
 
@@ -309,7 +432,17 @@ fn parse_window(node: &kdl::KdlNode) -> WindowConfig {
     w
 }
 
-fn parse_font(node: &kdl::KdlNode) -> FontConfig {
+fn parse_font(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> FontConfig {
+    const KNOWN: &[&str] = &[
+        "family",
+        "size",
+        "style",
+        "fallback_list",
+        "line_height",
+        "letter_spacing",
+    ];
+    validate_children(node, "font", KNOWN, errors);
+
     let mut f = FontConfig::default();
     let children = node.children();
 
@@ -337,7 +470,29 @@ fn parse_font(node: &kdl::KdlNode) -> FontConfig {
     f
 }
 
-fn parse_colors(node: &kdl::KdlNode) -> ColorsConfig {
+fn parse_colors(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> ColorsConfig {
+    const KNOWN: &[&str] = &[
+        "default_fg",
+        "default_bg",
+        "black",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "white",
+        "bright_black",
+        "bright_red",
+        "bright_green",
+        "bright_yellow",
+        "bright_blue",
+        "bright_magenta",
+        "bright_cyan",
+        "bright_white",
+    ];
+    validate_children(node, "colors", KNOWN, errors);
+
     let mut c = ColorsConfig::default();
     let children = node.children();
 
@@ -371,7 +526,17 @@ fn parse_colors(node: &kdl::KdlNode) -> ColorsConfig {
     c
 }
 
-fn parse_plugins(node: &kdl::KdlNode) -> PluginsConfig {
+fn parse_plugins(node: &kdl::KdlNode, errors: &mut Vec<ConfigError>) -> PluginsConfig {
+    const KNOWN: &[&str] = &[
+        "path",
+        "enabled",
+        "disabled",
+        "deny_capabilities",
+        "deny_authorities",
+        "selection",
+    ];
+    validate_children(node, "plugins", KNOWN, errors);
+
     let mut p = PluginsConfig::default();
     let Some(doc) = node.children() else {
         return p;

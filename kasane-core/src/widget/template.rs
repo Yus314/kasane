@@ -2,6 +2,7 @@
 
 use compact_str::CompactString;
 
+use super::condition::{CondParseError, parse_condition};
 use super::types::{Template, TemplateAlign, TemplateFmt, TemplateSegment};
 use super::variables::VariableResolver;
 
@@ -10,6 +11,10 @@ use super::variables::VariableResolver;
 pub enum TemplateParseError {
     UnclosedBrace,
     EmptyVariable,
+    /// Error parsing inline conditional predicate.
+    ConditionalError(CondParseError),
+    /// Missing `then` branch after `?condition:`.
+    ConditionalMissingThen,
 }
 
 impl std::fmt::Display for TemplateParseError {
@@ -17,12 +22,19 @@ impl std::fmt::Display for TemplateParseError {
         match self {
             Self::UnclosedBrace => write!(f, "unclosed '{{' in template"),
             Self::EmptyVariable => write!(f, "empty variable name in template"),
+            Self::ConditionalError(e) => write!(f, "inline conditional: {e}"),
+            Self::ConditionalMissingThen => {
+                write!(f, "inline conditional: missing ':' after condition")
+            }
         }
     }
 }
 
 impl Template {
     /// Parse a template string like `" {cursor_line}:{cursor_col} "`.
+    ///
+    /// Supports inline conditionals: `{?editor_mode == 'insert':INS}` or
+    /// `{?condition:then:else}`.
     pub fn parse(input: &str) -> Result<Self, TemplateParseError> {
         let mut segments = Vec::new();
         let mut literal = String::new();
@@ -30,7 +42,7 @@ impl Template {
 
         while let Some(ch) = chars.next() {
             if ch == '{' {
-                // Collect the variable name and optional format
+                // Collect the brace content
                 if !literal.is_empty() {
                     segments.push(TemplateSegment::Literal(CompactString::from(&literal)));
                     literal.clear();
@@ -51,20 +63,26 @@ impl Template {
                     return Err(TemplateParseError::EmptyVariable);
                 }
 
-                // Check for format spec: {name:[<]width[.truncate]}
-                let (name, format) = if let Some(colon_pos) = var.find(':') {
-                    let name_part = &var[..colon_pos];
-                    let fmt_part = &var[colon_pos + 1..];
-                    let fmt = parse_format_spec(fmt_part);
-                    (name_part.to_string(), fmt)
+                if let Some(rest) = var.strip_prefix('?') {
+                    // Inline conditional: {?condition:then} or {?condition:then:else}
+                    let seg = parse_conditional(rest)?;
+                    segments.push(seg);
                 } else {
-                    (var, None)
-                };
+                    // Check for format spec: {name:[<]width[.truncate]}
+                    let (name, format) = if let Some(colon_pos) = var.find(':') {
+                        let name_part = &var[..colon_pos];
+                        let fmt_part = &var[colon_pos + 1..];
+                        let fmt = parse_format_spec(fmt_part);
+                        (name_part.to_string(), fmt)
+                    } else {
+                        (var, None)
+                    };
 
-                segments.push(TemplateSegment::Variable {
-                    name: CompactString::from(name),
-                    format,
-                });
+                    segments.push(TemplateSegment::Variable {
+                        name: CompactString::from(name),
+                        format,
+                    });
+                }
             } else {
                 literal.push(ch);
             }
@@ -80,70 +98,15 @@ impl Template {
     /// Expand this template against a variable resolver.
     pub fn expand(&self, resolver: &dyn VariableResolver) -> CompactString {
         let mut result = String::new();
-        for seg in &self.segments {
-            match seg {
-                TemplateSegment::Literal(s) => result.push_str(s),
-                TemplateSegment::Variable { name, format } => {
-                    let value = resolver.resolve(name).to_display();
-                    if let Some(fmt) = format {
-                        // Apply truncation first (operates on char count)
-                        let truncated;
-                        let char_count;
-                        let display = if let Some(max) = fmt.truncate
-                            && value.chars().count() > max
-                        {
-                            if max > 0 {
-                                let prefix: String =
-                                    value.chars().take(max.saturating_sub(1)).collect();
-                                truncated = format!("{prefix}\u{2026}");
-                                char_count = max;
-                                &truncated
-                            } else {
-                                char_count = 0;
-                                ""
-                            }
-                        } else {
-                            char_count = value.chars().count();
-                            value.as_str()
-                        };
-
-                        // Apply width padding
-                        if let Some(width) = fmt.width
-                            && char_count < width
-                        {
-                            let padding = width - char_count;
-                            match fmt.align {
-                                TemplateAlign::Right => {
-                                    for _ in 0..padding {
-                                        result.push(' ');
-                                    }
-                                    result.push_str(display);
-                                }
-                                TemplateAlign::Left => {
-                                    result.push_str(display);
-                                    for _ in 0..padding {
-                                        result.push(' ');
-                                    }
-                                }
-                            }
-                        } else {
-                            result.push_str(display);
-                        }
-                    } else {
-                        result.push_str(&value);
-                    }
-                }
-            }
-        }
+        expand_segments(&self.segments, resolver, &mut result);
         CompactString::from(result)
     }
 
     /// Iterate over all variable names referenced in this template.
-    pub fn referenced_variables(&self) -> impl Iterator<Item = &str> {
-        self.segments.iter().filter_map(|seg| match seg {
-            TemplateSegment::Variable { name, .. } => Some(name.as_str()),
-            TemplateSegment::Literal(_) => None,
-        })
+    pub fn referenced_variables(&self) -> Vec<&str> {
+        let mut vars = Vec::new();
+        collect_referenced_variables(&self.segments, &mut vars);
+        vars
     }
 }
 
@@ -184,4 +147,147 @@ fn parse_format_spec(spec: &str) -> Option<TemplateFmt> {
         align,
         truncate,
     })
+}
+
+/// Parse an inline conditional: the content after `?` inside `{?...}`.
+///
+/// Format: `condition:then_text` or `condition:then_text:else_text`.
+fn parse_conditional(input: &str) -> Result<TemplateSegment, TemplateParseError> {
+    // Find the first `:` that separates the condition from the then branch.
+    // Condition expressions don't use `:`, so the first one is always the separator.
+    let colon_pos = input
+        .find(':')
+        .ok_or(TemplateParseError::ConditionalMissingThen)?;
+
+    let cond_str = input[..colon_pos].trim();
+    let rest = &input[colon_pos + 1..];
+
+    let predicate = parse_condition(cond_str).map_err(TemplateParseError::ConditionalError)?;
+
+    // Split then/else on the last `:` in the rest.
+    // Using rfind so that the then-part can contain `:` (e.g. format specs in variables).
+    let (then_str, else_str) = if let Some(colon2) = rest.rfind(':') {
+        (&rest[..colon2], &rest[colon2 + 1..])
+    } else {
+        (rest, "")
+    };
+
+    let then_segments = parse_literal_segments(then_str);
+    let else_segments = if else_str.is_empty() {
+        Vec::new()
+    } else {
+        parse_literal_segments(else_str)
+    };
+
+    Ok(TemplateSegment::Conditional {
+        predicate,
+        then_segments,
+        else_segments,
+    })
+}
+
+/// Parse a simple string into template segments (Literal only, no nested `{}`).
+fn parse_literal_segments(s: &str) -> Vec<TemplateSegment> {
+    if s.is_empty() {
+        Vec::new()
+    } else {
+        vec![TemplateSegment::Literal(CompactString::from(s))]
+    }
+}
+
+/// Expand a list of segments into a string buffer.
+fn expand_segments(
+    segments: &[TemplateSegment],
+    resolver: &dyn VariableResolver,
+    result: &mut String,
+) {
+    for seg in segments {
+        match seg {
+            TemplateSegment::Literal(s) => result.push_str(s),
+            TemplateSegment::Variable { name, format } => {
+                let value = resolver.resolve(name).to_display();
+                if let Some(fmt) = format {
+                    expand_formatted(&value, fmt, result);
+                } else {
+                    result.push_str(&value);
+                }
+            }
+            TemplateSegment::Conditional {
+                predicate,
+                then_segments,
+                else_segments,
+            } => {
+                if predicate.evaluate_with_resolver(resolver) {
+                    expand_segments(then_segments, resolver, result);
+                } else {
+                    expand_segments(else_segments, resolver, result);
+                }
+            }
+        }
+    }
+}
+
+/// Expand a formatted variable value (truncation + width padding).
+fn expand_formatted(value: &str, fmt: &TemplateFmt, result: &mut String) {
+    // Apply truncation first (operates on char count)
+    let truncated;
+    let char_count;
+    let display = if let Some(max) = fmt.truncate
+        && value.chars().count() > max
+    {
+        if max > 0 {
+            let prefix: String = value.chars().take(max.saturating_sub(1)).collect();
+            truncated = format!("{prefix}\u{2026}");
+            char_count = max;
+            &truncated
+        } else {
+            char_count = 0;
+            ""
+        }
+    } else {
+        char_count = value.chars().count();
+        value
+    };
+
+    // Apply width padding
+    if let Some(width) = fmt.width
+        && char_count < width
+    {
+        let padding = width - char_count;
+        match fmt.align {
+            TemplateAlign::Right => {
+                for _ in 0..padding {
+                    result.push(' ');
+                }
+                result.push_str(display);
+            }
+            TemplateAlign::Left => {
+                result.push_str(display);
+                for _ in 0..padding {
+                    result.push(' ');
+                }
+            }
+        }
+    } else {
+        result.push_str(display);
+    }
+}
+
+/// Collect all variable names from segments, including those inside conditionals.
+fn collect_referenced_variables<'a>(segments: &'a [TemplateSegment], vars: &mut Vec<&'a str>) {
+    for seg in segments {
+        match seg {
+            TemplateSegment::Variable { name, .. } => vars.push(name.as_str()),
+            TemplateSegment::Conditional {
+                predicate,
+                then_segments,
+                else_segments,
+            } => {
+                predicate.collect_variables(vars);
+                collect_referenced_variables(then_segments, vars);
+                collect_referenced_variables(else_segments, vars);
+            }
+            TemplateSegment::Literal(_) => {}
+        }
+    }
 }

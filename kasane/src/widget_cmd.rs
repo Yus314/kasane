@@ -27,7 +27,10 @@ fn check_file(file_path: &std::path::Path) -> Result<(), String> {
         .map_err(|e| format!("cannot read {}: {e}", file_path.display()))?;
 
     match kasane_core::config::unified::parse_unified(&source) {
-        Ok((config, widget_file, errors)) => {
+        Ok((config, config_errors, widget_file, errors)) => {
+            for err in &config_errors {
+                eprintln!("  config warning: {err}");
+            }
             println!(
                 "{}: {} widget(s) parsed",
                 file_path.display(),
@@ -109,6 +112,14 @@ fn collect_face_tokens(widget: &kasane_core::widget::types::WidgetDef) -> Vec<St
                 for rule in &branch.face_rules {
                     check_fot(&rule.face, &mut tokens);
                 }
+            }
+        }
+        WidgetKind::Inline(i) => {
+            check_fot(&i.face, &mut tokens);
+        }
+        WidgetKind::VirtualText(vt) => {
+            for rule in &vt.face_rules {
+                check_fot(&rule.face, &mut tokens);
             }
         }
     }

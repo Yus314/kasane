@@ -361,7 +361,38 @@ where
             match std::fs::read_to_string(&config_path) {
                 Ok(source) => {
                     match kasane_core::config::unified::parse_unified(&source) {
-                        Ok((new_config, widget_file, widget_errors)) => {
+                        Ok((new_config, config_errors, widget_file, widget_errors)) => {
+                            // Log config field-level errors
+                            for err in &config_errors {
+                                tracing::warn!("config: {err}");
+                            }
+                            if !config_errors.is_empty() {
+                                let diagnostics: Vec<PluginDiagnostic> = config_errors
+                                    .iter()
+                                    .map(|e| PluginDiagnostic {
+                                        target: kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                            kasane_core::plugin::PluginId(
+                                                "kasane.config".to_string(),
+                                            ),
+                                        ),
+                                        kind:
+                                            kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                                method: "parse".to_string(),
+                                            },
+                                        message: e.to_string(),
+                                        previous: None,
+                                        attempted: None,
+                                    })
+                                    .collect();
+                                schedule_diagnostic_overlay(
+                                    &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                        TuiEventSink(ctx.session_tx.clone()),
+                                    ),
+                                    ctx.diagnostic_overlay,
+                                    &diagnostics,
+                                );
+                            }
+
                             // Apply config changes
                             ctx.state.apply_config(&new_config);
 
@@ -424,7 +455,7 @@ where
                     ctx.state
                         .apply_config(&kasane_core::config::Config::default());
                     for name in ctx.widget_names.drain(..) {
-                        let id = kasane_core::widget::SingleWidgetBackend::plugin_id_for(&name);
+                        let id = kasane_core::widget::WidgetPlugin::plugin_id_for(&name);
                         ctx.registry.remove_plugin(&id);
                     }
                 }

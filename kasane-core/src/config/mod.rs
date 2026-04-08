@@ -401,7 +401,12 @@ impl Config {
             }
         };
         match self::unified::parse_unified(&contents) {
-            Ok((config, _widget_file, _widget_errors)) => config,
+            Ok((config, config_errors, _widget_file, _widget_errors)) => {
+                for err in &config_errors {
+                    eprintln!("warning: config {err}");
+                }
+                config
+            }
             Err(e) => {
                 eprintln!(
                     "warning: config parse error in {}: {e}; using defaults",
@@ -425,9 +430,10 @@ impl Config {
                 return Err(err).with_context(|| format!("failed to read {}", path.display()));
             }
         };
-        let (config, _widget_file, _widget_errors) = self::unified::parse_unified(&contents)
-            .map_err(|e| anyhow::anyhow!("{e}"))
-            .with_context(|| format!("failed to parse {}", path.display()))?;
+        let (config, _config_errors, _widget_file, _widget_errors) =
+            self::unified::parse_unified(&contents)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .with_context(|| format!("failed to parse {}", path.display()))?;
         Ok(config)
     }
 
@@ -511,7 +517,7 @@ scroll {
     lines_per_scroll 5
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.scroll.lines_per_scroll, 5);
         assert!(config.ui.shadow); // default preserved
     }
@@ -533,7 +539,7 @@ mouse {
     drag_scroll #false
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.scroll.lines_per_scroll, 5);
         assert!(config.scroll.smooth);
         assert!(config.scroll.inertia);
@@ -567,7 +573,7 @@ window {
     maximized #true
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert!(config.window.fullscreen);
         assert!(config.window.maximized);
         assert_eq!(config.window.initial_cols, 80); // default preserved
@@ -608,7 +614,7 @@ plugins {
     disabled "line_numbers"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.plugins.path.as_deref(), Some("/custom/plugins"));
         assert_eq!(config.plugins.enabled, vec!["cursor_line"]);
         assert_eq!(config.plugins.disabled, vec!["line_numbers"]);
@@ -624,7 +630,7 @@ plugins {
     }
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(
             config.plugins.selection.get("sel_badge"),
             Some(&PluginSelection::PinDigest {
@@ -668,7 +674,7 @@ plugins {
     }
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(
             config.plugins.deny_capabilities.get("untrusted_plugin"),
             Some(&vec!["filesystem".to_string(), "environment".to_string()])
@@ -698,7 +704,7 @@ plugins {
     }
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(
             config.plugins.deny_authorities.get("untrusted_plugin"),
             Some(&vec!["dynamic-surface".to_string()])
@@ -763,7 +769,7 @@ colors {
     default_bg "#282828"
 }
 "##;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.window.initial_cols, 120);
         assert_eq!(config.window.initial_rows, 24); // default
         assert_eq!(config.font.size, 16.0);
@@ -781,7 +787,7 @@ theme {
     info_border "white,default+b"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.theme.faces.len(), 2);
         assert_eq!(
             config.theme.faces.get("menu_item_normal"),
@@ -796,7 +802,7 @@ menu {
     position "above"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.menu.position, MenuPosition::Above);
     }
 
@@ -807,7 +813,7 @@ ui {
     status_position "top"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.ui.status_position, StatusPosition::Top);
     }
 
@@ -818,7 +824,7 @@ ui {
     border_style "double"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.ui.border_style, BorderStyleConfig::Double);
     }
 
@@ -829,20 +835,56 @@ ui {
     image_protocol "kitty"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert_eq!(config.ui.image_protocol, ImageProtocolConfig::Kitty);
     }
 
     #[test]
-    fn test_invalid_enum_value_uses_default() {
+    fn test_invalid_enum_value_uses_default_and_reports_error() {
         let kdl_str = r#"
 menu {
     position "invalid_position"
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, config_errors, _, _) = unified::parse_unified(kdl_str).unwrap();
         // Unknown enum values fall back to default (lenient parsing)
         assert_eq!(config.menu.position, MenuPosition::Auto);
+        // But also report an error
+        assert_eq!(config_errors.len(), 1);
+        assert_eq!(config_errors[0].section, "menu");
+        assert_eq!(config_errors[0].field, "position");
+        assert!(config_errors[0].message.contains("invalid_position"));
+    }
+
+    #[test]
+    fn test_unknown_field_reports_error() {
+        let kdl_str = r#"
+ui {
+    shadow #true
+    nonexistent_field "hello"
+}
+"#;
+        let (config, config_errors, _, _) = unified::parse_unified(kdl_str).unwrap();
+        assert!(config.ui.shadow);
+        assert_eq!(config_errors.len(), 1);
+        assert_eq!(config_errors[0].section, "ui");
+        assert_eq!(config_errors[0].field, "nonexistent_field");
+        assert!(config_errors[0].message.contains("unknown field"));
+    }
+
+    #[test]
+    fn test_valid_config_has_no_errors() {
+        let kdl_str = r#"
+ui {
+    shadow #false
+    border_style "double"
+}
+scroll {
+    smooth #true
+}
+"#;
+        let (_config, config_errors, _, _) = unified::parse_unified(kdl_str).unwrap();
+        assert!(config_errors.is_empty());
     }
 
     #[test]
@@ -864,7 +906,7 @@ widgets {
     position slot="status-right" text=" {cursor_line}:{cursor_col} "
 }
 "#;
-        let (config, widget_file, errors) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, widget_file, errors) = unified::parse_unified(kdl_str).unwrap();
         assert!(!config.ui.shadow);
         assert_eq!(widget_file.widgets.len(), 2);
         assert!(errors.is_empty());
@@ -873,7 +915,7 @@ widgets {
     #[test]
     fn test_shorthand_form() {
         let kdl_str = r#"clipboard enabled=#false"#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         assert!(!config.clipboard.enabled);
     }
 
@@ -903,7 +945,7 @@ widgets {
 
         // Re-read and verify widgets are preserved
         let saved_source = std::fs::read_to_string(&path).unwrap();
-        let (loaded_config, widget_file, _) = unified::parse_unified(&saved_source).unwrap();
+        let (loaded_config, _, widget_file, _) = unified::parse_unified(&saved_source).unwrap();
         assert_eq!(
             loaded_config.plugins.selection.get("test"),
             Some(&PluginSelection::PinDigest {
@@ -925,7 +967,7 @@ settings {
     }
 }
 "#;
-        let (config, _, _) = unified::parse_unified(kdl_str).unwrap();
+        let (config, _, _, _) = unified::parse_unified(kdl_str).unwrap();
         let cl = config.settings.get("cursor_line").unwrap();
         assert_eq!(
             cl.get("highlight_color"),

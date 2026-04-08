@@ -13,8 +13,8 @@ use crate::plugin::{ContribSizeHint, GutterSide};
 
 use super::types::{
     BackgroundWidget, ContributionWidget, FaceOrToken, FaceRule, GutterBranch, GutterWidget,
-    LineExpr, Template, TransformWidget, WidgetDef, WidgetFile, WidgetKind, WidgetPart,
-    WidgetPatch,
+    InlineWidget, LineExpr, Template, TransformWidget, VirtualTextWidget, WidgetDef, WidgetFile,
+    WidgetKind, WidgetPart, WidgetPatch,
 };
 use super::variables::{validate_variable, variable_dirty_flag};
 
@@ -204,6 +204,28 @@ fn compute_widget_deps_inner(kind: &WidgetKind, flags: &mut DirtyFlags) {
                 }
             }
         }
+        WidgetKind::Inline(i) => {
+            // Inline widgets scan buffer lines, so depend on buffer changes.
+            *flags |= DirtyFlags::BUFFER;
+            if let Some(ref cond) = i.when {
+                for var in cond.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+            }
+        }
+        WidgetKind::VirtualText(vt) => {
+            // Virtual text is per-line, depends on buffer content.
+            *flags |= DirtyFlags::BUFFER;
+            for var in vt.template.referenced_variables() {
+                *flags |= variable_dirty_flag(var);
+            }
+            face_rules_deps(&vt.face_rules, flags);
+            if let Some(ref cond) = vt.when {
+                for var in cond.referenced_variables() {
+                    *flags |= variable_dirty_flag(var);
+                }
+            }
+        }
     }
 }
 
@@ -222,7 +244,12 @@ fn collect_widget_variables(kind: &WidgetKind) -> Vec<String> {
     match kind {
         WidgetKind::Contribution(c) => {
             for part in &c.parts {
-                vars.extend(part.template.referenced_variables().map(String::from));
+                vars.extend(
+                    part.template
+                        .referenced_variables()
+                        .into_iter()
+                        .map(String::from),
+                );
                 if let Some(ref cond) = part.when {
                     vars.extend(cond.referenced_variables().into_iter().map(String::from));
                 }
@@ -249,13 +276,36 @@ fn collect_widget_variables(kind: &WidgetKind) -> Vec<String> {
         }
         WidgetKind::Gutter(g) => {
             for branch in &g.branches {
-                vars.extend(branch.template.referenced_variables().map(String::from));
+                vars.extend(
+                    branch
+                        .template
+                        .referenced_variables()
+                        .into_iter()
+                        .map(String::from),
+                );
                 collect_face_rules_variables(&branch.face_rules, &mut vars);
                 if let Some(ref cond) = branch.line_when {
                     vars.extend(cond.referenced_variables().into_iter().map(String::from));
                 }
             }
             if let Some(ref cond) = g.when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+        }
+        WidgetKind::Inline(i) => {
+            if let Some(ref cond) = i.when {
+                vars.extend(cond.referenced_variables().into_iter().map(String::from));
+            }
+        }
+        WidgetKind::VirtualText(vt) => {
+            vars.extend(
+                vt.template
+                    .referenced_variables()
+                    .into_iter()
+                    .map(String::from),
+            );
+            collect_face_rules_variables(&vt.face_rules, &mut vars);
+            if let Some(ref cond) = vt.when {
                 vars.extend(cond.referenced_variables().into_iter().map(String::from));
             }
         }
@@ -274,6 +324,8 @@ fn parse_widget_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
         "background" => parse_background_node(node),
         "transform" => parse_transform_node(node),
         "gutter" => parse_gutter_node(node),
+        "inline" => parse_inline_node(node),
+        "virtual-text" => parse_virtual_text_node(node),
         other => Err(format!("unknown widget kind: '{other}'")),
     }
 }
@@ -462,6 +514,41 @@ fn parse_transform_target(s: &str) -> Result<TransformTarget, String> {
         "info-modal" => Ok(TransformTarget::INFO_MODAL),
         other => Err(format!("unknown transform target: '{other}'")),
     }
+}
+
+fn parse_inline_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
+    let pattern = get_string_entry(node, "pattern")
+        .ok_or_else(|| "inline widget requires 'pattern' attribute".to_string())?;
+    let face_spec = get_string_entry(node, "face")
+        .ok_or_else(|| "inline widget requires 'face' attribute".to_string())?;
+    let face = parse_face_or_token(face_spec)?;
+    let when = parse_when(node)?;
+
+    Ok(WidgetKind::Inline(InlineWidget {
+        pattern: CompactString::from(pattern),
+        face,
+        when,
+    }))
+}
+
+fn parse_virtual_text_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
+    let text = get_string_entry(node, "text")
+        .ok_or_else(|| "virtual-text widget requires 'text' attribute".to_string())?;
+    let template = Template::parse(text).map_err(|e| format!("template: {e}"))?;
+    let face_rules = match get_string_entry(node, "face") {
+        Some(spec) => vec![FaceRule {
+            face: parse_face_or_token(spec)?,
+            when: None,
+        }],
+        None => Vec::new(),
+    };
+    let when = parse_when(node)?;
+
+    Ok(WidgetKind::VirtualText(VirtualTextWidget {
+        template,
+        face_rules,
+        when,
+    }))
 }
 
 fn parse_when(node: &kdl::KdlNode) -> Result<Option<super::types::CondExpr>, String> {
