@@ -73,7 +73,7 @@ impl VariableResolver for AppViewResolver<'_> {
                 .app
                 .ui_options()
                 .get(&name[4..])
-                .map(|v| Value::Str(CompactString::from(v.as_str())))
+                .map(|v| parse_option_value(v.as_str()))
                 .unwrap_or(Value::Empty),
             name if name.starts_with("plugin.") => self
                 .plugin_store
@@ -108,6 +108,25 @@ fn cursor_mode_str(mode: CursorMode) -> &'static str {
     match mode {
         CursorMode::Buffer => "buffer",
         CursorMode::Prompt => "prompt",
+    }
+}
+
+/// Parse an option string into a typed `Value`.
+///
+/// - `"true"` / `"false"` → `Value::Bool`
+/// - Integer strings → `Value::Int`
+/// - Everything else → `Value::Str`
+fn parse_option_value(s: &str) -> Value {
+    match s {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        _ => {
+            if let Ok(n) = s.parse::<i64>() {
+                Value::Int(n)
+            } else {
+                Value::Str(CompactString::from(s))
+            }
+        }
     }
 }
 
