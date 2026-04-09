@@ -1671,6 +1671,144 @@ b slot="status-right" text="B"
 }
 
 // =============================================================================
+// Phase 3a: Unicode width in template formatting
+// =============================================================================
+
+#[test]
+fn template_padding_cjk_characters() {
+    // "日本語" is 6 display columns wide, format to 10 → 4 spaces padding
+    let t = Template::parse("{val:10}").unwrap();
+    let resolver = StaticResolver::new(&[("val", "日本語")]);
+    assert_eq!(t.expand(&resolver), "    日本語");
+}
+
+#[test]
+fn template_padding_ascii_unchanged() {
+    // "hello" is 5 display columns, format to 10 → 5 spaces padding
+    let t = Template::parse("{val:10}").unwrap();
+    let resolver = StaticResolver::new(&[("val", "hello")]);
+    assert_eq!(t.expand(&resolver), "     hello");
+}
+
+#[test]
+fn template_truncation_cjk() {
+    // "日本語テスト" is 12 columns, truncate to 7 → "日本語…" (6+1=7)
+    let t = Template::parse("{val:.7}").unwrap();
+    let resolver = StaticResolver::new(&[("val", "日本語テスト")]);
+    assert_eq!(t.expand(&resolver), "日本語…");
+}
+
+#[test]
+fn template_left_align_cjk() {
+    // "日本" is 4 columns, format to 8 left-aligned → "日本    "
+    let t = Template::parse("{val:<8}").unwrap();
+    let resolver = StaticResolver::new(&[("val", "日本")]);
+    assert_eq!(t.expand(&resolver), "日本    ");
+}
+
+// =============================================================================
+// Phase 1c: CondParseError::TooLong
+// =============================================================================
+
+#[test]
+fn cond_too_long_returns_too_long_error() {
+    use super::condition::CondParseError;
+    let long_expr = "a".repeat(257);
+    assert_eq!(parse_condition(&long_expr), Err(CondParseError::TooLong));
+}
+
+#[test]
+fn cond_at_max_length_succeeds() {
+    // 256 chars should parse (if valid expression)
+    let expr = format!("{:<256}", "x");
+    assert!(parse_condition(expr.trim()).is_ok());
+}
+
+// =============================================================================
+// Phase 1b: duplicate widget name warning
+// =============================================================================
+
+#[test]
+fn parse_duplicate_widget_name_produces_warning() {
+    let source = r#"
+a slot="status-left" text="first"
+a slot="status-right" text="second"
+"#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert_eq!(file.widgets.len(), 2);
+    let dup_errors: Vec<_> = errors
+        .iter()
+        .filter(|e| e.message.contains("duplicate widget name"))
+        .collect();
+    assert_eq!(dup_errors.len(), 1);
+    assert!(dup_errors[0].message.contains("'a'"));
+}
+
+// =============================================================================
+// Phase 1a: opt.* typed resolution
+// =============================================================================
+
+#[test]
+fn variable_resolver_opt_numeric_string_becomes_int() {
+    use super::types::Value;
+    let mut state = AppState::default();
+    state
+        .ui_options
+        .insert("tabstop".to_string(), "0".to_string());
+    let view = AppView::new(&state);
+    let resolver = AppViewResolver::new(&view);
+    assert_eq!(resolver.resolve("opt.tabstop"), Value::Int(0));
+}
+
+#[test]
+fn variable_resolver_opt_positive_int() {
+    use super::types::Value;
+    let mut state = AppState::default();
+    state
+        .ui_options
+        .insert("tabstop".to_string(), "42".to_string());
+    let view = AppView::new(&state);
+    let resolver = AppViewResolver::new(&view);
+    assert_eq!(resolver.resolve("opt.tabstop"), Value::Int(42));
+}
+
+#[test]
+fn variable_resolver_opt_true_becomes_bool() {
+    use super::types::Value;
+    let mut state = AppState::default();
+    state
+        .ui_options
+        .insert("autoreload".to_string(), "true".to_string());
+    let view = AppView::new(&state);
+    let resolver = AppViewResolver::new(&view);
+    assert_eq!(resolver.resolve("opt.autoreload"), Value::Bool(true));
+}
+
+#[test]
+fn variable_resolver_opt_false_becomes_bool() {
+    use super::types::Value;
+    let mut state = AppState::default();
+    state
+        .ui_options
+        .insert("autoreload".to_string(), "false".to_string());
+    let view = AppView::new(&state);
+    let resolver = AppViewResolver::new(&view);
+    assert_eq!(resolver.resolve("opt.autoreload"), Value::Bool(false));
+}
+
+#[test]
+fn variable_resolver_opt_string_stays_str() {
+    use super::types::Value;
+    let mut state = AppState::default();
+    state
+        .ui_options
+        .insert("filetype".to_string(), "rust".to_string());
+    let view = AppView::new(&state);
+    let resolver = AppViewResolver::new(&view);
+    assert_eq!(resolver.resolve("opt.filetype"), Value::Str("rust".into()));
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 

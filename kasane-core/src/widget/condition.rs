@@ -11,6 +11,8 @@ pub enum CondParseError {
     UnexpectedEnd,
     UnexpectedToken(String),
     TooManyNodes,
+    /// Condition expression exceeds the maximum length.
+    TooLong,
     UnclosedParen,
     /// Invalid regex pattern in `=~` operator.
     InvalidRegex(String),
@@ -24,6 +26,7 @@ impl std::fmt::Display for CondParseError {
             Self::UnexpectedEnd => write!(f, "unexpected end of condition expression"),
             Self::UnexpectedToken(t) => write!(f, "unexpected token in condition: '{t}'"),
             Self::TooManyNodes => write!(f, "condition expression too complex (max 16 nodes)"),
+            Self::TooLong => write!(f, "condition expression too long (max 256 characters)"),
             Self::UnclosedParen => write!(f, "unclosed '(' in condition expression"),
             Self::InvalidRegex(e) => write!(f, "invalid regex in '=~': {e}"),
             Self::InvalidInSyntax(e) => write!(f, "invalid 'in' syntax: {e}"),
@@ -299,7 +302,7 @@ fn parse_literal_value(token: &str) -> Value {
 /// Parse a condition expression string.
 pub fn parse_condition(expr: &str) -> Result<Predicate, CondParseError> {
     if expr.len() > 256 {
-        return Err(CondParseError::TooManyNodes);
+        return Err(CondParseError::TooLong);
     }
     let mut parser = Parser::new(expr.trim());
     let result = parser.parse_expr()?;
