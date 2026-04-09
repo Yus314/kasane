@@ -259,31 +259,45 @@ fn expand_segments(
 
 /// Expand a formatted variable value (truncation + width padding).
 fn expand_formatted(value: &str, fmt: &TemplateFmt, result: &mut String) {
-    // Apply truncation first (operates on char count)
+    use unicode_width::UnicodeWidthStr;
+
+    // Apply truncation first (operates on display width)
     let truncated;
-    let char_count;
+    let display_width;
     let display = if let Some(max) = fmt.truncate
-        && value.chars().count() > max
+        && UnicodeWidthStr::width(value) > max
     {
         if max > 0 {
-            let prefix: String = value.chars().take(max.saturating_sub(1)).collect();
-            truncated = format!("{prefix}\u{2026}");
-            char_count = max;
+            // Walk chars, accumulating display width, stop before exceeding max-1
+            let target = max.saturating_sub(1);
+            let mut w = 0usize;
+            let mut end = 0;
+            for (i, ch) in value.char_indices() {
+                let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                if w + cw > target {
+                    break;
+                }
+                w += cw;
+                end = i + ch.len_utf8();
+            }
+            truncated = format!("{}\u{2026}", &value[..end]);
+            // ellipsis is 1 column wide
+            display_width = w + 1;
             &truncated
         } else {
-            char_count = 0;
+            display_width = 0;
             ""
         }
     } else {
-        char_count = value.chars().count();
+        display_width = UnicodeWidthStr::width(value);
         value
     };
 
     // Apply width padding
     if let Some(width) = fmt.width
-        && char_count < width
+        && display_width < width
     {
-        let padding = width - char_count;
+        let padding = width - display_width;
         match fmt.align {
             TemplateAlign::Right => {
                 for _ in 0..padding {
