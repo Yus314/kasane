@@ -156,6 +156,7 @@ where
     let mut widget_names: Vec<String> = Vec::new();
     let mut widget_included_paths: Vec<std::path::PathBuf> = Vec::new();
     let mut last_config_hash: u64 = 0;
+    let mut last_config = config.clone();
     {
         let config_path = kasane_core::config::config_path();
         if let Ok(source) = std::fs::read_to_string(&config_path) {
@@ -460,6 +461,7 @@ where
                 diagnostic_overlay: &mut diagnostic_overlay,
                 widget_names: &mut widget_names,
                 last_config_hash: &mut last_config_hash,
+                last_config: &mut last_config,
             };
 
             // Process first event

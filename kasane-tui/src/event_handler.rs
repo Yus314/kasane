@@ -107,6 +107,8 @@ pub(crate) struct EventProcessingContext<'a, R, W, C> {
     pub widget_names: &'a mut Vec<String>,
     /// Hash of the last successfully loaded config file source (for skip-if-unchanged).
     pub last_config_hash: &'a mut u64,
+    /// Last successfully loaded config (for restart-required diff on hot-reload).
+    pub last_config: &'a mut kasane_core::config::Config,
 }
 
 struct PluginReloadOutcome {
@@ -405,6 +407,39 @@ where
                                         &diagnostics,
                                     );
                                 }
+
+                                // Check for restart-required fields before applying
+                                let restart_fields =
+                                    ctx.last_config.restart_required_diff(&new_config);
+                                if !restart_fields.is_empty() {
+                                    let field_list = restart_fields.join(", ");
+                                    tracing::warn!("restart required for: {field_list}");
+                                    let diagnostic = PluginDiagnostic {
+                                        target:
+                                            kasane_core::plugin::PluginDiagnosticTarget::Plugin(
+                                                kasane_core::plugin::PluginId(
+                                                    "kasane.config".to_string(),
+                                                ),
+                                            ),
+                                        kind:
+                                            kasane_core::plugin::PluginDiagnosticKind::RuntimeError {
+                                                method: "reload".to_string(),
+                                            },
+                                        message: format!(
+                                            "restart required for: {field_list}"
+                                        ),
+                                        previous: None,
+                                        attempted: None,
+                                    };
+                                    schedule_diagnostic_overlay(
+                                        &kasane_core::event_loop::GenericDiagnosticScheduler(
+                                            TuiEventSink(ctx.session_tx.clone()),
+                                        ),
+                                        ctx.diagnostic_overlay,
+                                        &[diagnostic],
+                                    );
+                                }
+                                *ctx.last_config = new_config.clone();
 
                                 // Apply config changes
                                 ctx.state.apply_config(&new_config);

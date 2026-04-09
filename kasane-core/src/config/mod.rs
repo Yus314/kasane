@@ -387,6 +387,37 @@ fn dirs_data_path() -> PathBuf {
 }
 
 impl Config {
+    /// Compare two configs and return the names of fields that require a restart
+    /// to take effect (i.e., cannot be hot-reloaded).
+    pub fn restart_required_diff(&self, new: &Config) -> Vec<&'static str> {
+        let mut fields = Vec::new();
+        if self.ui.backend != new.ui.backend {
+            fields.push("ui.backend");
+        }
+        if self.ui.border_style != new.ui.border_style {
+            fields.push("ui.border_style");
+        }
+        if self.ui.image_protocol != new.ui.image_protocol {
+            fields.push("ui.image_protocol");
+        }
+        if self.scroll.lines_per_scroll != new.scroll.lines_per_scroll {
+            fields.push("scroll.lines_per_scroll");
+        }
+        if self.window != new.window {
+            fields.push("window");
+        }
+        if self.font != new.font {
+            fields.push("font");
+        }
+        if self.log != new.log {
+            fields.push("log");
+        }
+        if self.plugins != new.plugins {
+            fields.push("plugins");
+        }
+        fields
+    }
+
     pub fn load() -> Self {
         let config_path = config_path();
         let contents = match fs::read_to_string(&config_path) {
@@ -983,6 +1014,47 @@ settings {
         );
         assert_eq!(cl.get("enabled"), Some(&SettingValue::Bool(true)));
         assert_eq!(cl.get("intensity"), Some(&SettingValue::Integer(42)));
+    }
+
+    #[test]
+    fn test_restart_required_diff_detects_backend_change() {
+        let old = Config::default();
+        let mut new = Config::default();
+        new.ui.backend = "gui".to_string();
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.contains(&"ui.backend"));
+    }
+
+    #[test]
+    fn test_restart_required_diff_empty_for_theme_change() {
+        let old = Config::default();
+        let mut new = Config::default();
+        new.theme.faces.insert(
+            "accent".to_string(),
+            ThemeValue::FaceSpec("green".to_string()),
+        );
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.is_empty());
+    }
+
+    #[test]
+    fn test_restart_required_diff_detects_font_change() {
+        let old = Config::default();
+        let mut new = Config::default();
+        new.font.size = 20.0;
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.contains(&"font"));
+    }
+
+    #[test]
+    fn test_restart_required_diff_detects_multiple_changes() {
+        let old = Config::default();
+        let mut new = Config::default();
+        new.ui.backend = "gui".to_string();
+        new.log.level = "debug".to_string();
+        let diff = old.restart_required_diff(&new);
+        assert!(diff.contains(&"ui.backend"));
+        assert!(diff.contains(&"log"));
     }
 
     /// Snapshot test for Config::default() serialized to KDL.
