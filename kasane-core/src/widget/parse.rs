@@ -74,6 +74,7 @@ pub fn parse_widget_nodes(
     let mut widgets = Vec::new();
     let mut errors = Vec::new();
     let mut index: u16 = 0;
+    let mut seen_names = std::collections::HashSet::new();
 
     for node in nodes {
         if widgets.len() >= MAX_WIDGETS {
@@ -81,6 +82,16 @@ pub fn parse_widget_nodes(
         }
 
         let name = CompactString::from(node.name().value());
+
+        if !seen_names.insert(name.clone()) {
+            errors.push(WidgetNodeError {
+                name: name.to_string(),
+                message: format!(
+                    "duplicate widget name '{}' (previous definition will be overwritten)",
+                    name
+                ),
+            });
+        }
 
         match parse_widget_def(node) {
             Ok((effects, when)) => {
