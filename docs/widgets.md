@@ -293,7 +293,15 @@ Source: `kasane-core/src/widget/variables.rs:134-141`
 
 ### Truthiness
 
-Boolean variables resolve to `"true"` or `""` (empty string). In conditions, empty strings and `"0"` are falsy; everything else is truthy.
+Boolean variables resolve to `Bool(true)` or `Bool(false)`. The `opt.*` namespace performs type inference: numeric strings like `"42"` become `Int(42)`, `"true"`/`"false"` become `Bool`, and everything else remains `Str`. This means `opt.tabstop = "0"` resolves to `Int(0)` (falsy), not `Str("0")` (which would be truthy).
+
+In conditions, the following values are falsy:
+- `Bool(false)`
+- `Int(0)`
+- `Str("")` (empty string)
+- `Empty` (missing variable)
+
+Everything else is truthy.
 
 ## Condition Syntax
 
@@ -360,6 +368,29 @@ Values are comma-separated inside parentheses. Both strings and numbers are supp
 
 Conditions are limited to 16 nodes and 256 characters.
 
+### Condition Layers
+
+Multi-effect widgets support conditions at multiple levels, composed with implicit AND:
+
+| Layer | Attribute | Scope | Description |
+|-------|-----------|-------|-------------|
+| 1 | `when=` on widget block | Shared | Disables all effects when false |
+| 2 | `when=` on effect child | Per-effect | Disables a single effect when false |
+| 3 | `when=` on face rule / `line-when=` on gutter | Per-face/per-line | Controls individual face rules or gutter lines |
+
+Example:
+
+```kdl
+widgets {
+    insert-mode when="editor_mode == 'insert'" {
+        contribution slot="status-left" text=" INSERT " when="is_focused"
+        background line="cursor" face="default,rgb:202040"
+    }
+}
+```
+
+Here, Layer 1 (`editor_mode == 'insert'`) must be true for any effect to activate. Layer 2 (`is_focused`) further gates only the contribution. The background activates whenever Layer 1 is true regardless of focus.
+
 Source: `kasane-core/src/widget/condition.rs`
 
 ## Template Syntax
@@ -415,6 +446,8 @@ Conditionals can be nested:
 ```
 {?is_focused:active:{?has_menu:menu:buffer}}
 ```
+
+The else branch uses the last depth-0 `:` as the separator, so literal colons in the else branch are not supported. To include a colon in conditional output, use a `part` child node with `when=` instead of an inline conditional.
 
 Unknown variables expand to an empty string and produce a warning with a fuzzy suggestion (e.g., `unknown variable 'cursor_lint', did you mean 'cursor_line'?`).
 
