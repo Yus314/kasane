@@ -37,7 +37,7 @@ pub struct WidgetPlugin {
     kind: WidgetKind,
     /// Shared global when condition from the parent `WidgetDef`.
     shared_when: Option<Predicate>,
-    index: u16,
+    priority: i16,
     deps: DirtyFlags,
 }
 
@@ -50,13 +50,14 @@ impl WidgetPlugin {
     /// Create WidgetPlugins from a WidgetDef.
     pub fn from_def(def: WidgetDef) -> Vec<Self> {
         let overall_deps = compute_widget_deps(&def);
+        let priority = def.priority();
         if def.effects.len() == 1 {
             let effect = def.effects.into_iter().next().unwrap();
             vec![Self {
                 plugin_id: CompactString::from(format!("{PLUGIN_PREFIX}{}", def.name)),
                 kind: effect.kind,
                 shared_when: def.when,
-                index: def.index,
+                priority,
                 deps: overall_deps,
             }]
         } else {
@@ -67,7 +68,7 @@ impl WidgetPlugin {
                     plugin_id: CompactString::from(format!("{PLUGIN_PREFIX}{}.{i}", def.name)),
                     kind: effect.kind,
                     shared_when: def.when.clone(),
-                    index: def.index,
+                    priority,
                     deps: overall_deps,
                 })
                 .collect()
@@ -87,7 +88,7 @@ impl Plugin for WidgetPlugin {
 
         // Clone shared_when for use in closures.
         let shared_when = self.shared_when.clone();
-        let index = self.index;
+        let priority = self.priority;
         match &self.kind {
             WidgetKind::Contribution(contrib) => {
                 let contrib = contrib.clone();
@@ -108,7 +109,7 @@ impl Plugin for WidgetPlugin {
                     let element = build_contribution_element(&contrib, &resolver, app)?;
                     Some(Contribution {
                         element,
-                        priority: index as i16,
+                        priority,
                         size_hint: contrib.size_hint,
                     })
                 });
@@ -134,7 +135,7 @@ impl Plugin for WidgetPlugin {
                             if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
                                     face: resolve_face(&bg.face, app),
-                                    z_order: index as i16,
+                                    z_order: priority,
                                     blend: BlendMode::Opaque,
                                 });
                             }
@@ -146,7 +147,7 @@ impl Plugin for WidgetPlugin {
                                 if line >= lo && line <= hi {
                                     return Some(BackgroundLayer {
                                         face: resolve_face(&bg.face, app),
-                                        z_order: index as i16,
+                                        z_order: priority,
                                         blend: BlendMode::Opaque,
                                     });
                                 }
@@ -160,7 +161,7 @@ impl Plugin for WidgetPlugin {
                 let transform = transform.clone();
                 let shared_when = shared_when.clone();
                 let targets = vec![transform.target.clone()];
-                r.on_transform_for(index as i16, &targets, move |_state, _target, app, _ctx| {
+                r.on_transform_for(priority, &targets, move |_state, _target, app, _ctx| {
                     let resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&resolver)
@@ -185,7 +186,7 @@ impl Plugin for WidgetPlugin {
             WidgetKind::Gutter(gutter) => {
                 let gutter = gutter.clone();
                 let shared_when = shared_when.clone();
-                r.on_annotate_gutter(gutter.side, index as i16, move |_state, line, app, _ctx| {
+                r.on_annotate_gutter(gutter.side, priority, move |_state, line, app, _ctx| {
                     let app_resolver = AppViewResolver::new(app);
                     if let Some(ref cond) = shared_when
                         && !cond.evaluate_with_resolver(&app_resolver)
@@ -260,7 +261,7 @@ impl Plugin for WidgetPlugin {
                             face,
                             contents: text,
                         }],
-                        priority: index as i16,
+                        priority,
                     }]
                 });
             }

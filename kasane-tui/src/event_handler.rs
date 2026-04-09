@@ -426,7 +426,8 @@ where
                                                 method: "reload".to_string(),
                                             },
                                         message: format!(
-                                            "restart required for: {field_list}"
+                                            "restart required for: {field_list}. \
+                                             Exit and re-run kasane to apply"
                                         ),
                                         previous: None,
                                         attempted: None,

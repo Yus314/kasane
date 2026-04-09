@@ -41,6 +41,16 @@ pub struct WidgetDef {
     pub when: Option<Predicate>,
     /// File order index → implicit priority.
     pub index: u16,
+    /// Explicit ordering override (`order=` attribute). When set, used instead
+    /// of `index` for contribution priority and z-order.
+    pub order: Option<i16>,
+}
+
+impl WidgetDef {
+    /// Effective priority: explicit `order` if set, otherwise file-order `index`.
+    pub fn priority(&self) -> i16 {
+        self.order.unwrap_or(self.index as i16)
+    }
 }
 
 /// A single effect within a widget definition.
@@ -194,7 +204,7 @@ pub enum TemplateSegment {
         name: CompactString,
         format: Option<TemplateFmt>,
     },
-    /// Inline conditional: `{?condition:then_text}` or `{?condition:then_text:else_text}`.
+    /// Inline conditional: `{?condition => then_text}` or `{?condition => then_text => else_text}`.
     Conditional {
         predicate: super::predicate::Predicate,
         then_segments: Vec<TemplateSegment>,
@@ -252,7 +262,7 @@ impl Value {
             }
             Self::Str(s) => s.clone(),
             Self::Bool(true) => CompactString::from("true"),
-            Self::Bool(false) => CompactString::default(),
+            Self::Bool(false) => CompactString::from("false"),
             Self::Empty => CompactString::default(),
         }
     }

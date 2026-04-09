@@ -71,6 +71,21 @@ widgets {
 
 This is equivalent to three separate widgets but shares the `when` condition and groups related effects under one name.
 
+### Widget Groups
+
+A `group` block shares a `when` condition across multiple independent widgets:
+
+```kdl
+widgets {
+    group when="editor_mode == 'insert'" {
+        insert-status slot="status-left" text=" INSERT " face="white,blue+b"
+        insert-bg kind="background" line="cursor" face="default,rgb:202040"
+    }
+}
+```
+
+Unlike multi-effect widgets, each child in a group is a separate named widget. Groups can be nested — conditions are combined with AND.
+
 ### Contribution
 
 Adds content to a slot in the UI layout.
@@ -144,7 +159,7 @@ Adds per-line annotations in the gutter area.
 
 ```kdl
 widgets {
-    line-numbers kind="gutter" side="left" text="{line_number:4} " face="rgb:888888"
+    line-numbers kind="gutter" side="left" text="{line_number:>4} " face="rgb:888888"
 }
 ```
 
@@ -214,7 +229,17 @@ Source: `kasane-core/src/widget/parse.rs:275-284`
 
 ### Widget Ordering
 
-Widgets appear in each slot in the order they are defined in the file. To reorder widgets in the status bar, reorder them in `kasane.kdl`.
+Widgets appear in each slot in file-definition order by default. To override, use the `order=` attribute:
+
+```kdl
+widgets {
+    // Explicit ordering: lower values appear first
+    position slot="status-right" text=" {cursor_line}:{cursor_col} " order=10
+    mode slot="status-right" text=" {editor_mode} " order=0
+}
+```
+
+Negative values are allowed. Widgets without `order=` use their file-order position (0, 1, 2, ...).
 
 ### Status Bar Composition
 
@@ -399,10 +424,10 @@ Templates expand variables inline within text content.
 
 ```
 {variable_name}            → expanded value
-{variable_name:N}          → right-aligned, padded to N columns
-{variable_name:<N}         → left-aligned, padded to N columns
+{variable_name:N}          → left-aligned, padded to N columns
+{variable_name:>N}         → right-aligned, padded to N columns
 {variable_name:.N}         → truncated to N characters (with trailing …)
-{variable_name:<N.M}       → left-aligned to N columns, truncated to M chars
+{variable_name:>N.M}       → right-aligned to N columns, truncated to M chars
 literal text               → passed through as-is
 ```
 
@@ -412,44 +437,51 @@ Examples:
 // Simple expansion
 pos slot="status-right" text=" {cursor_line}:{cursor_col} "
 
-// Right-aligned with padding (default)
-line-numbers kind="gutter" side="left" text="{line_number:4} "
+// Left-aligned with padding (default)
+filename slot="status-left" text=" {bufname:20} "
 
-// Left-aligned
-filename slot="status-left" text=" {bufname:<20} "
+// Right-aligned (gutter line numbers)
+line-numbers kind="gutter" side="left" text="{line_number:>4} "
 
 // Truncate long values (adds … when exceeded)
 path slot="status-left" text=" {bufname:.30} "
 
-// Combined: left-align to 20 columns, truncate at 30 characters
-info slot="status-left" text=" {bufname:<20.30} "
+// Combined: right-align to 20 columns, truncate at 30 characters
+info slot="status-left" text=" {bufname:>20.30} "
 ```
 
 ### Conditional Expansion
 
-Templates support inline conditionals with `{?condition:then:else}`:
+Templates support inline conditionals with `{?condition => then => else}`:
 
 ```
-{?is_focused:active:inactive}
-{?cursor_count > 1:multi:single}
+{?is_focused => active => inactive}
+{?cursor_count > 1 => multi => single}
 ```
 
 Branches can contain variables and formatting:
 
 ```
-{?is_focused:{cursor_line}:N/A}
-{?is_focused:{cursor_line:4}:---}
+{?is_focused => {cursor_line} => N/A}
+{?is_focused => {cursor_line:4} => ---}
 ```
 
 Conditionals can be nested:
 
 ```
-{?is_focused:active:{?has_menu:menu:buffer}}
+{?is_focused => active => {?has_menu => menu => buffer}}
 ```
 
-The else branch uses the last depth-0 `:` as the separator, so literal colons in the else branch are not supported. To include a colon in conditional output, use a `part` child node with `when=` instead of an inline conditional.
+The `=>` separator allows colons and other punctuation in branches without ambiguity:
+
+```
+{?is_focused => 12:34 => --:--}
+{?has_file => https://example.com => N/A}
+```
 
 Unknown variables expand to an empty string and produce a warning with a fuzzy suggestion (e.g., `unknown variable 'cursor_lint', did you mean 'cursor_line'?`).
+
+Boolean `false` values expand to the string `"false"` (not empty). Use a conditional `{?var => text}` to show text only when a variable is truthy.
 
 Source: `kasane-core/src/widget/template.rs`
 
@@ -508,9 +540,12 @@ Use `kasane widget check` to validate a file without starting Kasane:
 kasane widget check                              # checks default path
 kasane widget check path/to/kasane.kdl           # checks specific file
 kasane widget check --watch                      # re-check on every save
+kasane widget check -v                           # show per-widget details
+kasane widget variables                          # list available template variables
+kasane widget slots                              # list available slots and targets
 ```
 
-The `--watch` flag monitors the file for changes and re-validates automatically, useful during widget development.
+The `--watch` flag monitors the file for changes and re-validates automatically, useful during widget development. The `-v`/`--verbose` flag shows per-widget details (kind, slot/target, referenced variables).
 
 ## Recipes
 
@@ -567,7 +602,7 @@ widgets {
 | Goal | Widget kind | Key attributes |
 |------|-------------|----------------|
 | Show text in the status bar | contribution | `slot="status-left"` or `status-right`, `text=` |
-| Add line numbers | gutter | `kind="gutter"`, `text="{line_number:4} "` |
+| Add line numbers | gutter | `kind="gutter"`, `text="{line_number:>4} "` |
 | Highlight the cursor line | background | `kind="background"`, `line="cursor"` |
 | Change status bar color per mode | transform | `kind="transform"`, `target="status"`, `when=` |
 | Show/hide a widget conditionally | any | `when=` attribute |

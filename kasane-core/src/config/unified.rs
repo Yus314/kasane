@@ -33,6 +33,19 @@ pub fn is_config_section(name: &str) -> bool {
     CONFIG_SECTIONS.contains(&name)
 }
 
+/// Suggest a config section name for a typo, using edit distance.
+fn suggest_section(name: &str) -> Option<&'static str> {
+    use crate::widget::variables::edit_distance;
+    let mut best: Option<(&str, usize)> = None;
+    for &section in CONFIG_SECTIONS {
+        let dist = edit_distance(name, section);
+        if dist <= 3 && (best.is_none() || dist < best.unwrap().1) {
+            best = Some((section, dist));
+        }
+    }
+    best.map(|(s, _)| s)
+}
+
 /// Parse a unified `kasane.kdl` source into config + widgets.
 ///
 /// Stage 1: KDL syntax parsing (failure = entire file rejected).
@@ -66,7 +79,14 @@ pub fn parse_unified_with_base(
         .nodes()
         .iter()
         .filter(|n| !is_config_section(n.name().value()))
-        .map(|n| n.name().value().to_string())
+        .map(|n| {
+            let name = n.name().value();
+            if let Some(suggestion) = suggest_section(name) {
+                format!("{name} (did you mean '{suggestion}'?)")
+            } else {
+                name.to_string()
+            }
+        })
         .collect();
     if !unknown_names.is_empty() {
         return Err(UnifiedParseError::UnknownTopLevel(unknown_names));

@@ -17,7 +17,7 @@ use super::types::{
     InlinePattern, InlineWidget, LineExpr, Template, TransformWidget, VirtualTextWidget, WidgetDef,
     WidgetEffect, WidgetFile, WidgetKind, WidgetPart, WidgetPatch,
 };
-use super::variables::{validate_variable, variable_dirty_flag};
+use super::variables::{edit_distance, validate_variable, variable_dirty_flag};
 use super::visitor::{WidgetVisitor, walk_widget_kind};
 
 /// Errors during widget file parsing.
@@ -76,64 +76,14 @@ pub fn parse_widget_nodes(
     let mut index: u16 = 0;
     let mut seen_names = std::collections::HashSet::new();
 
-    for node in nodes {
-        if widgets.len() >= MAX_WIDGETS {
-            return Err(WidgetParseError::TooManyWidgets);
-        }
-
-        let name = CompactString::from(node.name().value());
-
-        if !seen_names.insert(name.clone()) {
-            errors.push(WidgetNodeError {
-                name: name.to_string(),
-                message: format!(
-                    "duplicate widget name '{}' (previous definition will be overwritten)",
-                    name
-                ),
-            });
-        }
-
-        match parse_widget_def(node) {
-            Ok((effects, when)) => {
-                // Validate referenced variables for each effect
-                for effect in &effects {
-                    let line_context = matches!(effect.kind, WidgetKind::Gutter(_));
-                    for var in collect_widget_variables(&effect.kind) {
-                        if let Some(warning) = validate_variable(&var, line_context) {
-                            errors.push(WidgetNodeError {
-                                name: name.to_string(),
-                                message: warning,
-                            });
-                        }
-                    }
-                }
-                // Also validate the shared when condition variables
-                if let Some(ref cond) = when {
-                    for var in cond.referenced_variables() {
-                        if let Some(warning) = validate_variable(var, false) {
-                            errors.push(WidgetNodeError {
-                                name: name.to_string(),
-                                message: warning,
-                            });
-                        }
-                    }
-                }
-                widgets.push(WidgetDef {
-                    name,
-                    effects,
-                    when,
-                    index,
-                });
-                index = index.saturating_add(1);
-            }
-            Err(msg) => {
-                errors.push(WidgetNodeError {
-                    name: name.to_string(),
-                    message: msg,
-                });
-            }
-        }
-    }
+    parse_nodes_into(
+        nodes,
+        None,
+        &mut widgets,
+        &mut errors,
+        &mut index,
+        &mut seen_names,
+    )?;
 
     // Compute dependency flags
     let computed_deps = compute_deps(&widgets);
@@ -146,6 +96,125 @@ pub fn parse_widget_nodes(
         },
         errors,
     ))
+}
+
+/// Process a list of KDL nodes, handling `group` nodes by recursing into children.
+fn parse_nodes_into(
+    nodes: &[kdl::KdlNode],
+    group_when: Option<&Predicate>,
+    widgets: &mut Vec<WidgetDef>,
+    errors: &mut Vec<WidgetNodeError>,
+    index: &mut u16,
+    seen_names: &mut std::collections::HashSet<CompactString>,
+) -> Result<(), WidgetParseError> {
+    for node in nodes {
+        if widgets.len() >= MAX_WIDGETS {
+            return Err(WidgetParseError::TooManyWidgets);
+        }
+
+        let name = CompactString::from(node.name().value());
+
+        // Handle `group` nodes: recurse into children with inherited condition.
+        if name == "group" {
+            let group_cond = match parse_when(node) {
+                Ok(cond) => cond,
+                Err(msg) => {
+                    errors.push(WidgetNodeError {
+                        name: name.to_string(),
+                        message: msg,
+                    });
+                    continue;
+                }
+            };
+            // Merge outer group condition with this group's condition.
+            let merged = merge_conditions(group_when, group_cond.as_ref());
+
+            if let Some(children) = node.children() {
+                parse_nodes_into(
+                    children.nodes(),
+                    merged.as_ref(),
+                    widgets,
+                    errors,
+                    index,
+                    seen_names,
+                )?;
+            } else {
+                errors.push(WidgetNodeError {
+                    name: name.to_string(),
+                    message: "group has no children".to_string(),
+                });
+            }
+            continue;
+        }
+
+        if !seen_names.insert(name.clone()) {
+            errors.push(WidgetNodeError {
+                name: name.to_string(),
+                message: format!(
+                    "duplicate widget name '{}' (previous definition will be overwritten)",
+                    name
+                ),
+            });
+        }
+
+        let order = parse_order(node);
+
+        match parse_widget_def(node) {
+            Ok((effects, when)) => {
+                // Merge group condition with widget's own condition.
+                let effective_when = merge_conditions(group_when, when.as_ref());
+
+                // Validate referenced variables for each effect
+                for effect in &effects {
+                    let line_context = matches!(effect.kind, WidgetKind::Gutter(_));
+                    for var in collect_widget_variables(&effect.kind) {
+                        if let Some(warning) = validate_variable(&var, line_context) {
+                            errors.push(WidgetNodeError {
+                                name: name.to_string(),
+                                message: warning,
+                            });
+                        }
+                    }
+                }
+                // Also validate the effective when condition variables
+                if let Some(ref cond) = effective_when {
+                    for var in cond.referenced_variables() {
+                        if let Some(warning) = validate_variable(var, false) {
+                            errors.push(WidgetNodeError {
+                                name: name.to_string(),
+                                message: warning,
+                            });
+                        }
+                    }
+                }
+                widgets.push(WidgetDef {
+                    name,
+                    effects,
+                    when: effective_when,
+                    index: *index,
+                    order,
+                });
+                *index = index.saturating_add(1);
+            }
+            Err(msg) => {
+                errors.push(WidgetNodeError {
+                    name: name.to_string(),
+                    message: msg,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Merge an outer (group) condition with an inner (widget) condition using AND.
+fn merge_conditions(outer: Option<&Predicate>, inner: Option<&Predicate>) -> Option<Predicate> {
+    match (outer, inner) {
+        (Some(a), Some(b)) => Some(Predicate::And(Box::new(a.clone()), Box::new(b.clone()))),
+        (Some(a), None) => Some(a.clone()),
+        (None, Some(b)) => Some(b.clone()),
+        (None, None) => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +560,17 @@ fn parse_transform_node(node: &kdl::KdlNode) -> Result<WidgetKind, String> {
     }))
 }
 
+/// Known slot names for fuzzy matching.
+const SLOT_NAMES: &[&str] = &[
+    "status-left",
+    "status-right",
+    "buffer-left",
+    "buffer-right",
+    "above-buffer",
+    "below-buffer",
+    "above-status",
+];
+
 fn parse_slot(node: &kdl::KdlNode) -> Result<SlotId, String> {
     let slot_str =
         get_string_entry(node, "slot").ok_or("contribution widget missing 'slot' attribute")?;
@@ -502,9 +582,23 @@ fn parse_slot(node: &kdl::KdlNode) -> Result<SlotId, String> {
         "above-buffer" => Ok(SlotId::ABOVE_BUFFER),
         "below-buffer" => Ok(SlotId::BELOW_BUFFER),
         "above-status" => Ok(SlotId::ABOVE_STATUS),
-        other => Err(format!("unknown slot: '{other}'")),
+        other => Err(format_unknown_with_suggestion("slot", other, SLOT_NAMES)),
     }
 }
+
+/// Known transform target names for fuzzy matching.
+const TRANSFORM_TARGET_NAMES: &[&str] = &[
+    "status",
+    "status-bar",
+    "buffer",
+    "menu",
+    "menu-prompt",
+    "menu-inline",
+    "menu-search",
+    "info",
+    "info-prompt",
+    "info-modal",
+];
 
 fn parse_transform_target(s: &str) -> Result<TransformTarget, String> {
     match s {
@@ -517,7 +611,27 @@ fn parse_transform_target(s: &str) -> Result<TransformTarget, String> {
         "info" => Ok(TransformTarget::INFO),
         "info-prompt" => Ok(TransformTarget::INFO_PROMPT),
         "info-modal" => Ok(TransformTarget::INFO_MODAL),
-        other => Err(format!("unknown transform target: '{other}'")),
+        other => Err(format_unknown_with_suggestion(
+            "transform target",
+            other,
+            TRANSFORM_TARGET_NAMES,
+        )),
+    }
+}
+
+/// Format an "unknown X" error with a fuzzy suggestion if a close match exists.
+fn format_unknown_with_suggestion(kind: &str, input: &str, candidates: &[&str]) -> String {
+    let mut best: Option<(&str, usize)> = None;
+    for &candidate in candidates {
+        let dist = edit_distance(input, candidate);
+        if dist <= 3 && (best.is_none() || dist < best.unwrap().1) {
+            best = Some((candidate, dist));
+        }
+    }
+    if let Some((suggestion, _)) = best {
+        format!("unknown {kind}: '{input}', did you mean '{suggestion}'?")
+    } else {
+        format!("unknown {kind}: '{input}'")
     }
 }
 
@@ -573,8 +687,31 @@ fn parse_when(node: &kdl::KdlNode) -> Result<Option<super::types::CondExpr>, Str
             let parsed = parse_condition(expr).map_err(|e| format!("condition: {e}"))?;
             Ok(Some(parsed))
         }
-        None => Ok(None),
+        None => {
+            // Handle bare boolean: when=#true / when=#false (KDL bool, not string).
+            if let Some(entry) = node.entry("when")
+                && let Some(b) = entry.value().as_bool()
+            {
+                return if b {
+                    // when=#true is a no-op (always active)
+                    Ok(None)
+                } else {
+                    // when=#false → always disabled
+                    Err("when=false makes widget permanently disabled; \
+                          use when=\"false\" (quoted) for a condition, \
+                          or remove the widget"
+                        .to_string())
+                };
+            }
+            Ok(None)
+        }
     }
+}
+
+fn parse_order(node: &kdl::KdlNode) -> Option<i16> {
+    node.entry("order")
+        .and_then(|e| e.value().as_integer())
+        .and_then(|v| i16::try_from(v).ok())
 }
 
 fn parse_size_hint(node: &kdl::KdlNode) -> Result<ContribSizeHint, String> {

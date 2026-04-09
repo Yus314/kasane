@@ -112,7 +112,8 @@ fn overlay_tag_score_bonus(kind: PluginDiagnosticOverlayTagKind) -> u32 {
         PluginDiagnosticOverlayTagKind::ArtifactInstantiate => 2,
         PluginDiagnosticOverlayTagKind::Activation
         | PluginDiagnosticOverlayTagKind::Discovery
-        | PluginDiagnosticOverlayTagKind::Runtime => 0,
+        | PluginDiagnosticOverlayTagKind::Runtime
+        | PluginDiagnosticOverlayTagKind::Config => 0,
     }
 }
 
@@ -588,6 +589,7 @@ fn diagnostic_overlay_priority(diagnostic: &PluginDiagnostic) -> (u8, u8, u8, u8
         PluginDiagnosticKind::InstantiationFailed => 2,
         PluginDiagnosticKind::RuntimeError { .. } => 1,
         PluginDiagnosticKind::ProviderCollectFailed => 1,
+        PluginDiagnosticKind::ConfigError { .. } => 1,
         PluginDiagnosticKind::ProviderArtifactFailed { .. } => 0,
     };
     let stage = match diagnostic.kind {
@@ -622,5 +624,6 @@ fn diagnostic_overlay_tag_kind(diagnostic: &PluginDiagnostic) -> PluginDiagnosti
             }
         },
         PluginDiagnosticKind::RuntimeError { .. } => PluginDiagnosticOverlayTagKind::Runtime,
+        PluginDiagnosticKind::ConfigError { .. } => PluginDiagnosticOverlayTagKind::Config,
     }
 }

@@ -1300,4 +1300,39 @@ fn overlay_tag_texts_are_stable() {
         plugin_diagnostic_overlay_tag_text(PluginDiagnosticOverlayTagKind::ArtifactInstantiate),
         "I"
     );
+    assert_eq!(
+        plugin_diagnostic_overlay_tag_text(PluginDiagnosticOverlayTagKind::Config),
+        "C"
+    );
+}
+
+#[test]
+fn config_error_is_warning_severity() {
+    let diagnostic =
+        PluginDiagnostic::config_error(PluginId("test".to_string()), "my-widget", "bad slot");
+    assert_eq!(diagnostic.severity(), PluginDiagnosticSeverity::Warning);
+}
+
+#[test]
+fn config_error_summary_uses_key_not_target() {
+    let diagnostic = PluginDiagnostic::config_error(
+        PluginId("kasane.widgets".to_string()),
+        "line-numbers",
+        "unknown slot 'stauts-left' (did you mean 'status-left'?)",
+    );
+    let summary = summarize_plugin_diagnostic(&diagnostic);
+    assert_eq!(
+        summary,
+        "line-numbers: unknown slot 'stauts-left' (did you mean 'status-left'?)"
+    );
+}
+
+#[test]
+fn config_error_overlay_tag_is_config() {
+    let diagnostic =
+        PluginDiagnostic::config_error(PluginId("test".to_string()), "my-widget", "parse error");
+    let lines = diagnostic_overlay_lines(&[diagnostic], 5);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].tag_kind, PluginDiagnosticOverlayTagKind::Config);
+    assert_eq!(lines[0].severity, PluginDiagnosticSeverity::Warning);
 }

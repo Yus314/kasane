@@ -2,10 +2,32 @@
 
 use kasane_core::config::config_path;
 
-const STARTER_CONFIG: &str = r#"widgets {
+const STARTER_CONFIG: &str = r#"// Kasane configuration
+// Docs: https://github.com/kaki/kasane/blob/master/docs/config.md
+// Validate: kasane widget check --watch
+
+// -- UI settings (uncomment to customize) --
+// ui {
+//     padding_char "~"
+//     border_style "rounded"    // single, rounded, double, heavy, ascii
+//     status_position "bottom"  // top, bottom
+// }
+
+// -- Theme (reference in widgets with @token) --
+// theme {
+//     status_line "default,rgb:303030"
+//     accent "cyan,default+b"
+// }
+
+// -- Widgets --
+// Kinds: contribution (default), background, transform, gutter, inline, virtual-text
+// Slots: status-left, status-right, buffer-left, buffer-right,
+//        above-buffer, below-buffer, above-status
+// Variables: kasane widget variables
+widgets {
     mode slot="status-left" text=" {editor_mode} " face="white,blue+b"
     position slot="status-right" text=" {cursor_line}:{cursor_col} "
-    line-numbers kind="gutter" side="left" text="{line_number:4} " face="rgb:888888"
+    line-numbers kind="gutter" side="left" text="{line_number:>4} " face="rgb:888888"
     cursorline kind="background" line="cursor" face="default,rgb:303030"
 }
 "#;

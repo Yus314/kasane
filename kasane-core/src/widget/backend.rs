@@ -1,9 +1,7 @@
 //! Shared widget evaluation functions and legacy `WidgetBackend` (test-only).
 
 use crate::element::{Element, Style};
-use crate::plugin::{
-    AppView, PluginDiagnostic, PluginDiagnosticKind, PluginDiagnosticTarget, PluginId,
-};
+use crate::plugin::{AppView, PluginDiagnostic, PluginId};
 use crate::protocol::{Atom, Face};
 
 use super::parse::WidgetNodeError;
@@ -113,15 +111,7 @@ pub(super) fn build_contribution_element(
 }
 
 pub fn node_error_to_diagnostic(error: &WidgetNodeError) -> PluginDiagnostic {
-    PluginDiagnostic {
-        target: PluginDiagnosticTarget::Plugin(PluginId(PLUGIN_ID.to_string())),
-        kind: PluginDiagnosticKind::RuntimeError {
-            method: "parse".to_string(),
-        },
-        message: format!("widget '{}': {}", error.name, error.message),
-        previous: None,
-        attempted: None,
-    }
+    PluginDiagnostic::config_error(PluginId(PLUGIN_ID.to_string()), &error.name, &error.message)
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +331,7 @@ mod legacy {
             let resolver = AppViewResolver::new(state);
 
             // Collect all contribution widgets matching this slot
-            let mut matching: Vec<(u16, ContribSizeHint, Element)> = Vec::new();
+            let mut matching: Vec<(i16, ContribSizeHint, Element)> = Vec::new();
 
             for widget in &self.widgets.widgets {
                 if let Some(ref cond) = widget.when
@@ -363,7 +353,7 @@ mod legacy {
                     }
 
                     if let Some(element) = build_contribution_element(contrib, &resolver, state) {
-                        matching.push((widget.index, contrib.size_hint, element));
+                        matching.push((widget.priority(), contrib.size_hint, element));
                     }
                 }
             }
@@ -424,7 +414,7 @@ mod legacy {
                             if cursor_line >= 0 && line == cursor_line as usize {
                                 return Some(BackgroundLayer {
                                     face: resolve_face(&bg.face, state),
-                                    z_order: widget.index as i16,
+                                    z_order: widget.priority(),
                                     blend: BlendMode::Opaque,
                                 });
                             }
@@ -436,7 +426,7 @@ mod legacy {
                                 if line >= lo && line <= hi {
                                     return Some(BackgroundLayer {
                                         face: resolve_face(&bg.face, state),
-                                        z_order: widget.index as i16,
+                                        z_order: widget.priority(),
                                         blend: BlendMode::Opaque,
                                     });
                                 }
@@ -539,7 +529,7 @@ mod legacy {
                             face,
                             contents: text,
                         }]);
-                        return Some((widget.index as i16, element));
+                        return Some((widget.priority(), element));
                     }
                 }
             }

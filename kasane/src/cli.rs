@@ -27,7 +27,13 @@ pub enum CliAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WidgetSubcommand {
-    Check { path: Option<String>, watch: bool },
+    Check {
+        path: Option<String>,
+        watch: bool,
+        verbose: bool,
+    },
+    Variables,
+    Slots,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,10 +174,16 @@ impl std::fmt::Display for CliError {
                 )
             }
             CliError::WidgetMissingSubcommand => {
-                write!(f, "missing subcommand. Usage: kasane widget <check>")
+                write!(
+                    f,
+                    "missing subcommand. Usage: kasane widget <check|variables|slots>"
+                )
             }
             CliError::WidgetUnknownSubcommand(s) => {
-                write!(f, "unknown widget subcommand: {s}. Use check.")
+                write!(
+                    f,
+                    "unknown widget subcommand: {s}. Use check, variables, or slots."
+                )
             }
         }
     }
@@ -435,14 +447,22 @@ fn parse_widget_args<'a>(
         "check" => {
             let mut path = None;
             let mut watch = false;
+            let mut verbose = false;
             for arg in iter {
                 match arg.as_str() {
                     "--watch" => watch = true,
+                    "--verbose" | "-v" => verbose = true,
                     _ => path = Some(arg.clone()),
                 }
             }
-            Ok(WidgetSubcommand::Check { path, watch })
+            Ok(WidgetSubcommand::Check {
+                path,
+                watch,
+                verbose,
+            })
         }
+        "variables" | "vars" => Ok(WidgetSubcommand::Variables),
+        "slots" => Ok(WidgetSubcommand::Slots),
         other => Err(CliError::WidgetUnknownSubcommand(other.to_string())),
     }
 }
@@ -536,7 +556,10 @@ Subcommands:
   plugin pin <id> ...               Pin a plugin to a digest or package/version
   plugin unpin <id>                 Remove explicit selection for a plugin
   plugin update                     Advance auto-selected plugins to newer installed versions
-  widget check [<path>] [--watch]   Validate a kasane.kdl file (--watch: re-check on change)
+  widget check [<path>] [--watch] [-v]
+                                   Validate a kasane.kdl file (--watch: re-check, -v/--verbose: details)
+  widget variables                 List available template variables
+  widget slots                     List available slots and transform targets
 
 All other options are passed to kak. Non-UI kak flags (-l, -f, -p, -d,
 -clear, -version, -help) are delegated directly to kak.

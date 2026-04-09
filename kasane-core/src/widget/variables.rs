@@ -330,6 +330,11 @@ impl VariableRegistry {
         }
     }
 
+    /// Iterate over all built-in variable definitions.
+    pub fn iter(&self) -> impl Iterator<Item = &VariableDefinition> {
+        self.builtins.iter()
+    }
+
     /// Return known variable names visible in the given context.
     pub fn known_names(&self, line_context: bool) -> Vec<&str> {
         self.builtins
@@ -347,7 +352,7 @@ impl Default for VariableRegistry {
 }
 
 /// Simple Levenshtein edit distance.
-fn edit_distance(a: &str, b: &str) -> usize {
+pub(crate) fn edit_distance(a: &str, b: &str) -> usize {
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
     let m = a_bytes.len();

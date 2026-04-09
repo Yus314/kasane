@@ -13,7 +13,7 @@ pub enum TemplateParseError {
     EmptyVariable,
     /// Error parsing inline conditional predicate.
     ConditionalError(CondParseError),
-    /// Missing `then` branch after `?condition:`.
+    /// Missing `then` branch after `?condition =>`.
     ConditionalMissingThen,
 }
 
@@ -24,7 +24,7 @@ impl std::fmt::Display for TemplateParseError {
             Self::EmptyVariable => write!(f, "empty variable name in template"),
             Self::ConditionalError(e) => write!(f, "inline conditional: {e}"),
             Self::ConditionalMissingThen => {
-                write!(f, "inline conditional: missing ':' after condition")
+                write!(f, "inline conditional: missing '=>' after condition")
             }
         }
     }
@@ -33,9 +33,9 @@ impl std::fmt::Display for TemplateParseError {
 impl Template {
     /// Parse a template string like `" {cursor_line}:{cursor_col} "`.
     ///
-    /// Supports inline conditionals: `{?editor_mode == 'insert':INS}` or
-    /// `{?condition:then:else}`. Branches can contain nested variables and
-    /// conditionals: `{?is_focused:{cursor_line}:N/A}`.
+    /// Supports inline conditionals: `{?editor_mode == 'insert' => INS}` or
+    /// `{?condition => then => else}`. Branches can contain nested variables and
+    /// conditionals: `{?is_focused => {cursor_line} => N/A}`.
     pub fn parse(input: &str) -> Result<Self, TemplateParseError> {
         let segments = parse_segments(input)?;
         Ok(Template { segments })
@@ -56,16 +56,21 @@ impl Template {
     }
 }
 
-/// Parse a format spec string like `"<10"`, `".20"`, `"<10.20"`, `"10"`.
+/// Parse a format spec string like `"<10"`, `">10"`, `".20"`, `"<10.20"`, `"10"`.
 ///
-/// Grammar: `[<]?[\d]*[.\d+]?`
+/// Grammar: `[<>]?[\d]*[.\d+]?`
+///
+/// Default alignment is left. Use `>` for right-align.
 fn parse_format_spec(spec: &str) -> Option<TemplateFmt> {
     let mut s = spec;
-    let mut align = TemplateAlign::Right;
+    let mut align = TemplateAlign::Left;
 
-    // Check for `<` prefix (left-align)
+    // Check for alignment prefix
     if let Some(rest) = s.strip_prefix('<') {
         align = TemplateAlign::Left;
+        s = rest;
+    } else if let Some(rest) = s.strip_prefix('>') {
+        align = TemplateAlign::Right;
         s = rest;
     }
 
@@ -84,7 +89,7 @@ fn parse_format_spec(spec: &str) -> Option<TemplateFmt> {
         width_part.parse::<usize>().ok().filter(|&w| w > 0)
     };
 
-    if width.is_none() && truncate.is_none() && align == TemplateAlign::Right {
+    if width.is_none() && truncate.is_none() && align == TemplateAlign::Left {
         return None;
     }
 
@@ -124,15 +129,18 @@ fn scan_braced_content(
     Err(TemplateParseError::UnclosedBrace)
 }
 
-/// Find the byte position of the last `:` at brace-depth 0 in the given string.
-fn find_last_depth0_colon(s: &str) -> Option<usize> {
+/// Find the byte position of the last `=>` at brace-depth 0 in the given string.
+fn find_last_depth0_arrow(s: &str) -> Option<usize> {
     let mut last = None;
     let mut depth = 0u32;
+    let bytes = s.as_bytes();
     for (i, ch) in s.char_indices() {
         match ch {
             '{' => depth += 1,
             '}' if depth > 0 => depth -= 1,
-            ':' if depth == 0 => last = Some(i),
+            '=' if depth == 0 && i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
+                last = Some(i);
+            }
             _ => {}
         }
     }
@@ -188,25 +196,26 @@ fn parse_segments(input: &str) -> Result<Vec<TemplateSegment>, TemplateParseErro
 
 /// Parse an inline conditional: the content after `?` inside `{?...}`.
 ///
-/// Format: `condition:then_branch` or `condition:then_branch:else_branch`.
+/// Format: `condition => then_branch` or `condition => then_branch => else_branch`.
 /// Branches can contain nested `{variable}` and `{?conditional}` expressions.
+/// The `=>` separator avoids conflicts with `:` in format specs and literal text.
 fn parse_conditional(input: &str) -> Result<TemplateSegment, TemplateParseError> {
-    // Find the first `:` that separates the condition from the then branch.
-    // Condition expressions don't use `:`, so the first one is always the separator.
-    let colon_pos = input
-        .find(':')
+    // Find the first `=>` that separates the condition from the then branch.
+    // Condition expressions don't use `=>`, so the first one is always the separator.
+    let arrow_pos = input
+        .find("=>")
         .ok_or(TemplateParseError::ConditionalMissingThen)?;
 
-    let cond_str = input[..colon_pos].trim();
-    let rest = &input[colon_pos + 1..];
+    let cond_str = input[..arrow_pos].trim();
+    let rest = input[arrow_pos + 2..].trim_start();
 
     let predicate = parse_condition(cond_str).map_err(TemplateParseError::ConditionalError)?;
 
-    // Split then/else on the last depth-0 `:` in the rest.
+    // Split then/else on the last depth-0 `=>` in the rest.
     // Depth-aware scan ensures braces in branches (e.g. `{var:fmt}`) don't
     // interfere with the then/else separator.
-    let (then_str, else_str) = if let Some(colon2) = find_last_depth0_colon(rest) {
-        (&rest[..colon2], &rest[colon2 + 1..])
+    let (then_str, else_str) = if let Some(arrow2) = find_last_depth0_arrow(rest) {
+        (rest[..arrow2].trim_end(), &rest[arrow2 + 2..])
     } else {
         (rest, "")
     };
@@ -215,7 +224,7 @@ fn parse_conditional(input: &str) -> Result<TemplateSegment, TemplateParseError>
     let else_segments = if else_str.is_empty() {
         Vec::new()
     } else {
-        parse_segments(else_str)?
+        parse_segments(else_str.trim_start())?
     };
 
     Ok(TemplateSegment::Conditional {

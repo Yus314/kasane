@@ -4,7 +4,7 @@ use compact_str::CompactString;
 
 use crate::plugin::{
     AnnotationScope, AppView, ContribSizeHint, ContributeContext, GutterSide, PluginBackend,
-    PluginCapabilities, SlotId, TransformContext,
+    PluginCapabilities, PluginDiagnosticKind, PluginDiagnosticSeverity, SlotId, TransformContext,
 };
 use crate::state::AppState;
 
@@ -41,8 +41,15 @@ fn template_mixed() {
 }
 
 #[test]
-fn template_padding() {
+fn template_padding_default_left_align() {
     let t = Template::parse("{cursor_line:4}").unwrap();
+    let resolver = StaticResolver::new(&[("cursor_line", "42")]);
+    assert_eq!(t.expand(&resolver), "42  ");
+}
+
+#[test]
+fn template_padding_right_align() {
+    let t = Template::parse("{cursor_line:>4}").unwrap();
     let resolver = StaticResolver::new(&[("cursor_line", "42")]);
     assert_eq!(t.expand(&resolver), "  42");
 }
@@ -84,8 +91,8 @@ fn template_no_variables() {
 
 #[test]
 fn template_conditional_with_variable_in_then() {
-    // {?is_focused:{cursor_line}:N/A}
-    let t = Template::parse("{?is_focused:{cursor_line}:N/A}").unwrap();
+    // {?is_focused => {cursor_line} => N/A}
+    let t = Template::parse("{?is_focused => {cursor_line} => N/A}").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "true"), ("cursor_line", "42")]);
     assert_eq!(t.expand(&resolver), "42");
     let resolver2 = StaticResolver::new(&[("cursor_line", "42")]);
@@ -94,8 +101,8 @@ fn template_conditional_with_variable_in_then() {
 
 #[test]
 fn template_conditional_with_formatted_variable_in_then() {
-    // {?is_focused:{cursor_line:4}:---}
-    let t = Template::parse("{?is_focused:{cursor_line:4}:---}").unwrap();
+    // {?is_focused => {cursor_line:>4} => ---}
+    let t = Template::parse("{?is_focused => {cursor_line:>4} => ---}").unwrap();
     let resolver = StaticResolver::new(&[("is_focused", "true"), ("cursor_line", "42")]);
     assert_eq!(t.expand(&resolver), "  42");
     let resolver2 = StaticResolver::new(&[("cursor_line", "42")]);
@@ -104,8 +111,8 @@ fn template_conditional_with_formatted_variable_in_then() {
 
 #[test]
 fn template_nested_conditional() {
-    // {?is_focused:active:{?has_menu:menu:buffer}}
-    let t = Template::parse("{?is_focused:active:{?has_menu:menu:buffer}}").unwrap();
+    // {?is_focused => active => {?has_menu => menu => buffer}}
+    let t = Template::parse("{?is_focused => active => {?has_menu => menu => buffer}}").unwrap();
     // is_focused=true → "active"
     let r1 = StaticResolver::new(&[("is_focused", "true")]);
     assert_eq!(t.expand(&r1), "active");
@@ -119,8 +126,8 @@ fn template_nested_conditional() {
 
 #[test]
 fn template_conditional_comparison_with_variable_branches() {
-    // {?editor_mode == 'insert':{cursor_col}:{cursor_line}}
-    let t = Template::parse("{?editor_mode == 'insert':{cursor_col}:{cursor_line}}").unwrap();
+    // {?editor_mode == 'insert' => {cursor_col} => {cursor_line}}
+    let t = Template::parse("{?editor_mode == 'insert' => {cursor_col} => {cursor_line}}").unwrap();
     let r1 = StaticResolver::new(&[
         ("editor_mode", "insert"),
         ("cursor_col", "5"),
@@ -137,10 +144,33 @@ fn template_conditional_comparison_with_variable_branches() {
 
 #[test]
 fn template_nested_conditional_referenced_variables() {
-    let t = Template::parse("{?is_focused:{cursor_line}:N/A}").unwrap();
+    let t = Template::parse("{?is_focused => {cursor_line} => N/A}").unwrap();
     let mut vars = t.referenced_variables();
     vars.sort();
     assert_eq!(vars, &["cursor_line", "is_focused"]);
+}
+
+#[test]
+fn template_conditional_with_colon_in_else() {
+    // Colons in branches are now allowed since => is the separator
+    let t = Template::parse("{?is_focused => active => 12:34}").unwrap();
+    let r_false = StaticResolver::new(&[]);
+    assert_eq!(t.expand(&r_false), "12:34");
+    let r_true = StaticResolver::new(&[("is_focused", "true")]);
+    assert_eq!(t.expand(&r_true), "active");
+}
+
+#[test]
+fn template_conditional_with_url_in_branch() {
+    let t = Template::parse("{?is_focused => https://example.com => N/A}").unwrap();
+    let r = StaticResolver::new(&[("is_focused", "true")]);
+    assert_eq!(t.expand(&r), "https://example.com");
+}
+
+#[test]
+fn template_conditional_missing_arrow_is_error() {
+    // No => separator should fail
+    assert!(Template::parse("{?is_focused}").is_err());
 }
 
 // =============================================================================
@@ -1550,9 +1580,17 @@ fn template_left_align_with_truncation() {
 }
 
 #[test]
-fn template_right_align_backward_compat() {
-    // Existing format: {name:width} = right-align
+fn template_default_align_is_left() {
+    // Default: {name:width} = left-align
     let t = Template::parse("{x:6}").unwrap();
+    let resolver = StaticResolver::new(&[("x", "hi")]);
+    assert_eq!(t.expand(&resolver), "hi    ");
+}
+
+#[test]
+fn template_explicit_right_align() {
+    // {name:>width} = right-align
+    let t = Template::parse("{x:>6}").unwrap();
     let resolver = StaticResolver::new(&[("x", "hi")]);
     assert_eq!(t.expand(&resolver), "    hi");
 }
@@ -1670,24 +1708,42 @@ b slot="status-right" text="B"
     );
 }
 
+#[test]
+fn unified_unknown_top_level_suggests_typo() {
+    let source = r#"
+widgts {
+    a slot="status-left" text="A"
+}
+"#;
+    let result = crate::config::unified::parse_unified(source);
+    let err = match result {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("typo section should be rejected"),
+    };
+    assert!(
+        err.contains("did you mean 'widgets'"),
+        "should suggest closest match, got: {err}"
+    );
+}
+
 // =============================================================================
 // Phase 3a: Unicode width in template formatting
 // =============================================================================
 
 #[test]
 fn template_padding_cjk_characters() {
-    // "日本語" is 6 display columns wide, format to 10 → 4 spaces padding
+    // "日本語" is 6 display columns wide, format to 10 → 4 spaces left-padded
     let t = Template::parse("{val:10}").unwrap();
     let resolver = StaticResolver::new(&[("val", "日本語")]);
-    assert_eq!(t.expand(&resolver), "    日本語");
+    assert_eq!(t.expand(&resolver), "日本語    ");
 }
 
 #[test]
 fn template_padding_ascii_unchanged() {
-    // "hello" is 5 display columns, format to 10 → 5 spaces padding
+    // "hello" is 5 display columns, format to 10 → 5 spaces left-padded
     let t = Template::parse("{val:10}").unwrap();
     let resolver = StaticResolver::new(&[("val", "hello")]);
-    assert_eq!(t.expand(&resolver), "     hello");
+    assert_eq!(t.expand(&resolver), "hello     ");
 }
 
 #[test]
@@ -1809,6 +1865,259 @@ fn variable_resolver_opt_string_stays_str() {
 }
 
 // =============================================================================
+// Fuzzy suggestion for slots and targets
+// =============================================================================
+
+#[test]
+fn parse_unknown_slot_suggests_close_match() {
+    let source = r#"x slot="status_left" text="hi""#;
+    let (_, errors) = parse_widgets(source).unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0].message.contains("did you mean 'status-left'"),
+        "got: {}",
+        errors[0].message
+    );
+}
+
+#[test]
+fn parse_unknown_slot_no_suggestion_for_unrelated() {
+    let source = r#"x slot="foobar" text="hi""#;
+    let (_, errors) = parse_widgets(source).unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0].message.contains("unknown slot: 'foobar'"),
+        "got: {}",
+        errors[0].message
+    );
+    assert!(
+        !errors[0].message.contains("did you mean"),
+        "should not suggest for unrelated input: {}",
+        errors[0].message
+    );
+}
+
+#[test]
+fn parse_unknown_target_suggests_close_match() {
+    let source = r#"x kind="transform" target="statusbar" face="red""#;
+    let (_, errors) = parse_widgets(source).unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0].message.contains("did you mean 'status-bar'"),
+        "got: {}",
+        errors[0].message
+    );
+}
+
+#[test]
+fn parse_unknown_target_no_suggestion_for_unrelated() {
+    let source = r#"x kind="transform" target="zzzzz" face="red""#;
+    let (_, errors) = parse_widgets(source).unwrap();
+    assert_eq!(errors.len(), 1);
+    assert!(
+        !errors[0].message.contains("did you mean"),
+        "should not suggest for unrelated input: {}",
+        errors[0].message
+    );
+}
+
+// =============================================================================
+// Bool(false) display
+// =============================================================================
+
+#[test]
+fn bool_false_displays_as_false_string() {
+    use super::types::Value;
+    assert_eq!(Value::Bool(false).to_display().as_str(), "false");
+}
+
+// =============================================================================
+// Group syntax
+// =============================================================================
+
+#[test]
+fn group_inherits_when_condition() {
+    let source = r#"
+        group when="is_focused" {
+            a slot="status-left" text="A"
+            b slot="status-right" text="B"
+        }
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 2);
+    assert_eq!(file.widgets[0].name.as_str(), "a");
+    assert_eq!(file.widgets[1].name.as_str(), "b");
+    // Both should have the group's when condition
+    assert!(file.widgets[0].when.is_some());
+    assert!(file.widgets[1].when.is_some());
+}
+
+#[test]
+fn group_merges_with_widget_when() {
+    // Single-effect widget: widget's own when is in the effect, group when is in WidgetDef.when.
+    let source = r#"
+        group when="is_focused" {
+            a slot="status-left" text="A" when="has_menu"
+        }
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 1);
+    // Group condition becomes WidgetDef.when
+    assert!(file.widgets[0].when.is_some());
+    // Widget's own when="has_menu" is inside the contribution effect
+    if let super::types::WidgetKind::Contribution(ref c) = file.widgets[0].effects[0].kind {
+        assert!(c.when.is_some(), "contribution should have its own when");
+    } else {
+        panic!("expected contribution");
+    }
+}
+
+#[test]
+fn group_merges_with_multi_effect_widget_when() {
+    // Multi-effect widget: both group and widget have when= → AND merge.
+    let source = r#"
+        group when="is_focused" {
+            a when="has_menu" {
+                contribution slot="status-left" text="A"
+                background line="cursor" face="default,rgb:303030"
+            }
+        }
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 1);
+    // Should be And(is_focused, has_menu)
+    let when = file.widgets[0].when.as_ref().unwrap();
+    assert!(
+        matches!(when, super::predicate::Predicate::And(_, _)),
+        "expected And, got: {when:?}"
+    );
+}
+
+#[test]
+fn group_without_when_is_passthrough() {
+    let source = r#"
+        group {
+            a slot="status-left" text="A"
+        }
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 1);
+    assert!(file.widgets[0].when.is_none());
+}
+
+#[test]
+fn nested_groups() {
+    let source = r#"
+        group when="is_focused" {
+            group when="has_menu" {
+                a slot="status-left" text="A"
+            }
+        }
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 1);
+    // Should be And(is_focused, has_menu)
+    let when = file.widgets[0].when.as_ref().unwrap();
+    assert!(
+        matches!(when, super::predicate::Predicate::And(_, _)),
+        "expected And, got: {when:?}"
+    );
+}
+
+#[test]
+fn group_empty_children_error() {
+    let source = r#"group when="is_focused""#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert_eq!(file.widgets.len(), 0);
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].message.contains("no children"));
+}
+
+#[test]
+fn group_preserves_widget_ordering() {
+    let source = r#"
+        before slot="status-left" text="1"
+        group when="is_focused" {
+            middle slot="status-left" text="2"
+        }
+        after slot="status-left" text="3"
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 3);
+    assert_eq!(file.widgets[0].name.as_str(), "before");
+    assert_eq!(file.widgets[0].index, 0);
+    assert_eq!(file.widgets[1].name.as_str(), "middle");
+    assert_eq!(file.widgets[1].index, 1);
+    assert_eq!(file.widgets[2].name.as_str(), "after");
+    assert_eq!(file.widgets[2].index, 2);
+}
+
+// =============================================================================
+// Widget order= attribute
+// =============================================================================
+
+#[test]
+fn bare_bool_when_true_is_noop() {
+    // KDL v2 uses #true for booleans
+    let source = "a slot=\"status-left\" text=\"A\" when=#true";
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets.len(), 1);
+    // when=#true is a no-op — widget is always active, no condition needed
+    assert!(file.widgets[0].when.is_none());
+}
+
+#[test]
+fn bare_bool_when_false_is_error() {
+    let source = "a slot=\"status-left\" text=\"A\" when=#false";
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert_eq!(file.widgets.len(), 0);
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0].message.contains("permanently disabled"),
+        "got: {}",
+        errors[0].message
+    );
+}
+
+#[test]
+fn order_attribute_overrides_file_order() {
+    let source = r#"
+        a slot="status-left" text="A" order=10
+        b slot="status-left" text="B" order=-5
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert_eq!(file.widgets[0].priority(), 10);
+    assert_eq!(file.widgets[1].priority(), -5);
+}
+
+#[test]
+fn order_attribute_absent_uses_index() {
+    let source = r#"
+        a slot="status-left" text="A"
+        b slot="status-left" text="B"
+    "#;
+    let (file, errors) = parse_widgets(source).unwrap();
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    assert!(file.widgets[0].order.is_none());
+    assert_eq!(file.widgets[0].priority(), 0);
+    assert_eq!(file.widgets[1].priority(), 1);
+}
+
+#[test]
+fn bool_true_displays_as_true_string() {
+    use super::types::Value;
+    assert_eq!(Value::Bool(true).to_display().as_str(), "true");
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -1842,4 +2151,18 @@ impl VariableResolver for StaticResolver<'_> {
         }
         super::types::Value::Empty
     }
+}
+
+#[test]
+fn node_error_to_diagnostic_uses_config_error_kind() {
+    let error = super::parse::WidgetNodeError {
+        name: "my-widget".to_string(),
+        message: "unknown slot 'foo'".to_string(),
+    };
+    let diag = super::backend::node_error_to_diagnostic(&error);
+    assert_eq!(diag.severity(), PluginDiagnosticSeverity::Warning);
+    assert!(
+        matches!(diag.kind, PluginDiagnosticKind::ConfigError { ref key } if key == "my-widget")
+    );
+    assert_eq!(diag.message, "unknown slot 'foo'");
 }

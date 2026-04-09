@@ -61,6 +61,11 @@ pub enum PluginDiagnosticKind {
     RuntimeError {
         method: String,
     },
+    /// A configuration/validation error for a named item (e.g. widget parse error).
+    /// Non-fatal: the item is skipped but the system continues.
+    ConfigError {
+        key: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,6 +148,20 @@ impl PluginDiagnostic {
         }
     }
 
+    pub fn config_error(
+        plugin_id: PluginId,
+        key: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            target: PluginDiagnosticTarget::Plugin(plugin_id),
+            message: message.into(),
+            kind: PluginDiagnosticKind::ConfigError { key: key.into() },
+            previous: None,
+            attempted: None,
+        }
+    }
+
     pub fn plugin_id(&self) -> Option<&PluginId> {
         match &self.target {
             PluginDiagnosticTarget::Plugin(plugin_id) => Some(plugin_id),
@@ -163,9 +182,8 @@ impl PluginDiagnostic {
             | PluginDiagnosticKind::InstantiationFailed
             | PluginDiagnosticKind::ProviderCollectFailed
             | PluginDiagnosticKind::RuntimeError { .. } => PluginDiagnosticSeverity::Error,
-            PluginDiagnosticKind::ProviderArtifactFailed { .. } => {
-                PluginDiagnosticSeverity::Warning
-            }
+            PluginDiagnosticKind::ProviderArtifactFailed { .. }
+            | PluginDiagnosticKind::ConfigError { .. } => PluginDiagnosticSeverity::Warning,
         }
     }
 }
@@ -197,6 +215,7 @@ pub enum PluginDiagnosticOverlayTagKind {
     ArtifactLoad,
     ArtifactInstantiate,
     Runtime,
+    Config,
 }
 
 pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
@@ -225,6 +244,9 @@ pub fn summarize_plugin_diagnostic(diagnostic: &PluginDiagnostic) -> String {
         }
         PluginDiagnosticKind::RuntimeError { method } => {
             format!("{target}.{method}: {}", diagnostic.message)
+        }
+        PluginDiagnosticKind::ConfigError { key } => {
+            format!("{key}: {}", diagnostic.message)
         }
     }
 }
@@ -364,6 +386,15 @@ pub fn report_plugin_diagnostics(diagnostics: &[PluginDiagnostic]) {
                     method = %method,
                     message = %diagnostic.message,
                     "plugin runtime error"
+                );
+            }
+            PluginDiagnosticKind::ConfigError { ref key } => {
+                tracing::warn!(
+                    plugin_id = plugin_id.unwrap_or("none"),
+                    kind = "config_error",
+                    key = %key,
+                    message = %diagnostic.message,
+                    "plugin config error"
                 );
             }
         }
