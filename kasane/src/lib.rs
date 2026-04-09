@@ -1,6 +1,7 @@
 //! Kasane library: `kasane::run()` entry point, plugin registration, backend selection.
 
 pub mod cli;
+mod init_cmd;
 mod locked_wasm_provider;
 pub mod plugin_cmd;
 pub mod plugin_lock;
@@ -79,6 +80,12 @@ pub fn run(provider: impl PluginProvider + 'static) {
         }
         cli::CliAction::ShowHelp => {
             cli::print_help();
+        }
+        cli::CliAction::Init => {
+            if let Err(e) = init_cmd::execute() {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
         }
         cli::CliAction::DelegateToKak(args) => {
             process::exec_kak(&args);

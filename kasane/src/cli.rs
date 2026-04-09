@@ -14,6 +14,7 @@ pub enum UiMode {
 pub enum CliAction {
     ShowVersion,
     ShowHelp,
+    Init,
     DelegateToKak(Vec<String>),
     RunKasane {
         session: Option<String>,
@@ -211,6 +212,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<CliAction, CliError> {
                     },
                     None => return Err(CliError::MissingUiArg),
                 }
+            }
+            "init" if kak_args.is_empty() && !has_kasane_flags && !has_non_ui_flags => {
+                return Ok(CliAction::Init);
             }
             "plugin" if kak_args.is_empty() && !has_kasane_flags && !has_non_ui_flags => {
                 let subcmd = parse_plugin_args(&mut iter)?;
@@ -518,6 +522,7 @@ Kasane options:
   --help           Show this help message
 
 Subcommands:
+  init                              Generate a starter kasane.kdl config file
   plugin new <name> [--template T]  Create a new plugin project (T: hello, contribution, annotation, transform, overlay, process)
   plugin build [<path>]             Build plugin package (.kpk)
   plugin install [<path>]           Build or verify a plugin package and activate it
@@ -1075,6 +1080,11 @@ mod tests {
                 template: PluginTemplate::Process,
             }))
         );
+    }
+
+    #[test]
+    fn test_init() {
+        assert_eq!(parse_cli_args(&args(&["init"])), Ok(CliAction::Init));
     }
 
     // --- is_connect_mode tests ---
