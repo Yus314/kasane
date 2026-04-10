@@ -1,17 +1,17 @@
 class Kasane < Formula
   desc "Alternative frontend for the Kakoune text editor"
   homepage "https://github.com/Yus314/kasane"
-  version "0.4.0"
+  version "0.5.0"
   license any_of: ["MIT", "Apache-2.0"]
 
   on_macos do
     on_arm do
       url "https://github.com/Yus314/kasane/releases/download/v#{version}/kasane-v#{version}-aarch64-macos.tar.gz"
-      sha256 "5c57ee22fd9b332c3aef0dde2944ce0a6df1f4f5bbb3a3fb2959dbb162f63dce"
+      sha256 "9f8903cab3566b085182f1012143cb370c9a5c51d44ad33d6eeda501d7e9af13"
     end
     on_intel do
       url "https://github.com/Yus314/kasane/releases/download/v#{version}/kasane-v#{version}-x86_64-macos.tar.gz"
-      sha256 "83a9bdf4404f4c3a2574bead7963f0c1fbdf16edd10cd036db38737ed3d748f5"
+      sha256 "955cc41557a5ff8e2871b1a93efeff171c77851cc69236d00e1b6725bb530e95"
     end
   end
 
