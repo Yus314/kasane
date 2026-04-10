@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-10
+
+### Highlights
+
+- **Declarative widget system**: Customize the status bar, add line numbers, highlight the cursor line, apply mode-dependent colors — all from KDL, no plugins required. Six widget kinds (contribution, background, transform, gutter, inline, virtual-text) with templates, conditions, theme token references, and 40+ variables.
+- **Unified KDL configuration**: `config.toml` replaced by `kasane.kdl` with live hot-reload (~100ms, notify-based). See the [migration guide](docs/config.md#migrating-from-v040) for conversion examples.
+- **`kasane init`**: One command to generate a starter `kasane.kdl` with sensible widget defaults.
+- **Widget CLI**: `kasane widget check [-v] [--watch]` to validate widget definitions without starting Kasane, plus `kasane widget variables` / `kasane widget slots` for discovery.
+
+### Breaking Changes
+
+- **config**: Configuration file format changed from TOML (`config.toml`) to KDL (`kasane.kdl`). Kasane detects a stale `config.toml` on startup and prints a warning. There is no automatic migrator — the structural mapping is mechanical; see [docs/config.md § Migrating from v0.4.0](docs/config.md#migrating-from-v040) for side-by-side examples (0f7d4a60)
+- **widget**: Top-level widget definitions (flat form, outside a `widgets {}` block) are now a hard error. Wrap your widgets in `widgets { ... }` (544b548e)
+- **core**: Removed `PaintHook` trait — it had no external consumers. Use `RenderOrnaments` instead (496cb5e3)
+
+### Added
+
+- **widget**: Declarative widget system with six kinds — contribution (status bar slots), background (cursor line / selection), transform (face overlay on existing elements), gutter (per-line annotations), inline (pattern-match highlighting), virtual-text (end-of-line text) (a52165b4, cf1a29a9)
+- **widget**: Template syntax with format specs — `{var}`, `{var:N}` (left-align), `{var:>N}` (right-align), `{var:.N}` (truncate with ellipsis), `{var:>N.M}` (combined), unicode-width aware (0b5c159b, f03db2e4)
+- **widget**: Inline template conditionals — `{?condition => then => else}`, nested branches, variables and formatting inside branches (6d4f1682, 41487e93)
+- **widget**: Condition expressions with comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`), regex match (`=~`), set membership (`in`), logical (`&&`, `||`, `!`), and parentheses; 16-node / 256-char limits (f071eb72, 41487e93)
+- **widget**: Multi-effect widgets — combine contribution, background, transform, etc. under a shared `when=` condition in a single block (41487e93)
+- **widget**: Widget groups — `group when="cond" { ... }` shares a condition across multiple named children with implicit AND composition and nesting (f03db2e4)
+- **widget**: Widget ordering via `order=` attribute (falls back to file order) (f03db2e4)
+- **widget**: Widget includes — `include "path/*.kdl"` with glob patterns, `~` expansion, and circular-include detection; all included files are watched for hot-reload (41487e93)
+- **widget**: `opt.*` variable bridge — read any Kakoune `ui_options` value (`{opt.git_branch}`) with smart type inference (`"42"` → `Int`, `"true"`/`"false"` → `Bool`) (00aa0348)
+- **widget**: `plugin.*` variable bridge — plugins can expose named values via `Command::ExposeVariable` (6d4f1682)
+- **widget**: Theme token references — `face="@status_line"` (with `.` / `_` normalization) auto-updates on theme change (6ba9cb27)
+- **widget**: Gutter per-line variables — `line_number`, `relative_line`, `is_cursor_line` for per-line templates and `line-when=` conditions (cf1a29a9)
+- **widget**: Gutter branching (`GutterBranch`) for cursor-line / other-line display (544b548e)
+- **widget**: Parse diagnostics routed to the diagnostic overlay; fuzzy suggestions for unknown variables; duplicate-name warnings (babcbef4, 3cbd9254)
+- **config**: Hot-reload via `notify` filesystem watcher with 100ms debounce and 2s polling fallback; content-hash diffing skips re-parse on unchanged content (6ba9cb27, 41487e93)
+- **config**: Restart-required field detection — warns when hot-reload touches fields that require a restart (`ui.backend`, `ui.border_style`, `ui.image_protocol`, `scroll.lines_per_scroll`, `window`, `font`, `log`, `plugins`) (f69cfbee)
+- **config**: Startup detection of a legacy v0.4.0 `config.toml` with migration guidance
+- **config**: Fuzzy suggestions for unknown top-level config sections (f03db2e4)
+- **cli**: `kasane init` generates a starter `kasane.kdl` with mode, cursor position, line numbers, and cursor-line widgets (b9612fb2)
+- **cli**: `kasane widget check [path] [-v|--verbose] [--watch]` validates widget definitions without starting Kasane; `--watch` re-validates on save (a52165b4, f03db2e4)
+- **cli**: `kasane widget variables` / `kasane widget slots` list available template variables and layout slots (f03db2e4)
+- **display**: `InverseResult` enum replacing `Option<BufferLine>` for clearer display-unit inverse semantics; `DirectiveStabilityMonitor` for oscillation detection; sealed `FrameworkAccess` trait (494443ef)
+- **plugins**: Bundle `smooth-scroll` plugin (default-disabled, opt-in via `plugins { enabled "smooth_scroll" }`) (5db47a0a)
+
+### Fixed
+
+- **widget**: Unicode display width used for template padding/truncation — correct handling of CJK and emoji (0b5c159b)
+- **widget**: `opt.*` variables resolve with typed values so `opt.tabstop = "0"` is correctly falsy (00aa0348)
+- **widget**: Warn on duplicate widget names during parse (last-wins behavior preserved) (3cbd9254)
+- **widget**: Dedicated `CondParseError::TooLong` error for the 256-character condition length limit (f071eb72)
+- **nix**: Packaging improvements for nixpkgs submission (319a6fcd, e527f225)
+
+### Changed
+
+- **docs**: README rewritten for clarity and impact (b2c9373a)
+- **docs**: Widget system comprehensive reference in `docs/widgets.md`; WASM workstream roadmap cleanup (6ba9cb27, 1933b8bb)
+- **docs**: Replace obsolete `decorate_cells()` / `cursor_style_override()` references with `render_ornaments()` (5db47a0a)
+
+### Internal
+
+- Unify `config.toml` + `widgets.kdl` into a single `kasane.kdl` parser; format-preserving save via `patch_config_in_document()`; consolidate `Event::WidgetReload` + `Event::ConfigReload` into `Event::FileReload`; drop the `toml` dependency from kasane-core (0f7d4a60)
+- Typed `Value` enum (Int/Str/Bool/Empty) replacing string-based widget variable resolution (544b548e)
+- Unified `Predicate` algebra merging widget `CondExpr` with element-patch `PatchPredicate` (6d4f1682)
+- `VariableRegistry` replacing three separate data sources; `WidgetPlugin` + `HandlerRegistry` replacing `SingleWidgetBackend`; `Style::Token` passthrough for deferred theme resolution (6d4f1682)
+- Widget visitor pattern eliminating ~170 lines of duplication across parse/register paths (41487e93)
+- Per-widget `WidgetPlugin` instances via the plugin `HandlerRegistry` — widgets share the entire plugin composition infrastructure (544b548e)
+- `notify`-based file watcher replacing 2s mtime polling; content-hash diffing to skip re-parse on `touch`-like changes (41487e93)
+- `ConfigError` diagnostic kind with cyan `"C"` tag, separate from `RuntimeError` (f03db2e4)
+
 ## [0.3.0] - 2026-03-29
 
 ### Highlights

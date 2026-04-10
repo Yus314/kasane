@@ -133,6 +133,9 @@ fn run_inner(
     kak_args: Vec<String>,
     provider: impl PluginProvider + 'static,
 ) -> Result<()> {
+    if let Some(msg) = kasane_core::config::legacy_config_warning() {
+        eprintln!("{msg}");
+    }
     let config = Config::load();
     let _guard = setup_logging(&config);
 

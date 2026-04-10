@@ -431,6 +431,133 @@ plugins {
 }
 ```
 
+## Migrating from v0.4.0
+
+Kasane 0.5.0 replaces the TOML-based `config.toml` with KDL-based `kasane.kdl`. On startup, Kasane detects a stale `config.toml` and prints a warning — your old config is not read, but also not deleted.
+
+There is no automatic migrator: the TOML configs are small in practice and the structural mapping is mechanical. Start fresh with `kasane init`, then port each section using the examples below.
+
+### Structural mapping
+
+- TOML `[section]` → KDL `section { ... }`
+- TOML `key = value` inside a section → KDL `key value` (no `=`)
+- TOML `true`/`false` → KDL `#true`/`#false`
+- TOML nested `[section.subsection]` → KDL `section { subsection { ... } }`
+- TOML arrays `key = ["a", "b"]` → KDL `key "a" "b"` (variadic args)
+
+### `ui`
+
+Before (`config.toml`):
+
+```toml
+[ui]
+shadow = false
+border_style = "double"
+status_position = "top"
+padding_char = " "
+```
+
+After (`kasane.kdl`):
+
+```kdl
+ui {
+    shadow #false
+    border_style "double"
+    status_position "top"
+    padding_char " "
+}
+```
+
+### `theme`
+
+Before:
+
+```toml
+[theme]
+menu_item_normal = "cyan,black"
+menu_item_selected = "black,cyan+b"
+info_border = "bright-blue,default"
+```
+
+After:
+
+```kdl
+theme {
+    menu_item_normal "cyan,black"
+    menu_item_selected "black,cyan+b"
+    info_border "bright-blue,default"
+}
+```
+
+Note: v0.5.0 also supports `@token` references and `variant "dark"/"light"` blocks — see [Theme](#theme) above.
+
+### `plugins`
+
+Before:
+
+```toml
+[plugins]
+enabled = ["cursor_line", "color_preview"]
+disabled = ["some_plugin"]
+```
+
+After:
+
+```kdl
+plugins {
+    enabled "cursor_line" "color_preview"
+    disabled "some_plugin"
+}
+```
+
+### `plugins.deny_capabilities` (nested table)
+
+Before:
+
+```toml
+[plugins.deny_capabilities]
+untrusted_plugin = ["filesystem", "environment"]
+```
+
+After:
+
+```kdl
+plugins {
+    deny_capabilities {
+        untrusted_plugin "filesystem" "environment"
+    }
+}
+```
+
+### `settings.<plugin_id>`
+
+Before:
+
+```toml
+[settings.cursor_line]
+highlight_color = "rgb:303030"
+enabled = true
+intensity = 42
+```
+
+After:
+
+```kdl
+settings {
+    cursor_line {
+        highlight_color "rgb:303030"
+        enabled #true
+        intensity 42
+    }
+}
+```
+
+### Other sections
+
+`scroll`, `log`, `menu`, `search`, `clipboard`, `mouse`, `window`, `font`, `colors` follow the same mapping rules. See the reference sections above for field names and defaults.
+
+When you are done, delete the old `config.toml` to silence the startup warning.
+
 ## See also
 
 - [README.md](../README.md) — installation and basic usage

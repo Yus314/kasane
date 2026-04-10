@@ -516,6 +516,36 @@ pub fn config_path() -> PathBuf {
     }
 }
 
+/// Legacy config.toml path (v0.4.0 and earlier).
+///
+/// Used only for migration detection. Kasane no longer reads TOML configs.
+pub fn legacy_config_path() -> PathBuf {
+    config_path().with_file_name("config.toml")
+}
+
+/// Detects an orphaned v0.4.0 config.toml and returns a warning message.
+///
+/// Returns `Some(msg)` if `config.toml` exists but `kasane.kdl` does not.
+/// Kasane should print this to stderr and continue with defaults — the
+/// user's old TOML config is silently ignored otherwise.
+pub fn legacy_config_warning() -> Option<String> {
+    legacy_config_warning_for_paths(&config_path(), &legacy_config_path())
+}
+
+fn legacy_config_warning_for_paths(kdl: &Path, toml: &Path) -> Option<String> {
+    if kdl.exists() || !toml.exists() {
+        return None;
+    }
+    Some(format!(
+        "warning: found {toml} but {kdl} is missing.\n\
+         \n  Kasane 0.5.0 uses KDL (kasane.kdl) instead of TOML (config.toml).\n  Your config.toml is being ignored.\n\
+         \n  To migrate:\n    1. Run `kasane init` to generate a starter kasane.kdl\n    2. Port settings from config.toml by hand\n    3. Delete config.toml when done\n\
+         \n  Migration guide: https://github.com/Yus314/kasane/blob/master/docs/config.md#migrating-from-v040",
+        toml = toml.display(),
+        kdl = kdl.display(),
+    ))
+}
+
 fn temp_config_path(path: &Path) -> PathBuf {
     let file_name = path
         .file_name()
@@ -1055,6 +1085,37 @@ settings {
         let diff = old.restart_required_diff(&new);
         assert!(diff.contains(&"ui.backend"));
         assert!(diff.contains(&"log"));
+    }
+
+    #[test]
+    fn legacy_warning_none_when_neither_file_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let kdl = tmp.path().join("kasane.kdl");
+        let toml = tmp.path().join("config.toml");
+        assert!(legacy_config_warning_for_paths(&kdl, &toml).is_none());
+    }
+
+    #[test]
+    fn legacy_warning_none_when_kdl_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let kdl = tmp.path().join("kasane.kdl");
+        let toml = tmp.path().join("config.toml");
+        std::fs::write(&kdl, "").unwrap();
+        std::fs::write(&toml, "[ui]\nshadow = false\n").unwrap();
+        assert!(legacy_config_warning_for_paths(&kdl, &toml).is_none());
+    }
+
+    #[test]
+    fn legacy_warning_some_when_only_toml_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let kdl = tmp.path().join("kasane.kdl");
+        let toml = tmp.path().join("config.toml");
+        std::fs::write(&toml, "[ui]\nshadow = false\n").unwrap();
+        let msg = legacy_config_warning_for_paths(&kdl, &toml).unwrap();
+        assert!(msg.contains("config.toml"));
+        assert!(msg.contains("kasane.kdl"));
+        assert!(msg.contains("kasane init"));
+        assert!(msg.contains("Migration guide"));
     }
 
     /// Snapshot test for Config::default() serialized to KDL.

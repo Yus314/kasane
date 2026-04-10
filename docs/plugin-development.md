@@ -89,7 +89,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-kasane-plugin-sdk = "0.4.0"
+kasane-plugin-sdk = "0.5.0"
 wit-bindgen = "0.53"
 ```
 
