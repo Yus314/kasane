@@ -284,6 +284,12 @@ Epistemological categories are enforced at compile time via `#[epistemic(...)]` 
 
 The `Truth<'a>` projection (`kasane-core/src/state/truth.rs`, ADR-030 Level 1) consumes `FIELDS_BY_CATEGORY["observed"]` to expose a write-denying, observed-only view of `AppState`. A structural test pins the `Truth` accessor set against the generated constant, so adding or reclassifying an observed field forces the projection to be updated. See §13.13 for the enforcement status and ADR-030 for the staged rollout plan.
 
+The `Inference<'a>` projection (`kasane-core/src/state/inference.rs`, ADR-030 Level 2) realises the `I` component of `W = (T, I, Π, S)` as a read-only view over the union of `FIELDS_BY_CATEGORY["derived"]` and `FIELDS_BY_CATEGORY["heuristic"]`. The `Policy<'a>` projection (`kasane-core/src/state/policy.rs`, same ADR, same level) realises the `Π` component as a read-only view over `FIELDS_BY_CATEGORY["config"]`. Both mirror `Truth<'a>`: `Copy`, lifetime-parameterised, no `&mut` accessors, and backed by structural coverage tests in `state/tests/inference.rs` and `state/tests/policy.rs`. Plugins reach all three projections through `AppView::truth()` / `inference()` / `policy()`.
+
+Axiom A8 (Inference Boundedness, §2.4) is witnessed at the projection layer by `kasane-core/tests/inference_boundedness.rs`, which asserts that mutating any `session` or `runtime` field on an `AppState` leaves all three projections bit-identical. A fully dynamical witness — applying protocol messages and verifying derivation outputs — remains tracked separately under §13 and ADR-030.
+
+In addition, `kasane-core/tests/salsa_projection_coverage_level2.rs` enforces that every `derived`/`heuristic`/`config` field is either surfaced through a Salsa input in `salsa_inputs.rs` or carries an explicit `#[epistemic(..., salsa_opt_out = "<reason>")]` justification. This closes the gap where a new policy knob could silently bypass Salsa's revision tracking.
+
 ## 4. Update Semantics
 
 ### 4.1 From External Input to State Update

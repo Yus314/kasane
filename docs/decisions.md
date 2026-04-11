@@ -1784,9 +1784,9 @@ Introduce two complementary mechanisms:
 - Type safety is runtime-enforced (downcast), not compile-time — mismatched types are silently filtered
 - Both mechanisms integrate with the existing `PluginBackend` trait via default methods, keeping backward compatibility
 
-## ADR-030: Observed/Policy Separation — Level 1 `Truth<'a>` Projection
+## ADR-030: Observed/Policy Separation — Staged Projection Rollout
 
-**Status:** Current (Level 1 shipped; Levels 2–6 reserved)
+**Status:** Current (Levels 1–2 shipped; Levels 3–6 reserved)
 
 ### Context
 
@@ -1847,10 +1847,46 @@ Introduce a staged enforcement model for the observed/policy split.
   regression test (`kasane-core/tests/salsa_projection_coverage.rs`)
   pins the fix.
 
-**Levels 2–6 (reserved; not implemented).**
+**Level 2 — `Inference<'a>` / `Policy<'a>` Projections (shipped).**
 
-- Level 2 — Inference / Policy split: separate projection types for
-  derived+heuristic vs. config+runtime.
+- Add `kasane_core::state::Inference<'a>`: a zero-cost newtype wrapping
+  `&'a AppState` that exposes **only** accessors for fields carrying
+  `#[epistemic(derived)]` or `#[epistemic(heuristic)]`. Realises the
+  `I` component of the world model `W = (T, I, Π, S)` (§2.5).
+- Add `kasane_core::state::Policy<'a>`: the analogous projection over
+  `#[epistemic(config)]` fields. Realises the `Π` component. As part
+  of this work, `fold_toggle_state` was reclassified from
+  `#[epistemic(runtime)]` to `#[epistemic(config)]`, because it is
+  user-controlled policy that shapes the DisplayMap, not ephemeral
+  runtime state.
+- Both projections are `Copy`, have no `&mut` accessors, and pin
+  their accessor sets against the macro-generated category map via
+  `state/tests/inference.rs` and `state/tests/policy.rs` — mirroring
+  the Level 1 `Truth` coverage contract.
+- `AppState::inference()` / `AppView::inference()` and
+  `AppState::policy()` / `AppView::policy()` return the projections.
+- The projection subset of A8 (Inference Boundedness) is witnessed by
+  `kasane-core/tests/inference_boundedness.rs`, which proptest-
+  mutates session + runtime fields on an `AppState` and asserts that
+  Truth / Inference / Policy accessors all return bit-identical
+  values. The fully dynamical form of A8 (applying protocol messages
+  and re-deriving fields) is still deferred.
+- A Level 2 Salsa coverage regression,
+  `kasane-core/tests/salsa_projection_coverage_level2.rs`, extends
+  the Level 1 invariant: every derived / heuristic / config field
+  must either be surfaced through a Salsa input or carry an explicit
+  `#[epistemic(..., salsa_opt_out = "<reason>")]` justification. The
+  `salsa_opt_out` key is a new universal option on the
+  `#[epistemic(...)]` attribute, parsed by `kasane_macros` and
+  exposed as a `SALSA_OPT_OUTS` constant on the derived type.
+- A small PoC migration of three read sites
+  (`render/view/info.rs`, `render/pipeline_salsa.rs`,
+  `surface/buffer.rs`) moved from `state.<config>` direct access to
+  `state.policy().<config>()`, establishing the pattern without
+  undertaking a full rewrite.
+
+**Levels 3–6 (reserved; not implemented).**
+
 - Level 3 — Type-level isolation of Kakoune-writing `Command` variants
   (roadmap §2.2).
 - Level 4 — `RecoveryWitness` contract for destructive display
