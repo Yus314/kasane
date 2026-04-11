@@ -15,6 +15,12 @@
 //! - `HEURISTIC_FIELDS: &[(&str, &str, &str)]` — (field, rule, severity) for heuristics
 //! - `DERIVED_FIELDS: &[(&str, &str)]` — (field, source) for derived fields
 //! - `FIELDS_BY_CATEGORY: &[(&str, &[&str])]` — category→fields
+//! - `SALSA_OPT_OUTS: &[(&str, &str)]` — fields that declare `salsa_opt_out = "reason"`
+//!
+//! Any category accepts an optional `salsa_opt_out = "reason"` key, used by
+//! `kasane-core/tests/salsa_projection_coverage_level2.rs` to justify
+//! derived/heuristic/config fields that are not surfaced in the Salsa input
+//! layer. See ADR-030 Level 2.
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -42,6 +48,16 @@ const KNOWN_CATEGORIES: &[&str] = &[
 const KNOWN_SEVERITIES: &[&str] = &["catastrophic", "degraded", "cosmetic"];
 
 /// Parsed epistemic annotation for one field.
+struct EpistemicAnnotation {
+    category: EpistemicCategory,
+    /// Optional justification for why this field is not surfaced in the
+    /// Salsa input layer. Consumed by
+    /// `kasane-core/tests/salsa_projection_coverage_level2.rs`. See ADR-030
+    /// Level 2 for the enforcement contract.
+    salsa_opt_out: Option<String>,
+}
+
+/// Parsed epistemic category body (without the optional `salsa_opt_out`).
 enum EpistemicCategory {
     Observed,
     Derived { source: Option<String> },
@@ -95,7 +111,7 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
 
     let mut field_entries = Vec::new(); // (field_name, &[flag_names])
     let mut free_fields = Vec::new(); // field_name
-    let mut epistemic_entries = Vec::new(); // (field_name, EpistemicCategory)
+    let mut epistemic_entries = Vec::new(); // (field_name, EpistemicAnnotation)
 
     for field in &fields.named {
         let field_name = field
@@ -165,14 +181,14 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
     });
 
     // Generate FIELD_EPISTEMIC_MAP
-    let epistemic_map_entries = epistemic_entries.iter().map(|(name, cat)| {
-        let cat_str = cat.name();
+    let epistemic_map_entries = epistemic_entries.iter().map(|(name, ann)| {
+        let cat_str = ann.category.name();
         quote! { (#name, #cat_str) }
     });
 
     // Generate HEURISTIC_FIELDS
-    let heuristic_entries = epistemic_entries.iter().filter_map(|(name, cat)| {
-        if let EpistemicCategory::Heuristic { rule, severity } = cat {
+    let heuristic_entries = epistemic_entries.iter().filter_map(|(name, ann)| {
+        if let EpistemicCategory::Heuristic { rule, severity } = &ann.category {
             Some(quote! { (#name, #rule, #severity) })
         } else {
             None
@@ -180,8 +196,8 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
     });
 
     // Generate DERIVED_FIELDS
-    let derived_entries = epistemic_entries.iter().filter_map(|(name, cat)| {
-        if let EpistemicCategory::Derived { source } = cat {
+    let derived_entries = epistemic_entries.iter().filter_map(|(name, ann)| {
+        if let EpistemicCategory::Derived { source } = &ann.category {
             let source_str = source.as_deref().unwrap_or("");
             Some(quote! { (#name, #source_str) })
         } else {
@@ -189,13 +205,21 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
         }
     });
 
+    // Generate SALSA_OPT_OUTS — `(field, reason)` for every field that declared
+    // `#[epistemic(..., salsa_opt_out = "...")]`.
+    let salsa_opt_out_entries = epistemic_entries.iter().filter_map(|(name, ann)| {
+        ann.salsa_opt_out
+            .as_ref()
+            .map(|reason| quote! { (#name, #reason) })
+    });
+
     // Generate FIELDS_BY_CATEGORY — collect fields per category
     let fields_by_cat = {
         let mut by_cat: Vec<(&str, Vec<&str>)> =
             KNOWN_CATEGORIES.iter().map(|&c| (c, Vec::new())).collect();
 
-        for (name, cat) in &epistemic_entries {
-            let cat_name = cat.name();
+        for (name, ann) in &epistemic_entries {
+            let cat_name = ann.category.name();
             for (c, fields) in &mut by_cat {
                 if *c == cat_name {
                     fields.push(name.as_str());
@@ -247,6 +271,16 @@ pub fn expand_dirty_tracked(input: TokenStream) -> syn::Result<TokenStream> {
             /// Fields grouped by epistemological category.
             pub const FIELDS_BY_CATEGORY: &[(&str, &[&str])] = &[
                 #(#fields_by_cat_entries),*
+            ];
+
+            /// Fields that declared `#[epistemic(..., salsa_opt_out = "reason")]`.
+            ///
+            /// Consumed by `kasane-core/tests/salsa_projection_coverage_level2.rs`
+            /// to witness that every derived/heuristic/config field is either
+            /// surfaced in the Salsa input layer or explicitly exempted with a
+            /// documented reason. See ADR-030 Level 2.
+            pub const SALSA_OPT_OUTS: &[(&str, &str)] = &[
+                #(#salsa_opt_out_entries),*
             ];
         }
     };
@@ -342,7 +376,7 @@ fn parse_dirty_attr(
 fn parse_epistemic_attr(
     field_name: &Ident,
     attrs: &[syn::Attribute],
-) -> syn::Result<Option<EpistemicCategory>> {
+) -> syn::Result<Option<EpistemicAnnotation>> {
     let epistemic_attrs: Vec<_> = attrs
         .iter()
         .filter(|a| a.path().is_ident("epistemic"))
@@ -400,19 +434,33 @@ fn parse_epistemic_attr(
     // Parse remaining tokens as key-value pairs: `, key = "value"`
     let kvs = parse_key_value_pairs(&tokens[1..])?;
 
-    match category_str.as_str() {
+    // `salsa_opt_out` is a universal optional key accepted on every category.
+    // It declares that the field is intentionally not surfaced in the Salsa
+    // input layer. See ADR-030 Level 2.
+    let salsa_opt_out = kvs
+        .iter()
+        .find(|(k, _)| k == "salsa_opt_out")
+        .map(|(_, v)| v.clone());
+
+    let category = match category_str.as_str() {
         "observed" | "config" | "session" | "runtime" => {
-            if !kvs.is_empty() {
-                return Err(Error::new_spanned(
-                    attr,
-                    format!("#[epistemic({category_str})] does not accept extra parameters"),
-                ));
+            // Reject unknown keys
+            for (k, _) in &kvs {
+                if k != "salsa_opt_out" {
+                    return Err(Error::new_spanned(
+                        attr,
+                        format!(
+                            "unknown key `{k}` in #[epistemic({category_str}, ...)]. \
+                             Allowed: salsa_opt_out"
+                        ),
+                    ));
+                }
             }
             match category_str.as_str() {
-                "observed" => Ok(Some(EpistemicCategory::Observed)),
-                "config" => Ok(Some(EpistemicCategory::Config)),
-                "session" => Ok(Some(EpistemicCategory::Session)),
-                "runtime" => Ok(Some(EpistemicCategory::Runtime)),
+                "observed" => EpistemicCategory::Observed,
+                "config" => EpistemicCategory::Config,
+                "session" => EpistemicCategory::Session,
+                "runtime" => EpistemicCategory::Runtime,
                 _ => unreachable!(),
             }
         }
@@ -423,17 +471,17 @@ fn parse_epistemic_attr(
                 .map(|(_, v)| v.clone());
             // Reject unknown keys
             for (k, _) in &kvs {
-                if k != "source" {
+                if k != "source" && k != "salsa_opt_out" {
                     return Err(Error::new_spanned(
                         attr,
                         format!(
                             "unknown key `{k}` in #[epistemic(derived, ...)]. \
-                             Allowed: source"
+                             Allowed: source, salsa_opt_out"
                         ),
                     ));
                 }
             }
-            Ok(Some(EpistemicCategory::Derived { source }))
+            EpistemicCategory::Derived { source }
         }
         "heuristic" => {
             let rule = kvs
@@ -446,12 +494,12 @@ fn parse_epistemic_attr(
                 .map(|(_, v)| v.clone());
             // Reject unknown keys
             for (k, _) in &kvs {
-                if k != "rule" && k != "severity" {
+                if k != "rule" && k != "severity" && k != "salsa_opt_out" {
                     return Err(Error::new_spanned(
                         attr,
                         format!(
                             "unknown key `{k}` in #[epistemic(heuristic, ...)]. \
-                             Allowed: rule, severity"
+                             Allowed: rule, severity, salsa_opt_out"
                         ),
                     ));
                 }
@@ -482,10 +530,15 @@ fn parse_epistemic_attr(
                     ),
                 ));
             }
-            Ok(Some(EpistemicCategory::Heuristic { rule, severity }))
+            EpistemicCategory::Heuristic { rule, severity }
         }
         _ => unreachable!(),
-    }
+    };
+
+    Ok(Some(EpistemicAnnotation {
+        category,
+        salsa_opt_out,
+    }))
 }
 
 /// Parse `, key = "value"` pairs from a token slice.
