@@ -8,6 +8,7 @@ pub mod snapshot;
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests;
+pub mod truth;
 mod update;
 
 use std::collections::HashMap;
@@ -28,6 +29,7 @@ use crate::session::SessionDescriptor;
 
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
+pub use truth::Truth;
 pub use update::{Msg, UpdateResult, update, update_in_place};
 
 bitflags! {

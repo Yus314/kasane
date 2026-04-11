@@ -11,7 +11,7 @@ use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::session::SessionDescriptor;
-use crate::state::{AppState, InfoState, MenuState};
+use crate::state::{AppState, InfoState, MenuState, Truth};
 
 /// Read-only view of application state for plugin methods.
 ///
@@ -28,6 +28,17 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn new(state: &'a AppState) -> Self {
         Self { state }
+    }
+
+    /// Read-only projection onto `#[epistemic(observed)]` fields.
+    ///
+    /// Plugins that need to distinguish Kakoune protocol facts from derived,
+    /// heuristic, or policy-level state should use [`Truth`] rather than the
+    /// wider `AppView` accessor set. See `docs/semantics.md` §2.5 and ADR-030
+    /// for the enforcement rationale.
+    #[inline]
+    pub fn truth(&self) -> Truth<'a> {
+        Truth::new(self.state)
     }
 
     // =========================================================================
