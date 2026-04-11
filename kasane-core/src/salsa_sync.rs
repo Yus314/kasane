@@ -50,6 +50,9 @@ impl SalsaInputHandles {
                 db,
                 vec![],
                 vec![],
+                -1,
+                vec![],
+                vec![],
                 crate::protocol::Face::default(),
                 crate::protocol::StatusStyle::default(),
             ),
@@ -121,7 +124,19 @@ pub fn sync_inputs_from_state(
         .set_secondary_cursors(db)
         .to(state.secondary_cursors.clone());
 
-    // Status
+    // Status: observed components first, then the derived concatenation.
+    inputs
+        .status
+        .set_status_prompt(db)
+        .to(state.status_prompt.clone());
+    inputs
+        .status
+        .set_status_content(db)
+        .to(state.status_content.clone());
+    inputs
+        .status
+        .set_status_content_cursor_pos(db)
+        .to(state.status_content_cursor_pos);
     inputs
         .status
         .set_status_line(db)

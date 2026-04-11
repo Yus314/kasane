@@ -29,8 +29,21 @@ pub struct CursorInput {
 }
 
 /// Status bar from `KakouneRequest::DrawStatus`.
+///
+/// Both observed components (`status_prompt`, `status_content`,
+/// `status_content_cursor_pos`) and the derived concatenation
+/// (`status_line`) are stored so that Salsa views can reach either
+/// level of the projection without recomputing. This is a Level 1
+/// requirement of ADR-030 (observed/policy separation): the Salsa
+/// layer must not be a lossy projection of `#[epistemic(observed)]`
+/// fields.
 #[salsa::input]
 pub struct StatusInput {
+    #[returns(ref)]
+    pub status_prompt: Line,
+    #[returns(ref)]
+    pub status_content: Line,
+    pub status_content_cursor_pos: i32,
     #[returns(ref)]
     pub status_line: Line,
     #[returns(ref)]
