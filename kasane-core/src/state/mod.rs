@@ -2,6 +2,7 @@
 
 mod apply;
 pub mod derived;
+pub mod inference;
 mod info;
 mod menu;
 pub mod snapshot;
@@ -27,6 +28,7 @@ use crate::render::color_context::ColorContext;
 use crate::render::theme::Theme;
 use crate::session::SessionDescriptor;
 
+pub use inference::Inference;
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
 pub use truth::Truth;
