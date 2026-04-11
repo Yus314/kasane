@@ -13,7 +13,7 @@ use super::DisplayDirective;
 /// When a fold range is expanded, the corresponding `Fold` directive is
 /// filtered out during `DisplayMap` construction, causing the folded lines
 /// to appear as individual display lines.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FoldToggleState {
     expanded: Vec<Range<usize>>,
 }
