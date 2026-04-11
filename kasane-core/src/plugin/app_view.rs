@@ -11,7 +11,7 @@ use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
 use crate::session::SessionDescriptor;
-use crate::state::{AppState, InfoState, MenuState, Truth};
+use crate::state::{AppState, Inference, InfoState, MenuState, Policy, Truth};
 
 /// Read-only view of application state for plugin methods.
 ///
@@ -39,6 +39,30 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn truth(&self) -> Truth<'a> {
         Truth::new(self.state)
+    }
+
+    /// Read-only projection onto `#[epistemic(derived)]` + `#[epistemic(heuristic)]`
+    /// fields.
+    ///
+    /// Plugins that consume inferred facts — cursor mode, selections,
+    /// color context, editor mode, etc. — should prefer [`Inference`] over
+    /// the wider `AppView` accessor set. This is the `I` component of the
+    /// world model `W = (T, I, Π, S)` formalised under ADR-030 Level 2.
+    #[inline]
+    pub fn inference(&self) -> Inference<'a> {
+        Inference::new(self.state)
+    }
+
+    /// Read-only projection onto `#[epistemic(config)]` fields.
+    ///
+    /// Plugins that depend on user-controlled policy — theme, scrollbar
+    /// glyphs, menu layout, plugin settings, fold toggle state, etc. —
+    /// should prefer [`Policy`] over the wider `AppView` accessor set.
+    /// This is the `Π` component of the world model `W = (T, I, Π, S)`
+    /// formalised under ADR-030 Level 2.
+    #[inline]
+    pub fn policy(&self) -> Policy<'a> {
+        Policy::new(self.state)
     }
 
     // =========================================================================
