@@ -1784,6 +1784,98 @@ Introduce two complementary mechanisms:
 - Type safety is runtime-enforced (downcast), not compile-time — mismatched types are silently filtered
 - Both mechanisms integrate with the existing `PluginBackend` trait via default methods, keeping backward compatibility
 
+## ADR-030: Observed/Policy Separation — Level 1 `Truth<'a>` Projection
+
+**Status:** Current (Level 1 shipped; Levels 2–6 reserved)
+
+### Context
+
+Requirement P-032 (`docs/requirements.md`) states that display transformations
+must be treated as **display policy**, not as falsification of the observed
+Kakoune protocol state. The World Model in `docs/semantics.md` §2.5
+formalises this as a dependent-sum decomposition:
+
+```
+AppState ≅ Σ_{k : KakouneProtocolFacts} Delta(k)
+```
+
+with the projection `p : AppState → KakouneProtocolFacts` and Axioms A2
+(Truth Integrity) and A9 (Delta Neutrality) constraining any write path.
+
+Before this ADR, the separation existed only at the **field-attribute
+level** (`#[epistemic(observed | derived | heuristic | config | session |
+runtime)]` on `AppState` fields). Nothing in the type system prevented a
+plugin, a middleware chain, or a non-protocol message handler from writing
+through the observed surface, and nothing rejected a Salsa input layout
+that lossily dropped observed fields.
+
+Audit findings (pre-ADR-030):
+
+1. `StatusInput` in `salsa_inputs.rs` stored only the derived `status_line`;
+   `status_prompt`, `status_content`, and `status_content_cursor_pos`
+   (all `#[epistemic(observed)]`) never entered the Salsa world.
+2. The `AppView` accessor surface exposed observed, derived, heuristic,
+   and config fields through the same method namespace, with no way for a
+   plugin to state *"this code path reads only protocol facts."*
+3. No property test witnessed A9 (Delta Neutrality) at runtime.
+
+### Decision
+
+Introduce a staged enforcement model for the observed/policy split.
+**Level 1** ships now; Levels 2–6 are reserved for follow-on work.
+
+**Level 1 — `Truth<'a>` Projection (shipped).**
+
+- Add `kasane_core::state::Truth<'a>`: a zero-cost newtype wrapping
+  `&'a AppState` that exposes **only** accessors for fields carrying
+  `#[epistemic(observed)]`.
+- `Truth` is `Copy`, has no `&mut` accessors, and has no inherent escape
+  hatch. Any write attempt is a compile error (`E0070` / borrow-check
+  failure), witnessed by
+  `kasane-macros/tests/fail/truth_write_denied.rs`.
+- `AppState::truth()` and `AppView::truth()` return the projection.
+- A structural test (`state/tests/truth.rs`) pins
+  `Truth::ACCESSOR_NAMES` against the macro-generated
+  `AppState::FIELDS_BY_CATEGORY["observed"]` set, so adding, removing, or
+  reclassifying an observed field forces a corresponding update to
+  `Truth`.
+- An A9 property test (`kasane-core/tests/delta_neutrality.rs`) witnesses
+  that no non-`Msg::Kakoune(..)` message mutates the projection.
+- `StatusInput` is extended with `status_prompt`, `status_content`, and
+  `status_content_cursor_pos` so that the Salsa projection is no longer
+  lossy; `sync_inputs_from_state` is updated accordingly, and a
+  regression test (`kasane-core/tests/salsa_projection_coverage.rs`)
+  pins the fix.
+
+**Levels 2–6 (reserved; not implemented).**
+
+- Level 2 — Inference / Policy split: separate projection types for
+  derived+heuristic vs. config+runtime.
+- Level 3 — Type-level isolation of Kakoune-writing `Command` variants
+  (roadmap §2.2).
+- Level 4 — `RecoveryWitness` contract for destructive display
+  directives (roadmap §2.2, semantics §13.14).
+- Level 5 — Static analysability of command effect sequences via an
+  explicit free monad (roadmap §2.2, semantics §13.17).
+- Level 6 — Type-level witness of `apply()`-exclusive `&mut AppState`
+  ownership along the protocol ingestion path.
+
+### Implications
+
+- Plugins and framework code can now mark observation sites with
+  `state.truth()` to statically prove they only consult protocol facts,
+  even where `AppView` would otherwise allow wider reads.
+- Adding a new `#[epistemic(observed)]` field to `AppState` is a
+  compile-or-test failure until `Truth` is updated, preventing silent
+  gaps in the projection.
+- The Salsa layer is no longer a lossy projection of observed state,
+  unblocking future Salsa views that need to distinguish status-prompt
+  from status-content.
+- The `&mut AppState` surface still exists and is deliberately
+  unrestricted; Level 1 enforces *read-side* separation only. Write-side
+  enforcement is deferred to later levels, consistent with P-032's
+  gradual rollout plan.
+
 ## Related Documents
 
 - [semantics.md](./semantics.md) — Authoritative specification
