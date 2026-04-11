@@ -282,6 +282,8 @@ In Default Frontend Semantics, heuristic failure should be treated as graceful d
 
 Epistemological categories are enforced at compile time via `#[epistemic(...)]` attributes on `AppState` fields. Every field must carry exactly one classification. The `DirtyTracked` derive macro validates completeness and generates constants (`FIELD_EPISTEMIC_MAP`, `HEURISTIC_FIELDS`, `DERIVED_FIELDS`, `FIELDS_BY_CATEGORY`) for test validation.
 
+The `Truth<'a>` projection (`kasane-core/src/state/truth.rs`, ADR-030 Level 1) consumes `FIELDS_BY_CATEGORY["observed"]` to expose a write-denying, observed-only view of `AppState`. A structural test pins the `Truth` accessor set against the generated constant, so adding or reclassifying an observed field forces the projection to be updated. See §13.13 for the enforcement status and ADR-030 for the staged rollout plan.
+
 ## 4. Update Semantics
 
 ### 4.1 From External Input to State Update
@@ -1269,7 +1271,11 @@ This gap was partially resolved by persisting the DisplayMap on AppState after e
 
 ### 13.13 Delta Neutrality Lacks Static Enforcement
 
-A9 (Delta Neutrality, §2.7) and T10 (Plugin Transparency, §12.10) follow from the shape of state transitions relative to the Kakoune-writing subset `{SendToKakoune, InsertText, EditBuffer}` of `Command`. Field-level classification of observed vs Kasane-internal state is enforced at compile time via `#[epistemic(...)]` and the `DirtyTracked` derive (§3.9), but there is no compile-time check that a given handler — especially in plugin code — does not emit a Kakoune-writing Command by mistake. The "Kakoune-Transparent?" column in §9.1 is therefore currently maintained by code review for `handle_key_middleware`, `handle_mouse`, and `handle_default_scroll`. A linting step or a marker trait distinguishing "transparent Command" from "Kakoune-writing Command" would close this gap.
+A9 (Delta Neutrality, §2.7) and T10 (Plugin Transparency, §12.10) follow from the shape of state transitions relative to the Kakoune-writing subset `{SendToKakoune, InsertText, EditBuffer}` of `Command`. Field-level classification of observed vs Kasane-internal state is enforced at compile time via `#[epistemic(...)]` and the `DirtyTracked` derive (§3.9).
+
+**Level 1 enforcement (ADR-030, shipped).** A read-side projection `Truth<'a>` (`kasane-core/src/state/truth.rs`) exposes only `#[epistemic(observed)]` fields and is compile-time write-denying. A structural test pins `Truth::ACCESSOR_NAMES` against the macro-generated `FIELDS_BY_CATEGORY["observed"]` set, and a property test (`kasane-core/tests/delta_neutrality.rs`) witnesses that no non-`Msg::Kakoune(..)` message mutates the projection. The Salsa layer no longer drops observed status components, closing the `status_prompt` / `status_content` / `status_content_cursor_pos` projection gap.
+
+**Still open.** There is still no compile-time check that a given handler — especially in plugin code — does not emit a Kakoune-writing Command by mistake. The "Kakoune-Transparent?" column in §9.1 is therefore currently maintained by code review for `handle_key_middleware`, `handle_mouse`, and `handle_default_scroll`. A linting step or a marker trait distinguishing "transparent Command" from "Kakoune-writing Command" would close this gap (see ADR-030 Levels 2–3 and roadmap §2.2).
 
 ### 13.14 Visual Faithfulness Has No Formal Witness
 
