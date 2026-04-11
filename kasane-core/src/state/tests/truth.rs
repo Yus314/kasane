@@ -1,6 +1,6 @@
 //! Structural witness for the `Truth<'a>` projection.
 //!
-//! These tests pin the invariant that `Truth::ACCESSOR_NAMES` exactly
+//! These tests pin the invariant that `Truth::TRUTH_ACCESSOR_NAMES` exactly
 //! matches the set of `#[epistemic(observed)]` fields declared on
 //! `AppState`. Adding, removing, or reclassifying an observed field
 //! without updating `Truth` will fail one of these tests.
@@ -18,7 +18,7 @@ fn observed_field_set() -> BTreeSet<&'static str> {
 }
 
 fn accessor_name_set() -> BTreeSet<&'static str> {
-    Truth::ACCESSOR_NAMES.iter().copied().collect()
+    Truth::TRUTH_ACCESSOR_NAMES.iter().copied().collect()
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn accessor_set_matches_observed_fields() {
     assert_eq!(
         accessors,
         observed,
-        "Truth::ACCESSOR_NAMES must match AppState's #[epistemic(observed)] fields exactly. \
+        "Truth::TRUTH_ACCESSOR_NAMES must match AppState's #[epistemic(observed)] fields exactly. \
          Missing from Truth: {:?}. Extra on Truth: {:?}.",
         observed.difference(&accessors).collect::<Vec<_>>(),
         accessors.difference(&observed).collect::<Vec<_>>(),

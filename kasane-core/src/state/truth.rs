@@ -157,7 +157,7 @@ impl<'a> Truth<'a> {
     /// accessor set matches the `#[epistemic(observed)]` field set of
     /// `AppState`. When you add a new observed field to `AppState`, add a
     /// matching accessor here and append its name to this list.
-    pub const ACCESSOR_NAMES: &'static [&'static str] = &[
+    pub const TRUTH_ACCESSOR_NAMES: &'static [&'static str] = &[
         "lines",
         "default_face",
         "padding_face",
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn accessor_names_nonempty_and_unique() {
-        let names = Truth::ACCESSOR_NAMES;
+        let names = Truth::TRUTH_ACCESSOR_NAMES;
         assert!(!names.is_empty());
         let mut sorted = names.to_vec();
         sorted.sort_unstable();
