@@ -322,7 +322,16 @@ pub struct AppState {
     pub display_unit_map: Option<crate::display::DisplayUnitMap>,
     /// Core fold toggle state: tracks which fold ranges are currently expanded.
     /// Consulted during DisplayMap construction to filter out expanded folds.
-    #[epistemic(runtime)]
+    ///
+    /// Semantically this is a user-controlled *policy*, not ephemeral runtime
+    /// state: it belongs to the Π component of W = (T, I, Π, S) and directly
+    /// determines the display transformation applied to the buffer. Dirty
+    /// propagation is handled explicitly in `update.rs` (which returns
+    /// `BUFFER_CONTENT` on toggle), so `#[dirty(free)]` is retained.
+    #[epistemic(
+        config,
+        salsa_opt_out = "consumed by DisplayMap construction; not surfaced in Salsa projection"
+    )]
     #[dirty(free)]
     pub fold_toggle_state: crate::display::FoldToggleState,
 }

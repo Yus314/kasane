@@ -495,7 +495,7 @@ fn test_field_epistemic_map_complete() {
         ("cursor_count", "heuristic"),
         ("secondary_cursors", "heuristic"),
         ("selections", "heuristic"),
-        // Config (12)
+        // Config (13)
         ("shadow_enabled", "config"),
         ("padding_char", "config"),
         ("menu_max_height", "config"),
@@ -509,6 +509,7 @@ fn test_field_epistemic_map_complete() {
         ("secondary_blend_ratio", "config"),
         ("plugin_settings", "config"),
         ("theme", "config"),
+        ("fold_toggle_state", "config"),
         // Session (2)
         ("session_descriptors", "session"),
         ("active_session_key", "session"),
@@ -522,7 +523,6 @@ fn test_field_epistemic_map_complete() {
         ("display_scroll_offset", "runtime"),
         ("display_map", "runtime"),
         ("display_unit_map", "runtime"),
-        ("fold_toggle_state", "runtime"),
     ]);
 
     let actual: HashMap<&str, &str> = AppState::FIELD_EPISTEMIC_MAP.iter().copied().collect();
