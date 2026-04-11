@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| Display transformation | Initial enforcement of P-032 observed/policy separation |
+| Display transformation | P-032 Level 2 — `Inference` / `Policy` read-side projections (ADR-030 staged rollout) |
 
 ### 2.2 Backlog
 
@@ -46,9 +46,12 @@ for the current specification from a plugin's perspective, see
 
 ### 3.1 Display transformation — remaining work
 
-- P-032: Formal observed/policy separation (theory organized, not yet enforced)
+- P-032: Formal observed/policy separation
+  - Level 1 — `Truth<'a>` projection: **✓ Complete** (ADR-030). Read-side write denial for `#[epistemic(observed)]` fields, structural coverage witness, A9 property test, and Salsa projection fix (`status_prompt` / `status_content` / `status_content_cursor_pos`).
+  - Level 2 — `Inference<'a>` / `Policy<'a>` projections: derived+heuristic and config+runtime projections analogous to Level 1.
+  - Levels 3–6 — Kakoune-writing `Command` marker trait, `RecoveryWitness` for destructive directives, explicit free monad of `Command`, and type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
 
-Next deliverable: Land the initial enforcement boundary derived from the dependent-sum structure recorded in semantics §2.5 (`AppState ≅ Σ_{k : KakouneProtocolFacts} Delta(k)`) and the epistemic-field classification in semantics §3.9. The minimal skeleton makes the observed side read-only along transform paths, which is a prerequisite for the type-level Kakoune-transparency work listed in §2.2 Backlog.
+Next deliverable: Design and land `Inference<'a>` / `Policy<'a>` (ADR-030 Level 2), mirroring the `Truth<'a>` pattern from Level 1. Blocks the type-level Kakoune-transparency work listed in §2.2 Backlog.
 
 ## 4. Phase Status Summary
 
