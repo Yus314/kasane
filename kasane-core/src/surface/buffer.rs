@@ -134,7 +134,7 @@ fn embed_buffer_state(element: Element, state: &AppState) -> Element {
                 lines_dirty: state.lines_dirty.clone(),
                 default_face: state.default_face,
                 padding_face: state.padding_face,
-                padding_char: state.padding_char.clone(),
+                padding_char: state.policy().padding_char().to_string(),
             })),
             inline_decorations,
             virtual_text,

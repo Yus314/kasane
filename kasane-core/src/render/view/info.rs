@@ -49,7 +49,7 @@ pub(crate) fn build_info_overlay_indexed(
 
     let element = match info.style {
         InfoStyle::Prompt => build_info_prompt(info, &win, state),
-        InfoStyle::Modal => build_info_framed(info, &win, state.shadow_enabled, state),
+        InfoStyle::Modal => build_info_framed(info, &win, state.policy().shadow_enabled(), state),
         InfoStyle::Inline | InfoStyle::InlineAbove | InfoStyle::MenuDoc => {
             build_info_nonframed(info, &win, state)
         }

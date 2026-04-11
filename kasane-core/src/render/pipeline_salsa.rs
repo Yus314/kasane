@@ -381,8 +381,8 @@ fn compose_base_from_salsa(
         Element::column(children)
     };
 
-    // Compose buffer + status based on status_at_top config
-    let element = if state.status_at_top {
+    // Compose buffer + status based on status_at_top policy
+    let element = if state.policy().status_at_top() {
         Element::column(vec![
             FlexChild::fixed(status_section),
             FlexChild::flexible(buffer_section, 1.0),
