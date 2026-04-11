@@ -118,7 +118,11 @@ pub struct AppState {
     #[dirty(BUFFER_CONTENT)]
     pub padding_face: Face,
     /// Derived: per-line dirty flags computed by diffing old vs new `lines`.
-    #[epistemic(derived, source = "line equality diff (R-3)")]
+    #[epistemic(
+        derived,
+        source = "line equality diff (R-3)",
+        salsa_opt_out = "consumed by paint.rs selective grid clear; not needed in Salsa projection"
+    )]
     #[dirty(BUFFER_CONTENT)]
     pub lines_dirty: Vec<bool>,
     /// Derived: inferred from `status_content_cursor_pos >= 0` (Buffer vs Prompt).
@@ -186,12 +190,21 @@ pub struct AppState {
     #[dirty(BUFFER_CURSOR)]
     pub secondary_cursors: Vec<Coord>,
     /// Derived: parsed editor mode from cursor_mode + status_mode_line heuristic (I-2).
-    #[epistemic(derived, source = "cursor_mode + mode_line (I-2)")]
+    #[epistemic(
+        derived,
+        source = "cursor_mode + mode_line (I-2)",
+        salsa_opt_out = "consumed directly by view/widget; not surfaced in Salsa projection"
+    )]
     #[dirty(STATUS)]
     pub editor_mode: derived::EditorMode,
 
     /// Heuristic: detected selection ranges from buffer atoms (I-7).
-    #[epistemic(heuristic, rule = "I-7", severity = "degraded")]
+    #[epistemic(
+        heuristic,
+        rule = "I-7",
+        severity = "degraded",
+        salsa_opt_out = "consumed directly by paint.rs/view; not surfaced in Salsa projection"
+    )]
     #[dirty(BUFFER_CONTENT)]
     pub selections: Vec<derived::Selection>,
 
@@ -199,10 +212,16 @@ pub struct AppState {
     #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub shadow_enabled: bool,
-    #[epistemic(config)]
+    #[epistemic(
+        config,
+        salsa_opt_out = "consumed directly by paint.rs padding renderer; not surfaced in Salsa projection"
+    )]
     #[dirty(OPTIONS)]
     pub padding_char: String,
-    #[epistemic(config)]
+    #[epistemic(
+        config,
+        salsa_opt_out = "consumed directly by menu layout; not surfaced in Salsa projection"
+    )]
     #[dirty(OPTIONS)]
     pub menu_max_height: u16,
     #[epistemic(config)]
@@ -223,20 +242,33 @@ pub struct AppState {
     #[epistemic(config)]
     #[dirty(OPTIONS)]
     pub assistant_art: Option<Vec<String>>,
-    #[epistemic(config)]
+    #[epistemic(
+        config,
+        salsa_opt_out = "consumed by plugins via AppView/registry; not surfaced in Salsa projection"
+    )]
     #[dirty(OPTIONS)]
     pub plugin_config: HashMap<String, String>,
     /// Typed per-plugin settings (schema-validated, from manifest + config.toml).
-    #[epistemic(config)]
+    #[epistemic(
+        config,
+        salsa_opt_out = "consumed by plugins via AppView/registry; not surfaced in Salsa projection"
+    )]
     #[dirty(SETTINGS)]
     pub plugin_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
     #[epistemic(config)]
     #[dirty(BUFFER_CONTENT)]
     pub secondary_blend_ratio: f32,
-    #[epistemic(config)]
+    #[epistemic(
+        config,
+        salsa_opt_out = "consumed directly by paint.rs/render; not surfaced in Salsa projection"
+    )]
     #[dirty(OPTIONS)]
     pub theme: Theme,
-    #[epistemic(derived, source = "default_face luminance analysis")]
+    #[epistemic(
+        derived,
+        source = "default_face luminance analysis",
+        salsa_opt_out = "consumed directly by theme application; not surfaced in Salsa projection"
+    )]
     #[dirty(BUFFER_CONTENT)]
     pub color_context: ColorContext,
 
