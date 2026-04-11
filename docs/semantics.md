@@ -86,6 +86,25 @@ The projection-centered theory models Kasane's semantics through a World tuple W
 
 The World model is a theoretical framing of the existing `AppState` structure. It does not introduce new runtime state or new types. Every component of W maps directly to existing fields and subsystems documented in §3–§11.
 
+Formally, AppState realizes a dependent sum
+
+```text
+AppState ≅ Σ_{k : KakouneProtocolFacts} Delta(k)
+```
+
+where `KakouneProtocolFacts` is the subset of `AppState` expressible by Kakoune's JSON-RPC protocol (the `#[epistemic(observed)]` fields of §3.2) and `Delta(k)` is the Kasane-internal extension over a given Kakoune state: runtime state (§3.5), display policy state (§3.6), derived caches (§3.3), heuristic estimates (§3.4), and plugin-contributed presentation (§9).
+
+The projection
+
+```text
+p : AppState → KakouneProtocolFacts
+p(s) = extract_observed(s)
+```
+
+is a left-inverse of the canonical embedding of a bare Kakoune state into `AppState`. The fiber `p⁻¹(k) = {k} × Delta(k)` is the space of Kasane-side configurations compatible with the Kakoune state `k`.
+
+This factorisation is what makes Kasane's frontend-native capabilities (overlay, display transformation, multi-surface layout, per-pane status bars) coexist with the "alias kak=kasane" substitutability goal (§2.4, A3): mutation confined to a single fiber is guaranteed Kakoune-invisible by Axiom A9 (§2.7).
+
 ### 2.6 Projection Function
 
 The central theoretical construct is a projection function P that maps the World to a Presentation:
@@ -115,6 +134,29 @@ where ρ uses the previous frame's Ω_P (specifically, the DisplayMap and HitMap
 
 Whether P is computed by Salsa memoization or direct evaluation is an implementation choice. Theorem T3 (§12.3) guarantees equivalence between these paths.
 
+The intermediate type `Element` is the initial algebra of a polynomial endofunctor P on the category of sets. Informally,
+
+```text
+P(X) = Text × Style
+     + Vec<Atom>                                     -- StyledLine
+     + (SlotName × Direction × Gap)                  -- SlotPlaceholder
+     + (Direction × Vec<(X, Flex)> × Gap × Align²)   -- Flex / ResolvedSlot
+     + (X × Vec<(X × Anchor)>)                       -- Stack
+     + (X × Offset × Direction)                      -- Scrollable
+     + (X × BorderOpt × ShadowBool × Edges × Style × TitleOpt) -- Container
+     + (X × InteractiveId)                           -- Interactive
+     + (Vec<GridColumn> × Vec<X> × Gap² × Align²)    -- Grid
+     + 1                                             -- Empty
+     + (ImageSource × (u16, u16) × ImageFit × f32)   -- Image
+     + BufferRef                                     -- leaf reading from state
+```
+
+```text
+Element ≅ μX. P(X)
+```
+
+`Element` thus carries the standard universal properties of an initial P-algebra: unique catamorphism (fold), naturality of `view()` with respect to P, and the characterisation of plugin transforms as P-algebra morphisms on subterms designated by `TransformTarget` (§9.5). Theorem T11 (§12.11) records this structure. The concrete shape of P is tracked directly from the `Element` enum defined in `kasane-core/src/element.rs`; any variant added there must be reflected in P.
+
 ### 2.7 Axioms
 
 The following axioms constrain the projection function and its implementation. Each axiom references the code or mechanism that enforces it.
@@ -123,7 +165,17 @@ The following axioms constrain the projection function and its implementation. E
 
 **A2 (Truth Integrity)**: Observed state is stored exactly as received from Kakoune. No transformation, filtering, or policy is applied to `#[epistemic(observed)]` fields during `apply()`. Heuristic and derived fields are clearly separated by `#[epistemic]` compile-time annotations, and synthetic content (from display transformations) carries `SourceMapping::None` to prevent confusion with buffer content.
 
+Equivalently, any internal state transition that does not emit `Command::SendToKakoune`, `Command::InsertText`, or `Command::EditBuffer` (the three Command variants whose handlers write to the Kakoune byte stream; see `plugin/command.rs::execute_commands`) leaves the projection `p : AppState → KakouneProtocolFacts` (§2.5) invariant. Display-only operations, cache refreshes, plugin tick, overlay recomputation, and layout resolution are in this class and are therefore Kakoune-transparent by construction (cf. A9, T10).
+
 **A3 (Behavioral Equivalence)**: Under Default Frontend Semantics (§2.4), Kasane is behaviorally equivalent to `kak -ui ncurses` for the same Kakoune session. This is the "alias kak=kasane" goal. Behavioral equivalence holds only under D-semantics; Extended Frontend Semantics may intentionally diverge.
+
+Formally, there exists a weak bisimulation relation `R ⊆ S_kak × S_kas` between Kakoune's labelled transition system (`S_kak` with observable actions: key receipt, protocol event emission, option change) and Kasane's labelled transition system (`S_kas`) such that:
+
+- **(Sim-Fwd)** If `(k, s) ∈ R` and `k →^a k'` for an externally observable action `a`, then there exist Kasane states `s₀, s₁, ..., s_n = s'` with `s →^τ* s₀ →^a s₁ →^τ* s'` and `(k', s') ∈ R`.
+- **(Sim-Bwd)** If `(k, s) ∈ R` and `s →_kas s'` emits a Kakoune-writing Command variant (see A2), the corresponding Kakoune transition `k →^a k'` exists and `(k', s') ∈ R`.
+- **(Init)** For initial states: `(k_0, s_0) ∈ R` when Kasane starts against a fresh Kakoune session.
+
+The `τ`-transitions in `S_kas` include: rendering pipeline phases (view/layout/paint), Salsa cache (re)computation, plugin state evolution that emits no Kakoune-writing Command, display map recomputation, and hit map rebuild. None of these are observable by Kakoune. The weak bisimulation formalism allows Kasane's τ-transitions to be freely interleaved with externally observable actions without breaking A3. Theorem T8 (§12.8) records this property; Theorem T9 (§12.9) records the τ-invariance of `p : AppState → KakouneProtocolFacts`. Property tests in `kasane-core/tests/trace_equivalence.rs` provide empirical evidence for `R`'s existence under proptest-generated state mutations.
 
 **A4 (Display Coherence)**: The DisplayMap maintains bidirectional consistency between buffer lines and display lines. Forward-backward consistency (INV-1), backward-forward consistency (INV-2), monotonicity (INV-5), and all other structural invariants (INV-1 through INV-7) are verified by `DisplayMap::check_invariants()` in debug builds and by `assert_display_map_invariants()` in tests.
 
@@ -134,6 +186,17 @@ The following axioms constrain the projection function and its implementation. E
 **A7 (Plugin Boundary)**: Plugins affect presentation (Π) but not truth (T). Plugin effects flow through `Command::SendToKakoune`, not direct mutation of observed state (§9.9). The rendering pipeline reads plugin contributions through `PluginView<'_>` which provides read-only access.
 
 **A8 (Inference Boundedness)**: Every heuristic inference carries a declared severity via `#[epistemic(heuristic, rule="...", severity="...")]`. When a heuristic fails (e.g., cursor detection under unexpected Kakoune face patterns), the degradation is bounded to the declared severity level. The catalog of inference rules is maintained in `derived/mod.rs`.
+
+**A9 (Delta Neutrality)**: `AppState` factors through the fibration `p : AppState → KakouneProtocolFacts` of §2.5. Every state transition `s →_kas s'` that leaves the fibre unchanged (`p(s) = p(s')`) emits no Kakoune-writing Command:
+
+```text
+∀ s, s' ∈ AppState.
+  (s →_kas s' ∧ p(s) = p(s'))
+    ⟹ the transition generates no Command::SendToKakoune,
+       Command::InsertText, or Command::EditBuffer
+```
+
+A9 is the fibration-level restatement of the A2 sharpening above and the structural basis of A7 (Plugin Boundary): plugin effects on `Delta(k)` propagate freely inside a fibre but cannot cross `p` without an explicit Kakoune-writing Command. Theorem T9 (§12.9) records the converse direction (τ-transitions preserve `p`). A9 is currently enforced by code review — see known gap §13.13 for the absence of a compile-time check.
 
 ## 3. State Semantics
 
@@ -182,6 +245,8 @@ Heuristic State does not carry the same strength of truth as Observed State. Fal
 Runtime State is state that exists only during frontend execution. It includes backend caches, animations, focus, plugin internal state, and so on.
 
 Runtime State must not override Kakoune's truth, but it is held to inform rendering and input handling strategies.
+
+In the fibration of §2.5, Runtime State together with Display Policy State (§3.6), Derived State (§3.3), and Heuristic State (§3.4) constitutes the Kasane-internal extension `Delta(k)` over a Kakoune state `k`. By A9 (Delta Neutrality), updates restricted to these Kasane-internal categories are guaranteed Kakoune-invisible.
 
 ### 3.6 Display Policy State
 
@@ -257,6 +322,15 @@ Commands fall into the following categories.
 - Structural commands: `Session(SessionCommand)`, `Workspace(WorkspaceCommand)`, `SpawnPaneClient`, `ClosePaneClient`
 
 The runtime receives Commands and executes them as side effects. The important invariant is that Command generation is deterministic given the same state and input, even though Command execution may involve I/O.
+
+Structurally, the `Command` enum is an effect signature `CommandSig`, and the output of a single frame's update cycle is a value of the free monad `Free(CommandSig)` (concretely, `Vec<Command>` together with the ordering induced by update semantics). The runtime interpreter in `event_loop/dispatch.rs` and `plugin/command.rs::execute_commands` plays the role of an algebraic-effect handler: it maps `Free(CommandSig)` into actual I/O, process management, and protocol traffic.
+
+This framing clarifies two invariants that are otherwise stated only prose:
+
+- **(E1) Purity of generation.** `update()` is a pure function `AppState × Msg → AppState × Free(CommandSig)`. All impurity is confined to the handler. Theorem T1 (Presentation Equivalence) and Theorem T4 (Composition Determinism) rest on (E1).
+- **(E2) Compositional sequencing.** Command sequences compose by free-monad bind. A multi-step workflow (plugin message → Kakoune forward → timer reschedule) is a single value of `Free(CommandSig)`, not three effectful statements, so composition of plugins composes effect trees rather than interleaving side effects.
+
+Kakoune-writing Commands (`SendToKakoune`, `InsertText`, `EditBuffer`) form the distinguished subset of `CommandSig` that drives externally observable transitions in the bisimulation of A3. The remaining variants are internal effects whose handler interpretation stays within Kasane's fibre `Delta(k)` (§2.5) and therefore preserves `p` by A9. See Theorem T12 (§12.12).
 
 ### 4.4 Generation of DirtyFlags
 
@@ -338,6 +412,14 @@ In Default Frontend Semantics, any future policy-permitted staleness must remain
 
 In TUI, the output of `paint` is `CellGrid`; in GUI, it is a sequence of `DrawCommand`. Differences exist per backend, but both share the same UI semantics.
 
+The pipeline composes functorially:
+
+```text
+AppState ──view──▶ Element ──layout──▶ LayoutTree ──paint──▶ CellGrid / DrawCommand
+```
+
+Each arrow is a pure function (possibly Salsa-memoized). `Element` is the polynomial-functor initial algebra of §2.6; `LayoutTree` and the paint target are less structured data types. The separation is not merely aesthetic: Theorem T2 (Backend Equivalence, §12.2) is the statement that different paint implementations compute observably equivalent output, and Theorem T3 (Incremental Equivalence, §12.3) is the statement that Salsa memoisation is natural with respect to this composition.
+
 ### 5.4 Common Semantics Between TUI and GUI
 
 TUI and GUI differ in output representation.
@@ -369,10 +451,15 @@ Under Default Frontend Semantics, every element of Observed State must appear in
 Invariant (Rendering Faithfulness):
   For all observable elements e in Observed State S:
     e is visible in render(S)
-    ∨ e is elided by an active Display Policy
+    ∨ e is transformed by an active Display Policy in a manner
+      classified as Additive, Transforming, or Preserving (§10.2),
+      such that e's semantic content remains visually recoverable
+      (§10.2a)
+    ∨ e is elided by an active Destructive Display Policy whose
+      recovery interaction is advertised to the user
 ```
 
-This invariant does not apply to Extended Frontend Semantics, where Observed-eliding transformations are permitted.
+This invariant does not apply to Extended Frontend Semantics, where unrecoverable elision is permitted under explicit user consent. The Visual Faithfulness condition (§10.2a) makes the "recoverable" qualifier precise.
 
 ### 5.7 Diff and Incremental Drawing
 
@@ -530,18 +617,20 @@ These extension points are available to both native plugins (`Plugin` / `PluginB
 
 The following table classifies each extension point by what it affects in the projection model and how outputs compose:
 
-| Extension Point | Affects | Composition |
-|---|---|---|
-| `display_directives` | Π (Policy) | CommutativeComposable |
-| `contribute_to` | Ω_L (Logical presentation) | CommutativeComposable |
-| `annotate_line_with_ctx` | Ω_L | Accumulated |
-| `contribute_overlay_with_ctx` | Ω_L | CommutativeComposable |
-| `transform` | Ω_L | TransformChain (non-commutative) |
-| `render_ornaments` (emphasis) | Ω_P (Physical presentation) | Priority-merged |
-| `render_ornaments` (cursor_style) | Ω_P | Modality+Priority FirstWins |
-| `handle_key_middleware` | ρ (Input routing) | FirstWins (3-variant) |
-| `handle_mouse` | ρ | FirstWins |
-| `handle_default_scroll` | ρ | FirstWins |
+| Extension Point | Affects | Composition | Kakoune-Transparent? |
+|---|---|---|---|
+| `display_directives` | Π (Policy) | CommutativeComposable | ✓ always |
+| `contribute_to` | Ω_L (Logical presentation) | CommutativeComposable | ✓ always |
+| `annotate_line_with_ctx` | Ω_L | Accumulated | ✓ always |
+| `contribute_overlay_with_ctx` | Ω_L | CommutativeComposable | ✓ always |
+| `transform` | Ω_L | TransformChain (non-commutative) | ✓ always |
+| `render_ornaments` (emphasis) | Ω_P (Physical presentation) | Priority-merged | ✓ always |
+| `render_ornaments` (cursor_style) | Ω_P | Modality+Priority FirstWins | ✓ always |
+| `handle_key_middleware` | ρ (Input routing) | FirstWins (3-variant) | iff handler emits no Kakoune-writing Command |
+| `handle_mouse` | ρ | FirstWins | iff handler emits no Kakoune-writing Command |
+| `handle_default_scroll` | ρ | FirstWins | iff handler emits no Kakoune-writing Command |
+
+The "Kakoune-Transparent?" column records which extension points are guaranteed (by the shape of the extension point alone) to generate no Kakoune-writing Commands, and which depend on the handler body. The seven display/decoration extension points marked ✓ affect only the Kasane fibre `Delta(k)` (§2.5) and therefore satisfy A9 and Theorem T10 (Plugin Transparency, §12.10) unconditionally. Input-routing extension points may consume an event or delegate it to Kakoune; when they delegate, they emit a Kakoune-writing Command and are not transparent.
 
 ### 9.2 Contribution
 
@@ -579,6 +668,8 @@ Element-level transforms are unified in the plugin composition pipeline. The tra
 
 **Declarative properties**: `ElementPatch::scope()` auto-infers `TransformScope` from the patch variant, replacing manual `TransformDescriptor` declarations. In debug builds, the framework emits `tracing::warn!` when multiple plugins declare `Replacement` scope for the same target, or when non-identity transforms precede a replacement (since they will be absorbed). The `Custom` variant wraps an opaque function for transforms that cannot be expressed declaratively; it is treated as `Structural` scope.
 
+**Categorical framing**: An `ElementPatch` is a morphism `Element → Element` acting on a subtree targeted by `TransformTarget`. The pure variants (`Identity`, `WrapContainer`, `Prepend`, `Append`, `Replace`, `ModifyFace`, `ModifyAnchor`, `Compose`, `When`) act by structural rewriting on the polynomial-functor presentation of `Element` (§2.6), and therefore commute with the functorial action of P on unaffected subterms. Plugin transforms are thus P-algebra morphisms on their scope. The `Custom` variant escapes this guarantee: it is an opaque function with no naturality condition, which is why it forces the patch into `Structural` scope and is excluded from the `is_pure()` set used for Salsa memoisation. Theorem T11 (§12.11) records the universal-property consequences of this structure.
+
 `transform_menu_item()` is a separate extension point that transforms individual menu items before rendering. It shares the concept of element transformation but operates on a different pipeline with its own trait method. It is not part of the unified transform chain.
 
 ### 9.6 Composition Order and Priority
@@ -604,6 +695,8 @@ Each extension point has its own ordering rule. All multi-plugin results use sta
 | Scroll policy override | registration order | first non-None wins | Single winner |
 
 > **Algebraic structure**: The collection phase of each extension point forms a monoid (associative binary operation with identity), formalized in `plugin/compose.rs` as the `Composable` trait. Contribution, Overlay, and DirectiveSet are additionally commutative (`CommutativeComposable`): plugin evaluation order does not affect the collected result. Menu item transform, key dispatch, and cursor style override are non-commutative (order-dependent). `ElementPatch` forms a non-commutative monoid with `Identity` as identity and `Compose` as the binary operation; `normalize()` provides algebraic simplification (Identity removal, Replace absorption). Key middleware (`handle_key` → `KeyHandleResult` 3-variant threading) is an imperative Kleisli-style chain over `(Consumed, Ignored, Forward)` and is not modeled as `Composable`. `resolve()` remains unmodeled.
+>
+> The monoid laws for `Composable` implementations are proof obligations on each extension point's composition function. Associativity and identity are verified informally by inspection of the `compose()` implementations in `plugin/compose.rs`; the pure `ElementPatch` subset additionally benefits from `normalize()` producing a canonical form, so equality of patches up to normalisation witnesses associativity directly. Pure plugin transforms (§9.5) are P-algebra morphisms on their scope, composing naturally with the polynomial-functor presentation of §2.6.
 
 > **Transform priority inversion**: Transform priority is intentionally inverted from contribution priority. High-priority transforms are applied first (closest to the seed element), so low-priority transforms control the final appearance. This matches the decorator pattern: the outermost decorator has the last word.
 
@@ -716,18 +809,34 @@ Privileged operations (process spawning, filesystem access) require explicit cap
 
 Display Transformation is a policy that takes Observed State as material and constructs a different display structure. It can include omission, proxy display, supplementary display, and reconfiguration. Display Transformation is a view policy, not a falsification of protocol truth.
 
-### 10.2 Observed-preserving and Observed-eliding
+### 10.2 Classification of Display Transformations
 
-There are at least two types of Display Transformation.
+Display Transformations are classified along their effect on visible Observed State. The classification refines the earlier Observed-preserving / Observed-eliding split (retained in ADR-018 for historical reference) into four cases that match the actual `DisplayDirective` and `ElementPatch` variants implemented in `plugin/element_patch.rs` and `display/mod.rs`.
 
-- Observed-preserving transformation
-  - Preserves the visible elements of Observed State while adding decoration, placement, overlay, and supplementary display
-- Observed-eliding transformation
-  - Omits some Observed State and reconfigures using proxy display or summaries
+- **Additive** — Adds new visual elements without removing or relocating any Observed content. Examples: `InsertAfter`, `InsertBefore`, overlay contributions, line annotations (gutter and background layers), cell emphasis via render ornaments. Additive transformations preserve Rendering Faithfulness (§5.6) trivially: no element of Observed State is elided.
+- **Transforming** — Changes how an Observed element is displayed while retaining the element at its original location. Examples: face overrides via render ornaments (`FaceMerge::Overlay`, `FaceMerge::Background`), colour preview decorations, cursor-style overrides. Transforming transformations preserve Rendering Faithfulness because the underlying text is still visible at its original position.
+- **Preserving (structural)** — Changes the spatial arrangement of Observed content without removing it. Example: `Fold` directive with a visible summary line (the folded lines are hidden, but the summary is interactive and toggling the fold restores the original). Preserving transformations satisfy Rendering Faithfulness provided the transformation is recoverable via user interaction within bounded steps (§10.2a).
+- **Destructive** — Removes visual representation of some Observed State from the default display. Example: `Hide` directive without a corresponding summary. Destructive transformations satisfy Rendering Faithfulness only if an explicit recovery interaction exists (§10.2a) and the elision is active Display Policy State, not silent loss.
 
-Kasane may permit the latter. However, elided facts are not lost; they are simply not directly displayed due to display policy.
+In Default Frontend Semantics, Additive, Transforming, and Preserving transformations are the standard permitted forms. Destructive transformations are permitted only when a recovery interaction is advertised. Under Extended Frontend Semantics, unrecoverable Destructive transformations may be enabled by explicit user consent (plugin configuration), at the cost of weakening A3 substitutability for that session.
 
-In Default Frontend Semantics, Observed-eliding transformation is not the standard behavior. To maintain Kasane's substitutability where `kak = kasane`, strong omission, proxy display, and reconfiguration are positioned on the Extended Frontend Semantics side.
+Elided facts are never lost from the underlying `AppState`: Observed State in the fibration of §2.5 is always complete. Display Transformations are view policy applied over the top of the fibre projection.
+
+### 10.2a Visual Faithfulness and Recoverability
+
+The Rendering Faithfulness invariant (§5.6) asks that every Observed element either appear in the rendered output or be elided by active Display Policy. In the presence of Destructive or Preserving transformations this is too coarse: the user must still be *able* to access the elided content. Visual Faithfulness makes this condition precise.
+
+A Display Transformation `T : Element → Element` is **visually faithful** iff for every Observed element `x` that is visible in the untransformed display but absent from `T`'s output, there exists a finite user interaction sequence `σ` (scroll, fold toggle, hover, navigation command, explicit policy override) such that `x` becomes visible again within bounded steps.
+
+In Default Frontend Semantics:
+
+- Additive and Transforming transformations are visually faithful by construction (no content is elided).
+- Preserving transformations are visually faithful iff the spatial restructuring is reversible; `Fold` with a summary line that responds to an unfold command satisfies this because the fold toggle is a single interaction.
+- Destructive transformations are visually faithful iff an explicit recovery interaction is registered by the plugin and documented in its user-facing surface (help, keybinding list, visible marker, or configuration hint).
+
+Plugins introducing Destructive Display Directives are required under Default Frontend Semantics to advertise their recovery interaction. This is currently a documentation obligation, not a type-level contract; see known gap §13.14 for the missing formal witness.
+
+Visual Faithfulness is a stricter condition than Rendering Faithfulness: it demands not only that the transformation be labelled as a Display Policy but that the elision be *reversible* from the user's viewpoint. It is the condition that preserves the spirit of A3 (Behavioral Equivalence) even when the default display diverges from Kakoune's ncurses output.
 
 ### 10.3 Boundaries of Display Transformation
 
@@ -942,16 +1051,142 @@ Theorem T7 (Degradation Boundedness):
 
 Each heuristic carries `#[epistemic(heuristic, rule="I-N", severity="...")]`. The severity levels are: `degraded` (visual quality loss), `absent` (feature unavailable), `incorrect` (wrong information displayed). See `derived/mod.rs` for the inference rule catalog.
 
-### 12.8 What Tests Guarantee
+### 12.8 T8: Kakoune Bisimulation
+
+A3 (Behavioral Equivalence, §2.7) is formalised as a weak bisimulation between Kakoune's labelled transition system and Kasane's.
+
+```text
+Theorem T8 (Kakoune Bisimulation):
+  Under Default Frontend Semantics, there exists a weak bisimulation
+  relation R ⊆ S_kak × S_kas such that:
+    (i)   Initial states are R-related: (k_0, s_0) ∈ R.
+    (ii)  For every observable action a ≠ τ:
+            (k, s) ∈ R ∧ k →^a k'
+              ⟹ ∃ s'. s ⇒^a s' ∧ (k', s') ∈ R
+            where ⇒^a denotes τ* a τ*.
+    (iii) For every Kasane transition emitting a Kakoune-writing
+          Command (Command::SendToKakoune, InsertText, EditBuffer):
+            (k, s) ∈ R ∧ s →_kas s'
+              ⟹ ∃ k'. k →^a k' ∧ (k', s') ∈ R
+          where a is the observable action induced by the Command.
+    (iv)  τ-transitions in S_kas (rendering phases, Salsa cache,
+          plugin state evolution emitting no Kakoune-writing Command,
+          display map recomputation, hit map rebuild) do not advance
+          Kakoune's LTS and preserve R.
+```
+
+Under Extended Frontend Semantics, R may be weakened: plugin-driven Destructive Display Transformations (§10.2) without advertised recovery interaction permit Kasane's rendered output to diverge from Kakoune's ncurses rendering, breaking clause (ii). When this happens the user is responsible for the divergence through explicit plugin configuration.
+
+Empirical evidence for R's existence on the native rendering path is provided by `trace_equivalence.rs` property tests (proptest-generated state mutations) and `salsa_pipeline_comparison.rs` (Salsa vs direct path equivalence).
+
+### 12.9 T9: Delta Coherence
+
+A9 (Delta Neutrality, §2.7) is the structural basis for all τ-transitions in T8.
+
+```text
+Theorem T9 (Delta Coherence):
+  Every internal state transition s →_kas s' that emits no
+  Kakoune-writing Command preserves the fibration projection:
+    p(s) = p(s')
+  where p : AppState → KakouneProtocolFacts is the projection
+  of §2.5.
+  Consequently, layout re-solving, paint re-execution, Salsa cache
+  refresh, plugin tick, overlay recomputation, multi-surface display
+  manipulation, hit map rebuild, display map recomputation, and
+  workspace layout adjustments never cause Kakoune to receive
+  unintended commands.
+```
+
+Proof sketch: `p` extracts `#[epistemic(observed)]` fields (§3.2). Kasane-internal transitions by definition touch only Runtime / Derived / Heuristic / Display Policy fields (§3.3–§3.6), which are disjoint from Observed fields by the compile-time `DirtyTracked` derive (§3.9). ∎
+
+T9 is the converse direction of A9: A9 constrains which transitions may emit Kakoune commands, while T9 states that τ-transitions leave the fibre alone.
+
+### 12.10 T10: Plugin Transparency
+
+T6 (Plugin Safety, §12.6) is the negative statement "plugin effects ⊄ Truth". The positive form is:
+
+```text
+Theorem T10 (Plugin Transparency):
+  A plugin P is Kakoune-transparent iff none of P's registered
+  handlers — transform, contribute_to, annotate_line, contribute_
+  overlay, display_directives, render_ornaments, handle_key,
+  handle_mouse, handle_default_scroll, observe_key, event
+  processing — emit Command::SendToKakoune, Command::InsertText,
+  or Command::EditBuffer in any execution path.
+
+  A Kakoune-transparent plugin is R-preserving: adding or removing
+  P from a Kasane instance does not change which bisimulation
+  class (§12.8) the instance belongs to. Equivalently, for any
+  Kakoune session, Kasane-with-P and Kasane-without-P produce the
+  same Kakoune-side behaviour.
+```
+
+By the §9.1 extension points table, all display/decoration extension points (`display_directives`, `contribute_to`, `annotate_line_with_ctx`, `contribute_overlay_with_ctx`, `transform`, `render_ornaments`) are structurally Kakoune-transparent: they cannot emit Kakoune-writing Commands. Input-routing extension points (`handle_key_middleware`, `handle_mouse`, `handle_default_scroll`) are transparent iff their handler bodies are. Consequently the entire presentation-layer composition (§9) is Kakoune-transparent by construction, and Kakoune-visible effects are confined to explicit event-loop Commands issued from plugin event handlers.
+
+T10 follows from A2 (sharpened form) and A9: presentation-only transitions do not cross the fibration, and adding further such transitions does not change the bisimulation equivalence class. T10 is the theoretical justification for Kasane's position that the plugin ecosystem does not threaten the "alias kak=kasane" substitutability goal.
+
+### 12.11 T11: Element Initial Algebra
+
+```text
+Theorem T11 (Element Initial Algebra):
+  Element ≅ μX. P(X) for the polynomial endofunctor P defined in
+  §2.6. As an initial algebra, Element admits:
+    (F1) Unique catamorphism: for any P-algebra (A, α : P(A) → A),
+         there exists a unique fold_α : Element → A satisfying
+         fold_α ∘ in = α ∘ P(fold_α) where in : P(Element) → Element
+         is the structural constructor.
+    (F2) view() factors through P's functorial action: changes to a
+         subtree affect only fold_α values that depend on that
+         subtree.
+    (F3) Pure plugin transforms (§9.5, excluding ElementPatch::Custom)
+         are P-algebra morphisms restricted to the scope designated
+         by TransformTarget, and therefore commute with P's action
+         on unaffected subterms.
+```
+
+T11 is a structural fact about the `Element` enum defined in `kasane-core/src/element.rs`. It does not impose new requirements on the code; it records the universal properties already present. The consequences (F1)–(F3) are the theoretical basis for Salsa memoisation of pure patches (`ElementPatch::is_pure()`) and for the structural rewriting performed by `ElementPatch::normalize()`.
+
+If a future `Element` variant is added without a corresponding extension to P in §2.6, T11's accuracy is broken; this is recorded as synchronization obligation in §15 (Change Policy).
+
+### 12.12 T12: Command Free Monad
+
+```text
+Theorem T12 (Command Free Monad):
+  The Command enum forms an effect signature CommandSig. The output
+  of update() for a single frame is a value of Free(CommandSig).
+  The runtime interpreter (event_loop/dispatch.rs,
+  plugin/command.rs::execute_commands) is an algebraic-effect
+  handler that interprets Free(CommandSig) into I/O, protocol
+  traffic, and process management.
+
+  Consequences:
+    (F4) update() is a pure function
+           AppState × Msg → AppState × Free(CommandSig).
+    (F5) Effect sequencing composes by free-monad bind; multi-step
+         workflows (plugin message → Kakoune forward → timer reschedule)
+         are a single effect-tree value.
+    (F6) The Kakoune-writing subset {SendToKakoune, InsertText,
+         EditBuffer} is the distinguished fragment of CommandSig
+         driving Kakoune's LTS in T8; the remaining variants are
+         internal effects whose handler interpretation preserves
+         the fibre projection p.
+```
+
+T12 records the algebraic structure already present in `plugin/command.rs`. Proofs of T1 (Presentation Equivalence) and T4 (Composition Determinism) rest on (F4): identical state and input produce byte-identical `Free(CommandSig)`.
+
+### 12.13 What Tests Guarantee
 
 What tests primarily guarantee are the following properties.
 
 - Presentation equivalence (T1) via proptest in `trace_equivalence.rs`
 - Incremental equivalence (T3) via `salsa_pipeline_comparison.rs` and `trace_equivalence.rs`
+- Empirical evidence for weak bisimulation (T8) via the same property tests — any divergence in rendered output between identical input sequences indicates a violation of R
 - Plugin cache invalidation consistency (generation counter state hash)
 - Preservation of semantics shared across backends (T2)
 
-### 12.9 Contracts Expressible Only in Prose
+T9 (Delta Coherence), T10 (Plugin Transparency), T11 (Element Initial Algebra), and T12 (Command Free Monad) are structural theorems that follow from the type definitions and compile-time classifications (`#[epistemic(...)]` annotations, `DirtyTracked` derive, the `Element` enum, the `Command` enum). They are not guarded by dedicated property tests; instead, they are invariants that would be broken by incorrect extensions to the underlying types. The synchronization obligations in §15 (Change Policy) track updates to these theorems when the corresponding enums evolve.
+
+### 12.14 Contracts Expressible Only in Prose
 
 The following contracts are difficult to fully express through tests alone.
 
@@ -963,7 +1198,7 @@ As a non-goal of Kasane, requiring existing Kakoune users to participate in a Ka
 
 These are maintained through both prose and tests.
 
-### 12.10 What Must Be Consistent Across Backends
+### 12.15 What Must Be Consistent Across Backends
 
 TUI and GUI differ in output methods, but at least the following semantics must be consistent.
 
@@ -1032,6 +1267,26 @@ Mouse coordinate translation uses the DisplayMap from the previous frame (§6.2)
 
 This gap was partially resolved by persisting the DisplayMap on AppState after each render frame. The one-frame delay remains as an accepted tradeoff.
 
+### 13.13 Delta Neutrality Lacks Static Enforcement
+
+A9 (Delta Neutrality, §2.7) and T10 (Plugin Transparency, §12.10) follow from the shape of state transitions relative to the Kakoune-writing subset `{SendToKakoune, InsertText, EditBuffer}` of `Command`. Field-level classification of observed vs Kasane-internal state is enforced at compile time via `#[epistemic(...)]` and the `DirtyTracked` derive (§3.9), but there is no compile-time check that a given handler — especially in plugin code — does not emit a Kakoune-writing Command by mistake. The "Kakoune-Transparent?" column in §9.1 is therefore currently maintained by code review for `handle_key_middleware`, `handle_mouse`, and `handle_default_scroll`. A linting step or a marker trait distinguishing "transparent Command" from "Kakoune-writing Command" would close this gap.
+
+### 13.14 Visual Faithfulness Has No Formal Witness
+
+The Visual Faithfulness condition (§10.2a) requires every active Destructive Display Transformation to be recoverable by a bounded user interaction sequence. Plugins currently fulfil this obligation by convention: fold-style plugins provide a toggle, hide-style plugins document their reveal command in their help surface. No type or trait currently witnesses the existence of a recovery interaction. A `RecoveryWitness` associated type on destructive directive contributors, or a contract check at plugin registration, would make the condition enforceable.
+
+### 13.15 Plugin Transparency Is Not Statically Decidable
+
+T10 (Plugin Transparency, §12.10) classifies a plugin as Kakoune-transparent iff none of its handlers emit Kakoune-writing Commands. The classification is currently done manually on a per-plugin basis. A static analysis (control-flow reachability from handler entry points to `Command::SendToKakoune`, `InsertText`, `EditBuffer` construction sites) would make the "Kakoune-Transparent?" column of §9.1 automatically derivable.
+
+### 13.16 Element's Polynomial Functor Structure Is Implicit
+
+Theorem T11 (§12.11) records that `Element ≅ μX. P(X)` for a polynomial endofunctor P written out in §2.6. The code does not carry any trait (HKT, polynomial-functor trait, or equivalent) that witnesses this structure. Plugin transforms manually pattern-match on `Element` variants instead of factoring through P's functorial action. Consequently, a future `Element` variant added without updating §2.6 would silently break the accuracy of T11. A regression test comparing the `Element` variant list against the §2.6 P(X) sum could close this gap.
+
+### 13.17 Free Monad of Commands Is Implicit
+
+Theorem T12 (§12.12) records that update output is a value of `Free(CommandSig)`. The code expresses this as `Vec<Command>` plus ordering conventions rather than as an explicit `Free<Sig>` type. Making the free-monad structure explicit would allow static analysis of effect sequences (e.g., detecting a handler path that indirectly produces a Kakoune-writing Command through a chain of deferred Commands), but would require a substantial refactor of the update pipeline. The gap is recorded here so that future work can refer to T12 directly rather than rederiving the effect algebra.
+
 ### Resolved Gaps
 
 The following gaps have been resolved and are retained for historical reference.
@@ -1067,6 +1322,10 @@ This document is updated when any of the following change.
 - Plugin composition order
 - Surface/Workspace semantics
 - Definition of observational equivalence
+- The `Element` enum variants (synchronise with P(X) in §2.6 and T11)
+- The `Command` enum variants or the Kakoune-writing subset (synchronise with §4.3, A2, A9, T12)
+- The set of extension points or their Kakoune-transparency status (§9.1 table)
+- The set of DisplayDirective variants or their faithfulness classification (§10.2)
 
 ### 15.2 Relationship with ADRs
 

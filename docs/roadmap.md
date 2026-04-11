@@ -37,6 +37,10 @@ for the current specification from a plugin's perspective, see
 |---|---|
 | External plugin candidates | indent guides, clickable links, built-in splits, floating panels, code folding, display-line navigation, URL detection, region-specific text policy, etc. |
 | Session-affine plugin surfaces | Plugin API for declaring session affinity on `surfaces()` return values. No consumer exists yet; deferred until a plugin requires it |
+| Type-level isolation of Kakoune-writing Commands | Marker trait or sub-enum that distinguishes `{SendToKakoune, InsertText, EditBuffer}` from other `Command` variants, enabling automatic derivation of the "Kakoune-Transparent?" column in semantics §9.1. See semantics §13.13, §13.15 |
+| RecoveryWitness contract for destructive display directives | Associated type or registration-time check witnessing the Visual Faithfulness condition on fold/hide-style directive contributors. See semantics §10.2a, §13.14 |
+| Element ↔ §2.6 P(X) synchronisation regression test | Mechanise the §15.1 sync obligation between `Element` variants and the polynomial functor P(X) in semantics §2.6, so variant additions force a semantics update. See semantics §13.16 |
+| Explicit free monad of Commands | Replace `Vec<Command>` with an explicit `Free<CommandSig>` representation so effect sequences become statically analysable (T12). Large refactor, low priority. See semantics §13.17 |
 
 ## 3. Open Workstreams
 
@@ -44,7 +48,7 @@ for the current specification from a plugin's perspective, see
 
 - P-032: Formal observed/policy separation (theory organized, not yet enforced)
 
-Next deliverable: Define the initial enforcement boundary for observed state vs. display policy and land the minimal enforcement skeleton in transform paths
+Next deliverable: Land the initial enforcement boundary derived from the dependent-sum structure recorded in semantics §2.5 (`AppState ≅ Σ_{k : KakouneProtocolFacts} Delta(k)`) and the epistemic-field classification in semantics §3.9. The minimal skeleton makes the observed side read-only along transform paths, which is a prerequisite for the type-level Kakoune-transparency work listed in §2.2 Backlog.
 
 ## 4. Phase Status Summary
 
@@ -83,6 +87,7 @@ This document is updated when:
 ## 7. Related Documents
 
 - [upstream-dependencies.md](./upstream-dependencies.md) — Upstream blockers
+- [semantics.md](./semantics.md) — Current semantics authority (referenced by backlog entries for gap identifiers)
 - [plugin-api.md](./plugin-api.md) — Current API from a plugin's perspective
 - [plugin-development.md](./plugin-development.md) — Practical guide for plugin authoring
 - [performance.md](./performance.md) — Performance implementation progress
