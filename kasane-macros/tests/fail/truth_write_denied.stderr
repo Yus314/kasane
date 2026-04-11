@@ -1,0 +1,7 @@
+error[E0070]: invalid left-hand side of assignment
+  --> tests/fail/truth_write_denied.rs:14:24
+   |
+14 |     truth.cursor_pos() = kasane_core::protocol::Coord { line: 0, column: 0 };
+   |     ------------------ ^
+   |     |
+   |     cannot assign to this expression
