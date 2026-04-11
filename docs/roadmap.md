@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| Display transformation | P-032 Level 2 — `Inference` / `Policy` read-side projections (ADR-030 staged rollout) |
+| Display transformation | P-032 Level 3 — type-level isolation of Kakoune-writing `Command` variants (ADR-030 staged rollout) |
 
 ### 2.2 Backlog
 
@@ -48,10 +48,11 @@ for the current specification from a plugin's perspective, see
 
 - P-032: Formal observed/policy separation
   - Level 1 — `Truth<'a>` projection: **✓ Complete** (ADR-030). Read-side write denial for `#[epistemic(observed)]` fields, structural coverage witness, A9 property test, and Salsa projection fix (`status_prompt` / `status_content` / `status_content_cursor_pos`).
-  - Level 2 — `Inference<'a>` / `Policy<'a>` projections: derived+heuristic and config+runtime projections analogous to Level 1.
-  - Levels 3–6 — Kakoune-writing `Command` marker trait, `RecoveryWitness` for destructive directives, explicit free monad of `Command`, and type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
+  - Level 2 — `Inference<'a>` / `Policy<'a>` projections: **✓ Complete** (ADR-030). Derived+heuristic and config projections with structural coverage witnesses, `salsa_opt_out` mechanism on `#[epistemic(...)]`, Level 2 Salsa projection coverage test, projection-subset witness of A8 (Inference Boundedness), `fold_toggle_state` reclassified from runtime to config, and PoC migration of three internal call sites to `state.policy()`.
+  - Level 3 — Type-level isolation of Kakoune-writing `Command` variants. Introduces a marker trait or sub-enum that distinguishes `{SendToKakoune, InsertText, EditBuffer}` from other `Command` variants, enabling automatic derivation of the "Kakoune-Transparent?" column in semantics §9.1 and unlocking a compile-time witness of A3 (Behavioral Equivalence) for Kasane-internal effects.
+  - Levels 4–6 — `RecoveryWitness` for destructive directives, explicit free monad of `Command`, and type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
 
-Next deliverable: Design and land `Inference<'a>` / `Policy<'a>` (ADR-030 Level 2), mirroring the `Truth<'a>` pattern from Level 1. Blocks the type-level Kakoune-transparency work listed in §2.2 Backlog.
+Next deliverable: Design and land ADR-030 Level 3 — the type-level Kakoune-writing `Command` marker. Prerequisites from Levels 1 and 2 are now in place.
 
 ## 4. Phase Status Summary
 
