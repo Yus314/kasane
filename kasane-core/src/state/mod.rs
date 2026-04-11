@@ -5,6 +5,7 @@ pub mod derived;
 pub mod inference;
 mod info;
 mod menu;
+pub mod policy;
 pub mod snapshot;
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
@@ -31,6 +32,7 @@ use crate::session::SessionDescriptor;
 pub use inference::Inference;
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
+pub use policy::Policy;
 pub use truth::Truth;
 pub use update::{Msg, UpdateResult, update, update_in_place};
 
