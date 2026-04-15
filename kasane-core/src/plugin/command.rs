@@ -178,6 +178,43 @@ pub enum Command {
 }
 
 impl Command {
+    /// The three variants that write to Kakoune (A9, T10, §9.1).
+    pub const KAKOUNE_WRITING_VARIANTS: &'static [&'static str] =
+        &["SendToKakoune", "InsertText", "EditBuffer"];
+
+    /// All variant names of this enum.
+    pub const ALL_VARIANT_NAMES: &'static [&'static str] = &[
+        "BindSurfaceSession",
+        "ClosePaneClient",
+        "CloseProcessStdin",
+        "EditBuffer",
+        "ExposeVariable",
+        "InjectInput",
+        "InsertText",
+        "KillProcess",
+        "PasteClipboard",
+        "PluginMessage",
+        "Quit",
+        "RegisterSurface",
+        "RegisterSurfaceRequested",
+        "RegisterThemeTokens",
+        "RequestRedraw",
+        "ResizePty",
+        "ScheduleTimer",
+        "SendToKakoune",
+        "Session",
+        "SetConfig",
+        "SetSetting",
+        "SpawnPaneClient",
+        "SpawnProcess",
+        "StartProcessTask",
+        "UnbindSurfaceSession",
+        "UnregisterSurface",
+        "UnregisterSurfaceKey",
+        "Workspace",
+        "WriteToProcess",
+    ];
+
     /// Convenience: execute a Kakoune command string.
     ///
     /// Wraps the command in the key sequence `<esc>:cmd<ret>` and sends it
@@ -204,32 +241,152 @@ impl Command {
         Command::InsertText(text.into())
     }
 
+    /// Returns true if this command writes to Kakoune.
+    ///
+    /// Exhaustive match ensures new variants force explicit classification.
+    pub const fn is_kakoune_writing(&self) -> bool {
+        match self {
+            Command::SendToKakoune(_) => true,
+            Command::InsertText(_) => true,
+            Command::EditBuffer { .. } => true,
+            Command::PasteClipboard => false,
+            Command::Quit => false,
+            Command::RequestRedraw(_) => false,
+            Command::ScheduleTimer { .. } => false,
+            Command::PluginMessage { .. } => false,
+            Command::SetConfig { .. } => false,
+            Command::SetSetting { .. } => false,
+            Command::Workspace(_) => false,
+            Command::RegisterSurface { .. } => false,
+            Command::RegisterSurfaceRequested { .. } => false,
+            Command::UnregisterSurface { .. } => false,
+            Command::UnregisterSurfaceKey { .. } => false,
+            Command::RegisterThemeTokens(_) => false,
+            Command::SpawnProcess { .. } => false,
+            Command::Session(_) => false,
+            Command::WriteToProcess { .. } => false,
+            Command::CloseProcessStdin { .. } => false,
+            Command::KillProcess { .. } => false,
+            Command::ResizePty { .. } => false,
+            Command::InjectInput(_) => false,
+            Command::SpawnPaneClient { .. } => false,
+            Command::ClosePaneClient { .. } => false,
+            Command::BindSurfaceSession { .. } => false,
+            Command::UnbindSurfaceSession { .. } => false,
+            Command::StartProcessTask { .. } => false,
+            Command::ExposeVariable { .. } => false,
+        }
+    }
+
     /// Returns true if this command commutes with other commands of the same kind.
     ///
     /// Commutative commands can be deduplicated or reordered without affecting
-    /// the final result.
+    /// the final result. Exhaustive match ensures new variants force explicit
+    /// classification.
     pub fn is_commutative(&self) -> bool {
-        matches!(
-            self,
-            Command::RequestRedraw(_)
-                | Command::RegisterThemeTokens(_)
-                | Command::SetConfig { .. }
-                | Command::SetSetting { .. }
-        )
+        match self {
+            Command::RequestRedraw(_) => true,
+            Command::RegisterThemeTokens(_) => true,
+            Command::SetConfig { .. } => true,
+            Command::SetSetting { .. } => true,
+            Command::SendToKakoune(_) => false,
+            Command::InsertText(_) => false,
+            Command::PasteClipboard => false,
+            Command::Quit => false,
+            Command::ScheduleTimer { .. } => false,
+            Command::PluginMessage { .. } => false,
+            Command::Workspace(_) => false,
+            Command::RegisterSurface { .. } => false,
+            Command::RegisterSurfaceRequested { .. } => false,
+            Command::UnregisterSurface { .. } => false,
+            Command::UnregisterSurfaceKey { .. } => false,
+            Command::SpawnProcess { .. } => false,
+            Command::Session(_) => false,
+            Command::WriteToProcess { .. } => false,
+            Command::CloseProcessStdin { .. } => false,
+            Command::KillProcess { .. } => false,
+            Command::ResizePty { .. } => false,
+            Command::EditBuffer { .. } => false,
+            Command::InjectInput(_) => false,
+            Command::SpawnPaneClient { .. } => false,
+            Command::ClosePaneClient { .. } => false,
+            Command::BindSurfaceSession { .. } => false,
+            Command::UnbindSurfaceSession { .. } => false,
+            Command::StartProcessTask { .. } => false,
+            Command::ExposeVariable { .. } => false,
+        }
     }
 
     /// Returns true if this command requires event-loop-level handling
     /// (timers, inter-plugin messages, config, workspace, processes, sessions).
+    /// Exhaustive match ensures new variants force explicit classification.
     pub fn is_deferred(&self) -> bool {
-        !matches!(
-            self,
-            Command::SendToKakoune(_)
-                | Command::InsertText(_)
-                | Command::PasteClipboard
-                | Command::Quit
-                | Command::RequestRedraw(_)
-                | Command::EditBuffer { .. }
-        )
+        match self {
+            Command::SendToKakoune(_) => false,
+            Command::InsertText(_) => false,
+            Command::PasteClipboard => false,
+            Command::Quit => false,
+            Command::RequestRedraw(_) => false,
+            Command::EditBuffer { .. } => false,
+            Command::ScheduleTimer { .. } => true,
+            Command::PluginMessage { .. } => true,
+            Command::SetConfig { .. } => true,
+            Command::SetSetting { .. } => true,
+            Command::Workspace(_) => true,
+            Command::RegisterSurface { .. } => true,
+            Command::RegisterSurfaceRequested { .. } => true,
+            Command::UnregisterSurface { .. } => true,
+            Command::UnregisterSurfaceKey { .. } => true,
+            Command::RegisterThemeTokens(_) => true,
+            Command::SpawnProcess { .. } => true,
+            Command::Session(_) => true,
+            Command::WriteToProcess { .. } => true,
+            Command::CloseProcessStdin { .. } => true,
+            Command::KillProcess { .. } => true,
+            Command::ResizePty { .. } => true,
+            Command::InjectInput(_) => true,
+            Command::SpawnPaneClient { .. } => true,
+            Command::ClosePaneClient { .. } => true,
+            Command::BindSurfaceSession { .. } => true,
+            Command::UnbindSurfaceSession { .. } => true,
+            Command::StartProcessTask { .. } => true,
+            Command::ExposeVariable { .. } => true,
+        }
+    }
+
+    /// Returns the variant name as a string (for classification tests).
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            Command::SendToKakoune(_) => "SendToKakoune",
+            Command::InsertText(_) => "InsertText",
+            Command::PasteClipboard => "PasteClipboard",
+            Command::Quit => "Quit",
+            Command::RequestRedraw(_) => "RequestRedraw",
+            Command::ScheduleTimer { .. } => "ScheduleTimer",
+            Command::PluginMessage { .. } => "PluginMessage",
+            Command::SetConfig { .. } => "SetConfig",
+            Command::SetSetting { .. } => "SetSetting",
+            Command::Workspace(_) => "Workspace",
+            Command::RegisterSurface { .. } => "RegisterSurface",
+            Command::RegisterSurfaceRequested { .. } => "RegisterSurfaceRequested",
+            Command::UnregisterSurface { .. } => "UnregisterSurface",
+            Command::UnregisterSurfaceKey { .. } => "UnregisterSurfaceKey",
+            Command::RegisterThemeTokens(_) => "RegisterThemeTokens",
+            Command::SpawnProcess { .. } => "SpawnProcess",
+            Command::Session(_) => "Session",
+            Command::WriteToProcess { .. } => "WriteToProcess",
+            Command::CloseProcessStdin { .. } => "CloseProcessStdin",
+            Command::KillProcess { .. } => "KillProcess",
+            Command::ResizePty { .. } => "ResizePty",
+            Command::EditBuffer { .. } => "EditBuffer",
+            Command::InjectInput(_) => "InjectInput",
+            Command::SpawnPaneClient { .. } => "SpawnPaneClient",
+            Command::ClosePaneClient { .. } => "ClosePaneClient",
+            Command::BindSurfaceSession { .. } => "BindSurfaceSession",
+            Command::UnbindSurfaceSession { .. } => "UnbindSurfaceSession",
+            Command::StartProcessTask { .. } => "StartProcessTask",
+            Command::ExposeVariable { .. } => "ExposeVariable",
+        }
     }
 }
 

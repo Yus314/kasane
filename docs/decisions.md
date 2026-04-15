@@ -1786,7 +1786,7 @@ Introduce two complementary mechanisms:
 
 ## ADR-030: Observed/Policy Separation — Staged Projection Rollout
 
-**Status:** Current (Levels 1–2 shipped; Levels 3–6 reserved)
+**Status:** Current (Levels 1–3 shipped; Levels 4–6 reserved)
 
 ### Context
 
@@ -1885,10 +1885,46 @@ Introduce a staged enforcement model for the observed/policy split.
   `state.policy().<config>()`, establishing the pattern without
   undertaking a full rewrite.
 
-**Levels 3–6 (reserved; not implemented).**
+**Level 3 — `TransparentCommand` Projection (shipped).**
 
-- Level 3 — Type-level isolation of Kakoune-writing `Command` variants
-  (roadmap §2.2).
+- Add `Command::is_kakoune_writing()`: exhaustive match (no `_`
+  wildcard) classifying every variant as writing or transparent. New
+  variants cause a compile error until explicitly classified. Parallel
+  refactoring of `is_deferred()` and `is_commutative()` to the same
+  exhaustive pattern.
+- Add `Command::variant_name()`, `ALL_VARIANT_NAMES`, and
+  `KAKOUNE_WRITING_VARIANTS` constants for structural witness tests.
+- Add `TransparentCommand`: a newtype wrapping `Command` that exposes
+  named constructors only for the 26 non-writing variants. There is no
+  constructor for `SendToKakoune`, `InsertText`, or `EditBuffer`,
+  making transparency a compile-time property.
+- Add `TransparentKeyResult`: transparent variant of `KeyHandleResult`
+  whose `Consumed` arm carries `Vec<TransparentCommand>`.
+- Add 5 `_transparent` handler registration methods on
+  `HandlerRegistry` (`on_key_transparent`, `on_key_middleware_transparent`,
+  `on_text_input_transparent`, `on_handle_mouse_transparent`,
+  `on_drop_transparent`). Each wraps the handler closure to convert
+  `TransparentCommand` → `Command` and sets a transparency flag.
+- Add `TransparencyFlags` on `HandlerTable` and
+  `HandlerRegistry::is_input_transparent()` for per-plugin T10
+  auto-derivation: returns true iff all registered input handlers
+  used their `_transparent` variant.
+- 8 structural witness tests
+  (`kasane-core/src/plugin/tests/command_classification.rs`) pin the
+  classification constants and cross-check the three classification
+  axes.
+- A3 τ-transition property test
+  (`kasane-core/tests/a3_transparent_tau.rs`) witnesses that
+  non-deferred transparent commands produce zero bytes of Kakoune
+  output.
+- Note on direct vs transitive writing: `InjectInput` is classified as
+  transparent because it re-enters the plugin pipeline rather than
+  writing to Kakoune directly. `Session(Switch)` is transparent because
+  session switching is a framework-internal operation. A future Level 5
+  (free monad) analysis could track transitive writing paths.
+
+**Levels 4–6 (reserved; not implemented).**
+
 - Level 4 — `RecoveryWitness` contract for destructive display
   directives (roadmap §2.2, semantics §13.14).
 - Level 5 — Static analysability of command effect sequences via an

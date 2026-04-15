@@ -221,6 +221,38 @@ pub(crate) struct GutterHandlerEntry {
 }
 
 // =============================================================================
+// Transparency flags (ADR-030 Level 3)
+// =============================================================================
+
+/// Tracks which input handler slots were registered via their `_transparent`
+/// variant. When all registered input handlers are transparent, the plugin
+/// satisfies T10 (Plugin Transparency) by construction.
+#[derive(Debug, Default)]
+pub(crate) struct TransparencyFlags {
+    pub(crate) key_handler: bool,
+    pub(crate) key_middleware: bool,
+    pub(crate) text_input: bool,
+    pub(crate) mouse_handler: bool,
+    pub(crate) drop_handler: bool,
+}
+
+impl TransparencyFlags {
+    /// Returns true if every registered input handler used a transparent variant.
+    ///
+    /// For each handler slot, either (a) no handler is registered (the slot is
+    /// `None` in `HandlerTable`), or (b) the handler was registered via a
+    /// `_transparent` method.
+    pub(crate) fn is_all_transparent(&self, table: &HandlerTable) -> bool {
+        let key_ok = table.key_handler.is_none() || self.key_handler;
+        let middleware_ok = table.key_middleware_handler.is_none() || self.key_middleware;
+        let text_ok = table.text_input_handler.is_none() || self.text_input;
+        let mouse_ok = table.handle_mouse_handler.is_none() || self.mouse_handler;
+        let drop_ok = table.handle_drop_handler.is_none() || self.drop_handler;
+        key_ok && middleware_ok && text_ok && mouse_ok && drop_ok
+    }
+}
+
+// =============================================================================
 // HandlerTable
 // =============================================================================
 
@@ -287,6 +319,9 @@ pub(crate) struct HandlerTable {
 
     // --- Config ---
     pub(crate) interests: DirtyFlags,
+
+    // --- Transparency (ADR-030 Level 3) ---
+    pub(crate) transparency: TransparencyFlags,
 }
 
 #[allow(dead_code)] // consumed by PluginBridge
@@ -333,6 +368,7 @@ impl HandlerTable {
             extension_contributions: Vec::new(),
             process_tasks: Vec::new(),
             interests: DirtyFlags::ALL,
+            transparency: TransparencyFlags::default(),
         }
     }
 

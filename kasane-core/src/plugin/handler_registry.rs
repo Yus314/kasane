@@ -406,6 +406,149 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         }));
     }
 
+    // =========================================================================
+    // Transparent input handlers (ADR-030 Level 3)
+    // =========================================================================
+
+    /// Register a transparent key handler (compile-time guarantee of no Kakoune writes).
+    pub fn on_key_transparent(
+        &mut self,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> Option<(S, Vec<super::TransparentCommand>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.key_handler = Some(Box::new(move |state, key, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, key, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
+        }));
+        self.table.transparency.key_handler = true;
+    }
+
+    /// Register a transparent key middleware handler.
+    pub fn on_key_middleware_transparent(
+        &mut self,
+        handler: impl Fn(&S, &KeyEvent, &AppView<'_>) -> (S, super::TransparentKeyResult)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.key_middleware_handler = Some(Box::new(move |state, key, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, result) = handler(s, key, app);
+            (Box::new(new_state) as Box<dyn PluginState>, result.into())
+        }));
+        self.table.transparency.key_middleware = true;
+    }
+
+    /// Register a transparent text input handler.
+    pub fn on_text_input_transparent(
+        &mut self,
+        handler: impl Fn(&S, &str, &AppView<'_>) -> Option<(S, Vec<super::TransparentCommand>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.text_input_handler = Some(Box::new(move |state, text, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, text, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
+        }));
+        self.table.transparency.text_input = true;
+    }
+
+    /// Register a transparent mouse handler.
+    pub fn on_handle_mouse_transparent(
+        &mut self,
+        handler: impl Fn(
+            &S,
+            &MouseEvent,
+            InteractiveId,
+            &AppView<'_>,
+        ) -> Option<(S, Vec<super::TransparentCommand>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.handle_mouse_handler = Some(Box::new(move |state, event, id, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, event, id, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
+        }));
+        self.table.transparency.mouse_handler = true;
+    }
+
+    /// Register a transparent drop handler.
+    pub fn on_drop_transparent(
+        &mut self,
+        handler: impl Fn(
+            &S,
+            &DropEvent,
+            InteractiveId,
+            &AppView<'_>,
+        ) -> Option<(S, Vec<super::TransparentCommand>)>
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.handle_drop_handler = Some(Box::new(move |state, event, id, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, event, id, app).map(|(new_state, cmds)| {
+                (
+                    Box::new(new_state) as Box<dyn PluginState>,
+                    cmds.into_iter().map(Into::into).collect(),
+                )
+            })
+        }));
+        self.table.transparency.drop_handler = true;
+    }
+
+    // =========================================================================
+    // Transparency query
+    // =========================================================================
+
+    /// Returns true if all registered input handlers use their transparent variants.
+    ///
+    /// When true, the plugin satisfies T10 (Plugin Transparency) by construction
+    /// for all input handler extension points. View handlers (contribute, transform,
+    /// annotate, overlay, display, render_ornaments) are transparent by construction
+    /// since they never return Commands.
+    pub fn is_input_transparent(&self) -> bool {
+        self.table.transparency.is_all_transparent(&self.table)
+    }
+
+    // =========================================================================
+    // Other input handlers
+    // =========================================================================
+
     /// Register a default scroll policy handler.
     pub fn on_default_scroll(
         &mut self,
@@ -1445,5 +1588,52 @@ mod tests {
         };
         let result = bridge.navigation_action(&unit, NavigationAction::None);
         assert_eq!(result, Some(ActionResult::Handled));
+    }
+
+    // =========================================================================
+    // Transparent handler registration (ADR-030 Level 3)
+    // =========================================================================
+
+    #[test]
+    fn on_key_transparent_sets_input_handler_and_transparency() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_key_transparent(|_state, _key, _app| None);
+        assert!(registry.is_input_transparent());
+        let table = registry.into_table();
+        assert!(
+            table
+                .capabilities()
+                .contains(PluginCapabilities::INPUT_HANDLER)
+        );
+        assert!(table.transparency.key_handler);
+    }
+
+    #[test]
+    fn on_key_non_transparent_means_not_input_transparent() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_key(|_state, _key, _app| None);
+        assert!(!registry.is_input_transparent());
+    }
+
+    #[test]
+    fn mixed_transparent_and_non_transparent_is_not_transparent() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_key_transparent(|_state, _key, _app| None);
+        registry.on_text_input(|_state, _text, _app| None);
+        assert!(!registry.is_input_transparent());
+    }
+
+    #[test]
+    fn all_transparent_handlers_means_input_transparent() {
+        let mut registry = HandlerRegistry::<TestState>::new();
+        registry.on_key_transparent(|_state, _key, _app| None);
+        registry.on_text_input_transparent(|_state, _text, _app| None);
+        assert!(registry.is_input_transparent());
+    }
+
+    #[test]
+    fn no_handlers_is_input_transparent() {
+        let registry = HandlerRegistry::<TestState>::new();
+        assert!(registry.is_input_transparent());
     }
 }

@@ -8,6 +8,7 @@ use crate::surface::{Surface, SurfaceId};
 use crate::test_support::TestSurfaceBuilder;
 use crate::workspace::Placement;
 
+mod command_classification;
 mod commands;
 mod compose;
 mod hooks;

@@ -22,6 +22,7 @@ pub mod render_ornament;
 pub mod setting;
 pub mod state;
 mod traits;
+pub mod transparent_command;
 pub mod variable_store;
 
 #[cfg(test)]
@@ -85,6 +86,9 @@ pub use crate::display::{
 // Re-export traits module
 pub use crate::input::KeyResponse;
 pub use traits::{KeyHandleResult, PluginBackend};
+
+// Re-export transparent command types (ADR-030 Level 3)
+pub use transparent_command::{TransparentCommand, TransparentKeyResult};
 
 // Re-export compose module
 pub use compose::{
