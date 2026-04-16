@@ -22,8 +22,8 @@ pub use crate::plugin::{
     RecoveryMechanism, RecoveryWitness, RenderOrnamentContext, SafeDisplayDirective, SemanticRole,
     SlotId, SourceStrength, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind, Topic, TopicBus, TopicId,
     TransformContext, TransformDescriptor, TransformScope, TransformSubject, TransformTarget,
-    TransparentCommand, TransparentKeyResult, UnitSource, VirtualTextItem, builtin_plugin,
-    host_plugin, host_plugin_with_provider,
+    TransparentCommand, TransparentEffects, TransparentKeyResult, UnitSource, VirtualTextItem,
+    builtin_plugin, host_plugin, host_plugin_with_provider,
 };
 
 // Element tree

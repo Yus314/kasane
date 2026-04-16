@@ -50,6 +50,7 @@ use super::handler_table::{
 use super::process_task::{ProcessTaskEntry, ProcessTaskResult, ProcessTaskSpec};
 use super::pubsub::{PublishEntry, SubscribeEntry, Topic, TopicId};
 use super::traits::KeyHandleResult;
+use super::transparent_effects::TransparentEffects;
 use super::{
     AnnotateContext, AppView, BackgroundLayer, Command, ContributeContext, Contribution,
     DisplayDirective, Effects, IoEvent, OrnamentBatch, OverlayContext, OverlayContribution,
@@ -212,6 +213,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 (Box::new(new_state) as Box<dyn PluginState>, effects)
             }),
             streaming: false,
+            transparent: false,
         });
     }
 
@@ -238,6 +240,7 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
                 (Box::new(new_state) as Box<dyn PluginState>, effects)
             }),
             streaming: true,
+            transparent: false,
         });
     }
 
@@ -260,6 +263,148 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, Effects) + Send + Sync + 'static,
     ) {
         register_state_effect!(self, update_handler, handler, msg, app);
+    }
+
+    // =========================================================================
+    // Transparent lifecycle handlers (ADR-030 Level 5)
+    // =========================================================================
+
+    /// Register a transparent initialization handler (compile-time guarantee of no Kakoune writes).
+    pub fn on_init_transparent(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>) -> (S, TransparentEffects) + Send + Sync + 'static,
+    ) {
+        self.table.init_handler = Some(Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, app);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        self.table.transparency.init_handler = true;
+    }
+
+    /// Register a transparent session-ready handler.
+    pub fn on_session_ready_transparent(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>) -> (S, TransparentEffects) + Send + Sync + 'static,
+    ) {
+        self.table.session_ready_handler = Some(Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, app);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        self.table.transparency.session_ready_handler = true;
+    }
+
+    /// Register a transparent state-changed handler.
+    pub fn on_state_changed_transparent(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>, DirtyFlags) -> (S, TransparentEffects)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.state_changed_handler = Some(Box::new(move |state, app, dirty| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, app, dirty);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        self.table.transparency.state_changed_handler = true;
+    }
+
+    /// Register a transparent I/O event handler.
+    pub fn on_io_event_transparent(
+        &mut self,
+        handler: impl Fn(&S, &IoEvent, &AppView<'_>) -> (S, TransparentEffects) + Send + Sync + 'static,
+    ) {
+        self.table.io_event_handler = Some(Box::new(move |state, event, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, event, app);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        self.table.transparency.io_event_handler = true;
+    }
+
+    /// Register a transparent update (message) handler.
+    pub fn on_update_transparent(
+        &mut self,
+        handler: impl Fn(&S, &mut dyn Any, &AppView<'_>) -> (S, TransparentEffects)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.update_handler = Some(Box::new(move |state, msg, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            let (new_state, effects) = handler(s, msg, app);
+            (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+        }));
+        self.table.transparency.update_handler = true;
+    }
+
+    /// Register a transparent declarative process task.
+    pub fn on_process_task_transparent(
+        &mut self,
+        name: &'static str,
+        spec: ProcessTaskSpec,
+        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, TransparentEffects)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.process_tasks.push(ProcessTaskEntry {
+            name,
+            spec,
+            handler: Box::new(move |state, result, app| {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                let (new_state, effects) = handler(s, result, app);
+                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+            }),
+            streaming: false,
+            transparent: true,
+        });
+    }
+
+    /// Register a transparent streaming process task.
+    pub fn on_process_task_streaming_transparent(
+        &mut self,
+        name: &'static str,
+        spec: ProcessTaskSpec,
+        handler: impl Fn(&S, &ProcessTaskResult, &AppView<'_>) -> (S, TransparentEffects)
+        + Send
+        + Sync
+        + 'static,
+    ) {
+        self.table.process_tasks.push(ProcessTaskEntry {
+            name,
+            spec,
+            handler: Box::new(move |state, result, app| {
+                let s = state
+                    .as_any()
+                    .downcast_ref::<S>()
+                    .expect("state type mismatch");
+                let (new_state, effects) = handler(s, result, app);
+                (Box::new(new_state) as Box<dyn PluginState>, effects.into())
+            }),
+            streaming: true,
+            transparent: true,
+        });
     }
 
     // =========================================================================
@@ -542,7 +687,27 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     /// annotate, overlay, display, render_ornaments) are transparent by construction
     /// since they never return Commands.
     pub fn is_input_transparent(&self) -> bool {
-        self.table.transparency.is_all_transparent(&self.table)
+        self.table
+            .transparency
+            .is_all_input_transparent(&self.table)
+    }
+
+    /// Returns true if all registered lifecycle handlers use their transparent variants.
+    ///
+    /// Lifecycle handlers that produce `Effects` are: init, session_ready,
+    /// state_changed, io_event, update, and process tasks.
+    pub fn is_lifecycle_transparent(&self) -> bool {
+        self.table
+            .transparency
+            .is_all_lifecycle_transparent(&self.table)
+    }
+
+    /// Returns true if ALL registered handlers (input + lifecycle) use transparent variants.
+    ///
+    /// When true, the plugin satisfies T10 (Plugin Transparency) by construction
+    /// for all extension points that can produce `Command` values.
+    pub fn is_fully_transparent(&self) -> bool {
+        self.table.transparency.is_fully_transparent(&self.table)
     }
 
     // =========================================================================

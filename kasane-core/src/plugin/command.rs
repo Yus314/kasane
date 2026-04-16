@@ -2,6 +2,8 @@ use std::any::Any;
 use std::io::Write;
 use std::time::Duration;
 
+use bitflags::bitflags;
+
 use crate::input::InputEvent;
 use crate::protocol::{Face, KasaneRequest};
 use crate::session::{SessionCommand, SessionId};
@@ -14,6 +16,65 @@ use crate::workspace::{Placement, WorkspaceCommand};
 use super::PluginId;
 use super::io::StdinMode;
 use super::setting::SettingValue;
+
+// =============================================================================
+// Effect categories (ADR-030 Level 5)
+// =============================================================================
+
+bitflags! {
+    /// Classification of `Command` variants by effect category.
+    ///
+    /// Used for static effect footprint analysis. Each `Command` variant maps
+    /// to exactly one category via [`Command::effect_category()`].
+    /// A plugin's **effect footprint** is the union of categories that its
+    /// handlers may produce.
+    ///
+    /// The categories that matter for transitive transparency analysis are:
+    /// - `KAKOUNE_WRITING`: crosses the fibration `p : AppState → KakouneProtocolFacts`
+    /// - `PLUGIN_MESSAGE`: triggers cascade to another plugin
+    /// - `TIMER`: triggers deferred re-entry into the event loop
+    /// - `INPUT_INJECTION`: triggers re-entry through the full input pipeline
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct EffectCategory: u16 {
+        /// Writes to Kakoune (SendToKakoune, InsertText, EditBuffer).
+        const KAKOUNE_WRITING     = 1 << 0;
+        /// Sends a message to another plugin (PluginMessage).
+        const PLUGIN_MESSAGE      = 1 << 1;
+        /// Schedules a deferred timer callback (ScheduleTimer).
+        const TIMER               = 1 << 2;
+        /// Re-injects input through the full pipeline (InjectInput).
+        const INPUT_INJECTION     = 1 << 3;
+        /// Spawns or manages external processes (SpawnProcess, StartProcessTask,
+        /// WriteToProcess, CloseProcessStdin, KillProcess, ResizePty).
+        const PROCESS_MANAGEMENT  = 1 << 4;
+        /// Manages plugin-owned surfaces (RegisterSurface, RegisterSurfaceRequested,
+        /// UnregisterSurface, UnregisterSurfaceKey).
+        const SURFACE_MANAGEMENT  = 1 << 5;
+        /// Manages sessions and panes (Session, SpawnPaneClient, ClosePaneClient,
+        /// BindSurfaceSession, UnbindSurfaceSession).
+        const SESSION_MANAGEMENT  = 1 << 6;
+        /// Mutates configuration or settings (SetConfig, SetSetting).
+        const CONFIG_MUTATION     = 1 << 7;
+        /// Workspace layout commands (Workspace).
+        const WORKSPACE           = 1 << 8;
+        /// Requests a redraw (RequestRedraw).
+        const REDRAW              = 1 << 9;
+        /// Requests application quit (Quit).
+        const QUIT                = 1 << 10;
+        /// Pastes from system clipboard (PasteClipboard).
+        const CLIPBOARD           = 1 << 11;
+        /// Registers theme tokens (RegisterThemeTokens).
+        const THEME               = 1 << 12;
+        /// Exposes a variable to the widget system (ExposeVariable).
+        const VARIABLE            = 1 << 13;
+
+        /// Categories that trigger cascade re-entry into the event loop.
+        /// Used for transitive footprint computation.
+        const CASCADE_TRIGGERS = Self::PLUGIN_MESSAGE.bits()
+                               | Self::TIMER.bits()
+                               | Self::INPUT_INJECTION.bits();
+    }
+}
 
 /// Buffer edit coordinates in Kakoune's editing coordinate space.
 ///
@@ -351,6 +412,44 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => true,
             Command::StartProcessTask { .. } => true,
             Command::ExposeVariable { .. } => true,
+        }
+    }
+
+    /// Returns the effect category for this command variant.
+    ///
+    /// Exhaustive match ensures new variants force explicit classification.
+    /// Each variant maps to exactly one category.
+    pub const fn effect_category(&self) -> EffectCategory {
+        match self {
+            Command::SendToKakoune(_) => EffectCategory::KAKOUNE_WRITING,
+            Command::InsertText(_) => EffectCategory::KAKOUNE_WRITING,
+            Command::EditBuffer { .. } => EffectCategory::KAKOUNE_WRITING,
+            Command::PluginMessage { .. } => EffectCategory::PLUGIN_MESSAGE,
+            Command::ScheduleTimer { .. } => EffectCategory::TIMER,
+            Command::InjectInput(_) => EffectCategory::INPUT_INJECTION,
+            Command::SpawnProcess { .. } => EffectCategory::PROCESS_MANAGEMENT,
+            Command::StartProcessTask { .. } => EffectCategory::PROCESS_MANAGEMENT,
+            Command::WriteToProcess { .. } => EffectCategory::PROCESS_MANAGEMENT,
+            Command::CloseProcessStdin { .. } => EffectCategory::PROCESS_MANAGEMENT,
+            Command::KillProcess { .. } => EffectCategory::PROCESS_MANAGEMENT,
+            Command::ResizePty { .. } => EffectCategory::PROCESS_MANAGEMENT,
+            Command::RegisterSurface { .. } => EffectCategory::SURFACE_MANAGEMENT,
+            Command::RegisterSurfaceRequested { .. } => EffectCategory::SURFACE_MANAGEMENT,
+            Command::UnregisterSurface { .. } => EffectCategory::SURFACE_MANAGEMENT,
+            Command::UnregisterSurfaceKey { .. } => EffectCategory::SURFACE_MANAGEMENT,
+            Command::Session(_) => EffectCategory::SESSION_MANAGEMENT,
+            Command::SpawnPaneClient { .. } => EffectCategory::SESSION_MANAGEMENT,
+            Command::ClosePaneClient { .. } => EffectCategory::SESSION_MANAGEMENT,
+            Command::BindSurfaceSession { .. } => EffectCategory::SESSION_MANAGEMENT,
+            Command::UnbindSurfaceSession { .. } => EffectCategory::SESSION_MANAGEMENT,
+            Command::SetConfig { .. } => EffectCategory::CONFIG_MUTATION,
+            Command::SetSetting { .. } => EffectCategory::CONFIG_MUTATION,
+            Command::Workspace(_) => EffectCategory::WORKSPACE,
+            Command::RequestRedraw(_) => EffectCategory::REDRAW,
+            Command::Quit => EffectCategory::QUIT,
+            Command::PasteClipboard => EffectCategory::CLIPBOARD,
+            Command::RegisterThemeTokens(_) => EffectCategory::THEME,
+            Command::ExposeVariable { .. } => EffectCategory::VARIABLE,
         }
     }
 

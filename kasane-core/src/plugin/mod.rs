@@ -7,6 +7,7 @@ mod command;
 pub mod compose;
 mod context;
 pub mod diagnostics;
+pub mod effect_footprint;
 mod effects;
 pub mod element_patch;
 pub mod extension_point;
@@ -25,6 +26,7 @@ pub mod setting;
 pub mod state;
 mod traits;
 pub mod transparent_command;
+pub mod transparent_effects;
 pub mod variable_store;
 
 #[cfg(test)]
@@ -91,6 +93,13 @@ pub use traits::{KeyHandleResult, PluginBackend};
 
 // Re-export transparent command types (ADR-030 Level 3)
 pub use transparent_command::{TransparentCommand, TransparentKeyResult};
+
+// Re-export transparent effects types (ADR-030 Level 5)
+pub use transparent_effects::TransparentEffects;
+
+// Re-export effect footprint types (ADR-030 Level 5)
+pub use command::EffectCategory;
+pub use effect_footprint::{EffectFootprint, compute_transitive_footprints};
 
 // Re-export recovery witness types (ADR-030 Level 4)
 pub use recovery_witness::{RecoveryMechanism, RecoveryWitness};

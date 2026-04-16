@@ -104,6 +104,8 @@ pub(crate) struct ProcessTaskEntry {
     pub(crate) handler: ErasedProcessTaskHandler,
     /// If true, deliver `Stdout` chunks incrementally instead of accumulating.
     pub(crate) streaming: bool,
+    /// If true, this task was registered via `_transparent` variant (ADR-030 Level 5).
+    pub(crate) transparent: bool,
 }
 
 /// Framework-managed state for a running process task.

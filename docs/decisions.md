@@ -1961,10 +1961,38 @@ Introduce a staged enforcement model for the observed/policy split.
   the sole Destructive variant; plugin-side recovery requires explicit
   `RecoveryWitness` evidence.
 
-**Levels 5–6 (reserved; not implemented).**
+**Level 5 — Effect Footprint (implemented).**
 
-- Level 5 — Static analysability of command effect sequences via an
-  explicit free monad (roadmap §2.2, semantics §13.17).
+Closes §13.15 (lifecycle transparency) and §13.17 (transitive effect analysis).
+
+Phase 5a — `TransparentEffects` + lifecycle transparency:
+- `TransparentEffects` newtype wrapping `Effects` but constructible only
+  from `TransparentCommand` (same pattern as Level 3). Converts to
+  `Effects` before the type erasure boundary in `register_state_effect!`.
+- 7 `_transparent` lifecycle registration methods on `HandlerRegistry`:
+  `on_init_transparent`, `on_session_ready_transparent`,
+  `on_state_changed_transparent`, `on_io_event_transparent`,
+  `on_update_transparent`, `on_process_task_transparent`,
+  `on_process_task_streaming_transparent`.
+- `TransparencyFlags` extended with 5 lifecycle handler fields.
+- `is_lifecycle_transparent()` and `is_fully_transparent()` queries.
+- Per-task `transparent` flag on `ProcessTaskEntry`.
+
+Phase 5b — `EffectCategory` + `EffectFootprint`:
+- `EffectCategory` bitflags (14 categories) with exhaustive
+  `Command::effect_category()` classification method.
+- `CASCADE_TRIGGERS` composite constant: `PLUGIN_MESSAGE | TIMER | INPUT_INJECTION`.
+- `EffectFootprint` per-plugin footprint (local + transitive).
+- `compute_transitive_footprints()` — least fixed point iteration on
+  `(𝒫(EffectCategory), ⊆)`. Conservative approximation: plugins with
+  `PLUGIN_MESSAGE` or `INPUT_INJECTION` inherit the global footprint union.
+- Theoretical note: the design analysis found that T12's "free monad"
+  claim is algebraically a free monoid (list). The correct framework is
+  a graded monad `(𝒫(EffectCategory), ∪, ∅)` where each handler
+  carries a grade (set of effect categories it may produce).
+
+**Level 6 (reserved; not implemented).**
+
 - Level 6 — Type-level witness of `apply()`-exclusive `&mut AppState`
   ownership along the protocol ingestion path.
 

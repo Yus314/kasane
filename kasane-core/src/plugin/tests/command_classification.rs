@@ -15,7 +15,7 @@ use crate::surface::SurfaceId;
 use crate::workspace::WorkspaceCommand;
 
 /// Construct one instance of each Command variant with dummy values.
-fn make_all_command_instances() -> Vec<Command> {
+pub(super) fn make_all_command_instances() -> Vec<Command> {
     vec![
         Command::SendToKakoune(KasaneRequest::Keys(vec![])),
         Command::InsertText(String::new()),

@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| Display transformation | P-032 Level 4 — `RecoveryWitness` contract for destructive display directives (ADR-030 staged rollout) |
+| Display transformation | P-032 Level 6 — Type-level `&mut AppState` ownership on the protocol ingestion path (ADR-030 staged rollout) |
 
 ### 2.2 Backlog
 
@@ -39,7 +39,6 @@ for the current specification from a plugin's perspective, see
 | Session-affine plugin surfaces | Plugin API for declaring session affinity on `surfaces()` return values. No consumer exists yet; deferred until a plugin requires it |
 | ~~RecoveryWitness contract for destructive display directives~~ | **✓ Complete** (ADR-030 Level 4). `SafeDisplayDirective` + `RecoveryWitness` + `RecoveryFlags` enforce §10.2a at registration time |
 | Element ↔ §2.6 P(X) synchronisation regression test | Mechanise the §15.1 sync obligation between `Element` variants and the polynomial functor P(X) in semantics §2.6, so variant additions force a semantics update. See semantics §13.16 |
-| Explicit free monad of Commands | Replace `Vec<Command>` with an explicit `Free<CommandSig>` representation so effect sequences become statically analysable (T12). Large refactor, low priority. See semantics §13.17 |
 
 ## 3. Open Workstreams
 
@@ -50,9 +49,10 @@ for the current specification from a plugin's perspective, see
   - Level 2 — `Inference<'a>` / `Policy<'a>` projections: **✓ Complete** (ADR-030). Derived+heuristic and config projections with structural coverage witnesses, `salsa_opt_out` mechanism on `#[epistemic(...)]`, Level 2 Salsa projection coverage test, projection-subset witness of A8 (Inference Boundedness), `fold_toggle_state` reclassified from runtime to config, and PoC migration of three internal call sites to `state.policy()`.
   - Level 3 — `TransparentCommand` projection: **✓ Complete** (ADR-030). `Command::is_kakoune_writing()` exhaustive classification, `TransparentCommand` newtype restricting construction to non-writing variants, `TransparentKeyResult`, 5 `_transparent` handler registration methods on `HandlerRegistry`, `TransparencyFlags` for per-plugin T10 auto-derivation, 8 structural witness tests, and A3 τ-transition property test.
   - Level 4 — `RecoveryWitness` for destructive directives: **✓ Complete** (ADR-030). `DisplayDirective::is_destructive()` exhaustive classification, `SafeDisplayDirective` newtype restricting construction to non-destructive variants, `RecoveryWitness` + `RecoveryMechanism` registration-time evidence, `on_display_safe()` / `on_display_witnessed()` registration methods on `HandlerRegistry`, `RecoveryFlags` for per-plugin Visual Faithfulness auto-derivation, 8 structural witness tests, 4 flag auto-derivation tests, and 2 fold recovery property tests.
-  - Levels 5–6 — Explicit free monad of `Command`, and type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
+  - Level 5 — Effect Footprint for static analysability: **✓ Complete** (ADR-030). `EffectCategory` bitflags with exhaustive `Command::effect_category()` classification, `TransparentEffects` newtype restricting lifecycle handler returns to non-writing effects, 7 `_transparent` lifecycle registration methods on `HandlerRegistry` (init, session_ready, state_changed, io_event, update, process_task, process_task_streaming), `TransparencyFlags` extended with 5 lifecycle handler fields, `is_lifecycle_transparent()` / `is_fully_transparent()` queries, `EffectFootprint` per-plugin footprint with `compute_transitive_footprints()` fixed-point iteration for cascade analysis, 10 structural witness tests and 17 flag/footprint tests.
+  - Level 6 — Type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
 
-Next deliverable: Design and land ADR-030 Level 5 — explicit free monad for static analysability of `Command` effect sequences. Prerequisites from Levels 1–4 are now in place.
+Next deliverable: Design and land ADR-030 Level 6 — type-level `&mut AppState` ownership on the protocol ingestion path. Prerequisites from Levels 1–5 are now in place.
 
 ## 4. Phase Status Summary
 

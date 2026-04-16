@@ -221,19 +221,28 @@ pub(crate) struct GutterHandlerEntry {
 }
 
 // =============================================================================
-// Transparency flags (ADR-030 Level 3)
+// Transparency flags (ADR-030 Level 3 + Level 5)
 // =============================================================================
 
-/// Tracks which input handler slots were registered via their `_transparent`
-/// variant. When all registered input handlers are transparent, the plugin
+/// Tracks which handler slots were registered via their `_transparent`
+/// variant. When all registered handlers are transparent, the plugin
 /// satisfies T10 (Plugin Transparency) by construction.
+///
+/// Level 3 covered input handlers. Level 5 extends to lifecycle handlers.
 #[derive(Debug, Default)]
 pub(crate) struct TransparencyFlags {
+    // --- Input handlers (Level 3) ---
     pub(crate) key_handler: bool,
     pub(crate) key_middleware: bool,
     pub(crate) text_input: bool,
     pub(crate) mouse_handler: bool,
     pub(crate) drop_handler: bool,
+    // --- Lifecycle handlers (Level 5) ---
+    pub(crate) init_handler: bool,
+    pub(crate) session_ready_handler: bool,
+    pub(crate) state_changed_handler: bool,
+    pub(crate) io_event_handler: bool,
+    pub(crate) update_handler: bool,
 }
 
 impl TransparencyFlags {
@@ -242,13 +251,34 @@ impl TransparencyFlags {
     /// For each handler slot, either (a) no handler is registered (the slot is
     /// `None` in `HandlerTable`), or (b) the handler was registered via a
     /// `_transparent` method.
-    pub(crate) fn is_all_transparent(&self, table: &HandlerTable) -> bool {
+    pub(crate) fn is_all_input_transparent(&self, table: &HandlerTable) -> bool {
         let key_ok = table.key_handler.is_none() || self.key_handler;
         let middleware_ok = table.key_middleware_handler.is_none() || self.key_middleware;
         let text_ok = table.text_input_handler.is_none() || self.text_input;
         let mouse_ok = table.handle_mouse_handler.is_none() || self.mouse_handler;
         let drop_ok = table.handle_drop_handler.is_none() || self.drop_handler;
         key_ok && middleware_ok && text_ok && mouse_ok && drop_ok
+    }
+
+    /// Returns true if every registered lifecycle handler used a transparent variant.
+    ///
+    /// Lifecycle handlers that produce `Effects` are: init, session_ready,
+    /// state_changed, io_event, update, and process tasks.
+    /// `on_workspace_changed` and `on_shutdown` are inherently transparent
+    /// (they don't return `Effects`).
+    pub(crate) fn is_all_lifecycle_transparent(&self, table: &HandlerTable) -> bool {
+        let init_ok = table.init_handler.is_none() || self.init_handler;
+        let session_ok = table.session_ready_handler.is_none() || self.session_ready_handler;
+        let state_ok = table.state_changed_handler.is_none() || self.state_changed_handler;
+        let io_ok = table.io_event_handler.is_none() || self.io_event_handler;
+        let update_ok = table.update_handler.is_none() || self.update_handler;
+        let tasks_ok = table.process_tasks.iter().all(|t| t.transparent);
+        init_ok && session_ok && state_ok && io_ok && update_ok && tasks_ok
+    }
+
+    /// Returns true if ALL handler slots (input + lifecycle) are transparent.
+    pub(crate) fn is_fully_transparent(&self, table: &HandlerTable) -> bool {
+        self.is_all_input_transparent(table) && self.is_all_lifecycle_transparent(table)
     }
 }
 
