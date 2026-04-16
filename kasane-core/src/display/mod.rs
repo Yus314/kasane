@@ -55,6 +55,39 @@ pub enum DisplayDirective {
     Hide { range: Range<usize> },
 }
 
+// =============================================================================
+// DisplayDirective classification (ADR-030 Level 4)
+// =============================================================================
+
+/// All variant names of `DisplayDirective` (sorted).
+pub const ALL_VARIANT_NAMES: &[&str] = &["Fold", "Hide", "InsertAfter", "InsertBefore"];
+
+/// Variants classified as destructive (§10.2 Destructive).
+pub const DESTRUCTIVE_VARIANTS: &[&str] = &["Hide"];
+
+/// Variants classified as preserving (§10.2 Preserving).
+pub const PRESERVING_VARIANTS: &[&str] = &["Fold"];
+
+/// Variants classified as additive (§10.2 Additive).
+pub const ADDITIVE_VARIANTS: &[&str] = &["InsertAfter", "InsertBefore"];
+
+impl DisplayDirective {
+    /// Variant name as a static string (exhaustive — no wildcard).
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            DisplayDirective::Fold { .. } => "Fold",
+            DisplayDirective::Hide { .. } => "Hide",
+            DisplayDirective::InsertAfter { .. } => "InsertAfter",
+            DisplayDirective::InsertBefore { .. } => "InsertBefore",
+        }
+    }
+
+    /// Whether this directive is destructive (removes buffer content from display).
+    pub const fn is_destructive(&self) -> bool {
+        matches!(self, DisplayDirective::Hide { .. })
+    }
+}
+
 /// Maps a display line back to its buffer origin.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceMapping {

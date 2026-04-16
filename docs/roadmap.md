@@ -37,7 +37,7 @@ for the current specification from a plugin's perspective, see
 |---|---|
 | External plugin candidates | indent guides, clickable links, built-in splits, floating panels, code folding, display-line navigation, URL detection, region-specific text policy, etc. |
 | Session-affine plugin surfaces | Plugin API for declaring session affinity on `surfaces()` return values. No consumer exists yet; deferred until a plugin requires it |
-| RecoveryWitness contract for destructive display directives | Associated type or registration-time check witnessing the Visual Faithfulness condition on fold/hide-style directive contributors. See semantics §10.2a, §13.14 |
+| ~~RecoveryWitness contract for destructive display directives~~ | **✓ Complete** (ADR-030 Level 4). `SafeDisplayDirective` + `RecoveryWitness` + `RecoveryFlags` enforce §10.2a at registration time |
 | Element ↔ §2.6 P(X) synchronisation regression test | Mechanise the §15.1 sync obligation between `Element` variants and the polynomial functor P(X) in semantics §2.6, so variant additions force a semantics update. See semantics §13.16 |
 | Explicit free monad of Commands | Replace `Vec<Command>` with an explicit `Free<CommandSig>` representation so effect sequences become statically analysable (T12). Large refactor, low priority. See semantics §13.17 |
 
@@ -49,9 +49,10 @@ for the current specification from a plugin's perspective, see
   - Level 1 — `Truth<'a>` projection: **✓ Complete** (ADR-030). Read-side write denial for `#[epistemic(observed)]` fields, structural coverage witness, A9 property test, and Salsa projection fix (`status_prompt` / `status_content` / `status_content_cursor_pos`).
   - Level 2 — `Inference<'a>` / `Policy<'a>` projections: **✓ Complete** (ADR-030). Derived+heuristic and config projections with structural coverage witnesses, `salsa_opt_out` mechanism on `#[epistemic(...)]`, Level 2 Salsa projection coverage test, projection-subset witness of A8 (Inference Boundedness), `fold_toggle_state` reclassified from runtime to config, and PoC migration of three internal call sites to `state.policy()`.
   - Level 3 — `TransparentCommand` projection: **✓ Complete** (ADR-030). `Command::is_kakoune_writing()` exhaustive classification, `TransparentCommand` newtype restricting construction to non-writing variants, `TransparentKeyResult`, 5 `_transparent` handler registration methods on `HandlerRegistry`, `TransparencyFlags` for per-plugin T10 auto-derivation, 8 structural witness tests, and A3 τ-transition property test.
-  - Levels 4–6 — `RecoveryWitness` for destructive directives, explicit free monad of `Command`, and type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
+  - Level 4 — `RecoveryWitness` for destructive directives: **✓ Complete** (ADR-030). `DisplayDirective::is_destructive()` exhaustive classification, `SafeDisplayDirective` newtype restricting construction to non-destructive variants, `RecoveryWitness` + `RecoveryMechanism` registration-time evidence, `on_display_safe()` / `on_display_witnessed()` registration methods on `HandlerRegistry`, `RecoveryFlags` for per-plugin Visual Faithfulness auto-derivation, 8 structural witness tests, 4 flag auto-derivation tests, and 2 fold recovery property tests.
+  - Levels 5–6 — Explicit free monad of `Command`, and type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
 
-Next deliverable: Design and land ADR-030 Level 4 — `RecoveryWitness` contract for destructive display directives. Prerequisites from Levels 1–3 are now in place.
+Next deliverable: Design and land ADR-030 Level 5 — explicit free monad for static analysability of `Command` effect sequences. Prerequisites from Levels 1–4 are now in place.
 
 ## 4. Phase Status Summary
 

@@ -17,8 +17,10 @@ mod manager;
 pub mod process_task;
 mod provider;
 pub mod pubsub;
+pub mod recovery_witness;
 mod registry;
 pub mod render_ornament;
+pub mod safe_directive;
 pub mod setting;
 pub mod state;
 mod traits;
@@ -89,6 +91,10 @@ pub use traits::{KeyHandleResult, PluginBackend};
 
 // Re-export transparent command types (ADR-030 Level 3)
 pub use transparent_command::{TransparentCommand, TransparentKeyResult};
+
+// Re-export recovery witness types (ADR-030 Level 4)
+pub use recovery_witness::{RecoveryMechanism, RecoveryWitness};
+pub use safe_directive::SafeDisplayDirective;
 
 // Re-export compose module
 pub use compose::{

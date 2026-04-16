@@ -253,6 +253,40 @@ impl TransparencyFlags {
 }
 
 // =============================================================================
+// Recovery flags (ADR-030 Level 4)
+// =============================================================================
+
+/// Tracks whether a plugin's display directives satisfy Visual Faithfulness (§10.2a).
+#[derive(Debug, Default)]
+pub(crate) enum DisplayRecoveryStatus {
+    /// No display handler registered.
+    #[default]
+    NotRegistered,
+    /// Handler uses `SafeDisplayDirective` — cannot emit Hide.
+    NonDestructive,
+    /// Handler may emit Hide, but recovery evidence was provided.
+    #[allow(dead_code)] // witness value is stored for future diagnostic / introspection use
+    Witnessed(super::recovery_witness::RecoveryWitness),
+    /// Handler may emit Hide, no recovery evidence.
+    Unwitnessed,
+}
+
+/// Per-plugin recovery flags for display directives.
+#[derive(Debug, Default)]
+pub(crate) struct RecoveryFlags {
+    pub(crate) display: DisplayRecoveryStatus,
+}
+
+impl RecoveryFlags {
+    /// Whether this plugin's display directives satisfy Visual Faithfulness (§10.2a).
+    ///
+    /// Returns `false` only for `Unwitnessed` — all other states are faithful.
+    pub(crate) fn is_visually_faithful(&self) -> bool {
+        !matches!(self.display, DisplayRecoveryStatus::Unwitnessed)
+    }
+}
+
+// =============================================================================
 // HandlerTable
 // =============================================================================
 
@@ -322,6 +356,9 @@ pub(crate) struct HandlerTable {
 
     // --- Transparency (ADR-030 Level 3) ---
     pub(crate) transparency: TransparencyFlags,
+
+    // --- Recovery (ADR-030 Level 4) ---
+    pub(crate) recovery: RecoveryFlags,
 }
 
 #[allow(dead_code)] // consumed by PluginBridge
@@ -369,6 +406,7 @@ impl HandlerTable {
             process_tasks: Vec::new(),
             interests: DirtyFlags::ALL,
             transparency: TransparencyFlags::default(),
+            recovery: RecoveryFlags::default(),
         }
     }
 

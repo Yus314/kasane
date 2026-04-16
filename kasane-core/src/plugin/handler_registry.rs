@@ -816,11 +816,55 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
     }
 
     /// Register a display directive handler.
+    ///
+    /// If the handler may emit `Hide` directives, consider using
+    /// [`on_display_witnessed`](Self::on_display_witnessed) to provide recovery
+    /// evidence, or [`on_display_safe`](Self::on_display_safe) if `Hide` is not
+    /// needed.
     pub fn on_display(
         &mut self,
         handler: impl Fn(&S, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync + 'static,
     ) {
         register_view!(self, display_handler, handler, app);
+        self.table.recovery.display = super::handler_table::DisplayRecoveryStatus::Unwitnessed;
+    }
+
+    /// Display handler that cannot emit Hide directives (compile-time safe).
+    ///
+    /// The handler returns `Vec<SafeDisplayDirective>`, which has no `Hide`
+    /// constructor, making non-destructiveness a compile-time property.
+    pub fn on_display_safe(
+        &mut self,
+        handler: impl Fn(&S, &AppView<'_>) -> Vec<super::SafeDisplayDirective> + Send + Sync + 'static,
+    ) {
+        self.table.display_handler = Some(Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app).into_iter().map(Into::into).collect()
+        }));
+        self.table.recovery.display = super::handler_table::DisplayRecoveryStatus::NonDestructive;
+    }
+
+    /// Display handler that may emit Hide, with recovery evidence.
+    ///
+    /// The caller provides a [`RecoveryWitness`](super::RecoveryWitness)
+    /// documenting how the user can recover hidden content, satisfying
+    /// Visual Faithfulness (§10.2a).
+    pub fn on_display_witnessed(
+        &mut self,
+        witness: super::RecoveryWitness,
+        handler: impl Fn(&S, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync + 'static,
+    ) {
+        register_view!(self, display_handler, handler, app);
+        self.table.recovery.display =
+            super::handler_table::DisplayRecoveryStatus::Witnessed(witness);
+    }
+
+    /// Whether this plugin's display directives satisfy Visual Faithfulness (§10.2a).
+    pub fn is_display_recoverable(&self) -> bool {
+        self.table.recovery.is_visually_faithful()
     }
 
     /// Register backend-independent physical ornament proposals.

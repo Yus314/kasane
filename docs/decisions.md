@@ -1923,10 +1923,46 @@ Introduce a staged enforcement model for the observed/policy split.
   session switching is a framework-internal operation. A future Level 5
   (free monad) analysis could track transitive writing paths.
 
-**Levels 4–6 (reserved; not implemented).**
+**Level 4 — `RecoveryWitness` for Destructive Display Directives (shipped).**
 
-- Level 4 — `RecoveryWitness` contract for destructive display
-  directives (roadmap §2.2, semantics §13.14).
+- Add `DisplayDirective::is_destructive()`: exhaustive match (no `_`
+  wildcard) classifying every variant as destructive or non-destructive.
+  `Hide` is the sole destructive variant. New variants cause a compile
+  error until explicitly classified.
+- Add `DisplayDirective::variant_name()`, `ALL_VARIANT_NAMES`,
+  `DESTRUCTIVE_VARIANTS`, `PRESERVING_VARIANTS`, and
+  `ADDITIVE_VARIANTS` constants for structural witness tests.
+- Add `SafeDisplayDirective`: a newtype wrapping `DisplayDirective` that
+  exposes named constructors only for the 3 non-destructive variants
+  (`fold`, `insert_after`, `insert_before`). There is no constructor for
+  `Hide`, making non-destructiveness a compile-time property.
+- Add `RecoveryWitness` and `RecoveryMechanism`: registration-time
+  evidence that a plugin's destructive directives are user-recoverable.
+- Add `DisplayRecoveryStatus` and `RecoveryFlags` on `HandlerTable` for
+  per-plugin Visual Faithfulness auto-derivation.
+- Add 3 display handler registration methods on `HandlerRegistry`:
+  `on_display` (unwitnessed — marks plugin as non-faithful),
+  `on_display_safe` (compile-time non-destructive via
+  `SafeDisplayDirective`), `on_display_witnessed` (destructive with
+  recovery evidence).
+- Add `HandlerRegistry::is_display_recoverable()` for per-plugin §10.2a
+  auto-derivation: returns true unless the plugin registered a raw
+  `on_display` handler without recovery evidence.
+- 8 structural witness tests
+  (`kasane-core/src/plugin/tests/directive_classification.rs`) pin the
+  classification constants and cross-check the three classification axes.
+- 4 recovery flag auto-derivation tests verify the `NotRegistered`,
+  `NonDestructive`, `Witnessed`, and `Unwitnessed` status paths.
+- 2 property tests (`kasane-core/tests/visual_faithfulness.rs`) witness
+  that `FoldToggleState::toggle` recovers all folded lines in a single
+  interaction, confirming Fold's Preserving classification.
+- Note: `Fold` is classified as Preserving (not Destructive) because
+  `FoldToggleState` provides framework-maintained recovery. `Hide` is
+  the sole Destructive variant; plugin-side recovery requires explicit
+  `RecoveryWitness` evidence.
+
+**Levels 5–6 (reserved; not implemented).**
+
 - Level 5 — Static analysability of command effect sequences via an
   explicit free monad (roadmap §2.2, semantics §13.17).
 - Level 6 — Type-level witness of `apply()`-exclusive `&mut AppState`

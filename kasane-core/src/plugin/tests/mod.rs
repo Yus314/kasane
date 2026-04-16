@@ -11,6 +11,7 @@ use crate::workspace::Placement;
 mod command_classification;
 mod commands;
 mod compose;
+mod directive_classification;
 mod hooks;
 mod io;
 mod registry;

@@ -19,10 +19,11 @@ pub use crate::plugin::{
     OverlayContribution, PaneContext, Plugin, PluginAuthorities, PluginBackend, PluginBridge,
     PluginCapabilities, PluginDescriptor, PluginEffects, PluginFactory, PluginId, PluginManager,
     PluginProvider, PluginRank, PluginRevision, PluginRuntime, PluginSource, PluginState,
-    RenderOrnamentContext, SemanticRole, SlotId, SourceStrength, SurfaceOrn, SurfaceOrnAnchor,
-    SurfaceOrnKind, Topic, TopicBus, TopicId, TransformContext, TransformDescriptor,
-    TransformScope, TransformSubject, TransformTarget, TransparentCommand, TransparentKeyResult,
-    UnitSource, VirtualTextItem, builtin_plugin, host_plugin, host_plugin_with_provider,
+    RecoveryMechanism, RecoveryWitness, RenderOrnamentContext, SafeDisplayDirective, SemanticRole,
+    SlotId, SourceStrength, SurfaceOrn, SurfaceOrnAnchor, SurfaceOrnKind, Topic, TopicBus, TopicId,
+    TransformContext, TransformDescriptor, TransformScope, TransformSubject, TransformTarget,
+    TransparentCommand, TransparentKeyResult, UnitSource, VirtualTextItem, builtin_plugin,
+    host_plugin, host_plugin_with_provider,
 };
 
 // Element tree
