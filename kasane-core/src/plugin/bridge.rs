@@ -47,6 +47,8 @@ pub struct PluginBridge {
     next_task_job_id: u64,
     /// Pending diagnostics to be drained on the next `drain_diagnostics()` call.
     pending_diagnostics: Vec<PluginDiagnostic>,
+    /// Cached projection descriptors from the handler table.
+    cached_projection_descriptors: Vec<crate::display::ProjectionDescriptor>,
 }
 
 impl PluginBridge {
@@ -56,6 +58,11 @@ impl PluginBridge {
         let mut registry = HandlerRegistry::<P::State>::new();
         plugin.register(&mut registry);
         let table = registry.into_table();
+        let cached_projection_descriptors: Vec<_> = table
+            .projection_entries
+            .iter()
+            .map(|e| e.descriptor.clone())
+            .collect();
         let state: Box<dyn PluginState> = Box::new(P::State::default());
         let prev_state = state.clone();
         PluginBridge {
@@ -69,6 +76,7 @@ impl PluginBridge {
             // Start at a high offset to avoid collisions with manually managed job IDs.
             next_task_job_id: 0x8000_0000_0000_0000,
             pending_diagnostics: Vec::new(),
+            cached_projection_descriptors,
         }
     }
 
@@ -721,6 +729,23 @@ impl PluginBackend for PluginBridge {
         } else {
             vec![]
         }
+    }
+
+    fn projection_descriptors(&self) -> &[crate::display::ProjectionDescriptor] {
+        &self.cached_projection_descriptors
+    }
+
+    fn projection_directives(
+        &self,
+        id: &crate::display::ProjectionId,
+        state: &AppView<'_>,
+    ) -> Vec<DisplayDirective> {
+        for entry in &self.table.projection_entries {
+            if &entry.descriptor.id == id {
+                return (entry.handler)(&*self.state, state);
+            }
+        }
+        vec![]
     }
 
     fn navigation_policy(

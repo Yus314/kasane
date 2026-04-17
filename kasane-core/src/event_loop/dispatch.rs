@@ -173,7 +173,10 @@ pub(super) fn handle_deferred_commands_inner(
             Command::PluginMessage { .. }
             | Command::ScheduleTimer { .. }
             | Command::SetConfig { .. }
-            | Command::SetSetting { .. } => {
+            | Command::SetSetting { .. }
+            | Command::SetStructuralProjection(_)
+            | Command::ToggleAdditiveProjection(_)
+            | Command::ProjectionOff => {
                 handle_inter_plugin_command(cmd, ctx, command_source_plugin, depth)
             }
             Command::RegisterSurface { .. }
@@ -248,6 +251,18 @@ fn handle_inter_plugin_command(
             value,
         } => {
             crate::state::apply_set_setting(ctx.state, ctx.dirty, &plugin_id, &key, value);
+        }
+        Command::SetStructuralProjection(id) => {
+            ctx.state.config.projection_policy.set_structural(id);
+            *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
+        }
+        Command::ToggleAdditiveProjection(id) => {
+            ctx.state.config.projection_policy.toggle_additive(id);
+            *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
+        }
+        Command::ProjectionOff => {
+            ctx.state.config.projection_policy.clear_all();
+            *ctx.dirty |= DirtyFlags::BUFFER_CONTENT;
         }
         _ => unreachable!(),
     }

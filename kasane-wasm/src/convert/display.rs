@@ -1,5 +1,6 @@
 use kasane_core::display::DisplayDirective;
 use kasane_core::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
+use kasane_core::display::projection::{ProjectionCategory, ProjectionDescriptor, ProjectionId};
 use kasane_core::display::unit::{DisplayUnit, SemanticRole};
 
 use crate::bindings::kasane::plugin::types as wit;
@@ -122,4 +123,33 @@ pub(crate) fn navigation_action_to_wit_kind(action: &NavigationAction) -> u32 {
         NavigationAction::ToggleFold => 1,
         NavigationAction::Plugin(_tag, id) => 2 + id,
     }
+}
+
+// === Projection Mode converters ===
+
+fn wit_projection_category_to_category(c: &wit::ProjectionCategory) -> ProjectionCategory {
+    match c {
+        wit::ProjectionCategory::Structural => ProjectionCategory::Structural,
+        wit::ProjectionCategory::Additive => ProjectionCategory::Additive,
+    }
+}
+
+pub(crate) fn wit_projection_descriptor_to_descriptor(
+    w: &wit::ProjectionDescriptor,
+) -> ProjectionDescriptor {
+    ProjectionDescriptor {
+        id: ProjectionId::new(w.id.as_str()),
+        name: w.name.clone(),
+        category: wit_projection_category_to_category(&w.category),
+        priority: w.priority,
+    }
+}
+
+pub(crate) fn wit_projection_descriptors_to_descriptors(
+    descs: &[wit::ProjectionDescriptor],
+) -> Vec<ProjectionDescriptor> {
+    descs
+        .iter()
+        .map(wit_projection_descriptor_to_descriptor)
+        .collect()
 }

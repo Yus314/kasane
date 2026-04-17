@@ -1531,6 +1531,23 @@ impl<'a> PluginView<'a> {
 
     /// Collect display transformation directives from all plugins and build
     /// a `DisplayMapRef`.
+    /// Collect all projection descriptors from registered plugins.
+    pub fn collect_projection_descriptors(&self) -> Vec<crate::display::ProjectionDescriptor> {
+        let mut result = Vec::new();
+        for slot in self.slots.iter() {
+            if !slot
+                .capabilities
+                .contains(PluginCapabilities::DISPLAY_TRANSFORM)
+            {
+                continue;
+            }
+            result.extend_from_slice(slot.backend.projection_descriptors());
+        }
+        result
+    }
+
+    /// Collect display transformation directives from all plugins and build
+    /// a `DisplayMapRef`.
     pub fn collect_display_map(&self, state: &AppView<'_>) -> DisplayMapRef {
         if !self.has_capability(PluginCapabilities::DISPLAY_TRANSFORM) {
             let line_count = state.visible_line_range().len();
@@ -1544,7 +1561,22 @@ impl<'a> PluginView<'a> {
         }
         let mut directives = crate::display::resolve(&set, line_count);
         // Filter out fold ranges that have been toggled open by the user.
-        state.fold_toggle_state().filter_directives(&mut directives);
+        // Per-projection fold state scoping: use the active structural projection's
+        // fold state if one is active, otherwise fall back to the global fold state.
+        if let Some(active_id) = state.projection_policy().active_structural() {
+            state
+                .projection_policy()
+                .fold_state_for(active_id)
+                .filter_directives(&mut directives);
+        } else {
+            state.fold_toggle_state().filter_directives(&mut directives);
+        }
+        // Cursor safety net: never hide the line the cursor is on.
+        let cursor_line = state.cursor_line().max(0) as usize;
+        directives.retain(|d| match d {
+            crate::display::DisplayDirective::Hide { range } => !range.contains(&cursor_line),
+            _ => true,
+        });
         if directives.is_empty() {
             return Arc::new(DisplayMap::identity(line_count));
         }
@@ -1575,11 +1607,17 @@ impl<'a> PluginView<'a> {
     ///
     /// The resulting `DirectiveSet` forms a commutative monoid (see `compose::Composable`):
     /// plugin evaluation order does not affect the resolved output.
+    ///
+    /// Projection-aware: plugins that define projections only emit directives for
+    /// their active projections. Legacy `display_directives()` is only called for
+    /// plugins that do NOT define projections.
     fn collect_tagged_display_directives(
         &self,
         state: &AppView<'_>,
     ) -> crate::display::DirectiveSet {
         let mut set = crate::display::DirectiveSet::default();
+        let projection_policy = state.projection_policy();
+
         for slot in self.slots.iter() {
             if !slot
                 .capabilities
@@ -1587,14 +1625,35 @@ impl<'a> PluginView<'a> {
             {
                 continue;
             }
-            let directives = slot.backend.display_directives(state);
-            if directives.is_empty() {
-                continue;
+
+            let has_projections = !slot.backend.projection_descriptors().is_empty();
+
+            // Legacy display handlers: only if plugin does NOT define projections
+            if !has_projections {
+                let directives = slot.backend.display_directives(state);
+                if directives.is_empty() {
+                    continue;
+                }
+                let priority = slot.backend.display_directive_priority();
+                let plugin_id = slot.backend.id();
+                for d in directives {
+                    set.push(d, priority, plugin_id.clone());
+                }
             }
-            let priority = slot.backend.display_directive_priority();
-            let plugin_id = slot.backend.id();
-            for d in directives {
-                set.push(d, priority, plugin_id.clone());
+
+            // Projection handlers: only call active projections
+            for desc in slot.backend.projection_descriptors() {
+                if !projection_policy.is_active(&desc.id) {
+                    continue;
+                }
+                let directives = slot.backend.projection_directives(&desc.id, state);
+                if directives.is_empty() {
+                    continue;
+                }
+                let plugin_id = slot.backend.id();
+                for d in directives {
+                    set.push(d, desc.priority, plugin_id.clone());
+                }
             }
         }
         set

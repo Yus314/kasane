@@ -6,6 +6,7 @@
 
 pub mod fold_state;
 pub mod navigation;
+pub mod projection;
 pub mod resolve;
 pub mod stability;
 #[cfg(test)]
@@ -29,6 +30,9 @@ pub struct DisplayLine(pub usize);
 
 pub use fold_state::FoldToggleState;
 pub use navigation::{ActionResult, NavigationAction, NavigationDirection, NavigationPolicy};
+pub use projection::{
+    ProjectionCategory, ProjectionDescriptor, ProjectionId, ProjectionPolicyState,
+};
 // InverseResult is defined in this module (not a submodule re-export).
 pub use resolve::{
     DirectiveGroup, DirectiveSet, ResolveCache, TaggedDirective, partition_directives, resolve,

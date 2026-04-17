@@ -171,7 +171,9 @@ impl AppState {
         "display_scroll_offset",
         "display_map",
         "display_unit_map",
+        "available_projections",
         "fold_toggle_state",
+        "projection_policy",
     ];
 
     /// Field → epistemological category.
@@ -216,6 +218,7 @@ impl AppState {
         ("secondary_blend_ratio", "config"),
         ("theme", "config"),
         ("fold_toggle_state", "config"),
+        ("projection_policy", "config"),
         // session
         ("session_descriptors", "session"),
         ("active_session_key", "session"),
@@ -229,6 +232,7 @@ impl AppState {
         ("display_scroll_offset", "runtime"),
         ("display_map", "runtime"),
         ("display_unit_map", "runtime"),
+        ("available_projections", "runtime"),
     ];
 
     /// Heuristic fields: `(field, rule, severity)`.
@@ -299,6 +303,7 @@ impl AppState {
                 "secondary_blend_ratio",
                 "theme",
                 "fold_toggle_state",
+                "projection_policy",
             ],
         ),
         ("session", &["session_descriptors", "active_session_key"]),
@@ -314,6 +319,7 @@ impl AppState {
                 "display_scroll_offset",
                 "display_map",
                 "display_unit_map",
+                "available_projections",
             ],
         ),
     ];
@@ -358,6 +364,10 @@ impl AppState {
         ),
         (
             "fold_toggle_state",
+            "consumed by DisplayMap construction; not surfaced in Salsa projection",
+        ),
+        (
+            "projection_policy",
             "consumed by DisplayMap construction; not surfaced in Salsa projection",
         ),
     ];
@@ -415,7 +425,8 @@ impl AppState {
         self.cursor_cache = derived::CursorCache::default();
         self.runtime.drag = DragState::None;
         self.config.fold_toggle_state = crate::display::FoldToggleState::default();
-        // session, config (except fold_toggle_state), and runtime (except drag)
+        self.config.projection_policy = crate::display::ProjectionPolicyState::default();
+        // session, config (except fold_toggle_state/projection_policy), and runtime (except drag)
         // are intentionally preserved
     }
 

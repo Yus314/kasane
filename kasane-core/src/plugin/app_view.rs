@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::display::FoldToggleState;
+use crate::display::{FoldToggleState, ProjectionPolicyState};
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
@@ -382,6 +382,18 @@ impl<'a> AppView<'a> {
     #[inline]
     pub fn fold_toggle_state(&self) -> &FoldToggleState {
         &self.state.config.fold_toggle_state
+    }
+
+    /// Projection mode policy — active projections and per-projection fold state.
+    #[inline]
+    pub fn projection_policy(&self) -> &ProjectionPolicyState {
+        &self.state.config.projection_policy
+    }
+
+    /// Available projection descriptors from all registered plugins.
+    #[inline]
+    pub fn available_projections(&self) -> &[crate::display::ProjectionDescriptor] {
+        &self.state.runtime.available_projections
     }
 }
 

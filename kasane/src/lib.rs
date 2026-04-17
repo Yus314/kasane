@@ -299,11 +299,16 @@ fn build_plugin_manager(
         let _ = config;
     }
     providers.push(Box::new(provider));
-    providers.push(Box::new(StaticPluginProvider::new([builtin_plugin(
-        "builtin-input",
-        "kasane.builtin.input",
-        || kasane_core::input::BuiltinInputPlugin,
-    )])));
+    providers.push(Box::new(StaticPluginProvider::new([
+        builtin_plugin("builtin-input", "kasane.builtin.input", || {
+            kasane_core::input::BuiltinInputPlugin
+        }),
+        builtin_plugin(
+            "projection-status",
+            "kasane.builtin.projection-status",
+            || kasane_core::plugin::ProjectionStatusPlugin,
+        ),
+    ])));
     PluginManager::new(providers)
 }
 

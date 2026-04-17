@@ -369,6 +369,22 @@ pub trait PluginBackend: Any {
         vec![]
     }
 
+    // === Projection Mode ===
+
+    /// Return projection descriptors defined by this plugin.
+    fn projection_descriptors(&self) -> &[crate::display::ProjectionDescriptor] {
+        &[]
+    }
+
+    /// Return display directives for a specific active projection.
+    fn projection_directives(
+        &self,
+        _id: &crate::display::ProjectionId,
+        _state: &AppView<'_>,
+    ) -> Vec<DisplayDirective> {
+        vec![]
+    }
+
     // === Navigation (DU-4) ===
 
     /// Override navigation policy for a display unit.

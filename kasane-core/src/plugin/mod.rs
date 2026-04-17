@@ -16,6 +16,7 @@ pub(crate) mod handler_table;
 pub mod io;
 mod manager;
 pub mod process_task;
+pub mod projection_status;
 mod provider;
 pub mod pubsub;
 pub mod recovery_witness;
@@ -83,13 +84,17 @@ pub type PluginRegistry = PluginRuntime;
 // Re-export display types for plugin API
 pub use crate::display::{
     ActionResult, DisplayDirective, DisplayMapRef, DisplayUnit, DisplayUnitId, DisplayUnitMap,
-    FoldToggleState, NavigationAction, NavigationDirection, NavigationPolicy, SemanticRole,
-    SourceStrength, UnitSource,
+    FoldToggleState, NavigationAction, NavigationDirection, NavigationPolicy, ProjectionCategory,
+    ProjectionDescriptor, ProjectionId, ProjectionPolicyState, SemanticRole, SourceStrength,
+    UnitSource,
 };
 
 // Re-export traits module
 pub use crate::input::KeyResponse;
 pub use traits::{KeyHandleResult, PluginBackend};
+
+// Re-export projection status plugin (Phase 10)
+pub use projection_status::ProjectionStatusPlugin;
 
 // Re-export transparent command types (ADR-030 Level 3)
 pub use transparent_command::{TransparentCommand, TransparentKeyResult};

@@ -19,6 +19,13 @@ pub struct FoldToggleState {
 }
 
 impl FoldToggleState {
+    /// Create an empty fold toggle state (const-compatible).
+    pub const fn empty() -> Self {
+        Self {
+            expanded: Vec::new(),
+        }
+    }
+
     /// Toggle a fold range: expand if collapsed, collapse if expanded.
     pub fn toggle(&mut self, range: &Range<usize>) {
         if let Some(pos) = self.expanded.iter().position(|r| r == range) {

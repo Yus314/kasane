@@ -20,6 +20,8 @@ use crate::workspace::WorkspaceQuery;
 use crate::display::navigation::{ActionResult, NavigationAction, NavigationPolicy};
 use crate::display::unit::DisplayUnit;
 
+use crate::display::projection::ProjectionDescriptor;
+
 use super::element_patch::ElementPatch;
 use super::extension_point::{ExtensionContribution, ExtensionDefinition};
 use super::process_task::ProcessTaskEntry;
@@ -220,6 +222,14 @@ pub(crate) struct GutterHandlerEntry {
     pub(crate) handler: ErasedAnnotateGutterHandler,
 }
 
+/// A projection mode handler with descriptor and recovery metadata.
+#[allow(dead_code)] // consumed by PluginBridge
+pub(crate) struct ProjectionEntry {
+    pub(crate) descriptor: ProjectionDescriptor,
+    pub(crate) handler: ErasedDisplayHandler,
+    pub(crate) recovery: DisplayRecoveryStatus,
+}
+
 // =============================================================================
 // Transparency flags (ADR-030 Level 3 + Level 5)
 // =============================================================================
@@ -363,6 +373,7 @@ pub(crate) struct HandlerTable {
     pub(crate) virtual_text_handler: Option<ErasedVirtualTextHandler>,
     pub(crate) overlay_handler: Option<ErasedOverlayHandler>,
     pub(crate) display_handler: Option<ErasedDisplayHandler>,
+    pub(crate) projection_entries: Vec<ProjectionEntry>,
     pub(crate) render_ornament_handler: Option<ErasedRenderOrnamentHandler>,
     pub(crate) menu_transform_handler: Option<ErasedMenuTransformHandler>,
 
@@ -425,6 +436,7 @@ impl HandlerTable {
             virtual_text_handler: None,
             overlay_handler: None,
             display_handler: None,
+            projection_entries: Vec::new(),
             render_ornament_handler: None,
             menu_transform_handler: None,
             navigation_policy_handler: None,
@@ -479,7 +491,7 @@ impl HandlerTable {
         if self.overlay_handler.is_some() {
             caps |= PluginCapabilities::OVERLAY;
         }
-        if self.display_handler.is_some() {
+        if self.display_handler.is_some() || !self.projection_entries.is_empty() {
             caps |= PluginCapabilities::DISPLAY_TRANSFORM;
         }
         if self.render_ornament_handler.is_some() {

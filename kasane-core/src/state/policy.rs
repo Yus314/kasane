@@ -29,6 +29,7 @@ use std::collections::HashMap;
 
 use crate::config::MenuPosition;
 use crate::display::FoldToggleState;
+use crate::display::ProjectionPolicyState;
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::render::theme::Theme;
@@ -149,6 +150,12 @@ impl<'a> Policy<'a> {
         &self.inner.fold_toggle_state
     }
 
+    /// Config: projection mode policy — active projections and per-projection fold state.
+    #[inline]
+    pub fn projection_policy(&self) -> &'a ProjectionPolicyState {
+        &self.inner.projection_policy
+    }
+
     // =========================================================================
     // Structural witness
     // =========================================================================
@@ -173,6 +180,7 @@ impl<'a> Policy<'a> {
         "plugin_config",
         "plugin_settings",
         "fold_toggle_state",
+        "projection_policy",
     ];
 }
 

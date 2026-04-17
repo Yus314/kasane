@@ -345,6 +345,8 @@ pub struct WasmPlugin {
     shared: Arc<WasmPluginShared>,
     /// Compiled key map built from `declare-key-map` at construction time.
     key_map: Option<CompiledKeyMap>,
+    /// Cached projection descriptors from `declare-projections` at construction time.
+    cached_projection_descriptors: Vec<kasane_core::display::ProjectionDescriptor>,
 }
 
 impl WasmPlugin {
@@ -386,6 +388,14 @@ impl WasmPlugin {
             Err(_) => None,
         };
 
+        // Query projection declarations at construction time.
+        let cached_projection_descriptors = match plugin_api.call_declare_projections(&mut store) {
+            Ok(descs) if !descs.is_empty() => {
+                convert::wit_projection_descriptors_to_descriptors(&descs)
+            }
+            _ => Vec::new(),
+        };
+
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
@@ -404,6 +414,7 @@ impl WasmPlugin {
                 extension_defs,
             }),
             key_map,
+            cached_projection_descriptors,
         }
     }
 
@@ -447,6 +458,14 @@ impl WasmPlugin {
             Err(_) => None, // Plugin doesn't implement declare-key-map — OK
         };
 
+        // Query projection declarations at construction time.
+        let cached_projection_descriptors = match plugin_api.call_declare_projections(&mut store) {
+            Ok(descs) if !descs.is_empty() => {
+                convert::wit_projection_descriptors_to_descriptors(&descs)
+            }
+            _ => Vec::new(),
+        };
+
         Self {
             shared: Arc::new(WasmPluginShared {
                 runtime: Mutex::new(WasmPluginRuntime { store, instance }),
@@ -465,6 +484,7 @@ impl WasmPlugin {
                 extension_defs: Vec::new(),
             }),
             key_map,
+            cached_projection_descriptors,
         }
     }
 }
@@ -1046,6 +1066,25 @@ impl PluginBackend for WasmPlugin {
                 &api.call_display_directives(&mut rt.store)?,
             ))
         })
+    }
+
+    fn projection_descriptors(&self) -> &[kasane_core::display::ProjectionDescriptor] {
+        &self.cached_projection_descriptors
+    }
+
+    fn projection_directives(
+        &self,
+        id: &kasane_core::display::ProjectionId,
+        state: &AppView<'_>,
+    ) -> Vec<DisplayDirective> {
+        let id_str = id.0.to_string();
+        self.shared
+            .call_synced(state, "projection_directives", |rt| {
+                let api = rt.instance.kasane_plugin_plugin_api();
+                Ok(convert::wit_display_directives_to_directives(
+                    &api.call_projection_directives(&mut rt.store, &id_str)?,
+                ))
+            })
     }
 
     fn navigation_policy(

@@ -236,6 +236,12 @@ pub enum Command {
         name: String,
         value: crate::widget::types::Value,
     },
+    /// Set (or clear) the active structural projection.
+    SetStructuralProjection(Option<crate::display::ProjectionId>),
+    /// Toggle an additive projection on/off.
+    ToggleAdditiveProjection(crate::display::ProjectionId),
+    /// Deactivate all projections (preserves fold states).
+    ProjectionOff,
 }
 
 impl Command {
@@ -255,6 +261,7 @@ impl Command {
         "KillProcess",
         "PasteClipboard",
         "PluginMessage",
+        "ProjectionOff",
         "Quit",
         "RegisterSurface",
         "RegisterSurfaceRequested",
@@ -266,9 +273,11 @@ impl Command {
         "Session",
         "SetConfig",
         "SetSetting",
+        "SetStructuralProjection",
         "SpawnPaneClient",
         "SpawnProcess",
         "StartProcessTask",
+        "ToggleAdditiveProjection",
         "UnbindSurfaceSession",
         "UnregisterSurface",
         "UnregisterSurfaceKey",
@@ -336,6 +345,9 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => false,
             Command::StartProcessTask { .. } => false,
             Command::ExposeVariable { .. } => false,
+            Command::SetStructuralProjection(_) => false,
+            Command::ToggleAdditiveProjection(_) => false,
+            Command::ProjectionOff => false,
         }
     }
 
@@ -375,6 +387,9 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => false,
             Command::StartProcessTask { .. } => false,
             Command::ExposeVariable { .. } => false,
+            Command::SetStructuralProjection(_) => true,
+            Command::ToggleAdditiveProjection(_) => true,
+            Command::ProjectionOff => true,
         }
     }
 
@@ -412,6 +427,9 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => true,
             Command::StartProcessTask { .. } => true,
             Command::ExposeVariable { .. } => true,
+            Command::SetStructuralProjection(_) => true,
+            Command::ToggleAdditiveProjection(_) => true,
+            Command::ProjectionOff => true,
         }
     }
 
@@ -450,6 +468,9 @@ impl Command {
             Command::PasteClipboard => EffectCategory::CLIPBOARD,
             Command::RegisterThemeTokens(_) => EffectCategory::THEME,
             Command::ExposeVariable { .. } => EffectCategory::VARIABLE,
+            Command::SetStructuralProjection(_) => EffectCategory::CONFIG_MUTATION,
+            Command::ToggleAdditiveProjection(_) => EffectCategory::CONFIG_MUTATION,
+            Command::ProjectionOff => EffectCategory::CONFIG_MUTATION,
         }
     }
 
@@ -485,6 +506,9 @@ impl Command {
             Command::UnbindSurfaceSession { .. } => "UnbindSurfaceSession",
             Command::StartProcessTask { .. } => "StartProcessTask",
             Command::ExposeVariable { .. } => "ExposeVariable",
+            Command::SetStructuralProjection(_) => "SetStructuralProjection",
+            Command::ToggleAdditiveProjection(_) => "ToggleAdditiveProjection",
+            Command::ProjectionOff => "ProjectionOff",
         }
     }
 }
@@ -565,7 +589,10 @@ pub fn execute_commands(
             | Command::BindSurfaceSession { .. }
             | Command::UnbindSurfaceSession { .. }
             | Command::StartProcessTask { .. }
-            | Command::ExposeVariable { .. } => {}
+            | Command::ExposeVariable { .. }
+            | Command::SetStructuralProjection(_)
+            | Command::ToggleAdditiveProjection(_)
+            | Command::ProjectionOff => {}
         }
     }
     CommandResult::Continue

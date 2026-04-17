@@ -1032,6 +1032,78 @@ impl<S: PluginState + Clone + 'static> HandlerRegistry<S> {
         self.table.recovery.is_visually_faithful()
     }
 
+    /// Define a named projection mode.
+    ///
+    /// - **Structural** projections auto-create a `RecoveryWitness::Declared` since
+    ///   switching structural projections is the built-in recovery mechanism.
+    /// - **Additive** projections are marked `NonDestructive`.
+    pub fn define_projection(
+        &mut self,
+        descriptor: crate::display::ProjectionDescriptor,
+        handler: impl Fn(&S, &AppView<'_>) -> Vec<DisplayDirective> + Send + Sync + 'static,
+    ) {
+        use super::handler_table::{DisplayRecoveryStatus, ProjectionEntry};
+        use crate::display::ProjectionCategory;
+
+        let recovery = match descriptor.category {
+            ProjectionCategory::Structural => {
+                DisplayRecoveryStatus::Witnessed(super::RecoveryWitness {
+                    mechanism: super::RecoveryMechanism::Declared {
+                        description: "projection mode switch",
+                    },
+                })
+            }
+            ProjectionCategory::Additive => DisplayRecoveryStatus::NonDestructive,
+        };
+
+        let erased: super::handler_table::ErasedDisplayHandler = Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app)
+        });
+
+        self.table.projection_entries.push(ProjectionEntry {
+            descriptor,
+            handler: erased,
+            recovery,
+        });
+    }
+
+    /// Define a named additive projection with compile-time non-destructive guarantee.
+    ///
+    /// The handler returns `Vec<SafeDisplayDirective>` (no Hide), making
+    /// non-destructiveness a compile-time property.
+    pub fn define_additive_projection(
+        &mut self,
+        descriptor: crate::display::ProjectionDescriptor,
+        handler: impl Fn(&S, &AppView<'_>) -> Vec<super::SafeDisplayDirective> + Send + Sync + 'static,
+    ) {
+        use super::handler_table::{DisplayRecoveryStatus, ProjectionEntry};
+        use crate::display::ProjectionCategory;
+
+        assert!(
+            descriptor.category == ProjectionCategory::Additive,
+            "define_additive_projection requires Additive category, got {:?}",
+            descriptor.category,
+        );
+
+        let erased: super::handler_table::ErasedDisplayHandler = Box::new(move |state, app| {
+            let s = state
+                .as_any()
+                .downcast_ref::<S>()
+                .expect("state type mismatch");
+            handler(s, app).into_iter().map(Into::into).collect()
+        });
+
+        self.table.projection_entries.push(ProjectionEntry {
+            descriptor,
+            handler: erased,
+            recovery: DisplayRecoveryStatus::NonDestructive,
+        });
+    }
+
     /// Register backend-independent physical ornament proposals.
     pub fn on_render_ornaments(
         &mut self,

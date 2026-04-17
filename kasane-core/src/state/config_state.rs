@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use crate::config::MenuPosition;
 use crate::display::FoldToggleState;
+use crate::display::ProjectionPolicyState;
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::render::theme::Theme;
@@ -33,6 +34,8 @@ pub struct ConfigState {
     pub theme: Theme,
     /// Core fold toggle state: tracks which fold ranges are currently expanded.
     pub fold_toggle_state: FoldToggleState,
+    /// Projection mode policy: which projections are active and per-projection fold state.
+    pub projection_policy: ProjectionPolicyState,
 }
 
 impl Default for ConfigState {
@@ -52,6 +55,7 @@ impl Default for ConfigState {
             secondary_blend_ratio: 0.4,
             theme: Theme::default_theme(),
             fold_toggle_state: FoldToggleState::default(),
+            projection_policy: ProjectionPolicyState::default(),
         }
     }
 }

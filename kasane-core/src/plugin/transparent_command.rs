@@ -46,6 +46,7 @@ impl TransparentCommand {
         "KillProcess",
         "PasteClipboard",
         "PluginMessage",
+        "ProjectionOff",
         "Quit",
         "RegisterSurface",
         "RegisterSurfaceRequested",
@@ -56,9 +57,11 @@ impl TransparentCommand {
         "Session",
         "SetConfig",
         "SetSetting",
+        "SetStructuralProjection",
         "SpawnPaneClient",
         "SpawnProcess",
         "StartProcessTask",
+        "ToggleAdditiveProjection",
         "UnbindSurfaceSession",
         "UnregisterSurface",
         "UnregisterSurfaceKey",
@@ -199,6 +202,18 @@ impl TransparentCommand {
 
     pub fn expose_variable(name: String, value: crate::widget::types::Value) -> Self {
         Self(Command::ExposeVariable { name, value })
+    }
+
+    pub fn set_structural_projection(id: Option<crate::display::ProjectionId>) -> Self {
+        Self(Command::SetStructuralProjection(id))
+    }
+
+    pub fn toggle_additive_projection(id: crate::display::ProjectionId) -> Self {
+        Self(Command::ToggleAdditiveProjection(id))
+    }
+
+    pub fn projection_off() -> Self {
+        Self(Command::ProjectionOff)
     }
 
     // =========================================================================

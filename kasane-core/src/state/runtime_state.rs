@@ -4,7 +4,7 @@
 //! nor session metadata. These fields are not serialized or preserved
 //! across session switches (except cols/rows/focused which are preserved).
 
-use crate::display::{DisplayMapRef, DisplayUnitMap};
+use crate::display::{DisplayMapRef, DisplayUnitMap, ProjectionDescriptor};
 use crate::layout::HitMap;
 
 use super::DragState;
@@ -26,6 +26,8 @@ pub struct RuntimeState {
     pub display_map: Option<DisplayMapRef>,
     /// Display unit map from the last rendered frame.
     pub display_unit_map: Option<DisplayUnitMap>,
+    /// Available projection descriptors from all registered plugins.
+    pub available_projections: Vec<ProjectionDescriptor>,
 }
 
 impl Default for RuntimeState {
@@ -39,6 +41,7 @@ impl Default for RuntimeState {
             display_scroll_offset: 0,
             display_map: None,
             display_unit_map: None,
+            available_projections: Vec::new(),
         }
     }
 }

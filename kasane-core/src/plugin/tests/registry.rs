@@ -98,10 +98,10 @@ struct AuthorityPlugin {
     authorities: PluginAuthorities,
 }
 
-struct DisplayTransformPlugin {
-    id: &'static str,
-    directives: Vec<DisplayDirective>,
-    priority: i16,
+pub(super) struct DisplayTransformPlugin {
+    pub(super) id: &'static str,
+    pub(super) directives: Vec<DisplayDirective>,
+    pub(super) priority: i16,
 }
 
 impl PluginBackend for DisplayTransformPlugin {

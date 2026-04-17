@@ -297,6 +297,20 @@ interface types {
         range-end: u32,
     }
 
+    // --- Projection Mode types ---
+
+    enum projection-category {
+        structural,
+        additive,
+    }
+
+    record projection-descriptor {
+        id: string,
+        name: string,
+        category: projection-category,
+        priority: s16,
+    }
+
     // --- DU-4: Display Unit navigation types ---
 
     enum semantic-role {
@@ -1129,7 +1143,8 @@ interface plugin-api {
                cell-decoration, ornament-context, ornament-batch,
                key-group-decl, key-response,
                display-unit-info, navigation-policy-kind, navigation-action-result,
-               channel-value};
+               channel-value,
+               projection-descriptor};
 
     // --- Identity ---
 
@@ -1287,6 +1302,13 @@ interface plugin-api {
 
     /// Return display transformation directives (fold, hide, virtual text).
     display-directives: func() -> list<display-directive>;
+
+    /// Declare projection modes this plugin provides.
+    /// Called once at plugin construction time.
+    declare-projections: func() -> list<projection-descriptor>;
+
+    /// Return display directives for a specific active projection.
+    projection-directives: func(projection-id: string) -> list<display-directive>;
 
     /// Contribute an overlay with collision-avoidance context.
     contribute-overlay-v2: func(ctx: overlay-context) -> option<overlay-contribution>;
