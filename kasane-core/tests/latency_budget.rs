@@ -18,20 +18,20 @@ const RUNS: usize = 100;
 
 fn typical_state(line_count: usize) -> AppState {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.lines = (0..line_count)
+    state.observed.lines = (0..line_count)
         .map(|i| {
             vec![
                 Atom {
@@ -85,11 +85,11 @@ fn typical_state(line_count: usize) -> AppState {
             ]
         })
         .collect();
-    state.status_line = vec![Atom {
+    state.inference.status_line = vec![Atom {
         face: Face::default(),
         contents: " NORMAL ".into(),
     }];
-    state.status_mode_line = vec![Atom {
+    state.observed.status_mode_line = vec![Atom {
         face: Face::default(),
         contents: "normal".into(),
     }];
@@ -110,16 +110,16 @@ fn full_frame_under_2ms() {
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Warmup
     for _ in 0..20 {
         let element = view::view(&state, &registry.view());
         let layout = flex::place(&element, area, &state);
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
         paint::paint(&element, &layout, &mut grid, &state);
         let _ = grid.diff();
         grid.swap();
@@ -130,7 +130,7 @@ fn full_frame_under_2ms() {
             let start = Instant::now();
             let element = view::view(&state, &registry.view());
             let layout = flex::place(&element, area, &state);
-            grid.clear(&state.default_face);
+            grid.clear(&state.observed.default_face);
             paint::paint(&element, &layout, &mut grid, &state);
             let _ = grid.diff();
             grid.swap();
@@ -251,7 +251,7 @@ fn salsa_full_frame_under_2ms() {
 
     let state = typical_state(23);
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     let mut db = KasaneDatabase::default();
     let mut handles = SalsaInputHandles::new(&mut db);
     let dirty = DirtyFlags::ALL;

@@ -195,26 +195,26 @@ pub fn resolve_text_input_target(
     state: &AppState,
     session_id: Option<SessionId>,
 ) -> Option<ResolvedTextInputTarget> {
-    match state.status_style {
+    match state.observed.status_style {
         StatusStyle::Command | StatusStyle::Search | StatusStyle::Prompt => {
             return Some(ResolvedTextInputTarget {
                 session_id,
-                kind: TextInputTargetKind::Prompt(state.status_style),
+                kind: TextInputTargetKind::Prompt(state.observed.status_style),
                 authority: TextInputTargetAuthority::ObservedStatusStyle,
             });
         }
         StatusStyle::Status => {}
     }
 
-    if state.status_content_cursor_pos >= 0 {
+    if state.observed.status_content_cursor_pos >= 0 {
         return Some(ResolvedTextInputTarget {
             session_id,
-            kind: TextInputTargetKind::Prompt(state.status_style),
+            kind: TextInputTargetKind::Prompt(state.observed.status_style),
             authority: TextInputTargetAuthority::ObservedPromptCursor,
         });
     }
 
-    match state.editor_mode {
+    match state.inference.editor_mode {
         EditorMode::Insert | EditorMode::Replace => Some(ResolvedTextInputTarget {
             session_id,
             kind: TextInputTargetKind::Buffer,
@@ -647,10 +647,8 @@ mod tests {
 
     #[test]
     fn test_normalize_text_input_event_upgrades_prompt_plain_char() {
-        let state = AppState {
-            status_content_cursor_pos: 0,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.status_content_cursor_pos = 0;
         let normalized =
             normalize_text_input_event(InputEvent::Key(KeyEvent::char_plain('a')), &state);
         assert_eq!(normalized, InputEvent::TextInput("a".into()));
@@ -658,10 +656,8 @@ mod tests {
 
     #[test]
     fn test_normalize_text_input_event_upgrades_insert_plain_char() {
-        let state = AppState {
-            editor_mode: EditorMode::Insert,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.inference.editor_mode = EditorMode::Insert;
         let normalized = normalize_text_input_event(
             InputEvent::Key(KeyEvent {
                 key: Key::Char('A'),
@@ -678,13 +674,11 @@ mod tests {
         let normal = normalize_text_input_event(InputEvent::Key(KeyEvent::char_plain('a')), &state);
         assert_eq!(normal, InputEvent::Key(KeyEvent::char_plain('a')));
 
-        let ctrl = normalize_text_input_event(
-            InputEvent::Key(KeyEvent::ctrl('c')),
-            &AppState {
-                editor_mode: EditorMode::Insert,
-                ..AppState::default()
-            },
-        );
+        let ctrl = normalize_text_input_event(InputEvent::Key(KeyEvent::ctrl('c')), &{
+            let mut s = AppState::default();
+            s.inference.editor_mode = EditorMode::Insert;
+            s
+        });
         assert_eq!(ctrl, InputEvent::Key(KeyEvent::ctrl('c')));
     }
 

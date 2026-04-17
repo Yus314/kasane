@@ -87,8 +87,8 @@ impl SurfaceRegistry {
         overlays.extend(view::build_info_section_standalone(state, plugin_registry));
         {
             let overlay_ctx = crate::plugin::OverlayContext {
-                screen_cols: state.cols,
-                screen_rows: state.rows,
+                screen_cols: state.runtime.cols,
+                screen_rows: state.runtime.rows,
                 menu_rect: None,
                 existing_overlays: vec![],
                 focused_surface_id: Some(self.workspace.focused()),
@@ -178,7 +178,7 @@ impl SurfaceRegistry {
         let base = match status_bar {
             Some(status) => {
                 let mut children = Vec::new();
-                if state.status_at_top {
+                if state.config.status_at_top {
                     children.push(FlexChild::fixed(status));
                     children.push(FlexChild::flexible(workspace_content, 1.0));
                 } else {
@@ -214,8 +214,8 @@ impl SurfaceRegistry {
         let menu_overlay = view::build_menu_section_standalone(state, plugin_registry);
         let info_overlays = view::build_info_section_standalone(state, plugin_registry);
         let overlay_ctx = crate::plugin::OverlayContext {
-            screen_cols: state.cols,
-            screen_rows: state.rows,
+            screen_cols: state.runtime.cols,
+            screen_rows: state.runtime.rows,
             menu_rect: None,
             existing_overlays: vec![],
             focused_surface_id: Some(self.workspace.focused()),
@@ -317,7 +317,7 @@ impl SurfaceRegistry {
                             .unwrap_or(Element::Empty);
 
                         let mut children = Vec::new();
-                        if state.status_at_top {
+                        if state.config.status_at_top {
                             children.push(FlexChild::fixed(status_elem));
                             children.push(FlexChild::flexible(buffer_elem, 1.0));
                         } else {
@@ -441,10 +441,10 @@ impl SurfaceRegistry {
     /// Synchronize ephemeral surfaces (menu, infos) with the current AppState.
     ///
     /// Registers/removes MenuSurface and InfoSurface instances to match
-    /// whether `state.menu` and `state.infos` are present.
+    /// whether `state.observed.menu` and `state.observed.infos` are present.
     pub fn sync_ephemeral_surfaces(&mut self, state: &AppState) {
         // Menu surface
-        if state.menu.is_some() {
+        if state.observed.menu.is_some() {
             if !self.surfaces.contains_key(&SurfaceId::MENU) {
                 self.register(Box::new(super::super::menu::MenuSurface));
             }
@@ -454,7 +454,7 @@ impl SurfaceRegistry {
 
         // Info surfaces: one per info popup
         // Remove stale info surfaces
-        let info_count = state.infos.len();
+        let info_count = state.observed.infos.len();
         let stale_ids: Vec<SurfaceId> = self
             .surfaces
             .keys()

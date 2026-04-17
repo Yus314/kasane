@@ -87,6 +87,7 @@ impl PluginApplyResult {
     pub fn apply_settings(&self, state: &mut crate::state::AppState) {
         for (plugin_id, settings) in &self.settings_to_apply {
             state
+                .config
                 .plugin_settings
                 .entry(plugin_id.clone())
                 .or_default()

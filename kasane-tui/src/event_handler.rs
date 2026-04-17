@@ -142,8 +142,8 @@ where
                     let total = kasane_core::layout::Rect {
                         x: 0,
                         y: 0,
-                        w: ctx.state.cols,
-                        h: ctx.state.rows,
+                        w: ctx.state.runtime.cols,
+                        h: ctx.state.runtime.rows,
                     };
                     let rects = ctx.surface_registry.workspace().compute_rects(total);
                     if let Some(rect) = rects.get(&surface_id)
@@ -173,8 +173,8 @@ where
                     .active_writer_mut()
                     .expect("missing active session writer"),
                 ctx.initial_resize_sent,
-                ctx.state.rows,
-                ctx.state.cols,
+                ctx.state.runtime.rows,
+                ctx.state.runtime.cols,
             );
             sync_ready_gate(ctx.session_ready_gate, ctx.state);
             if *ctx.initial_resize_sent {
@@ -219,8 +219,8 @@ where
             let total = Rect {
                 x: 0,
                 y: 0,
-                w: ctx.state.cols,
-                h: ctx.state.rows,
+                w: ctx.state.runtime.cols,
+                h: ctx.state.runtime.rows,
             };
             if let Some(divider_dirty) =
                 handle_workspace_divider_input(&input_event, ctx.surface_registry, total)
@@ -549,8 +549,8 @@ where
                         .active_writer_mut()
                         .expect("missing active session writer"),
                     ctx.initial_resize_sent,
-                    ctx.state.rows,
-                    ctx.state.cols,
+                    ctx.state.runtime.rows,
+                    ctx.state.runtime.cols,
                 );
                 sync_ready_gate(ctx.session_ready_gate, ctx.state);
                 if *ctx.initial_resize_sent {
@@ -659,7 +659,8 @@ where
     result.extract_surface_flags();
 
     if result.flags.contains(DirtyFlags::ALL) {
-        ctx.grid.resize(ctx.state.cols, ctx.state.rows);
+        ctx.grid
+            .resize(ctx.state.runtime.cols, ctx.state.runtime.rows);
         ctx.backend.invalidate();
     }
     *ctx.dirty |= result.flags;

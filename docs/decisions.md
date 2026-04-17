@@ -1786,7 +1786,7 @@ Introduce two complementary mechanisms:
 
 ## ADR-030: Observed/Policy Separation — Staged Projection Rollout
 
-**Status:** Current (Levels 1–3 shipped; Levels 4–6 reserved)
+**Status:** Current (Levels 1–6 shipped)
 
 ### Context
 
@@ -1991,10 +1991,19 @@ Phase 5b — `EffectCategory` + `EffectFootprint`:
   a graded monad `(𝒫(EffectCategory), ∪, ∅)` where each handler
   carries a grade (set of effect categories it may produce).
 
-**Level 6 (reserved; not implemented).**
+**Level 6 — Type-level `&mut AppState` Ownership (shipped).**
 
-- Level 6 — Type-level witness of `apply()`-exclusive `&mut AppState`
-  ownership along the protocol ingestion path.
+- Decompose `AppState` into 5 epistemic sub-structs: `ObservedState`,
+  `InferenceState`, `ConfigState`, `SessionState`, `RuntimeState`. Each
+  sub-struct owns the fields of its epistemic category, and `AppState`
+  composes them.
+- Extract `apply_protocol()` as a free function that takes `&mut ObservedState`
+  + `&mut InferenceState` + `&ConfigState` (immutable). Config mutation from
+  the protocol ingestion path is now a compile error, turning the A2/A9
+  invariants from convention into compiler-checked properties.
+- Update `Truth<'a>`, `Inference<'a>`, and `Policy<'a>` projections to wrap
+  the corresponding sub-structs directly, preserving zero-cost projection
+  semantics while eliminating redundant accessor generation.
 
 ### Implications
 
@@ -2007,10 +2016,11 @@ Phase 5b — `EffectCategory` + `EffectFootprint`:
 - The Salsa layer is no longer a lossy projection of observed state,
   unblocking future Salsa views that need to distinguish status-prompt
   from status-content.
-- The `&mut AppState` surface still exists and is deliberately
-  unrestricted; Level 1 enforces *read-side* separation only. Write-side
-  enforcement is deferred to later levels, consistent with P-032's
-  gradual rollout plan.
+- As of Level 6, the protocol ingestion path receives `&ConfigState`
+  (immutable), making config mutation from protocol handling a compile
+  error. The `&mut AppState` surface remains available for non-protocol
+  paths (plugin lifecycle, user commands) where broader mutation is
+  intentional.
 
 ## Related Documents
 

@@ -86,8 +86,8 @@ pub(super) fn dispatch_input_event(
     let total = Rect {
         x: 0,
         y: 0,
-        w: ctx.state.cols,
-        h: ctx.state.rows,
+        w: ctx.state.runtime.cols,
+        h: ctx.state.runtime.rows,
     };
 
     if let Some(divider_dirty) =
@@ -443,8 +443,8 @@ fn handle_workspace_command(
                 Some(crate::layout::Rect {
                     x: 0,
                     y: 0,
-                    w: ctx.state.cols,
-                    h: ctx.state.rows,
+                    w: ctx.state.runtime.cols,
+                    h: ctx.state.runtime.rows,
                 }),
             );
             *ctx.dirty |= workspace_dirty;
@@ -455,8 +455,8 @@ fn handle_workspace_command(
         Command::RegisterThemeTokens(tokens) => {
             for (name, face) in tokens {
                 let token = crate::element::StyleToken::new(name);
-                if ctx.state.theme.get(&token).is_none() {
-                    ctx.state.theme.set(token, face);
+                if ctx.state.config.theme.get(&token).is_none() {
+                    ctx.state.config.theme.set(token, face);
                 }
             }
             *ctx.dirty |= DirtyFlags::OPTIONS;
@@ -700,8 +700,8 @@ fn handle_session_pane_command(
                 crate::io::send_initial_resize(
                     ctx.session_host.active_writer(),
                     ctx.initial_resize_sent,
-                    ctx.state.rows,
-                    ctx.state.cols,
+                    ctx.state.runtime.rows,
+                    ctx.state.runtime.cols,
                 );
             }
             // Notify plugins of SESSION change so they update cached state
@@ -852,7 +852,7 @@ pub fn sync_session_ready_gate(
     gate: &mut super::session::SessionReadyGate,
     state: &AppState,
 ) -> bool {
-    gate.sync_active_session(state.active_session_key.as_deref())
+    gate.sync_active_session(state.session.active_session_key.as_deref())
 }
 
 pub fn maybe_flush_active_session_ready(ctx: &mut DeferredContext<'_>) -> bool {

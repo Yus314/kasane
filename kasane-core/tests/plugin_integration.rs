@@ -22,10 +22,10 @@ use kasane_core::test_support::{make_line, render_with_registry, row_text};
 
 fn setup_state(lines: Vec<Line>) -> AppState {
     let mut state = kasane_core::test_support::test_state_80x24();
-    state.lines = lines;
-    state.status_default_face = state.default_face;
-    state.status_line = make_line(" main.rs ");
-    state.status_mode_line = make_line("normal");
+    state.observed.lines = lines;
+    state.observed.status_default_face = state.observed.default_face;
+    state.inference.status_line = make_line(" main.rs ");
+    state.observed.status_mode_line = make_line("normal");
     state
 }
 
@@ -199,7 +199,7 @@ fn menu_transform_adds_prefix() {
     use kasane_core::protocol::KakouneRequest;
 
     let mut state = setup_state(vec![make_line("fn main() {}")]);
-    state.cursor_pos = Coord { line: 0, column: 3 };
+    state.observed.cursor_pos = Coord { line: 0, column: 3 };
 
     // Show inline menu with items
     let items = vec![make_line("alpha"), make_line("beta")];
@@ -369,7 +369,9 @@ fn above_and_below_buffer_slots_render() {
     let _ = registry.init_all_batch(&AppView::new(&state));
 
     let grid = render_with_registry(&state, &registry);
-    let rows: Vec<String> = (0..state.rows).map(|y| row_text(&grid, y)).collect();
+    let rows: Vec<String> = (0..state.runtime.rows)
+        .map(|y| row_text(&grid, y))
+        .collect();
 
     assert!(
         rows.iter().any(|row| row.contains("ABOVE-BUFFER")),
@@ -415,7 +417,7 @@ impl PluginBackend for UnderlineCursorPlugin {
 #[test]
 fn render_ornament_cursor_style_wins_over_default_logic() {
     let mut state = setup_state(vec![make_line("text")]);
-    state.focused = false;
+    state.runtime.focused = false;
 
     assert_eq!(cursor_style_default(&state), CursorStyle::Outline);
 

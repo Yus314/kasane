@@ -23,10 +23,10 @@ use kasane_core::test_support::{make_line, render_with_registry, row_text};
 /// Set up a standard 80x24 state with given buffer lines.
 fn setup_state(lines: Vec<Line>) -> AppState {
     let mut state = kasane_core::test_support::test_state_80x24();
-    state.lines = lines;
-    state.status_default_face = state.default_face;
-    state.status_line = make_line(" main.rs ");
-    state.status_mode_line = make_line("normal");
+    state.observed.lines = lines;
+    state.observed.status_default_face = state.observed.default_face;
+    state.inference.status_line = make_line(" main.rs ");
+    state.observed.status_mode_line = make_line("normal");
     state
 }
 
@@ -115,7 +115,7 @@ fn status_bar_rendered_at_bottom() {
 #[test]
 fn status_bar_at_top() {
     let mut state = setup_state(vec![make_line("buffer")]);
-    state.status_at_top = true;
+    state.config.status_at_top = true;
     let grid = render(&state);
 
     // When status_at_top, row 0 is status bar
@@ -135,7 +135,7 @@ fn status_bar_at_top() {
 #[test]
 fn menu_show_and_select() {
     let mut state = setup_state(vec![make_line("fn main() {}")]);
-    state.cursor_pos = Coord { line: 0, column: 3 };
+    state.observed.cursor_pos = Coord { line: 0, column: 3 };
 
     // Show inline menu
     let items = vec![make_line("foo"), make_line("bar"), make_line("baz")];
@@ -154,13 +154,13 @@ fn menu_show_and_select() {
         },
         style: MenuStyle::Inline,
     });
-    assert!(state.menu.is_some());
+    assert!(state.observed.menu.is_some());
 
     let grid = render(&state);
     // Menu items should appear somewhere in the grid
     let mut found_foo = false;
     let mut found_bar = false;
-    for y in 0..state.rows {
+    for y in 0..state.runtime.rows {
         let text = row_text(&grid, y);
         if text.contains("foo") {
             found_foo = true;
@@ -174,7 +174,7 @@ fn menu_show_and_select() {
 
     // Select item
     state.apply(KakouneRequest::MenuSelect { selected: 1 });
-    assert_eq!(state.menu.as_ref().unwrap().selected, Some(1));
+    assert_eq!(state.observed.menu.as_ref().unwrap().selected, Some(1));
 }
 
 #[test]
@@ -187,10 +187,10 @@ fn menu_hide() {
         menu_face: Face::default(),
         style: MenuStyle::Inline,
     });
-    assert!(state.menu.is_some());
+    assert!(state.observed.menu.is_some());
 
     state.apply(KakouneRequest::MenuHide);
-    assert!(state.menu.is_none());
+    assert!(state.observed.menu.is_none());
 }
 
 #[test]
@@ -204,8 +204,8 @@ fn prompt_menu_multi_column() {
         menu_face: Face::default(),
         style: MenuStyle::Prompt,
     });
-    assert!(state.menu.is_some());
-    let menu = state.menu.as_ref().unwrap();
+    assert!(state.observed.menu.is_some());
+    let menu = state.observed.menu.as_ref().unwrap();
     // Prompt style should have multiple columns on an 80-col screen
     assert!(menu.columns >= 1);
 
@@ -229,12 +229,12 @@ fn info_show_and_hide() {
         style: InfoStyle::Inline,
     });
     assert!(flags.contains(DirtyFlags::INFO));
-    assert_eq!(state.infos.len(), 1);
+    assert_eq!(state.observed.infos.len(), 1);
 
     let grid = render(&state);
     // Info content should appear in the grid
     let mut found = false;
-    for y in 0..state.rows {
+    for y in 0..state.runtime.rows {
         if row_text(&grid, y).contains("help text") {
             found = true;
             break;
@@ -244,7 +244,7 @@ fn info_show_and_hide() {
 
     // Hide
     state.apply(KakouneRequest::InfoHide);
-    assert!(state.infos.is_empty());
+    assert!(state.observed.infos.is_empty());
 }
 
 #[test]
@@ -269,7 +269,7 @@ fn multiple_infos_coexist() {
         face: Face::default(),
         style: InfoStyle::Modal,
     });
-    assert_eq!(state.infos.len(), 2);
+    assert_eq!(state.observed.infos.len(), 2);
 
     // Should render without panic
     let _grid = render(&state);
@@ -282,7 +282,7 @@ fn multiple_infos_coexist() {
 #[test]
 fn resize_updates_grid() {
     let mut state = Box::new(setup_state(vec![make_line("hello")]));
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     let mut registry = PluginRuntime::new();
 
     let result = update_in_place(
@@ -296,11 +296,11 @@ fn resize_updates_grid() {
     );
     let flags = result.flags;
     // Caller must resize grid after update() returns ALL
-    grid.resize(state.cols, state.rows);
+    grid.resize(state.runtime.cols, state.runtime.rows);
     grid.invalidate_all();
     assert!(flags.contains(DirtyFlags::ALL));
-    assert_eq!(state.cols, 120);
-    assert_eq!(state.rows, 40);
+    assert_eq!(state.runtime.cols, 120);
+    assert_eq!(state.runtime.rows, 40);
     assert_eq!(grid.width(), 120);
     assert_eq!(grid.height(), 40);
 
@@ -324,7 +324,7 @@ fn parse_draw_and_render() {
     let mut state = setup_state(vec![]);
     let flags = state.apply(req);
     assert!(flags.contains(DirtyFlags::BUFFER));
-    assert_eq!(state.lines.len(), 1);
+    assert_eq!(state.observed.lines.len(), 1);
 
     let grid = render(&state);
     assert_eq!(row_text(&grid, 0), "fn main()");
@@ -359,7 +359,7 @@ fn parse_draw_status_and_render() {
 fn diff_detects_changes() {
     let state = setup_state(vec![make_line("hello")]);
     let mut grid = CellGrid::new(80, 24);
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
 
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
@@ -378,7 +378,7 @@ fn diff_detects_changes() {
     grid.swap();
 
     // Second identical render: no changes
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, &state);
     let diffs = grid.diff();
     assert!(
@@ -450,11 +450,11 @@ fn update_focus_changes() {
     let mut registry = PluginRuntime::new();
 
     let result = update_in_place(&mut state, Msg::FocusLost, &mut registry, 3);
-    assert!(!state.focused);
+    assert!(!state.runtime.focused);
     assert!(result.flags.contains(DirtyFlags::ALL));
 
     let result = update_in_place(&mut state, Msg::FocusGained, &mut registry, 3);
-    assert!(state.focused);
+    assert!(state.runtime.focused);
     assert!(result.flags.contains(DirtyFlags::ALL));
 }
 
@@ -464,17 +464,15 @@ fn update_focus_changes() {
 
 #[test]
 fn small_terminal_1x1() {
-    let state = AppState {
-        cols: 1,
-        rows: 1,
-        lines: vec![make_line("x")],
-        default_face: Face::default(),
-        padding_face: Face::default(),
-        status_default_face: Face::default(),
-        status_line: make_line(""),
-        status_mode_line: make_line(""),
-        ..Default::default()
-    };
+    let mut state = AppState::default();
+    state.runtime.cols = 1;
+    state.runtime.rows = 1;
+    state.observed.lines = vec![make_line("x")];
+    state.observed.default_face = Face::default();
+    state.observed.padding_face = Face::default();
+    state.observed.status_default_face = Face::default();
+    state.inference.status_line = make_line("");
+    state.observed.status_mode_line = make_line("");
 
     // Should not panic
     let _grid = render(&state);
@@ -526,7 +524,7 @@ fn test_line_dirty_single_edit_diff() {
         make_line("line 1"),
         make_line("line 2"),
     ]);
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     render_with_dirty(&state, DirtyFlags::ALL, &mut grid);
     grid.swap();
 
@@ -538,11 +536,11 @@ fn test_line_dirty_single_edit_diff() {
             make_line("line 2"),
         ],
         cursor_pos: Coord::default(),
-        default_face: state.default_face,
-        padding_face: state.padding_face,
+        default_face: state.observed.default_face,
+        padding_face: state.observed.padding_face,
         widget_columns: 0,
     });
-    assert_eq!(state.lines_dirty, vec![false, true, false]);
+    assert_eq!(state.inference.lines_dirty, vec![false, true, false]);
 
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
     let diffs = grid.diff();
@@ -563,7 +561,7 @@ fn test_line_dirty_single_edit_diff() {
 #[test]
 fn test_line_dirty_consecutive_edits() {
     let mut state = setup_state((0..23).map(|i| make_line(&format!("line {i}"))).collect());
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     render_with_dirty(&state, DirtyFlags::ALL, &mut grid);
     grid.swap();
 
@@ -573,8 +571,8 @@ fn test_line_dirty_consecutive_edits() {
     state.apply(KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: state.default_face,
-        padding_face: state.padding_face,
+        default_face: state.observed.default_face,
+        padding_face: state.observed.padding_face,
         widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
@@ -583,16 +581,16 @@ fn test_line_dirty_consecutive_edits() {
     assert!(dirty_rows.contains(&5));
     assert!(!dirty_rows.contains(&0));
     grid.swap_with_dirty();
-    state.lines_dirty.clear();
+    state.inference.lines_dirty.clear();
 
     // Frame 3: edit line 10
-    let mut lines: Vec<Line> = state.lines.clone();
+    let mut lines: Vec<Line> = state.observed.lines.clone();
     lines[10] = make_line("EDITED_10");
     state.apply(KakouneRequest::Draw {
         lines,
         cursor_pos: Coord::default(),
-        default_face: state.default_face,
-        padding_face: state.padding_face,
+        default_face: state.observed.default_face,
+        padding_face: state.observed.padding_face,
         widget_columns: 0,
     });
     render_with_dirty(&state, DirtyFlags::BUFFER, &mut grid);
@@ -608,7 +606,7 @@ fn test_line_dirty_consecutive_edits() {
 #[test]
 fn test_line_dirty_full_repaint_on_overlay() {
     let mut state = setup_state(vec![make_line("line 0"), make_line("line 1")]);
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Show then hide a menu to get MENU|BUFFER dirty flags
     state.apply(KakouneRequest::MenuShow {
@@ -656,7 +654,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     let registry = PluginRuntime::new();
 
     // Legacy pipeline
-    let mut legacy_grid = CellGrid::new(state.cols, state.rows);
+    let mut legacy_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     let (legacy_result, _) = render_pipeline(&state, &registry.view(), &mut legacy_grid);
 
     // Salsa pipeline
@@ -667,7 +665,7 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
 
-    let mut salsa_grid = CellGrid::new(state.cols, state.rows);
+    let mut salsa_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     let (salsa_result, _) = render_pipeline_cached(
         &db,
         &handles,
@@ -689,8 +687,8 @@ fn test_salsa_pipeline_equivalence_empty_state() {
     );
 
     // Compare cell grids
-    for y in 0..state.rows {
-        for x in 0..state.cols {
+    for y in 0..state.runtime.rows {
+        for x in 0..state.runtime.cols {
             let l = legacy_grid.get(x, y);
             let s = salsa_grid.get(x, y);
             if let (Some(l), Some(s)) = (l, s) {
@@ -728,7 +726,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     let registry = PluginRuntime::new();
 
     // Legacy pipeline
-    let mut legacy_grid = CellGrid::new(state.cols, state.rows);
+    let mut legacy_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     let (_legacy_result, _) = render_pipeline(&state, &registry.view(), &mut legacy_grid);
 
     // Salsa pipeline
@@ -739,7 +737,7 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
     sync_plugin_contributions(&mut db, &state, &registry.view(), &mut handles);
 
-    let mut salsa_grid = CellGrid::new(state.cols, state.rows);
+    let mut salsa_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
     let (_salsa_result, _) = render_pipeline_cached(
         &db,
         &handles,
@@ -751,8 +749,8 @@ fn test_salsa_pipeline_equivalence_with_menu() {
     );
 
     // Compare cell grids
-    for y in 0..state.rows {
-        for x in 0..state.cols {
+    for y in 0..state.runtime.rows {
+        for x in 0..state.runtime.cols {
             let l = legacy_grid.get(x, y);
             let s = salsa_grid.get(x, y);
             if let (Some(l), Some(s)) = (l, s) {

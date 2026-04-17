@@ -33,7 +33,7 @@ fn buffer_scroll_down_falls_back_to_single_scroll_request() {
 #[test]
 fn drag_scroll_down_emits_scroll_then_mouse_move_to_bottom_edge() {
     let mut state = state_80x24();
-    state.drag = DragState::Active {
+    state.runtime.drag = DragState::Active {
         button: kasane_core::input::MouseButton::Left,
         start_line: 5,
         start_column: 10,
@@ -64,7 +64,7 @@ fn drag_scroll_down_emits_scroll_then_mouse_move_to_bottom_edge() {
 #[test]
 fn drag_scroll_up_emits_scroll_then_mouse_move_to_top_edge() {
     let mut state = state_80x24();
-    state.drag = DragState::Active {
+    state.runtime.drag = DragState::Active {
         button: kasane_core::input::MouseButton::Left,
         start_line: 5,
         start_column: 10,
@@ -89,7 +89,7 @@ fn drag_scroll_up_emits_scroll_then_mouse_move_to_top_edge() {
 #[test]
 fn info_popup_scroll_consumes_event_without_kakoune_scroll() {
     let mut state = state_80x24();
-    state.infos.push(make_info_state(
+    state.observed.infos.push(make_info_state(
         3,
         3,
         &["one", "two", "three", "four", "five", "six"],
@@ -110,7 +110,7 @@ fn info_popup_scroll_consumes_event_without_kakoune_scroll() {
     let outcome = harness.dispatch_input(mouse_scroll_down(3, 3));
 
     assert_eq!(outcome.requests(), Vec::<KasaneRequest>::new());
-    assert_eq!(harness.state.infos[0].scroll_offset, 3);
+    assert_eq!(harness.state.observed.infos[0].scroll_offset, 3);
     assert_eq!(outcome.dirty, DirtyFlags::INFO);
 }
 
@@ -157,7 +157,7 @@ fn plugin_hit_mouse_press_consumes_before_default_mouse_forwarding() {
 #[test]
 fn pageup_builtin_emits_negative_scroll_of_available_height() {
     let mut state = state_80x24();
-    state.cursor_pos = Coord {
+    state.observed.cursor_pos = Coord {
         line: 10,
         column: 5,
     };

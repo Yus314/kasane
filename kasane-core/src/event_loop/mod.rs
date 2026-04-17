@@ -85,14 +85,14 @@ pub fn rebuild_hit_map(
     let root_area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let element = surface_registry
         .compose_view_sections(state, None, &registry.view(), root_area)
         .into_element();
     let layout_result = crate::layout::flex::place(&element, root_area, state);
-    state.hit_map = crate::layout::build_hit_map(&element, &layout_result);
+    state.runtime.hit_map = crate::layout::build_hit_map(&element, &layout_result);
 }
 
 /// Notify workspace observers with a post-layout snapshot of the current workspace.
@@ -106,8 +106,8 @@ pub fn notify_workspace_observers(
     let total = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let surface_keys: HashMap<_, _> = surface_registry
         .workspace()

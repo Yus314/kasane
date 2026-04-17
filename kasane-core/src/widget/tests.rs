@@ -486,7 +486,7 @@ fn backend_contribute_to_matching_slot() {
     let backend = WidgetBackend::from_source(source);
 
     let mut state = AppState::default();
-    state.cursor_pos = crate::protocol::Coord { line: 9, column: 4 };
+    state.observed.cursor_pos = crate::protocol::Coord { line: 9, column: 4 };
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
 
@@ -521,7 +521,7 @@ fn backend_contribute_with_when_condition() {
 
     // cursor_count = 3 → condition true
     let mut state = AppState::default();
-    state.cursor_count = 3;
+    state.inference.cursor_count = 3;
     let view = AppView::new(&state);
     let ctx = ContributeContext::new(&view, None);
     let result = backend.contribute_to(&SlotId::STATUS_RIGHT, &view, &ctx);
@@ -558,7 +558,7 @@ fn backend_background_annotation() {
     let backend = WidgetBackend::from_source(source);
 
     let mut state = AppState::default();
-    state.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
+    state.observed.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
     let view = AppView::new(&state);
     let ctx = crate::plugin::AnnotateContext {
         line_width: 80,
@@ -580,7 +580,7 @@ fn backend_transform_patch() {
     let backend = WidgetBackend::from_source(source);
 
     let mut state = AppState::default();
-    state.editor_mode = crate::state::derived::EditorMode::Insert;
+    state.inference.editor_mode = crate::state::derived::EditorMode::Insert;
     let view = AppView::new(&state);
     let ctx = TransformContext {
         is_default: true,
@@ -641,7 +641,7 @@ mode slot="status-left" text=" {editor_mode} "
 fn variable_resolver_cursor() {
     use super::types::Value;
     let mut state = AppState::default();
-    state.cursor_pos = crate::protocol::Coord { line: 9, column: 4 };
+    state.observed.cursor_pos = crate::protocol::Coord { line: 9, column: 4 };
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
     assert_eq!(resolver.resolve("cursor_line"), Value::Int(10)); // 1-indexed
@@ -652,7 +652,7 @@ fn variable_resolver_cursor() {
 fn variable_resolver_editor_mode() {
     use super::types::Value;
     let mut state = AppState::default();
-    state.editor_mode = crate::state::derived::EditorMode::Insert;
+    state.inference.editor_mode = crate::state::derived::EditorMode::Insert;
     let view = AppView::new(&state);
     let resolver = AppViewResolver::new(&view);
     assert_eq!(resolver.resolve("editor_mode"), Value::Str("insert".into()));
@@ -672,6 +672,7 @@ fn variable_resolver_opt() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("filetype".to_string(), "rust".to_string());
     let view = AppView::new(&state);
@@ -788,7 +789,7 @@ fn backend_selection_background_annotation() {
 
     let mut state = AppState::default();
     // Add a selection spanning lines 3-5
-    state.selections = vec![crate::state::derived::Selection {
+    state.inference.selections = vec![crate::state::derived::Selection {
         anchor: crate::protocol::Coord { line: 3, column: 0 },
         cursor: crate::protocol::Coord {
             line: 5,
@@ -1019,6 +1020,7 @@ fn variable_alias_filetype() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("filetype".to_string(), "rust".to_string());
     let view = AppView::new(&state);
@@ -1031,6 +1033,7 @@ fn variable_alias_bufname() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("bufname".to_string(), "main.rs".to_string());
     let view = AppView::new(&state);
@@ -1116,7 +1119,7 @@ fn backend_gutter_annotation() {
     let backend = WidgetBackend::from_source(source);
 
     let mut state = AppState::default();
-    state.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
+    state.observed.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
     let view = AppView::new(&state);
     let ctx = crate::plugin::AnnotateContext {
         line_width: 80,
@@ -1142,7 +1145,7 @@ abs kind="gutter" side="left" text="{line_number:3} " face="rgb:ffffff+b" line-w
     let backend = WidgetBackend::from_source(source);
 
     let mut state = AppState::default();
-    state.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
+    state.observed.cursor_pos = crate::protocol::Coord { line: 5, column: 0 };
     let view = AppView::new(&state);
     let ctx = crate::plugin::AnnotateContext {
         line_width: 80,
@@ -1467,7 +1470,7 @@ fn resolve_face_token_from_theme() {
         bg: crate::protocol::Color::Named(crate::protocol::NamedColor::Blue),
         ..Face::default()
     };
-    state.theme.set(token.clone(), expected_face);
+    state.config.theme.set(token.clone(), expected_face);
     let view = AppView::new(&state);
 
     let fot = super::types::FaceOrToken::Token(token);
@@ -1809,6 +1812,7 @@ fn variable_resolver_opt_numeric_string_becomes_int() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("tabstop".to_string(), "0".to_string());
     let view = AppView::new(&state);
@@ -1821,6 +1825,7 @@ fn variable_resolver_opt_positive_int() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("tabstop".to_string(), "42".to_string());
     let view = AppView::new(&state);
@@ -1833,6 +1838,7 @@ fn variable_resolver_opt_true_becomes_bool() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("autoreload".to_string(), "true".to_string());
     let view = AppView::new(&state);
@@ -1845,6 +1851,7 @@ fn variable_resolver_opt_false_becomes_bool() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("autoreload".to_string(), "false".to_string());
     let view = AppView::new(&state);
@@ -1857,6 +1864,7 @@ fn variable_resolver_opt_string_stays_str() {
     use super::types::Value;
     let mut state = AppState::default();
     state
+        .observed
         .ui_options
         .insert("filetype".to_string(), "rust".to_string());
     let view = AppView::new(&state);

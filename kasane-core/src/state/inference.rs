@@ -25,24 +25,25 @@
 //! - Construction requires `&AppState`; no accessor returns an `&mut`
 //!   reference. Writing through `Inference` is a compile error.
 
+use crate::protocol::Coord;
 use crate::protocol::{CursorMode, Line};
 use crate::render::color_context::ColorContext;
 use crate::state::derived::{EditorMode, Selection};
-use crate::state::{AppState, Coord};
+use crate::state::{AppState, InferenceState};
 
 /// Read-only projection of `AppState` onto its derived + heuristic fields.
 ///
 /// See module-level documentation for the enforcement contract.
 #[derive(Clone, Copy)]
 pub struct Inference<'a> {
-    state: &'a AppState,
+    inner: &'a InferenceState,
 }
 
 impl<'a> Inference<'a> {
-    /// Create a new `Inference` projection over the given state.
+    /// Create a new `Inference` projection over the given inference state.
     #[inline]
-    pub fn new(state: &'a AppState) -> Self {
-        Self { state }
+    pub fn new(inner: &'a InferenceState) -> Self {
+        Self { inner }
     }
 
     // =========================================================================
@@ -53,35 +54,35 @@ impl<'a> Inference<'a> {
     /// (rule R-3).
     #[inline]
     pub fn lines_dirty(&self) -> &'a [bool] {
-        &self.state.lines_dirty
+        &self.inner.lines_dirty
     }
 
     /// Derived: cursor mode inferred from `status_content_cursor_pos` sign
     /// (rule I-3).
     #[inline]
     pub fn cursor_mode(&self) -> CursorMode {
-        self.state.cursor_mode
+        self.inner.cursor_mode
     }
 
     /// Derived: concatenation of `status_prompt` + `status_content` used by
     /// the status bar renderer.
     #[inline]
     pub fn status_line(&self) -> &'a Line {
-        &self.state.status_line
+        &self.inner.status_line
     }
 
     /// Derived: parsed editor mode from `cursor_mode` + `status_mode_line`
     /// (rule I-2).
     #[inline]
     pub fn editor_mode(&self) -> EditorMode {
-        self.state.editor_mode
+        self.inner.editor_mode
     }
 
     /// Derived: color context (light/dark classification) inferred from
     /// `default_face` luminance.
     #[inline]
     pub fn color_context(&self) -> &'a ColorContext {
-        &self.state.color_context
+        &self.inner.color_context
     }
 
     // =========================================================================
@@ -92,21 +93,21 @@ impl<'a> Inference<'a> {
     /// (rule I-1, severity: degraded).
     #[inline]
     pub fn cursor_count(&self) -> usize {
-        self.state.cursor_count
+        self.inner.cursor_count
     }
 
     /// Heuristic: positions of secondary cursors, filtered to exclude the
     /// primary cursor (rule I-1, severity: degraded).
     #[inline]
     pub fn secondary_cursors(&self) -> &'a [Coord] {
-        &self.state.secondary_cursors
+        &self.inner.secondary_cursors
     }
 
     /// Heuristic: detected selection ranges from buffer atoms (rule I-7,
     /// severity: degraded).
     #[inline]
     pub fn selections(&self) -> &'a [Selection] {
-        &self.state.selections
+        &self.inner.selections
     }
 
     // =========================================================================
@@ -135,8 +136,8 @@ impl AppState {
     ///
     /// See [`Inference`] for the enforcement contract.
     #[inline]
-    pub fn inference(&self) -> Inference<'_> {
-        Inference::new(self)
+    pub fn inference_projection(&self) -> Inference<'_> {
+        Inference::new(&self.inference)
     }
 }
 
@@ -153,9 +154,9 @@ mod tests {
     #[test]
     fn construction_roundtrips() {
         let mut state = AppState::default();
-        state.cursor_count = 3;
-        state.secondary_cursors = vec![Coord { line: 1, column: 1 }];
-        let inference = state.inference();
+        state.inference.cursor_count = 3;
+        state.inference.secondary_cursors = vec![Coord { line: 1, column: 1 }];
+        let inference = state.inference_projection();
         assert_eq!(inference.cursor_count(), 3);
         assert_eq!(inference.secondary_cursors().len(), 1);
         assert!(inference.lines_dirty().is_empty());

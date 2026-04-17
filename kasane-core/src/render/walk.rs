@@ -107,7 +107,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
 
     match element {
         Element::Text(text, style) => {
-            let face = theme.resolve(style, &state.default_face);
+            let face = theme.resolve(style, &state.observed.default_face);
             visitor.visit_text(text, &face, area);
         }
         Element::StyledLine(atoms) => {
@@ -188,7 +188,7 @@ pub(crate) fn walk_paint<V: PaintVisitor>(
             style: el_style,
             title,
         } => {
-            let face = theme.resolve(el_style, &state.default_face);
+            let face = theme.resolve(el_style, &state.observed.default_face);
             let border_face = border.as_ref().map(|bc| {
                 bc.face
                     .as_ref()
@@ -517,23 +517,23 @@ impl PaintVisitor for ScenePaintVisitor<'_> {
                     // Clear PrimaryCursor face at cursor cell in non-block modes
                     // so the thin bar/underline is visible.
                     if !matches!(self.cursor_style, CursorStyle::Block | CursorStyle::Outline)
-                        && state.cursor_mode == crate::protocol::CursorMode::Buffer
-                        && line_idx == state.cursor_pos.line as usize
+                        && state.inference.cursor_mode == crate::protocol::CursorMode::Buffer
+                        && line_idx == state.observed.cursor_pos.line as usize
                     {
                         clear_cursor_atom(
                             &mut resolved,
-                            state.cursor_pos.column as u16,
+                            state.observed.cursor_pos.column as u16,
                             &base_face,
                         );
                     }
                     // Differentiate secondary cursor faces
-                    for coord in &state.secondary_cursors {
+                    for coord in &state.inference.secondary_cursors {
                         if coord.line as usize == line_idx {
                             dim_cursor_atom(
                                 &mut resolved,
                                 coord.column as u16,
                                 &base_face,
-                                state.secondary_blend_ratio,
+                                state.config.secondary_blend_ratio,
                             );
                         }
                     }
@@ -820,9 +820,9 @@ mod tests {
     #[test]
     fn cross_validate_grid_buffer() {
         let mut state = default_state();
-        state.lines = vec![make_line("line1"), make_line("line2")];
-        state.cols = 10;
-        state.rows = 4;
+        state.observed.lines = vec![make_line("line1"), make_line("line2")];
+        state.runtime.cols = 10;
+        state.runtime.rows = 4;
         let theme = Theme::default_theme();
 
         let el = Element::buffer_ref(0..3);
@@ -1071,22 +1071,22 @@ mod tests {
     #[test]
     fn cross_validate_grid_full_view() {
         let mut state = default_state();
-        state.cols = 20;
-        state.rows = 5;
-        state.lines = vec![make_line("hello"), make_line("world")];
-        state.status_line = make_line(" test ");
-        state.status_mode_line = make_line("normal");
+        state.runtime.cols = 20;
+        state.runtime.rows = 5;
+        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.inference.status_line = make_line(" test ");
+        state.observed.status_mode_line = make_line("normal");
         let theme = Theme::default_theme();
 
         let registry = PluginRuntime::new();
         let element = view::view(&state, &registry.view());
-        let root = root_area(state.cols, state.rows);
+        let root = root_area(state.runtime.cols, state.runtime.rows);
         let layout = place(&element, root, &state);
 
-        let mut old_grid = CellGrid::new(state.cols, state.rows);
+        let mut old_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         paint::paint(&element, &layout, &mut old_grid, &state);
 
-        let mut new_grid = CellGrid::new(state.cols, state.rows);
+        let mut new_grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
         walk_paint_grid(
             &element,
             &layout,
@@ -1108,11 +1108,11 @@ mod tests {
     #[test]
     fn cross_validate_scene_full_view() {
         let mut state = default_state();
-        state.cols = 20;
-        state.rows = 5;
-        state.lines = vec![make_line("hello"), make_line("world")];
-        state.status_line = make_line(" test ");
-        state.status_mode_line = make_line("normal");
+        state.runtime.cols = 20;
+        state.runtime.rows = 5;
+        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.inference.status_line = make_line(" test ");
+        state.observed.status_mode_line = make_line("normal");
 
         let theme = Theme::default_theme();
         let cs = default_cell_size();
@@ -1120,7 +1120,7 @@ mod tests {
 
         let registry = PluginRuntime::new();
         let element = view::view(&state, &registry.view());
-        let root = root_area(state.cols, state.rows);
+        let root = root_area(state.runtime.cols, state.runtime.rows);
         let layout = place(&element, root, &state);
 
         let old_commands = scene::scene_paint(&element, &layout, &state, &theme, cs, cursor);
@@ -1209,9 +1209,9 @@ mod tests {
     #[test]
     fn cross_validate_scene_buffer() {
         let mut state = default_state();
-        state.lines = vec![make_line("line1"), make_line("line2")];
-        state.cols = 10;
-        state.rows = 4;
+        state.observed.lines = vec![make_line("line1"), make_line("line2")];
+        state.runtime.cols = 10;
+        state.runtime.rows = 4;
         let theme = Theme::default_theme();
         let cs = default_cell_size();
 

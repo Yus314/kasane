@@ -200,14 +200,15 @@ impl NewHarness {
             return None;
         };
 
-        if !matches!(&self.state.drag, DragState::None) {
+        if !matches!(&self.state.runtime.drag, DragState::None) {
             return None;
         }
-        if !self.state.infos.is_empty() || !is_scroll_event(mouse) {
+        if !self.state.observed.infos.is_empty() || !is_scroll_event(mouse) {
             return None;
         }
         if self
             .state
+            .runtime
             .hit_map
             .test(mouse.column as u16, mouse.line as u16)
             .is_some()
@@ -232,7 +233,7 @@ impl NewHarness {
         };
 
         if !matches!(
-            self.state.drag,
+            self.state.runtime.drag,
             DragState::Active {
                 button: kasane_core::input::MouseButton::Left,
                 ..
@@ -242,9 +243,9 @@ impl NewHarness {
             return None;
         }
 
-        let hit_map = std::mem::take(&mut self.state.hit_map);
+        let hit_map = std::mem::take(&mut self.state.runtime.hit_map);
         let consumed = consume_info_scroll(&mut self.state, mouse, &hit_map);
-        self.state.hit_map = hit_map;
+        self.state.runtime.hit_map = hit_map;
         if consumed {
             return Some(StepOutcome {
                 dirty: DirtyFlags::INFO,
@@ -255,7 +256,7 @@ impl NewHarness {
 
         let candidate = default_scroll_candidate(mouse, self.scroll_amount)?;
         let mut commands = self.apply_policy_result(candidate, fallback_scroll_policy(candidate));
-        let edge_line = selection_scroll_edge_line(self.state.rows, mouse)?;
+        let edge_line = selection_scroll_edge_line(self.state.runtime.rows, mouse)?;
         commands.push(Command::SendToKakoune(KasaneRequest::MouseMove {
             line: edge_line,
             column: mouse.column,
@@ -296,9 +297,9 @@ impl NewHarness {
             return None;
         }
 
-        let hit_map = std::mem::take(&mut self.state.hit_map);
+        let hit_map = std::mem::take(&mut self.state.runtime.hit_map);
         let consumed = consume_info_scroll(&mut self.state, mouse, &hit_map);
-        self.state.hit_map = hit_map;
+        self.state.runtime.hit_map = hit_map;
         if !consumed {
             return None;
         }
@@ -366,16 +367,24 @@ pub fn assert_same_flags(left: &TraceOutcome, right: &TraceOutcome) {
 
 #[allow(dead_code)]
 pub fn assert_same_visible_state(left: &TraceOutcome, right: &TraceOutcome) {
-    assert_eq!(left.final_state.drag, right.final_state.drag);
-    assert_eq!(left.final_state.infos.len(), right.final_state.infos.len());
+    assert_eq!(
+        left.final_state.runtime.drag,
+        right.final_state.runtime.drag
+    );
+    assert_eq!(
+        left.final_state.observed.infos.len(),
+        right.final_state.observed.infos.len()
+    );
     let left_offsets: Vec<_> = left
         .final_state
+        .observed
         .infos
         .iter()
         .map(|info| info.scroll_offset)
         .collect();
     let right_offsets: Vec<_> = right
         .final_state
+        .observed
         .infos
         .iter()
         .map(|info| info.scroll_offset)

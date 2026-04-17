@@ -861,17 +861,17 @@ impl HostState {
 /// synced because it is cheap and universally needed.
 pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_deps: DirtyFlags) {
     // Tier 0 (always): cheap scalars every plugin needs
-    host.cursor_line = state.cursor_pos.line;
-    host.cursor_col = state.cursor_pos.column;
-    host.line_count = state.lines.len() as u32;
-    host.cols = state.cols;
-    host.rows = state.rows;
-    host.focused = state.focused;
-    host.cursor_mode = match state.cursor_mode {
+    host.cursor_line = state.observed.cursor_pos.line;
+    host.cursor_col = state.observed.cursor_pos.column;
+    host.line_count = state.observed.lines.len() as u32;
+    host.cols = state.runtime.cols;
+    host.rows = state.runtime.rows;
+    host.focused = state.runtime.focused;
+    host.cursor_mode = match state.inference.cursor_mode {
         CursorMode::Buffer => 0,
         CursorMode::Prompt => 1,
     };
-    host.editor_mode = match state.editor_mode {
+    host.editor_mode = match state.inference.editor_mode {
         kasane_core::state::derived::EditorMode::Normal => 0,
         kasane_core::state::derived::EditorMode::Insert => 1,
         kasane_core::state::derived::EditorMode::Replace => 2,
@@ -881,24 +881,24 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
 
     // Tier 1 (BUFFER_CONTENT): lines, lines_dirty — O(buffer_size) clone
     if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
-        host.lines = state.lines.clone();
-        host.lines_dirty = state.lines_dirty.clone();
+        host.lines = state.observed.lines.clone();
+        host.lines_dirty = state.inference.lines_dirty.clone();
     }
 
     // Tier 2 (STATUS): status bar fields
     if view_deps.intersects(DirtyFlags::STATUS) {
-        host.status_prompt = state.status_prompt.clone();
-        host.status_content = state.status_content.clone();
-        host.status_line = state.status_line.clone();
-        host.status_mode_line = state.status_mode_line.clone();
-        host.status_default_face = state.status_default_face;
-        host.status_style = convert::status_style_to_string(&state.status_style);
+        host.status_prompt = state.observed.status_prompt.clone();
+        host.status_content = state.observed.status_content.clone();
+        host.status_line = state.inference.status_line.clone();
+        host.status_mode_line = state.observed.status_mode_line.clone();
+        host.status_default_face = state.observed.status_default_face;
+        host.status_style = convert::status_style_to_string(&state.observed.status_style);
     }
 
     // Tier 3 (MENU): menu structure + selection
     if view_deps.intersects(DirtyFlags::MENU) {
         host.has_menu = state.has_menu();
-        if let Some(menu) = &state.menu {
+        if let Some(menu) = &state.observed.menu {
             host.menu_items = menu.items.clone();
             host.menu_selected = menu.selected.map(|s| s as i32).unwrap_or(-1);
             host.menu_anchor = Some(menu.anchor);
@@ -918,48 +918,61 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     // Tier 4 (INFO): info panels
     if view_deps.intersects(DirtyFlags::INFO) {
         host.has_info = state.has_info();
-        host.info_count = state.infos.len() as u32;
-        host.infos.clone_from(&state.infos);
+        host.info_count = state.observed.infos.len() as u32;
+        host.infos.clone_from(&state.observed.infos);
     }
 
     // Tier 5 (OPTIONS): ui_options, config, theme, faces
     if view_deps.intersects(DirtyFlags::OPTIONS) {
-        host.ui_options.clone_from(&state.ui_options);
-        host.widget_columns = state.widget_columns;
-        host.default_face = state.default_face;
-        host.padding_face = state.padding_face;
-        host.theme = state.theme.clone();
-        host.is_dark = state.color_context.is_dark;
+        host.ui_options.clone_from(&state.observed.ui_options);
+        host.widget_columns = state.observed.widget_columns;
+        host.default_face = state.observed.default_face;
+        host.padding_face = state.observed.padding_face;
+        host.theme = state.config.theme.clone();
+        host.is_dark = state.inference.color_context.is_dark;
 
         host.config_values.clear();
+        host.config_values.insert(
+            "shadow_enabled".into(),
+            state.config.shadow_enabled.to_string(),
+        );
         host.config_values
-            .insert("shadow_enabled".into(), state.shadow_enabled.to_string());
-        host.config_values
-            .insert("padding_char".into(), state.padding_char.clone());
+            .insert("padding_char".into(), state.config.padding_char.clone());
         host.config_values.insert(
             "menu_position".into(),
-            convert::menu_position_to_string(&state.menu_position),
+            convert::menu_position_to_string(&state.config.menu_position),
         );
-        host.config_values
-            .insert("status_at_top".into(), state.status_at_top.to_string());
-        host.config_values
-            .insert("search_dropdown".into(), state.search_dropdown.to_string());
+        host.config_values.insert(
+            "status_at_top".into(),
+            state.config.status_at_top.to_string(),
+        );
+        host.config_values.insert(
+            "search_dropdown".into(),
+            state.config.search_dropdown.to_string(),
+        );
         host.config_values.insert(
             "cursor.secondary_blend".into(),
-            state.secondary_blend_ratio.to_string(),
+            state.config.secondary_blend_ratio.to_string(),
         );
-        host.config_values
-            .insert("scrollbar.thumb".into(), state.scrollbar_thumb.clone());
-        host.config_values
-            .insert("scrollbar.track".into(), state.scrollbar_track.clone());
-        for (k, v) in &state.plugin_config {
+        host.config_values.insert(
+            "scrollbar.thumb".into(),
+            state.config.scrollbar_thumb.clone(),
+        );
+        host.config_values.insert(
+            "scrollbar.track".into(),
+            state.config.scrollbar_track.clone(),
+        );
+        for (k, v) in &state.config.plugin_config {
             host.config_values.insert(k.clone(), v.clone());
         }
     }
 
     // Tier (SETTINGS): per-plugin typed settings
     if view_deps.intersects(DirtyFlags::SETTINGS)
-        && let Some(ps) = state.plugin_settings.get(&PluginId(host.plugin_id.clone()))
+        && let Some(ps) = state
+            .config
+            .plugin_settings
+            .get(&PluginId(host.plugin_id.clone()))
     {
         host.settings.clone_from(ps);
     }
@@ -967,6 +980,7 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
     // Tier 6 (SESSION): session metadata
     if view_deps.intersects(DirtyFlags::SESSION) {
         host.session_descriptors = state
+            .session
             .session_descriptors
             .iter()
             .map(|d| SessionDescriptorCache {
@@ -976,18 +990,19 @@ pub(crate) fn sync_from_app_state(host: &mut HostState, state: &AppState, view_d
                 mode_line: d.mode_line.clone(),
             })
             .collect();
-        host.active_session_key = state.active_session_key.clone();
+        host.active_session_key = state.session.active_session_key.clone();
     }
 
     // Tier 7 (BUFFER_CURSOR): multi-cursor, selections
     if view_deps.intersects(DirtyFlags::BUFFER_CURSOR) {
-        host.cursor_count = state.cursor_count as u32;
-        host.secondary_cursors.clone_from(&state.secondary_cursors);
-        host.selections.clone_from(&state.selections);
+        host.cursor_count = state.inference.cursor_count as u32;
+        host.secondary_cursors
+            .clone_from(&state.inference.secondary_cursors);
+        host.selections.clone_from(&state.inference.selections);
     }
 
     // DU-4: Display unit map (synced when buffer content changes)
     if view_deps.intersects(DirtyFlags::BUFFER_CONTENT) {
-        host.display_unit_map = state.display_unit_map.clone();
+        host.display_unit_map = state.runtime.display_unit_map.clone();
     }
 }

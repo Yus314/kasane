@@ -66,28 +66,28 @@ impl ViewSource for DirectViewSource {
 /// to BUFFER|STATUS and other BUFFER-containing combinations.
 fn selective_clear(grid: &mut CellGrid, state: &AppState, dirty: DirtyFlags) {
     let line_dirty_active = dirty.contains(DirtyFlags::BUFFER_CONTENT)
-        && !state.lines_dirty.is_empty()
-        && state.lines_dirty.iter().any(|d| !d);
+        && !state.inference.lines_dirty.is_empty()
+        && state.inference.lines_dirty.iter().any(|d| !d);
 
     if line_dirty_active {
         // Clear only non-buffer sections; buffer lines handled by paint_buffer_ref
         if dirty.intersects(DirtyFlags::STATUS) {
-            let status_y = if state.status_at_top {
+            let status_y = if state.config.status_at_top {
                 0
             } else {
-                state.rows.saturating_sub(1)
+                state.runtime.rows.saturating_sub(1)
             };
             let status_rect = Rect {
                 x: 0,
                 y: status_y,
-                w: state.cols,
+                w: state.runtime.cols,
                 h: 1,
             };
-            grid.clear_region(&status_rect, &state.status_default_face);
+            grid.clear_region(&status_rect, &state.observed.status_default_face);
         }
         // Menu/info overlays paint over buffer anyway — no separate clear needed
     } else {
-        grid.clear(&state.default_face);
+        grid.clear(&state.observed.default_face);
     }
 }
 
@@ -101,26 +101,28 @@ fn compute_render_result(
     display_scroll_offset: u16,
     focused_pane_rect: Option<&Rect>,
 ) -> RenderResult {
-    let (cx, cy) = match state.cursor_mode {
+    let (cx, cy) = match state.inference.cursor_mode {
         CursorMode::Buffer => {
-            let cx = state.cursor_pos.column as u16 + buffer_x_offset;
+            let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
             let cy = display_map
                 .filter(|dm| !dm.is_identity())
                 .and_then(|dm| {
-                    dm.buffer_to_display(crate::display::BufferLine(state.cursor_pos.line as usize))
+                    dm.buffer_to_display(crate::display::BufferLine(
+                        state.observed.cursor_pos.line as usize,
+                    ))
                 })
                 .map(|y| y.0 as u16)
-                .unwrap_or(state.cursor_pos.line as u16)
+                .unwrap_or(state.observed.cursor_pos.line as u16)
                 .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
-            let prompt_width = line_display_width(&state.status_prompt) as u16;
-            let base_cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            let prompt_width = line_display_width(&state.observed.status_prompt) as u16;
+            let base_cx = prompt_width + (state.observed.status_content_cursor_pos.max(0) as u16);
             match focused_pane_rect {
                 Some(r) => {
-                    let cy = if state.status_at_top {
+                    let cy = if state.config.status_at_top {
                         r.y
                     } else {
                         r.y + r.h - 1
@@ -128,10 +130,10 @@ fn compute_render_result(
                     (base_cx + r.x, cy)
                 }
                 None => {
-                    let cy = if state.status_at_top {
+                    let cy = if state.config.status_at_top {
                         0
                     } else {
-                        state.rows.saturating_sub(1)
+                        state.runtime.rows.saturating_sub(1)
                     };
                     (base_cx, cy)
                 }
@@ -157,12 +159,12 @@ fn compute_render_result(
 fn extract_cursor_color(state: &AppState) -> crate::protocol::Color {
     use crate::protocol::{Attributes, Color, CursorMode};
 
-    if state.cursor_mode != CursorMode::Buffer {
+    if state.inference.cursor_mode != CursorMode::Buffer {
         return Color::Default;
     }
-    let line_idx = state.cursor_pos.line as usize;
-    let col = state.cursor_pos.column as usize;
-    let Some(atoms) = state.lines.get(line_idx) else {
+    let line_idx = state.observed.cursor_pos.line as usize;
+    let col = state.observed.cursor_pos.column as usize;
+    let Some(atoms) = state.observed.lines.get(line_idx) else {
         return Color::Default;
     };
     let mut pos = 0;
@@ -237,8 +239,8 @@ pub(crate) fn prepare_frame(
     let root_area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let focused_pane_rect = sections.focused_pane_rect;
     let focused_pane_state = sections.focused_pane_state.take();
@@ -299,7 +301,7 @@ pub(crate) fn render_cached_core(
     // are clean, skip full grid.clear() and only clear non-buffer sections.
     // paint_buffer_ref() skips clean lines, reusing previous frame content.
     selective_clear(grid, state, dirty);
-    let theme = &state.theme;
+    let theme = &state.config.theme;
     walk::walk_paint_grid(
         &element,
         &layout_result,
@@ -313,8 +315,8 @@ pub(crate) fn render_cached_core(
 
     // Collect all render ornaments in a single pass and decompose.
     let ornament_ctx = crate::plugin::RenderOrnamentContext::from_screen(
-        state.cols,
-        state.rows,
+        state.runtime.cols,
+        state.runtime.rows,
         frame.display_scroll_offset,
     );
     let ornaments = registry.collect_ornaments(&AppView::new(state), &ornament_ctx);
@@ -416,7 +418,7 @@ pub(crate) fn scene_render_core<'a>(
 ) -> (&'a [DrawCommand], RenderResult, DisplayMapRef) {
     crate::perf::perf_span!("scene_render_pipeline");
 
-    scene_cache.invalidate(dirty, cell_size, state.cols, state.rows);
+    scene_cache.invalidate(dirty, cell_size, state.runtime.cols, state.runtime.rows);
 
     let frame = prepare_frame(source, state, registry, dirty);
     let display_map_out = std::sync::Arc::clone(&frame.display_map);
@@ -426,8 +428,8 @@ pub(crate) fn scene_render_core<'a>(
 
     // Collect all render ornaments in a single pass.
     let ornament_ctx = crate::plugin::RenderOrnamentContext::from_screen(
-        state.cols,
-        state.rows,
+        state.runtime.cols,
+        state.runtime.rows,
         frame.display_scroll_offset,
     );
     let ornaments = registry.collect_ornaments(&AppView::new(state), &ornament_ctx);
@@ -453,7 +455,7 @@ pub(crate) fn scene_render_core<'a>(
         return (scene_cache.composed_ref(), result, display_map_out);
     }
 
-    let theme = &state.theme;
+    let theme = &state.config.theme;
 
     // Base section
     if scene_cache.base_commands.is_none() {

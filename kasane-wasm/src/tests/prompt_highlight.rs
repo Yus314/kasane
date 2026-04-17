@@ -50,7 +50,7 @@ fn passthrough_in_buffer_mode() {
 fn wraps_in_prompt_mode() {
     let mut plugin = load_prompt_highlight_plugin();
     let mut state = AppState::default();
-    state.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
+    state.inference.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
     apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
     let element = Element::text("prompt content", Face::default());
@@ -91,7 +91,7 @@ fn wraps_in_prompt_mode() {
 fn ignores_non_status_targets() {
     let mut plugin = load_prompt_highlight_plugin();
     let mut state = AppState::default();
-    state.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
+    state.inference.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
     apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
 
     let element = Element::text("buffer content", Face::default());
@@ -122,7 +122,7 @@ fn state_hash_changes_with_mode() {
     let h1 = plugin.state_hash();
 
     let mut state = AppState::default();
-    state.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
+    state.inference.cursor_mode = kasane_core::protocol::CursorMode::Prompt;
     apply_prompt_state_change(&mut plugin, &state, DirtyFlags::STATUS);
     let h2 = plugin.state_hash();
 

@@ -137,9 +137,9 @@ fn test_scene_render_pipeline_deterministic() {
     use super::super::scene_render_pipeline;
 
     let mut state = test_state_80x24();
-    state.status_default_face = state.default_face;
-    state.lines = vec![make_line("hello"), make_line("world")];
-    state.status_line = make_line("status");
+    state.observed.status_default_face = state.observed.default_face;
+    state.observed.lines = vec![make_line("hello"), make_line("world")];
+    state.inference.status_line = make_line("status");
 
     let registry = PluginRuntime::new();
     let cs = scene::CellSize {
@@ -162,9 +162,9 @@ fn test_scene_cache_overlay_ordering_with_menu_and_info() {
     use super::super::scene_render_pipeline;
 
     let mut state = test_state_80x24();
-    state.status_default_face = state.default_face;
-    state.lines = vec![make_line("hello"), make_line("world")];
-    state.status_line = make_line("status");
+    state.observed.status_default_face = state.observed.default_face;
+    state.observed.lines = vec![make_line("hello"), make_line("world")];
+    state.inference.status_line = make_line("status");
 
     // Show menu
     state.apply(crate::protocol::KakouneRequest::MenuShow {

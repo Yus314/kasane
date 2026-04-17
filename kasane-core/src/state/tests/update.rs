@@ -98,7 +98,7 @@ fn test_update_kakoune_draw() {
     let commands = result.commands;
     assert!(flags.contains(DirtyFlags::BUFFER));
     assert!(commands.is_empty());
-    assert_eq!(state.lines.len(), 1);
+    assert_eq!(state.observed.lines.len(), 1);
 }
 
 #[test]
@@ -108,18 +108,18 @@ fn test_update_focus_lost() {
 
     let flags = update_in_place(&mut state, Msg::FocusLost, &mut registry, 3).flags;
     assert_eq!(flags, DirtyFlags::ALL);
-    assert!(!state.focused);
+    assert!(!state.runtime.focused);
 }
 
 #[test]
 fn test_update_focus_gained() {
     let mut state = Box::new(AppState::default());
-    state.focused = false;
+    state.runtime.focused = false;
     let mut registry = PluginRuntime::new();
 
     let flags = update_in_place(&mut state, Msg::FocusGained, &mut registry, 3).flags;
     assert_eq!(flags, DirtyFlags::ALL);
-    assert!(state.focused);
+    assert!(state.runtime.focused);
 }
 
 #[test]
@@ -302,8 +302,8 @@ fn test_update_mouse_routes_to_plugin() {
     }
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(MousePlugin));
 
@@ -320,7 +320,7 @@ fn test_update_mouse_routes_to_plugin() {
     };
     let layout = crate::layout::flex::place(&el, area, &state);
     let hit_map = build_hit_map(&el, &layout);
-    state.hit_map = hit_map;
+    state.runtime.hit_map = hit_map;
 
     let mouse = MouseEvent {
         kind: MouseEventKind::Press(MouseButton::Left),
@@ -339,8 +339,8 @@ fn test_update_mouse_routes_to_plugin() {
 #[test]
 fn test_update_mouse_miss_forwards_to_kakoune() {
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
     // Empty HitMap (no interactive regions)
 
@@ -525,8 +525,8 @@ fn test_observe_mouse_called_without_hit_test() {
     }
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(MouseObserver(observed.clone())));
     // No interactive regions → hit_test returns None
@@ -672,8 +672,8 @@ fn update_resize_with_null_effects_sends_resize_command() {
         &mut effects,
         3,
     );
-    assert_eq!(state.cols, 120);
-    assert_eq!(state.rows, 40);
+    assert_eq!(state.runtime.cols, 120);
+    assert_eq!(state.runtime.rows, 40);
     assert!(result.flags.contains(DirtyFlags::ALL));
 }
 
@@ -685,8 +685,8 @@ fn mouse_press_on_fold_summary_suppressed() {
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
 
     // Build a non-identity display map with a fold at lines 2..5
@@ -699,9 +699,9 @@ fn mouse_press_on_fold_summary_suppressed() {
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     // Click on display line 2 = fold summary (ReadOnly)
     let mouse = MouseEvent {
@@ -722,7 +722,7 @@ fn mouse_press_on_fold_summary_suppressed() {
     );
     // Fold range should now be expanded in fold_toggle_state
     assert!(
-        state.fold_toggle_state.is_expanded(&(2..5)),
+        state.config.fold_toggle_state.is_expanded(&(2..5)),
         "fold range 2..5 should be expanded after click"
     );
 }
@@ -733,8 +733,8 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
 
     let directives = vec![DisplayDirective::Fold {
@@ -746,9 +746,9 @@ fn mouse_press_on_normal_line_forwards_to_kakoune() {
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     // Click on display line 0 = buffer line 0 (Normal)
     let mouse = MouseEvent {
@@ -772,8 +772,8 @@ fn mouse_press_on_virtual_text_suppressed() {
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
 
     let directives = vec![DisplayDirective::InsertAfter {
@@ -785,9 +785,9 @@ fn mouse_press_on_virtual_text_suppressed() {
     }];
     let dm = DisplayMap::build(3, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     // Display: [buf(0), virtual, buf(1), buf(2)]
     // Click on display line 1 = virtual text (ReadOnly)
@@ -812,8 +812,8 @@ fn mouse_click_fold_summary_toggles_fold_state() {
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
 
     let directives = vec![DisplayDirective::Fold {
@@ -825,12 +825,12 @@ fn mouse_click_fold_summary_toggles_fold_state() {
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     // Before click: fold range not expanded
-    assert!(!state.fold_toggle_state.is_expanded(&(3..7)));
+    assert!(!state.config.fold_toggle_state.is_expanded(&(3..7)));
 
     // Click on fold summary line (display line 3)
     let mouse = MouseEvent {
@@ -843,7 +843,7 @@ fn mouse_click_fold_summary_toggles_fold_state() {
 
     assert!(result.flags.contains(DirtyFlags::BUFFER_CONTENT));
     assert!(result.commands.is_empty());
-    assert!(state.fold_toggle_state.is_expanded(&(3..7)));
+    assert!(state.config.fold_toggle_state.is_expanded(&(3..7)));
 }
 
 #[test]
@@ -852,8 +852,8 @@ fn mouse_move_on_fold_summary_suppressed_without_toggle() {
     use std::sync::Arc;
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut registry = PluginRuntime::new();
 
     let directives = vec![DisplayDirective::Fold {
@@ -865,9 +865,9 @@ fn mouse_move_on_fold_summary_suppressed_without_toggle() {
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     // Mouse move (not press) on fold summary — should suppress but NOT toggle
     let mouse = MouseEvent {
@@ -881,7 +881,7 @@ fn mouse_move_on_fold_summary_suppressed_without_toggle() {
     assert!(result.commands.is_empty());
     assert!(result.flags.is_empty());
     assert!(
-        !state.fold_toggle_state.is_expanded(&(2..5)),
+        !state.config.fold_toggle_state.is_expanded(&(2..5)),
         "mouse move should not toggle fold"
     );
 }
@@ -891,8 +891,8 @@ fn fold_toggle_cleared_on_draw() {
     let mut state = AppState::default();
 
     // Set some fold toggle state
-    state.fold_toggle_state.toggle(&(3..7));
-    assert!(state.fold_toggle_state.is_expanded(&(3..7)));
+    state.config.fold_toggle_state.toggle(&(3..7));
+    assert!(state.config.fold_toggle_state.is_expanded(&(3..7)));
 
     // Apply a Draw request — should clear fold toggle state
     state.apply(KakouneRequest::Draw {
@@ -904,7 +904,7 @@ fn fold_toggle_cleared_on_draw() {
     });
 
     assert!(
-        !state.fold_toggle_state.is_expanded(&(3..7)),
+        !state.config.fold_toggle_state.is_expanded(&(3..7)),
         "fold toggle state should be cleared after Draw"
     );
 }
@@ -916,8 +916,8 @@ fn fold_summary_click_dispatches_through_null_effects() {
     use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut effects = NullEffects;
 
     let directives = vec![DisplayDirective::Fold {
@@ -929,9 +929,9 @@ fn fold_summary_click_dispatches_through_null_effects() {
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     let mouse = MouseEvent {
         kind: MouseEventKind::Press(MouseButton::Left),
@@ -943,7 +943,7 @@ fn fold_summary_click_dispatches_through_null_effects() {
     // NullEffects returns Pass for dispatch_navigation_action,
     // so fallback fold toggle should still work
     assert!(result.flags.contains(DirtyFlags::BUFFER_CONTENT));
-    assert!(state.fold_toggle_state.is_expanded(&(2..5)));
+    assert!(state.config.fold_toggle_state.is_expanded(&(2..5)));
 }
 
 #[test]
@@ -951,8 +951,8 @@ fn fold_summary_click_recording_effects_dispatches_action() {
     use crate::display::{DisplayDirective, DisplayMap, DisplayUnitMap};
 
     let mut state = Box::new(AppState::default());
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut effects = RecordingEffects::default();
 
     let directives = vec![DisplayDirective::Fold {
@@ -964,9 +964,9 @@ fn fold_summary_click_recording_effects_dispatches_action() {
     }];
     let dm = DisplayMap::build(10, &directives);
     let dum = DisplayUnitMap::build(&dm);
-    state.display_map = Some(Arc::new(dm));
-    state.display_unit_map = Some(dum);
-    state.display_scroll_offset = 0;
+    state.runtime.display_map = Some(Arc::new(dm));
+    state.runtime.display_unit_map = Some(dum);
+    state.runtime.display_scroll_offset = 0;
 
     let mouse = MouseEvent {
         kind: MouseEventKind::Press(MouseButton::Left),

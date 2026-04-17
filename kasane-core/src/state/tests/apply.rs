@@ -17,7 +17,7 @@ fn test_apply_draw() {
         widget_columns: 0,
     });
     assert!(flags.contains(DirtyFlags::BUFFER));
-    assert_eq!(state.lines.len(), 1);
+    assert_eq!(state.observed.lines.len(), 1);
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn test_draw_updates_cursor_pos() {
         widget_columns: 0,
     });
     assert_eq!(
-        state.cursor_pos,
+        state.observed.cursor_pos,
         Coord {
             line: 5,
             column: 10
@@ -52,7 +52,7 @@ fn test_draw_stores_widget_columns() {
         padding_face: Face::default(),
         widget_columns: 3,
     });
-    assert_eq!(state.widget_columns, 3);
+    assert_eq!(state.observed.widget_columns, 3);
 }
 
 #[test]
@@ -68,8 +68,8 @@ fn test_draw_status_derives_cursor_mode_prompt() {
     });
     assert!(flags.contains(DirtyFlags::STATUS));
     assert!(flags.contains(DirtyFlags::BUFFER_CURSOR)); // mode changed
-    assert_eq!(state.cursor_mode, CursorMode::Prompt);
-    assert_eq!(state.status_content_cursor_pos, 4);
+    assert_eq!(state.inference.cursor_mode, CursorMode::Prompt);
+    assert_eq!(state.observed.status_content_cursor_pos, 4);
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn test_draw_status_derives_cursor_mode_buffer() {
     });
     assert!(flags.contains(DirtyFlags::STATUS));
     assert!(!flags.contains(DirtyFlags::BUFFER)); // mode unchanged (already Buffer)
-    assert_eq!(state.cursor_mode, CursorMode::Buffer);
+    assert_eq!(state.inference.cursor_mode, CursorMode::Buffer);
 }
 
 #[test]
@@ -100,12 +100,12 @@ fn test_apply_draw_status() {
         style: StatusStyle::Command,
     });
     assert!(flags.contains(DirtyFlags::STATUS));
-    assert_eq!(state.status_prompt[0].contents, ":");
-    assert_eq!(state.status_content[0].contents, "q");
+    assert_eq!(state.observed.status_prompt[0].contents, ":");
+    assert_eq!(state.observed.status_content[0].contents, "q");
     // Combined status_line = prompt + content
-    assert_eq!(state.status_line[0].contents, ":");
-    assert_eq!(state.status_line[1].contents, "q");
-    assert_eq!(state.status_mode_line[0].contents, "insert");
+    assert_eq!(state.inference.status_line[0].contents, ":");
+    assert_eq!(state.inference.status_line[1].contents, "q");
+    assert_eq!(state.observed.status_mode_line[0].contents, "insert");
 }
 
 #[test]
@@ -119,14 +119,14 @@ fn test_apply_menu_show_select_hide() {
         menu_face: Face::default(),
         style: MenuStyle::Inline,
     });
-    assert!(state.menu.is_some());
-    assert_eq!(state.menu.as_ref().unwrap().selected, None);
+    assert!(state.observed.menu.is_some());
+    assert_eq!(state.observed.menu.as_ref().unwrap().selected, None);
 
     state.apply(KakouneRequest::MenuSelect { selected: 1 });
-    assert_eq!(state.menu.as_ref().unwrap().selected, Some(1));
+    assert_eq!(state.observed.menu.as_ref().unwrap().selected, Some(1));
 
     let flags = state.apply(KakouneRequest::MenuHide);
-    assert!(state.menu.is_none());
+    assert!(state.observed.menu.is_none());
     assert!(flags.contains(DirtyFlags::MENU));
 }
 
@@ -141,10 +141,10 @@ fn test_apply_info_show_hide() {
         face: Face::default(),
         style: InfoStyle::Modal,
     });
-    assert_eq!(state.infos.len(), 1);
+    assert_eq!(state.observed.infos.len(), 1);
 
     let flags = state.apply(KakouneRequest::InfoHide);
-    assert!(state.infos.is_empty());
+    assert!(state.observed.infos.is_empty());
     assert!(flags.contains(DirtyFlags::INFO));
 }
 
@@ -160,7 +160,7 @@ fn test_apply_multiple_infos() {
         face: Face::default(),
         style: InfoStyle::Modal,
     });
-    assert_eq!(state.infos.len(), 1);
+    assert_eq!(state.observed.infos.len(), 1);
 
     // Show second info (Inline at line 5) — different identity, coexists
     state.apply(KakouneRequest::InfoShow {
@@ -170,7 +170,7 @@ fn test_apply_multiple_infos() {
         face: Face::default(),
         style: InfoStyle::Inline,
     });
-    assert_eq!(state.infos.len(), 2);
+    assert_eq!(state.observed.infos.len(), 2);
 
     // Show info with same identity (Modal at line 0) — replaces first
     state.apply(KakouneRequest::InfoShow {
@@ -180,12 +180,12 @@ fn test_apply_multiple_infos() {
         face: Face::default(),
         style: InfoStyle::Modal,
     });
-    assert_eq!(state.infos.len(), 2);
-    assert_eq!(state.infos[0].title[0].contents, "Updated Help");
+    assert_eq!(state.observed.infos.len(), 2);
+    assert_eq!(state.observed.infos[0].title[0].contents, "Updated Help");
 
     // Hide removes most recent
     state.apply(KakouneRequest::InfoHide);
-    assert_eq!(state.infos.len(), 1);
+    assert_eq!(state.observed.infos.len(), 1);
 }
 
 #[test]
@@ -197,7 +197,10 @@ fn test_apply_set_ui_options() {
         options: opts.clone(),
     });
     assert!(flags.contains(DirtyFlags::OPTIONS));
-    assert_eq!(state.ui_options.get("key"), Some(&"value".to_string()));
+    assert_eq!(
+        state.observed.ui_options.get("key"),
+        Some(&"value".to_string())
+    );
 
     // Same options again → no dirty flags (change detection)
     let flags = state.apply(KakouneRequest::SetUiOptions { options: opts });
@@ -423,11 +426,11 @@ fn test_draw_extracts_secondary_cursors_multiple() {
         widget_columns: 0,
     });
 
-    assert_eq!(state.cursor_count, 2);
+    assert_eq!(state.inference.cursor_count, 2);
     // Primary at (0, 5) is excluded; secondary at (0, 10) remains
-    assert_eq!(state.secondary_cursors.len(), 1);
+    assert_eq!(state.inference.secondary_cursors.len(), 1);
     assert_eq!(
-        state.secondary_cursors[0],
+        state.inference.secondary_cursors[0],
         Coord {
             line: 0,
             column: 10
@@ -449,8 +452,8 @@ fn test_draw_single_cursor_no_secondary() {
         widget_columns: 0,
     });
 
-    assert_eq!(state.cursor_count, 1);
-    assert!(state.secondary_cursors.is_empty());
+    assert_eq!(state.inference.cursor_count, 1);
+    assert!(state.inference.secondary_cursors.is_empty());
 }
 
 #[test]
@@ -468,8 +471,8 @@ fn test_draw_no_cursors() {
 
     // cursor_pos is always provided by Kakoune, so at least the primary
     // cursor is assumed to exist even when no atom carries cursor attributes.
-    assert_eq!(state.cursor_count, 1);
-    assert!(state.secondary_cursors.is_empty());
+    assert_eq!(state.inference.cursor_count, 1);
+    assert!(state.inference.secondary_cursors.is_empty());
 }
 
 #[test]
@@ -488,8 +491,8 @@ fn test_draw_cjk_column_width() {
         widget_columns: 0,
     });
 
-    assert_eq!(state.cursor_count, 1);
-    assert!(state.secondary_cursors.is_empty());
+    assert_eq!(state.inference.cursor_count, 1);
+    assert!(state.inference.secondary_cursors.is_empty());
 }
 
 #[test]
@@ -507,7 +510,10 @@ fn test_draw_secondary_cursors_multiline() {
         widget_columns: 0,
     });
 
-    assert_eq!(state.cursor_count, 2);
-    assert_eq!(state.secondary_cursors.len(), 1);
-    assert_eq!(state.secondary_cursors[0], Coord { line: 1, column: 2 });
+    assert_eq!(state.inference.cursor_count, 2);
+    assert_eq!(state.inference.secondary_cursors.len(), 1);
+    assert_eq!(
+        state.inference.secondary_cursors[0],
+        Coord { line: 1, column: 2 }
+    );
 }

@@ -32,21 +32,21 @@ use crate::display::FoldToggleState;
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
 use crate::render::theme::Theme;
-use crate::state::AppState;
+use crate::state::{AppState, ConfigState};
 
 /// Read-only projection of `AppState` onto its config (policy) fields.
 ///
 /// See module-level documentation for the enforcement contract.
 #[derive(Clone, Copy)]
 pub struct Policy<'a> {
-    state: &'a AppState,
+    inner: &'a ConfigState,
 }
 
 impl<'a> Policy<'a> {
-    /// Create a new `Policy` projection over the given state.
+    /// Create a new `Policy` projection over the given config state.
     #[inline]
-    pub fn new(state: &'a AppState) -> Self {
-        Self { state }
+    pub fn new(inner: &'a ConfigState) -> Self {
+        Self { inner }
     }
 
     // =========================================================================
@@ -56,25 +56,25 @@ impl<'a> Policy<'a> {
     /// Config: whether to render drop shadows on overlays.
     #[inline]
     pub fn shadow_enabled(&self) -> bool {
-        self.state.shadow_enabled
+        self.inner.shadow_enabled
     }
 
     /// Config: padding character used beyond end-of-buffer lines.
     #[inline]
     pub fn padding_char(&self) -> &'a str {
-        &self.state.padding_char
+        &self.inner.padding_char
     }
 
     /// Config: blend ratio applied to secondary cursor rendering.
     #[inline]
     pub fn secondary_blend_ratio(&self) -> f32 {
-        self.state.secondary_blend_ratio
+        self.inner.secondary_blend_ratio
     }
 
     /// Config: colour theme.
     #[inline]
     pub fn theme(&self) -> &'a Theme {
-        &self.state.theme
+        &self.inner.theme
     }
 
     // =========================================================================
@@ -84,43 +84,43 @@ impl<'a> Policy<'a> {
     /// Config: whether the status bar is drawn at the top of the screen.
     #[inline]
     pub fn status_at_top(&self) -> bool {
-        self.state.status_at_top
+        self.inner.status_at_top
     }
 
     /// Config: maximum menu height in rows.
     #[inline]
     pub fn menu_max_height(&self) -> u16 {
-        self.state.menu_max_height
+        self.inner.menu_max_height
     }
 
     /// Config: preferred menu placement policy.
     #[inline]
     pub fn menu_position(&self) -> MenuPosition {
-        self.state.menu_position
+        self.inner.menu_position
     }
 
     /// Config: whether the search UI renders as a dropdown.
     #[inline]
     pub fn search_dropdown(&self) -> bool {
-        self.state.search_dropdown
+        self.inner.search_dropdown
     }
 
     /// Config: scrollbar thumb glyph.
     #[inline]
     pub fn scrollbar_thumb(&self) -> &'a str {
-        &self.state.scrollbar_thumb
+        &self.inner.scrollbar_thumb
     }
 
     /// Config: scrollbar track glyph.
     #[inline]
     pub fn scrollbar_track(&self) -> &'a str {
-        &self.state.scrollbar_track
+        &self.inner.scrollbar_track
     }
 
     /// Config: optional ASCII assistant art lines.
     #[inline]
     pub fn assistant_art(&self) -> Option<&'a [String]> {
-        self.state.assistant_art.as_deref()
+        self.inner.assistant_art.as_deref()
     }
 
     // =========================================================================
@@ -130,13 +130,13 @@ impl<'a> Policy<'a> {
     /// Config: plugin-namespaced key/value configuration from `SetConfig`.
     #[inline]
     pub fn plugin_config(&self) -> &'a HashMap<String, String> {
-        &self.state.plugin_config
+        &self.inner.plugin_config
     }
 
     /// Config: typed per-plugin settings, schema-validated from manifests.
     #[inline]
     pub fn plugin_settings(&self) -> &'a HashMap<PluginId, HashMap<String, SettingValue>> {
-        &self.state.plugin_settings
+        &self.inner.plugin_settings
     }
 
     // =========================================================================
@@ -146,7 +146,7 @@ impl<'a> Policy<'a> {
     /// Config: fold toggle state — which fold ranges are currently expanded.
     #[inline]
     pub fn fold_toggle_state(&self) -> &'a FoldToggleState {
-        &self.state.fold_toggle_state
+        &self.inner.fold_toggle_state
     }
 
     // =========================================================================
@@ -182,7 +182,7 @@ impl AppState {
     /// See [`Policy`] for the enforcement contract.
     #[inline]
     pub fn policy(&self) -> Policy<'_> {
-        Policy::new(self)
+        Policy::new(&self.config)
     }
 }
 
@@ -199,9 +199,9 @@ mod tests {
     #[test]
     fn construction_roundtrips_scalars() {
         let mut state = AppState::default();
-        state.shadow_enabled = false;
-        state.menu_max_height = 42;
-        state.secondary_blend_ratio = 0.25;
+        state.config.shadow_enabled = false;
+        state.config.menu_max_height = 42;
+        state.config.secondary_blend_ratio = 0.25;
         let policy = state.policy();
         assert!(!policy.shadow_enabled());
         assert_eq!(policy.menu_max_height(), 42);
@@ -211,8 +211,8 @@ mod tests {
     #[test]
     fn construction_roundtrips_strings() {
         let mut state = AppState::default();
-        state.padding_char = "·".to_string();
-        state.scrollbar_thumb = "X".to_string();
+        state.config.padding_char = "·".to_string();
+        state.config.scrollbar_thumb = "X".to_string();
         let policy = state.policy();
         assert_eq!(policy.padding_char(), "·");
         assert_eq!(policy.scrollbar_thumb(), "X");

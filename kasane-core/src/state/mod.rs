@@ -1,11 +1,16 @@
 //! Application state: `AppState`, `apply()`, `update()`, dirty generation tracking.
 
 mod apply;
+pub mod config_state;
 pub mod derived;
 pub mod inference;
+pub mod inference_state;
 mod info;
 mod menu;
+pub mod observed;
 pub mod policy;
+pub mod runtime_state;
+pub mod session_state;
 pub mod snapshot;
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
@@ -13,26 +18,23 @@ mod tests;
 pub mod truth;
 mod update;
 
-use std::collections::HashMap;
-
 use bitflags::bitflags;
 
-use crate::DirtyTracked;
-use crate::config::{Config, MenuPosition, StatusPosition};
-use crate::display::DisplayMapRef;
-use crate::input::MouseButton;
-use crate::layout::HitMap;
+use crate::config::{Config, StatusPosition};
 use crate::plugin::PluginId;
 use crate::plugin::setting::SettingValue;
-use crate::protocol::{Coord, CursorMode, Face, Line, StatusStyle};
-use crate::render::color_context::ColorContext;
+use crate::protocol::CursorMode;
 use crate::render::theme::Theme;
-use crate::session::SessionDescriptor;
 
+pub use config_state::ConfigState;
 pub use inference::Inference;
+pub use inference_state::InferenceState;
 pub use info::{InfoIdentity, InfoState};
 pub use menu::{ItemSplit, MenuColumns, MenuParams, MenuState, split_single_item};
+pub use observed::ObservedState;
 pub use policy::Policy;
+pub use runtime_state::RuntimeState;
+pub use session_state::SessionState;
 pub use truth::Truth;
 pub use update::{Msg, UpdateResult, update, update_in_place};
 
@@ -80,441 +82,401 @@ pub enum DragState {
     #[default]
     None,
     Active {
-        button: MouseButton,
+        button: crate::input::MouseButton,
         start_line: u32,
         start_column: u32,
     },
 }
 
-/// The central application state, updated by Kakoune JSON-RPC messages via [`apply`](AppState::apply).
+/// The central application state, decomposed into epistemic sub-structs.
 ///
-/// Fields are classified into three epistemological categories:
+/// The world model `W = (T, I, Π, S)` from ADR-030 is structurally enforced:
+/// - `observed` — Truth (`T`): protocol-observed fields
+/// - `inference` — Inference (`I`): derived + heuristic fields
+/// - `config` — Policy (`Π`): user-controlled configuration
+/// - `session` — Session (`S`): session metadata
+/// - `runtime` — ephemeral runtime state (outside the world model)
 ///
-/// - **Observed**: Direct 1:1 mapping from Kakoune JSON-RPC protocol messages. No transformation
-///   is applied; the value is stored exactly as received from the upstream `draw`, `draw_status`,
-///   `menu_show`, `info_show`, or `set_ui_options` request.
-///
-/// - **Derived**: Deterministically computed from Observed fields. The derivation logic is
-///   straightforward and has stable semantics (e.g., concatenation, comparison).
-///
-/// - **Heuristic**: Inferred from upstream internal implementation details that are not part of
-///   the protocol specification. These fields rely on assumptions about how Kakoune renders
-///   certain UI elements (e.g., cursor face attributes) and may break if Kakoune changes its
-///   rendering behavior in future versions.
-///
-/// Every field carries a `#[dirty(...)]` annotation that maps it to DirtyFlags
-/// and an `#[epistemic(...)]` annotation classifying its epistemological category.
-/// The `DirtyTracked` derive enforces both at compile time: adding a field without
-/// either annotation is a compile error.
-#[derive(Debug, Clone, DirtyTracked)]
+/// `cursor_cache` is kept as an independent field to avoid split-borrow
+/// conflicts in `detect_cursors_incremental()`.
+#[derive(Debug, Clone, Default)]
 pub struct AppState {
-    // -- Protocol State (from Kakoune JSON-RPC) --
-    /// Observed: buffer lines from `draw`.
-    #[epistemic(observed)]
-    #[dirty(BUFFER_CONTENT)]
-    pub lines: Vec<Line>,
-    /// Observed: default face from `draw`.
-    #[epistemic(observed)]
-    #[dirty(BUFFER_CONTENT)]
-    pub default_face: Face,
-    /// Observed: padding face from `draw`.
-    #[epistemic(observed)]
-    #[dirty(BUFFER_CONTENT)]
-    pub padding_face: Face,
-    /// Derived: per-line dirty flags computed by diffing old vs new `lines`.
-    #[epistemic(
-        derived,
-        source = "line equality diff (R-3)",
-        salsa_opt_out = "consumed by paint.rs selective grid clear; not needed in Salsa projection"
-    )]
-    #[dirty(BUFFER_CONTENT)]
-    pub lines_dirty: Vec<bool>,
-    /// Derived: inferred from `status_content_cursor_pos >= 0` (Buffer vs Prompt).
-    #[epistemic(derived, source = "content_cursor_pos sign (I-3)")]
-    #[dirty(BUFFER_CURSOR)]
-    pub cursor_mode: CursorMode,
-    /// Observed: cursor position from `draw` (`cursor_pos` field).
-    #[epistemic(observed)]
-    #[dirty(BUFFER_CURSOR)]
-    pub cursor_pos: Coord,
-    /// Observed: status prompt atoms from `draw_status`.
-    #[epistemic(observed)]
-    #[dirty(STATUS)]
-    pub status_prompt: Line,
-    /// Observed: status content atoms from `draw_status`.
-    #[epistemic(observed)]
-    #[dirty(STATUS)]
-    pub status_content: Line,
-    /// Observed: cursor position within status content from `draw_status`.
-    #[epistemic(observed)]
-    #[dirty(STATUS)]
-    pub status_content_cursor_pos: i32,
-    /// Derived: concatenation of `status_prompt` + `status_content` for rendering.
-    #[epistemic(derived, source = "prompt + content concatenation")]
-    #[dirty(STATUS)]
-    pub status_line: Line,
-    /// Observed: mode line atoms from `draw_status`.
-    #[epistemic(observed)]
-    #[dirty(STATUS)]
-    pub status_mode_line: Line,
-    /// Observed: default face for the status bar from `draw_status`.
-    #[epistemic(observed)]
-    #[dirty(STATUS)]
-    pub status_default_face: Face,
-    /// Observed: status bar context from `draw_status` (PR #5458).
-    #[epistemic(observed)]
-    #[dirty(STATUS)]
-    pub status_style: StatusStyle,
-    /// Observed: number of widget columns from `draw`.
-    #[epistemic(observed)]
-    #[dirty(BUFFER_CONTENT)]
-    pub widget_columns: u16,
-    /// Observed: completion menu state from `menu_show` / `menu_select` / `menu_hide`.
-    #[epistemic(observed)]
-    #[dirty(MENU_STRUCTURE, MENU_SELECTION)]
-    pub menu: Option<MenuState>,
-    /// Observed: info popup state from `info_show` / `info_hide`.
-    #[epistemic(observed)]
-    #[dirty(INFO)]
-    pub infos: Vec<InfoState>,
-    /// Observed: UI options from `set_ui_options`.
-    #[epistemic(observed)]
-    #[dirty(OPTIONS)]
-    pub ui_options: HashMap<String, String>,
-    /// Heuristic: total cursor count (primary + secondary), detected via FINAL_FG + REVERSE
-    /// attribute pattern in `draw` atoms. Not part of the protocol specification.
-    #[epistemic(heuristic, rule = "I-1", severity = "degraded")]
-    #[dirty(BUFFER_CURSOR)]
-    pub cursor_count: usize,
-    /// Heuristic: positions of secondary cursors (all cursors except primary).
-    /// Extracted from `draw` atoms whose face has FINAL_FG + REVERSE attributes, then
-    /// filtered to exclude the primary `cursor_pos`. This relies on Kakoune's internal
-    /// rendering of multi-cursor selections and may change in future versions.
-    #[epistemic(heuristic, rule = "I-1", severity = "degraded")]
-    #[dirty(BUFFER_CURSOR)]
-    pub secondary_cursors: Vec<Coord>,
-    /// Derived: parsed editor mode from cursor_mode + status_mode_line heuristic (I-2).
-    #[epistemic(
-        derived,
-        source = "cursor_mode + mode_line (I-2)",
-        salsa_opt_out = "consumed directly by view/widget; not surfaced in Salsa projection"
-    )]
-    #[dirty(STATUS)]
-    pub editor_mode: derived::EditorMode,
+    pub observed: ObservedState,
+    pub inference: InferenceState,
+    pub config: ConfigState,
+    pub session: SessionState,
+    pub runtime: RuntimeState,
+    pub(crate) cursor_cache: derived::CursorCache,
+}
 
-    /// Heuristic: detected selection ranges from buffer atoms (I-7).
-    #[epistemic(
-        heuristic,
-        rule = "I-7",
-        severity = "degraded",
-        salsa_opt_out = "consumed directly by paint.rs/view; not surfaced in Salsa projection"
-    )]
-    #[dirty(BUFFER_CONTENT)]
-    pub selections: Vec<derived::Selection>,
+// ---------------------------------------------------------------------------
+// DirtyTracked-equivalent constants (manually composed from sub-structs)
+// ---------------------------------------------------------------------------
+// These constants maintain the same interface as the former `#[derive(DirtyTracked)]`
+// so that structural witness tests and Salsa projection coverage tests continue to work.
+impl AppState {
+    /// Field → DirtyFlags mapping.
+    pub const FIELD_DIRTY_MAP: &[(&str, &[&str])] = &[
+        // observed
+        ("lines", &["BUFFER_CONTENT"]),
+        ("default_face", &["BUFFER_CONTENT"]),
+        ("padding_face", &["BUFFER_CONTENT"]),
+        ("cursor_pos", &["BUFFER_CURSOR"]),
+        ("status_prompt", &["STATUS"]),
+        ("status_content", &["STATUS"]),
+        ("status_content_cursor_pos", &["STATUS"]),
+        ("status_mode_line", &["STATUS"]),
+        ("status_default_face", &["STATUS"]),
+        ("status_style", &["STATUS"]),
+        ("widget_columns", &["BUFFER_CONTENT"]),
+        ("menu", &["MENU_STRUCTURE", "MENU_SELECTION"]),
+        ("infos", &["INFO"]),
+        ("ui_options", &["OPTIONS"]),
+        // inference
+        ("lines_dirty", &["BUFFER_CONTENT"]),
+        ("cursor_mode", &["BUFFER_CURSOR"]),
+        ("status_line", &["STATUS"]),
+        ("editor_mode", &["STATUS"]),
+        ("color_context", &["BUFFER_CONTENT"]),
+        ("cursor_count", &["BUFFER_CURSOR"]),
+        ("secondary_cursors", &["BUFFER_CURSOR"]),
+        ("selections", &["BUFFER_CONTENT"]),
+        // config
+        ("shadow_enabled", &["OPTIONS"]),
+        ("padding_char", &["OPTIONS"]),
+        ("menu_max_height", &["OPTIONS"]),
+        ("menu_position", &["OPTIONS"]),
+        ("search_dropdown", &["OPTIONS"]),
+        ("status_at_top", &["OPTIONS"]),
+        ("scrollbar_thumb", &["MENU_STRUCTURE"]),
+        ("scrollbar_track", &["MENU_STRUCTURE"]),
+        ("assistant_art", &["OPTIONS"]),
+        ("plugin_config", &["OPTIONS"]),
+        ("plugin_settings", &["SETTINGS"]),
+        ("secondary_blend_ratio", &["BUFFER_CONTENT"]),
+        ("theme", &["OPTIONS"]),
+        // session
+        ("session_descriptors", &["SESSION"]),
+        ("active_session_key", &["SESSION"]),
+    ];
 
-    // -- Frontend Config (from user config / SetConfig commands) --
-    #[epistemic(config)]
-    #[dirty(OPTIONS)]
-    pub shadow_enabled: bool,
-    #[epistemic(
-        config,
-        salsa_opt_out = "consumed directly by paint.rs padding renderer; not surfaced in Salsa projection"
-    )]
-    #[dirty(OPTIONS)]
-    pub padding_char: String,
-    #[epistemic(
-        config,
-        salsa_opt_out = "consumed directly by menu layout; not surfaced in Salsa projection"
-    )]
-    #[dirty(OPTIONS)]
-    pub menu_max_height: u16,
-    #[epistemic(config)]
-    #[dirty(OPTIONS)]
-    pub menu_position: MenuPosition,
-    #[epistemic(config)]
-    #[dirty(OPTIONS)]
-    pub search_dropdown: bool,
-    #[epistemic(config)]
-    #[dirty(OPTIONS)]
-    pub status_at_top: bool,
-    #[epistemic(config)]
-    #[dirty(MENU_STRUCTURE)]
-    pub scrollbar_thumb: String,
-    #[epistemic(config)]
-    #[dirty(MENU_STRUCTURE)]
-    pub scrollbar_track: String,
-    #[epistemic(config)]
-    #[dirty(OPTIONS)]
-    pub assistant_art: Option<Vec<String>>,
-    #[epistemic(
-        config,
-        salsa_opt_out = "consumed by plugins via AppView/registry; not surfaced in Salsa projection"
-    )]
-    #[dirty(OPTIONS)]
-    pub plugin_config: HashMap<String, String>,
-    /// Typed per-plugin settings (schema-validated, from manifest + config.toml).
-    #[epistemic(
-        config,
-        salsa_opt_out = "consumed by plugins via AppView/registry; not surfaced in Salsa projection"
-    )]
-    #[dirty(SETTINGS)]
-    pub plugin_settings: HashMap<PluginId, HashMap<String, SettingValue>>,
-    #[epistemic(config)]
-    #[dirty(BUFFER_CONTENT)]
-    pub secondary_blend_ratio: f32,
-    #[epistemic(
-        config,
-        salsa_opt_out = "consumed directly by paint.rs/render; not surfaced in Salsa projection"
-    )]
-    #[dirty(OPTIONS)]
-    pub theme: Theme,
-    #[epistemic(
-        derived,
-        source = "default_face luminance analysis",
-        salsa_opt_out = "consumed directly by theme application; not surfaced in Salsa projection"
-    )]
-    #[dirty(BUFFER_CONTENT)]
-    pub color_context: ColorContext,
+    /// Fields that are free reads (no DirtyFlag needed).
+    pub const FREE_READ_FIELDS: &[&str] = &[
+        "focused",
+        "drag",
+        "cols",
+        "rows",
+        "hit_map",
+        "cursor_cache",
+        "display_scroll_offset",
+        "display_map",
+        "display_unit_map",
+        "fold_toggle_state",
+    ];
 
-    // -- Session metadata (from SessionManager, preserved across session switches) --
-    #[epistemic(session)]
-    #[dirty(SESSION)]
-    pub session_descriptors: Vec<SessionDescriptor>,
-    #[epistemic(session)]
-    #[dirty(SESSION)]
-    pub active_session_key: Option<String>,
+    /// Field → epistemological category.
+    pub const FIELD_EPISTEMIC_MAP: &[(&str, &str)] = &[
+        // observed
+        ("lines", "observed"),
+        ("default_face", "observed"),
+        ("padding_face", "observed"),
+        ("cursor_pos", "observed"),
+        ("status_prompt", "observed"),
+        ("status_content", "observed"),
+        ("status_content_cursor_pos", "observed"),
+        ("status_mode_line", "observed"),
+        ("status_default_face", "observed"),
+        ("status_style", "observed"),
+        ("widget_columns", "observed"),
+        ("menu", "observed"),
+        ("infos", "observed"),
+        ("ui_options", "observed"),
+        // derived
+        ("lines_dirty", "derived"),
+        ("cursor_mode", "derived"),
+        ("status_line", "derived"),
+        ("editor_mode", "derived"),
+        ("color_context", "derived"),
+        // heuristic
+        ("cursor_count", "heuristic"),
+        ("secondary_cursors", "heuristic"),
+        ("selections", "heuristic"),
+        // config
+        ("shadow_enabled", "config"),
+        ("padding_char", "config"),
+        ("menu_max_height", "config"),
+        ("menu_position", "config"),
+        ("search_dropdown", "config"),
+        ("status_at_top", "config"),
+        ("scrollbar_thumb", "config"),
+        ("scrollbar_track", "config"),
+        ("assistant_art", "config"),
+        ("plugin_config", "config"),
+        ("plugin_settings", "config"),
+        ("secondary_blend_ratio", "config"),
+        ("theme", "config"),
+        ("fold_toggle_state", "config"),
+        // session
+        ("session_descriptors", "session"),
+        ("active_session_key", "session"),
+        // runtime
+        ("focused", "runtime"),
+        ("drag", "runtime"),
+        ("cols", "runtime"),
+        ("rows", "runtime"),
+        ("hit_map", "runtime"),
+        ("cursor_cache", "runtime"),
+        ("display_scroll_offset", "runtime"),
+        ("display_map", "runtime"),
+        ("display_unit_map", "runtime"),
+    ];
 
-    // -- Runtime / Ephemeral (not part of protocol or config) --
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub focused: bool,
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub drag: DragState,
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub cols: u16,
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub rows: u16,
-    /// Post-render hit map for interactive element mouse routing.
-    /// Updated after each frame by `rebuild_hit_map()`.
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub hit_map: HitMap,
-    /// Cached per-line cursor positions for incremental `detect_cursors`.
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub cursor_cache: derived::CursorCache,
-    /// Display scroll offset from the last rendered frame.
-    /// Used by mouse input to translate screen coordinates to display line coordinates.
-    /// Set by the rendering pipeline after each frame; not part of protocol state.
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub display_scroll_offset: usize,
-    /// Display map from the last rendered frame.
-    /// Used by mouse input to translate display-space coordinates to buffer-space.
-    /// Set by the rendering pipeline after each frame; not part of protocol state.
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub display_map: Option<DisplayMapRef>,
-    /// Display unit map from the last rendered frame.
-    /// Built from `display_map` when non-identity. Used by input dispatch for
-    /// display-unit-aware event routing. `None` when no display transforms are active.
-    #[epistemic(runtime)]
-    #[dirty(free)]
-    pub display_unit_map: Option<crate::display::DisplayUnitMap>,
-    /// Core fold toggle state: tracks which fold ranges are currently expanded.
-    /// Consulted during DisplayMap construction to filter out expanded folds.
-    ///
-    /// Semantically this is a user-controlled *policy*, not ephemeral runtime
-    /// state: it belongs to the Π component of W = (T, I, Π, S) and directly
-    /// determines the display transformation applied to the buffer. Dirty
-    /// propagation is handled explicitly in `update.rs` (which returns
-    /// `BUFFER_CONTENT` on toggle), so `#[dirty(free)]` is retained.
-    #[epistemic(
-        config,
-        salsa_opt_out = "consumed by DisplayMap construction; not surfaced in Salsa projection"
-    )]
-    #[dirty(free)]
-    pub fold_toggle_state: crate::display::FoldToggleState,
+    /// Heuristic fields: `(field, rule, severity)`.
+    pub const HEURISTIC_FIELDS: &[(&str, &str, &str)] = &[
+        ("cursor_count", "I-1", "degraded"),
+        ("secondary_cursors", "I-1", "degraded"),
+        ("selections", "I-7", "degraded"),
+    ];
+
+    /// Derived fields: `(field, source_description)`.
+    pub const DERIVED_FIELDS: &[(&str, &str)] = &[
+        ("lines_dirty", "line equality diff (R-3)"),
+        ("cursor_mode", "content_cursor_pos sign (I-3)"),
+        ("status_line", "prompt + content concatenation"),
+        ("editor_mode", "cursor_mode + mode_line (I-2)"),
+        ("color_context", "default_face luminance analysis"),
+    ];
+
+    /// Fields grouped by epistemological category.
+    pub const FIELDS_BY_CATEGORY: &[(&str, &[&str])] = &[
+        (
+            "observed",
+            &[
+                "lines",
+                "default_face",
+                "padding_face",
+                "cursor_pos",
+                "status_prompt",
+                "status_content",
+                "status_content_cursor_pos",
+                "status_mode_line",
+                "status_default_face",
+                "status_style",
+                "widget_columns",
+                "menu",
+                "infos",
+                "ui_options",
+            ],
+        ),
+        (
+            "derived",
+            &[
+                "lines_dirty",
+                "cursor_mode",
+                "status_line",
+                "editor_mode",
+                "color_context",
+            ],
+        ),
+        (
+            "heuristic",
+            &["cursor_count", "secondary_cursors", "selections"],
+        ),
+        (
+            "config",
+            &[
+                "shadow_enabled",
+                "padding_char",
+                "menu_max_height",
+                "menu_position",
+                "search_dropdown",
+                "status_at_top",
+                "scrollbar_thumb",
+                "scrollbar_track",
+                "assistant_art",
+                "plugin_config",
+                "plugin_settings",
+                "secondary_blend_ratio",
+                "theme",
+                "fold_toggle_state",
+            ],
+        ),
+        ("session", &["session_descriptors", "active_session_key"]),
+        (
+            "runtime",
+            &[
+                "focused",
+                "drag",
+                "cols",
+                "rows",
+                "hit_map",
+                "cursor_cache",
+                "display_scroll_offset",
+                "display_map",
+                "display_unit_map",
+            ],
+        ),
+    ];
+
+    /// Fields that declared `salsa_opt_out`.
+    pub const SALSA_OPT_OUTS: &[(&str, &str)] = &[
+        (
+            "lines_dirty",
+            "consumed by paint.rs selective grid clear; not needed in Salsa projection",
+        ),
+        (
+            "editor_mode",
+            "consumed directly by view/widget; not surfaced in Salsa projection",
+        ),
+        (
+            "color_context",
+            "consumed directly by theme application; not surfaced in Salsa projection",
+        ),
+        (
+            "selections",
+            "consumed directly by paint.rs/view; not surfaced in Salsa projection",
+        ),
+        (
+            "padding_char",
+            "consumed directly by paint.rs padding renderer; not surfaced in Salsa projection",
+        ),
+        (
+            "menu_max_height",
+            "consumed directly by menu layout; not surfaced in Salsa projection",
+        ),
+        (
+            "plugin_config",
+            "consumed by plugins via AppView/registry; not surfaced in Salsa projection",
+        ),
+        (
+            "plugin_settings",
+            "consumed by plugins via AppView/registry; not surfaced in Salsa projection",
+        ),
+        (
+            "theme",
+            "consumed directly by paint.rs/render; not surfaced in Salsa projection",
+        ),
+        (
+            "fold_toggle_state",
+            "consumed by DisplayMap construction; not surfaced in Salsa projection",
+        ),
+    ];
 }
 
 impl AppState {
-    /// ステータスバー行を除いた利用可能な高さを返す。
+    /// Available height (rows minus status bar).
     pub fn available_height(&self) -> u16 {
-        self.rows.saturating_sub(1)
+        self.runtime.rows.saturating_sub(1)
     }
 
     /// Range of visible line indices in the buffer.
     pub fn visible_line_range(&self) -> std::ops::Range<usize> {
-        0..self.lines.len()
+        0..self.observed.lines.len()
     }
 
     /// Number of buffer lines currently loaded.
     pub fn buffer_line_count(&self) -> usize {
-        self.lines.len()
+        self.observed.lines.len()
     }
 
     /// Whether a completion menu is currently shown.
     pub fn has_menu(&self) -> bool {
-        self.menu.is_some()
+        self.observed.menu.is_some()
     }
 
     /// Whether any info popups are currently shown.
     pub fn has_info(&self) -> bool {
-        !self.infos.is_empty()
+        !self.observed.infos.is_empty()
     }
 
     /// Whether the cursor is in prompt mode.
     pub fn is_prompt_mode(&self) -> bool {
-        self.cursor_mode == CursorMode::Prompt
+        self.inference.cursor_mode == CursorMode::Prompt
     }
 
-    /// Config の設定を AppState に適用する。
+    /// Apply configuration from `Config` to the config sub-struct.
     pub fn apply_config(&mut self, config: &Config) {
-        self.shadow_enabled = config.ui.shadow;
-        self.padding_char = config.ui.padding_char.clone();
-        self.menu_max_height = config.menu.max_height;
-        self.menu_position = config.menu.position;
-        self.search_dropdown = config.search.dropdown;
-        self.status_at_top = config.ui.status_position == StatusPosition::Top;
-        self.theme = Theme::from_config(&config.theme);
-        self.theme.apply_color_context(&self.color_context);
+        self.config.shadow_enabled = config.ui.shadow;
+        self.config.padding_char = config.ui.padding_char.clone();
+        self.config.menu_max_height = config.menu.max_height;
+        self.config.menu_position = config.menu.position;
+        self.config.search_dropdown = config.search.dropdown;
+        self.config.status_at_top = config.ui.status_position == StatusPosition::Top;
+        self.config.theme = Theme::from_config(&config.theme);
+        self.config
+            .theme
+            .apply_color_context(&self.inference.color_context);
     }
 
     /// Reset session-owned UI state while preserving frontend configuration and dimensions.
-    ///
-    /// Uses exhaustive destructure of `Self::default()` so that adding a new field
-    /// to `AppState` produces a compile error here, forcing an explicit decision
-    /// on whether the field should be reset or preserved across session switches.
     pub fn reset_for_session_switch(&mut self) {
-        let d = Self::default();
-        let AppState {
-            // === RESET: move default values into self ===
-            lines,
-            default_face,
-            padding_face,
-            lines_dirty,
-            cursor_mode,
-            cursor_pos,
-            status_prompt,
-            status_content,
-            status_content_cursor_pos,
-            status_line,
-            status_mode_line,
-            status_default_face,
-            status_style,
-            widget_columns,
-            menu,
-            infos,
-            ui_options,
-            cursor_count,
-            secondary_cursors,
-            editor_mode,
-            selections,
-            color_context,
-            drag,
-            // === PRESERVE: discard defaults, keep current values ===
-            cols: _,
-            rows: _,
-            focused: _,
-            hit_map: _,
-            cursor_cache,
-            shadow_enabled: _,
-            padding_char: _,
-            menu_max_height: _,
-            menu_position: _,
-            search_dropdown: _,
-            status_at_top: _,
-            scrollbar_thumb: _,
-            scrollbar_track: _,
-            assistant_art: _,
-            plugin_config: _,
-            plugin_settings: _,
-            secondary_blend_ratio: _,
-            theme: _,
-            session_descriptors: _,
-            active_session_key: _,
-            display_scroll_offset: _,
-            display_map: _,
-            display_unit_map: _,
-            fold_toggle_state,
-        } = d;
+        self.observed = ObservedState::default();
+        self.inference = InferenceState::default();
+        self.cursor_cache = derived::CursorCache::default();
+        self.runtime.drag = DragState::None;
+        self.config.fold_toggle_state = crate::display::FoldToggleState::default();
+        // session, config (except fold_toggle_state), and runtime (except drag)
+        // are intentionally preserved
+    }
 
-        self.lines = lines;
-        self.default_face = default_face;
-        self.padding_face = padding_face;
-        self.lines_dirty = lines_dirty;
-        self.cursor_mode = cursor_mode;
-        self.cursor_pos = cursor_pos;
-        self.status_prompt = status_prompt;
-        self.status_content = status_content;
-        self.status_content_cursor_pos = status_content_cursor_pos;
-        self.status_line = status_line;
-        self.status_mode_line = status_mode_line;
-        self.status_default_face = status_default_face;
-        self.status_style = status_style;
-        self.widget_columns = widget_columns;
-        self.menu = menu;
-        self.infos = infos;
-        self.ui_options = ui_options;
-        self.cursor_count = cursor_count;
-        self.secondary_cursors = secondary_cursors;
-        self.editor_mode = editor_mode;
-        self.selections = selections;
-        self.color_context = color_context;
-        self.drag = drag;
-        self.cursor_cache = cursor_cache;
-        self.fold_toggle_state = fold_toggle_state;
+    /// Notify that a frame has been rendered; clears consumed ephemeral state.
+    ///
+    /// Cross-crate code (TUI/GUI backends) calls this instead of directly
+    /// accessing `inference.lines_dirty` (which is `pub(crate)`).
+    pub fn on_frame_rendered(&mut self) {
+        self.inference.lines_dirty.clear();
     }
 }
 
 /// Apply a SetConfig command to AppState.
 ///
 /// Known keys are dispatched to their respective fields; unknown keys are
-/// stored in `plugin_config` for plugin-defined configuration.
+/// stored in `plugin_config` for plugin-defined configuration, or
+/// `unknown_options` for unknown non-dotted keys from the config path.
 pub fn apply_set_config(state: &mut AppState, dirty: &mut DirtyFlags, key: &str, value: &str) {
     match key {
         "shadow_enabled" => {
-            state.shadow_enabled = value == "true";
+            state.config.shadow_enabled = value == "true";
             *dirty |= DirtyFlags::OPTIONS;
         }
         "padding_char" => {
-            state.padding_char = value.to_string();
+            state.config.padding_char = value.to_string();
             *dirty |= DirtyFlags::BUFFER_CONTENT;
         }
         "search_dropdown" => {
-            state.search_dropdown = value == "true";
+            state.config.search_dropdown = value == "true";
             *dirty |= DirtyFlags::OPTIONS;
         }
         "status_at_top" => {
-            state.status_at_top = value == "true";
+            state.config.status_at_top = value == "true";
             *dirty |= DirtyFlags::OPTIONS;
         }
         "cursor.secondary_blend" => {
             if let Ok(ratio) = value.parse::<f32>() {
-                state.secondary_blend_ratio = ratio.clamp(0.0, 1.0);
+                state.config.secondary_blend_ratio = ratio.clamp(0.0, 1.0);
                 *dirty |= DirtyFlags::BUFFER_CONTENT;
             }
         }
         "scrollbar.thumb" => {
-            state.scrollbar_thumb = value.to_string();
+            state.config.scrollbar_thumb = value.to_string();
             *dirty |= DirtyFlags::MENU_STRUCTURE;
         }
         "scrollbar.track" => {
-            state.scrollbar_track = value.to_string();
+            state.config.scrollbar_track = value.to_string();
             *dirty |= DirtyFlags::MENU_STRUCTURE;
         }
         _ => {
-            // Unknown keys go to ui_options (for Kakoune ui_options) or plugin_config
             if key.contains('.') {
                 // Plugin-namespaced keys (e.g. "color-preview.opacity")
                 state
+                    .config
                     .plugin_config
                     .insert(key.to_string(), value.to_string());
             } else {
-                state.ui_options.insert(key.to_string(), value.to_string());
+                state
+                    .observed
+                    .ui_options
+                    .insert(key.to_string(), value.to_string());
             }
             *dirty |= DirtyFlags::OPTIONS;
         }
@@ -532,63 +494,10 @@ pub fn apply_set_setting(
     value: SettingValue,
 ) {
     state
+        .config
         .plugin_settings
         .entry(plugin_id.clone())
         .or_default()
         .insert(key.to_string(), value);
     *dirty |= DirtyFlags::SETTINGS;
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        AppState {
-            lines: Vec::new(),
-            default_face: Face::default(),
-            padding_face: Face::default(),
-            lines_dirty: Vec::new(),
-            cursor_mode: CursorMode::Buffer,
-            cursor_pos: Coord::default(),
-            status_prompt: Vec::new(),
-            status_content: Vec::new(),
-            status_content_cursor_pos: -1,
-            status_line: Vec::new(),
-            status_mode_line: Vec::new(),
-            status_default_face: Face::default(),
-            status_style: StatusStyle::default(),
-            widget_columns: 0,
-            menu: None,
-            infos: Vec::new(),
-            ui_options: HashMap::new(),
-            focused: true,
-            shadow_enabled: true,
-            padding_char: "~".to_string(),
-            menu_max_height: 10,
-            menu_position: MenuPosition::Auto,
-            search_dropdown: false,
-            status_at_top: false,
-            scrollbar_thumb: "\u{2588}".to_string(), // █
-            scrollbar_track: "\u{2591}".to_string(), // ░
-            assistant_art: None,
-            plugin_config: HashMap::new(),
-            plugin_settings: HashMap::new(),
-            cursor_count: 0,
-            secondary_cursors: Vec::new(),
-            editor_mode: derived::EditorMode::default(),
-            selections: Vec::new(),
-            session_descriptors: Vec::new(),
-            active_session_key: None,
-            drag: DragState::None,
-            secondary_blend_ratio: 0.4,
-            theme: Theme::default_theme(),
-            color_context: ColorContext::default(),
-            cols: 80,
-            rows: 24,
-            hit_map: HitMap::new(),
-            cursor_cache: derived::CursorCache::default(),
-            display_scroll_offset: 0,
-            display_map: None,
-            display_unit_map: None,
-            fold_toggle_state: crate::display::FoldToggleState::default(),
-        }
-    }
 }

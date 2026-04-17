@@ -381,7 +381,7 @@ fn test_collect_display_directives_composes_multi_plugin() {
     }));
 
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
 
     let directives = registry
         .view()
@@ -420,7 +420,7 @@ fn test_collect_display_map_composes_multi_plugin() {
     }));
 
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
 
     let display_map = registry.view().collect_display_map(&AppView::new(&state));
     // 4 lines - 2 hidden + 1 virtual = 3 display lines
@@ -475,7 +475,7 @@ fn test_collect_display_directives_fold_overlap_higher_priority_wins() {
     }));
 
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![], vec![], vec![], vec![], vec![]];
 
     let directives = registry
         .view()
@@ -509,7 +509,7 @@ fn test_collect_display_directives_single_plugin_unchanged() {
     }));
 
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![], vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![], vec![], vec![]];
 
     let directives = registry
         .view()
@@ -958,9 +958,9 @@ fn test_decomposed_annotator_produces_gutter_and_background() {
     registry.register(DecomposedAnnotatorPlugin);
 
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![], vec![]];
-    state.rows = 24;
-    state.cols = 80;
+    state.observed.lines = vec![vec![], vec![], vec![]];
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
 
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
@@ -990,9 +990,9 @@ fn test_mixed_decomposed_and_legacy_annotators() {
     registry.register_backend(Box::new(LegacyAnnotatorPlugin));
 
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![]];
-    state.rows = 24;
-    state.cols = 80;
+    state.observed.lines = vec![vec![], vec![]];
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
 
     registry.prepare_plugin_cache(DirtyFlags::ALL);
     let view = registry.view();
@@ -1090,8 +1090,8 @@ fn test_pubsub_publisher_delivers_to_subscriber() {
     runtime.register(SubscriberPlugin);
 
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     let app = AppView::new(&state);
 
     // Trigger state change to bump publisher's counter.
@@ -1113,8 +1113,8 @@ fn test_pubsub_no_subscribers_is_noop() {
     runtime.register(PublisherPlugin);
 
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     let app = AppView::new(&state);
 
     runtime.notify_state_changed_batch(&app, DirtyFlags::ALL);
@@ -1186,8 +1186,8 @@ fn test_extension_point_collects_from_definer_and_contributor() {
     runtime.register(ExtPointContributor);
 
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     let app = AppView::new(&state);
 
     let input = super::super::channel::ChannelValue::new(&()).unwrap();
@@ -1206,8 +1206,8 @@ fn test_extension_point_no_contributors_only_definer() {
     runtime.register(ExtPointDefiner);
 
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     let app = AppView::new(&state);
 
     let input = super::super::channel::ChannelValue::new(&()).unwrap();
@@ -1223,8 +1223,8 @@ fn test_extension_point_unknown_returns_empty() {
     runtime.register(ExtPointDefiner);
 
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     let app = AppView::new(&state);
 
     let input = super::super::channel::ChannelValue::new(&()).unwrap();

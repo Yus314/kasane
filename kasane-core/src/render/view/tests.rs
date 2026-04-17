@@ -49,9 +49,9 @@ fn test_view_empty_state() {
 #[test]
 fn test_view_with_menu() {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.lines = vec![make_line("hello")];
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.lines = vec![make_line("hello")];
     state.apply(crate::protocol::KakouneRequest::MenuShow {
         items: vec![make_line("item1"), make_line("item2")],
         anchor: Coord { line: 1, column: 0 },
@@ -75,8 +75,8 @@ fn test_view_with_menu() {
 #[test]
 fn test_view_with_info() {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     state.apply(crate::protocol::KakouneRequest::InfoShow {
         title: make_line("Help"),
         content: vec![make_line("some info")],
@@ -99,17 +99,17 @@ fn test_view_with_info() {
 #[test]
 fn test_status_bar_resolves_default_face() {
     let mut state = AppState::default();
-    state.status_default_face = Face {
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Magenta),
         ..Face::default()
     };
     // Atoms with Color::Default — should be resolved to status_default_face colors
-    state.status_line = vec![Atom {
+    state.inference.status_line = vec![Atom {
         face: Face::default(),
         contents: "file.rs".into(),
     }];
-    state.status_mode_line = vec![Atom {
+    state.observed.status_mode_line = vec![Atom {
         face: Face::default(),
         contents: "normal".into(),
     }];
@@ -201,8 +201,8 @@ fn test_status_left_slot_in_status_bar() {
     }
 
     let mut state = AppState::default();
-    state.status_line = make_line("status");
-    state.status_mode_line = make_line("normal");
+    state.inference.status_line = make_line("status");
+    state.observed.status_mode_line = make_line("normal");
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StatusLeftPlugin));
@@ -270,9 +270,9 @@ fn find_text_content(el: &Element, needle: &str) -> bool {
 #[test]
 fn test_info_framed_shadow_disabled() {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.shadow_enabled = false;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.config.shadow_enabled = false;
     state.apply(crate::protocol::KakouneRequest::InfoShow {
         title: make_line("Help"),
         content: vec![make_line("content")],
@@ -313,8 +313,8 @@ fn test_info_framed_shadow_disabled() {
 #[test]
 fn test_view_status_bar_structure() {
     let mut state = AppState::default();
-    state.status_line = make_line("status");
-    state.status_mode_line = make_line("normal");
+    state.inference.status_line = make_line("status");
+    state.observed.status_mode_line = make_line("normal");
 
     let registry = PluginRuntime::new();
     let el = view(&state, &registry.view());
@@ -367,8 +367,8 @@ fn find_status_container(el: &Element) -> Option<&Element> {
 #[test]
 fn test_status_surface_abstract_shape() {
     let mut state = AppState::default();
-    state.status_line = make_line("status");
-    state.status_mode_line = make_line("normal");
+    state.inference.status_line = make_line("status");
+    state.observed.status_mode_line = make_line("normal");
 
     let registry = PluginRuntime::new();
     let element = build_status_surface_abstract(&state, &registry.view());
@@ -427,7 +427,7 @@ fn test_status_surface_abstract_shape() {
 #[test]
 fn test_buffer_surface_abstract_shape() {
     let mut state = AppState::default();
-    state.lines = vec![make_line("buffer")];
+    state.observed.lines = vec![make_line("buffer")];
 
     let registry = PluginRuntime::new();
     let element = build_buffer_surface_abstract(&state, &registry.view());
@@ -529,7 +529,7 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
     }
 
     let mut state = AppState::default();
-    state.lines = vec![make_line("buffer")];
+    state.observed.lines = vec![make_line("buffer")];
 
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
@@ -579,9 +579,9 @@ fn test_buffer_surface_abstract_keeps_gutters_outside_side_slots() {
 #[test]
 fn test_surface_view_sections_preserves_surface_reports() {
     let mut state = AppState::default();
-    state.lines = vec![make_line("buffer")];
-    state.status_line = make_line("status");
-    state.status_mode_line = make_line("normal");
+    state.observed.lines = vec![make_line("buffer")];
+    state.inference.status_line = make_line("status");
+    state.observed.status_mode_line = make_line("normal");
 
     let registry = PluginRuntime::new();
     let mut surface_registry = SurfaceRegistry::new();
@@ -591,8 +591,8 @@ fn test_surface_view_sections_preserves_surface_reports() {
     let root_area = crate::layout::Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let sections =
         surface_registry.compose_view_sections(&state, None, &registry.view(), root_area);

@@ -47,8 +47,9 @@ pub fn sync_session_metadata<R, W, C>(
     session_states: &SessionStateStore,
     state: &mut AppState,
 ) {
-    state.session_descriptors = session_manager.enriched_session_descriptors(session_states, state);
-    state.active_session_key = session_manager.active_session_key().map(str::to_owned);
+    state.session.session_descriptors =
+        session_manager.enriched_session_descriptors(session_states, state);
+    state.session.active_session_key = session_manager.active_session_key().map(str::to_owned);
 }
 
 /// Groups the five `&mut` parameters shared by session lifecycle functions.

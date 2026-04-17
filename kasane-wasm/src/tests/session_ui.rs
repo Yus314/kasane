@@ -63,9 +63,9 @@ fn char_event(c: char) -> KeyEvent {
 
 fn state_with_sessions(count: usize) -> AppState {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.session_descriptors = (0..count)
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.session.session_descriptors = (0..count)
         .map(|i| SessionDescriptor {
             key: format!("session{i}"),
             session_name: None,
@@ -73,7 +73,11 @@ fn state_with_sessions(count: usize) -> AppState {
             mode_line: None,
         })
         .collect();
-    state.active_session_key = state.session_descriptors.first().map(|d| d.key.clone());
+    state.session.active_session_key = state
+        .session
+        .session_descriptors
+        .first()
+        .map(|d| d.key.clone());
     state
 }
 
@@ -183,9 +187,9 @@ fn escape_closes_switcher() {
 fn enriched_descriptor_fields() {
     let mut plugin = load_session_ui_plugin();
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.session_descriptors = vec![
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.session.session_descriptors = vec![
         SessionDescriptor {
             key: "work".into(),
             session_name: Some("project".into()),
@@ -199,7 +203,7 @@ fn enriched_descriptor_fields() {
             mode_line: Some("insert".into()),
         },
     ];
-    state.active_session_key = Some("work".into());
+    state.session.active_session_key = Some("work".into());
     apply_session_state_change(&mut plugin, &state, DirtyFlags::SESSION);
 
     // Open switcher — the overlay should contain elements for both sessions

@@ -30,17 +30,17 @@ fn test_rect() -> Rect {
 
 fn setup_two_session_states() -> (AppState, AppState) {
     let mut state_a = AppState::default();
-    state_a.cols = 80;
-    state_a.rows = 24;
-    state_a.lines = vec![make_line("hello")];
-    state_a.lines_dirty = vec![true];
+    state_a.runtime.cols = 80;
+    state_a.runtime.rows = 24;
+    state_a.observed.lines = vec![make_line("hello")];
+    state_a.inference.lines_dirty = vec![true];
 
     let mut state_b = AppState::default();
-    state_b.cols = 80;
-    state_b.rows = 24;
-    state_b.lines = vec![make_line("world")];
-    state_b.lines_dirty = vec![true];
-    state_b.menu = Some(make_test_menu());
+    state_b.runtime.cols = 80;
+    state_b.runtime.rows = 24;
+    state_b.observed.lines = vec![make_line("world")];
+    state_b.inference.lines_dirty = vec![true];
+    state_b.observed.menu = Some(make_test_menu());
 
     (state_a, state_b)
 }
@@ -113,17 +113,17 @@ fn test_session_switch_changes_buffer_content() {
 
     // Start with session A active
     let mut state = state_a.clone();
-    assert_eq!(state.lines[0][0].contents.as_str(), "hello");
+    assert_eq!(state.observed.lines[0][0].contents.as_str(), "hello");
 
     // Save A, activate B, restore B
     mgr.sync_and_activate(&mut store, id_b, &state).unwrap();
     assert!(store.restore_into(id_b, &mut state));
-    assert_eq!(state.lines[0][0].contents.as_str(), "world");
+    assert_eq!(state.observed.lines[0][0].contents.as_str(), "world");
 
     // Save B, activate A, restore A
     mgr.sync_and_activate(&mut store, id_a, &state).unwrap();
     assert!(store.restore_into(id_a, &mut state));
-    assert_eq!(state.lines[0][0].contents.as_str(), "hello");
+    assert_eq!(state.observed.lines[0][0].contents.as_str(), "hello");
 }
 
 // ===========================================================================
@@ -134,12 +134,12 @@ fn test_session_switch_changes_buffer_content() {
 fn test_session_switch_ephemeral_surfaces_follow_state() {
     let (mut state_a, state_b) = setup_two_session_states();
     // State A: menu=None, one info popup
-    state_a.menu = None;
-    state_a.infos = vec![make_test_info()];
+    state_a.observed.menu = None;
+    state_a.observed.infos = vec![make_test_info()];
 
     // State B: menu=Some, no info popups (already set in setup)
-    assert!(state_b.menu.is_some());
-    assert!(state_b.infos.is_empty());
+    assert!(state_b.observed.menu.is_some());
+    assert!(state_b.observed.infos.is_empty());
 
     let mut reg = new_surface_registry();
 
@@ -217,10 +217,10 @@ fn test_session_close_and_promote_preserves_surface_composition() {
     let mut store = SessionStateStore::new();
     let (state_a, state_b) = setup_two_session_states();
     let mut state_c = AppState::default();
-    state_c.cols = 80;
-    state_c.rows = 24;
-    state_c.lines = vec![make_line("third")];
-    state_c.lines_dirty = vec![true];
+    state_c.runtime.cols = 80;
+    state_c.runtime.rows = 24;
+    state_c.observed.lines = vec![make_line("third")];
+    state_c.inference.lines_dirty = vec![true];
 
     store.sync_from_active(id_a, &state_a);
     store.sync_from_active(id_b, &state_b);
@@ -238,7 +238,7 @@ fn test_session_close_and_promote_preserves_surface_composition() {
 
     // Restore promoted session C
     assert!(store.restore_into(id_c, &mut state));
-    assert_eq!(state.lines[0][0].contents.as_str(), "third");
+    assert_eq!(state.observed.lines[0][0].contents.as_str(), "third");
 
     // Ephemeral surfaces should match state C (no menu, no infos)
     let mut reg = new_surface_registry();
@@ -256,8 +256,8 @@ fn test_dirty_flags_session_set_on_lifecycle_events() {
     let mut mgr = TestSessionManager::new();
     let mut store = SessionStateStore::new();
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let mut dirty = DirtyFlags::empty();
     let mut initial_resize_sent = true;
 
@@ -346,8 +346,8 @@ fn test_session_metadata_consistent_after_operations() {
     let mut mgr = TestSessionManager::new();
     let mut store = SessionStateStore::new();
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
 
     // Spawn session
     let id_a = mgr
@@ -355,9 +355,9 @@ fn test_session_metadata_consistent_after_operations() {
         .unwrap();
     store.ensure_session(id_a, &state);
     kasane_core::event_loop::sync_session_metadata(&mgr, &store, &mut state);
-    assert_eq!(state.session_descriptors.len(), 1);
-    assert_eq!(state.session_descriptors[0].key, "work");
-    assert_eq!(state.active_session_key.as_deref(), Some("work"));
+    assert_eq!(state.session.session_descriptors.len(), 1);
+    assert_eq!(state.session.session_descriptors[0].key, "work");
+    assert_eq!(state.session.active_session_key.as_deref(), Some("work"));
 
     // Spawn second session
     let id_b = mgr
@@ -365,7 +365,7 @@ fn test_session_metadata_consistent_after_operations() {
         .unwrap();
     store.ensure_session(id_b, &state);
     kasane_core::event_loop::sync_session_metadata(&mgr, &store, &mut state);
-    assert_eq!(state.session_descriptors.len(), 2);
+    assert_eq!(state.session.session_descriptors.len(), 2);
 
     // Switch to second
     let mut dirty = DirtyFlags::empty();
@@ -380,7 +380,7 @@ fn test_session_metadata_consistent_after_operations() {
             initial_resize_sent: &mut initial_resize_sent,
         },
     );
-    assert_eq!(state.active_session_key.as_deref(), Some("play"));
+    assert_eq!(state.session.active_session_key.as_deref(), Some("play"));
 
     // Close second — should promote to first
     kasane_core::event_loop::close_session_core(
@@ -393,9 +393,9 @@ fn test_session_metadata_consistent_after_operations() {
             initial_resize_sent: &mut initial_resize_sent,
         },
     );
-    assert_eq!(state.session_descriptors.len(), 1);
-    assert_eq!(state.session_descriptors[0].key, "work");
-    assert_eq!(state.active_session_key.as_deref(), Some("work"));
+    assert_eq!(state.session.session_descriptors.len(), 1);
+    assert_eq!(state.session.session_descriptors[0].key, "work");
+    assert_eq!(state.session.active_session_key.as_deref(), Some("work"));
 }
 
 // ===========================================================================
@@ -423,7 +423,7 @@ fn test_compose_view_after_session_switch() {
     // Switch to B
     mgr.sync_and_activate(&mut store, id_b, &state).unwrap();
     store.restore_into(id_b, &mut state);
-    assert!(state.menu.is_some()); // B has a menu
+    assert!(state.observed.menu.is_some()); // B has a menu
 
     reg.sync_ephemeral_surfaces(&state);
     let element_b = reg.compose_view(&state, &plugin_reg.view(), test_rect());
@@ -435,7 +435,7 @@ fn test_compose_view_after_session_switch() {
     // Switch back to A
     mgr.sync_and_activate(&mut store, id_a, &state).unwrap();
     store.restore_into(id_a, &mut state);
-    assert!(state.menu.is_none()); // A has no menu
+    assert!(state.observed.menu.is_none()); // A has no menu
 
     reg.sync_ephemeral_surfaces(&state);
     assert!(reg.get(SurfaceId::MENU).is_none());

@@ -27,8 +27,8 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
     let menu_overlay = build_menu_section(state, registry);
     let info_overlays = build_info_section(state, registry);
     let overlay_ctx = crate::plugin::OverlayContext {
-        screen_cols: state.cols,
-        screen_rows: state.rows,
+        screen_cols: state.runtime.cols,
+        screen_rows: state.runtime.rows,
         menu_rect: None,
         existing_overlays: vec![],
         focused_surface_id: None,
@@ -45,7 +45,7 @@ pub(crate) fn view_sections(state: &AppState, registry: &PluginView<'_>) -> View
     let buffer_rows = state.available_height() as usize;
     let display_scroll_offset = crate::display::compute_display_scroll_offset(
         &display_map,
-        crate::display::BufferLine(state.cursor_pos.line as usize),
+        crate::display::BufferLine(state.observed.cursor_pos.line as usize),
         buffer_rows,
     );
 
@@ -148,8 +148,8 @@ fn legacy_surface_compose_result(
         crate::layout::Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         },
     )
 }
@@ -157,7 +157,7 @@ fn legacy_surface_compose_result(
 /// Build the menu overlay section.
 #[crate::kasane_component]
 fn build_menu_section(state: &AppState, registry: &PluginView<'_>) -> Option<Overlay> {
-    let menu_state = state.menu.as_ref()?;
+    let menu_state = state.observed.menu.as_ref()?;
     let transform_target = match menu_state.style {
         MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
         MenuStyle::Inline => TransformTarget::MENU_INLINE,
@@ -191,14 +191,14 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
     }
     // Add cursor position as a 1×1 avoid rect (collision avoidance)
     avoid_rects.push(crate::layout::Rect {
-        x: state.cursor_pos.column as u16,
-        y: state.cursor_pos.line as u16,
+        x: state.observed.cursor_pos.column as u16,
+        y: state.observed.cursor_pos.line as u16,
         w: 1,
         h: 1,
     });
 
     let mut overlays = Vec::new();
-    for (info_idx, info_state) in state.infos.iter().enumerate() {
+    for (info_idx, info_state) in state.observed.infos.iter().enumerate() {
         // Build the default info overlay; apply_transform_chain handles
         // replacement internally (Phase 1) so no explicit get_replacement() needed.
         let info_overlay =
@@ -236,12 +236,13 @@ fn build_info_section(state: &AppState, registry: &PluginView<'_>) -> Vec<Overla
 }
 
 fn build_status_core(state: &AppState) -> Element {
-    let status_face = state
-        .theme
-        .resolve_with_protocol_fallback(&StyleToken::STATUS_LINE, state.status_default_face);
-    let status_line = build_styled_line_with_base(&state.status_line, &status_face, 0);
-    let mode_line = build_styled_line_with_base(&state.status_mode_line, &status_face, 0);
-    let mode_width = line_display_width(&state.status_mode_line) as u16;
+    let status_face = state.config.theme.resolve_with_protocol_fallback(
+        &StyleToken::STATUS_LINE,
+        state.observed.status_default_face,
+    );
+    let status_line = build_styled_line_with_base(&state.inference.status_line, &status_face, 0);
+    let mode_line = build_styled_line_with_base(&state.observed.status_mode_line, &status_face, 0);
+    let mode_width = line_display_width(&state.observed.status_mode_line) as u16;
 
     let mut children = Vec::new();
     children.push(FlexChild::flexible(status_line, 1.0));
@@ -263,9 +264,10 @@ pub(crate) fn build_status_surface_abstract(
         )
         .into_element();
 
-    let status_face = state
-        .theme
-        .resolve_with_protocol_fallback(&StyleToken::STATUS_LINE, state.status_default_face);
+    let status_face = state.config.theme.resolve_with_protocol_fallback(
+        &StyleToken::STATUS_LINE,
+        state.observed.status_default_face,
+    );
     let row = Element::container(
         Element::row(vec![
             FlexChild::fixed(Element::slot_placeholder(
@@ -313,7 +315,7 @@ pub(crate) fn build_buffer_core_parts(
         Some(Arc::clone(&display_map))
     };
     let annotate_ctx = AnnotateContext {
-        line_width: state.cols,
+        line_width: state.runtime.cols,
         gutter_width: 0,
         display_map: Some(Arc::clone(&display_map)),
         pane_surface_id: None,
@@ -329,7 +331,7 @@ pub(crate) fn build_buffer_core_parts(
         let visible_height = display_map.display_line_count().min(buffer_rows);
         let offset = crate::display::compute_display_scroll_offset(
             &display_map,
-            crate::display::BufferLine(state.cursor_pos.line as usize),
+            crate::display::BufferLine(state.observed.cursor_pos.line as usize),
             visible_height,
         );
         let end = (offset.0 + visible_height).min(display_map.display_line_count());

@@ -80,8 +80,8 @@ fn apply_surface_initial_placements(
         Some(Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         }),
     ) {
         tracing::warn!(

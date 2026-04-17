@@ -42,7 +42,7 @@ impl Surface for InfoSurface {
     }
 
     fn view(&self, ctx: &ViewContext<'_>) -> Element {
-        if let Some(info_state) = ctx.state.infos.get(self.index) {
+        if let Some(info_state) = ctx.state.observed.infos.get(self.index) {
             use crate::element::OverlayAnchor;
             use crate::protocol::InfoStyle;
             use crate::render::view::info;
@@ -54,13 +54,13 @@ impl Surface for InfoSurface {
                 avoid_rects.push(mr);
             }
             avoid_rects.push(crate::layout::Rect {
-                x: ctx.state.cursor_pos.column as u16,
-                y: ctx.state.cursor_pos.line as u16,
+                x: ctx.state.observed.cursor_pos.column as u16,
+                y: ctx.state.observed.cursor_pos.line as u16,
                 w: 1,
                 h: 1,
             });
             // Add rects from prior infos for collision avoidance
-            for prior in ctx.state.infos.iter().take(self.index) {
+            for prior in ctx.state.observed.infos.iter().take(self.index) {
                 if let Some(overlay) = info::build_info_overlay_indexed(
                     prior,
                     ctx.state,

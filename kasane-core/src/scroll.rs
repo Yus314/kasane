@@ -134,7 +134,7 @@ pub fn consume_info_scroll(state: &mut AppState, mouse: &MouseEvent, hit_map: &H
     }
 
     let index = (id.local - InteractiveId::INFO_BASE) as usize;
-    let info = match state.infos.get_mut(index) {
+    let info = match state.observed.infos.get_mut(index) {
         Some(info) => info,
         None => return false,
     };
@@ -293,7 +293,7 @@ pub fn dispatch_legacy_mouse_scroll<E: PluginEffects>(
     }
 
     if matches!(
-        state.drag,
+        state.runtime.drag,
         DragState::Active {
             button: MouseButton::Left,
             ..
@@ -305,7 +305,7 @@ pub fn dispatch_legacy_mouse_scroll<E: PluginEffects>(
 
         if let Some(candidate) = default_scroll_candidate(mouse, scroll_amount) {
             let mut requests = requests_from_policy_result(fallback_scroll_policy(candidate));
-            if let Some(edge_line) = selection_scroll_edge_line(state.rows, mouse) {
+            if let Some(edge_line) = selection_scroll_edge_line(state.runtime.rows, mouse) {
                 requests.push(KasaneRequest::MouseMove {
                     line: edge_line,
                     column: mouse.column,

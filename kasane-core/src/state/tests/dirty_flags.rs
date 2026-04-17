@@ -72,9 +72,10 @@ fn test_apply_set_setting_updates_plugin_settings() {
     assert!(dirty.contains(DirtyFlags::SETTINGS));
     assert_eq!(
         state
+            .config
             .plugin_settings
             .get(&plugin_id)
-            .and_then(|s| s.get("enabled")),
+            .and_then(|s: &HashMap<String, SettingValue>| s.get("enabled")),
         Some(&SettingValue::Bool(true))
     );
 }
@@ -90,10 +91,10 @@ fn test_menu_composite_contains_sub_flags() {
 #[test]
 fn test_available_height() {
     let mut state = AppState::default();
-    state.rows = 24;
+    state.runtime.rows = 24;
     assert_eq!(state.available_height(), 23);
 
-    state.rows = 1;
+    state.runtime.rows = 1;
     assert_eq!(state.available_height(), 0);
 }
 
@@ -118,7 +119,7 @@ fn test_apply_draw_lines_dirty_single_change() {
         padding_face: Face::default(),
         widget_columns: 0,
     });
-    assert_eq!(state.lines_dirty, vec![false, true, false]);
+    assert_eq!(state.inference.lines_dirty, vec![false, true, false]);
 }
 
 #[test]
@@ -144,7 +145,7 @@ fn test_apply_draw_lines_dirty_face_change() {
         padding_face: Face::default(),
         widget_columns: 0,
     });
-    assert_eq!(state.lines_dirty, vec![true, true]);
+    assert_eq!(state.inference.lines_dirty, vec![true, true]);
 }
 
 #[test]
@@ -166,7 +167,7 @@ fn test_apply_draw_lines_dirty_length_change() {
         padding_face: Face::default(),
         widget_columns: 0,
     });
-    assert_eq!(state.lines_dirty, vec![true, true, true]);
+    assert_eq!(state.inference.lines_dirty, vec![true, true, true]);
 }
 
 #[test]
@@ -188,7 +189,7 @@ fn test_apply_draw_lines_dirty_no_change() {
         padding_face: Face::default(),
         widget_columns: 0,
     });
-    assert_eq!(state.lines_dirty, vec![false, false]);
+    assert_eq!(state.inference.lines_dirty, vec![false, false]);
 }
 
 #[test]
@@ -202,14 +203,14 @@ fn test_apply_draw_lines_dirty_first_draw() {
         padding_face: Face::default(),
         widget_columns: 0,
     });
-    assert_eq!(state.lines_dirty, vec![true, true]);
+    assert_eq!(state.inference.lines_dirty, vec![true, true]);
 }
 
 #[test]
 fn test_menu_select_no_scroll_returns_selection_only() {
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     // 3 items fit in win_height without scrolling
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("a"), make_line("b"), make_line("c")],
@@ -229,8 +230,8 @@ fn test_menu_select_no_scroll_returns_selection_only() {
 #[test]
 fn test_menu_select_with_scroll_returns_structure() {
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     // Many items: win_height will be limited, so scrolling past visible range triggers first_item change
     let items: Vec<_> = (0..30).map(|i| make_line(&format!("item{i}"))).collect();
     state.apply(KakouneRequest::MenuShow {
@@ -241,11 +242,11 @@ fn test_menu_select_with_scroll_returns_structure() {
         style: MenuStyle::Inline,
     });
     state.apply(KakouneRequest::MenuSelect { selected: 0 });
-    let first_before = state.menu.as_ref().unwrap().first_item;
+    let first_before = state.observed.menu.as_ref().unwrap().first_item;
 
     // Select an item far enough to force scroll (beyond win_height * columns)
     let flags = state.apply(KakouneRequest::MenuSelect { selected: 25 });
-    let first_after = state.menu.as_ref().unwrap().first_item;
+    let first_after = state.observed.menu.as_ref().unwrap().first_item;
 
     // first_item must have changed → MENU_STRUCTURE should be set
     assert_ne!(first_before, first_after, "scroll should have occurred");
@@ -268,23 +269,23 @@ fn test_session_fields_preserved_on_reset() {
     use crate::session::SessionDescriptor;
 
     let mut state = AppState::default();
-    state.session_descriptors = vec![SessionDescriptor {
+    state.session.session_descriptors = vec![SessionDescriptor {
         key: "work".into(),
         session_name: Some("project".into()),
         buffer_name: None,
         mode_line: None,
     }];
-    state.active_session_key = Some("work".into());
-    state.lines = vec![vec![]]; // session-owned data
+    state.session.active_session_key = Some("work".into());
+    state.observed.lines = vec![vec![]]; // session-owned data
 
     state.reset_for_session_switch();
 
     // Session fields preserved
-    assert_eq!(state.session_descriptors.len(), 1);
-    assert_eq!(state.session_descriptors[0].key, "work");
-    assert_eq!(state.active_session_key.as_deref(), Some("work"));
+    assert_eq!(state.session.session_descriptors.len(), 1);
+    assert_eq!(state.session.session_descriptors[0].key, "work");
+    assert_eq!(state.session.active_session_key.as_deref(), Some("work"));
     // Session-owned data reset
-    assert!(state.lines.is_empty());
+    assert!(state.observed.lines.is_empty());
 }
 
 #[test]
@@ -295,32 +296,35 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     let mut state = AppState::default();
 
     // Set all preserved fields to non-default values
-    state.cols = 200;
-    state.rows = 50;
-    state.focused = false;
-    state.shadow_enabled = false;
-    state.padding_char = "x".into();
-    state.menu_max_height = 20;
-    state.menu_position = MenuPosition::Below;
-    state.search_dropdown = true;
-    state.status_at_top = true;
-    state.scrollbar_thumb = "T".into();
-    state.scrollbar_track = "t".into();
-    state.assistant_art = Some(vec!["art".into()]);
-    state.plugin_config.insert("key".into(), "value".into());
-    state.secondary_blend_ratio = 0.8;
-    state.session_descriptors = vec![SessionDescriptor {
+    state.runtime.cols = 200;
+    state.runtime.rows = 50;
+    state.runtime.focused = false;
+    state.config.shadow_enabled = false;
+    state.config.padding_char = "x".into();
+    state.config.menu_max_height = 20;
+    state.config.menu_position = MenuPosition::Below;
+    state.config.search_dropdown = true;
+    state.config.status_at_top = true;
+    state.config.scrollbar_thumb = "T".into();
+    state.config.scrollbar_track = "t".into();
+    state.config.assistant_art = Some(vec!["art".into()]);
+    state
+        .config
+        .plugin_config
+        .insert("key".into(), "value".into());
+    state.config.secondary_blend_ratio = 0.8;
+    state.session.session_descriptors = vec![SessionDescriptor {
         key: "work".into(),
         session_name: Some("proj".into()),
         buffer_name: None,
         mode_line: None,
     }];
-    state.active_session_key = Some("work".into());
+    state.session.active_session_key = Some("work".into());
 
     // Set some protocol fields to non-default values
-    state.lines = vec![vec![]];
-    state.cursor_count = 3;
-    state.cursor_pos = Coord {
+    state.observed.lines = vec![vec![]];
+    state.inference.cursor_count = 3;
+    state.observed.cursor_pos = Coord {
         line: 5,
         column: 10,
     };
@@ -328,32 +332,32 @@ fn test_reset_preserves_all_config_and_runtime_fields() {
     state.reset_for_session_switch();
 
     // All preserved fields must retain their non-default values
-    assert_eq!(state.cols, 200);
-    assert_eq!(state.rows, 50);
-    assert!(!state.focused);
-    assert!(!state.shadow_enabled);
-    assert_eq!(state.padding_char, "x");
-    assert_eq!(state.menu_max_height, 20);
-    assert_eq!(state.menu_position, MenuPosition::Below);
-    assert!(state.search_dropdown);
-    assert!(state.status_at_top);
-    assert_eq!(state.scrollbar_thumb, "T");
-    assert_eq!(state.scrollbar_track, "t");
-    assert_eq!(state.assistant_art.as_ref().unwrap()[0], "art");
-    assert_eq!(state.plugin_config.get("key").unwrap(), "value");
-    assert_eq!(state.secondary_blend_ratio, 0.8);
-    assert_eq!(state.session_descriptors.len(), 1);
-    assert_eq!(state.active_session_key.as_deref(), Some("work"));
+    assert_eq!(state.runtime.cols, 200);
+    assert_eq!(state.runtime.rows, 50);
+    assert!(!state.runtime.focused);
+    assert!(!state.config.shadow_enabled);
+    assert_eq!(state.config.padding_char, "x");
+    assert_eq!(state.config.menu_max_height, 20);
+    assert_eq!(state.config.menu_position, MenuPosition::Below);
+    assert!(state.config.search_dropdown);
+    assert!(state.config.status_at_top);
+    assert_eq!(state.config.scrollbar_thumb, "T");
+    assert_eq!(state.config.scrollbar_track, "t");
+    assert_eq!(state.config.assistant_art.as_ref().unwrap()[0], "art");
+    assert_eq!(state.config.plugin_config.get("key").unwrap(), "value");
+    assert_eq!(state.config.secondary_blend_ratio, 0.8);
+    assert_eq!(state.session.session_descriptors.len(), 1);
+    assert_eq!(state.session.active_session_key.as_deref(), Some("work"));
 
     // All protocol/ephemeral fields must be reset to defaults
-    assert!(state.lines.is_empty());
-    assert_eq!(state.cursor_count, 0);
-    assert_eq!(state.cursor_pos, Coord::default());
-    assert_eq!(state.default_face, Face::default());
-    assert!(state.menu.is_none());
-    assert!(state.infos.is_empty());
-    assert!(state.ui_options.is_empty());
-    assert_eq!(state.drag, crate::state::DragState::None);
+    assert!(state.observed.lines.is_empty());
+    assert_eq!(state.inference.cursor_count, 0);
+    assert_eq!(state.observed.cursor_pos, Coord::default());
+    assert_eq!(state.observed.default_face, Face::default());
+    assert!(state.observed.menu.is_none());
+    assert!(state.observed.infos.is_empty());
+    assert!(state.observed.ui_options.is_empty());
+    assert_eq!(state.runtime.drag, crate::state::DragState::None);
 }
 
 // --- DirtyTracked derive consistency tests ---

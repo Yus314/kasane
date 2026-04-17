@@ -254,7 +254,7 @@ mod tests {
     fn scene_render(state: &AppState) -> Vec<DrawCommand> {
         let registry = PluginRuntime::new();
         let element = view::view(state, &registry.view());
-        let root = root_area(state.cols, state.rows);
+        let root = root_area(state.runtime.cols, state.runtime.rows);
         let layout = place(&element, root, state);
         let theme = Theme::default_theme();
         scene_paint(
@@ -270,11 +270,11 @@ mod tests {
     #[test]
     fn test_basic_buffer_produces_fill_and_atoms() {
         let mut state = default_state();
-        state.cols = 20;
-        state.rows = 5;
-        state.lines = vec![make_line("hello"), make_line("world")];
-        state.status_line = make_line(" test ");
-        state.status_mode_line = make_line("normal");
+        state.runtime.cols = 20;
+        state.runtime.rows = 5;
+        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.inference.status_line = make_line(" test ");
+        state.observed.status_mode_line = make_line("normal");
 
         let commands = scene_render(&state);
 
@@ -301,11 +301,11 @@ mod tests {
     #[test]
     fn test_empty_buffer_produces_padding_rows() {
         let mut state = default_state();
-        state.cols = 20;
-        state.rows = 5;
-        state.lines = vec![];
-        state.status_line = make_line(" test ");
-        state.status_mode_line = make_line("normal");
+        state.runtime.cols = 20;
+        state.runtime.rows = 5;
+        state.observed.lines = vec![];
+        state.inference.status_line = make_line(" test ");
+        state.observed.status_mode_line = make_line("normal");
 
         let commands = scene_render(&state);
 
@@ -323,11 +323,11 @@ mod tests {
     #[test]
     fn test_status_bar_produces_commands() {
         let mut state = default_state();
-        state.cols = 20;
-        state.rows = 3;
-        state.lines = vec![make_line("line1")];
-        state.status_line = make_line(" main.rs ");
-        state.status_mode_line = make_line("normal");
+        state.runtime.cols = 20;
+        state.runtime.rows = 3;
+        state.observed.lines = vec![make_line("line1")];
+        state.inference.status_line = make_line(" main.rs ");
+        state.observed.status_mode_line = make_line("normal");
 
         let commands = scene_render(&state);
 

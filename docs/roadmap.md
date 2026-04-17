@@ -29,7 +29,7 @@ for the current specification from a plugin's perspective, see
 
 | Workstream | Next deliverable |
 |---|---|
-| Display transformation | P-032 Level 6 — Type-level `&mut AppState` ownership on the protocol ingestion path (ADR-030 staged rollout) |
+| Display transformation | ADR-030 Levels 1–6 complete. Identify next workstream or move to Backlog |
 
 ### 2.2 Backlog
 
@@ -50,9 +50,9 @@ for the current specification from a plugin's perspective, see
   - Level 3 — `TransparentCommand` projection: **✓ Complete** (ADR-030). `Command::is_kakoune_writing()` exhaustive classification, `TransparentCommand` newtype restricting construction to non-writing variants, `TransparentKeyResult`, 5 `_transparent` handler registration methods on `HandlerRegistry`, `TransparencyFlags` for per-plugin T10 auto-derivation, 8 structural witness tests, and A3 τ-transition property test.
   - Level 4 — `RecoveryWitness` for destructive directives: **✓ Complete** (ADR-030). `DisplayDirective::is_destructive()` exhaustive classification, `SafeDisplayDirective` newtype restricting construction to non-destructive variants, `RecoveryWitness` + `RecoveryMechanism` registration-time evidence, `on_display_safe()` / `on_display_witnessed()` registration methods on `HandlerRegistry`, `RecoveryFlags` for per-plugin Visual Faithfulness auto-derivation, 8 structural witness tests, 4 flag auto-derivation tests, and 2 fold recovery property tests.
   - Level 5 — Effect Footprint for static analysability: **✓ Complete** (ADR-030). `EffectCategory` bitflags with exhaustive `Command::effect_category()` classification, `TransparentEffects` newtype restricting lifecycle handler returns to non-writing effects, 7 `_transparent` lifecycle registration methods on `HandlerRegistry` (init, session_ready, state_changed, io_event, update, process_task, process_task_streaming), `TransparencyFlags` extended with 5 lifecycle handler fields, `is_lifecycle_transparent()` / `is_fully_transparent()` queries, `EffectFootprint` per-plugin footprint with `compute_transitive_footprints()` fixed-point iteration for cascade analysis, 10 structural witness tests and 17 flag/footprint tests.
-  - Level 6 — Type-level `&mut AppState` ownership on the protocol ingestion path. Tracked in §2.2 Backlog.
+  - Level 6 — Type-level `&mut AppState` ownership: **✓ Complete** (ADR-030). `AppState` decomposed into 5 epistemic sub-structs (`ObservedState`, `InferenceState`, `ConfigState`, `SessionState`, `RuntimeState`), `apply_protocol()` extracted as free function with immutable `&ConfigState`, projections updated to wrap sub-structs directly.
 
-Next deliverable: Design and land ADR-030 Level 6 — type-level `&mut AppState` ownership on the protocol ingestion path. Prerequisites from Levels 1–5 are now in place.
+All six levels of ADR-030 are now complete. The P-032 formal observed/policy separation workstream is finished.
 
 ## 4. Phase Status Summary
 

@@ -122,11 +122,9 @@ where
     let (cols, rows) = backend.size();
 
     // Application state
-    let mut state = Box::new(AppState {
-        cols,
-        rows,
-        ..AppState::default()
-    });
+    let mut state = Box::new(AppState::default());
+    state.runtime.cols = cols;
+    state.runtime.rows = rows;
     state.apply_config(&config);
     let mut session_states = SessionStateStore::new();
     session_states.sync_from_active(active_session, &state);
@@ -530,8 +528,8 @@ where
             let total = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,
-                w: state.cols,
-                h: state.rows,
+                w: state.runtime.cols,
+                h: state.runtime.rows,
             };
             let mut session_host = kasane_core::event_loop::SharedSessionRuntime {
                 session_manager: &mut session_manager,
@@ -594,14 +592,15 @@ where
                 paint_diagnostic_overlay(&diagnostic_overlay, &mut grid);
             }
             backend.present(&mut grid, result, &image_requests)?;
-            state.display_scroll_offset = result.display_scroll_offset;
-            state.display_map = Some(display_map);
-            state.display_unit_map = state
+            state.runtime.display_scroll_offset = result.display_scroll_offset;
+            state.runtime.display_map = Some(display_map);
+            state.runtime.display_unit_map = state
+                .runtime
                 .display_map
                 .as_ref()
                 .filter(|dm| !dm.is_identity())
                 .map(|dm| kasane_core::display::DisplayUnitMap::build(dm));
-            state.lines_dirty.clear(); // consumed; prevent stale data next batch
+            state.on_frame_rendered(); // consumed; prevent stale data next batch
 
             let frame_ms = render_start.elapsed().as_secs_f64() * 1000.0;
             if fifo_draw_count > 0 {

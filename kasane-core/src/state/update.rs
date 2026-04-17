@@ -190,14 +190,14 @@ fn update_inner<E: PluginEffects>(
             // Update drag state
             match mouse.kind {
                 input::MouseEventKind::Press(button) => {
-                    state.drag = DragState::Active {
+                    state.runtime.drag = DragState::Active {
                         button,
                         start_line: mouse.line,
                         start_column: mouse.column,
                     };
                 }
                 input::MouseEventKind::Release(_) => {
-                    state.drag = DragState::None;
+                    state.runtime.drag = DragState::None;
                 }
                 _ => {}
             }
@@ -206,7 +206,11 @@ fn update_inner<E: PluginEffects>(
             effects.observe_mouse_all(&mouse, &AppView::new(state));
 
             // Plugin mouse handling: route click/press to plugins via hit test
-            if let Some(id) = state.hit_map.test(mouse.column as u16, mouse.line as u16) {
+            if let Some(id) = state
+                .runtime
+                .hit_map
+                .test(mouse.column as u16, mouse.line as u16)
+            {
                 tracing::debug!(id = ?id, col = mouse.column, line = mouse.line, "hit_test matched");
                 match effects.dispatch_mouse_handler(&mouse, id, &AppView::new(state)) {
                     MouseHandleResult::Handled {
@@ -232,7 +236,7 @@ fn update_inner<E: PluginEffects>(
 
             // Temporarily take the hit_map to avoid split-borrow conflict
             // (dispatch_legacy_mouse_scroll needs &mut state and &HitMap simultaneously)
-            let hit_map = std::mem::take(&mut state.hit_map);
+            let hit_map = std::mem::take(&mut state.runtime.hit_map);
             let scroll_result = crate::scroll::dispatch_legacy_mouse_scroll(
                 state,
                 &mouse,
@@ -240,7 +244,7 @@ fn update_inner<E: PluginEffects>(
                 effects,
                 scroll_amount,
             );
-            state.hit_map = hit_map;
+            state.runtime.hit_map = hit_map;
             match scroll_result {
                 LegacyScrollDispatch::ConsumedInfo => {
                     return UpdateResult {
@@ -273,9 +277,10 @@ fn update_inner<E: PluginEffects>(
             // Display unit dispatch (ρ₂'): when display transforms are active,
             // dispatch based on NavigationPolicy for the hit display unit.
             if let Some(unit) = state
+                .runtime
                 .display_unit_map
                 .as_ref()
-                .and_then(|dum| dum.hit_test(mouse.line, state.display_scroll_offset))
+                .and_then(|dum| dum.hit_test(mouse.line, state.runtime.display_scroll_offset))
             {
                 use crate::display::{
                     ActionResult, NavigationAction, NavigationPolicy, UnitSource,
@@ -318,7 +323,7 @@ fn update_inner<E: PluginEffects>(
                                     if let NavigationAction::ToggleFold = &action
                                         && let UnitSource::LineRange(ref range) = unit.source
                                     {
-                                        state.fold_toggle_state.toggle(range);
+                                        state.config.fold_toggle_state.toggle(range);
                                         return UpdateResult {
                                             flags: DirtyFlags::BUFFER_CONTENT,
                                             ..suppressed
@@ -336,8 +341,8 @@ fn update_inner<E: PluginEffects>(
             let cmds = if let Some(req) = input::mouse_to_kakoune(
                 &mouse,
                 scroll_amount,
-                state.display_map.as_deref(),
-                state.display_scroll_offset,
+                state.runtime.display_map.as_deref(),
+                state.runtime.display_scroll_offset,
             ) {
                 vec![Command::SendToKakoune(req)]
             } else {
@@ -355,7 +360,7 @@ fn update_inner<E: PluginEffects>(
             effects.observe_drop_all(&drop, &AppView::new(state));
 
             // 2. Hit-test + owner-based dispatch
-            if let Some(id) = state.hit_map.test(drop.col, drop.row) {
+            if let Some(id) = state.runtime.hit_map.test(drop.col, drop.row) {
                 match effects.dispatch_drop_handler(&drop, id, &AppView::new(state)) {
                     MouseHandleResult::Handled {
                         source_plugin,
@@ -396,8 +401,8 @@ fn update_inner<E: PluginEffects>(
             source_plugin: None,
         },
         Msg::Resize { cols, rows } => {
-            state.cols = cols;
-            state.rows = rows;
+            state.runtime.cols = cols;
+            state.runtime.rows = rows;
             let cmd = Command::SendToKakoune(KasaneRequest::Resize {
                 rows: state.available_height(),
                 cols,
@@ -410,7 +415,7 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::FocusGained => {
-            state.focused = true;
+            state.runtime.focused = true;
             UpdateResult {
                 flags: DirtyFlags::ALL,
                 commands: vec![],
@@ -419,7 +424,7 @@ fn update_inner<E: PluginEffects>(
             }
         }
         Msg::FocusLost => {
-            state.focused = false;
+            state.runtime.focused = false;
             UpdateResult {
                 flags: DirtyFlags::ALL,
                 commands: vec![],

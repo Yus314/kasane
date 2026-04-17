@@ -57,7 +57,7 @@ fn no_decoration_without_colors() {
 fn overlay_on_color_line() {
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["#3498db"]);
-    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    state.observed.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_overlay_ctx();
@@ -69,7 +69,7 @@ fn overlay_on_color_line() {
 fn no_overlay_on_plain_line() {
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["no colors here", "#ff0000"]);
-    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    state.observed.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_overlay_ctx();
@@ -111,7 +111,7 @@ fn handle_mouse_increments() {
 
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["#100000"]);
-    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    state.observed.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     // R up button: id = 2000 + 0*6 + 0 = 2000
@@ -148,7 +148,7 @@ fn handle_mouse_consumes_release() {
 
     let mut plugin = load_color_preview_plugin();
     let mut state = make_state_with_lines(&["#ff0000"]);
-    state.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
+    state.observed.cursor_pos = kasane_core::protocol::Coord { line: 0, column: 0 };
     apply_color_preview_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let event = MouseEvent {

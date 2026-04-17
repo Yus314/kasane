@@ -28,7 +28,7 @@ fn available_height_basic() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.rows = 24;
+    state.runtime.rows = 24;
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let h = salsa_queries::available_height(&db, handles.config);
@@ -50,7 +50,7 @@ fn is_prompt_mode_prompt() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cursor_mode = CursorMode::Prompt;
+    state.inference.cursor_mode = CursorMode::Prompt;
     sync_inputs_from_state(&mut db, &state, &handles);
 
     assert!(salsa_queries::is_prompt_mode(&db, handles.cursor));
@@ -61,7 +61,7 @@ fn cursor_style_normal_mode() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.status_mode_line = vec![make_atom("normal")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let style =
@@ -74,7 +74,7 @@ fn cursor_style_insert_mode() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.status_mode_line = vec![make_atom("insert")];
+    state.observed.status_mode_line = vec![make_atom("insert")];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let style =
@@ -87,7 +87,7 @@ fn cursor_style_unfocused() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.focused = false;
+    state.runtime.focused = false;
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let style =
@@ -105,8 +105,8 @@ fn sync_buffer_only_when_dirty() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.lines = vec![vec![make_atom("hello")]];
-    state.cursor_pos = Coord { line: 0, column: 3 };
+    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.cursor_pos = Coord { line: 0, column: 3 };
 
     // Sync with BUFFER flag
     sync_inputs_from_state(&mut db, &state, &handles);
@@ -123,8 +123,8 @@ fn sync_status_only_when_dirty() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.status_line = vec![make_atom(":edit foo")];
-    state.status_mode_line = vec![make_atom("normal")];
+    state.inference.status_line = vec![make_atom(":edit foo")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
 
     sync_inputs_from_state(&mut db, &state, &handles);
     assert_eq!(handles.status.status_line(&db).len(), 1);
@@ -142,7 +142,7 @@ fn sync_menu_snapshot() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.menu = Some(MenuState::new(
+    state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("item1")], vec![make_atom("item2")]],
         MenuParams {
             anchor: Coord { line: 5, column: 0 },
@@ -170,7 +170,7 @@ fn sync_info_snapshots() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.infos.push(InfoState {
+    state.observed.infos.push(InfoState {
         title: vec![make_atom("Title")],
         content: vec![vec![make_atom("Body")]],
         anchor: Coord {
@@ -202,8 +202,8 @@ fn early_cutoff_same_values() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.rows = 24;
-    state.status_mode_line = vec![make_atom("normal")];
+    state.runtime.rows = 24;
+    state.observed.status_mode_line = vec![make_atom("normal")];
 
     // First sync + query
     sync_inputs_from_state(&mut db, &state, &handles);
@@ -225,14 +225,14 @@ fn selective_dirty_preserves_unrelated_inputs() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.lines = vec![vec![make_atom("hello")]];
-    state.status_line = vec![make_atom("status")];
+    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.inference.status_line = vec![make_atom("status")];
 
     // Sync everything first
     sync_inputs_from_state(&mut db, &state, &handles);
 
     // Now change only buffer, sync with BUFFER flag only
-    state.lines = vec![vec![make_atom("world")]];
+    state.observed.lines = vec![vec![make_atom("world")]];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     // Buffer should reflect new value

@@ -189,7 +189,7 @@ impl PluginBackend for SurfaceProbeContributor {
 fn make_state_with_lines(lines: &[&str]) -> AppState {
     use kasane_core::protocol::{Atom, Face};
     let mut state = AppState::default();
-    state.lines = lines
+    state.observed.lines = lines
         .iter()
         .map(|s| {
             vec![Atom {
@@ -198,7 +198,7 @@ fn make_state_with_lines(lines: &[&str]) -> AppState {
             }]
         })
         .collect();
-    state.lines_dirty = vec![true; lines.len()];
+    state.inference.lines_dirty = vec![true; lines.len()];
     state
 }
 

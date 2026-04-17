@@ -150,8 +150,8 @@ proptest! {
             .map(|i| vec![Atom { contents: format!("item{i}").into(), face: Face::default() }])
             .collect();
         let mut state = AppState::default();
-        state.rows = 24;
-        state.cols = 80;
+        state.runtime.rows = 24;
+        state.runtime.cols = 80;
         let flags = state.apply(KakouneRequest::MenuShow {
             items,
             anchor,
@@ -166,8 +166,8 @@ proptest! {
     #[test]
     fn menu_select_returns_selection(selected in -1i32..30) {
         let mut state = AppState::default();
-        state.rows = 24;
-        state.cols = 80;
+        state.runtime.rows = 24;
+        state.runtime.cols = 80;
         // First show a menu
         let items: Vec<_> = (0..10)
             .map(|i| vec![Atom { contents: format!("item{i}").into(), face: Face::default() }])
@@ -214,8 +214,8 @@ fn make_atom(s: &str) -> Atom {
 #[test]
 fn menu_hide_returns_menu_and_buffer() {
     let mut state = AppState::default();
-    state.rows = 24;
-    state.cols = 80;
+    state.runtime.rows = 24;
+    state.runtime.cols = 80;
     state.apply(KakouneRequest::MenuShow {
         items: vec![vec![make_atom("x")]],
         anchor: Coord::default(),

@@ -29,12 +29,12 @@ fn status_prompt_is_projected_into_salsa() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.status_prompt = vec![atom(":")];
+    state.observed.status_prompt = vec![atom(":")];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let stored = handles.status.status_prompt(&db);
     assert_eq!(
-        stored, &state.status_prompt,
+        stored, &state.observed.status_prompt,
         "StatusInput must project AppState::status_prompt verbatim",
     );
 }
@@ -45,12 +45,12 @@ fn status_content_is_projected_into_salsa() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.status_content = vec![atom("edit"), atom(" file.rs")];
+    state.observed.status_content = vec![atom("edit"), atom(" file.rs")];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let stored = handles.status.status_content(&db);
     assert_eq!(
-        stored, &state.status_content,
+        stored, &state.observed.status_content,
         "StatusInput must project AppState::status_content verbatim",
     );
 }
@@ -61,7 +61,7 @@ fn status_content_cursor_pos_is_projected_into_salsa() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut state = AppState::default();
-    state.status_content_cursor_pos = 7;
+    state.observed.status_content_cursor_pos = 7;
     sync_inputs_from_state(&mut db, &state, &handles);
 
     assert_eq!(
@@ -81,18 +81,18 @@ fn distinct_prompt_same_line_is_distinguishable() {
     let handles = SalsaInputHandles::new(&mut db);
 
     let mut s1 = AppState::default();
-    s1.status_prompt = vec![atom(":")];
-    s1.status_content = vec![atom("edit")];
-    s1.status_line = vec![atom(":"), atom("edit")];
+    s1.observed.status_prompt = vec![atom(":")];
+    s1.observed.status_content = vec![atom("edit")];
+    s1.inference.status_line = vec![atom(":"), atom("edit")];
     sync_inputs_from_state(&mut db, &s1, &handles);
     let p1 = handles.status.status_prompt(&db).clone();
 
     let mut s2 = AppState::default();
-    s2.status_prompt = vec![atom(">")];
-    s2.status_content = vec![atom("edit")];
+    s2.observed.status_prompt = vec![atom(">")];
+    s2.observed.status_content = vec![atom("edit")];
     // Intentionally leave s2.status_line equal to s1's so only the prompt
     // differs in the projection.
-    s2.status_line = vec![atom(":"), atom("edit")];
+    s2.inference.status_line = vec![atom(":"), atom("edit")];
     sync_inputs_from_state(&mut db, &s2, &handles);
     let p2 = handles.status.status_prompt(&db).clone();
 

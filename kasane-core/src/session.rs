@@ -244,13 +244,15 @@ impl<R, W, C> SessionManager<R, W, C> {
                     key: session.spec.key.clone(),
                     session_name: session.spec.session.clone(),
                     buffer_name: app_state.and_then(|s| {
-                        s.ui_options
+                        s.observed
+                            .ui_options
                             .get("kasane_bufname")
                             .filter(|v| !v.is_empty())
                             .cloned()
-                            .or_else(|| extract_atom_text(&s.status_content))
+                            .or_else(|| extract_atom_text(&s.observed.status_content))
                     }),
-                    mode_line: app_state.and_then(|s| extract_atom_text(&s.status_mode_line)),
+                    mode_line: app_state
+                        .and_then(|s| extract_atom_text(&s.observed.status_mode_line)),
                 })
             })
             .collect()
@@ -491,26 +493,26 @@ mod tests {
     #[test]
     fn session_state_store_uses_reset_template_for_new_sessions() {
         let mut template = AppState::default();
-        template.cols = 120;
-        template.rows = 40;
-        template.focused = true;
-        template.shadow_enabled = true;
-        template.status_at_top = true;
-        template.lines = vec![vec![]];
-        template.lines_dirty = vec![true];
-        template.cursor_count = 3;
+        template.runtime.cols = 120;
+        template.runtime.rows = 40;
+        template.runtime.focused = true;
+        template.config.shadow_enabled = true;
+        template.config.status_at_top = true;
+        template.observed.lines = vec![vec![]];
+        template.inference.lines_dirty = vec![true];
+        template.inference.cursor_count = 3;
 
         let mut store = SessionStateStore::new();
         let snapshot = store.ensure_session(SessionId(7), &template);
 
-        assert!(snapshot.lines.is_empty());
-        assert!(snapshot.lines_dirty.is_empty());
-        assert_eq!(snapshot.cursor_count, 0);
-        assert_eq!(snapshot.cols, 120);
-        assert_eq!(snapshot.rows, 40);
-        assert!(snapshot.focused);
-        assert!(snapshot.shadow_enabled);
-        assert!(snapshot.status_at_top);
+        assert!(snapshot.observed.lines.is_empty());
+        assert!(snapshot.inference.lines_dirty.is_empty());
+        assert_eq!(snapshot.inference.cursor_count, 0);
+        assert_eq!(snapshot.runtime.cols, 120);
+        assert_eq!(snapshot.runtime.rows, 40);
+        assert!(snapshot.runtime.focused);
+        assert!(snapshot.config.shadow_enabled);
+        assert!(snapshot.config.status_at_top);
     }
 
     #[test]
@@ -519,18 +521,18 @@ mod tests {
         let id = SessionId(3);
 
         let mut source = AppState::default();
-        source.cols = 90;
-        source.rows = 25;
-        source.lines = vec![vec![]];
-        source.cursor_count = 2;
+        source.runtime.cols = 90;
+        source.runtime.rows = 25;
+        source.observed.lines = vec![vec![]];
+        source.inference.cursor_count = 2;
         store.sync_from_active(id, &source);
 
         let mut target = AppState::default();
         assert!(store.restore_into(id, &mut target));
-        assert_eq!(target.cols, 90);
-        assert_eq!(target.rows, 25);
-        assert_eq!(target.lines.len(), 1);
-        assert_eq!(target.cursor_count, 2);
+        assert_eq!(target.runtime.cols, 90);
+        assert_eq!(target.runtime.rows, 25);
+        assert_eq!(target.observed.lines.len(), 1);
+        assert_eq!(target.inference.cursor_count, 2);
     }
 
     #[test]
@@ -554,9 +556,9 @@ mod tests {
             .unwrap();
 
         let mut state = AppState::default();
-        state.cols = 100;
-        state.rows = 30;
-        state.cursor_count = 4;
+        state.runtime.cols = 100;
+        state.runtime.rows = 30;
+        state.inference.cursor_count = 4;
 
         let mut store = SessionStateStore::new();
         store.ensure_session(first, &state);
@@ -568,9 +570,9 @@ mod tests {
 
         let mut restored = AppState::default();
         assert!(store.restore_into(first, &mut restored));
-        assert_eq!(restored.cols, 100);
-        assert_eq!(restored.rows, 30);
-        assert_eq!(restored.cursor_count, 4);
+        assert_eq!(restored.runtime.cols, 100);
+        assert_eq!(restored.runtime.rows, 30);
+        assert_eq!(restored.inference.cursor_count, 4);
     }
 
     #[test]
@@ -618,11 +620,11 @@ mod tests {
 
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
-        active_state.status_content = vec![Atom {
+        active_state.observed.status_content = vec![Atom {
             face: Face::default(),
             contents: "main.rs".into(),
         }];
-        active_state.status_mode_line = vec![Atom {
+        active_state.observed.status_mode_line = vec![Atom {
             face: Face::default(),
             contents: "normal".into(),
         }];
@@ -650,11 +652,11 @@ mod tests {
 
         let mut store = SessionStateStore::new();
         let mut snapshot = AppState::default();
-        snapshot.status_content = vec![Atom {
+        snapshot.observed.status_content = vec![Atom {
             face: Face::default(),
             contents: "lib.rs".into(),
         }];
-        snapshot.status_mode_line = vec![Atom {
+        snapshot.observed.status_mode_line = vec![Atom {
             face: Face::default(),
             contents: "insert".into(),
         }];
@@ -684,7 +686,7 @@ mod tests {
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
         // status_content contains full status bar text (e.g. "main.rs 42:10")
-        active_state.status_content = vec![
+        active_state.observed.status_content = vec![
             Atom {
                 face: Face::default(),
                 contents: "main.rs".into(),
@@ -696,6 +698,7 @@ mod tests {
         ];
         // ui_options has the accurate bufname from the hook
         active_state
+            .observed
             .ui_options
             .insert("kasane_bufname".into(), "main.rs".into());
 
@@ -715,7 +718,7 @@ mod tests {
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
         // No ui_options set (hook hasn't fired yet) — falls back to status_content
-        active_state.status_content = vec![Atom {
+        active_state.observed.status_content = vec![Atom {
             face: Face::default(),
             contents: "main.rs".into(),
         }];
@@ -735,12 +738,13 @@ mod tests {
 
         let store = SessionStateStore::new();
         let mut active_state = AppState::default();
-        active_state.status_content = vec![Atom {
+        active_state.observed.status_content = vec![Atom {
             face: Face::default(),
             contents: "*scratch*".into(),
         }];
         // Empty bufname from ui_options (special buffer) → falls back to status_content
         active_state
+            .observed
             .ui_options
             .insert("kasane_bufname".into(), "".into());
 
@@ -778,10 +782,10 @@ mod tests {
         assert!(store.get(&id).is_none());
 
         let mut state = AppState::default();
-        state.cols = 120;
+        state.runtime.cols = 120;
         store.sync_from_active(id, &state);
 
         let snapshot = store.get(&id).unwrap();
-        assert_eq!(snapshot.cols, 120);
+        assert_eq!(snapshot.runtime.cols, 120);
     }
 }

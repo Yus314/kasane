@@ -14,7 +14,7 @@ use crate::state::AppState;
 /// Paint an element tree into a CellGrid using pre-computed layout results.
 pub fn paint(element: &Element, layout: &LayoutResult, grid: &mut CellGrid, state: &AppState) {
     crate::perf::perf_span!("paint");
-    let theme = &state.theme;
+    let theme = &state.config.theme;
     super::walk::walk_paint_grid(
         element,
         layout,
@@ -86,19 +86,21 @@ pub(crate) struct BufferRefParams<'a> {
 impl<'a> BufferRefParams<'a> {
     pub fn resolve(state: &'a AppState, buffer_state: Option<&'a BufferRefState>) -> Self {
         Self {
-            lines: buffer_state.map(|s| &s.lines[..]).unwrap_or(&state.lines),
+            lines: buffer_state
+                .map(|s| &s.lines[..])
+                .unwrap_or(&state.observed.lines),
             lines_dirty: buffer_state
                 .map(|s| &s.lines_dirty[..])
-                .unwrap_or(&state.lines_dirty),
+                .unwrap_or(&state.inference.lines_dirty),
             default_face: buffer_state
                 .map(|s| s.default_face)
-                .unwrap_or(state.default_face),
+                .unwrap_or(state.observed.default_face),
             padding_face: buffer_state
                 .map(|s| s.padding_face)
-                .unwrap_or(state.padding_face),
+                .unwrap_or(state.observed.padding_face),
             padding_char: buffer_state
                 .map(|s| s.padding_char.as_str())
-                .unwrap_or(&state.padding_char),
+                .unwrap_or(&state.config.padding_char),
         }
     }
 }
@@ -447,9 +449,9 @@ mod tests {
     #[test]
     fn test_paint_buffer_ref() {
         let mut state = default_state();
-        state.lines = vec![make_line("line1"), make_line("line2")];
-        state.cols = 10;
-        state.rows = 4;
+        state.observed.lines = vec![make_line("line1"), make_line("line2")];
+        state.runtime.cols = 10;
+        state.runtime.rows = 4;
 
         let mut grid = CellGrid::new(10, 4);
         let el = Element::buffer_ref(0..3);
@@ -515,10 +517,10 @@ mod tests {
     #[test]
     fn test_paint_buffer_ref_custom_padding_char() {
         let mut state = default_state();
-        state.lines = vec![make_line("line1")];
-        state.cols = 10;
-        state.rows = 4;
-        state.padding_char = "@".to_string();
+        state.observed.lines = vec![make_line("line1")];
+        state.runtime.cols = 10;
+        state.runtime.rows = 4;
+        state.config.padding_char = "@".to_string();
 
         let mut grid = CellGrid::new(10, 4);
         let el = Element::buffer_ref(0..3);
@@ -922,9 +924,9 @@ mod tests {
     #[test]
     fn paint_buffer_ref_with_virtual_text() {
         let mut state = default_state();
-        state.lines = vec![make_line("hello")];
-        state.cols = 20;
-        state.rows = 3;
+        state.observed.lines = vec![make_line("hello")];
+        state.runtime.cols = 20;
+        state.runtime.rows = 3;
 
         let vt_face = Face {
             fg: crate::protocol::Color::Rgb { r: 255, g: 0, b: 0 },
@@ -968,9 +970,9 @@ mod tests {
     fn paint_buffer_ref_virtual_text_clipped_when_full_width() {
         let mut state = default_state();
         // "hello" is 5 chars, width is 5 → no room for VT
-        state.lines = vec![make_line("hello")];
-        state.cols = 5;
-        state.rows = 1;
+        state.observed.lines = vec![make_line("hello")];
+        state.runtime.cols = 5;
+        state.runtime.rows = 1;
 
         let vt: Vec<Option<Vec<Atom>>> = vec![Some(vec![Atom {
             face: Face::default(),
@@ -1007,9 +1009,9 @@ mod tests {
         use crate::render::inline_decoration::InlineOp;
 
         let mut state = default_state();
-        state.lines = vec![make_line("hello")];
-        state.cols = 20;
-        state.rows = 1;
+        state.observed.lines = vec![make_line("hello")];
+        state.runtime.cols = 20;
+        state.runtime.rows = 1;
 
         let deco_face = Face {
             fg: crate::protocol::Color::Rgb { r: 0, g: 255, b: 0 },
@@ -1061,9 +1063,9 @@ mod tests {
     #[test]
     fn paint_buffer_ref_no_virtual_text_matches_baseline() {
         let mut state = default_state();
-        state.lines = vec![make_line("hello"), make_line("world")];
-        state.cols = 10;
-        state.rows = 3;
+        state.observed.lines = vec![make_line("hello"), make_line("world")];
+        state.runtime.cols = 10;
+        state.runtime.rows = 3;
 
         // Without VT
         let mut grid_no_vt = CellGrid::new(10, 3);

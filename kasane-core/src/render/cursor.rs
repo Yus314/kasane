@@ -157,25 +157,25 @@ pub fn neutralize_unfocused_cursors(
         }
 
         // Primary cursor
-        let cx = state.cursor_pos.column as u16 + ox;
+        let cx = state.observed.cursor_pos.column as u16 + ox;
         let cy = display_map
             .and_then(|dm| {
                 if dm.is_identity() {
                     None
                 } else {
-                    dm.buffer_to_display(BufferLine(state.cursor_pos.line as usize))
+                    dm.buffer_to_display(BufferLine(state.observed.cursor_pos.line as usize))
                         .map(|y| y.0 as u16)
                 }
             })
-            .unwrap_or(state.cursor_pos.line as u16)
+            .unwrap_or(state.observed.cursor_pos.line as u16)
             .saturating_sub(display_scroll_offset)
             + oy;
         if let Some(cell) = grid.get_mut(cx, cy) {
-            cell.face = state.default_face;
+            cell.face = state.observed.default_face;
         }
 
         // Secondary cursors
-        for coord in &state.secondary_cursors {
+        for coord in &state.inference.secondary_cursors {
             let sx = coord.column as u16 + ox;
             let sy = display_map
                 .and_then(|dm| {
@@ -190,7 +190,7 @@ pub fn neutralize_unfocused_cursors(
                 .saturating_sub(display_scroll_offset)
                 + oy;
             if let Some(cell) = grid.get_mut(sx, sy) {
-                cell.face = state.default_face;
+                cell.face = state.observed.default_face;
             }
         }
     }
@@ -209,29 +209,29 @@ pub fn cursor_position(
     display_scroll_offset: u16,
     focused_pane_rect: Option<&crate::layout::Rect>,
 ) -> (u16, u16) {
-    match state.cursor_mode {
+    match state.inference.cursor_mode {
         CursorMode::Buffer => {
-            let cx = state.cursor_pos.column as u16 + buffer_x_offset;
+            let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
             let cy = display_map
                 .and_then(|dm| {
                     if dm.is_identity() {
                         None
                     } else {
-                        dm.buffer_to_display(BufferLine(state.cursor_pos.line as usize))
+                        dm.buffer_to_display(BufferLine(state.observed.cursor_pos.line as usize))
                             .map(|y| y.0 as u16)
                     }
                 })
-                .unwrap_or(state.cursor_pos.line as u16)
+                .unwrap_or(state.observed.cursor_pos.line as u16)
                 .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
-            let prompt_width = line_display_width(&state.status_prompt) as u16;
-            let base_cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            let prompt_width = line_display_width(&state.observed.status_prompt) as u16;
+            let base_cx = prompt_width + (state.observed.status_content_cursor_pos.max(0) as u16);
             match focused_pane_rect {
                 Some(r) => {
-                    let cy = if state.status_at_top {
+                    let cy = if state.config.status_at_top {
                         r.y
                     } else {
                         r.y + r.h - 1
@@ -239,7 +239,7 @@ pub fn cursor_position(
                     (base_cx + r.x, cy)
                 }
                 None => {
-                    let cy = if state.status_at_top {
+                    let cy = if state.config.status_at_top {
                         0
                     } else {
                         grid.height().saturating_sub(1)
@@ -254,10 +254,10 @@ pub fn cursor_position(
 /// Default cursor style logic without plugin overrides.
 pub fn cursor_style_default(state: &AppState) -> CursorStyle {
     crate::state::derived::derive_cursor_style(
-        &state.ui_options,
-        state.focused,
-        state.cursor_mode,
-        &state.status_mode_line,
+        &state.observed.ui_options,
+        state.runtime.focused,
+        state.inference.cursor_mode,
+        &state.observed.status_mode_line,
     )
 }
 
@@ -277,29 +277,29 @@ pub fn clear_block_cursor_face(
     if style == CursorStyle::Block || style == CursorStyle::Outline {
         return;
     }
-    let (cx, cy) = match state.cursor_mode {
+    let (cx, cy) = match state.inference.cursor_mode {
         CursorMode::Buffer => {
-            let cx = state.cursor_pos.column as u16 + buffer_x_offset;
+            let cx = state.observed.cursor_pos.column as u16 + buffer_x_offset;
             let cy = display_map
                 .and_then(|dm| {
                     if dm.is_identity() {
                         None
                     } else {
-                        dm.buffer_to_display(BufferLine(state.cursor_pos.line as usize))
+                        dm.buffer_to_display(BufferLine(state.observed.cursor_pos.line as usize))
                             .map(|y| y.0 as u16)
                     }
                 })
-                .unwrap_or(state.cursor_pos.line as u16)
+                .unwrap_or(state.observed.cursor_pos.line as u16)
                 .saturating_sub(display_scroll_offset)
                 + buffer_y_offset;
             (cx, cy)
         }
         CursorMode::Prompt => {
-            let prompt_width = line_display_width(&state.status_prompt) as u16;
-            let base_cx = prompt_width + (state.status_content_cursor_pos.max(0) as u16);
+            let prompt_width = line_display_width(&state.observed.status_prompt) as u16;
+            let base_cx = prompt_width + (state.observed.status_content_cursor_pos.max(0) as u16);
             match focused_pane_rect {
                 Some(r) => {
-                    let cy = if state.status_at_top {
+                    let cy = if state.config.status_at_top {
                         r.y
                     } else {
                         r.y + r.h - 1
@@ -307,7 +307,7 @@ pub fn clear_block_cursor_face(
                     (base_cx + r.x, cy)
                 }
                 None => {
-                    let cy = if state.status_at_top {
+                    let cy = if state.config.status_at_top {
                         0
                     } else {
                         grid.height().saturating_sub(1)
@@ -317,9 +317,9 @@ pub fn clear_block_cursor_face(
             }
         }
     };
-    let base_face = match state.cursor_mode {
-        CursorMode::Buffer => &state.default_face,
-        CursorMode::Prompt => &state.status_default_face,
+    let base_face = match state.inference.cursor_mode {
+        CursorMode::Buffer => &state.observed.default_face,
+        CursorMode::Prompt => &state.observed.status_default_face,
     };
     if let Some(cell) = grid.get_mut(cx, cy) {
         cell.face = *base_face;
@@ -404,7 +404,7 @@ pub fn apply_secondary_cursor_faces(
     buffer_y_offset: u16,
     display_scroll_offset: u16,
 ) {
-    for coord in &state.secondary_cursors {
+    for coord in &state.inference.secondary_cursors {
         let x = coord.column as u16 + buffer_x_offset;
         let y = display_map
             .and_then(|dm| {
@@ -421,8 +421,8 @@ pub fn apply_secondary_cursor_faces(
         if let Some(cell) = grid.get_mut(x, y) {
             cell.face = make_secondary_cursor_face(
                 &cell.face,
-                &state.default_face,
-                state.secondary_blend_ratio,
+                &state.observed.default_face,
+                state.config.secondary_blend_ratio,
             );
         }
     }

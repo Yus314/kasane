@@ -154,7 +154,7 @@ fn state_hash_tracks_plugin_state() {
     assert_eq!(surface.state_hash(), 0);
 
     let mut state = AppState::default();
-    state.cursor_pos.line = 7;
+    state.observed.cursor_pos.line = 7;
     let effects = plugin.on_state_changed_effects(&AppView::new(&state), DirtyFlags::BUFFER_CURSOR);
     assert!(effects.redraw.is_empty());
     assert!(effects.commands.is_empty());
@@ -171,7 +171,7 @@ fn routes_state_changes_to_guest_and_updates_hash() {
     let mut surface = surfaces.pop().expect("expected hosted surface");
 
     let mut state = AppState::default();
-    state.cursor_pos.line = 11;
+    state.observed.cursor_pos.line = 11;
 
     let commands = surface.on_state_changed(&state, DirtyFlags::BUFFER_CURSOR);
     assert_eq!(commands.len(), 1);
@@ -204,8 +204,8 @@ fn integrates_with_surface_registry_and_resolver() {
     let root_area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let mut sections =
         surface_registry.compose_view_sections(&state, None, &registry.view(), root_area);
@@ -261,8 +261,8 @@ fn integrates_with_surface_registry_and_resolver() {
     let root_area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = kasane_core::layout::flex::place(&sections.base, root_area, &state);
     kasane_core::surface::resolve::backfill_surface_report_areas(
@@ -288,8 +288,8 @@ fn routes_key_events_to_guest() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let commands = surface_registry.route_event(
         SurfaceEvent::Key(KeyEvent {
             key: Key::Char('r'),
@@ -299,8 +299,8 @@ fn routes_key_events_to_guest() {
         Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         },
     );
     assert_eq!(commands.len(), 1);
@@ -327,8 +327,8 @@ fn routes_spawn_session_commands_to_host() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let commands = surface_registry.route_event_with_sources(
         SurfaceEvent::Key(KeyEvent {
             key: Key::Char('n'),
@@ -338,8 +338,8 @@ fn routes_spawn_session_commands_to_host() {
         Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         },
     );
 
@@ -377,8 +377,8 @@ fn routes_dynamic_register_surface_command_to_host() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let commands = surface_registry.route_event_with_sources(
         SurfaceEvent::Key(KeyEvent {
             key: Key::Char('a'),
@@ -388,8 +388,8 @@ fn routes_dynamic_register_surface_command_to_host() {
         Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         },
     );
 
@@ -423,8 +423,8 @@ fn routes_dynamic_unregister_surface_command_to_host() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let commands = surface_registry.route_event_with_sources(
         SurfaceEvent::Key(KeyEvent {
             key: Key::Char('u'),
@@ -434,8 +434,8 @@ fn routes_dynamic_unregister_surface_command_to_host() {
         Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         },
     );
 
@@ -456,7 +456,7 @@ fn converts_fold_display_directive_from_guest() {
     let directives = plugin.display_directives(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
 
-    let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
+    let map = kasane_core::display::DisplayMap::build(state.observed.lines.len(), &directives);
     assert_eq!(map.display_line_count(), 3);
     assert_eq!(map.buffer_to_display(BufferLine(1)), Some(DisplayLine(1)));
     assert_eq!(map.buffer_to_display(BufferLine(2)), Some(DisplayLine(1)));
@@ -477,7 +477,7 @@ fn converts_hide_display_directive_from_guest() {
     let directives = plugin.display_directives(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
 
-    let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
+    let map = kasane_core::display::DisplayMap::build(state.observed.lines.len(), &directives);
     assert_eq!(map.display_line_count(), 2);
     assert_eq!(map.buffer_to_display(BufferLine(1)), None);
     assert_eq!(map.buffer_to_display(BufferLine(2)), None);
@@ -499,7 +499,7 @@ fn converts_insert_after_display_directive_from_guest() {
     let directives = plugin.display_directives(&AppView::new(&state));
     assert_eq!(directives.len(), 1);
 
-    let map = kasane_core::display::DisplayMap::build(state.lines.len(), &directives);
+    let map = kasane_core::display::DisplayMap::build(state.observed.lines.len(), &directives);
     assert_eq!(map.display_line_count(), 4);
     assert_eq!(
         map.display_to_buffer(DisplayLine(0)),
@@ -543,8 +543,8 @@ fn routes_close_session_commands_to_host() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let commands = surface_registry.route_event_with_sources(
         SurfaceEvent::Key(KeyEvent {
             key: Key::Char('x'),
@@ -554,8 +554,8 @@ fn routes_close_session_commands_to_host() {
         Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         },
     );
 
@@ -628,13 +628,13 @@ fn routes_mouse_and_focus_events_to_guest() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     let total = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
 
     let mouse_commands = surface_registry.route_event(
@@ -685,7 +685,7 @@ fn state_change_commands_preserve_owner_plugin_source() {
         .expect("hosted surface should register");
 
     let mut state = AppState::default();
-    state.cursor_pos.line = 5;
+    state.observed.cursor_pos.line = 5;
     let batches = surface_registry.on_state_changed_with_sources(&state, DirtyFlags::BUFFER_CURSOR);
     assert_eq!(batches.len(), 1);
     assert_eq!(batches[0].source_plugin, Some(owner));

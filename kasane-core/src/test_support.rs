@@ -35,15 +35,15 @@ pub fn root_area(w: u16, h: u16) -> Rect {
 /// Tests can customize individual fields after the call.
 pub fn test_state_80x24() -> AppState {
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.default_face = Face {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = Face {
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
@@ -70,20 +70,20 @@ pub fn render_with_registry(state: &AppState, registry: &PluginRuntime) -> CellG
     let root = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = place(&element, root, state);
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
     paint::paint(&element, &layout, &mut grid, state);
     grid
 }
 
 /// Render to a fresh CellGrid using the non-cached pipeline.
 pub fn render_to_grid(state: &AppState, registry: &PluginRuntime) -> CellGrid {
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
     render_pipeline(state, &registry.view(), &mut grid);
     grid
 }

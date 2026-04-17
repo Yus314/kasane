@@ -10,7 +10,7 @@ fn test_visible_line_range_empty() {
 #[test]
 fn test_visible_line_range_with_lines() {
     let mut state = AppState::default();
-    state.lines = vec![vec![], vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![], vec![]];
     assert_eq!(state.visible_line_range(), 0..3);
 }
 
@@ -18,7 +18,7 @@ fn test_visible_line_range_with_lines() {
 fn test_buffer_line_count() {
     let mut state = AppState::default();
     assert_eq!(state.buffer_line_count(), 0);
-    state.lines = vec![vec![], vec![]];
+    state.observed.lines = vec![vec![], vec![]];
     assert_eq!(state.buffer_line_count(), 2);
 }
 
@@ -26,7 +26,7 @@ fn test_buffer_line_count() {
 fn test_has_menu() {
     let mut state = AppState::default();
     assert!(!state.has_menu());
-    state.menu = Some(MenuState::new(
+    state.observed.menu = Some(MenuState::new(
         vec![vec![Atom {
             face: Face::default(),
             contents: "a".into(),
@@ -48,7 +48,7 @@ fn test_has_menu() {
 fn test_has_info() {
     let mut state = AppState::default();
     assert!(!state.has_info());
-    state.infos.push(InfoState {
+    state.observed.infos.push(InfoState {
         title: vec![],
         content: vec![],
         anchor: Coord::default(),
@@ -67,6 +67,6 @@ fn test_has_info() {
 fn test_is_prompt_mode() {
     let mut state = AppState::default();
     assert!(!state.is_prompt_mode()); // default is Buffer
-    state.cursor_mode = CursorMode::Prompt;
+    state.inference.cursor_mode = CursorMode::Prompt;
     assert!(state.is_prompt_mode());
 }

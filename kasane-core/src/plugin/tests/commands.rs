@@ -86,8 +86,11 @@ fn test_execute_commands_insert_text_translates_at_boundary() {
 fn test_set_config_stores_in_ui_options() {
     // SetConfig applied via ui_options (integration would be in event loop)
     let mut state = AppState::default();
-    state.ui_options.insert("key".into(), "value".into());
-    assert_eq!(state.ui_options.get("key").unwrap(), "value");
+    state
+        .observed
+        .ui_options
+        .insert("key".into(), "value".into());
+    assert_eq!(state.observed.ui_options.get("key").unwrap(), "value");
 }
 
 #[test]

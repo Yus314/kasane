@@ -28,8 +28,8 @@ fn make_atom(text: &str) -> Atom {
 
 /// Render with legacy pipeline and return the grid.
 fn render_legacy(state: &AppState, registry: &PluginRuntime) -> CellGrid {
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
     render_pipeline(state, &registry.view(), &mut grid);
     grid
 }
@@ -41,8 +41,8 @@ fn render_salsa(
     db: &KasaneDatabase,
     handles: &SalsaInputHandles,
 ) -> CellGrid {
-    let mut grid = CellGrid::new(state.cols, state.rows);
-    grid.clear(&state.default_face);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid.clear(&state.observed.default_face);
     render_pipeline_cached(
         db,
         handles,
@@ -94,12 +94,12 @@ fn compare_empty_state() {
 #[test]
 fn compare_with_buffer_content() {
     let mut state = test_state_80x24();
-    state.lines = vec![
+    state.observed.lines = vec![
         vec![make_atom("fn main() {")],
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
     ];
-    state.cursor_pos = Coord { line: 1, column: 4 };
+    state.observed.cursor_pos = Coord { line: 1, column: 4 };
     let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
@@ -112,8 +112,8 @@ fn compare_with_buffer_content() {
 #[test]
 fn compare_with_status_line() {
     let mut state = test_state_80x24();
-    state.status_line = vec![make_atom(" :edit foo.rs ")];
-    state.status_mode_line = vec![make_atom(" normal ")];
+    state.inference.status_line = vec![make_atom(" :edit foo.rs ")];
+    state.observed.status_mode_line = vec![make_atom(" normal ")];
     let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
@@ -126,8 +126,8 @@ fn compare_with_status_line() {
 #[test]
 fn compare_with_inline_menu() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello")]];
-    state.menu = Some(MenuState::new(
+    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.menu = Some(MenuState::new(
         vec![
             vec![make_atom("item_one")],
             vec![make_atom("item_two")],
@@ -155,7 +155,7 @@ fn compare_with_inline_menu() {
 #[test]
 fn compare_with_search_menu() {
     let mut state = test_state_80x24();
-    state.menu = Some(MenuState::new(
+    state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("match1")], vec![make_atom("match2")]],
         MenuParams {
             anchor: Coord { line: 0, column: 0 },
@@ -179,7 +179,7 @@ fn compare_with_search_menu() {
 #[test]
 fn compare_with_info_modal() {
     let mut state = test_state_80x24();
-    state.infos.push(InfoState {
+    state.observed.infos.push(InfoState {
         title: vec![make_atom("Help")],
         content: vec![
             vec![make_atom("Line 1: some content")],
@@ -209,7 +209,7 @@ fn compare_with_info_modal() {
 #[test]
 fn compare_with_multiple_infos() {
     let mut state = test_state_80x24();
-    state.infos.push(InfoState {
+    state.observed.infos.push(InfoState {
         title: vec![make_atom("Info A")],
         content: vec![vec![make_atom("Content A")]],
         anchor: Coord { line: 3, column: 0 },
@@ -221,7 +221,7 @@ fn compare_with_multiple_infos() {
         },
         scroll_offset: 0,
     });
-    state.infos.push(InfoState {
+    state.observed.infos.push(InfoState {
         title: vec![make_atom("Info B")],
         content: vec![vec![make_atom("Content B")]],
         anchor: Coord {
@@ -248,9 +248,9 @@ fn compare_with_multiple_infos() {
 #[test]
 fn compare_memoization_consistency() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello")]];
-    state.status_line = vec![make_atom("status")];
-    state.status_mode_line = vec![make_atom("normal")];
+    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.inference.status_line = vec![make_atom("status")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
     let registry = PluginRuntime::new();
     let (mut db, mut handles) = setup_salsa(&state);
 
@@ -258,7 +258,7 @@ fn compare_memoization_consistency() {
     let salsa1 = render_salsa(&state, &registry, &db, &handles);
 
     // Change only buffer, re-sync, render again
-    state.lines = vec![vec![make_atom("world")]];
+    state.observed.lines = vec![vec![make_atom("world")]];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
@@ -452,7 +452,7 @@ impl PluginBackend for GutterPlugin {
 #[test]
 fn compare_with_buffer_left_plugin() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = vec![vec![make_atom("hello world")]];
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferLeftPlugin));
     registry.init_all(&AppView::new(&state));
@@ -468,8 +468,8 @@ fn compare_with_buffer_left_plugin() {
 #[test]
 fn compare_with_status_right_plugin() {
     let mut state = test_state_80x24();
-    state.status_line = vec![make_atom("main.rs")];
-    state.status_mode_line = vec![make_atom("normal")];
+    state.inference.status_line = vec![make_atom("main.rs")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(StatusRightPlugin));
     registry.init_all(&AppView::new(&state));
@@ -485,7 +485,7 @@ fn compare_with_status_right_plugin() {
 #[test]
 fn compare_with_buffer_transform_plugin() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("line 0")], vec![make_atom("line 1")]];
+    state.observed.lines = vec![vec![make_atom("line 0")], vec![make_atom("line 1")]];
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(BufferTransformPlugin));
     registry.init_all(&AppView::new(&state));
@@ -501,7 +501,7 @@ fn compare_with_buffer_transform_plugin() {
 #[test]
 fn compare_with_line_highlight_plugin() {
     let mut state = test_state_80x24();
-    state.lines = vec![
+    state.observed.lines = vec![
         vec![make_atom("highlighted line")],
         vec![make_atom("normal line")],
     ];
@@ -520,7 +520,7 @@ fn compare_with_line_highlight_plugin() {
 #[test]
 fn compare_with_gutter_plugin() {
     let mut state = test_state_80x24();
-    state.lines = vec![
+    state.observed.lines = vec![
         vec![make_atom("fn main() {")],
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
@@ -540,13 +540,13 @@ fn compare_with_gutter_plugin() {
 #[test]
 fn compare_with_multiple_plugins() {
     let mut state = test_state_80x24();
-    state.lines = vec![
+    state.observed.lines = vec![
         vec![make_atom("fn main() {")],
         vec![make_atom("    println!(\"hello\");")],
         vec![make_atom("}")],
     ];
-    state.status_line = vec![make_atom("main.rs")];
-    state.status_mode_line = vec![make_atom("normal")];
+    state.inference.status_line = vec![make_atom("main.rs")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
     let mut registry = PluginRuntime::new();
     registry.register_backend(Box::new(GutterPlugin));
     registry.register_backend(Box::new(BufferLeftPlugin));
@@ -565,8 +565,8 @@ fn compare_with_multiple_plugins() {
 #[test]
 fn compare_with_plugins_and_menu() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello")]];
-    state.menu = Some(MenuState::new(
+    state.observed.lines = vec![vec![make_atom("hello")]];
+    state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("item_one")], vec![make_atom("item_two")]],
         MenuParams {
             anchor: Coord { line: 1, column: 5 },
@@ -638,9 +638,12 @@ fn make_menu_state() -> MenuState {
 #[test]
 fn compare_menu_and_info_simultaneous() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello world")]];
-    state.menu = Some(make_menu_state());
-    state.infos.push(make_info_state(5, 10, InfoStyle::Modal));
+    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.menu = Some(make_menu_state());
+    state
+        .observed
+        .infos
+        .push(make_info_state(5, 10, InfoStyle::Modal));
     let registry = PluginRuntime::new();
     let (db, handles) = setup_salsa(&state);
 
@@ -653,8 +656,11 @@ fn compare_menu_and_info_simultaneous() {
 #[test]
 fn compare_menu_appears_while_info_visible() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello world")]];
-    state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
+    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state
+        .observed
+        .infos
+        .push(make_info_state(3, 0, InfoStyle::Inline));
 
     let registry = PluginRuntime::new();
     let (mut db, mut handles) = setup_salsa(&state);
@@ -669,7 +675,7 @@ fn compare_menu_appears_while_info_visible() {
     );
 
     // Now add a menu and re-render
-    state.menu = Some(make_menu_state());
+    state.observed.menu = Some(make_menu_state());
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);
@@ -683,9 +689,12 @@ fn compare_menu_appears_while_info_visible() {
 #[test]
 fn compare_menu_disappears_while_info_visible() {
     let mut state = test_state_80x24();
-    state.lines = vec![vec![make_atom("hello world")]];
-    state.menu = Some(make_menu_state());
-    state.infos.push(make_info_state(3, 0, InfoStyle::Inline));
+    state.observed.lines = vec![vec![make_atom("hello world")]];
+    state.observed.menu = Some(make_menu_state());
+    state
+        .observed
+        .infos
+        .push(make_info_state(3, 0, InfoStyle::Inline));
 
     let registry = PluginRuntime::new();
     let (mut db, mut handles) = setup_salsa(&state);
@@ -696,7 +705,7 @@ fn compare_menu_disappears_while_info_visible() {
     assert_grids_equal(&salsa_both, &legacy_both, "menu + info (before removal)");
 
     // Remove the menu
-    state.menu = None;
+    state.observed.menu = None;
     sync_inputs_from_state(&mut db, &state, &handles);
 
     sync_display_directives(&mut db, &state, &registry.view(), &handles);

@@ -104,8 +104,8 @@ pub(super) fn dispatch_add_surface(
         Some(Rect {
             x: 0,
             y: 0,
-            w: ctx.state.cols,
-            h: ctx.state.rows,
+            w: ctx.state.runtime.cols,
+            h: ctx.state.runtime.rows,
         }),
     );
     *ctx.dirty |= DirtyFlags::ALL;

@@ -50,7 +50,7 @@ pub fn install_hit_region(state: &mut AppState, id: InteractiveId, area: Rect) {
         id,
     };
     let layout = kasane_core::layout::flex::place(&interactive, area, state);
-    state.hit_map = build_hit_map(&interactive, &layout);
+    state.runtime.hit_map = build_hit_map(&interactive, &layout);
 }
 
 pub fn install_info_hit_region(state: &mut AppState, index: usize, area: Rect) {

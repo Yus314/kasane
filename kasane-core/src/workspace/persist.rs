@@ -235,12 +235,14 @@ fn extract_buffer_name(
         session_states.get(&session_id)
     };
     app_state.and_then(|s| {
-        s.ui_options
+        s.observed
+            .ui_options
             .get("kasane_bufname")
             .filter(|v| !v.is_empty())
             .cloned()
             .or_else(|| {
                 let text: String = s
+                    .observed
                     .status_content
                     .iter()
                     .map(|a| a.contents.as_str())
@@ -826,6 +828,7 @@ mod tests {
 
         let mut pane_state = AppState::default();
         pane_state
+            .observed
             .ui_options
             .insert("kasane_bufname".into(), "lib.rs".into());
 

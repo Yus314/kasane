@@ -874,7 +874,7 @@ mod tests {
     fn bridge_tracks_state_changes() {
         let mut bridge = PluginBridge::new(CursorLinePure);
         let mut app = AppState::default();
-        app.cursor_pos.line = 5;
+        app.observed.cursor_pos.line = 5;
 
         assert_eq!(bridge.state_hash(), 0);
 
@@ -886,7 +886,7 @@ mod tests {
         assert_eq!(bridge.state_hash(), 1);
 
         // Different input → different state → generation bumps
-        app.cursor_pos.line = 10;
+        app.observed.cursor_pos.line = 10;
         bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 2);
     }
@@ -904,7 +904,7 @@ mod tests {
     fn bridge_annotates_cursor_line() {
         let mut bridge = PluginBridge::new(CursorLinePure);
         let mut app = AppState::default();
-        app.cursor_pos.line = 3;
+        app.observed.cursor_pos.line = 3;
 
         bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
 
@@ -1014,10 +1014,10 @@ mod tests {
         registry.register(CursorLinePure);
 
         let mut app = AppState::default();
-        app.cursor_pos.line = 2;
-        app.lines = vec![vec![], vec![], vec![], vec![], vec![]];
-        app.cols = 80;
-        app.rows = 24;
+        app.observed.cursor_pos.line = 2;
+        app.observed.lines = vec![vec![], vec![], vec![], vec![], vec![]];
+        app.runtime.cols = 80;
+        app.runtime.rows = 24;
 
         let _batch = registry.init_all_batch(&AppView::new(&app));
 
@@ -1040,10 +1040,10 @@ mod tests {
         runtime.register(CursorLinePure);
 
         let mut app = AppState::default();
-        app.cursor_pos.line = 1;
-        app.lines = vec![vec![], vec![], vec![]];
-        app.cols = 80;
-        app.rows = 24;
+        app.observed.cursor_pos.line = 1;
+        app.observed.lines = vec![vec![], vec![], vec![]];
+        app.runtime.cols = 80;
+        app.runtime.rows = 24;
 
         let _ = runtime.init_all_batch(&AppView::new(&app));
         runtime.notify_state_changed_batch(&AppView::new(&app), DirtyFlags::BUFFER);
@@ -1071,7 +1071,7 @@ mod tests {
     fn complex_state_tracks_changes() {
         let mut bridge = PluginBridge::new(ColorPreviewPure);
         let mut app = AppState::default();
-        app.cursor_pos.line = 0;
+        app.observed.cursor_pos.line = 0;
 
         bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
         assert_eq!(bridge.state_hash(), 1);
@@ -1122,7 +1122,7 @@ mod tests {
         registry.register(CursorLinePure);
 
         let mut app = AppState::default();
-        app.cursor_pos.line = 5;
+        app.observed.cursor_pos.line = 5;
 
         // First frame
         registry.prepare_plugin_cache(DirtyFlags::empty());
@@ -1175,7 +1175,7 @@ mod tests {
     fn is_bridged_plugin_access() {
         let mut bridge = PluginBridge::new(CursorLinePure);
         let mut app = AppState::default();
-        app.cursor_pos.line = 7;
+        app.observed.cursor_pos.line = 7;
         bridge.on_state_changed_effects(&AppView::new(&app), DirtyFlags::BUFFER);
 
         let state = bridge.plugin_state();

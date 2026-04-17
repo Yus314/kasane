@@ -18,7 +18,7 @@ fn test_drag_state_press_activates() {
     };
     update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
     assert_eq!(
-        state.drag,
+        state.runtime.drag,
         DragState::Active {
             button: crate::input::MouseButton::Left,
             start_line: 5,
@@ -30,7 +30,7 @@ fn test_drag_state_press_activates() {
 #[test]
 fn test_drag_state_release_clears() {
     let mut state = Box::new(AppState::default());
-    state.drag = DragState::Active {
+    state.runtime.drag = DragState::Active {
         button: crate::input::MouseButton::Left,
         start_line: 0,
         start_column: 0,
@@ -44,13 +44,13 @@ fn test_drag_state_release_clears() {
         modifiers: crate::input::Modifiers::empty(),
     };
     update_in_place(&mut state, Msg::Mouse(mouse), &mut registry, 3);
-    assert_eq!(state.drag, DragState::None);
+    assert_eq!(state.runtime.drag, DragState::None);
 }
 
 #[test]
 fn test_drag_state_drag_keeps_active() {
     let mut state = Box::new(AppState::default());
-    state.drag = DragState::Active {
+    state.runtime.drag = DragState::Active {
         button: crate::input::MouseButton::Left,
         start_line: 0,
         start_column: 0,
@@ -73,14 +73,14 @@ fn test_drag_state_drag_keeps_active() {
         _ => panic!("expected SendToKakoune MouseMove"),
     }
     // Drag state remains Active
-    assert!(matches!(state.drag, DragState::Active { .. }));
+    assert!(matches!(state.runtime.drag, DragState::Active { .. }));
 }
 
 #[test]
 fn test_selection_scroll_generates_two_commands() {
     let mut state = Box::new(AppState::default());
-    state.rows = 24;
-    state.drag = DragState::Active {
+    state.runtime.rows = 24;
+    state.runtime.drag = DragState::Active {
         button: crate::input::MouseButton::Left,
         start_line: 5,
         start_column: 10,
@@ -115,8 +115,8 @@ fn test_selection_scroll_generates_two_commands() {
 #[test]
 fn test_selection_scroll_up_edge() {
     let mut state = Box::new(AppState::default());
-    state.rows = 24;
-    state.drag = DragState::Active {
+    state.runtime.rows = 24;
+    state.runtime.drag = DragState::Active {
         button: crate::input::MouseButton::Left,
         start_line: 5,
         start_column: 10,
@@ -174,8 +174,8 @@ fn test_input_event_paste_payload_becomes_text_input() {
 #[test]
 fn test_pageup_intercept() {
     let mut state = Box::new(AppState::default());
-    state.rows = 24;
-    state.cursor_pos = Coord {
+    state.runtime.rows = 24;
+    state.observed.cursor_pos = Coord {
         line: 10,
         column: 5,
     };
@@ -205,8 +205,8 @@ fn test_pageup_intercept() {
 #[test]
 fn test_pagedown_intercept() {
     let mut state = Box::new(AppState::default());
-    state.rows = 24;
-    state.cursor_pos = Coord {
+    state.runtime.rows = 24;
+    state.observed.cursor_pos = Coord {
         line: 10,
         column: 5,
     };

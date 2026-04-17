@@ -15,12 +15,13 @@ use super::build_styled_line_with_base;
 /// Resolve menu item face: theme override takes precedence, protocol face as fallback.
 fn resolve_menu_face(menu: &MenuState, selected: bool, state: &AppState) -> Face {
     if selected {
-        state.theme.resolve_with_protocol_fallback(
+        state.config.theme.resolve_with_protocol_fallback(
             &StyleToken::MENU_ITEM_SELECTED,
             menu.selected_item_face,
         )
     } else {
         state
+            .config
             .theme
             .resolve_with_protocol_fallback(&StyleToken::MENU_ITEM_NORMAL, menu.menu_face)
     }
@@ -40,7 +41,7 @@ pub(crate) fn build_menu_overlay(
         MenuStyle::Inline => build_menu_inline(menu, state, registry),
         MenuStyle::Prompt => build_menu_prompt(menu, state, registry),
         MenuStyle::Search => {
-            if state.search_dropdown {
+            if state.config.search_dropdown {
                 build_menu_search_dropdown(menu, state, registry)
             } else {
                 build_menu_search(menu, state, registry)
@@ -51,7 +52,7 @@ pub(crate) fn build_menu_overlay(
 
 /// Convert AppState menu_position config to layout MenuPlacement.
 fn menu_placement(state: &AppState) -> MenuPlacement {
-    MenuPlacement::from(state.menu_position)
+    MenuPlacement::from(state.config.menu_position)
 }
 
 /// Build a single menu item element: face selection + styled line + container wrap.
@@ -155,7 +156,8 @@ fn build_menu_inline(
     state: &AppState,
     registry: &PluginView<'_>,
 ) -> Option<Overlay> {
-    let win_w = (menu.effective_content_width(state.cols) + SCROLLBAR_WIDTH).min(state.cols);
+    let win_w = (menu.effective_content_width(state.runtime.cols) + SCROLLBAR_WIDTH)
+        .min(state.runtime.cols);
     let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
     let screen_h = state.available_height();
     let placement = menu_placement(state);
@@ -164,7 +166,7 @@ fn build_menu_inline(
         &menu.anchor,
         win_w,
         menu.win_height,
-        state.cols,
+        state.runtime.cols,
         screen_h,
         placement,
     );
@@ -176,7 +178,7 @@ fn build_menu_inline(
     let candidate_col_w = menu
         .columns_split
         .as_ref()
-        .map(|mc| mc.max_candidate_width.min(state.cols * 2 / 5));
+        .map(|mc| mc.max_candidate_width.min(state.runtime.cols * 2 / 5));
 
     // Build item rows
     let item_rows: Vec<FlexChild> = (0..win.height)
@@ -197,8 +199,8 @@ fn build_menu_inline(
         win.height,
         menu,
         &menu.menu_face,
-        &state.scrollbar_thumb,
-        &state.scrollbar_track,
+        &state.config.scrollbar_thumb,
+        &state.config.scrollbar_track,
     );
 
     let content_col = Element::column(item_rows);
@@ -226,7 +228,7 @@ fn build_menu_prompt(
     let wh = menu.win_height;
     let columns = menu.columns as usize;
     let stride = wh as usize;
-    let col_w = (state.cols.saturating_sub(1) as usize / columns).max(1);
+    let col_w = (state.runtime.cols.saturating_sub(1) as usize / columns).max(1);
     let first_col = menu.first_item / stride;
     let start_y = status_row.saturating_sub(wh);
 
@@ -251,8 +253,8 @@ fn build_menu_prompt(
         wh,
         menu,
         &menu.menu_face,
-        &state.scrollbar_thumb,
-        &state.scrollbar_track,
+        &state.config.scrollbar_thumb,
+        &state.config.scrollbar_track,
     );
     let content = Element::grid(grid_columns, grid_children);
     let row = Element::row(vec![
@@ -265,7 +267,7 @@ fn build_menu_prompt(
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y: start_y,
-            w: state.cols,
+            w: state.runtime.cols,
             h: wh,
         },
     })
@@ -278,7 +280,7 @@ fn build_menu_search(
 ) -> Option<Overlay> {
     let status_row = state.available_height();
     let y = status_row.saturating_sub(1);
-    let screen_w = state.cols as usize;
+    let screen_w = state.runtime.cols as usize;
     let first = menu.first_item;
     let has_prefix = first > 0;
     let normal_face = resolve_menu_face(menu, false, state);
@@ -346,7 +348,7 @@ fn build_menu_search(
         anchor: OverlayAnchor::Absolute {
             x: 0,
             y,
-            w: state.cols,
+            w: state.runtime.cols,
             h: 1,
         },
     })
@@ -362,7 +364,7 @@ fn build_menu_search_dropdown(
     let status_row = state.available_height();
     let max_h = MAX_DROPDOWN_HEIGHT.min(screen_h.saturating_sub(1));
     let win_h = (menu.items.len() as u16).min(max_h).max(1);
-    let win_w = (menu.max_item_width + SCROLLBAR_WIDTH).min(state.cols);
+    let win_w = (menu.max_item_width + SCROLLBAR_WIDTH).min(state.runtime.cols);
     let content_w = win_w.saturating_sub(SCROLLBAR_WIDTH);
 
     // Place above the status bar
@@ -381,8 +383,8 @@ fn build_menu_search_dropdown(
         win_h,
         menu,
         &menu.menu_face,
-        &state.scrollbar_thumb,
-        &state.scrollbar_track,
+        &state.config.scrollbar_thumb,
+        &state.config.scrollbar_track,
     );
     let content_col = Element::column(item_rows);
     let row = Element::row(vec![
@@ -555,7 +557,7 @@ mod tests {
             style: MenuStyle::Inline,
         });
 
-        let menu = state.menu.as_ref().unwrap();
+        let menu = state.observed.menu.as_ref().unwrap();
         assert!(menu.columns_split.is_some());
         let registry = PluginRuntime::new();
         let overlay = build_menu_inline(menu, &state, &registry.view());

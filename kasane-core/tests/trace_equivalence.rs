@@ -65,7 +65,7 @@ fn arb_mutation() -> impl Strategy<Value = Mutation> {
 fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
     match mutation {
         Mutation::MoveCursor(line, col) => {
-            state.cursor_pos = Coord {
+            state.observed.cursor_pos = Coord {
                 line: *line,
                 column: *col,
             };
@@ -73,24 +73,24 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
         }
         Mutation::ChangeLines(lines) => {
             let new_lines: Vec<_> = lines.iter().map(|s| make_line(s)).collect();
-            state.lines_dirty = vec![true; new_lines.len()];
-            state.lines = new_lines;
+            state.inference.lines_dirty = vec![true; new_lines.len()];
+            state.observed.lines = new_lines;
             DirtyFlags::BUFFER
         }
         Mutation::ChangeStatusLine(s) => {
-            state.status_line = make_line(s);
+            state.inference.status_line = make_line(s);
             DirtyFlags::STATUS
         }
         Mutation::ChangeModeLine(s) => {
-            state.status_mode_line = make_line(s);
+            state.observed.status_mode_line = make_line(s);
             DirtyFlags::STATUS
         }
         Mutation::ToggleShadow => {
-            state.shadow_enabled = !state.shadow_enabled;
+            state.config.shadow_enabled = !state.config.shadow_enabled;
             DirtyFlags::OPTIONS
         }
         Mutation::ToggleSearchDropdown => {
-            state.search_dropdown = !state.search_dropdown;
+            state.config.search_dropdown = !state.config.search_dropdown;
             DirtyFlags::OPTIONS
         }
         Mutation::ShowMenu => state.apply(KakouneRequest::MenuShow {
@@ -110,7 +110,7 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
         }),
         Mutation::HideMenu => state.apply(KakouneRequest::MenuHide),
         Mutation::SelectMenuItem(n) => {
-            if state.menu.is_some() {
+            if state.observed.menu.is_some() {
                 state.apply(KakouneRequest::MenuSelect { selected: *n })
             } else {
                 DirtyFlags::empty()
@@ -124,14 +124,14 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
             style: InfoStyle::Modal,
         }),
         Mutation::HideInfo => {
-            if !state.infos.is_empty() {
+            if !state.observed.infos.is_empty() {
                 state.apply(KakouneRequest::InfoHide)
             } else {
                 DirtyFlags::empty()
             }
         }
         Mutation::ChangeStatusAtTop => {
-            state.status_at_top = !state.status_at_top;
+            state.config.status_at_top = !state.config.status_at_top;
             DirtyFlags::OPTIONS
         }
     }
@@ -144,20 +144,20 @@ fn apply_mutation(state: &mut AppState, mutation: &Mutation) -> DirtyFlags {
 /// Build a rich AppState with buffer, menu, and info.
 fn rich_state() -> AppState {
     let mut state = test_state_80x24();
-    state.lines = vec![
+    state.observed.lines = vec![
         make_line("fn main() {"),
         make_line("    println!(\"hello\");"),
         make_line("}"),
     ];
-    state.status_line = make_line(" main.rs ");
-    state.status_mode_line = make_line("normal");
-    state.status_default_face = Face {
+    state.inference.status_line = make_line(" main.rs ");
+    state.observed.status_mode_line = make_line("normal");
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.cursor_pos = Coord { line: 1, column: 4 };
-    state.shadow_enabled = true;
+    state.observed.cursor_pos = Coord { line: 1, column: 4 };
+    state.config.shadow_enabled = true;
 
     state.apply(KakouneRequest::MenuShow {
         items: vec![make_line("foo"), make_line("bar"), make_line("baz")],
@@ -193,15 +193,15 @@ fn rich_state() -> AppState {
 /// Empty buffer state.
 fn empty_state() -> AppState {
     let mut state = test_state_80x24();
-    state.lines = vec![make_line("")];
-    state.status_line = make_line("");
+    state.observed.lines = vec![make_line("")];
+    state.inference.status_line = make_line("");
     state
 }
 
 /// Prompt mode state.
 fn prompt_state() -> AppState {
     let mut state = test_state_80x24();
-    state.lines = vec![make_line("hello world")];
+    state.observed.lines = vec![make_line("hello world")];
     state.apply(KakouneRequest::DrawStatus {
         prompt: make_line(":"),
         content: make_line("write"),
@@ -216,11 +216,11 @@ fn prompt_state() -> AppState {
 /// Large buffer state.
 fn large_buffer_state() -> AppState {
     let mut state = test_state_80x24();
-    state.lines = (0..23)
+    state.observed.lines = (0..23)
         .map(|i| make_line(&format!("line {i}: some content here")))
         .collect();
-    state.status_line = make_line(" large.rs ");
-    state.status_mode_line = make_line("normal");
+    state.inference.status_line = make_line(" large.rs ");
+    state.observed.status_mode_line = make_line("normal");
     state
 }
 

@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 
 use crate::protocol::{Coord, Face, Line, StatusStyle};
-use crate::state::{AppState, InfoState, MenuState};
+use crate::state::{AppState, InfoState, MenuState, ObservedState};
 
 /// Read-only projection of `AppState` onto its observed (protocol-facing)
 /// fields.
@@ -37,14 +37,14 @@ use crate::state::{AppState, InfoState, MenuState};
 /// See module-level documentation for the enforcement contract.
 #[derive(Clone, Copy)]
 pub struct Truth<'a> {
-    state: &'a AppState,
+    inner: &'a ObservedState,
 }
 
 impl<'a> Truth<'a> {
-    /// Create a new `Truth` projection over the given state.
+    /// Create a new `Truth` projection over the given observed state.
     #[inline]
-    pub fn new(state: &'a AppState) -> Self {
-        Self { state }
+    pub fn new(inner: &'a ObservedState) -> Self {
+        Self { inner }
     }
 
     // =========================================================================
@@ -54,31 +54,31 @@ impl<'a> Truth<'a> {
     /// Observed: buffer lines from `draw`.
     #[inline]
     pub fn lines(&self) -> &'a [Line] {
-        &self.state.lines
+        &self.inner.lines
     }
 
     /// Observed: default face from `draw`.
     #[inline]
     pub fn default_face(&self) -> Face {
-        self.state.default_face
+        self.inner.default_face
     }
 
     /// Observed: padding face from `draw`.
     #[inline]
     pub fn padding_face(&self) -> Face {
-        self.state.padding_face
+        self.inner.padding_face
     }
 
     /// Observed: number of widget columns from `draw`.
     #[inline]
     pub fn widget_columns(&self) -> u16 {
-        self.state.widget_columns
+        self.inner.widget_columns
     }
 
     /// Observed: cursor position from `draw`.
     #[inline]
     pub fn cursor_pos(&self) -> Coord {
-        self.state.cursor_pos
+        self.inner.cursor_pos
     }
 
     // =========================================================================
@@ -88,37 +88,37 @@ impl<'a> Truth<'a> {
     /// Observed: status prompt atoms from `draw_status`.
     #[inline]
     pub fn status_prompt(&self) -> &'a Line {
-        &self.state.status_prompt
+        &self.inner.status_prompt
     }
 
     /// Observed: status content atoms from `draw_status`.
     #[inline]
     pub fn status_content(&self) -> &'a Line {
-        &self.state.status_content
+        &self.inner.status_content
     }
 
     /// Observed: cursor position within status content from `draw_status`.
     #[inline]
     pub fn status_content_cursor_pos(&self) -> i32 {
-        self.state.status_content_cursor_pos
+        self.inner.status_content_cursor_pos
     }
 
     /// Observed: mode line atoms from `draw_status`.
     #[inline]
     pub fn status_mode_line(&self) -> &'a Line {
-        &self.state.status_mode_line
+        &self.inner.status_mode_line
     }
 
     /// Observed: default face for the status bar from `draw_status`.
     #[inline]
     pub fn status_default_face(&self) -> Face {
-        self.state.status_default_face
+        self.inner.status_default_face
     }
 
     /// Observed: status bar context style from `draw_status`.
     #[inline]
     pub fn status_style(&self) -> StatusStyle {
-        self.state.status_style
+        self.inner.status_style
     }
 
     // =========================================================================
@@ -128,13 +128,13 @@ impl<'a> Truth<'a> {
     /// Observed: completion menu state from `menu_show` / `menu_select` / `menu_hide`.
     #[inline]
     pub fn menu(&self) -> Option<&'a MenuState> {
-        self.state.menu.as_ref()
+        self.inner.menu.as_ref()
     }
 
     /// Observed: info popup state from `info_show` / `info_hide`.
     #[inline]
     pub fn infos(&self) -> &'a [InfoState] {
-        &self.state.infos
+        &self.inner.infos
     }
 
     // =========================================================================
@@ -144,7 +144,7 @@ impl<'a> Truth<'a> {
     /// Observed: UI options from `set_ui_options`.
     #[inline]
     pub fn ui_options(&self) -> &'a HashMap<String, String> {
-        &self.state.ui_options
+        &self.inner.ui_options
     }
 
     // =========================================================================
@@ -181,13 +181,14 @@ impl AppState {
     /// See [`Truth`] for the enforcement contract.
     #[inline]
     pub fn truth(&self) -> Truth<'_> {
-        Truth::new(self)
+        Truth::new(&self.observed)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::Coord;
 
     #[test]
     fn truth_is_copy() {
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn construction_roundtrips_cursor() {
         let mut state = AppState::default();
-        state.cursor_pos = Coord { line: 7, column: 3 };
+        state.observed.cursor_pos = Coord { line: 7, column: 3 };
         let truth = state.truth();
         assert_eq!(truth.cursor_pos(), Coord { line: 7, column: 3 });
     }
@@ -206,8 +207,8 @@ mod tests {
     #[test]
     fn construction_roundtrips_buffer() {
         let mut state = AppState::default();
-        state.lines = vec![vec![], vec![], vec![]];
-        state.widget_columns = 4;
+        state.observed.lines = vec![vec![], vec![], vec![]];
+        state.observed.widget_columns = 4;
         let truth = state.truth();
         assert_eq!(truth.lines().len(), 3);
         assert_eq!(truth.widget_columns(), 4);
@@ -216,7 +217,7 @@ mod tests {
     #[test]
     fn construction_roundtrips_status() {
         let mut state = AppState::default();
-        state.status_content_cursor_pos = 12;
+        state.observed.status_content_cursor_pos = 12;
         let truth = state.truth();
         assert_eq!(truth.status_content_cursor_pos(), 12);
         assert!(truth.status_prompt().is_empty());

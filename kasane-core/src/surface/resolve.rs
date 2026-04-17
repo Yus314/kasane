@@ -987,8 +987,8 @@ mod tests {
                 min_height: 7,
                 max_height: Some(7),
                 visible_lines: state.visible_line_range(),
-                screen_cols: state.cols,
-                screen_rows: state.rows,
+                screen_cols: state.runtime.cols,
+                screen_rows: state.runtime.rows,
                 pane_surface_id: None,
                 pane_focused: true,
             }
@@ -1031,8 +1031,8 @@ mod tests {
                 min_height: 0,
                 max_height: Some(10),
                 visible_lines: state.visible_line_range(),
-                screen_cols: state.cols,
-                screen_rows: state.rows,
+                screen_cols: state.runtime.cols,
+                screen_rows: state.runtime.rows,
                 pane_surface_id: None,
                 pane_focused: true,
             }
@@ -1088,8 +1088,8 @@ mod tests {
                 min_height: 10,
                 max_height: Some(10),
                 visible_lines: state.visible_line_range(),
-                screen_cols: state.cols,
-                screen_rows: state.rows,
+                screen_cols: state.runtime.cols,
+                screen_rows: state.runtime.rows,
                 pane_surface_id: None,
                 pane_focused: true,
             }

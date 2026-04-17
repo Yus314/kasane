@@ -420,7 +420,7 @@ mod legacy {
                             }
                         }
                         LineExpr::Selection => {
-                            for sel in state.selections() {
+                            for sel in state.inference().selections() {
                                 let lo = sel.anchor.line.min(sel.cursor.line) as usize;
                                 let hi = sel.anchor.line.max(sel.cursor.line) as usize;
                                 if line >= lo && line <= hi {

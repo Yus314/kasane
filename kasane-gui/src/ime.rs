@@ -385,12 +385,10 @@ mod tests {
 
     #[test]
     fn resolve_text_input_target_prefers_observed_prompt_style() {
-        let state = AppState {
-            status_style: StatusStyle::Command,
-            status_content_cursor_pos: -1,
-            editor_mode: EditorMode::Insert,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.status_style = StatusStyle::Command;
+        state.observed.status_content_cursor_pos = -1;
+        state.inference.editor_mode = EditorMode::Insert;
 
         assert_eq!(
             resolve_text_input_target(&state, Some(SessionId(7))),
@@ -404,12 +402,10 @@ mod tests {
 
     #[test]
     fn resolve_text_input_target_falls_back_to_prompt_cursor() {
-        let state = AppState {
-            status_style: StatusStyle::Status,
-            status_content_cursor_pos: 0,
-            editor_mode: EditorMode::Normal,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.status_style = StatusStyle::Status;
+        state.observed.status_content_cursor_pos = 0;
+        state.inference.editor_mode = EditorMode::Normal;
 
         assert_eq!(
             resolve_text_input_target(&state, Some(SessionId(3))),
@@ -423,12 +419,10 @@ mod tests {
 
     #[test]
     fn resolve_text_input_target_uses_heuristic_buffer_mode_last() {
-        let state = AppState {
-            status_style: StatusStyle::Status,
-            status_content_cursor_pos: -1,
-            editor_mode: EditorMode::Replace,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.status_style = StatusStyle::Status;
+        state.observed.status_content_cursor_pos = -1;
+        state.inference.editor_mode = EditorMode::Replace;
 
         assert_eq!(
             resolve_text_input_target(&state, None),

@@ -12,7 +12,7 @@ use crate::layout::{ASSISTANT_CLIPPY, ASSISTANT_WIDTH};
 
 #[cfg(test)]
 pub(in crate::render) fn render_info(state: &AppState, grid: &mut CellGrid) {
-    let info = match state.infos.first() {
+    let info = match state.observed.infos.first() {
         Some(i) => i,
         None => return,
     };

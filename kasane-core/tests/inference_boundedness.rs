@@ -89,7 +89,7 @@ struct InferenceSnapshot {
 }
 
 fn inference_snapshot(s: &AppState) -> InferenceSnapshot {
-    let i = s.inference();
+    let i = s.inference_projection();
     InferenceSnapshot {
         lines_dirty: i.lines_dirty().to_vec(),
         cursor_mode: i.cursor_mode(),
@@ -173,8 +173,8 @@ fn apply_mutation(
         Option<String>,
     ),
 ) {
-    state.focused = focused;
-    state.drag = if drag_active {
+    state.runtime.focused = focused;
+    state.runtime.drag = if drag_active {
         DragState::Active {
             button: kasane_core::input::MouseButton::Left,
             start_line: 0,
@@ -183,24 +183,24 @@ fn apply_mutation(
     } else {
         DragState::None
     };
-    state.cols = cols;
-    state.rows = rows;
-    state.hit_map = HitMap::new();
-    state.display_scroll_offset = scroll;
-    state.active_session_key = session_key;
+    state.runtime.cols = cols;
+    state.runtime.rows = rows;
+    state.runtime.hit_map = HitMap::new();
+    state.runtime.display_scroll_offset = scroll;
+    state.session.active_session_key = session_key;
 }
 
 /// Baseline state with non-trivial protocol, inference, and policy
 /// contents, so the mutation test isn't operating on default zeros.
 fn baseline_state() -> AppState {
     let mut s = AppState::default();
-    s.cursor_pos = Coord { line: 2, column: 5 };
-    s.widget_columns = 3;
-    s.padding_char = "·".to_string();
-    s.menu_max_height = 17;
-    s.shadow_enabled = false;
-    s.cursor_count = 2;
-    s.secondary_cursors = vec![Coord { line: 4, column: 1 }];
+    s.observed.cursor_pos = Coord { line: 2, column: 5 };
+    s.observed.widget_columns = 3;
+    s.config.padding_char = "·".to_string();
+    s.config.menu_max_height = 17;
+    s.config.shadow_enabled = false;
+    s.inference.cursor_count = 2;
+    s.inference.secondary_cursors = vec![Coord { line: 4, column: 1 }];
     s
 }
 

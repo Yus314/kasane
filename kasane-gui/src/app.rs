@@ -294,8 +294,8 @@ where
                 let color_resolver = ColorResolver::from_config(&self.config.colors);
 
                 // Setup state with measured dimensions
-                self.state.cols = metrics.cols;
-                self.state.rows = metrics.rows;
+                self.state.runtime.cols = metrics.cols;
+                self.state.runtime.rows = metrics.rows;
                 self.state.apply_config(&self.config);
 
                 // Setup backend
@@ -349,8 +349,8 @@ where
                             let total = Rect {
                                 x: 0,
                                 y: 0,
-                                w: self.state.cols,
-                                h: self.state.rows,
+                                w: self.state.runtime.cols,
+                                h: self.state.runtime.rows,
                             };
                             let rects = self.surface_registry.workspace().compute_rects(total);
                             if let Some(rect) = rects.get(&surface_id)
@@ -381,8 +381,8 @@ where
                             .active_writer_mut()
                             .expect("missing active session writer"),
                         &mut self.initial_resize_sent,
-                        self.state.rows,
-                        self.state.cols,
+                        self.state.runtime.rows,
+                        self.state.runtime.cols,
                     );
                     self.sync_session_ready_gate();
                     if self.initial_resize_sent {
@@ -457,8 +457,8 @@ where
                                 .active_writer_mut()
                                 .expect("missing active session writer"),
                             &mut self.initial_resize_sent,
-                            self.state.rows,
-                            self.state.cols,
+                            self.state.runtime.rows,
+                            self.state.runtime.cols,
                         );
                         self.sync_session_ready_gate();
                         if self.initial_resize_sent {
@@ -561,8 +561,8 @@ where
         let total = Rect {
             x: 0,
             y: 0,
-            w: self.state.cols,
-            h: self.state.rows,
+            w: self.state.runtime.cols,
+            h: self.state.runtime.rows,
         };
         let (mut flags, commands, source, mut surface_command_groups, scroll_plans) =
             if let Some(dirty) =
@@ -769,8 +769,8 @@ where
             return;
         };
 
-        self.state.cols = metrics.cols;
-        self.state.rows = metrics.rows;
+        self.state.runtime.cols = metrics.cols;
+        self.state.runtime.rows = metrics.rows;
         if let Some(ref mut backend) = self.backend {
             backend.update_metrics(metrics);
         }
@@ -778,7 +778,7 @@ where
         if self.initial_resize_sent {
             let resize = KasaneRequest::Resize {
                 rows: self.state.available_height(),
-                cols: self.state.cols,
+                cols: self.state.runtime.cols,
             };
             kasane_core::io::send_request(
                 self.session_manager
@@ -885,16 +885,16 @@ where
         self.color_resolver
             .as_mut()
             .expect("resolver checked above")
-            .sync_defaults(&self.state.default_face);
+            .sync_defaults(&self.state.observed.default_face);
         tracing::debug!(
             "[app] render_frame start ({}x{})",
-            self.state.cols,
-            self.state.rows
+            self.state.runtime.cols,
+            self.state.runtime.rows
         );
         let ime_overlay_face = if self.state.is_prompt_mode() {
-            self.state.status_default_face
+            self.state.observed.status_default_face
         } else {
-            self.state.default_face
+            self.state.observed.default_face
         };
 
         let Some(ref mut sr) = self.scene_renderer else {
@@ -908,8 +908,8 @@ where
             let total = kasane_core::layout::Rect {
                 x: 0,
                 y: 0,
-                w: self.state.cols,
-                h: self.state.rows,
+                w: self.state.runtime.cols,
+                h: self.state.runtime.rows,
             };
             let spawn_session = self.session_spawner;
             let mut session_runtime = kasane_core::event_loop::SharedSessionRuntime {
@@ -970,10 +970,11 @@ where
             if let Some(ref window) = self.window {
                 sync_window_ime_cursor_area(window, &self.ime, result, sr.metrics());
             }
-            self.state.display_scroll_offset = result.display_scroll_offset;
-            self.state.display_map = Some(display_map);
-            self.state.display_unit_map = self
+            self.state.runtime.display_scroll_offset = result.display_scroll_offset;
+            self.state.runtime.display_map = Some(display_map);
+            self.state.runtime.display_unit_map = self
                 .state
+                .runtime
                 .display_map
                 .as_ref()
                 .filter(|dm| !dm.is_identity())
@@ -981,8 +982,8 @@ where
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
                 cell_size,
-                self.state.cols,
-                self.state.rows,
+                self.state.runtime.cols,
+                self.state.runtime.rows,
             );
             let ime_overlay_commands =
                 build_ime_overlay_commands(&self.ime, result, cell_size, ime_overlay_face);
@@ -1023,8 +1024,8 @@ where
             let overlay_commands = build_diagnostic_overlay_commands(
                 &self.diagnostic_overlay,
                 cell_size,
-                self.state.cols,
-                self.state.rows,
+                self.state.runtime.cols,
+                self.state.runtime.rows,
             );
             let ime_overlay_commands =
                 build_ime_overlay_commands(&self.ime, result, cell_size, ime_overlay_face);

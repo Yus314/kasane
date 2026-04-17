@@ -1020,12 +1020,12 @@ fn test_sync_ephemeral_menu_appears_and_disappears() {
     let mut state = AppState::default();
 
     // Menu appears
-    state.menu = Some(make_test_menu());
+    state.observed.menu = Some(make_test_menu());
     reg.sync_ephemeral_surfaces(&state);
     assert!(reg.get(SurfaceId::MENU).is_some());
 
     // Menu disappears
-    state.menu = None;
+    state.observed.menu = None;
     reg.sync_ephemeral_surfaces(&state);
     assert!(reg.get(SurfaceId::MENU).is_none());
 }
@@ -1038,21 +1038,21 @@ fn test_sync_ephemeral_info_count_tracks_state() {
     let mut state = AppState::default();
 
     // Two infos appear
-    state.infos.push(make_test_info());
-    state.infos.push(make_test_info());
+    state.observed.infos.push(make_test_info());
+    state.observed.infos.push(make_test_info());
     reg.sync_ephemeral_surfaces(&state);
     assert!(reg.get(SurfaceId(SurfaceId::INFO_BASE)).is_some());
     assert!(reg.get(SurfaceId(SurfaceId::INFO_BASE + 1)).is_some());
     assert!(reg.get(SurfaceId(SurfaceId::INFO_BASE + 2)).is_none());
 
     // One info removed
-    state.infos.pop();
+    state.observed.infos.pop();
     reg.sync_ephemeral_surfaces(&state);
     assert!(reg.get(SurfaceId(SurfaceId::INFO_BASE)).is_some());
     assert!(reg.get(SurfaceId(SurfaceId::INFO_BASE + 1)).is_none());
 
     // All infos removed
-    state.infos.clear();
+    state.observed.infos.clear();
     reg.sync_ephemeral_surfaces(&state);
     assert!(reg.get(SurfaceId(SurfaceId::INFO_BASE)).is_none());
 }

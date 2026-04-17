@@ -21,7 +21,7 @@ fn plugin_id() {
 fn highlight_active_line() {
     let mut plugin = load_cursor_line_plugin();
     let mut state = AppState::default();
-    state.cursor_pos.line = 3;
+    state.observed.cursor_pos.line = 3;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
@@ -44,7 +44,7 @@ fn highlight_active_line() {
 fn no_highlight_on_other_lines() {
     let mut plugin = load_cursor_line_plugin();
     let mut state = AppState::default();
-    state.cursor_pos.line = 3;
+    state.observed.cursor_pos.line = 3;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
 
     let ctx = default_annotate_ctx();
@@ -71,7 +71,7 @@ fn tracks_cursor_movement() {
     let mut state = AppState::default();
     let ctx = default_annotate_ctx();
 
-    state.cursor_pos.line = 0;
+    state.observed.cursor_pos.line = 0;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
     assert!(
         plugin
@@ -84,7 +84,7 @@ fn tracks_cursor_movement() {
             .is_none()
     );
 
-    state.cursor_pos.line = 5;
+    state.observed.cursor_pos.line = 5;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
     assert!(
         plugin
@@ -104,7 +104,7 @@ fn state_hash_changes_on_line_change() {
     let h1 = plugin.state_hash();
 
     let mut state = AppState::default();
-    state.cursor_pos.line = 10;
+    state.observed.cursor_pos.line = 10;
     apply_cursor_line_state_change(&mut plugin, &state, DirtyFlags::BUFFER);
     let h2 = plugin.state_hash();
 
@@ -117,7 +117,7 @@ fn typed_state_changed_effects_updates_state_hash() {
     let h1 = plugin.state_hash();
 
     let mut state = AppState::default();
-    state.cursor_pos.line = 12;
+    state.observed.cursor_pos.line = 12;
     let effects = plugin.on_state_changed_effects(&AppView::new(&state), DirtyFlags::BUFFER);
     let h2 = plugin.state_hash();
 

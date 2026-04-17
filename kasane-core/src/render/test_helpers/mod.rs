@@ -10,14 +10,14 @@ pub(super) fn render_buffer(state: &AppState, grid: &mut CellGrid) {
     let buffer_rows = grid.height().saturating_sub(1);
 
     for y in 0..buffer_rows {
-        if let Some(line) = state.lines.get(y as usize) {
-            grid.fill_row(y, &state.default_face);
-            grid.put_line_with_base(y, 0, line, grid.width(), Some(&state.default_face));
+        if let Some(line) = state.observed.lines.get(y as usize) {
+            grid.fill_row(y, &state.observed.default_face);
+            grid.put_line_with_base(y, 0, line, grid.width(), Some(&state.observed.default_face));
         } else {
             // Padding row
-            grid.fill_row(y, &state.padding_face);
+            grid.fill_row(y, &state.observed.padding_face);
             // Show tilde for padding like Kakoune
-            grid.put_char(0, y, "~", &state.padding_face);
+            grid.put_char(0, y, "~", &state.observed.padding_face);
         }
     }
 }
@@ -26,34 +26,34 @@ pub(super) fn render_buffer(state: &AppState, grid: &mut CellGrid) {
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_status(state: &AppState, grid: &mut CellGrid) {
     let y = grid.height().saturating_sub(1);
-    grid.fill_row(y, &state.status_default_face);
+    grid.fill_row(y, &state.observed.status_default_face);
 
     // Status line on the left
     grid.put_line_with_base(
         y,
         0,
-        &state.status_line,
+        &state.inference.status_line,
         grid.width(),
-        Some(&state.status_default_face),
+        Some(&state.observed.status_default_face),
     );
 
     // Mode line on the right
-    let mode_width = crate::layout::line_display_width(&state.status_mode_line);
+    let mode_width = crate::layout::line_display_width(&state.observed.status_mode_line);
     if mode_width > 0 && grid.width() as usize > mode_width {
         let mode_x = grid.width() - mode_width as u16;
         grid.put_line_with_base(
             y,
             mode_x,
-            &state.status_mode_line,
+            &state.observed.status_mode_line,
             mode_width as u16,
-            Some(&state.status_default_face),
+            Some(&state.observed.status_default_face),
         );
     }
 }
 
 /// Retained for regression testing against the new declarative pipeline.
 pub(super) fn render_frame(state: &AppState, grid: &mut CellGrid) {
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     render_buffer(state, grid); // Layer 0
     render_status(state, grid); // Layer 1
     self::menu::render_menu(state, grid); // Layer 2 (+ shadow)

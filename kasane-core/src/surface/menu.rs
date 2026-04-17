@@ -39,7 +39,7 @@ impl Surface for MenuSurface {
         // Delegate to the existing menu rendering pipeline.
         // The actual overlay positioning is handled by the Overlay/OverlayAnchor
         // system in the view layer, not by Surface layout.
-        if let Some(menu_state) = ctx.state.menu.as_ref() {
+        if let Some(menu_state) = ctx.state.observed.menu.as_ref() {
             use crate::plugin::TransformTarget;
             use crate::protocol::MenuStyle;
             use crate::render::view::menu;

@@ -4,7 +4,7 @@ use crate::protocol::MenuStyle;
 use crate::state::{AppState, MenuState};
 
 pub(in crate::render) fn render_menu(state: &AppState, grid: &mut CellGrid) {
-    let menu = match &state.menu {
+    let menu = match &state.observed.menu {
         Some(m) => m,
         None => return,
     };
@@ -329,12 +329,10 @@ mod tests {
         let mut ms = make_menu_state(items, MenuStyle::Prompt, Some(1), 40, 9);
         ms.menu_face = menu_face;
         ms.selected_item_face = selected_face;
-        let state = AppState {
-            menu: Some(ms),
-            cols: 40,
-            rows: 10,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 40;
+        state.runtime.rows = 10;
 
         render_menu(&state, &mut grid);
 
@@ -364,12 +362,10 @@ mod tests {
         assert_eq!(items.len(), 26);
 
         let ms = make_menu_state(items, MenuStyle::Prompt, Some(0), 20, 14);
-        let state = AppState {
-            menu: Some(ms),
-            cols: 20,
-            rows: 15,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 20;
+        state.runtime.rows = 15;
 
         render_menu(&state, &mut grid);
 
@@ -391,18 +387,16 @@ mod tests {
         let items: Vec<Line> = (0..50).map(|i| make_line(&format!("{i:>3}"))).collect();
 
         let ms = make_menu_state(items, MenuStyle::Prompt, Some(0), 20, 14);
-        let state = AppState {
-            menu: Some(ms),
-            cols: 20,
-            rows: 15,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 20;
+        state.runtime.rows = 15;
 
         render_menu(&state, &mut grid);
 
         // Rightmost column (19) should have scrollbar characters
         let status_row = 14u16;
-        let start_y = status_row.saturating_sub(state.menu.as_ref().unwrap().win_height);
+        let start_y = status_row.saturating_sub(state.observed.menu.as_ref().unwrap().win_height);
         let scrollbar_cell = grid.get(19, start_y).unwrap();
         assert!(
             scrollbar_cell.grapheme == "█" || scrollbar_cell.grapheme == "░",
@@ -417,12 +411,10 @@ mod tests {
         let mut grid = CellGrid::new(40, 10);
         let items = vec![make_line("abc"), make_line("def"), make_line("ghi")];
         let ms = make_menu_state(items, MenuStyle::Search, Some(1), 40, 9);
-        let state = AppState {
-            menu: Some(ms),
-            cols: 40,
-            rows: 10,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 40;
+        state.runtime.rows = 10;
 
         render_menu(&state, &mut grid);
 
@@ -445,12 +437,10 @@ mod tests {
         ];
         let mut ms = make_menu_state(items, MenuStyle::Search, Some(2), 20, 4);
         ms.first_item = 1; // scrolled past first item
-        let state = AppState {
-            menu: Some(ms),
-            cols: 20,
-            rows: 5,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 20;
+        state.runtime.rows = 5;
 
         render_menu(&state, &mut grid);
 
@@ -475,12 +465,10 @@ mod tests {
             40,
             19,
         );
-        let state = AppState {
-            menu: Some(ms),
-            cols: 40,
-            rows: 20,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 40;
+        state.runtime.rows = 20;
 
         render_menu(&state, &mut grid);
 
@@ -503,12 +491,10 @@ mod tests {
             40,
             19,
         );
-        let state = AppState {
-            menu: Some(ms),
-            cols: 40,
-            rows: 20,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 40;
+        state.runtime.rows = 20;
 
         render_menu(&state, &mut grid);
 
@@ -526,12 +512,10 @@ mod tests {
     fn test_get_menu_rect_prompt() {
         let items = vec![make_line("a"), make_line("b"), make_line("c")];
         let ms = make_menu_state(items, MenuStyle::Prompt, Some(0), 80, 23);
-        let state = AppState {
-            menu: Some(ms),
-            cols: 80,
-            rows: 24,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 80;
+        state.runtime.rows = 24;
         let rect = get_menu_rect(&state).unwrap();
         assert_eq!(rect.w, 80);
         assert!(rect.h > 0);
@@ -542,12 +526,10 @@ mod tests {
     fn test_get_menu_rect_search() {
         let items = vec![make_line("a"), make_line("b")];
         let ms = make_menu_state(items, MenuStyle::Search, Some(0), 80, 23);
-        let state = AppState {
-            menu: Some(ms),
-            cols: 80,
-            rows: 24,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 80;
+        state.runtime.rows = 24;
         let rect = get_menu_rect(&state).unwrap();
         assert_eq!(rect.h, 1);
         assert_eq!(rect.w, 80);
@@ -568,12 +550,10 @@ mod tests {
         assert_eq!(ms.menu_lines, 17);
         assert_eq!(ms.win_height, 10);
 
-        let state = AppState {
-            menu: Some(ms),
-            cols: 14,
-            rows: 15,
-            ..AppState::default()
-        };
+        let mut state = AppState::default();
+        state.observed.menu = Some(ms);
+        state.runtime.cols = 14;
+        state.runtime.rows = 15;
 
         render_menu(&state, &mut grid);
 

@@ -138,14 +138,14 @@ fn arb_non_protocol_msg_spec() -> impl Strategy<Value = NonProtocolMsgSpec> {
 
 fn rich_state() -> Box<AppState> {
     let mut state = Box::new(test_state_80x24());
-    state.lines = vec![make_line("hello"), make_line("world"), make_line("!")];
-    state.lines_dirty = vec![true; 3];
-    state.cursor_pos = Coord { line: 1, column: 2 };
-    state.status_prompt = make_line(":");
-    state.status_content = make_line("edit");
-    state.status_content_cursor_pos = 4;
-    state.status_mode_line = make_line("insert");
-    state.widget_columns = 5;
+    state.observed.lines = vec![make_line("hello"), make_line("world"), make_line("!")];
+    state.inference.lines_dirty = vec![true; 3];
+    state.observed.cursor_pos = Coord { line: 1, column: 2 };
+    state.observed.status_prompt = make_line(":");
+    state.observed.status_content = make_line("edit");
+    state.observed.status_content_cursor_pos = 4;
+    state.observed.status_mode_line = make_line("insert");
+    state.observed.widget_columns = 5;
     state
 }
 

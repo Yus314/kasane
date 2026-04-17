@@ -28,8 +28,8 @@ fn pure_status_element_basic() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.status_line = vec![make_atom(":edit foo.rs")];
-    state.status_mode_line = vec![make_atom("normal")];
+    state.inference.status_line = vec![make_atom(":edit foo.rs")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let element = salsa_views::pure_status_element(&db, handles.status);
@@ -51,7 +51,7 @@ fn pure_status_element_empty_mode() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.status_line = vec![make_atom(":edit foo.rs")];
+    state.inference.status_line = vec![make_atom(":edit foo.rs")];
     // No mode line → only 1 child
     sync_inputs_from_state(&mut db, &state, &handles);
 
@@ -72,8 +72,8 @@ fn pure_status_memoization() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.status_line = vec![make_atom("status")];
-    state.status_mode_line = vec![make_atom("normal")];
+    state.inference.status_line = vec![make_atom("status")];
+    state.observed.status_mode_line = vec![make_atom("normal")];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let e1 = salsa_views::pure_status_element(&db, handles.status);
@@ -92,7 +92,7 @@ fn pure_buffer_element_basic() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.rows = 24;
+    state.runtime.rows = 24;
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let element = salsa_views::pure_buffer_element(&db, handles.config);
@@ -132,9 +132,9 @@ fn pure_menu_overlay_inline() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.menu = Some(MenuState::new(
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.menu = Some(MenuState::new(
         vec![
             vec![make_atom("item1")],
             vec![make_atom("item2")],
@@ -172,9 +172,9 @@ fn pure_menu_overlay_prompt() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.menu = Some(MenuState::new(
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("cmd1")], vec![make_atom("cmd2")]],
         MenuParams {
             anchor: Coord { line: 0, column: 0 },
@@ -197,9 +197,9 @@ fn pure_menu_overlay_search() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.menu = Some(MenuState::new(
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("match1")], vec![make_atom("match2")]],
         MenuParams {
             anchor: Coord { line: 0, column: 0 },
@@ -248,9 +248,9 @@ fn pure_info_overlays_single_modal() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.infos.push(InfoState {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.infos.push(InfoState {
         title: vec![make_atom("Help")],
         content: vec![vec![make_atom("Line 1")], vec![make_atom("Line 2")]],
         anchor: Coord {
@@ -293,10 +293,10 @@ fn pure_info_overlays_multiple() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
     for i in 0..3u32 {
-        state.infos.push(InfoState {
+        state.observed.infos.push(InfoState {
             title: vec![make_atom(&format!("Info {i}"))],
             content: vec![vec![make_atom(&format!("Content {i}"))]],
             anchor: Coord {
@@ -329,9 +329,9 @@ fn pure_info_overlays_prompt_style() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.infos.push(InfoState {
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.infos.push(InfoState {
         title: vec![make_atom("Assistant")],
         content: vec![
             vec![make_atom("Welcome to Kakoune!")],
@@ -370,9 +370,9 @@ fn menu_memoization_across_buffer_changes() {
     let mut db = KasaneDatabase::default();
     let handles = SalsaInputHandles::new(&mut db);
     let mut state = AppState::default();
-    state.cols = 80;
-    state.rows = 24;
-    state.menu = Some(MenuState::new(
+    state.runtime.cols = 80;
+    state.runtime.rows = 24;
+    state.observed.menu = Some(MenuState::new(
         vec![vec![make_atom("item")]],
         MenuParams {
             anchor: Coord { line: 3, column: 0 },
@@ -389,7 +389,7 @@ fn menu_memoization_across_buffer_changes() {
     let m1 = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);
 
     // Change buffer content only — menu should use cached result
-    state.lines = vec![vec![make_atom("hello world")]];
+    state.observed.lines = vec![vec![make_atom("hello world")]];
     sync_inputs_from_state(&mut db, &state, &handles);
 
     let m2 = salsa_views::pure_menu_overlay(&db, handles.menu, handles.config);

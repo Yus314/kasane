@@ -90,8 +90,8 @@ impl ViewSource for SalsaViewSource<'_> {
             let total = Rect {
                 x: 0,
                 y: 0,
-                w: state.cols,
-                h: state.rows,
+                w: state.runtime.cols,
+                h: state.runtime.rows,
             };
             let result = sr.compose_base_result(state, self.pane_states, registry, total);
             let focused = sr.workspace().focused();
@@ -136,8 +136,8 @@ impl ViewSource for SalsaViewSource<'_> {
         let (overlay_state_owned, pane_offset) =
             if let (Some(fps), Some(fr)) = (&focused_pane_state, &focused_pane_rect) {
                 let mut s = fps.as_ref().clone();
-                s.cols = fr.w;
-                s.rows = fr.h;
+                s.runtime.cols = fr.w;
+                s.runtime.rows = fr.h;
                 (Some(s), Some((fr.x, fr.y)))
             } else {
                 (None, None)
@@ -158,7 +158,7 @@ impl ViewSource for SalsaViewSource<'_> {
         } else {
             let pure = salsa_views::pure_menu_overlay(db, h.menu, h.config);
             pure.map(|overlay| {
-                let menu_state = state.menu.as_ref();
+                let menu_state = state.observed.menu.as_ref();
                 let target = menu_state
                     .map(|m| match m.style {
                         MenuStyle::Prompt => TransformTarget::MENU_PROMPT,
@@ -266,7 +266,7 @@ fn compose_base_from_salsa(
         let visible_height = display_map.display_line_count().min(buffer_rows);
         let offset = crate::display::compute_display_scroll_offset(
             display_map,
-            crate::display::BufferLine(state.cursor_pos.line as usize),
+            crate::display::BufferLine(state.observed.cursor_pos.line as usize),
             visible_height,
         );
         let end = (offset.0 + visible_height).min(display_map.display_line_count());
@@ -369,7 +369,10 @@ fn compose_base_from_salsa(
         Element::row(children)
     };
 
-    let status_styled = Element::container(status_inner, Style::from(state.status_default_face));
+    let status_styled = Element::container(
+        status_inner,
+        Style::from(state.observed.status_default_face),
+    );
 
     // Wrap with above_status if present
     let status_section = if above_status.is_empty() {

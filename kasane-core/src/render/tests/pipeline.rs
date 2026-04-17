@@ -12,15 +12,15 @@ use crate::test_utils::make_line;
 #[test]
 fn test_treesitter_rgb_colors_preserved() {
     let mut state = AppState::default();
-    state.cols = 40;
-    state.rows = 5;
-    state.default_face = Face {
+    state.runtime.cols = 40;
+    state.runtime.rows = 5;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = state.default_face;
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = state.observed.default_face;
 
     // Simulate tree-sitter: atoms with explicit RGB fg, Default bg
     let keyword_face = Face {
@@ -55,23 +55,23 @@ fn test_treesitter_rgb_colors_preserved() {
             contents: "main".into(),
         },
     ];
-    state.lines = vec![ts_line];
-    state.status_line = make_line("status");
+    state.observed.lines = vec![ts_line];
+    state.inference.status_line = make_line("status");
 
     // Old pipeline
-    let mut grid_old = CellGrid::new(state.cols, state.rows);
+    let mut grid_old = CellGrid::new(state.runtime.cols, state.runtime.rows);
     render_frame(&state, &mut grid_old);
 
     // New pipeline
-    let mut grid_new = CellGrid::new(state.cols, state.rows);
-    grid_new.clear(&state.default_face);
+    let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid_new.clear(&state.observed.default_face);
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout_result = flex::place(&element, root_area, &state);
     paint::paint(&element, &layout_result, &mut grid_new, &state);
@@ -128,8 +128,8 @@ fn test_treesitter_rgb_colors_preserved() {
     );
 
     // Cross-check: old and new pipelines produce identical results
-    for y in 0..state.rows {
-        for x in 0..state.cols {
+    for y in 0..state.runtime.rows {
+        for x in 0..state.runtime.cols {
             let old = grid_old.get(x, y).unwrap();
             let new = grid_new.get(x, y).unwrap();
             assert_eq!(
@@ -154,38 +154,38 @@ fn test_treesitter_rgb_colors_preserved() {
 #[test]
 fn test_treesitter_colors_persist_across_frames() {
     let mut state = AppState::default();
-    state.cols = 20;
-    state.rows = 3;
-    state.default_face = Face {
+    state.runtime.cols = 20;
+    state.runtime.rows = 3;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = state.default_face;
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = state.observed.default_face;
 
     let keyword_face = Face {
         fg: Color::Rgb { r: 255, g: 0, b: 0 },
         bg: Color::Default,
         ..Face::default()
     };
-    state.lines = vec![vec![Atom {
+    state.observed.lines = vec![vec![Atom {
         face: keyword_face,
         contents: "let".into(),
     }]];
-    state.status_line = make_line("st");
+    state.inference.status_line = make_line("st");
 
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Frame 1
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     let el = view::view(&state, &registry.view());
     let area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -205,7 +205,7 @@ fn test_treesitter_colors_persist_across_frames() {
     grid.swap();
 
     // Frame 2: same content → diff should be empty (colors retained)
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -225,12 +225,12 @@ fn test_treesitter_colors_persist_across_frames() {
         bg: Color::Default,
         ..Face::default()
     };
-    state.lines = vec![vec![Atom {
+    state.observed.lines = vec![vec![Atom {
         face: new_face,
         contents: "let".into(),
     }]];
 
-    grid.clear(&state.default_face);
+    grid.clear(&state.observed.default_face);
     let el = view::view(&state, &registry.view());
     let layout = flex::place(&el, area, &state);
     paint::paint(&el, &layout, &mut grid, &state);
@@ -255,25 +255,25 @@ fn test_line_dirty_buffer_and_status() {
     use crate::state::DirtyFlags;
 
     let mut state = AppState::default();
-    state.cols = 20;
-    state.rows = 5;
-    state.default_face = Face {
+    state.runtime.cols = 20;
+    state.runtime.rows = 5;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = state.default_face;
-    state.lines = vec![
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = state.observed.default_face;
+    state.observed.lines = vec![
         make_line("line0"),
         make_line("line1"),
         make_line("line2"),
         make_line("line3"),
     ];
-    state.status_line = make_line("status");
+    state.inference.status_line = make_line("status");
 
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Frame 1: full render (first frame — swap_with_dirty falls back to swap)
     render_pipeline(&state, &registry.view(), &mut grid);
@@ -285,9 +285,9 @@ fn test_line_dirty_buffer_and_status() {
     // Now swap_with_dirty preserved current (it has content from frame 2)
 
     // Frame 3: change only line 1 and status, with BUFFER|STATUS dirty
-    state.lines[1] = make_line("CHANGED");
-    state.status_line = make_line("new_st");
-    state.lines_dirty = vec![false, true, false, false];
+    state.observed.lines[1] = make_line("CHANGED");
+    state.inference.status_line = make_line("new_st");
+    state.inference.lines_dirty = vec![false, true, false, false];
 
     render_pipeline_direct(
         &state,
@@ -304,7 +304,7 @@ fn test_line_dirty_buffer_and_status() {
     assert_eq!(grid.get(0, 1).unwrap().grapheme, "C");
 
     // Status bar should be repainted
-    let status_y = state.rows - 1;
+    let status_y = state.runtime.rows - 1;
     assert_eq!(grid.get(0, status_y).unwrap().grapheme, "n");
 }
 
@@ -314,25 +314,25 @@ fn test_line_dirty_buffer_only_regression() {
     use crate::state::DirtyFlags;
 
     let mut state = AppState::default();
-    state.cols = 20;
-    state.rows = 5;
-    state.default_face = Face {
+    state.runtime.cols = 20;
+    state.runtime.rows = 5;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = state.default_face;
-    state.status_default_face = state.default_face;
-    state.lines = vec![
+    state.observed.padding_face = state.observed.default_face;
+    state.observed.status_default_face = state.observed.default_face;
+    state.observed.lines = vec![
         make_line("line0"),
         make_line("line1"),
         make_line("line2"),
         make_line("line3"),
     ];
-    state.status_line = make_line("status");
+    state.inference.status_line = make_line("status");
 
     let registry = PluginRuntime::new();
-    let mut grid = CellGrid::new(state.cols, state.rows);
+    let mut grid = CellGrid::new(state.runtime.cols, state.runtime.rows);
 
     // Frame 1: full render (first frame)
     render_pipeline(&state, &registry.view(), &mut grid);
@@ -343,8 +343,8 @@ fn test_line_dirty_buffer_only_regression() {
     grid.swap_with_dirty();
 
     // Frame 3: change only line 2, BUFFER dirty only
-    state.lines[2] = make_line("EDIT2");
-    state.lines_dirty = vec![false, false, true, false];
+    state.observed.lines[2] = make_line("EDIT2");
+    state.inference.lines_dirty = vec![false, false, true, false];
 
     render_pipeline_direct(&state, &registry.view(), &mut grid, DirtyFlags::BUFFER);
 
@@ -362,45 +362,45 @@ fn test_line_dirty_buffer_only_regression() {
 #[test]
 fn test_declarative_matches_imperative_buffer_status() {
     let mut state = AppState::default();
-    state.cols = 40;
-    state.rows = 10;
-    state.default_face = Face {
+    state.runtime.cols = 40;
+    state.runtime.rows = 10;
+    state.observed.default_face = Face {
         fg: Color::Named(NamedColor::White),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.padding_face = Face {
+    state.observed.padding_face = Face {
         fg: Color::Named(NamedColor::Blue),
         bg: Color::Named(NamedColor::Black),
         ..Face::default()
     };
-    state.lines = vec![
+    state.observed.lines = vec![
         make_line("first line"),
         make_line("second line"),
         make_line("third line with more text"),
     ];
-    state.status_line = make_line("status text");
-    state.status_mode_line = make_line("normal");
-    state.status_default_face = Face {
+    state.inference.status_line = make_line("status text");
+    state.observed.status_mode_line = make_line("normal");
+    state.observed.status_default_face = Face {
         fg: Color::Named(NamedColor::Cyan),
         bg: Color::Default,
         ..Face::default()
     };
 
     // Old pipeline
-    let mut grid_old = CellGrid::new(state.cols, state.rows);
+    let mut grid_old = CellGrid::new(state.runtime.cols, state.runtime.rows);
     render_frame(&state, &mut grid_old);
 
     // New pipeline
-    let mut grid_new = CellGrid::new(state.cols, state.rows);
-    grid_new.clear(&state.default_face);
+    let mut grid_new = CellGrid::new(state.runtime.cols, state.runtime.rows);
+    grid_new.clear(&state.observed.default_face);
     let registry = PluginRuntime::new();
     let element = view::view(&state, &registry.view());
     let root_area = Rect {
         x: 0,
         y: 0,
-        w: state.cols,
-        h: state.rows,
+        w: state.runtime.cols,
+        h: state.runtime.rows,
     };
     let layout_result = flex::place(&element, root_area, &state);
     paint::paint(&element, &layout_result, &mut grid_new, &state);
@@ -408,7 +408,7 @@ fn test_declarative_matches_imperative_buffer_status() {
     // Compare buffer rows (0..rows-1)
     let buffer_rows = state.available_height();
     for y in 0..buffer_rows {
-        for x in 0..state.cols {
+        for x in 0..state.runtime.cols {
             let old = grid_old.get(x, y).unwrap();
             let new = grid_new.get(x, y).unwrap();
             assert_eq!(
@@ -422,8 +422,8 @@ fn test_declarative_matches_imperative_buffer_status() {
     }
 
     // Compare status bar row (grapheme + fg + bg)
-    let status_y = state.rows - 1;
-    for x in 0..state.cols {
+    let status_y = state.runtime.rows - 1;
+    for x in 0..state.runtime.cols {
         let old = grid_old.get(x, status_y).unwrap();
         let new = grid_new.get(x, status_y).unwrap();
         assert_eq!(

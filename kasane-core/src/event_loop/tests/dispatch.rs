@@ -326,8 +326,8 @@ fn unregister_surface_rejects_non_owner_even_with_authority() {
         Some(crate::layout::Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         }),
     );
 
@@ -400,8 +400,8 @@ fn unregister_surface_removes_owned_surface() {
         Some(crate::layout::Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         }),
     );
 
@@ -475,8 +475,8 @@ fn unregister_surface_key_removes_owned_surface() {
         Some(crate::layout::Rect {
             x: 0,
             y: 0,
-            w: state.cols,
-            h: state.rows,
+            w: state.runtime.cols,
+            h: state.runtime.rows,
         }),
     );
 

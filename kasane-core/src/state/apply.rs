@@ -1,255 +1,304 @@
 use crate::protocol::KakouneRequest;
+use crate::render::color_context::ColorContext;
 
 use super::derived;
-use super::{AppState, DirtyFlags, InfoIdentity, InfoState, MenuParams, MenuState};
+use super::{
+    AppState, ConfigState, DirtyFlags, InferenceState, InfoIdentity, InfoState, MenuParams,
+    MenuState, ObservedState, RuntimeState,
+};
 
-impl AppState {
-    pub fn apply(&mut self, request: KakouneRequest) -> DirtyFlags {
-        match request {
-            KakouneRequest::Draw {
-                lines,
+/// Config-side reactions that protocol ingestion detected but cannot apply
+/// (because `apply_protocol` receives `&ConfigState`, not `&mut ConfigState`).
+///
+/// The caller (`update_inner`) applies these after `apply_protocol` returns.
+#[derive(Debug, Default)]
+pub(crate) struct ConfigReactions {
+    /// Buffer content changed — fold toggle state should be cleared.
+    pub clear_fold_toggle: bool,
+    /// New color context derived from default_face — theme should be updated.
+    pub new_color_context: Option<ColorContext>,
+}
+
+/// Protocol ingestion: updates observed + inference state from a Kakoune message.
+///
+/// Takes `&ConfigState` (immutable) so that writing config from the protocol
+/// path is a compile error. Config-side reactions are returned in
+/// `ConfigReactions` for the caller to apply.
+pub(crate) fn apply_protocol(
+    observed: &mut ObservedState,
+    inference: &mut InferenceState,
+    cursor_cache: &mut derived::CursorCache,
+    config: &ConfigState,
+    runtime: &RuntimeState,
+    request: KakouneRequest,
+) -> (DirtyFlags, ConfigReactions) {
+    let mut reactions = ConfigReactions::default();
+
+    let flags = match request {
+        KakouneRequest::Draw {
+            lines,
+            cursor_pos,
+            default_face,
+            padding_face,
+            widget_columns,
+        } => {
+            observed.cursor_pos = cursor_pos;
+
+            // Line-level dirty tracking via pure function (computed FIRST
+            // so incremental cursor detection can use dirty flags)
+            inference.lines_dirty = derived::compute_lines_dirty(
+                &observed.lines,
+                &lines,
+                &observed.default_face,
+                &default_face,
+                &observed.padding_face,
+                &padding_face,
+            );
+
+            // Heuristic cursor detection — incremental when possible
+            let (cursor_count, secondary_cursors) = derived::detect_cursors_incremental(
+                &lines,
                 cursor_pos,
-                default_face,
-                padding_face,
-                widget_columns,
-            } => {
-                self.cursor_pos = cursor_pos;
+                &inference.lines_dirty,
+                cursor_cache,
+            );
 
-                // Line-level dirty tracking via pure function (computed FIRST
-                // so incremental cursor detection can use dirty flags)
-                self.lines_dirty = derived::compute_lines_dirty(
-                    &self.lines,
-                    &lines,
-                    &self.default_face,
-                    &default_face,
-                    &self.padding_face,
-                    &padding_face,
-                );
-
-                // Heuristic cursor detection — incremental when possible
-                let (cursor_count, secondary_cursors) = derived::detect_cursors_incremental(
-                    &lines,
-                    cursor_pos,
-                    &self.lines_dirty,
-                    &mut self.cursor_cache,
-                );
-
-                // I-1: primary cursor in detected set (self-consistency)
-                debug_assert!(
-                    derived::check_primary_cursor_in_set(
-                        cursor_count,
-                        &secondary_cursors,
-                        cursor_pos
-                    ),
-                    "I-1: primary cursor not in detected set (count={cursor_count}, secondaries={}, pos={cursor_pos:?})",
-                    secondary_cursors.len(),
-                );
-                if self
-                    .ui_options
-                    .get("kasane_debug_inference")
-                    .map(|v| v == "true")
-                    .unwrap_or(false)
-                    && !derived::check_primary_cursor_in_set(
-                        cursor_count,
-                        &secondary_cursors,
-                        cursor_pos,
-                    )
-                {
-                    tracing::warn!(
-                        cursor_count,
-                        secondaries = secondary_cursors.len(),
-                        ?cursor_pos,
-                        "I-1: primary cursor not in detected set",
-                    );
-                }
-
-                // R-1: character width divergence detection
-                debug_assert!(
-                    derived::check_cursor_width_consistency(&lines, cursor_pos).is_none(),
-                    "R-1: cursor width divergence: {:?}",
-                    derived::check_cursor_width_consistency(&lines, cursor_pos),
-                );
-                if self
-                    .ui_options
-                    .get("kasane_debug_inference")
-                    .map(|v| v == "true")
-                    .unwrap_or(false)
-                    && let Some(div) = derived::check_cursor_width_consistency(&lines, cursor_pos)
-                {
-                    tracing::warn!(
-                        protocol_column = div.protocol_column,
-                        computed_column = div.computed_column,
-                        atom_text = %div.atom_text,
-                        "R-1: cursor width divergence detected",
-                    );
-                }
-
-                // Lightweight always-on check: cursor shouldn't be beyond line width
-                if let Some(line) = lines.get(cursor_pos.line as usize) {
-                    let line_width = derived::line_atom_display_width(line);
-                    debug_assert!(
-                        (cursor_pos.column as u32) <= line_width,
-                        "R-1: cursor column {} beyond line display width {line_width}",
-                        cursor_pos.column,
-                    );
-                }
-
-                self.cursor_count = cursor_count;
-                self.selections = derived::detect_selections(
-                    &lines,
-                    cursor_pos,
+            // I-1: primary cursor in detected set (self-consistency)
+            debug_assert!(
+                derived::check_primary_cursor_in_set(cursor_count, &secondary_cursors, cursor_pos),
+                "I-1: primary cursor not in detected set (count={cursor_count}, secondaries={}, pos={cursor_pos:?})",
+                secondary_cursors.len(),
+            );
+            if observed
+                .ui_options
+                .get("kasane_debug_inference")
+                .map(|v| v == "true")
+                .unwrap_or(false)
+                && !derived::check_primary_cursor_in_set(
+                    cursor_count,
                     &secondary_cursors,
-                    &default_face,
+                    cursor_pos,
+                )
+            {
+                tracing::warn!(
+                    cursor_count,
+                    secondaries = secondary_cursors.len(),
+                    ?cursor_pos,
+                    "I-1: primary cursor not in detected set",
                 );
-                self.secondary_cursors = secondary_cursors;
-
-                self.widget_columns = widget_columns;
-
-                self.lines = lines;
-                self.default_face = default_face;
-                self.padding_face = padding_face;
-                // Clear fold toggle state when buffer content changes (e.g., undo,
-                // file switch) so stale fold ranges don't persist.
-                self.fold_toggle_state.clear();
-                // Re-derive color context when default_face changes
-                let new_ctx =
-                    crate::render::color_context::ColorContext::derive(&self.default_face);
-                if new_ctx != self.color_context {
-                    self.color_context = new_ctx;
-                    self.theme.apply_color_context(&self.color_context);
-                }
-                DirtyFlags::BUFFER
             }
-            KakouneRequest::DrawStatus {
-                prompt,
-                content,
-                content_cursor_pos,
-                mode_line,
-                default_face,
-                style,
-            } => {
-                self.status_prompt = prompt.clone();
-                self.status_content = content.clone();
-                self.status_content_cursor_pos = content_cursor_pos;
 
-                // Derive CursorMode via pure function
-                let new_mode = derived::derive_cursor_mode(content_cursor_pos);
-                let mode_changed = self.cursor_mode != new_mode;
-                self.cursor_mode = new_mode;
-
-                // Combine prompt + content into status_line via pure function
-                self.status_line = derived::build_status_line(&prompt, &content);
-
-                self.status_mode_line = mode_line;
-                self.status_default_face = default_face;
-                self.status_style = style;
-
-                // Derive editor mode from cursor_mode + mode_line
-                self.editor_mode =
-                    derived::derive_editor_mode(self.cursor_mode, &self.status_mode_line);
-
-                if mode_changed {
-                    DirtyFlags::STATUS | DirtyFlags::BUFFER_CURSOR
-                } else {
-                    DirtyFlags::STATUS
-                }
+            // R-1: character width divergence detection
+            debug_assert!(
+                derived::check_cursor_width_consistency(&lines, cursor_pos).is_none(),
+                "R-1: cursor width divergence: {:?}",
+                derived::check_cursor_width_consistency(&lines, cursor_pos),
+            );
+            if observed
+                .ui_options
+                .get("kasane_debug_inference")
+                .map(|v| v == "true")
+                .unwrap_or(false)
+                && let Some(div) = derived::check_cursor_width_consistency(&lines, cursor_pos)
+            {
+                tracing::warn!(
+                    protocol_column = div.protocol_column,
+                    computed_column = div.computed_column,
+                    atom_text = %div.atom_text,
+                    "R-1: cursor width divergence detected",
+                );
             }
-            KakouneRequest::MenuShow {
+
+            // Lightweight always-on check: cursor shouldn't be beyond line width
+            if let Some(line) = lines.get(cursor_pos.line as usize) {
+                let line_width = derived::line_atom_display_width(line);
+                debug_assert!(
+                    (cursor_pos.column as u32) <= line_width,
+                    "R-1: cursor column {} beyond line display width {line_width}",
+                    cursor_pos.column,
+                );
+            }
+
+            inference.cursor_count = cursor_count;
+            inference.selections =
+                derived::detect_selections(&lines, cursor_pos, &secondary_cursors, &default_face);
+            inference.secondary_cursors = secondary_cursors;
+
+            observed.widget_columns = widget_columns;
+
+            observed.lines = lines;
+            observed.default_face = default_face;
+            observed.padding_face = padding_face;
+
+            // Signal config reactions (applied by caller)
+            reactions.clear_fold_toggle = true;
+
+            let new_ctx = ColorContext::derive(&observed.default_face);
+            if new_ctx != inference.color_context {
+                reactions.new_color_context = Some(new_ctx.clone());
+                inference.color_context = new_ctx;
+            }
+
+            DirtyFlags::BUFFER
+        }
+        KakouneRequest::DrawStatus {
+            prompt,
+            content,
+            content_cursor_pos,
+            mode_line,
+            default_face,
+            style,
+        } => {
+            observed.status_prompt = prompt.clone();
+            observed.status_content = content.clone();
+            observed.status_content_cursor_pos = content_cursor_pos;
+
+            // Derive CursorMode via pure function
+            let new_mode = derived::derive_cursor_mode(content_cursor_pos);
+            let mode_changed = inference.cursor_mode != new_mode;
+            inference.cursor_mode = new_mode;
+
+            // Combine prompt + content into status_line via pure function
+            inference.status_line = derived::build_status_line(&prompt, &content);
+
+            observed.status_mode_line = mode_line;
+            observed.status_default_face = default_face;
+            observed.status_style = style;
+
+            // Derive editor mode from cursor_mode + mode_line
+            inference.editor_mode =
+                derived::derive_editor_mode(inference.cursor_mode, &observed.status_mode_line);
+
+            if mode_changed {
+                DirtyFlags::STATUS | DirtyFlags::BUFFER_CURSOR
+            } else {
+                DirtyFlags::STATUS
+            }
+        }
+        KakouneRequest::MenuShow {
+            items,
+            anchor,
+            selected_item_face,
+            menu_face,
+            style,
+        } => {
+            let screen_h = runtime.rows.saturating_sub(1);
+            observed.menu = Some(MenuState::new(
                 items,
-                anchor,
-                selected_item_face,
-                menu_face,
-                style,
-            } => {
-                let screen_h = self.available_height();
-                self.menu = Some(MenuState::new(
-                    items,
-                    MenuParams {
-                        anchor,
-                        selected_item_face,
-                        menu_face,
-                        style,
-                        screen_w: self.cols,
-                        screen_h,
-                        max_height: self.menu_max_height,
-                    },
-                ));
-                DirtyFlags::MENU_STRUCTURE
-            }
-            KakouneRequest::MenuSelect { selected } => {
-                if let Some(menu) = &mut self.menu {
-                    let old_first_item = menu.first_item;
-                    tracing::debug!(
-                        "MenuSelect: selected={}, first_item={}, win_height={}, items={}, columns={}",
-                        selected,
-                        menu.first_item,
-                        menu.win_height,
-                        menu.items.len(),
-                        menu.columns,
-                    );
-                    menu.select(selected);
-                    if menu.first_item != old_first_item {
-                        DirtyFlags::MENU_SELECTION | DirtyFlags::MENU_STRUCTURE
-                    } else {
-                        DirtyFlags::MENU_SELECTION
-                    }
+                MenuParams {
+                    anchor,
+                    selected_item_face,
+                    menu_face,
+                    style,
+                    screen_w: runtime.cols,
+                    screen_h,
+                    max_height: config.menu_max_height,
+                },
+            ));
+            DirtyFlags::MENU_STRUCTURE
+        }
+        KakouneRequest::MenuSelect { selected } => {
+            if let Some(menu) = &mut observed.menu {
+                let old_first_item = menu.first_item;
+                tracing::debug!(
+                    "MenuSelect: selected={}, first_item={}, win_height={}, items={}, columns={}",
+                    selected,
+                    menu.first_item,
+                    menu.win_height,
+                    menu.items.len(),
+                    menu.columns,
+                );
+                menu.select(selected);
+                if menu.first_item != old_first_item {
+                    DirtyFlags::MENU_SELECTION | DirtyFlags::MENU_STRUCTURE
                 } else {
                     DirtyFlags::MENU_SELECTION
                 }
+            } else {
+                DirtyFlags::MENU_SELECTION
             }
-            KakouneRequest::MenuHide => {
-                self.menu = None;
-                DirtyFlags::MENU | DirtyFlags::BUFFER_CONTENT
-            }
-            KakouneRequest::InfoShow {
+        }
+        KakouneRequest::MenuHide => {
+            observed.menu = None;
+            DirtyFlags::MENU | DirtyFlags::BUFFER_CONTENT
+        }
+        KakouneRequest::InfoShow {
+            title,
+            content,
+            anchor,
+            face,
+            style,
+        } => {
+            let identity = InfoIdentity {
+                style,
+                anchor_line: anchor.line as u32,
+            };
+            let new_info = InfoState {
                 title,
                 content,
                 anchor,
                 face,
                 style,
-            } => {
-                let identity = InfoIdentity {
-                    style,
-                    anchor_line: anchor.line as u32,
-                };
-                let new_info = InfoState {
-                    title,
-                    content,
-                    anchor,
-                    face,
-                    style,
-                    identity: identity.clone(),
-                    scroll_offset: 0,
-                };
-                // Replace existing info with same identity, or add new
-                if let Some(pos) = self.infos.iter().position(|i| i.identity == identity) {
-                    self.infos[pos] = new_info;
-                } else {
-                    self.infos.push(new_info);
-                }
-                DirtyFlags::INFO
+                identity: identity.clone(),
+                scroll_offset: 0,
+            };
+            // Replace existing info with same identity, or add new
+            if let Some(pos) = observed.infos.iter().position(|i| i.identity == identity) {
+                observed.infos[pos] = new_info;
+            } else {
+                observed.infos.push(new_info);
             }
-            KakouneRequest::InfoHide => {
-                // Remove the most recently added/updated info
-                self.infos.pop();
-                DirtyFlags::INFO | DirtyFlags::BUFFER_CONTENT
-            }
-            KakouneRequest::SetUiOptions { options } => {
-                if self.ui_options == options {
-                    DirtyFlags::empty()
-                } else {
-                    self.ui_options = options;
-                    DirtyFlags::OPTIONS
-                }
-            }
-            KakouneRequest::Refresh { force } => {
-                self.lines_dirty = vec![true; self.lines.len()];
-                if force {
-                    DirtyFlags::ALL
-                } else {
-                    DirtyFlags::BUFFER | DirtyFlags::STATUS
-                }
+            DirtyFlags::INFO
+        }
+        KakouneRequest::InfoHide => {
+            // Remove the most recently added/updated info
+            observed.infos.pop();
+            DirtyFlags::INFO | DirtyFlags::BUFFER_CONTENT
+        }
+        KakouneRequest::SetUiOptions { options } => {
+            if observed.ui_options == options {
+                DirtyFlags::empty()
+            } else {
+                observed.ui_options = options;
+                DirtyFlags::OPTIONS
             }
         }
+        KakouneRequest::Refresh { force } => {
+            inference.lines_dirty = vec![true; observed.lines.len()];
+            if force {
+                DirtyFlags::ALL
+            } else {
+                DirtyFlags::BUFFER | DirtyFlags::STATUS
+            }
+        }
+    };
+
+    (flags, reactions)
+}
+
+impl AppState {
+    /// Apply a Kakoune JSON-RPC request to the state.
+    ///
+    /// Thin wrapper around [`apply_protocol()`] that delegates to the free
+    /// function and applies config reactions.
+    pub fn apply(&mut self, request: KakouneRequest) -> DirtyFlags {
+        let (flags, reactions) = apply_protocol(
+            &mut self.observed,
+            &mut self.inference,
+            &mut self.cursor_cache,
+            &self.config,
+            &self.runtime,
+            request,
+        );
+
+        // Apply config reactions that protocol ingestion signalled
+        if reactions.clear_fold_toggle {
+            self.config.fold_toggle_state.clear();
+        }
+        if let Some(ctx) = reactions.new_color_context {
+            self.config.theme.apply_color_context(&ctx);
+        }
+
+        flags
     }
 }

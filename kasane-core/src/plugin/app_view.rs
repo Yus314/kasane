@@ -38,7 +38,7 @@ impl<'a> AppView<'a> {
     /// for the enforcement rationale.
     #[inline]
     pub fn truth(&self) -> Truth<'a> {
-        Truth::new(self.state)
+        Truth::new(&self.state.observed)
     }
 
     /// Read-only projection onto `#[epistemic(derived)]` + `#[epistemic(heuristic)]`
@@ -50,7 +50,7 @@ impl<'a> AppView<'a> {
     /// world model `W = (T, I, Π, S)` formalised under ADR-030 Level 2.
     #[inline]
     pub fn inference(&self) -> Inference<'a> {
-        Inference::new(self.state)
+        Inference::new(&self.state.inference)
     }
 
     /// Read-only projection onto `#[epistemic(config)]` fields.
@@ -62,7 +62,7 @@ impl<'a> AppView<'a> {
     /// formalised under ADR-030 Level 2.
     #[inline]
     pub fn policy(&self) -> Policy<'a> {
-        Policy::new(self.state)
+        Policy::new(&self.state.config)
     }
 
     // =========================================================================
@@ -72,115 +72,124 @@ impl<'a> AppView<'a> {
     /// Cursor line (0-indexed).
     #[inline]
     pub fn cursor_line(&self) -> i32 {
-        self.state.cursor_pos.line
+        self.state.observed.cursor_pos.line
     }
 
     /// Cursor column (0-indexed).
     #[inline]
     pub fn cursor_col(&self) -> i32 {
-        self.state.cursor_pos.column
+        self.state.observed.cursor_pos.column
     }
 
     /// Cursor position as `Coord`.
     #[inline]
     pub fn cursor_pos(&self) -> Coord {
-        self.state.cursor_pos
+        self.state.observed.cursor_pos
     }
 
     /// Buffer lines.
     #[inline]
     pub fn lines(&self) -> &[Line] {
-        &self.state.lines
+        &self.state.observed.lines
     }
 
     /// Number of buffer lines.
     #[inline]
     pub fn line_count(&self) -> usize {
-        self.state.lines.len()
+        self.state.observed.lines.len()
     }
 
     /// Whether a specific line is dirty (changed since last frame).
     #[inline]
     pub fn is_line_dirty(&self, line: usize) -> bool {
-        self.state.lines_dirty.get(line).copied().unwrap_or(false)
+        self.state
+            .inference
+            .lines_dirty
+            .get(line)
+            .copied()
+            .unwrap_or(false)
     }
 
     /// Per-line dirty flags.
     #[inline]
     pub fn lines_dirty(&self) -> &[bool] {
-        &self.state.lines_dirty
+        &self.state.inference.lines_dirty
     }
 
     /// Terminal columns.
     #[inline]
     pub fn cols(&self) -> u16 {
-        self.state.cols
+        self.state.runtime.cols
     }
 
     /// Terminal rows.
     #[inline]
     pub fn rows(&self) -> u16 {
-        self.state.rows
+        self.state.runtime.rows
     }
 
     /// Whether the terminal is focused.
     #[inline]
     pub fn focused(&self) -> bool {
-        self.state.focused
+        self.state.runtime.focused
     }
 
     /// Cursor mode (Buffer or Prompt).
     #[inline]
     pub fn cursor_mode(&self) -> CursorMode {
-        self.state.cursor_mode
+        self.state.inference.cursor_mode
     }
 
     /// Default face from `draw`.
     #[inline]
     pub fn default_face(&self) -> Face {
-        self.state.default_face
+        self.state.observed.default_face
     }
 
     /// Padding face from `draw`.
     #[inline]
     pub fn padding_face(&self) -> Face {
-        self.state.padding_face
+        self.state.observed.padding_face
     }
 
     /// Number of widget columns from `draw`.
     #[inline]
     pub fn widget_columns(&self) -> u16 {
-        self.state.widget_columns
+        self.state.observed.widget_columns
     }
 
     /// Parsed editor mode (Normal/Insert/Replace/Prompt).
     #[inline]
     pub fn editor_mode(&self) -> crate::state::derived::EditorMode {
-        self.state.editor_mode
+        self.state.inference.editor_mode
     }
 
     /// Total cursor count (primary + secondary).
     #[inline]
     pub fn cursor_count(&self) -> usize {
-        self.state.cursor_count
+        self.state.inference.cursor_count
     }
 
     /// Secondary cursor positions.
     #[inline]
     pub fn secondary_cursors(&self) -> &[Coord] {
-        &self.state.secondary_cursors
+        &self.state.inference.secondary_cursors
     }
 
     /// Detected selection ranges (heuristic I-7).
     #[inline]
     pub fn selections(&self) -> &[crate::state::derived::Selection] {
-        &self.state.selections
+        &self.state.inference.selections
     }
 
     /// Primary selection, if any.
     #[inline]
     pub fn primary_selection(&self) -> Option<&crate::state::derived::Selection> {
-        self.state.selections.iter().find(|s| s.is_primary)
+        self.state
+            .inference
+            .selections
+            .iter()
+            .find(|s| s.is_primary)
     }
 
     // =========================================================================
@@ -190,43 +199,43 @@ impl<'a> AppView<'a> {
     /// Composed status line (prompt + content).
     #[inline]
     pub fn status_line(&self) -> &Line {
-        &self.state.status_line
+        &self.state.inference.status_line
     }
 
     /// Status mode line.
     #[inline]
     pub fn status_mode_line(&self) -> &Line {
-        &self.state.status_mode_line
+        &self.state.observed.status_mode_line
     }
 
     /// Default face for the status bar.
     #[inline]
     pub fn status_default_face(&self) -> Face {
-        self.state.status_default_face
+        self.state.observed.status_default_face
     }
 
     /// Status prompt atoms.
     #[inline]
     pub fn status_prompt(&self) -> &Line {
-        &self.state.status_prompt
+        &self.state.observed.status_prompt
     }
 
     /// Status content atoms.
     #[inline]
     pub fn status_content(&self) -> &Line {
-        &self.state.status_content
+        &self.state.observed.status_content
     }
 
     /// Cursor position within status content.
     #[inline]
     pub fn status_content_cursor_pos(&self) -> i32 {
-        self.state.status_content_cursor_pos
+        self.state.observed.status_content_cursor_pos
     }
 
     /// Status bar context style (command, search, prompt, or status).
     #[inline]
     pub fn status_style(&self) -> StatusStyle {
-        self.state.status_style
+        self.state.observed.status_style
     }
 
     // =========================================================================
@@ -236,7 +245,7 @@ impl<'a> AppView<'a> {
     /// Menu state (if a completion menu is shown).
     #[inline]
     pub fn menu(&self) -> Option<&MenuState> {
-        self.state.menu.as_ref()
+        self.state.observed.menu.as_ref()
     }
 
     /// Whether a completion menu is currently shown.
@@ -252,7 +261,7 @@ impl<'a> AppView<'a> {
     /// Info popup states.
     #[inline]
     pub fn infos(&self) -> &[InfoState] {
-        &self.state.infos
+        &self.state.observed.infos
     }
 
     /// Whether any info popups are shown.
@@ -268,43 +277,44 @@ impl<'a> AppView<'a> {
     /// UI options from `set_ui_options`.
     #[inline]
     pub fn ui_options(&self) -> &HashMap<String, String> {
-        &self.state.ui_options
+        &self.state.observed.ui_options
     }
 
     /// Plugin configuration key-value pairs.
     #[inline]
     pub fn plugin_config(&self) -> &HashMap<String, String> {
-        &self.state.plugin_config
+        &self.state.config.plugin_config
     }
 
     /// Whether shadow is enabled.
     #[inline]
     pub fn shadow_enabled(&self) -> bool {
-        self.state.shadow_enabled
+        self.state.config.shadow_enabled
     }
 
     /// Whether the status bar is at the top.
     #[inline]
     pub fn status_at_top(&self) -> bool {
-        self.state.status_at_top
+        self.state.config.status_at_top
     }
 
     /// Secondary cursor blend ratio.
     #[inline]
     pub fn secondary_blend_ratio(&self) -> f32 {
-        self.state.secondary_blend_ratio
+        self.state.config.secondary_blend_ratio
     }
 
     /// All per-plugin settings.
     #[inline]
     pub fn plugin_settings(&self) -> &HashMap<PluginId, HashMap<String, SettingValue>> {
-        &self.state.plugin_settings
+        &self.state.config.plugin_settings
     }
 
     /// Look up a single plugin setting by plugin ID and key.
     #[inline]
     pub fn plugin_setting(&self, plugin_id: &PluginId, key: &str) -> Option<&SettingValue> {
         self.state
+            .config
             .plugin_settings
             .get(plugin_id)
             .and_then(|m| m.get(key))
@@ -317,13 +327,13 @@ impl<'a> AppView<'a> {
     /// Session descriptors.
     #[inline]
     pub fn session_descriptors(&self) -> &[SessionDescriptor] {
-        &self.state.session_descriptors
+        &self.state.session.session_descriptors
     }
 
     /// Active session key.
     #[inline]
     pub fn active_session_key(&self) -> Option<&str> {
-        self.state.active_session_key.as_deref()
+        self.state.session.active_session_key.as_deref()
     }
 
     // =========================================================================
@@ -333,13 +343,13 @@ impl<'a> AppView<'a> {
     /// Look up a theme token face.
     #[inline]
     pub fn theme_face(&self, token: &crate::element::StyleToken) -> Option<crate::protocol::Face> {
-        self.state.theme.get(token).copied()
+        self.state.config.theme.get(token).copied()
     }
 
     /// Whether the background is dark.
     #[inline]
     pub fn is_dark_background(&self) -> bool {
-        self.state.color_context.is_dark
+        self.state.inference.color_context.is_dark
     }
 
     // =========================================================================
@@ -371,7 +381,7 @@ impl<'a> AppView<'a> {
     /// Fold toggle state for display transform filtering.
     #[inline]
     pub fn fold_toggle_state(&self) -> &FoldToggleState {
-        &self.state.fold_toggle_state
+        &self.state.config.fold_toggle_state
     }
 }
 
@@ -409,7 +419,7 @@ mod tests {
     #[test]
     fn cursor_accessors() {
         let mut state = AppState::default();
-        state.cursor_pos = Coord {
+        state.observed.cursor_pos = Coord {
             line: 5,
             column: 10,
         };
@@ -428,8 +438,8 @@ mod tests {
     #[test]
     fn buffer_accessors() {
         let mut state = AppState::default();
-        state.lines = vec![vec![], vec![], vec![]];
-        state.lines_dirty = vec![false, true, false];
+        state.observed.lines = vec![vec![], vec![], vec![]];
+        state.inference.lines_dirty = vec![false, true, false];
         let view = AppView::new(&state);
         assert_eq!(view.lines().len(), 3);
         assert_eq!(view.line_count(), 3);
@@ -442,9 +452,9 @@ mod tests {
     #[test]
     fn geometry_accessors() {
         let mut state = AppState::default();
-        state.cols = 120;
-        state.rows = 40;
-        state.focused = false;
+        state.runtime.cols = 120;
+        state.runtime.rows = 40;
+        state.runtime.focused = false;
         let view = AppView::new(&state);
         assert_eq!(view.cols(), 120);
         assert_eq!(view.rows(), 40);
@@ -465,13 +475,13 @@ mod tests {
         use super::FrameworkAccess;
         let state = AppState::default();
         let view = AppView::new(&state);
-        assert_eq!(view.as_app_state().cols, 80);
+        assert_eq!(view.as_app_state().runtime.cols, 80);
     }
 
     #[test]
     fn derived_methods() {
         let mut state = AppState::default();
-        state.lines = vec![vec![], vec![]];
+        state.observed.lines = vec![vec![], vec![]];
         let view = AppView::new(&state);
         assert_eq!(view.visible_line_range(), 0..2);
     }

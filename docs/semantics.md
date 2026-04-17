@@ -84,7 +84,9 @@ The projection-centered theory models Kasane's semantics through a World tuple W
 - **Policy (Π)**: Display policies, configuration, and plugin-contributed presentation decisions. This includes Display Policy State (§3.6), `#[epistemic(config)]` fields, and all plugin extension point outputs (§9).
 - **Scope (S)**: The spatial and lifecycle context: which session is active, which surface is focused, which region of the buffer is visible. Scope determines which subset of W is relevant for a given frame.
 
-The World model is a theoretical framing of the existing `AppState` structure. It does not introduce new runtime state or new types. Every component of W maps directly to existing fields and subsystems documented in §3–§11.
+The World model is a theoretical framing of the existing `AppState` structure. Every component of W maps directly to existing fields and subsystems documented in §3–§11.
+
+As of ADR-030 Level 6, W = (T, I, Π, S) is structurally enforced at the type level via five epistemic sub-structs: `ObservedState` (T), `InferenceState` (I), `ConfigState` (Π), `SessionState` and `RuntimeState` (S). The protocol ingestion path (`apply_protocol()`) takes `&ConfigState` (immutable reference), making config mutation from the protocol path a compile error. This turns the dependent-sum decomposition from a field-attribute convention into a compiler-checked invariant.
 
 Formally, AppState realizes a dependent sum
 

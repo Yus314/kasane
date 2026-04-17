@@ -41,7 +41,7 @@ fn parity_single_buffer_scroll_without_plugins() {
 #[test]
 fn parity_drag_scroll_trace() {
     let mut state = state_80x24();
-    state.drag = kasane_core::state::DragState::Active {
+    state.runtime.drag = kasane_core::state::DragState::Active {
         button: kasane_core::input::MouseButton::Left,
         start_line: 5,
         start_column: 10,
@@ -64,7 +64,7 @@ fn parity_drag_scroll_trace() {
 #[test]
 fn parity_info_popup_scroll_trace() {
     let mut state = state_80x24();
-    state.infos.push(make_info_state(
+    state.observed.infos.push(make_info_state(
         3,
         3,
         &["one", "two", "three", "four", "five", "six"],
@@ -169,7 +169,7 @@ fn parity_plugin_hit_then_miss_trace() {
 fn parity_pageup_trace() {
     let trace = vec![TraceStep::Input(key_pageup())];
     let mut state = state_80x24();
-    state.cursor_pos = kasane_core::protocol::Coord {
+    state.observed.cursor_pos = kasane_core::protocol::Coord {
         line: 10,
         column: 5,
     };

@@ -34,6 +34,7 @@ fn returns_plan_when_enabled_via_settings() {
     let mut plugin = load_smooth_scroll_plugin();
     let mut state = AppState::default();
     state
+        .config
         .plugin_settings
         .entry(PluginId("smooth_scroll".into()))
         .or_default()
@@ -68,6 +69,7 @@ fn returns_plan_when_enabled_via_settings_negative_amount() {
     let mut plugin = load_smooth_scroll_plugin();
     let mut state = AppState::default();
     state
+        .config
         .plugin_settings
         .entry(PluginId("smooth_scroll".into()))
         .or_default()

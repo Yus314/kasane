@@ -10,6 +10,7 @@ use crate::state::{AppState, InfoState};
 /// Resolve info face: theme override takes precedence, protocol face as fallback.
 fn resolve_info_face(info: &InfoState, state: &AppState) -> Face {
     state
+        .config
         .theme
         .resolve_with_protocol_fallback(&StyleToken::INFO_TEXT, info.face)
 }
@@ -26,7 +27,7 @@ fn compute_info_window(
         &info.content,
         &info.anchor,
         info.style,
-        state.cols,
+        state.runtime.cols,
         screen_h,
         avoid,
     );
@@ -99,6 +100,7 @@ fn build_info_prompt(
 
     // Build assistant column (use custom art if configured)
     let art_len = state
+        .config
         .assistant_art
         .as_ref()
         .map_or(ASSISTANT_CLIPPY.len(), |a| a.len());
@@ -110,7 +112,7 @@ fn build_info_prompt(
         } else {
             art_len - 1
         };
-        let line_str: &str = match &state.assistant_art {
+        let line_str: &str = match &state.config.assistant_art {
             Some(custom) => &custom[idx],
             None => ASSISTANT_CLIPPY[idx],
         };

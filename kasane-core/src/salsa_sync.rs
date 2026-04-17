@@ -107,56 +107,79 @@ pub fn sync_inputs_from_state(
     inputs: &SalsaInputHandles,
 ) {
     // Buffer content
-    inputs.buffer.set_lines(db).to(state.lines.clone());
-    inputs.buffer.set_default_face(db).to(state.default_face);
-    inputs.buffer.set_padding_face(db).to(state.padding_face);
+    inputs.buffer.set_lines(db).to(state.observed.lines.clone());
+    inputs
+        .buffer
+        .set_default_face(db)
+        .to(state.observed.default_face);
+    inputs
+        .buffer
+        .set_padding_face(db)
+        .to(state.observed.padding_face);
     inputs
         .buffer
         .set_widget_columns(db)
-        .to(state.widget_columns);
+        .to(state.observed.widget_columns);
 
     // Cursor
-    inputs.buffer.set_cursor_pos(db).to(state.cursor_pos);
-    inputs.cursor.set_cursor_mode(db).to(state.cursor_mode);
-    inputs.cursor.set_cursor_count(db).to(state.cursor_count);
+    inputs
+        .buffer
+        .set_cursor_pos(db)
+        .to(state.observed.cursor_pos);
+    inputs
+        .cursor
+        .set_cursor_mode(db)
+        .to(state.inference.cursor_mode);
+    inputs
+        .cursor
+        .set_cursor_count(db)
+        .to(state.inference.cursor_count);
     inputs
         .cursor
         .set_secondary_cursors(db)
-        .to(state.secondary_cursors.clone());
+        .to(state.inference.secondary_cursors.clone());
 
     // Status: observed components first, then the derived concatenation.
     inputs
         .status
         .set_status_prompt(db)
-        .to(state.status_prompt.clone());
+        .to(state.observed.status_prompt.clone());
     inputs
         .status
         .set_status_content(db)
-        .to(state.status_content.clone());
+        .to(state.observed.status_content.clone());
     inputs
         .status
         .set_status_content_cursor_pos(db)
-        .to(state.status_content_cursor_pos);
+        .to(state.observed.status_content_cursor_pos);
     inputs
         .status
         .set_status_line(db)
-        .to(state.status_line.clone());
+        .to(state.inference.status_line.clone());
     inputs
         .status
         .set_status_mode_line(db)
-        .to(state.status_mode_line.clone());
+        .to(state.observed.status_mode_line.clone());
     inputs
         .status
         .set_status_default_face(db)
-        .to(state.status_default_face);
-    inputs.status.set_status_style(db).to(state.status_style);
+        .to(state.observed.status_default_face);
+    inputs
+        .status
+        .set_status_style(db)
+        .to(state.observed.status_style);
 
     // Menu
-    let snapshot = state.menu.as_ref().map(MenuSnapshot::from_menu_state);
+    let snapshot = state
+        .observed
+        .menu
+        .as_ref()
+        .map(MenuSnapshot::from_menu_state);
     inputs.menu.set_menu(db).to(snapshot);
 
     // Info
     let snapshots: Vec<_> = state
+        .observed
         .infos
         .iter()
         .map(InfoSnapshot::from_info_state)
@@ -168,53 +191,53 @@ pub fn sync_inputs_from_state(
         .config
         .set_cols(db)
         .with_durability(Durability::HIGH)
-        .to(state.cols);
+        .to(state.runtime.cols);
     inputs
         .config
         .set_rows(db)
         .with_durability(Durability::HIGH)
-        .to(state.rows);
-    inputs.config.set_focused(db).to(state.focused);
+        .to(state.runtime.rows);
+    inputs.config.set_focused(db).to(state.runtime.focused);
     inputs
         .config
         .set_shadow_enabled(db)
         .with_durability(Durability::HIGH)
-        .to(state.shadow_enabled);
+        .to(state.config.shadow_enabled);
     inputs
         .config
         .set_status_at_top(db)
         .with_durability(Durability::HIGH)
-        .to(state.status_at_top);
+        .to(state.config.status_at_top);
     inputs
         .config
         .set_secondary_blend_ratio(db)
         .with_durability(Durability::HIGH)
-        .to(state.secondary_blend_ratio);
+        .to(state.config.secondary_blend_ratio);
     inputs
         .config
         .set_menu_position(db)
         .with_durability(Durability::HIGH)
-        .to(state.menu_position);
+        .to(state.config.menu_position);
     inputs
         .config
         .set_search_dropdown(db)
         .with_durability(Durability::HIGH)
-        .to(state.search_dropdown);
+        .to(state.config.search_dropdown);
     inputs
         .config
         .set_scrollbar_thumb(db)
         .with_durability(Durability::HIGH)
-        .to(state.scrollbar_thumb.clone());
+        .to(state.config.scrollbar_thumb.clone());
     inputs
         .config
         .set_scrollbar_track(db)
         .with_durability(Durability::HIGH)
-        .to(state.scrollbar_track.clone());
+        .to(state.config.scrollbar_track.clone());
     inputs
         .config
         .set_assistant_art(db)
         .with_durability(Durability::HIGH)
-        .to(state.assistant_art.clone());
+        .to(state.config.assistant_art.clone());
 }
 
 /// Synchronize plugin contributions (slots, annotations, overlays) into Salsa inputs.
@@ -310,7 +333,7 @@ pub fn sync_plugin_contributions(
         let display_map: DisplayMapRef =
             crate::salsa_views::display_map_query(db, inputs.display_directives);
         let annotate_ctx = AnnotateContext {
-            line_width: state.cols,
+            line_width: state.runtime.cols,
             gutter_width: 0,
             display_map: Some(Arc::clone(&display_map)),
             pane_surface_id: None,
@@ -342,8 +365,8 @@ pub fn sync_plugin_contributions(
     // Plugin overlays: only re-collect if any overlay provider is stale
     if registry.any_overlay_needs_recollect() {
         let overlay_ctx = OverlayContext {
-            screen_cols: state.cols,
-            screen_rows: state.rows,
+            screen_cols: state.runtime.cols,
+            screen_rows: state.runtime.rows,
             menu_rect: None,
             existing_overlays: vec![],
             focused_surface_id: None,
